@@ -150,7 +150,7 @@ impl Ui {
         let plain = content.is_none() && button.look.is_none() && matches!((button.w, button.h), (Size::Fit, Size::Fit)) && button.enabled && !button.selected
             && !button.danger && button.name.is_none() && button.align == Justify::Start && button.pad == pxui_types::geom::Edges::ZERO && !button.centered
             && button.label.is_none() && button.axis.is_none() && button.gap == 0.0 && button.content_align.is_none() && !button.focus_on_click
-            && button.icon.is_none() && button.detail.is_empty() && button.accessory.is_empty() && button.detail_label.is_none() && button.accessory_label.is_none();
+            && button.icon.is_none() && button.icon_size == 0.0 && button.detail.is_empty() && button.accessory.is_empty() && button.detail_label.is_none() && button.accessory_label.is_none();
         // the leading icon as the icon button passes it: a glyph's text, or the app's function as the drawing's user pointer and its word
         let mut glyph = [0u8; 4];
         let (lead, lead_draw, lead_user, lead_word) = match button.icon {
@@ -170,7 +170,7 @@ impl Ui {
             };
             unsafe { pxui_abi_link::trusted::button_with(self.0.as_ptr(), key, text, button.name, button.look, button.w, button.h, button.align, button.pad,
                 button.enabled, button.selected, button.danger, button.centered, button.label.as_ref().map(|l| l.fields()), button.axis, button.gap, button.content_align, button.focus_on_click,
-                lead, lead_draw, lead_user, lead_word, button.detail, button.accessory, button.detail_label.as_ref().map(|l| l.fields()), button.accessory_label.as_ref().map(|l| l.fields()),
+                lead, lead_draw, lead_user, lead_word, button.icon_size, button.detail, button.accessory, button.detail_label.as_ref().map(|l| l.fields()), button.accessory_label.as_ref().map(|l| l.fields()),
                 if has_content { Some(&mut run) } else { None }, &mut out, None) }
         };
         #[cfg(not(feature = "static"))]
@@ -193,6 +193,7 @@ impl Ui {
                 has_detail_label: button.detail_label.is_some() as u8, has_accessory_label: button.accessory_label.is_some() as u8, reserved3: [0; 6],
                 detail_label: button.detail_label.as_ref().map(pxui_types::ffi::PxuiLabelStyle::from).unwrap_or_default(), detail_box: button.detail_label.as_ref().map(pxui_types::ffi::PxuiLabelBox::from).unwrap_or_default(),
                 accessory_label: button.accessory_label.as_ref().map(pxui_types::ffi::PxuiLabelStyle::from).unwrap_or_default(), accessory_box: button.accessory_label.as_ref().map(pxui_types::ffi::PxuiLabelBox::from).unwrap_or_default(),
+                icon_size: button.icon_size,
             };
             if lead_draw.is_some() { unsafe { lib::pxui_ui_icon_word(self.0.as_ptr(), lead_word) }; }
             let build = if content.is_some() { Some(button_build as extern "C" fn(*mut c_void, *mut c_void, *const pxui_types::ffi::PxuiStateDesc)) } else { None };

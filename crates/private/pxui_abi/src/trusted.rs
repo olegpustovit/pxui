@@ -516,7 +516,7 @@ pub(crate) fn respond(r: &pxui_core::ui::Response, out: &mut PxuiResponse) {
 #[inline(always)]
 pub unsafe fn button_with(ui: *mut PxuiUi, key: &str, text: &str, name: Option<&str>, states: Option<&States>, w: Size, h: Size, justify: Justify, pad: Edges,
     enabled: bool, selected: bool, danger: bool, centered: bool, label: Option<&pxui_types::text::LabelFields>, axis: Option<Axis>, gap: f32, content_align: Option<Along>, focus_on_click: bool,
-    lead: &str, lead_draw: pxui_types::ffi::PxuiIconDraw, lead_user: *mut core::ffi::c_void, lead_word: u32, detail: &str, accessory: &str,
+    lead: &str, lead_draw: pxui_types::ffi::PxuiIconDraw, lead_user: *mut core::ffi::c_void, lead_word: u32, icon_size: f32, detail: &str, accessory: &str,
     detail_label: Option<&pxui_types::text::LabelFields>, accessory_label: Option<&pxui_types::text::LabelFields>,
     content: Option<&mut dyn FnMut(*mut PxuiUi, State)>, out: &mut PxuiResponse, signal: Option<&mut PxuiSignal>) -> i32 {
     enter!(ui);
@@ -524,14 +524,14 @@ pub unsafe fn button_with(ui: *mut PxuiUi, key: &str, text: &str, name: Option<&
     let name = name.map(clip);
     let parts = [clip(lead), clip(detail), clip(accessory)];
     if bad_key(key) { return unsafe { fail(ui, "invalid button text") }; }
-    if !button_size(w) || !button_size(h) || ![pad.l, pad.t, pad.r, pad.b, gap].iter().all(|v| (0.0..=f32::MAX).contains(v)) { return unsafe { fail(ui, "invalid button descriptor") }; }
+    if !button_size(w) || !button_size(h) || ![pad.l, pad.t, pad.r, pad.b, gap, icon_size].iter().all(|v| (0.0..=f32::MAX).contains(v)) { return unsafe { fail(ui, "invalid button descriptor") }; }
     let (e, shared) = (unsafe { engine(ui) }, unsafe { (*ui).shared });
     if [label, detail_label, accessory_label].iter().any(|l| l.is_some_and(|l| e.resolve(l).is_none())) { return unsafe { fail(ui, "invalid button label") }; }
     let ink = if danger { Some(e.theme().tokens.invalid) } else { None };
     let lead_draw = lead_draw.map(|f| (crate::paint::icon_bridge as pxui_core::ui::IconDraw, [f as usize, lead_user as usize, shared as usize, lead_word as usize]));
     // the looks and the label are copied only when given: `copied()` copies the whole record either way
     let mut opts = pxui_core::ui::ButtonOpts { states: None, w, h, enabled, selected, justify, padding: pad, ink, bare: false, icon: false, centered, label: None, axis, gap, content_align, focus_on_click,
-        lead_draw, detail_label: detail_label.copied(), accessory_label: accessory_label.copied() };
+        lead_draw, icon_size, detail_label: detail_label.copied(), accessory_label: accessory_label.copied() };
     if let Some(states) = states { opts.states = Some(*states); }
     if let Some(label) = label { opts.label = Some(*label); }
     let mut run = content.map(|f| move |engine: &mut Ui, state: State| call_inner(shared, engine, &mut |raw| f(raw, state)));
@@ -627,13 +627,13 @@ pub unsafe fn badge(ui: *mut PxuiUi, key: &str, name: &str, value: &str, out: &m
 
 /// The text a search field changed to, or none; kept by the library until the next frame.
 #[inline]
-pub unsafe fn search_field(ui: *mut PxuiUi, label: &str, icon: &str, value: &str, placeholder: &str, out: &mut Option<Str>, response: Option<(&str, &mut PxuiResponse)>) -> i32 {
+pub unsafe fn search_field(ui: *mut PxuiUi, label: &str, icon: &str, value: &str, placeholder: &str, traits: pxui_types::TextTraits, out: &mut Option<Str>, response: Option<(&str, &mut PxuiResponse)>) -> i32 {
     enter!(ui);
     let label = clip(label);
     let icon = clip(icon);
     let placeholder = clip(placeholder);
     if value.len() > MAX_TEXT_BYTES { return unsafe { fail(ui, "invalid search field text") }; }
-    let found = unsafe { engine(ui) }.search_field(label, icon, value, placeholder);
+    let found = unsafe { engine(ui) }.search_field(label, icon, value, placeholder, traits);
     *out = match found { None => None, Some(text) => match unsafe { get(ui) } { Some(state) => match state.lend(text) { Ok(text) => Some(text), Err(code) => return code }, None => Some(Str::default()) } };
     match response { Some((name, out)) => unsafe { input_response(ui, Some(clip(name)), out) }, None => 0 }
 }

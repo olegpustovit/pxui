@@ -4238,11 +4238,13 @@ pxui_types::ffi::PxuiButtonConfig::has_accessory_style field u8 @HEAD
 pxui_types::ffi::PxuiButtonConfig::has_detail_style field u8 @HEAD
 pxui_types::ffi::PxuiButtonConfig::has_label field u8 @HEAD
 pxui_types::ffi::PxuiButtonConfig::icon field u8 @HEAD
+pxui_types::ffi::PxuiButtonConfig::icon_size field f32 @U2b.7
 pxui_types::ffi::PxuiButtonConfig::justify field u8 @HEAD
 pxui_types::ffi::PxuiButtonConfig::label field Str @HEAD
 pxui_types::ffi::PxuiButtonConfig::lead field Str @HEAD
 pxui_types::ffi::PxuiButtonConfig::lead_draw field PxuiIconDraw @HEAD
 pxui_types::ffi::PxuiButtonConfig::lead_user field *mut c_void @HEAD
+pxui_types::ffi::PxuiButtonConfig::lead_word field u32 @U2b.7
 pxui_types::ffi::PxuiButtonConfig::line field PxuiBox @HEAD
 pxui_types::ffi::PxuiButtonConfig::padding field [f32; 4] @HEAD
 pxui_types::ffi::PxuiButtonConfig::reserved field u8 @HEAD
@@ -4280,6 +4282,7 @@ pxui_types::ffi::PxuiButtonDesc::has_accessory_label field u8 @HEAD
 pxui_types::ffi::PxuiButtonDesc::has_detail_label field u8 @HEAD
 pxui_types::ffi::PxuiButtonDesc::has_label field u8 @HEAD
 pxui_types::ffi::PxuiButtonDesc::has_name field u8 @HEAD
+pxui_types::ffi::PxuiButtonDesc::icon_size field f32 @U2b.7
 pxui_types::ffi::PxuiButtonDesc::justify field u8 @HEAD
 pxui_types::ffi::PxuiButtonDesc::key field Str @HEAD
 pxui_types::ffi::PxuiButtonDesc::label field PxuiLabelStyle @HEAD
@@ -4623,6 +4626,7 @@ pxui_types::ffi::PxuiIconButtonConfig impl Copy @HEAD
 pxui_types::ffi::PxuiIconButtonConfig struct @HEAD
 pxui_types::ffi::PxuiIconButtonConfig::draw field PxuiIconDraw @HEAD
 pxui_types::ffi::PxuiIconButtonConfig::draw_user field *mut c_void @HEAD
+pxui_types::ffi::PxuiIconButtonConfig::draw_word field u32 @U2b.7
 pxui_types::ffi::PxuiIconButtonConfig::h field f32 @HEAD
 pxui_types::ffi::PxuiIconButtonConfig::h_kind field u8 @HEAD
 pxui_types::ffi::PxuiIconButtonConfig::icon field Str @HEAD

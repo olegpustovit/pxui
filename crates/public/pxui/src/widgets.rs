@@ -24,7 +24,7 @@ mod sys {
     use crate::sys::PxuiUi;
     #[link(name = "pxui")]
     unsafe extern "C" {
-    pub fn pxui_ui_search_field_response(ui: *mut PxuiUi, label: Str, icon: Str, value: Str, placeholder: Str, name: Str, changed: *mut u8, out: *mut Str, response: *mut pxui_types::ffi::PxuiResponse) -> i32;
+    pub fn pxui_ui_search_field_response(ui: *mut PxuiUi, label: Str, icon: Str, value: Str, placeholder: Str, name: Str, action: u8, changed: *mut u8, out: *mut Str, response: *mut pxui_types::ffi::PxuiResponse) -> i32;
     }
 }
 
@@ -239,15 +239,17 @@ impl Ui {
         let mut id_label = [0u8; 17];
         let label = key.label(&mut id_label);
         let mut response = pxui_types::ffi::PxuiResponse::EMPTY;
+        if field.variant != 0 { self.set_variant(BodyKind::search_field, field.variant); }
         #[cfg(feature = "static")]
-        let changed = { let mut out = None; check(self, unsafe { pxui_abi_link::trusted::search_field(self.0.as_ptr(), label, field.icon, value, field.placeholder, &mut out, Some((field.name, &mut response))) }); out };
+        let changed = { let mut out = None; check(self, unsafe { pxui_abi_link::trusted::search_field(self.0.as_ptr(), label, field.icon, value, field.placeholder, field.traits, &mut out, Some((field.name, &mut response))) }); out };
         #[cfg(not(feature = "static"))]
         let changed = {
             let mut changed = 0;
             let mut out = Str::default();
-            check(self, unsafe { sys::pxui_ui_search_field_response(self.0.as_ptr(), as_str(label), as_str(field.icon), as_str(value), as_str(field.placeholder), as_str(field.name), &mut changed, &mut out, &mut response) });
+            check(self, unsafe { sys::pxui_ui_search_field_response(self.0.as_ptr(), as_str(label), as_str(field.icon), as_str(value), as_str(field.placeholder), as_str(field.name), field.traits.return_key() as u8, &mut changed, &mut out, &mut response) });
             (changed != 0).then_some(out)
         };
+        if field.variant != 0 { self.set_variant(BodyKind::search_field, 0); }
         SearchFieldResponse { response: crate::text_inputs::input_response(&response, changed.is_some()), changed: changed.map(crate::lent_str) }
     }
 }

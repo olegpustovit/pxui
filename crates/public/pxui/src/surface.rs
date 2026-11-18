@@ -3335,12 +3335,13 @@ fn colour_tokens_follow_a_light_dark_theme_swap_without_app_rebuild_or_warm_allo
         ui.frame(&input(), &mut build).unwrap();
         assert_eq!((built.get(), painted.get()), (c(60), c(16)), "the unchanged-revision view and its canvas follow the dark theme");
         let mut sum = 0u32;
-        for token in 0..(ColorToken::LIMIT as u16 + 8) { sum += ui.color(ColorToken(token)).r as u32; }
+        for token in (0..(ColorToken::LIMIT as u16 + 8)).filter(|t| *t != ColorToken::ACCENT.0) { sum += ui.color(ColorToken(token)).r as u32; }
         assert_eq!(sum, 16 + 60, "unset and out-of-range tokens read transparent");
+        assert_eq!(ui.color(ColorToken::ACCENT), ui.tokens().accent, "the accent token reads the theme's accent");
         ui.set_theme(&light).unwrap();
         if round >= 2 { assert_eq!(mem_sys::local_alloc_count(), 0, "warm swaps, frames and reads allocate nothing"); }
     }
-    assert_eq!(ui.color(ColorToken(64)), Rgba::default());
+    assert_eq!(ui.color(ColorToken(65)), Rgba::default(), "past the table and the accent reads transparent");
 }
 
 #[test]
@@ -3431,6 +3432,37 @@ fn const_looks_naming_colour_tokens_resolve_for_the_theme_in_effect_without_app_
             assert_eq!((button.get().fill, button.get().text), (paper, ink), "the built-in button body applies resolved states");
             assert_eq!(TOKEN_BODY_INK.with(|s| s.get()), ink, "a registered body is given resolved states and ink");
             if round >= 2 { assert_eq!(mem_sys::local_alloc_count(), 0, "warm swaps and resolution allocate nothing"); }
+        }
+    }
+}
+
+/// U2b.7 (D19, N11): a token at a share of its strength (`Rgba::alpha`) resolves to its entry at that opacity, the 1.61 marker
+/// opacity stays opaque, and `ColorToken::ACCENT` follows the theme's accent across a theme swap; warm swaps allocate nothing.
+#[test]
+fn token_alpha_and_the_accent_token_resolve_for_the_theme_in_effect() {
+    use std::cell::Cell;
+    use pxui_types::{geom::Rgba, theme::ColorToken, Look};
+    const WASH: Look = Look::NONE.fill(Rgba::token(ColorToken(2)).alpha(153)).text(Rgba::token(ColorToken::ACCENT)).border(Rgba::token(ColorToken(2)), 1.0);
+    assert_eq!((Rgba::token(ColorToken(2)).alpha(0x4b).g, Rgba::rgb(1, 2, 3).alpha(9).a), (0x4c, 9), "0x4b is stored as 0x4c; a plain colour takes the alpha");
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+    let mut light = crate::ThemeHandle::parse("tokens.accent = #ff0000").unwrap();
+    let mut dark = crate::ThemeHandle::parse("tokens.panel = #101010\ntokens.accent = #0000ff").unwrap();
+    light.set_color(ColorToken(2), Rgba::rgb(200, 100, 0));
+    dark.set_color(ColorToken(2), Rgba::rgb(0, 100, 200));
+    let seen = Cell::new(Look::NONE);
+    let mut build = |ui: &mut Ui| {
+        let b = ui.node("wash", crate::Node::DEFAULT.w_px(20.0).h_px(10.0).look(WASH));
+        ui.node_mut(&b, &mut |f| seen.set(f.look));
+    };
+    for round in 0..4 {
+        for (theme, entry, accent) in [(&light, Rgba::rgb(200, 100, 0), Rgba::rgb(255, 0, 0)), (&dark, Rgba::rgb(0, 100, 200), Rgba::rgb(0, 0, 255))] {
+            mem_sys::local_reset();
+            ui.set_theme(theme).unwrap();
+            ui.frame(&input(), &mut build).unwrap();
+            let l = seen.get();
+            assert_eq!((l.fill, l.text, l.border), (Rgba { a: 153, ..entry }, accent, entry), "60% of the entry, the accent, the marker opaque");
+            if round >= 2 { assert_eq!(mem_sys::local_alloc_count(), 0, "warm swaps allocate nothing"); }
         }
     }
 }

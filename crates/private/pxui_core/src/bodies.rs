@@ -89,6 +89,8 @@ pub struct ButtonConfig {
     pub content_align: Option<crate::layout::Along>,
     /// The app's drawing of the caller's `Button::icon`, which wins over the glyph in `parts[0]` (`Ui::icon_draw_in` paints it).
     pub lead_draw: Option<(crate::ui_widgets::IconDraw, [usize; 4])>,
+    /// The caller's `Button::icon_size`: the leading icon's square in points (0: the control-high one).
+    pub icon_size: f32,
     /// The caller's `Button::detail_label` and `Button::accessory_label` (`None`: the theme's label style).
     pub detail_label: Option<pxui_types::text::LabelFields>,
     pub accessory_label: Option<pxui_types::text::LabelFields>,

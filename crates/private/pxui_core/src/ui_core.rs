@@ -1702,7 +1702,7 @@ impl Ui {
 
     /// Colour token for the theme in effect. The legacy table selects a side from the theme's appearance.
     #[inline] pub fn color(&self, token: u16) -> Rgba {
-        self.palette().get(token as usize).copied().unwrap_or_default()
+        token_entry(self.palette(), self.theme().tokens.accent, token)
     }
 
     /// `look` with every colour that names a token (`Rgba::token`) replaced by `color(token)`, the theme in effect's entry; `None` when
@@ -1712,7 +1712,7 @@ impl Ui {
     pub fn resolve_look(&self, look: &Look) -> Option<Look> {
         if !names_token(look) { return None; }
         let mut out = *look;
-        resolve_with(&mut out, self.palette());
+        resolve_with(&mut out, self.palette(), self.theme().tokens.accent);
         Some(out)
     }
 
@@ -1720,13 +1720,13 @@ impl Ui {
     /// effect's own states are resolved already (`set_theme`, `set_colors`, themed scopes), so only a caller's are passed here.
     pub fn resolve_states(&self, states: &mut States) {
         for look in [&mut states.idle, &mut states.hover, &mut states.pressed, &mut states.focus, &mut states.disabled, &mut states.checked] {
-            if names_token(look) { resolve_with(look, self.palette()); }
+            if names_token(look) { resolve_with(look, self.palette(), self.theme().tokens.accent); }
         }
     }
 
     /// `color` resolved as a look's colour is (`resolve_look`): a token's entry for the theme in effect, else `color` itself.
     pub fn resolve_color(&self, color: Rgba) -> Rgba {
-        match color.as_token() { Some(token) => self.color(token.0), None => color }
+        match color.as_token() { Some(token) => token_ink(color, self.color(token.0)), None => color }
     }
 
     pub fn set_environment(&mut self, value:pxui_types::Environment) {
@@ -3700,7 +3700,7 @@ impl Ui {
     pub fn set_look(&mut self, b: &Handle, mut look: Look, state: State) {
         if self.live(b) {
             if names_token(&look) {
-                resolve_with(&mut look, self.palette());
+                resolve_with(&mut look, self.palette(), self.theme().tokens.accent);
             }
             let s = &self.slots[b.box_slot];
             // a node shown last frame in another state moves to this look over the theme's transition
@@ -5464,7 +5464,7 @@ pub struct Paint {
 
 impl Paint {
     /// Colour token `token` resolved for this painter's theme; transparent past the table.
-    #[inline] pub fn color(&self, token: u16) -> Rgba { self.colors.get(token as usize).copied().unwrap_or_default() }
+    #[inline] pub fn color(&self, token: u16) -> Rgba { token_entry(&self.colors, self.theme.accent, token) }
 
     /// `text` in `label` at `at`, laid out within `width` (0: unbounded), its unset fields resolved as a label body resolves them
     /// against this painter's theme (`label_look`, its rows and colour tokens); the label's box fields (width, pad) do not apply.
@@ -8942,9 +8942,24 @@ fn names_token(look: &Look) -> bool {
         || named(look.shadows[1].color) || named(look.text) || named(look.ring.color) || named(look.selection) || named(look.caret)
 }
 
-/// Replaces each colour of `look` that names a token by its entry of `table` (transparent at or past `ColorToken::LIMIT`).
-fn resolve_with(look: &mut Look, table: &[Rgba; pxui_types::theme::ColorToken::LIMIT]) {
-    let ink = |c: &mut Rgba| if let Some(token) = c.as_token() { *c = table.get(token.0 as usize).copied().unwrap_or_default() };
+/// Token `token`'s colour: its entry of `table`, `accent` for `ColorToken::ACCENT`, transparent past both.
+#[inline]
+pub(crate) fn token_entry(table: &[Rgba; pxui_types::theme::ColorToken::LIMIT], accent: Rgba, token: u16) -> Rgba {
+    if token == pxui_types::theme::ColorToken::ACCENT.0 { accent } else { table.get(token as usize).copied().unwrap_or_default() }
+}
+
+/// The token colour `c` (`Rgba::token`) painted as `entry` at the token's opacity (`Rgba::alpha`, D19): its green byte, where the
+/// 1.61 marker 0x4b reads as opaque until 2.0.
+#[inline]
+pub(crate) fn token_ink(c: Rgba, entry: Rgba) -> Rgba {
+    let alpha = if c.g == 0x4b { 255 } else { u32::from(c.g) };
+    Rgba { a: ((u32::from(entry.a) * alpha + 127) / 255) as u8, ..entry }
+}
+
+/// Replaces each colour of `look` that names a token by its entry of `table` (`accent` for `ColorToken::ACCENT`, transparent past
+/// both) at the token's opacity.
+fn resolve_with(look: &mut Look, table: &[Rgba; pxui_types::theme::ColorToken::LIMIT], accent: Rgba) {
+    let ink = |c: &mut Rgba| if let Some(token) = c.as_token() { *c = token_ink(*c, token_entry(table, accent, token.0)) };
     let [a, b] = &mut look.shadows;
     for c in [&mut look.fill, &mut look.border, &mut a.color, &mut b.color, &mut look.text, &mut look.ring.color, &mut look.selection, &mut look.caret] { ink(c); }
     if let pxui_types::node::OptColor::Some(c) = &mut look.gradient { ink(c); }
@@ -8963,6 +8978,7 @@ impl Theme {
 /// Resolves every token look of `theme` (its parts' states and its focus ring) against its own side of `colors` (light or dark by its
 /// tokens).
 fn resolve_theme(theme: &mut Theme, table: &Palette) {
-    if let Some(token) = theme.ring.color.as_token() { theme.ring.color = table.get(token.0 as usize).copied().unwrap_or_default(); }
-    theme.each_states_mut(&mut |s| for look in [&mut s.idle, &mut s.hover, &mut s.pressed, &mut s.focus, &mut s.disabled, &mut s.checked] { resolve_with(look, table); });
+    let accent = theme.tokens.accent;
+    if let Some(token) = theme.ring.color.as_token() { theme.ring.color = token_ink(theme.ring.color, token_entry(table, accent, token.0)); }
+    theme.each_states_mut(&mut |s| for look in [&mut s.idle, &mut s.hover, &mut s.pressed, &mut s.focus, &mut s.disabled, &mut s.checked] { resolve_with(look, table, accent); });
 }

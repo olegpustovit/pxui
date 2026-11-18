@@ -120,6 +120,11 @@ fn size_kind(size: pxui_core::ui::Size) -> (u8, f32) {
 }
 
 /// The C callback and user data of an icon drawing that crossed the ABI as `paint::icon_bridge` (null for a Rust drawing of the engine).
+/// The word of a drawing that crossed the ABI (D18: a body draws the app's icon by id); 0 otherwise.
+fn draw_word(draw: Option<(pxui_core::ui::IconDraw, [usize; 4])>) -> u32 {
+    match draw { Some((f, d)) if f as usize == crate::paint::icon_bridge as *const () as usize => d[3] as u32, _ => 0 }
+}
+
 fn foreign_draw(draw: Option<(pxui_core::ui::IconDraw, [usize; 4])>) -> (pxui_types::ffi::PxuiIconDraw, *mut c_void) {
     match draw {
         Some((f, d)) if f as usize == crate::paint::icon_bridge as *const () as usize => (unsafe { core::mem::transmute::<usize, pxui_types::ffi::PxuiIconDraw>(d[0]) }, d[1] as *mut c_void),
@@ -150,12 +155,14 @@ mod tramps {
         lead: pair(parts[0]), lead_draw: foreign_draw(c.lead_draw).0, lead_user: foreign_draw(c.lead_draw).1, detail: pair(parts[1]), accessory: pair(parts[2]),
         has_detail_style: c.detail_label.is_some() as u8, has_accessory_style: c.accessory_label.is_some() as u8, reserved4: [0; 6],
         detail_style: c.detail_label.as_ref().map(PxuiLabelStyle::from).unwrap_or_default(), detail_box: c.detail_label.as_ref().map(pxui_types::ffi::PxuiLabelBox::from).unwrap_or_default(),
-        accessory_style: c.accessory_label.as_ref().map(PxuiLabelStyle::from).unwrap_or_default(), accessory_box: c.accessory_label.as_ref().map(pxui_types::ffi::PxuiLabelBox::from).unwrap_or_default()
+        accessory_style: c.accessory_label.as_ref().map(PxuiLabelStyle::from).unwrap_or_default(), accessory_box: c.accessory_label.as_ref().map(pxui_types::ffi::PxuiLabelBox::from).unwrap_or_default(),
+        lead_word: draw_word(c.lead_draw), icon_size: c.icon_size
     });
     tramp!(icon_button, |ui, sh, c: &IconButtonConfig, states: &States, label: &str, icon: &str| PxuiIconButtonConfig {
         state: st(c.state), node: bx(c.node), label: pair(label), icon: pair(icon), states: states,
         w_kind: size_kind(c.w).0, h_kind: size_kind(c.h).0, reserved: 0, w: size_kind(c.w).1, h: size_kind(c.h).1, press_scale: c.press_scale,
-        draw: foreign_draw(c.draw).0, draw_user: foreign_draw(c.draw).1, ink: c.ink, press: c.press.map_or(core::ptr::null(), |p| p.as_ptr())
+        draw: foreign_draw(c.draw).0, draw_user: foreign_draw(c.draw).1, ink: c.ink, press: c.press.map_or(core::ptr::null(), |p| p.as_ptr()),
+        draw_word: draw_word(c.draw)
     });
     tramp!(checkbox, |ui, sh, c: &CheckConfig, label: &str| PxuiCheckConfig { state: st(c.state), on: c.on as u8, row: bx(c.row), label: pair(label), states: &c.states, box_size: c.size, passive: c.passive as u8, reserved2: [0; 3] });
     tramp!(radio, |ui, sh, c: &CheckConfig, label: &str| PxuiCheckConfig { state: st(c.state), on: c.on as u8, row: bx(c.row), label: pair(label), states: &c.states, box_size: c.size, passive: c.passive as u8, reserved2: [0; 3] });

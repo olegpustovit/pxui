@@ -1064,6 +1064,8 @@ pub struct PxuiButtonDesc {
     pub accessory_label: PxuiLabelStyle,
     /// The accessory's box when `has_accessory_label` is 1.
     pub accessory_box: PxuiLabelBox,
+    /// ABI 1.91: the leading icon's square in points (`Button::icon_size`; finite, not negative; 0: the control-high one).
+    pub icon_size: f32,
 }
 
 /// A modal dialog (ABI 1.53, `pxui_ui_dialog_response`): the sheet's `key`, the `title`, the button labels (at most 64) and their
@@ -2156,6 +2158,10 @@ configs! {
         accessory_style: PxuiLabelStyle,
         /// The accessory's box when `has_accessory_style` is 1.
         accessory_box: PxuiLabelBox,
+        /// ABI 1.91: the word of the leading icon's drawing (`Icon::Draw`'s, D18; 0 for a glyph), so a body draws the app's icon by id.
+        lead_word: u32,
+        /// ABI 1.91: the leading icon's square in points (`Button::icon_size`; 0: the control-high one).
+        icon_size: f32,
     }
     /// `states.pick(state)` is the look the caller asked for; `states` is valid for the call.
     PxuiIconButtonConfig {
@@ -2182,6 +2188,8 @@ configs! {
         /// ABI 1.54 (read when `size` covers it): two `Curve`s, the press scale's in on press and out on release, valid for the
         /// call; null for the kit's springs.
         press: *const crate::Curve,
+        /// ABI 1.91: the word of the icon's drawing (`Icon::Draw`'s, D18; 0 for a glyph), so a body draws the app's icon by id.
+        draw_word: u32,
     }
     /// A checkbox or a radio option.
     PxuiCheckConfig { state: PxuiStateDesc, on: u8, row: PxuiBox, label: Str } @variant {

@@ -54,8 +54,10 @@ pub struct Edges {
 
 /// A colour: four channel bytes, not premultiplied, or a colour token (`Rgba::token`) the engine resolves where a look is applied.
 ///
-/// The token encoding is in-band and final (ABI 1.61): a colour with alpha 0, red 0x54 and green 0x4b names token `b`. Such a colour
-/// therefore never paints as the clear colour its bytes spell where a look is applied; every other colour means its channels.
+/// The token encoding is in-band (ABI 1.61, alpha from U2b.7): a colour with alpha 0 and red 0x54 names token `b` drawn at opacity
+/// `g` (`Rgba::alpha`). Until 2.0, `g` 0x4b (the 1.61 marker) reads as opaque, so an asked opacity of 0x4b is stored as 0x4c; 2.0 drops
+/// that rule. Such a colour never paints as the clear colour its bytes spell where a look is applied (a fully transparent plain colour
+/// with red 0x54 is read as a token: use `Rgba::TRANSPARENT`, all zero); every other colour means its channels.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(C)]
 pub struct Rgba {
@@ -312,6 +314,26 @@ impl Rgba {
         Rgba { r: Self::TOKEN_RG.0, g: Self::TOKEN_RG.1, b: if token.0 > 255 { 255 } else { token.0 as u8 }, a: 0 }
     }
 
+    /// This colour at opacity `alpha` (0 to 255): a token (`Rgba::token`) keeps its token and is drawn at that opacity of the
+    /// resolved colour, so a theme look can use a token at a share of its strength (a 60% panel wash); a plain colour takes `alpha`
+    /// as its alpha channel. Until 2.0 a token's 0x4b is stored as 0x4c (see `Rgba`).
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{geom::Rgba, theme::ColorToken};
+    /// const WASH: Rgba = Rgba::token(ColorToken(1)).alpha(153);
+    /// assert_eq!(WASH.as_token(), Some(ColorToken(1)));
+    /// assert_eq!(Rgba::rgb(10, 20, 30).alpha(128).a, 128);
+    /// ```
+    pub const fn alpha(self, alpha: u8) -> Rgba {
+        if self.a == 0 && self.r == Self::TOKEN_RG.0 {
+            Rgba { g: if alpha == Self::TOKEN_RG.1 { alpha + 1 } else { alpha }, ..self }
+        } else {
+            Rgba { a: alpha, ..self }
+        }
+    }
+
     /// The token this colour names (`Rgba::token`), or `None` for a plain colour.
     ///
     /// Allocates: never.
@@ -324,7 +346,7 @@ impl Rgba {
     /// ```
     #[inline]
     pub const fn as_token(self) -> Option<crate::theme::ColorToken> {
-        if self.a == 0 && self.r == Self::TOKEN_RG.0 && self.g == Self::TOKEN_RG.1 { Some(crate::theme::ColorToken(self.b as u16)) } else { None }
+        if self.a == 0 && self.r == Self::TOKEN_RG.0 { Some(crate::theme::ColorToken(self.b as u16)) } else { None }
     }
 }
 

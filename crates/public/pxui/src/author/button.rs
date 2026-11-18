@@ -42,6 +42,7 @@ pub struct Button<'a> {
     pub(crate) content_align: Option<Along>,
     pub(crate) focus_on_click: bool,
     pub(crate) icon: Option<Icon>,
+    pub(crate) icon_size: f32,
     pub(crate) detail: &'a str,
     pub(crate) accessory: &'a str,
     pub(crate) detail_label: Option<Label>,
@@ -51,7 +52,7 @@ pub struct Button<'a> {
 impl<'a> Button<'a> {
     /// The plain kit button.
     pub const DEFAULT: Button<'a> = Button { w: Size::Fit, h: Size::Fit, look: None, enabled: true, selected: false, danger: false, name: None, align: Justify::Start, pad: Edges::ZERO, variant: 0, centered: false,
-        label: None, axis: None, gap: 0.0, content_align: None, focus_on_click: false, icon: None, detail: "", accessory: "", detail_label: None, accessory_label: None };
+        label: None, axis: None, gap: 0.0, content_align: None, focus_on_click: false, icon: None, icon_size: 0.0, detail: "", accessory: "", detail_label: None, accessory_label: None };
 
     /// A button exactly `w` by `h` points with its text centred in it: exactly `Button::DEFAULT.size(Size::Px(w), Size::Px(h)).centered()`.
     /// Allocates: never.
@@ -254,6 +255,18 @@ impl<'a> Button<'a> {
     /// let _ = SHUFFLE;
     /// ```
     pub const fn icon(mut self, icon: Icon) -> Button<'a> { self.icon = Some(icon); self }
+
+    /// Draws the icon in a `points` square instead of the control-high one (0, the default). With `axis(Axis::Column)` the icon stacks
+    /// above the text, centred (a deck key, a 52-point offline key).
+    /// Allocates: never.
+    /// Panics: when the call is refused: a size that is negative or not finite.
+    ///
+    /// ```
+    /// use pxui::{Button, Icon, ui::Axis};
+    /// const DECK: Button = Button::sized(64.0, 52.0).icon(Icon::glyph('+')).icon_size(24.0).axis(Axis::Column);
+    /// let _ = DECK;
+    /// ```
+    pub const fn icon_size(mut self, points: f32) -> Button<'a> { self.icon_size = points; self }
 
     /// Draws `detail` as a second line under the text, which it borrows (a literal or a runtime string): in `detail_label`'s style, or
     /// the theme's label style. A button of the kit's height grows to fit both lines. Empty is none. The detail is a text node inside the

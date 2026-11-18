@@ -139,7 +139,7 @@ pub fn body(ui: &mut Ui, s: &mut S) {
             });
             s.add = ui.box_of_key(key_of(holder.box_key, "Add"));
             ui.badge("count", "count", "12");
-            if let Some(q) = ui.search_field("Search", "/", &s.search, "Search") {
+            if let Some(q) = ui.search_field("Search", "/", &s.search, "Search", pxui_types::TextTraits::SEARCH) {
                 s.search = q.to_owned();
             }
             s.scroll = Some(ui.scroll_view("Scroll", Node::DEFAULT.h_px(60.0), &mut |ui| {

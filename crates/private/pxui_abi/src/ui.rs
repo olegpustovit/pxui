@@ -912,7 +912,7 @@ mod tests {
             in_frame(ui,&mut |ui| {
                 let calls: [&dyn Fn(*mut PxuiResponse)->i32; 5]=[
                     &|r| unsafe {pxui_ui_text_field_response(ui,&field,&mut Str::default(),&mut 0,r)},
-                    &|r| unsafe {pxui_ui_search_field_response(ui,s("s"),s("/"),s("q"),s(""),s("Find"),&mut 0,&mut Str::default(),r)},
+                    &|r| unsafe {pxui_ui_search_field_response(ui,s("s"),s("/"),s("q"),s(""),s("Find"),2,&mut 0,&mut Str::default(),r)},
                     &|r| unsafe {pxui_ui_line_field_response(ui,0.0,30.0,80.0,20.0,0,s(""),s("l"),s("x"),s("Line"),&mut Str::default(),&mut 0,r)},
                     &|r| unsafe {pxui_ui_value_field_response(ui,&value,None,None,None,core::ptr::null_mut(),s("Scale"),&mut Str::default(),&mut 0,&mut 0,r)},
                     &|r| unsafe {pxui_ui_text_area_response(ui,&area,&pxui_types::Node::DEFAULT.w_px(80.0).h_px(40.0),core::ptr::null(),s("Notes"),&mut Str::default(),&mut 0,&mut 0,r)},

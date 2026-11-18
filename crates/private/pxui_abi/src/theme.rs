@@ -246,7 +246,8 @@ fn set_colors_validates_the_whole_table_before_installing() {
     assert_eq!(unsafe { pxui_ui_set_colors(ui, light.as_ptr(), dark.as_ptr(), 64) }, 0);
     let side = |token| unsafe { pxui_ui_color(ui, token) };
     let expected = if (unsafe { &*get(ui).unwrap().engine }.theme().tokens).is_dark() { c(2) } else { c(1) };
-    assert_eq!((side(0), side(63), side(64), side(u16::MAX)), (expected, expected, Rgba::default(), Rgba::default()));
+    let accent = unsafe { &*get(ui).unwrap().engine }.theme().tokens.accent;
+    assert_eq!((side(0), side(63), side(64), side(65), side(u16::MAX)), (expected, expected, accent, Rgba::default(), Rgba::default()), "64 is the accent (U2b.7)");
     for (l, d, n) in [(light.as_ptr(), dark.as_ptr(), 65), (core::ptr::null(), dark.as_ptr(), 1), (light.as_ptr(), core::ptr::null(), 1)] {
         assert_ne!(unsafe { pxui_ui_set_colors(ui, l, d, n) }, 0);
         assert_eq!(side(0), expected, "a refused table leaves the installed one");

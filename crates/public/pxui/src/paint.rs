@@ -364,7 +364,13 @@ impl Stroke {
 impl Paint<'_> {
     /// `color`, or the colour its token (`Rgba::token`) names in this painter's theme.
     #[inline]
-    fn ink(&self, color: Rgba) -> Rgba { match color.as_token() { Some(token) => self.color(token), None => color } }
+    fn ink(&self, color: Rgba) -> Rgba {
+        match color.as_token() {
+            // the token's opacity (`Rgba::alpha`; the 1.61 marker 0x4b reads as opaque until 2.0)
+            Some(token) => { let e = self.color(token); Rgba { a: ((u32::from(e.a) * if color.g == 0x4b { 255 } else { u32::from(color.g) } + 127) / 255) as u8, ..e } }
+            None => color,
+        }
+    }
     /// The width and resolved colour of `stroke`, or `None` when the stroke draws nothing (the width rule on `Stroke`).
     #[inline]
     fn line_of(&self, stroke: Stroke) -> Option<(f32, Rgba)> { stroke.drawn().then(|| (stroke.width, self.ink(stroke.color))) }

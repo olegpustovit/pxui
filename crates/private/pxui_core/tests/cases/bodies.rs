@@ -455,6 +455,24 @@ pub fn button_opts_uses_a_registered_body() {
     ui.destroy();
 }
 
+/// U2b.7: `icon_size` draws the leading icon in its own square, and with `axis(Column)` the icon stacks above the text, both centred
+/// across the box.
+pub fn button_icon_size_stacks_over_the_text() {
+    let mut ui = new_ui(None);
+    let opts = ButtonOpts { w: Size::Px(64.0), h: Size::Px(52.0), centered: true, axis: Some(pxui_core::ui::Axis::Column), content_align: Some(pxui_core::layout::Along::Center), icon_size: 24.0, ..ButtonOpts::DEFAULT };
+    for k in 0..3 {
+        ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| { ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { ui.button_opts("Add", "Add", None, &opts, ["+", "", ""], None, None); }); });
+    }
+    let row = key_of(key_of(0x2c1b3c6d, "panel"), "Add");
+    let (Some(b), Some(icon), Some(text)) = (ui.box_of_key(row), ui.box_of_key(int_key(row, 2)), ui.box_of_key(int_key(row, 1))) else { return check(false, "the button, its icon and its text") };
+    let (b, icon, text) = (ui.rect(&b), ui.rect(&icon), ui.rect(&text));
+    check((icon.w, icon.h) == (24.0, 24.0), &format!("the icon square is {icon:?}"));
+    check(text.y >= icon.y + icon.h, &format!("the text {text:?} is not under the icon {icon:?}"));
+    let centre = |r: pxui_core::ui::Rect| r.x + r.w / 2.0;
+    check((centre(icon) - centre(b)).abs() <= 1.0 && (centre(text) - centre(b)).abs() <= 1.0, &format!("not centred across {b:?}: {icon:?} {text:?}"));
+    ui.destroy();
+}
+
 /// A body that builds one `Part::HIT` node: its key is the part's of the button whose body is building.
 fn part_button(ui: &mut Ui, _c: &ButtonConfig, _states: &States, _text: &str, _parts: [&str; 3]) {
     ui.part(Part::HIT, Node { w: Size::Px(10.0), h: Size::Px(8.0), ..Node::DEFAULT });
@@ -1719,7 +1737,7 @@ fn boxed_search(ui: &mut Ui, c: &SearchFieldConfig, _icon: &str, editor: &mut dy
 
 fn search_build(ui: &mut Ui, c: &Cells) {
     ui.panel("p", &pxui_core::ui::Overlay::DEFAULT.name("p"), &mut |ui| {
-        let changed = ui.search_field("Find", "?", std::str::from_utf8(&c.sel.borrow()).unwrap(), "search");
+        let changed = ui.search_field("Find", "?", std::str::from_utf8(&c.sel.borrow()).unwrap(), "search", pxui_types::TextTraits::SEARCH);
         if let Some(v) = changed {
             keep_text(c, &v);
         }
@@ -1917,6 +1935,7 @@ pub const CASES: &[(&str, fn())] = &[
     ("button_pill_body", button_pill_body),
     ("button_outside_panel_takes_theme_row_h", button_outside_panel_takes_theme_row_h),
     ("button_opts_uses_a_registered_body", button_opts_uses_a_registered_body),
+    ("button_icon_size_stacks_over_the_text", button_icon_size_stacks_over_the_text),
     ("duplicate_key_buttons_own_their_parts", duplicate_key_buttons_own_their_parts),
     ("icon_button_round_body", icon_button_round_body),
     ("icon_button_uses_a_registered_body", icon_button_uses_a_registered_body),

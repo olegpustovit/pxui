@@ -82,7 +82,7 @@ unsafe fn button_call(ui: *mut PxuiUi, desc: *const PxuiButtonDesc, content: Opt
     let pad = Edges { l: d.padding[0], t: d.padding[1], r: d.padding[2], b: d.padding[3] };
     unsafe { trusted::button_with(ui, key, text, (d.has_name != 0).then_some(name), looks.as_ref(), w, h, justify, pad, d.enabled != 0, d.selected != 0, d.danger != 0, d.centered != 0,
         label.as_ref(), axis, d.gap, content_align, d.focus_on_click != 0,
-        lead, d.lead_draw, d.lead_user, word, detail, accessory, detail_label.as_ref(), accessory_label.as_ref(), content, out, signal) }
+        lead, d.lead_draw, d.lead_user, word, d.icon_size, detail, accessory, detail_label.as_ref(), accessory_label.as_ref(), content, out, signal) }
 }
 
 /// The label style a button record carries in `style` and `label_box` when `has` is 1: `Some(None)` for none, `None` for one that is invalid.

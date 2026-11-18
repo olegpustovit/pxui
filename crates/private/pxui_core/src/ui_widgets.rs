@@ -1211,9 +1211,10 @@ impl Ui {
 
     /// A search row: a well holding `icon`, the query (`placeholder` while empty) and, with a query, a
     /// clear button. A click focuses it and the text widgets' editing applies; Escape clears it.
-    /// Returns the new query on the frames that change it, borrowed until the next call on the Ui.
-    pub fn search_field(&mut self, label: &str, icon: &str, value: &str, placeholder: &str) -> Option<&str> {
-        search_field_body(self, label, icon, value, placeholder).then_some(self.returned.as_str())
+    /// Returns the new query on the frames that change it, borrowed until the next call on the Ui. `traits` are the on-screen
+    /// keyboard's while it is focused (`TextTraits::SEARCH`, or with another return key).
+    pub fn search_field(&mut self, label: &str, icon: &str, value: &str, placeholder: &str, traits: pxui_types::TextTraits) -> Option<&str> {
+        search_field_body(self, label, icon, value, placeholder, traits).then_some(self.returned.as_str())
     }
 
     /// An image `w` x `h` placed by `fit` (CSS `object-fit`) in the image look's frame, named `name` for accessibility. No key: every
@@ -1262,7 +1263,7 @@ impl Ui {
 // Method bodies outside `impl` blocks: each module is its own codegen unit, so the big bodies
 // compile in parallel with the rest of the crate (rustc places methods with their type).
 /// True when the query changed: the new one is in `returned`.
-fn search_field_body(this: &mut Ui, label: &str, icon: &str, value: &str, placeholder: &str) -> bool {
+fn search_field_body(this: &mut Ui, label: &str, icon: &str, value: &str, placeholder: &str, traits: pxui_types::TextTraits) -> bool {
     let key = key_of(this.current_seed(), label);
     let row = this.kit_line(key, Flags::NONE, Role::Unknown);
     this.input_box = Some(row);
@@ -1276,7 +1277,10 @@ fn search_field_body(this: &mut Ui, label: &str, icon: &str, value: &str, placeh
         let focused = ui.focused(&field);
         let mut edit = None;
         if focused {
-            let mut e = ui.load_text_edit(field.box_key, value);
+            ui.text_input_options = traits;
+            // the frame's edit buffer, handed back after painting is queued: a focused query copies into no new string
+            let buffer = core::mem::take(&mut ui.edit_work);
+            let mut e = ui.load_text_edit_into(field.box_key, value, buffer);
             let r = ui.rect(&field);
             let shift = ui.press_shift(&field);
             ui.point_text_caret(None, &mut e, &s, shift, r.x + 2.0, r.x + r.w - 2.0);
@@ -1312,11 +1316,15 @@ fn search_field_body(this: &mut Ui, label: &str, icon: &str, value: &str, placeh
             Some(edit) => {
                 let font_size = ui.font_px();
                 let marks = Some((look.selection, look.caret));
-                let composition = ui.composition().to_owned();
+                let (caret, anchor) = (edit.caret, edit.anchor);
+                // the edit text and composition travel in the painter (`paint_begin`), as a text field's do: no copy
                 ui.canvas(&field, move |paint, rect| {
                     let r = crate::ui_kit::ints(rect);
-                    crate::ui_text::paint_text_edit(paint, None, false, 2.0, marks, r, crate::ui_kit::label_y(font_size, r.1, r.3), &composition, &edit)
+                    let (text, composition) = (std::mem::take(&mut paint.edit_text), std::mem::take(&mut paint.composition));
+                    crate::ui_text::paint_text_edit_ref(paint, None, false, 2.0, marks, r, crate::ui_kit::label_y(font_size, r.1, r.3), &composition, &text, caret, anchor);
+                    (paint.edit_text, paint.composition) = (text, composition);
                 });
+                ui.edit_work = edit.text;
             }
             None => ui.text(&field, if value.is_empty() { placeholder } else { value }),
         }

@@ -225,6 +225,51 @@ impl Ui {
     }
 }
 
+impl ButtonConfig {
+    /// The caller's leading icon (`Button::icon`) as the `Icon` it gave: the glyph, or the app's drawing with its word, so a
+    /// registered body draws the app's icon by id (D18); `None` without one, or for a drawing a non-Rust caller gave through the C ABI.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::bodies::ButtonConfig;
+    /// fn button(_ui: &mut pxui::Ui, config: &ButtonConfig) { if let Some(pxui::Icon::Draw(_, word)) = config.icon() { let _ = word; } }
+    /// ```
+    pub fn icon(&self) -> Option<crate::Icon> {
+        icon_of(self.text_of(&self.lead), self.lead_draw, self.lead_user, self.lead_word)
+    }
+}
+
+impl IconButtonConfig {
+    /// The icon the caller gave (`Ui::icon_button`'s `Icon`): the glyph, or the app's drawing with its word, so a registered body
+    /// draws the app's icon by id (D18); `None` for an empty glyph or a drawing a non-Rust caller gave through the C ABI.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::bodies::IconButtonConfig;
+    /// fn icon_button(_ui: &mut pxui::Ui, config: &IconButtonConfig) { let _ = config.icon(); }
+    /// ```
+    pub fn icon(&self) -> Option<crate::Icon> {
+        icon_of(self.text_of(&self.icon), self.draw, self.draw_user, self.draw_word)
+    }
+}
+
+/// The `Icon` a config's glyph text or drawing pointers spell. Only a drawing whose callback is this wrapper's own `Icon::Draw`
+/// trampoline (`paint::icon_draw`) carries a Rust `fn` as its user pointer; any other callback (a C caller's) has an opaque user
+/// pointer that must never become callable, so it reads as no icon.
+fn icon_of(glyph: &str, draw: pxui_types::ffi::PxuiIconDraw, user: *mut c_void, word: u32) -> Option<crate::Icon> {
+    if let Some(ch) = glyph.chars().next() { return Some(crate::Icon::Glyph(ch)); }
+    let ours = crate::paint::icon_draw as extern "C" fn(*mut c_void, *mut c_void, Rect, pxui_types::geom::Rgba, *const pxui_types::ffi::PxuiPaintInfo);
+    #[allow(unpredictable_function_pointer_comparisons)] // same crate, same item: the wrapper wrote this exact pointer
+    let is_ours = draw.is_some_and(|f| f == ours);
+    if !is_ours || user.is_null() { return None; }
+    let f: fn(&mut crate::Paint<'_>, Rect, pxui_types::geom::Rgba, u32) = unsafe { core::mem::transmute(user) };
+    Some(crate::Icon::Draw(f, word))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -233,6 +278,56 @@ mod tests {
     use crate::FrameIn;
     use pxui_types::{Size};
     use std::panic::{catch_unwind, AssertUnwindSafe};
+
+    /// U2b.7 (D18): a registered button and icon button body gets the app's icon with its word (to draw it by id) and the button's
+    /// `icon_size`; a search field body gets the field's variant, and the focused field's keyboard takes its return key. Both link modes.
+    #[test]
+    fn bodies_get_the_app_icon_its_size_and_the_search_variant() {
+        thread_local! { static GOT: Cell<(u32, u32, f32, u16)> = const { Cell::new((0, 0, 0.0, 0)) }; }
+        fn draw(_: &mut crate::Paint<'_>, _: Rect, _: pxui_types::geom::Rgba, _: u32) {}
+        fn button(_: &mut Ui, c: &ButtonConfig) { if let Some(crate::Icon::Draw(_, w)) = c.icon() { GOT.with(|g| g.set((w, g.get().1, c.icon_size, g.get().3))); } }
+        fn icon_button(_: &mut Ui, c: &IconButtonConfig) { if let Some(crate::Icon::Draw(_, w)) = c.icon() { GOT.with(|g| g.set((g.get().0, w, g.get().2, g.get().3))); } }
+        fn search(ui: &mut Ui, c: &SearchFieldConfig) { GOT.with(|g| g.set((g.get().0, g.get().1, g.get().2, c.variant))); ui.slot(c.editor); }
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+        ui.register_button_body("b", button).unwrap();
+        ui.register_icon_button_body("ib", icon_button).unwrap();
+        ui.register_search_field_body("s", search).unwrap();
+        ui.set_theme(&crate::ThemeHandle::parse("button.body = b\nicon_button.body = ib\nsearch_field.body = s").unwrap()).unwrap();
+        let mut build = |ui: &mut Ui| {
+            ui.button("add", "Add", &crate::Button::DEFAULT.icon(crate::Icon::Draw(draw, 7)).icon_size(24.0));
+            ui.icon_button("nine", crate::Icon::Draw(draw, 9), "Nine", &crate::IconButton::DEFAULT);
+            ui.search_field("find", "q", &crate::SearchField::DEFAULT.name("Find").variant(2).action(crate::ReturnKey::Done));
+        };
+        for _ in 0..2 { crate::testing::frame(&mut ui, &[], &mut build); }
+        assert_eq!(GOT.with(|g| g.get()), (7, 9, 24.0, 2), "the bodies' icons, icon size and search variant");
+        let mut build = |ui: &mut Ui| { ui.search_field("find", "q", &crate::SearchField::DEFAULT.name("Find").action(crate::ReturnKey::Done)); };
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+        crate::testing::frame(&mut ui, &[], &mut build);
+        crate::testing::key(&mut ui, crate::KeyCode::Tab, &mut build);
+        crate::testing::frame(&mut ui, &[], &mut build);
+        assert_eq!(ui.text_traits(), pxui_types::TextTraits::SEARCH.action(crate::ReturnKey::Done), "the focused search field's keyboard");
+        // a focused search field holding a query paints it from the frame's edit buffer: warm frames allocate nothing
+        mem_sys::set_peer(crate::library_counter);
+        let scope = mem_sys::warm_scope();
+        for round in 0..4 {
+            mem_sys::local_reset();
+            crate::testing::frame(&mut ui, &[], &mut build);
+            assert_eq!(mem_sys::local_alloc_count(), 0, "a warm focused search field frame allocated (round {round})");
+        }
+        drop(scope);
+        assert!(mem_sys::take_reports().is_empty());
+    }
+
+    #[test]
+    fn icon_of_only_trusts_the_wrappers_trampoline() {
+        extern "C" fn foreign(_: *mut c_void, _: *mut c_void, _: Rect, _: pxui_types::geom::Rgba, _: *const pxui_types::ffi::PxuiPaintInfo) {}
+        fn app(_: &mut crate::Paint<'_>, _: Rect, _: pxui_types::geom::Rgba, _: u32) {}
+        let user = app as fn(&mut crate::Paint<'_>, Rect, pxui_types::geom::Rgba, u32) as *mut c_void;
+        assert!(icon_of("", Some(foreign), user, 0).is_none(), "a C caller's user pointer is never called");
+        assert!(matches!(icon_of("", Some(crate::paint::icon_draw), user, 3), Some(crate::Icon::Draw(_, 3))));
+        assert!(matches!(icon_of("x", None, core::ptr::null_mut(), 0), Some(crate::Icon::Glyph('x'))));
+        assert!(icon_of("", Some(crate::paint::icon_draw), core::ptr::null_mut(), 0).is_none());
+    }
 
     thread_local! {
         static TOGGLES: RefCell<Vec<(String, bool, bool)>> = const { RefCell::new(Vec::new()) };

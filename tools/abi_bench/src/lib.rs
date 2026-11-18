@@ -261,7 +261,7 @@ pub mod inputs {
         if let (Some(text), _) = ui.text_area_submit(pxui_types::Node::DEFAULT.at(12.0, 4.0).w_px(270.0).h_px(56.0), &TextAreaOpts::default(), "notes-area", notes) { *notes = text.to_owned(); }
     }
     pub fn layer_search(ui: &mut Ui, search: &mut String) {
-        if let Some(q) = ui.search_field("Find", "/", search, "Search layers") { *search = q.to_owned(); }
+        if let Some(q) = ui.search_field("Find", "/", search, "Search layers", pxui_types::TextTraits::SEARCH) { *search = q.to_owned(); }
     }
     pub fn images(ui: &mut Ui, image: &super::pxui::Image) {
         use super::pxui::{Fit, Size};

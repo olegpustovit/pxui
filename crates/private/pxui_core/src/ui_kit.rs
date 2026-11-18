@@ -158,6 +158,8 @@ pub struct ButtonOpts {
     pub focus_on_click: bool,
     /// The app's drawing of the leading icon (`Button::icon`), which wins over the glyph `button_opts` is given.
     pub lead_draw: Option<(crate::ui_widgets::IconDraw, [usize; 4])>,
+    /// The leading icon's square in points (`Button::icon_size`); 0 is the control-high one.
+    pub icon_size: f32,
     /// The text styles of the detail and the accessory (`Button::detail_label`, `Button::accessory_label`); `None` is the theme's label style.
     pub detail_label: Option<LabelFields>,
     pub accessory_label: Option<LabelFields>,
@@ -165,7 +167,7 @@ pub struct ButtonOpts {
 
 impl ButtonOpts {
     pub const DEFAULT: ButtonOpts = ButtonOpts { states: None, w: Size::Fit, h: Size::Fit, enabled: true, selected: false, justify: Justify::Start, padding: Edges::ZERO, ink: None, bare: false, icon: false, centered: false,
-        label: None, axis: None, gap: 0.0, content_align: None, focus_on_click: false, lead_draw: None, detail_label: None, accessory_label: None };
+        label: None, axis: None, gap: 0.0, content_align: None, focus_on_click: false, lead_draw: None, icon_size: 0.0, detail_label: None, accessory_label: None };
 }
 
 /// What happened to a button this frame, as the wrapper's `Response` says it.
@@ -296,7 +298,7 @@ fn button_parts(this: &mut Ui, c: &ButtonConfig, states: &States, text: &str, [l
     let look = *states.pick(c.state);
     let saved = this.enter(&c.row);
     if !lead.is_empty() || c.lead_draw.is_some() {
-        let ch = this.control_h();
+        let ch = if c.icon_size > 0.0 { c.icon_size } else { this.control_h() };
         let icon = this.node_keyed(int_key(c.row.box_key, 2), Node { w: Size::Px(ch), h: Size::Px(ch), look: text_only(&look), ..Node::DEFAULT });
         match c.lead_draw {
             Some(draw) => this.icon_draw_in(&icon, draw, look.text),
@@ -1000,7 +1002,7 @@ impl Ui {
         // the caller's contents replace the text and its parts: the leading icon, detail and accessory are not drawn or given to a body
         let (parts, lead_draw) = if content.is_some() { ([""; 3], None) } else { (parts, opts.lead_draw) };
         let config = ButtonConfig { state, bare: opts.bare, icon: opts.icon, at_end: matches!(opts.justify, Justify::End), w: opts.w, h: opts.h, justify: opts.justify, pad: opts.padding, centered: opts.centered, line, row,
-            label: opts.label, axis: opts.axis, gap: opts.gap, content_align: opts.content_align, lead_draw,
+            label: opts.label, axis: opts.axis, gap: opts.gap, content_align: opts.content_align, lead_draw, icon_size: opts.icon_size,
             detail_label: opts.detail_label, accessory_label: opts.accessory_label };
         let shown_text = if content.is_some() { "" } else { text };
         in_body!(flat; self, row.box_key, row, button, default_button(&config, &states, shown_text, parts));
@@ -1036,7 +1038,7 @@ impl Ui {
             }
         }
         let config = ButtonConfig { state, bare: false, icon: false, at_end: matches!(opts.justify, Justify::End), w: opts.w, h: opts.h, justify: opts.justify, pad: opts.padding, centered: opts.centered, line: *line, row,
-            label: opts.label, axis: opts.axis, gap: opts.gap, content_align: opts.content_align, lead_draw: opts.lead_draw,
+            label: opts.label, axis: opts.axis, gap: opts.gap, content_align: opts.content_align, lead_draw: opts.lead_draw, icon_size: opts.icon_size,
             detail_label: opts.detail_label, accessory_label: opts.accessory_label };
         in_body!(flat; self, row.box_key, row, button, default_button(&config, &states, text, parts));
         self.node_mut(&row).state.disabled = !opts.enabled;

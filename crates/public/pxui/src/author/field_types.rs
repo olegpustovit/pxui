@@ -139,11 +139,34 @@ pub struct SearchField<'a> {
     pub(crate) icon: &'a str,
     pub(crate) placeholder: &'a str,
     pub(crate) name: &'a str,
+    pub(crate) variant: u16,
+    pub(crate) traits: TextTraits,
 }
 
 impl<'a> SearchField<'a> {
-    /// The plain search field: no icon, no placeholder, unnamed.
-    pub const DEFAULT: SearchField<'a> = SearchField { icon: "", placeholder: "", name: "" };
+    /// The plain search field: no icon, no placeholder, unnamed, the theme's `search_field` body, search keyboard traits
+    /// (`TextTraits::SEARCH`: no autocorrection or capitalization, the Search return key).
+    pub const DEFAULT: SearchField<'a> = SearchField { icon: "", placeholder: "", name: "", variant: 0, traits: TextTraits::SEARCH };
+    /// Sets the return key the on-screen keyboard shows (`ReturnKey::Done` ends editing), as `TextField::action` does.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::ReturnKey;
+    /// const FIND: pxui::SearchField = pxui::SearchField::DEFAULT.action(ReturnKey::Done);
+    /// let _ = FIND;
+    /// ```
+    pub const fn action(mut self, action: ReturnKey) -> SearchField<'a> { self.traits = self.traits.action(action); self }
+    /// Builds the field with variant `variant` of the `search_field` body (0: the theme's), so one registered body draws a desktop and
+    /// a compact search field.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const COMPACT: pxui::SearchField = pxui::SearchField::DEFAULT.variant(2);
+    /// let _ = COMPACT;
+    /// ```
+    pub const fn variant(mut self, variant: u16) -> SearchField<'a> { self.variant = variant; self }
     /// Sets the glyph shown at the start of the field.
     /// Allocates: never.
     /// Panics: never.

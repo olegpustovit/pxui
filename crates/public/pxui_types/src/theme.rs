@@ -300,6 +300,9 @@ pub struct ColorToken(pub u16);
 impl ColorToken {
     /// The table's fixed capacity: tokens 0..64.
     pub const LIMIT: usize = 64;
+    /// The theme's accent colour (`Tokens::accent`), outside the app's table: a look naming it follows the theme and appearance like
+    /// any token. The first number past `LIMIT`, the one token past the table that does not resolve transparent.
+    pub const ACCENT: ColorToken = ColorToken(64);
 }
 
 /// The widget kinds that have a replaceable body: `kind register_fn BodyType AbiConfig RustConfig` (the config as it crosses the C ABI, `pxui_types::ffi`, and the wrapper a Rust body receives, `pxui::bodies`), one line each. A kind is named for the public call it replaces the body of (`menu_row` is a row of `ui.menu`, `selection_list` and `table_row` the rows of those lists) and has its own wrapper (`ToggleConfig`, `MenuRowConfig`, ...); kinds of one shape share one C record (`PxuiCheckConfig`: checkbox and radio, `PxuiPanelConfig`: panel, window, popup and modal, `PxuiMenuItemConfig`: menu_bar and menu_item, `PxuiRowConfig`: selection_list and table_row), which a Rust body reads through its own kind's wrapper. `Bodies` here, the registry and its
