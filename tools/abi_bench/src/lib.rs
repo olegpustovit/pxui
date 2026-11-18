@@ -9,7 +9,7 @@ pub mod pxui {
     pub mod collections { pub use pxui_core::ui_widgets::TreeNode; }
     pub use pxui_types::theme;
     pub use pxui_core::ui::Handle;
-    pub use super::shapes::{Badge, Button, GridList, MenuBar, MenuBarMenu, OverlayResponse, PickResponse, Progress, Radio, SliderResponse, Spinner, Split, SplitResponse, Toggle, Ui};
+    pub use super::shapes::{Badge, Button, GridList, MenuBar, MenuBarMenu, OverlayResponse, PickResponse, Progress, Radio, SliderResponse, Spinner, Split, SplitResponse, Tabs, Toggle, Ui};
     /// The extension set as the wrapper names it (`pxui::ext`): free functions over the engine's own calls.
     pub mod ext {
         use super::{Handle, Ui};
@@ -63,6 +63,13 @@ pub mod shapes {
     #[derive(Clone, Copy, Debug)] pub struct SliderResponse { pub response: Response, pub value: f32, pub preview: Option<f32>, pub commit: Option<f32> }
     #[derive(Clone, Copy, Debug)] pub struct OverlayResponse { pub handle: Handle, pub open: bool }
     #[derive(Clone, Copy, Debug)] pub struct SplitResponse { pub response: Response, pub ratio: Option<f32> }
+    #[derive(Clone, Copy, Debug)] pub struct Tabs { name: &'static str, variant: u16, focus_on_click: bool }
+    impl Tabs {
+        pub const DEFAULT: Tabs = Tabs { name: "", variant: 0, focus_on_click: false };
+        pub const fn name(self, name: &'static str) -> Tabs { Tabs { name, ..self } }
+        pub const fn variant(self, variant: u16) -> Tabs { Tabs { variant, ..self } }
+        pub const fn focus_on_click(self, focus_on_click: bool) -> Tabs { Tabs { focus_on_click, ..self } }
+    }
     #[derive(Clone, Copy, Debug)] pub struct Radio { name: &'static str, variant: u16 }
     impl Radio {
         pub const DEFAULT: Radio = Radio { name: "", variant: 0 };
@@ -114,6 +121,10 @@ pub mod shapes {
         }
         pub fn radio(&mut self, key: &str, items: &[Segment], selected: Option<usize>, radio: &Radio) -> PickResponse {
             let (response, chosen, secondary) = self.0.pick_radio(key, radio.name, items.len(), &|i| items[i], selected, radio.variant);
+            PickResponse { response, chosen, chosen_id: chosen.and_then(|i| items[i].id), secondary }
+        }
+        pub fn tabs(&mut self, key: &str, items: &[Segment], selected: Option<usize>, tabs: &Tabs) -> PickResponse {
+            let (response, chosen, secondary) = self.0.tabs(key, tabs.name, items.len(), &|i| items[i], selected, tabs.variant, tabs.focus_on_click);
             PickResponse { response, chosen, chosen_id: chosen.and_then(|i| items[i].id), secondary }
         }
         pub fn dropdown(&mut self, key: &str, text: &str, items: &[Segment], selected: Option<usize>, dropdown: &Dropdown) -> PickResponse {

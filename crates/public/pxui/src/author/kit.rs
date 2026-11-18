@@ -4,7 +4,7 @@
 use crate::{Handle, PickResponse, Segment, SliderResponse};
 use super::{Key, Response};
 use crate::Ui;
-use pxui_types::{theme::BodyKind, ui::{Checkbox, Choice, Dropdown, Slider}};
+use pxui_types::ui::{Checkbox, Dropdown, Slider};
 
 /// The radio group's accessible name and variant used by [Ui::radio].
 #[derive(Clone, Copy, Debug)]
@@ -39,6 +39,52 @@ impl<'a> Radio<'a> {
     /// const STYLE: pxui::Radio = pxui::Radio::DEFAULT.variant(2);
     /// ```
     pub const fn variant(mut self, variant: u16) -> Radio<'a> { self.variant = variant; self }
+}
+
+/// The tab bar's accessible name, variant and press focus used by [Ui::tabs].
+#[derive(Clone, Copy, Debug)]
+pub struct Tabs<'a> {
+    pub(crate) name: &'a str,
+    pub(crate) variant: u16,
+    pub(crate) focus_on_click: bool,
+}
+
+impl<'a> Tabs<'a> {
+    /// The theme's default body variant, an unnamed bar, and a press that chooses a tab without focusing the bar.
+    pub const DEFAULT: Tabs<'a> = Tabs { name: "", variant: 0, focus_on_click: false };
+
+    /// Names the bar for assistive technology.
+    ///
+    /// The name is borrowed for the build call.
+    /// Allocates: never.
+    /// Identity: The name supplies accessible text. The bar is identified by its key.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const STYLE: pxui::Tabs = pxui::Tabs::DEFAULT.name("Library");
+    /// ```
+    pub const fn name(mut self, name: &'a str) -> Tabs<'a> { self.name = name; self }
+
+    /// Selects the variant the registered tabs body receives.
+    ///
+    /// Zero uses the theme's variant.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const STYLE: pxui::Tabs = pxui::Tabs::DEFAULT.variant(2);
+    /// ```
+    pub const fn variant(mut self, variant: u16) -> Tabs<'a> { self.variant = variant; self }
+
+    /// Makes a press on a tab focus the bar on the press itself (false by default: a press chooses without moving the focus, as the kit's
+    /// buttons leave it). The bar keeps the focus when the caller does not apply the choice.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const TOUCH: pxui::Tabs = pxui::Tabs::DEFAULT.focus_on_click(true);
+    /// ```
+    pub const fn focus_on_click(mut self, focus: bool) -> Tabs<'a> { self.focus_on_click = focus; self }
 }
 
 /// The progress row's body and variant used by [Ui::progress].
@@ -156,29 +202,43 @@ impl Ui {
     #[inline]
     #[track_caller]
     pub fn radio<K: Into<Key>>(&mut self, key: K, items: &[Segment<'_>], selected: Option<usize>, radio: &Radio<'_>) -> PickResponse {
-        self.pick_one_key(0, key.into(), radio.name, items, selected, radio.variant)
+        self.pick_one_key(0, key.into(), radio.name, items, selected, radio.variant, false)
     }
 
-    /// Declares a kit tab bar (`tabs` side by side, the one in use underlined) and reports the bar's response and the tab in use.
+    /// Builds a kit tab bar (`items` side by side, the one in use underlined) and reports the bar's response and the tab in use.
     ///
-    /// One Tab stop; Left and Right (Home, End) switch, a press on a tab chooses it. `selected` is clamped to the tabs; `changed` says
-    /// the returned tab differs from `selected`. Each tab is named by its text, the bar by `Choice::name`.
-    /// Allocates: never on a warm frame (up to 32 tabs).
-    /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); never a tab's text.
-    /// Panics: as `radio`. A key over 256 bytes panics (a programmer error). Display text past 64 KiB is clipped at a character boundary, never refused.
+    /// One Tab stop, the bar; Left and Right (Home, End) switch the tab in use (from none, Right takes the first and Left the last), a
+    /// press on a tab chooses it. `selected` is the tab in use (`None`: none is, as a bottom bar while another screen shows; past the
+    /// tabs: the last); `response.changed` says `chosen` differs from it, `chosen_id` is the chosen item's `Segment::id`, and
+    /// `secondary` is the tab a secondary press began on (never a choice). Each tab is named by its `Segment::name`, else its text; its
+    /// `Segment::detail` (a count) is drawn after the text by the built-in body. The bar is named by `Tabs::name`; with
+    /// `Tabs::focus_on_click` a press focuses the bar on the press itself, and the bar keeps the focus when the caller does not apply the
+    /// choice.
+    /// Allocates: never on a warm frame within the inline item capacity (32 tabs).
+    /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); never a tab's text. Tabs are keyed
+    /// as in [Ui::segmented]: an item id follows its tab through a reorder, and a tab without one is keyed by its place in a separate
+    /// namespace.
+    /// Panics: an invalid build, more than 4096 tabs, or a key whose label exceeds 256 bytes. Display text past 64 KiB is clipped at a
+    /// character boundary, never refused.
     ///
     /// ```
-    /// let mut page = 0;
-    /// let mut build = |ui: &mut pxui::Ui| { page = ui.tabs("pages", &["Layer", "Mask"], page, &pxui::Choice::DEFAULT).1; };
+    /// use pxui::{Segment, Tabs};
+    /// let mut page = Some(0);
+    /// let mut build = |ui: &mut pxui::Ui| {
+    ///     const PAGES: Tabs = Tabs::DEFAULT.name("Pages");
+    ///     let items = [Segment::new("Layer").id(1), Segment::new("Mask").id(2).detail("3")];
+    ///     let r = ui.tabs("pages", &items, page, &PAGES);
+    ///     if r.response.changed { page = r.chosen; }
+    /// };
     /// let mut ui = pxui::doc::frames(1, &mut build);
     /// let mask = pxui::testing::find(&ui, pxui::Role::Tab, "Mask").expect("the Mask tab");
     /// pxui::testing::click(&mut ui, f64::from(mask.x + 4.0), f64::from(mask.y + 4.0), &mut build);
-    /// assert_eq!(page, 1);
+    /// assert_eq!(page, Some(1));
     /// ```
     #[inline]
     #[track_caller]
-    pub fn tabs<K: Into<Key>>(&mut self, key: K, tabs: &[&str], selected: usize, choice: &Choice<'_>) -> (Response, usize) {
-        self.choice_key(1, BodyKind::tabs, key.into(), choice.name, tabs, selected, choice.variant)
+    pub fn tabs<K: Into<Key>>(&mut self, key: K, items: &[Segment<'_>], selected: Option<usize>, tabs: &Tabs<'_>) -> PickResponse {
+        self.pick_one_key(1, key.into(), tabs.name, items, selected, tabs.variant, tabs.focus_on_click)
     }
 
     /// Builds a dropdown and reports the button interaction and current selection.
@@ -203,7 +263,7 @@ impl Ui {
     #[inline]
     #[track_caller]
     pub fn dropdown<K: Into<Key>>(&mut self, key: K, text: &str, items: &[Segment<'_>], selected: Option<usize>, dropdown: &Dropdown) -> PickResponse {
-        self.pick_one_key(3, key.into(), text, items, selected, dropdown.variant)
+        self.pick_one_key(3, key.into(), text, items, selected, dropdown.variant, false)
     }
 
     /// Builds a slider and reports the resulting value and interaction.
@@ -278,7 +338,8 @@ impl Ui {
 
 #[cfg(test)]
 mod tests {
-    use pxui_types::ui::{Checkbox, Choice, Dropdown, Slider};
+    use pxui_types::ui::{Checkbox, Dropdown, Slider};
+    use crate::{Segment, Tabs};
     use crate::bodies::{BadgeConfig, CheckboxConfig, DropdownConfig, RadioConfig, ProgressConfig, SliderConfig, SpinnerConfig, TabsConfig};
     use crate::ui::{Node, Role, Size};
     use crate::{testing, FrameIn, Ui};
@@ -300,7 +361,7 @@ mod tests {
     fn build(ui: &mut Ui) {
         ui.checkbox("check", "Check", false, &Checkbox::DEFAULT.variant(1));
         ui.radio("radio", &[crate::Segment::new("A"), crate::Segment::new("B")], Some(0), &crate::Radio::DEFAULT.variant(2));
-        ui.tabs("tabs", &["T"], 0, &Choice::DEFAULT.variant(3));
+        ui.tabs("tabs", &[Segment::new("T")], Some(0), &Tabs::DEFAULT.variant(3));
         ui.dropdown("drop", "Drop", &[crate::Segment::new("x")], Some(0), &Dropdown::DEFAULT.variant(4));
         ui.slider("slide", "Slide", 0.5, 0.0..=1.0, &Slider::DEFAULT.variant(5));
         ui.progress("prog", "Prog", None, &crate::Progress::DEFAULT.variant(6));
@@ -355,5 +416,69 @@ mod tests {
         testing::frame(&mut ui, &[], &mut build);
         assert_eq!(boxes.get()[0], first[0], "a new text keeps the key's node");
         assert!(testing::find(&ui, Role::CheckBox, "Repeat").is_some());
+    }
+
+    const TABS: [Segment; 3] = [Segment::new("Songs").detail("12").id(7), Segment::new("Albums").detail("3").id(8), Segment::new("Artists").id(9)];
+
+    /// No tab is in use for `None`; a press puts one in use and, with `focus_on_click`, focuses the bar on the press; ids key the tabs
+    /// (reordering keeps each tab's node and `chosen_id` names the item); the built-in body draws the detail after the text.
+    #[test]
+    fn tabs_have_no_selection_ids_and_details() {
+        let chosen = std::cell::Cell::new(None);
+        let (order, last_id) = (std::cell::Cell::new(false), std::cell::Cell::new(None));
+        let mut build = |ui: &mut Ui| {
+            const TOUCH: Tabs = Tabs::DEFAULT.focus_on_click(true);
+            let r = if order.get() { ui.tabs("t", &[TABS[1], TABS[0], TABS[2]], chosen.get(), &TOUCH) } else { ui.tabs("t", &TABS, chosen.get(), &TOUCH) };
+            if r.response.changed { chosen.set(r.chosen); last_id.set(r.chosen_id); }
+        };
+        let mut ui = crate::doc::frames(3, &mut build);
+        let selected = |ui: &Ui| ui.a11y_nodes().iter().filter(|n| n.is_role(Role::Tab) && n.states & pxui_types::a11y::state::SELECTED != 0).count();
+        assert_eq!(selected(&ui), 0, "none in use");
+        let find = |ui: &Ui, name: &str| ui.a11y_nodes().iter().find(|n| n.is_role(Role::Tab) && ui.a11y_name_of(n) == name).map(|n| (n.id, n.rect)).expect("tab");
+        let (songs, albums) = (find(&ui, "Songs"), find(&ui, "Albums"));
+        let (x, y) = (f64::from(albums.1.x + 4.0), f64::from(albums.1.y + 4.0));
+        // the press alone, before the release, already focuses the bar
+        testing::frame(&mut ui, &[pxui_types::Event { kind: pxui_types::Event::POINTER_PRESSED, x, y, ..Default::default() }], &mut build);
+        assert!(ui.a11y_nodes().iter().any(|n| n.is_role(Role::TabList) && n.states & pxui_types::a11y::state::FOCUSED != 0), "focused on press");
+        testing::frame(&mut ui, &[pxui_types::Event { kind: pxui_types::Event::POINTER_RELEASED, x, y, ..Default::default() }], &mut build);
+        testing::frame(&mut ui, &[], &mut build);
+        assert_eq!((chosen.get(), last_id.get()), (Some(1), Some(8)));
+        assert_eq!(selected(&ui), 1);
+        order.set(true);
+        chosen.set(Some(0));
+        testing::frame(&mut ui, &[], &mut build);
+        assert_eq!((find(&ui, "Songs").0, find(&ui, "Albums").0), (songs.0, albums.0), "an id keeps its node when the tabs reorder");
+        let mut plain = |ui: &mut Ui| { ui.tabs("p", &[Segment::new("Songs")], None, &Tabs::DEFAULT); };
+        testing::frame(&mut ui, &[], &mut plain);
+        assert!(find(&ui, "Songs").1.w < songs.1.w, "the detail adds width");
+    }
+
+    /// A press the caller does not apply (its choice stays) leaves the focus where the press put it, the bar.
+    #[test]
+    fn a_refused_tab_press_keeps_the_focus() {
+        let mut build = |ui: &mut Ui| { ui.tabs("t", &TABS, Some(0), &Tabs::DEFAULT.focus_on_click(true)); };
+        let mut ui = crate::doc::frames(2, &mut build);
+        let albums = testing::find(&ui, Role::Tab, "Albums").expect("tab");
+        testing::click(&mut ui, f64::from(albums.x + 4.0), f64::from(albums.y + 4.0), &mut build);
+        for _ in 0..3 { testing::frame(&mut ui, &[], &mut build); }
+        assert!(ui.a11y_nodes().iter().any(|n| n.is_role(Role::TabList) && n.states & pxui_types::a11y::state::FOCUSED != 0), "the bar keeps the focus");
+        let songs = ui.a11y_nodes().iter().find(|n| n.is_role(Role::Tab) && ui.a11y_name_of(n) == "Songs").expect("tab").states;
+        assert!(songs & pxui_types::a11y::state::SELECTED != 0, "the caller's choice stands");
+    }
+
+    /// A warm frame of tab bars (ids, details, none in use) allocates nothing.
+    #[test]
+    fn warm_tab_frames_allocate_nothing() {
+        let mut ui = crate::doc::frames(1, &mut |_| {});
+        let mut build = |ui: &mut Ui| {
+            ui.tabs("a", &TABS, None, &Tabs::DEFAULT);
+            ui.tabs("b", &TABS, Some(1), &Tabs::DEFAULT.name("Main").focus_on_click(true));
+            ui.tabs("c", &[Segment::new("One"), Segment::new("Two")], Some(0), &Tabs::DEFAULT);
+        };
+        for round in 0..20 {
+            mem_sys::local_reset();
+            testing::frame(&mut ui, &[], &mut build);
+            if round > 2 { assert_eq!(mem_sys::local_alloc_count(), 0, "round {round}"); }
+        }
     }
 }

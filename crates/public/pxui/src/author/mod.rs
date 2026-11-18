@@ -23,7 +23,7 @@ pub use layout::Key;
 pub use press::{Pressable, Response};
 pub use pxui_types::ui::Segmented;
 pub use toggle::Toggle;
-pub use kit::{Badge, Progress, Radio, Spinner};
+pub use kit::{Badge, Progress, Radio, Spinner, Tabs};
 pub use collection::GridList;
 pub use results::{OverlayResponse, PickResponse, SliderResponse, SplitResponse};
 pub use view::hash_of;

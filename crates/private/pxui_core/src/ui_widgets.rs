@@ -30,7 +30,7 @@ pub struct TreeNode {
 pub use pxui_types::ui::{Dialog, DialogButton, Chosen, Segment, Segmented};
 use pxui_types::theme::BodyKind;
 
-pub use pxui_types::ui::{Checkbox, Choice, Dropdown, Slider, Toast};
+pub use pxui_types::ui::{Checkbox, Dropdown, Slider, Toast};
 
 /// Behavior for a caller-painted horizontal adjustable value. Pointer motion previews; only a
 /// captured left-button release commits. Keyboard and accessibility adjustments commit directly.
@@ -142,13 +142,25 @@ pub(crate) fn default_table_head(this: &mut Ui, c: &TableHeadConfig, title: &str
     }
 }
 
-/// The built-in tab: as wide as its text, in the tab look for its state.
-pub(crate) fn default_tab(this: &mut Ui, c: &TabConfig, text: &str) {
-    let w = this.text_width(None, text);
-    this.node_new(&c.node).w = Size::Px(w);
+/// The built-in tab: as wide as its text, in the tab look for its state; a `detail` (a count or badge) follows the text, a gap away.
+pub(crate) fn default_tab(this: &mut Ui, c: &TabConfig, text: &str, detail: &str) {
     let look = *this.theme().tab.pick(c.state);
+    if detail.is_empty() {
+        let w = this.text_width(None, text);
+        this.node_new(&c.node).w = Size::Px(w);
+        this.set_look(&c.node, look, c.state);
+        this.text(&c.node, text);
+        return;
+    }
+    let (gap, rh) = (this.space(1), this.row_px() as f32);
+    let w = this.text_width(None, text) + gap + this.text_width(None, detail);
+    let n = this.node_new(&c.node);
+    (n.w, n.axis, n.align, n.gap) = (Size::Px(w), Axis::Row, Align::Center, gap);
     this.set_look(&c.node, look, c.state);
-    this.text(&c.node, text);
+    let saved = this.enter(&c.node);
+    this.text_leaf(int_key(c.node.box_key, 0), rh, look, text);
+    this.text_leaf(int_key(c.node.box_key, 1), rh, look, detail);
+    this.leave(saved);
 }
 
 /// How `segmented_opts` varies the kit's segmented control; `DEFAULT` is the kit's plain strip.
@@ -489,42 +501,54 @@ impl Ui {
         moved
     }
 
-    /// A row of tabs, the one in use underlined. One Tab stop; Left and Right (Home, End) switch.
-    /// Returns the tab in use.
-    /// Keyed by `key` (hashed under the parent's seed), the bar named `choice.name`, its variant given to the tabs' bodies; reports the
-    /// bar's response and the tab in use.
-    pub fn tabs(&mut self, key: &str, tabs: &[&str], selected: usize, choice: &Choice) -> (Response, usize) {
-        let variant = choice.variant;
+    /// A row of tabs, the one in use underlined: `count` tabs, tab `i` being `tab(i)` (the C ABI's texts without a copy). One Tab stop
+    /// (the bar); Left and Right (Home, End) switch (from no tab in use, Right takes the first and Left the last), a press on a tab
+    /// chooses it. A tab is keyed as `item_key` keys a segment: by its id, else by its place in a separate namespace, never by its
+    /// text. `selected` is the tab in use (`None`: none is; past the tabs: the last); the bar is named `name`, `variant` is given to the
+    /// tabs' bodies and each tab's detail is drawn beside its text by the built-in body. With `focus_on_click` a press (not a secondary
+    /// one) on a tab focuses the bar on the press itself, whether or not the caller applies the choice. Reports the bar's response, the
+    /// tab in use after this frame's input and the tab a secondary press began on.
+    #[allow(clippy::too_many_arguments)]
+    pub fn tabs<'a>(&mut self, key: &str, name: &str, count: usize, tab: &dyn Fn(usize) -> Segment<'a>, selected: Option<usize>, variant: u16, focus_on_click: bool) -> (Response, Option<usize>, Option<usize>) {
         if variant != 0 { self.set_variant(BodyKind::tabs as u32, variant); }
-        let name = choice.name;
         let rh = self.row_px() as f32;
         let bar_look = self.theme().header.idle;
         let body = body_of!(self, tabs);
         let bar = self.node_ref(key, &Node { flags: Flags::FOCUSABLE | Flags::TAB_ONLY, h: Size::Px(rh), axis: Axis::Row, padding: Edges { l: self.space(2), r: self.space(2), ..Edges::ZERO }, gap: self.space(2), look: bar_look, role: Role::TabList, ..Node::DEFAULT });
         self.a11y_name(&bar, name);
         let s = self.signal_owned(&bar);
-        let mut sel = selected.min(tabs.len().saturating_sub(1));
-        pressed(&s.keys, &mut |k| match k {
-            Key::Home => sel = 0,
-            Key::End => sel = tabs.len().saturating_sub(1),
-            k => sel = wrap(sel, self.along(k), tabs.len()),
+        let mut sel = selected.filter(|_| count > 0).map(|i| i.min(count - 1));
+        pressed(&s.keys, &mut |k| {
+            if count == 0 { return; }
+            match k {
+                Key::Home => sel = Some(0),
+                Key::End => sel = Some(count - 1),
+                k => {
+                    let by = self.along(k);
+                    if by != 0 { sel = Some(sel.map_or(if by > 0 { 0 } else { count - 1 }, |i| wrap(i, by, count))); }
+                }
+            }
         });
         let saved = self.enter(&bar);
-        let (before, mut old) = (sel, None);
-        for (i, tab) in tabs.iter().enumerate() {
-            let n = self.node_keyed(int_key(bar.box_key, i as i64), Node { flags: ROW_FLAGS, h: Size::Grow, role: Role::Tab, ..Node::DEFAULT });
+        let (before, mut old, mut focus, mut secondary) = (sel, None, false, None);
+        for i in 0..count {
+            let tab = tab(i);
+            let n = self.node_keyed(item_key(bar.box_key, tab.id, i), Node { flags: ROW_FLAGS, h: Size::Grow, role: Role::Tab, ..Node::DEFAULT });
             let ts = self.signal_owned(&n);
             if ts.clicked {
-                sel = i;
+                sel = Some(i);
             }
+            let right = ts.button == Some(input::MouseButton::RightButton);
+            focus |= ts.pressed && !right;
+            if ts.pressed && right { secondary = Some(i); }
             let state = State { hovered: ts.hovered, pressed: ts.held, ..State::default() };
-            if i == before {
+            if before == Some(i) {
                 old = Some((n, state));
             }
-            let config = TabConfig { state: State { checked: sel == i, ..state }, index: i, node: n };
-            self.set_role(&n, Role::Tab, st::SELECTABLE | if sel == i { st::SELECTED } else { 0 });
-            self.a11y_name(&n, tab);
-            in_item!(flat; self, body, n.box_key, n, default_tab(&config, tab));
+            let config = TabConfig { state: State { checked: sel == Some(i), ..state }, index: i, node: n };
+            self.set_role(&n, Role::Tab, st::SELECTABLE | if sel == Some(i) { st::SELECTED } else { 0 });
+            self.a11y_name(&n, tab.name.unwrap_or(tab.text));
+            in_item!(flat; self, body, n.box_key, n, default_tab(&config, tab.text, tab.detail));
         }
         // a click on a later tab unselects the earlier one in this frame, not the next
         if let Some((n, state)) = old.filter(|_| sel != before) {
@@ -536,8 +560,11 @@ impl Ui {
             self.set_role(&n, Role::Tab, st::SELECTABLE);
         }
         self.leave(saved);
+        if focus_on_click && focus && !self.focused(&bar) { self.focus_box(&bar); }
         if variant != 0 { self.set_variant(BodyKind::tabs as u32, 0); }
-        (Response::of(&s, self.focused(&bar), bar), sel)
+        let mut response = Response::of(&s, self.focused(&bar), bar);
+        response.secondary |= secondary.is_some();
+        (response, sel, secondary)
     }
 
     /// A segmented control keyed by `key` (hashed under the parent's seed, duplicates in order), the strip named `name` to accessibility
@@ -556,7 +583,8 @@ impl Ui {
     /// focused one, the focus moves to the Tab stop (the strip itself when no option is left). `selected` past the options is clamped to
     /// the last. The response is the strip's, with `clicked` (and `activated`) for a press or key on an option, `hovered`, `held` and
     /// `focused` for the strip or any option and `secondary` for a secondary press on an option, whose index is the third value. With `opts.focus_on_click` a press on an
-    /// option also focuses it (the chosen option, so the Tab stop).
+    /// option also focuses it on the press itself (the chosen option, so the Tab stop), and the focus stays there when the caller does not
+    /// apply the choice; the focus follows only a change of the `selected` the caller passes.
     #[allow(clippy::too_many_arguments)]
     pub fn segmented_options<'a>(&mut self, key: &str, name: &str, count: usize, option: &dyn Fn(usize) -> Segment<'a>, selected: Option<usize>, opts: &SegmentedOpts) -> (Response, Option<usize>, Option<usize>) {
         let enabled = opts.enabled && !self.scope_disabled();
@@ -589,9 +617,10 @@ impl Ui {
                 }
             }
         }
-        // retained: the choice last frame (line) and the option that held the focus (strip); a focus on an option that is gone, or a
-        // choice that moved while an option held the focus, goes to the Tab stop
-        let code = sel.map_or(-1, |i| i as i64);
+        // retained: the caller's choice last frame (line) and the option that held the focus (strip); a focus on an option that is gone, or a
+        // choice the caller moved while an option held the focus, goes to the Tab stop; a press or key the caller did not apply (its choice
+        // stays) leaves the focus on the option it moved to
+        let code = stored.map_or(-1, |i| i as i64);
         let moved = held.is_some() && self.state(&line, code) != code;
         let lost = held.is_none() && focus != 0 && self.state(&strip, 0) == focus;
         let follow = enabled && (moved || lost);
@@ -608,7 +637,7 @@ impl Ui {
                 (sel, clicked, by_key) = (Some(i), true, !ns.released);
             }
             if enabled && ns.pressed && ns.button == Some(input::MouseButton::RightButton) { secondary = Some(i); }
-            let focused = enabled && (if follow { i == sel.unwrap_or(0) } else { at == Some(i) } || (opts.focus_on_click && ns.clicked));
+            let focused = enabled && (if follow { i == sel.unwrap_or(0) } else { at == Some(i) } || (opts.focus_on_click && ns.pressed && ns.button != Some(input::MouseButton::RightButton)));
             let state = State { hovered: enabled && ns.hovered, pressed: enabled && ns.held, checked: sel == Some(i), disabled: !enabled, focused };
             let config = SegmentConfig { state, index: i, selected: sel, stored, group: strip.box_key, node: n, grow, padding: opts.padding, min_segment: opts.min_segment, line, strip };
             let at_focusable = if enabled { st::FOCUSABLE } else { 0 };
@@ -627,7 +656,7 @@ impl Ui {
         if !enabled { self.node_new(&strip).state.disabled = true; }
         let now = self.focus_key();
         let focused = (0..count).any(|i| item_key(strip.box_key, option(i).id, i) == now);
-        self.set_state(&line, sel.map_or(-1, |i| i as i64));
+        self.set_state(&line, code);
         self.set_state(&strip, if focused { now } else { 0 });
         let response = Response { clicked, hovered, held: pressed, focused, activated: clicked && by_key, secondary: secondary.is_some(), handle: strip };
         (response, sel, secondary)

@@ -67,7 +67,7 @@ pub mod ui {
     pub use crate::{Dialog, DialogButton, DismissOpts, Fill, GestureOpts, GestureState, Handle, ImageStyle, Language, Paint, ScrubPhase, Scroll, Segment, Signal, Stroke, SwipeActions, TextArea, TreeNode, Ui, ValueField, ViewTransform};
     pub use pxui_types::text_edit::{scrubbed, fuzzy_match, fuzzy_score, line_end, line_start};
     pub use pxui_types::ui::{
-        Checkbox, Choice, Chosen, CodeContext, Completion, Cursor, Dropdown, Head, HeadAction, Key, Keyframe, Keyframes,
+        Checkbox, Chosen, CodeContext, Completion, Cursor, Dropdown, Head, HeadAction, Key, Keyframe, Keyframes,
         LineStep, ListResponse, Menu, MenuItem, Overlay, PanelOpts, Pick, PickRows, PickerResponse, Repeat, SectionList,
         SectionPart, Segmented, SelectionList, Slider, TableResponse, TableView, Target, TextEdit, Toast, TreeResponse,
         UndoKind, DRAG_THRESHOLD, ROOT_KEY, int_key, key_of,
@@ -91,7 +91,7 @@ pub use paint::{Fill, Paint, Stroke};
 mod widgets;
 mod composite;
 mod overlays;
-pub use pxui_types::ui::{Checkbox, Choice, Dropdown, ListResponse, Menu, MenuItem, Chosen, Overlay, Pick, PickRows, PickerResponse, SelectionList, Slider, TableResponse, TableView, Toast, TreeResponse};
+pub use pxui_types::ui::{Checkbox, Dropdown, ListResponse, Menu, MenuItem, Chosen, Overlay, Pick, PickRows, PickerResponse, SelectionList, Slider, TableResponse, TableView, Toast, TreeResponse};
 mod collections;
 pub mod bodies;
 pub use collections::TreeNode;
@@ -118,7 +118,7 @@ pub use ui_state::{Bytes, Ime, Platform};
 mod node;
 mod author;
 pub use author::{hash_of, AreaCallbacks, AreaNote, BracketsFn, Button, ColorizeFn, CompleteFn, ContextAtFn, DescribeFn, Icon, IconButton, IndentFn, Key, Language, LineField, LineFieldResponse, NumberAtFn, Picker, Pressable, Response, Reveal, RewriteFn, ScrubFn, Scrubber, SearchField, SearchFieldResponse, Segmented, SlideFn, Splice, TextArea, TextAreaResponse, TextField, TextFieldResponse, Toggle, ValidFn, ValueCallbacks, ValueField, ValueFieldResponse};
-pub use author::{Badge, GridList, OverlayResponse, PickResponse, Progress, Radio, SliderResponse, Spinner, SplitResponse};
+pub use author::{Badge, GridList, OverlayResponse, PickResponse, Progress, Radio, SliderResponse, Spinner, SplitResponse, Tabs};
 pub use kit::{MenuBar, MenuBarMenu, Split};
 pub use pxui_types::ui::Segment;
 #[cfg(test)]
@@ -531,7 +531,8 @@ impl<'a> UiDesc<'a> {
 impl Ui {
     /// Creates a UI with the descriptor's platform conventions, kit size and fonts.
     ///
-    /// `Error::Version` means the ABI major differs. `Error::InvalidInput` means the size
+    /// `Error::Version` means the library's ABI major differs or its minor is older than the one this crate was built for (the
+    /// minimum-library rule, docs/abi.md). `Error::InvalidInput` means the size
     /// or supplied fonts were refused. At most 64 fonts, 32 MiB per font and 256 MiB total
     /// are accepted. Built with `debug_assertions`, the new UI verifies its retained views (`verify_views(true)`: every clean view is
     /// built again each frame and a forgotten revision panics); turn it off on a `Ui` whose test counts rebuilds or frame cost.
@@ -543,7 +544,7 @@ impl Ui {
     /// assert!(matches!(Ui::new(&UiDesc::DEFAULT.fonts(&[FontData(b"invalid font")])), Err(Error::InvalidInput)));
     /// ```
     pub fn new(desc: &UiDesc) -> Result<Self, Error> {
-        if abi_version() >> 16 != pxui_types::ABI_BUILT >> 16 { return Err(Error::Version); }
+        if !serves(abi_version(), pxui_types::ABI_BUILT) { return Err(Error::Version); }
         // a fractional size is created at its whole points, then set exactly (the 1.x creation record holds an integer)
         let (font_size, exact) = match desc.font_size {
             None => (0, None),
@@ -1092,6 +1093,10 @@ fn abi_version()->u32 { unsafe { sys::pxui_abi_version() } }
 #[inline]
 fn abi_version()->u32 { sys::pxui_abi_version() }
 
+/// Whether a library of ABI `library` serves an app built for `built` (both `major << 16 | minor`): the same major and a minor no older
+/// than the app's (the minimum-library rule, docs/abi.md).
+fn serves(library: u32, built: u32) -> bool { library >> 16 == built >> 16 && library & 0xFFFF >= built & 0xFFFF }
+
 /// A string the library lent, borrowed: it only returns UTF-8, so anything else is a library bug.
 #[track_caller]
 fn lent_str<'a>(value: Str) -> &'a str {
@@ -1109,6 +1114,16 @@ fn status(rc:i32)->Result<(),Error>{ if rc==0 { Ok(()) } else { Err(Error::from_
 #[cfg(test)]
 mod snapshot_tests {
     use super::*;
+
+    /// An older library (an earlier minor) or another major is refused before any record is exchanged; an equal or newer library serves.
+    #[test]
+    fn ui_new_refuses_a_library_older_than_the_app() {
+        let built = pxui_types::ABI_BUILT;
+        assert!(serves(built, built) && serves(built + 1, built) && serves(built | 0xFFFF, built), "the same or a newer minor");
+        assert!(!serves(built - 1, built) && !serves(built & !0xFFFF, built), "an older minor");
+        assert!(!serves(built + (1 << 16), built) && !serves(built - (1 << 16), built), "another major");
+        assert!(Ui::new(&UiDesc::DEFAULT).is_ok(), "this library serves this crate");
+    }
 
     #[test]
     fn snapshot_sets_and_clears_held_keys_without_edges() {

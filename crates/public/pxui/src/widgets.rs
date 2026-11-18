@@ -4,9 +4,9 @@ use pxui_types::{ffi::{PxuiKeyedDesc, PxuiResponse, Slice}, theme::BodyKind, ui:
 
 library!(keyed_lib {
     fn pxui_ui_checkbox_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, on: u8, out: *mut PxuiResponse) -> i32;
-    fn pxui_ui_choice_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, kind: u32, options: Slice<Str>, selected: usize, out: *mut PxuiResponse, chosen: *mut usize) -> i32;
     fn pxui_ui_slider_result(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, value: f32, min: f32, max: f32, out: *mut PxuiResponse, result: *mut pxui_types::ffi::PxuiScrubOut) -> i32;
     fn pxui_ui_pick(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, kind: u32, items: Slice<pxui_types::ffi::PxuiPickItem>, has_selected: u8, selected: usize, out: *mut PxuiResponse, result: *mut pxui_types::ffi::PxuiSegmentedResult) -> i32;
+    fn pxui_ui_tabs_result(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, items: Slice<pxui_types::ffi::PxuiPickItem>, has_selected: u8, selected: usize, focus_on_click: u8, out: *mut PxuiResponse, result: *mut pxui_types::ffi::PxuiSegmentedResult) -> i32;
     fn pxui_ui_progress_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, has_value: u8, value: f32, out: *mut PxuiBox) -> i32;
     fn pxui_ui_spinner_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, out: *mut PxuiBox) -> i32;
     fn pxui_ui_badge_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, value: Str, out: *mut PxuiBox) -> i32;
@@ -42,19 +42,20 @@ fn slider_response(out: &PxuiResponse, phases: &pxui_types::ffi::PxuiScrubOut, v
 
 impl Ui {
 
-    /// The one body of `radio` (`kind` 0) and `dropdown` (3): the items as the export's items column (on the stack up to 32), the
-    /// variant around the call.
+    /// The one body of `radio` (`kind` 0), `tabs` (1) and `dropdown` (3): one library call with the items as the export's items column
+    /// (on the stack up to 32), the variant around it; `focus` (tabs only) makes a press on a tab focus the bar.
+    #[allow(clippy::too_many_arguments)]
     #[track_caller]
-    pub(crate) fn pick_one_key(&mut self, kind: u32, key: Key, name: &str, items: &[Segment<'_>], selected: Option<usize>, variant: u16) -> PickResponse {
+    pub(crate) fn pick_one_key(&mut self, kind: u32, key: Key, name: &str, items: &[Segment<'_>], selected: Option<usize>, variant: u16, focus: bool) -> PickResponse {
         let mut id_label = [0u8; 17];
         let label = key.label(&mut id_label);
         let mut out = PxuiResponse::EMPTY;
-        let body = if kind == 0 { BodyKind::radio } else { BodyKind::dropdown };
+        let body = match kind { 0 => BodyKind::radio, 1 => BodyKind::tabs, _ => BodyKind::dropdown };
         // linked statically, the library's trusted entry with the items as they are; else the keyed export
         #[cfg(feature = "static")]
         let (chosen, secondary) = {
             let (mut chosen, mut secondary) = (None, None);
-            self.with_variant(body, variant, &mut |ui| check(ui, unsafe { pxui_abi_link::trusted::pick(ui.0.as_ptr(), kind, label, name, items, selected, &mut out, &mut chosen, &mut secondary) }));
+            self.with_variant(body, variant, &mut |ui| check(ui, unsafe { pxui_abi_link::trusted::pick(ui.0.as_ptr(), kind, label, name, items, selected, focus, &mut out, &mut chosen, &mut secondary) }));
             (chosen, secondary)
         };
         #[cfg(not(feature = "static"))]
@@ -62,8 +63,10 @@ impl Ui {
             let keyed = PxuiKeyedDesc::new(label, crate::clip(name));
             let list = crate::PickItems::new(items);
             let mut result = pxui_types::ffi::PxuiSegmentedResult::EMPTY;
+            let (has, at) = (selected.is_some() as u8, selected.unwrap_or(0));
             self.with_variant(body, variant, &mut |ui| check(ui, unsafe {
-                keyed_lib::pxui_ui_pick(ui.0.as_ptr(), &keyed, kind, list.span(), selected.is_some() as u8, selected.unwrap_or(0), &mut out, &mut result)
+                if kind == 1 { keyed_lib::pxui_ui_tabs_result(ui.0.as_ptr(), &keyed, list.span(), has, at, focus as u8, &mut out, &mut result) }
+                else { keyed_lib::pxui_ui_pick(ui.0.as_ptr(), &keyed, kind, list.span(), has, at, &mut out, &mut result) }
             }));
             ((result.has_chosen != 0).then_some(result.chosen as usize), (result.has_secondary != 0).then_some(result.secondary as usize))
         };
@@ -99,26 +102,6 @@ impl Ui {
         let mut r = crate::kit_ext::response(&out);
         r.changed = r.clicked;
         r
-    }
-
-    /// The one body of `radio`, `tabs` and `dropdown` (`kind` 0, 1, 3 of `pxui_ui_choice_keyed`, `body` their option's kind).
-    #[allow(clippy::too_many_arguments)]
-    #[track_caller]
-    pub(crate) fn choice_key(&mut self, kind: u32, body: BodyKind, key: Key, name: &str, options: &[&str], selected: usize, variant: u16) -> (Response, usize) {
-        let mut id_label = [0u8; 17];
-        let label = key.label(&mut id_label);
-        let (mut out, mut chosen) = (PxuiResponse::EMPTY, 0usize);
-        #[cfg(feature = "static")]
-        self.with_variant(body, variant, &mut |ui| check(ui, unsafe { pxui_abi_link::trusted::choice(ui.0.as_ptr(), kind, label, name, options, selected, 0, &mut out, &mut chosen) }));
-        #[cfg(not(feature = "static"))]
-        {
-            let keyed = PxuiKeyedDesc::new(label, crate::clip(name));
-            let options = crate::Strs::new(options);
-            self.with_variant(body, variant, &mut |ui| check(ui, unsafe { keyed_lib::pxui_ui_choice_keyed(ui.0.as_ptr(), &keyed, kind, options.span(), selected, &mut out, &mut chosen) }));
-        }
-        let mut r = crate::kit_ext::response(&out);
-        r.changed = chosen != selected;
-        (r, chosen)
     }
 
     /// The one body of `slider`.

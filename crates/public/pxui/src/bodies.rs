@@ -242,6 +242,7 @@ mod tests {
         static FORGED: Cell<(bool, bool)> = const { Cell::new((false, false)) };
         static BOOM: Cell<bool> = const { Cell::new(true) };
         static TAB: RefCell<Option<Handle>> = const { RefCell::new(None) };
+        static TAB_DETAIL: RefCell<String> = const { RefCell::new(String::new()) };
     }
 
     fn input(time: f64) -> FrameIn<'static> { FrameIn::new(320.0, 240.0).time(time) }
@@ -445,18 +446,20 @@ mod tests {
         node.w = Size::Px(100.0);
         ui.set_node_layout(&c.node, &node);
         ui.text(&c.node, c.text_of(&c.text));
-        if c.index == 1 { TAB.with(|t| *t.borrow_mut() = Some(c.node)); }
+        if c.index == 1 { TAB.with(|t| *t.borrow_mut() = Some(c.node)); TAB_DETAIL.with(|d| *d.borrow_mut() = c.text_of(&c.detail).to_string()); }
     }
 
-    /// A body sizes the node its widget gave it (`set_node_layout`): the second tab is 100 points wide.
+    /// A body sizes the node its widget gave it (`set_node_layout`): the second tab is 100 points wide. A registered tab body is given
+    /// the tab's detail (`Segment::detail`, `PxuiTabConfig.detail`).
     #[test]
     fn a_body_sizes_its_node_with_node_layout() {
         let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
         ui.register_tabs_body("wide", wide_tab).expect("registered");
         ui.set_theme(&source("tabs.body = wide")).expect("theme");
-        for n in 0..3 { ui.frame(&input(n as f64), &mut |ui: &mut Ui| { ui.tabs("t", &["a", "b"], 0, &crate::Choice::DEFAULT); }).expect("frame"); }
+        for n in 0..3 { ui.frame(&input(n as f64), &mut |ui: &mut Ui| { ui.tabs("t", &[crate::Segment::new("a"), crate::Segment::new("b").detail("12")], Some(0), &crate::Tabs::DEFAULT); }).expect("frame"); }
         let tab = TAB.with(|t| t.borrow().expect("the body ran"));
         assert_eq!(ui.rect(&tab).w, 100.0);
+        assert_eq!(TAB_DETAIL.with(|d| d.borrow().clone()), "12");
     }
 
     /// The `_with` forms build the caller's own children for each row and cell, in both link modes.

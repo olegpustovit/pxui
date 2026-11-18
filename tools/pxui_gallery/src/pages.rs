@@ -16,6 +16,7 @@ pub const CHROME_H: f32 = 48.0;
 pub const WINDOW_H: i64 = 24 + CHROME_H as i64 + PAGE_H + 24;
 pub const PAGES: [&str; 5] = ["Kit", "Controls", "Collections", "Overlays", "Layout"];
 const FILE_ITEMS: [pxui::MenuItem; 3] = [pxui::MenuItem::new("Reload theme"), pxui::MenuItem::new("Toast"), pxui::MenuItem::new("Quit")];
+const PAGE_TABS: [pxui::Segment; 5] = [pxui::Segment::new(PAGES[0]), pxui::Segment::new(PAGES[1]), pxui::Segment::new(PAGES[2]), pxui::Segment::new(PAGES[3]), pxui::Segment::new(PAGES[4])];
 const PAGE_ITEMS: [pxui::MenuItem; 5] = [pxui::MenuItem::new(PAGES[0]), pxui::MenuItem::new(PAGES[1]), pxui::MenuItem::new(PAGES[2]), pxui::MenuItem::new(PAGES[3]), pxui::MenuItem::new(PAGES[4])];
 pub const MENUS: [pxui::MenuBarMenu; 2] = [pxui::MenuBarMenu::new("File", &FILE_ITEMS), pxui::MenuBarMenu::new("View", &PAGE_ITEMS)];
 const NAMES: [&str; 12] = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta", "iota", "kappa", "lambda", "mu"];
@@ -195,7 +196,7 @@ pub fn controls_page(ui: &mut Ui, s: &mut Gallery) {
         s.choice = ui.dropdown("blend", "Blend", &BLENDS, Some(s.choice), &pxui::Dropdown::DEFAULT).chosen.unwrap_or(s.choice);
     });
     ui.panel("more", &Overlay::DEFAULT.at(pxui_types::geom::Point::new(332.0, 12.0)).w_px(296.0), &mut |ui: &mut Ui| {
-        s.tab = ui.tabs("sections", &["Layer", "Mask", "Effects"], s.tab, &pxui::Choice::DEFAULT.name("Sections")).1;
+        s.tab = ui.tabs("sections", &[pxui::Segment::new("Layer"), pxui::Segment::new("Mask"), pxui::Segment::new("Effects")], Some(s.tab), &pxui::Tabs::DEFAULT.name("Sections")).chosen.unwrap_or(s.tab);
         inputs::layer_search(ui, &mut s.search);
         let row = node(ui, "icons", Node { h: Size::Px(28.0), axis: Axis::Row, align: Align::Center, padding: Edges { l: 12.0, ..Edges::ZERO }, gap: 4.0, ..Node::DEFAULT });
         ui.within(&row, &mut |ui: &mut Ui| {
@@ -507,7 +508,7 @@ pub fn app(ui: &mut Ui, s: &mut Gallery) {
         ui.within(&body, &mut |ui: &mut Ui| {
             let chrome = node(ui, "chrome", Node { h: Size::Px(CHROME_H), ..Node::DEFAULT });
             ui.within(&chrome, &mut |ui: &mut Ui| { ui.view_of("chrome", &s.chrome_rev, &mut |ui: &mut Ui| {
-                let page = ui.tabs("pages", &PAGES, s.page, &pxui::Choice::DEFAULT.name("Pages")).1;
+                let page = ui.tabs("pages", &PAGE_TABS, Some(s.page), &pxui::Tabs::DEFAULT.name("Pages")).chosen.unwrap_or(s.page);
                 if page != s.page {
                     (s.page, s.page_rev) = (page, s.page_rev + 1); // the tabs show the click in this build
                 }

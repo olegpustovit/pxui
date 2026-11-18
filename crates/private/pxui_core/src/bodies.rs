@@ -268,7 +268,7 @@ pub struct TipConfig {
 
 pub type TipBody = fn(&mut Ui, &TipConfig, &[String]);
 
-/// What a tab body is given (the tab's text beside it). It runs with the tab's `node` entered (the built-in body is called without it):
+/// What a tab body is given (the tab's text and its detail, a count or badge or empty, beside it). It runs with the tab's `node` entered (the built-in body is called without it):
 /// a growing-height row item, keyed by its place in the bar, with the tab role, its name and its selected state; behaviour reads
 /// its presses. The body gives it its width (`Size::Px`, the text's by default), its look for `state` (`checked`: it is the tab in
 /// use) and the text. A click on a later tab unselects an earlier one in the same frame; a body's own look follows on the next frame.
@@ -278,7 +278,7 @@ pub struct TabConfig {
     pub node: Handle,
 }
 
-pub type TabBody = fn(&mut Ui, &TabConfig, &str);
+pub type TabBody = fn(&mut Ui, &TabConfig, &str, &str);
 
 /// What a segmented-control body is given (the option's text beside it). It runs with the segment's `node` entered: a radio-role item
 /// keyed by its item id (or by its place in the strip for an item without one), checked when it is the choice; behaviour reads its

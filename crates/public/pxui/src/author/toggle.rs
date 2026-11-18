@@ -172,7 +172,8 @@ impl Ui {
     /// A radio group (the standard pattern): every option is a Radio that assistive technology can focus (FOCUSABLE, with the Focus
     /// action), but only one is a Tab stop, the chosen option (the first when `selected` is `None`). Left and Right on the focused option
     /// move the focus and the choice to its neighbour (reversed right to left), Space or Enter chooses the focused option, and a press
-    /// chooses the option under it without focusing it. When the choice changes while an option holds the focus (by a key or by the caller
+    /// chooses the option under it (with `Segmented::focus_on_click` the pressed option takes the focus on the press itself, and keeps it when
+    /// the caller does not apply the choice; the focus follows only a change of the `selected` the caller passes). When the choice changes while an option holds the focus (by a key or by the caller
     /// changing `selected`), the focus moves to the new choice; when the options shrink below the focused one, the focus moves to the Tab
     /// stop (to the strip itself when no option is left). `selected` `None` is no choice: no option is checked until a press or a key
     /// chooses one; an index past the options is clamped to the last. A secondary press on an option is `secondary` (its index), never a
@@ -602,6 +603,28 @@ mod tests {
         chosen.set(Some(9));
         testing::frame(&mut ui, &[], &mut build);
         assert_eq!(last(), (1, 2, 1, 2), "clamped to the last option");
+    }
+
+    /// A press the caller does not apply (its choice stays) leaves the focus on the pressed option, taken on the press itself; a choice the
+    /// caller then changes moves the focus to it.
+    #[test]
+    fn a_press_the_app_refuses_keeps_the_focus_on_the_pressed_option() {
+        let stored = Cell::new(Some(0));
+        let last = Cell::new(None);
+        let mut build = |ui: &mut Ui| { last.set(Some(ui.segmented("s", &THREE, stored.get(), &Segmented::DEFAULT.focus_on_click(true)))); };
+        let mut ui = crate::doc::frames(3, &mut build);
+        let at = node(&ui, Role::Radio, "Three").1;
+        let (x, y) = (f64::from(at.x + at.w / 2.0), f64::from(at.y + at.h / 2.0));
+        // the press alone, before the release, already focuses it
+        testing::frame(&mut ui, &[pxui_types::Event { kind: pxui_types::Event::POINTER_PRESSED, x, y, ..Default::default() }], &mut build);
+        assert_eq!(radios(&ui).map(|s| s & state::FOCUSED != 0), [false, false, true], "focused on press");
+        testing::frame(&mut ui, &[pxui_types::Event { kind: pxui_types::Event::POINTER_RELEASED, x, y, ..Default::default() }], &mut build);
+        for _ in 0..4 { testing::frame(&mut ui, &[], &mut build); }
+        assert_eq!(last.get().unwrap().chosen, Some(0), "the caller's choice stands");
+        assert_eq!(radios(&ui).map(|s| s & state::FOCUSED != 0), [false, false, true], "the refused press keeps the focus");
+        stored.set(Some(1));
+        for _ in 0..3 { testing::frame(&mut ui, &[], &mut build); }
+        assert_eq!(radios(&ui).map(|s| s & state::FOCUSED != 0), [false, true, false], "a choice the caller moves takes the focus");
     }
 
     /// `focus_on_click(true)`: a press on an option focuses it and it becomes the strip's Tab stop (the response says focused); by default a

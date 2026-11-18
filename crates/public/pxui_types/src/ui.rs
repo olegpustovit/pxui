@@ -224,41 +224,6 @@ impl Checkbox {
     pub const fn variant(mut self, variant: u16) -> Checkbox { self.variant = variant; self }
 }
 
-/// How `Ui::radio` and `Ui::tabs` vary the kit's radio group and tab bar, as a `Copy` value built with `const fn` builders from
-/// `Choice::DEFAULT`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Choice<'a> {
-    /// The group's (the tab bar's) accessible name; empty: none.
-    pub name: &'a str,
-    /// The variant the options' bodies (`radio` rows, `tab`s) read from their config (0: none).
-    pub variant: u16,
-}
-
-impl<'a> Choice<'a> {
-    /// The plain kit radio group or tab bar, unnamed (each option is named by its text).
-    pub const DEFAULT: Choice<'a> = Choice { name: "", variant: 0 };
-
-    /// Sets the group's (the tab bar's) accessible name; the key is identity only, never the name.
-    /// Allocates: never.
-    /// Panics: never.
-    ///
-    /// ```
-    /// const QUALITY: pxui_types::ui::Choice = pxui_types::ui::Choice::DEFAULT.name("Quality");
-    /// assert_eq!(QUALITY.name, "Quality");
-    /// ```
-    pub const fn name(mut self, name: &'a str) -> Choice<'a> { self.name = name; self }
-
-    /// Sets the variant the registered bodies of the options read from their config (0 by default). The built-in bodies ignore it.
-    /// Allocates: never.
-    /// Panics: never.
-    ///
-    /// ```
-    /// const PILLS: pxui_types::ui::Choice = pxui_types::ui::Choice::DEFAULT.variant(2);
-    /// assert_eq!(PILLS.variant, 2);
-    /// ```
-    pub const fn variant(mut self, variant: u16) -> Choice<'a> { self.variant = variant; self }
-}
-
 /// How `Ui::dropdown` varies the kit's dropdown, as a `Copy` value built with `const fn` builders from `Dropdown::DEFAULT`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Dropdown {

@@ -307,28 +307,42 @@ unsafe fn pick_items(items: Slice<PxuiPickItem>, out: &mut Vec<pxui_types::ui::S
     true
 }
 
-// ABI 1.76: a radio group (`kind` 0) or a dropdown (3) of pick-one `items` keyed by `keyed.key` and named `keyed.name`; `selected` is
-// read when `has_selected` is 1. Reports one `PxuiResponse` and a `PxuiSegmentedResult` (the choice, none for none, and the item a
-// secondary press began on).
-export!(trusted pub unsafe fn pxui_ui_pick(ui: *mut PxuiUi, keyed: *const pxui_types::ffi::PxuiKeyedDesc, kind: u32, items: Slice<PxuiPickItem>, has_selected: u8, selected: usize, out: *mut PxuiResponse, result: *mut PxuiSegmentedResult) -> i32 {
+/// The body of `pxui_ui_pick` and `pxui_ui_tabs_result`: every argument checked once (`kind` is the caller's to check), then one engine call.
+#[allow(clippy::too_many_arguments)]
+unsafe fn pick_export(ui: *mut PxuiUi, keyed: *const pxui_types::ffi::PxuiKeyedDesc, kind: u32, items: Slice<PxuiPickItem>, has_selected: u8, selected: usize, focus: u8, out: *mut PxuiResponse, result: *mut PxuiSegmentedResult) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short pick response") } };
     let Some(result) = sized_mut!(result) else { return unsafe { fail(ui, "null or short pick result") } };
     let Some((key, name)) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
-    if !matches!(kind, 0 | 3) || has_selected > 1 { return unsafe { fail(ui, "invalid pick arguments") }; }
+    if has_selected > 1 || focus > 1 { return unsafe { fail(ui, "invalid pick arguments") }; }
     let mut segments = state.shared().take_segments();
     if !unsafe { pick_items(items, &mut segments) } {
         state.shared().put_segments(segments);
         return unsafe { fail(ui, "invalid pick items") };
     }
     let (mut at, mut secondary) = (None, None);
-    let rc = unsafe { trusted::pick_checked(ui, kind, key, name, &segments, (has_selected == 1).then_some(selected), out, &mut at, &mut secondary) };
+    let rc = unsafe { trusted::pick_checked(ui, kind, key, name, &segments, (has_selected == 1).then_some(selected), focus == 1, out, &mut at, &mut secondary) };
     state.shared().put_segments(segments);
     if rc == 0 {
         (result.has_chosen, result.chosen, result.has_secondary, result.secondary) = (at.is_some() as u8, at.unwrap_or(0) as u64, secondary.is_some() as u8, secondary.unwrap_or(0) as u64);
         result.reserved = [0; 2];
     }
     rc
+}
+
+// ABI 1.76: a radio group (`kind` 0) or a dropdown (3) of pick-one `items` keyed by `keyed.key` and named `keyed.name`; `selected` is
+// read when `has_selected` is 1. Reports one `PxuiResponse` and a `PxuiSegmentedResult` (the choice, none for none, and the item a
+// secondary press began on).
+export!(trusted pub unsafe fn pxui_ui_pick(ui: *mut PxuiUi, keyed: *const pxui_types::ffi::PxuiKeyedDesc, kind: u32, items: Slice<PxuiPickItem>, has_selected: u8, selected: usize, out: *mut PxuiResponse, result: *mut PxuiSegmentedResult) -> i32 {
+    if !matches!(kind, 0 | 3) { return if unsafe { get(ui) }.is_none() { PXUI_ERR_ARGUMENT } else { unsafe { fail(ui, "invalid pick arguments") } }; }
+    unsafe { pick_export(ui, keyed, kind, items, has_selected, selected, 0, out, result) }
+});
+
+// ABI 1.84: a tab bar of pick-one `items` (a tab's `detail` beside its text, its id keying it) keyed by `keyed.key` and named
+// `keyed.name`; `selected` is the tab in use when `has_selected` is 1 (0: none is); `focus_on_click` 1 makes a press on a tab focus the
+// bar. Reports one `PxuiResponse` and a `PxuiSegmentedResult` (the tab in use, none for none, and the tab a secondary press began on).
+export!(trusted pub unsafe fn pxui_ui_tabs_result(ui: *mut PxuiUi, keyed: *const pxui_types::ffi::PxuiKeyedDesc, items: Slice<PxuiPickItem>, has_selected: u8, selected: usize, focus_on_click: u8, out: *mut PxuiResponse, result: *mut PxuiSegmentedResult) -> i32 {
+    unsafe { pick_export(ui, keyed, 1, items, has_selected, selected, focus_on_click, out, result) }
 });
 
 // Builds a subtree with every interactive node in it disabled when `disabled` is 1 (scopes nest by OR); the Ui is back as it was when the call returns.

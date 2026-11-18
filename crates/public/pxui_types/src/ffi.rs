@@ -1941,7 +1941,14 @@ configs! {
     PxuiScrollConfig { node: PxuiBox, content: PxuiSlot }
     PxuiToastConfig { state: PxuiStateDesc, node: PxuiBox, text: Str }
     PxuiTipConfig { width: f32, height: f32, tip: PxuiBox, lines: Slice<Str> }
-    PxuiTabConfig { state: PxuiStateDesc, index: usize, node: PxuiBox, text: Str }
+    PxuiTabConfig { state: PxuiStateDesc, index: usize, node: PxuiBox, text: Str } @variant {
+        /// ABI 1.84 (read when `size` covers it): the tab's detail after its text (`Segment::detail`: a count or badge; empty: none);
+        /// valid for the call.
+        detail: Str,
+    }
+    /// A section index (ABI 1.85): the strip of letters of `Ui::section_index`, entered as `node`; `letters` are the letters (valid for the
+    /// call), `active` the letter the pointer holds or the last one chosen when `has_active` is 1.
+    PxuiSectionIndexConfig { state: PxuiStateDesc, has_active: u8, active: usize, node: PxuiBox, letters: Slice<Str> }
     /// `selected` is the chosen option's index when `has_selected` is 1 (ABI 1.67, read when `size` covers it; 0 with `selected` 0 for no
     /// choice, final); `state.focused` the segment holding the keyboard focus (from ABI 1.67 the strip's one Tab stop is the chosen
     /// segment, else the first).

@@ -71,9 +71,10 @@ export!(bare pub unsafe fn pxui_ui_create_with_fonts(desc: *const PxuiUiDesc, fo
 });
 
 /// A `PxuiUiDesc` is read at its 12 bytes (before `abi_built`) or whole. The library's own major is the only one it serves: `abi_built` 0 is unstated, any
-/// other value must carry that major. The minor is not compared: an app built for a newer minor than this library may run on it and ask `pxui_supports`.
+/// other value must carry that major and a minor no newer than the library's own (the minimum-library rule: an app built for a newer minor may fill or
+/// read records grown past what this library knows, so it is refused at create, never misread later).
 fn valid_desc(desc: &PxuiUiDesc) -> bool {
-    desc.font_size >= 0 && desc.platform <= 2 && (desc.abi_built == 0 || desc.abi_built >> 16 == crate::ABI_VERSION >> 16)
+    desc.font_size >= 0 && desc.platform <= 2 && (desc.abi_built == 0 || (desc.abi_built >> 16 == crate::ABI_VERSION >> 16 && desc.abi_built & 0xFFFF <= crate::ABI_VERSION & 0xFFFF))
 }
 
 // 1 when the library, as built, has the feature `id` (`PXUI_FEATURE_*`: ids are never reused); 0 for an id it does not know.

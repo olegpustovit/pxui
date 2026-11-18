@@ -13,21 +13,35 @@ Static/dynamic validation, pixel and warm-allocation checks remain required.
 **Promise.** An app built against 1.N runs unchanged against any later 1.M library (M >= N). "Unchanged" covers: every export
 of 1.N with its signature; every record layout and field offset; every flag, enum and code value; the behaviour of existing
 calls on inputs they accepted; and identity hashes (text content/style keys, widget and node identities) once they have been
-frozen by a released minor. A call added after N is simply absent from an older library; the app checks the minor before using it.
+frozen by a released minor. An app built against 1.N does not run against an older library (1.M, M < N): create refuses it (Minimum library, below).
 
 **Append-only rules.**
 
 - Exports are never removed, renamed or re-signatured. A different shape is a new export.
-- Records are `repr(C)` with `size: u32` first. A record grows only at its end (a record that grows at its end updates its own size row and appends its new field offsets; existing offsets never change); the library reads the caller's `size` and copies no more than it knows, so a caller built against a larger or smaller
-  layout is never over-read. **Recorded sizes:** a record that grew is read only at a size it has had (`read_desc!(ptr, T, [old sizes])`: each earlier
+- Records are `repr(C)` with `size: u32` first. **Growth (the rule the `abi-snapshot` and `abi-frozen` gates enforce).** A recorded layout row
+  changes only by growing at its end, under a minor bump: the same name and alignment, a larger size, every recorded field offset in place
+  and every recorded field's type unchanged (the gates read the field types from the header the row was recorded with: `abi-snapshot` compares
+  the committed `abi/pxui.v1.txt` and `include/pxui.h` with the working tree, `abi-frozen` each `fixtures/abi/1.N/` pair), and the new fields appended at or past the
+  recorded size (or, with none, the last field a record that itself grew only at its end, as `PxuiBodies` at the end of `PxuiThemeSnapshot`).
+  Only two kinds of record may grow: (a) a record the library writes and the app reads, the config a `body_kinds!` line names (the record a registered body receives; a name ending in `Config` proves nothing) and a borrowed snapshot an
+  export returns as `const T *` (`PxuiThemeSnapshot`); a reader built against the smaller layout reads its prefix, and a reader built against
+  the larger one reads a grown field only when the record's `size` (a config's) covers it, or after checking the library's minor (a
+  snapshot's); (b) a record the caller writes whose first field is `uint32_t size` and that the library reads at the recorded size
+  (`read_desc!(ptr, T, [.., recorded size, ..])`, or a hand-written reader's `const <RECORD>_V<minor>: usize = <size>` that its size check names: `matches!(size, <RECORD>_V<minor> | ..)`). Every other change of
+  a recorded row or of a recorded record's field types is refused, an append to a caller-written record without the size prefix included.
+  Fields put into a record's padding before this rule (`PxuiFontDesc.size_points` 1.79, `PxuiPanel.padding_points` 1.78) and
+  `PxuiUiDesc.abi_built` (1.60, recorded as its own row `PxuiUiDescV1_60`) are pinned in the gate as reviewed exceptions. The library reads
+  the caller's `size` and copies no more than it knows, so a caller built against a larger or smaller layout is never over-read. **Recorded sizes:** a record that grew is read only at a size it has had (`read_desc!(ptr, T, [old sizes])`: each earlier
   layout, e.g. `PxuiButtonDesc` 96, 104 and the whole record) or at the whole record and more; a size below the first or ending inside a field
   is refused. The bytes the size covers are read, every grown field is zero, and a grown field or pointer (the icon button's `press`, the toggle's
   `style`, the segmented control's `names`, the button's label) is never read, validated or dereferenced unless the size covers it. A record that has never grown has
   its whole size as its only size. An output record is written only up to the caller's `size`; none has grown yet, so each is refused below its whole size
   (`sized_mut!`), and the first output to grow gets a copy-out of `min(size, whole)` bytes. Existing fields keep offset, size and meaning.
 - Enum and flag values are never reused or renumbered. A retired value stays reserved.
-- `abi/pxui.v1.txt` and `abi/layout.v1.txt` change only by appending lines; each appended line has a row in the table below, and
-  the `abi-snapshot` and `abi-header` gates check them. Historical rows stay frozen.
+- `abi/pxui.v1.txt` and `abi/layout.v1.txt` change only by appending lines or by a row grown under the growth rule above; each such
+  change has a row in the table below, and the `abi-snapshot`, `abi-frozen` and `abi-header` gates check them. Historical rows stay frozen
+  otherwise. The manifests are written by the gates (`abi-snapshot --write`, `PXUI_LAYOUT_WRITE=1`), never by hand; `abi-snapshot` fails
+  while `abi/pxui.v1.txt` differs from what it would write.
 - One minor bump per additive change, made in the same commit as the export, header, snapshots and docs row.
 
 **Reserved flag bits.** Node flags (`Flags`, `u64`) use bits 0-21 today (highest is `FIT_TEXT_PIXEL`, 1 << 21). Bits 22-62 are
@@ -68,9 +82,11 @@ call that returns a value answers its failure value: null, 0, `SIZE_MAX` or `UIN
 - A shaper needs a font: `shaper_create` with none (or only refused ones) is null, never a panic at its first text.
 
 **Version and features.** `PxuiUiDesc.abi_built` (the record's 1.60 tail) is the `major << 16 | minor` the app was built against (`PXUI_ABI_BUILT`;
-`pxui_types::ABI_BUILT`, kept equal to `ABI_VERSION` by a test). Create checks the major only, against the library's own (nothing is fixed to major 1):
-another major returns null; 0, a 12-byte record, is unstated. The minor is not compared: an app built for a newer minor runs on an older library, which reads
-its larger records up to the size it knows (the size rule) and answers `pxui_supports` for what the app may use. The wrapper compares the library's major with its own.
+`pxui_types::ABI_BUILT`, kept equal to `ABI_VERSION` by a test). **Minimum library (from 1.84).** Create checks it against the library's own version (nothing
+is fixed to major 1): another major, or the same major with a newer minor than the library's, returns null (the Rust wrapper's `Ui::new` returns
+`Error::Version` first); 0, a 12-byte record, is unstated. An app therefore runs only on a library of its own minor or newer, so the library never reads a
+caller record grown past what it knows and an app never reads a library-written record (a body config, a snapshot) the library did not write at that size.
+A newer library serves an older app through the size rule (records read at their recorded sizes) and `pxui_supports` answers for what an app may use.
 `pxui_supports(id)` returns 1 when the library, as built, has the feature with that id and 0 otherwise or for an id it does not know. Ids (`PXUI_FEATURE_*` in
 `pxui.h`, `pxui_types::feature`, `pxui::Feature`) are append-only, never reused or renumbered, and 0 is never an id; a feature whose presence depends on the build
 (the accessibility bridge on Linux, the Metal and Vulkan backends) answers for the library that was built; a feature of a minor is present in every build of it.
@@ -224,6 +240,7 @@ wrapper) and name the replacement; nothing is removed from the manifest.
 | 1.81 | `ui_layout_node`; labels and images keyed positionally | The Rust U1b.6 keyless `row`/`column`/`stack` (D25): a layout container is the n-th of its scope, keyed by the library in a positional namespace (a seed-and-kind mix no label, id or resolved label goes through); labels and images move from the reserved `"\0label"`/`"\0image"` labels to the same namespace, each kind counted apart. Behaviour of every 1.x call is unchanged except those two internal key values. `pxui_scope` is the Rust `ui.id(key, f)`. |
 | 1.82 | `ui_text_field_response`, `ui_search_field_response`, `ui_line_field_response`, `ui_value_field_response`, `ui_text_area_response` | Each text input reports what happened to its box (`PxuiResponse`: box, hover, press, focus, click) in the one call, and the search, line and value fields and the text area name the box to a screen reader; the Rust wrapper made `ui_input_box`, `ui_a11y_name_checked`, `ui_signal` and `ui_focused` follow-up calls for that (U1c.5, D26). The legacy exports are unchanged. |
 | 1.83 | `ui_list_view_rows`, `ui_table_view_rows` | The Rust U2a.1 row keys: `selection_list` and the virtual `table_view` key row `i`'s box by the item id `key(desc->user, i)` (`PxuiRowKey`, as `PxuiSectionListDesc.key`), so a row's state follows its item when the items reorder or sort; a NULL `key` keys by index. The records are unchanged: the key crosses as an argument (new exports chosen at the U2a shape stop). The text table has no row boxes and ignores it. `ui_list_view_with` and `ui_table_view_keyed` keep their index keys. |
+| 1.84 | `ui_tabs_result`; `PxuiTabConfig.detail` (80 to 96 bytes) | The Rust U2a.2 `tabs(key, &[Segment], Option<usize>, &Tabs) -> PickResponse`: the tabs are `PxuiPickItem`s (checked as `ui_pick` checks them, in one pass): an id keys a tab (a tab without one is keyed by its place in a separate namespace), `detail` is drawn after the text by the built-in body, `has_selected` 0 is no tab in use (Right then takes the first, Left the last). `focus_on_click` 1 focuses the bar on a press (not a secondary one), whether or not the caller applies the choice. The result is a `PxuiSegmentedResult`: the tab in use and the tab a secondary press began on (never a choice). A registered tab body is given the detail in `PxuiTabConfig.detail`, appended at 80 (the record grows under the growth rule; a body reads it only when `size` covers it). `ui_tabs` and `ui_choice_keyed` kind 1 keep their behaviour (legacy, cut at 2.0). Behaviour of every segmented call from this minor: with `focus_on_click` the pressed option takes the focus on the press, and keeps it when the caller does not apply the choice. Create refuses an app built for a newer minor than the library (`PxuiUiDesc.abi_built`, the minimum-library rule; an older or unstated one is served as before). |
 
 Frame extensions retain the frozen 48/56/128-byte prefixes. Validate leading sizes, active
 records, flags and UTF-8 boundaries before mutation; partial tails never justify reading

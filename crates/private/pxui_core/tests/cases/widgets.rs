@@ -125,7 +125,7 @@ pub fn body(ui: &mut Ui, s: &mut S) {
             s.busy.push(p);
             let sp = ui.spinner("Spin", "Spin");
             s.busy.push(sp);
-            s.tab = ui.tabs("Tabs", &["Alpha", "Beta", "Gamma"], s.tab, &pxui_core::ui::Choice::DEFAULT.name("Tabs")).1;
+            s.tab = ui.tabs("Tabs", "Tabs", 3, &|i| pxui_core::ui::Segment::new(["Alpha", "Beta", "Gamma"][i]), Some(s.tab), 0, false).1.unwrap_or(s.tab);
             s.seg = ui.segmented_opts("Mode", "Mode", &[Segment::new("A"), Segment::new("B"), Segment::new("C")], Some(s.seg), &SegmentedOpts::DEFAULT).1.unwrap_or(s.seg);
             s.drop = ui.pick_dropdown("Pick", "Pick", NAMES.len(), &|i| pxui_core::ui::Segment::new(NAMES[i]), Some(s.drop), 0).1.unwrap_or(0);
             let holder = ui.node("add-row".into(), Node { h: Size::Px(24.0), axis: Axis::Row, padding: Edges { l: 12.0, t: 2.0, ..Edges::ZERO }, ..Node::DEFAULT });

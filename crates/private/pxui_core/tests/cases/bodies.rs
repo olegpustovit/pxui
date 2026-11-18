@@ -1323,7 +1323,7 @@ fn keys_then(keys: &[Key]) -> Vec<Vec<Event>> {
     keys.iter().flat_map(|k| [vec![Event::KeyPressed(*k)], vec![]]).collect()
 }
 
-fn fixed_tab(ui: &mut Ui, c: &TabConfig, text: &str) {
+fn fixed_tab(ui: &mut Ui, c: &TabConfig, text: &str, _detail: &str) {
     ui.node_mut(&c.node).w = Size::Px(60.0);
     ui.set_look(&c.node, if c.state.checked { ink_look() } else { Look::NONE }, c.state);
     ui.text(&c.node, text);
@@ -1332,7 +1332,7 @@ fn fixed_tab(ui: &mut Ui, c: &TabConfig, text: &str) {
 pub fn tab_fixed_body() {
     let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.tabs = id, &|ui| ui.register_tabs_body("fixed", fixed_tab));
     // a click on "B" chooses 1; Tab then Right moves on to 2
-    swap_all("tab", &install, Role::Tab, "B", Key::ArrowRight, &|ui, v| v.set(ui.tabs("Tabs", &["A", "B", "C"], v.get() as usize, &pxui_core::ui::Choice::DEFAULT.name("Tabs")).1 as i64));
+    swap_all("tab", &install, Role::Tab, "B", Key::ArrowRight, &|ui, v| v.set(ui.tabs("Tabs", "Tabs", 3, &|i| pxui_core::ui::Segment::new(["A", "B", "C"][i]), Some(v.get() as usize), 0, false).1.map_or(-1, |i| i as i64)));
 }
 
 thread_local! { static STRIP: Cell<i64> = const { Cell::new(0) }; }
@@ -1886,9 +1886,9 @@ pub fn picker_field_inked_body() {
 
 thread_local! { static TAB_RUNS: Cell<u32> = const { Cell::new(0) }; }
 
-fn counting_tab(ui: &mut Ui, c: &TabConfig, text: &str) {
+fn counting_tab(ui: &mut Ui, c: &TabConfig, text: &str, detail: &str) {
     TAB_RUNS.with(|r| r.set(r.get() + 1));
-    fixed_tab(ui, c, text);
+    fixed_tab(ui, c, text, detail);
 }
 
 /// A tab inside a kept view runs no body while the view is kept.
@@ -1900,7 +1900,7 @@ pub fn kept_view_runs_no_item_body() {
         ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| {
             ui.panel("p", &pxui_core::ui::Overlay::DEFAULT.window().name("p"), &mut |ui| {
                 ui.view("v", 1, Size::Grow, Size::Fit, &mut |ui| {
-                    ui.tabs("tabs", &["A", "B"], 0, &pxui_core::ui::Choice::DEFAULT.name("tabs")).1;
+                    ui.tabs("tabs", "tabs", 2, &|i| pxui_core::ui::Segment::new(["A", "B"][i]), Some(0), 0, false);
                 });
             })
         });

@@ -1646,8 +1646,8 @@ fn normalized_declaration(source: &str) -> String {
     tokens.into_iter().map(|token| token.text).collect::<Vec<_>>().join(" ")
 }
 
-fn c_exports(header: &str) -> BTreeMap<String, String> {
-    let mut declarations = BTreeMap::new();
+/// The header text with its comments replaced by spaces.
+fn without_c_comments(header: &str) -> String {
     let mut clean = String::with_capacity(header.len());
     let mut chars = header.chars().peekable();
     while let Some(ch) = chars.next() {
@@ -1664,7 +1664,12 @@ fn c_exports(header: &str) -> BTreeMap<String, String> {
             clean.push(ch);
         }
     }
-    for declaration in clean.split(';') {
+    clean
+}
+
+fn c_exports(header: &str) -> BTreeMap<String, String> {
+    let mut declarations = BTreeMap::new();
+    for declaration in without_c_comments(header).split(';') {
         let Some(paren) = declaration.find('(') else { continue };
         let Some(name) = declaration[..paren].split_whitespace().last() else { continue };
         let name = name.trim_start_matches('*');
@@ -1947,38 +1952,219 @@ fn snapshot_rows(text: &str) -> (Option<u32>, BTreeMap<String, String>) {
     (minor, rows)
 }
 
-/// Whether layout row `new` is frozen row `old` grown at its end behind its size prefix (docs/abi.md): the same name and alignment, every
-/// frozen field offset unchanged and in place, any new field at or past the frozen size, and a size not smaller.
-fn layout_grown(old: &str, new: &str) -> bool {
-    let words = |line: &str| line.split_whitespace().map(str::to_owned).collect::<Vec<_>>();
-    let (old, new) = (words(old), words(new));
-    let number = |word: &String| word.parse::<u64>().ok();
-    if old.len() < 4 || new.len() < old.len() || old[0] != "layout" || new[..2] != old[..2] || new[3] != old[3] { return false; }
-    let (Some(old_size), Some(new_size)) = (number(&old[2]), number(&new[2])) else { return false };
-    new_size >= old_size && new[4..old.len()] == old[4..] && new[old.len()..].iter().all(|word| number(word).is_some_and(|at| at >= old_size && at < new_size))
+/// A record's fields as the header declares them, `(type, name)` in order, by record name: each `typedef struct { .. } Name;` with
+/// comments dropped, a `T a, *b, c[4]` list split into one field each, an array's length kept in its type, and a function pointer's or a
+/// union's declaration (its own name taken out) as its type.
+fn header_records(header: &str) -> BTreeMap<String, Vec<(String, String)>> {
+    let text = without_c_comments(header);
+    let mut records = BTreeMap::new();
+    let mut rest = text.as_str();
+    while let Some(at) = rest.find("typedef struct") {
+        rest = &rest[at + "typedef struct".len()..];
+        let Some(open) = rest.find(['{', ';']) else { break };
+        if rest[open..].starts_with(';') { continue; } // an opaque handle
+        let (mut depth, mut close) = (0, None);
+        for (i, ch) in rest[open..].char_indices() {
+            match ch {
+                '{' => depth += 1,
+                '}' => { depth -= 1; if depth == 0 { close = Some(open + i); break; } }
+                _ => (),
+            }
+        }
+        let Some(close) = close else { break };
+        let Some(end) = rest[close..].find(';').map(|end| close + end) else { break };
+        let (mut fields, mut depth, mut start, body) = (Vec::new(), 0, 0, &rest[open + 1..close]);
+        for (i, ch) in body.char_indices() {
+            match ch {
+                '{' | '(' => depth += 1,
+                '}' | ')' => depth -= 1,
+                ';' if depth == 0 => { field_declaration(&body[start..i], &mut fields); start = i + 1; }
+                _ => (),
+            }
+        }
+        records.insert(rest[close + 1..end].trim().to_owned(), fields);
+        rest = &rest[end..];
+    }
+    records
 }
 
-/// `old` against the current rows: a row removed or changed fails, and new rows need a later minor. With `grow`, a layout row grown at
-/// its end (`layout_grown`) is not a change: frozen releases accept append-only growth, while the working manifest must match exactly.
-fn compare_abi_snapshot(old: &str, minor: u32, current: &BTreeMap<String, String>, grow: bool) -> Vec<String> {
+/// Appends the fields of one header field declaration (`T a, *b, c[4]`, a function pointer or a union) to `fields`.
+fn field_declaration(text: &str, fields: &mut Vec<(String, String)>) {
+    let words = |text: &str| text.replace('*', " * ").split_whitespace().collect::<Vec<_>>().join(" ");
+    let identifier_start = |text: &str| text.trim_end_matches(|ch: char| ch.is_ascii_alphanumeric() || ch == '_').len();
+    let text = words(text);
+    if text.is_empty() { return; }
+    if text.contains('{') {
+        let (ty, name) = text.rsplit_once(' ').unwrap_or(("", &text));
+        fields.push((ty.to_owned(), name.to_owned()));
+        return;
+    }
+    if let Some(star) = text.find("( * ") {
+        let after = &text[star + 4..];
+        let len = after.find(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_')).unwrap_or(after.len());
+        fields.push((format!("{}( *{}", &text[..star], &after[len..]), after[..len].to_owned()));
+        return;
+    }
+    let mut base = String::new();
+    for (i, piece) in text.split(',').map(str::trim).enumerate() {
+        let (declarator, array) = piece.find('[').map_or((piece, ""), |at| (piece[..at].trim_end(), &piece[at..]));
+        let start = identifier_start(declarator);
+        let (mut prefix, name) = (declarator[..start].trim(), &declarator[start..]);
+        if i == 0 {
+            base = prefix.trim_end_matches(['*', ' ']).to_owned();
+            prefix = &prefix[base.len()..];
+        }
+        fields.push((format!("{base}{}{}", " *".repeat(prefix.matches('*').count()), array.replace(' ', "")), name.to_owned()));
+    }
+}
+
+/// Recorded records whose field types changed other than by growth at the end, each reviewed when it landed, pinned to the field types
+/// it was reviewed with (a later change fails again): a field in padding the library reads only while it agrees with an older one, and
+/// a grown record kept at its recorded size with its larger layout recorded as a row of its own.
+const REVIEWED_FIELD_CHANGES: &[(&str, &str)] = &[
+    // 1.79 `size_points` in the padding at 4, read only while within half a point of `size` (U1b)
+    ("PxuiFontDesc", "uint16_t; uint16_t; float; int64_t; float; uint8_t; uint8_t[3]"),
+    // 1.78 `padding_points` in the padding at 20, read only while it agrees with `padding` within half a point (U1b)
+    ("PxuiPanel", "uint32_t; float; float; float; float; float; int64_t; uint8_t; uint8_t; uint8_t; uint8_t; uint8_t; uint8_t[3]; float; PxuiColor; PxuiLookDesc"),
+    // 1.60 `abi_built`, recorded as the row `PxuiUiDescV1_60`
+    ("PxuiUiDesc", "uint32_t; uint32_t; int32_t; uint32_t"),
+];
+
+/// What decides whether a recorded layout row may grow (docs/abi.md, Append-only rules): the record fields of the header the old
+/// manifest was made with and of the current one (`header_records`), the records the library writes (the config each `body_kinds!` line
+/// names, and every record an export returns as `const T *`) and the earlier sizes the library reads each caller record at (`read_desc!`).
+struct Growth {
+    old: BTreeMap<String, Vec<(String, String)>>,
+    new: BTreeMap<String, Vec<(String, String)>>,
+    returned: BTreeSet<String>,
+    configs: BTreeSet<String>,
+    read_sizes: BTreeMap<String, Vec<u64>>,
+}
+
+impl Growth {
+    /// From the old and current header text and the library's sources (with pxui_types' `theme.rs`, whose `body_kinds!` names the body
+    /// configs); the returned records come from the current exports.
+    fn new(old_header: &str, header: &str, current: &BTreeMap<String, String>, library_sources: &[String]) -> Self {
+        let returned = current.values().filter_map(|line| {
+            let mut words = line.split_whitespace().skip(2);
+            (words.next() == Some("const")).then(|| words.next().map(str::to_owned)).flatten().filter(|_| words.next() == Some("*"))
+        }).collect();
+        // the fourth word of each `body_kinds!` line: `toggle register_toggle_body ToggleBody PxuiToggleConfig ToggleConfig,`
+        let configs = library_sources.iter().filter_map(|source| source.split_once("macro_rules! body_kinds")).flat_map(|(_, rest)| {
+            rest.split_once("};").map_or(rest, |(kinds, _)| kinds).lines().filter_map(|line| line.split_whitespace().nth(3)).filter(|word| word.starts_with("Pxui")).map(|word| word.trim_end_matches(',').to_owned())
+        }).collect();
+        let mut read_sizes: BTreeMap<String, Vec<u64>> = BTreeMap::new();
+        for source in library_sources {
+            for call in source.split("read_desc!(").skip(1) {
+                let Some((args, _)) = call.split_once(')') else { continue };
+                let mut parts = args.splitn(3, ',').map(str::trim).skip(1);
+                let (Some(ty), Some(sizes)) = (parts.next(), parts.next()) else { continue };
+                let Some(sizes) = sizes.strip_prefix('[').and_then(|sizes| sizes.strip_suffix(']')) else { continue };
+                let ty = ty.rsplit("::").next().unwrap_or(ty).to_owned();
+                read_sizes.entry(ty).or_default().extend(sizes.split(',').filter_map(|size| size.trim().parse::<u64>().ok()));
+            }
+            // a record read by hand at its recorded sizes names each `const <RECORD>_V<minor>: usize = <size>;` (`MENU_EXTRA_V155` of
+            // `PxuiMenuExtra`) and checks the caller's size against it (`matches!(size, MENU_EXTRA_V1 | ..)`); a constant no check names
+            // proves nothing
+            let checked: BTreeSet<&str> = source.split("matches!(size,").skip(1).filter_map(|call| call.split_once(')')).flat_map(|(names, _)| names.split('|').map(str::trim)).collect();
+            for line in source.lines().filter_map(|line| line.trim().strip_prefix("const ")) {
+                let Some((name, size)) = line.split_once(": usize =") else { continue };
+                if !checked.contains(name) { continue }
+                let (Some((record, _)), Ok(size)) = (name.rsplit_once("_V"), size.trim().trim_end_matches(';').parse::<u64>()) else { continue };
+                let camel: String = record.split('_').filter(|word| !word.is_empty()).map(|word| word[..1].to_owned() + &word[1..].to_ascii_lowercase()).collect();
+                read_sizes.entry(format!("Pxui{camel}")).or_default().push(size);
+            }
+        }
+        Growth { old: header_records(old_header), new: header_records(header), returned, configs, read_sizes }
+    }
+
+    /// The header name of layout row `name` (a Rust row name drops the `Pxui` prefix).
+    fn record(&self, name: &str) -> Option<String> {
+        [name.to_owned(), format!("Pxui{name}")].into_iter().find(|name| self.new.contains_key(name))
+    }
+
+    /// Why layout row `old` may not become `new`, or `None` when it is the same record grown at its end: the same name and alignment,
+    /// a larger size, every recorded offset in place and every recorded field's type unchanged, the new fields appended at or past the
+    /// recorded size (or, with none, the last field a record that grew at its own end the same way), and a record the library writes or
+    /// a caller-written record whose first field is `uint32_t size` and that the library reads at the recorded size (`read_desc!`).
+    /// `nested` collects the records grown as a last field.
+    fn refuse(&self, old: &str, new: &str, nested: &mut BTreeSet<String>) -> Option<String> {
+        let words = |line: &str| line.split_whitespace().map(str::to_owned).collect::<Vec<_>>();
+        let (old, new) = (words(old), words(new));
+        let number = |word: &String| word.parse::<u64>().ok();
+        if old.len() < 4 || new.len() < old.len() || old[0] != "layout" || new[..2] != old[..2] || new[3] != old[3] { return Some("not a layout row grown at its end".to_owned()); }
+        let (Some(old_size), Some(new_size)) = (number(&old[2]), number(&new[2])) else { return Some("malformed size".to_owned()) };
+        if new_size <= old_size || new[4..old.len()] != old[4..] || !new[old.len()..].iter().all(|word| number(word).is_some_and(|at| at >= old_size && at < new_size)) {
+            return Some("a recorded offset moved, the size shrank or a field was put inside the recorded size".to_owned());
+        }
+        let Some(name) = self.record(&old[1]) else { return Some("no header record to check its field types".to_owned()) };
+        let (Some(was), Some(now)) = (self.old.get(&name), self.new.get(&name)) else { return Some("no header record to check its field types".to_owned()) };
+        if now.len() < was.len() || now[..was.len()].iter().map(|f| &f.0).ne(was.iter().map(|f| &f.0)) { return Some("a recorded field's type changed".to_owned()); }
+        if now.len() - was.len() != new.len() - old.len() { return Some("the header's new fields do not match the row's new offsets".to_owned()); }
+        if now.len() == was.len() {
+            let last = was.last().map(|field| field.0.clone()).unwrap_or_default();
+            match (self.old.get(&last), self.new.get(&last)) {
+                (Some(a), Some(b)) if b.len() > a.len() && b[..a.len()] == a[..] => { nested.insert(last); }
+                _ => return Some("the size grew with no new field (the last field's type changed)".to_owned()),
+            }
+        }
+        if self.configs.contains(&name) || self.returned.contains(&name) { return None; }
+        if now.first().map(|f| (f.0.as_str(), f.1.as_str())) != Some(("uint32_t", "size")) { return Some("a caller-written record without a `uint32_t size` prefix".to_owned()); }
+        if !self.read_sizes.get(&old[1]).or_else(|| self.read_sizes.get(&name)).is_some_and(|sizes| sizes.contains(&old_size)) {
+            return Some(format!("a caller-written record the library does not read at its recorded size {old_size} (`read_desc!`)"));
+        }
+        None
+    }
+}
+
+/// `old` against the current rows: a row removed or changed fails, and new or grown rows need a later minor. A layout row may grow
+/// at its end as `Growth::refuse` allows, and any other change of a recorded record's field types fails.
+fn compare_abi_snapshot(old: &str, minor: u32, current: &BTreeMap<String, String>, growth: &Growth) -> Vec<String> {
     let mut issues = Vec::new();
     let (old_minor, old_lines) = snapshot_rows(old);
     let Some(old_minor) = old_minor else { return vec!["abi-snapshot: snapshot has no valid `minor N` line".to_owned()] };
     if minor < old_minor {
         issues.push(format!("abi-snapshot: ABI minor decreased from {old_minor} to {minor}"));
     }
+    let (mut grown, mut nested) = (Vec::new(), BTreeSet::new());
     for (key, old_line) in &old_lines {
         match current.get(key) {
             None => issues.push(format!("abi-snapshot: removed {old_line}")),
-            Some(new_line) if new_line != old_line && !(grow && layout_grown(old_line, new_line)) => issues.push(format!("abi-snapshot: changed `{old_line}` to `{new_line}`")),
+            Some(new_line) if new_line != old_line => match growth.refuse(old_line, new_line, &mut nested) {
+                None => grown.extend(growth.record(&key[7..])),
+                Some(why) => issues.push(format!("abi-snapshot: changed `{old_line}` to `{new_line}` ({why})")),
+            },
             _ => (),
         }
     }
-    let additions: Vec<_> = current.iter().filter(|(key, _)| !old_lines.contains_key(*key)).map(|(_, line)| line).collect();
-    if !additions.is_empty() && minor <= old_minor {
-        issues.push(format!("abi-snapshot: {} new ABI line(s) require ABI minor > {old_minor}", additions.len()));
+    // a recorded record's field types (and those of the records it holds) change only by the growth checked above: a retyped field of
+    // the same size keeps every offset, so no row shows it
+    let mut recorded: BTreeSet<String> = old_lines.keys().filter_map(|key| key.strip_prefix("layout ")).filter_map(|name| growth.record(name)).collect();
+    recorded.extend(recorded.iter().flat_map(|name| growth.old.get(name).into_iter().flatten().map(|f| f.0.clone())).collect::<Vec<_>>());
+    for (name, was) in growth.old.iter().filter(|(name, _)| recorded.contains(*name)) {
+        let Some(now) = growth.new.get(name) else { continue };
+        let types = |fields: &[(String, String)]| fields.iter().map(|f| f.0.as_str()).collect::<Vec<_>>().join("; ");
+        if types(now) != types(was) && !grown.contains(name) && !nested.contains(name) && !REVIEWED_FIELD_CHANGES.contains(&(name.as_str(), types(now).as_str())) {
+            issues.push(format!("abi-snapshot: the field types of {name} changed from `{}` to `{}`", types(was), types(now)));
+        }
+    }
+    let additions = current.keys().filter(|key| !old_lines.contains_key(*key)).count();
+    if additions + grown.len() > 0 && minor <= old_minor {
+        issues.push(format!("abi-snapshot: {additions} new and {} grown ABI line(s) require ABI minor > {old_minor}", grown.len()));
     }
     issues
+}
+
+/// `Growth` between the header `old_header` and the working tree's, for the current rows.
+fn growth(workspace: &Path, old_header: &str, current: &BTreeMap<String, String>) -> Result<Growth, String> {
+    let header_path = workspace.join("include/pxui.h");
+    let header = fs::read_to_string(&header_path).map_err(|error| format!("{}: {error}", header_path.display()))?;
+    let source_dir = workspace.join("crates/private/pxui_abi/src");
+    let mut files = Vec::new();
+    rust_sources(&source_dir, &mut files).map_err(|error| format!("cannot scan {}: {error}", source_dir.display()))?;
+    files.push(workspace.join("crates/public/pxui_types/src/theme.rs"));
+    let sources = files.iter().map(|path| fs::read_to_string(path).map_err(|error| format!("{}: {error}", path.display()))).collect::<Result<Vec<_>, _>>()?;
+    Ok(Growth::new(old_header, &header, current, &sources))
 }
 
 fn abi_snapshot(workspace: &Path, write: bool) -> Result<Vec<String>, String> {
@@ -1990,16 +2176,24 @@ fn abi_snapshot(workspace: &Path, write: bool) -> Result<Vec<String>, String> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
         Err(error) => return Err(format!("{}: {error}", path.display())),
     };
+    // the baseline is the committed manifest with the committed header (the rows carry offsets only; the header gives the field types)
+    let committed = |file: &str| -> Result<String, String> {
+        let out = std::process::Command::new("git").args(["show", &format!("HEAD:{file}")]).current_dir(workspace).output()
+            .map_err(|error| format!("abi-snapshot: cannot run git for the committed {file}: {error}"))?;
+        if !out.status.success() { return Err(format!("abi-snapshot: git show HEAD:{file} failed: {}", String::from_utf8_lossy(&out.stderr).trim())); }
+        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    };
+    let base = if old.is_empty() { String::new() } else { committed("abi/pxui.v1.txt")? };
     // a row that moved to the extension manifest leaves the frozen one; every other old row still has to be there
-    let frozen: String = old.lines().filter(|line| {
+    let frozen: String = base.lines().filter(|line| {
         let mut words = line.split_whitespace();
         !matches!((words.next(), words.next()), (Some(kind), Some(name)) if ext.contains_key(&format!("{kind} {name}")))
     }).map(|line| format!("{line}\n")).collect();
-    let issues = if old.is_empty() { Vec::new() } else { compare_abi_snapshot(&frozen, minor, &lines, false) };
+    let issues = if old.is_empty() { Vec::new() } else { compare_abi_snapshot(&frozen, minor, &lines, &growth(workspace, &committed("include/pxui.h")?, &lines)?) };
     if !issues.is_empty() { return Ok(issues); }
+    let mut snapshot = format!("# Append-only PXUI ABI snapshot.\nminor {minor}\n");
+    for line in lines.values() { snapshot.push_str(line); snapshot.push('\n'); }
     if write {
-        let mut snapshot = format!("# Append-only PXUI ABI snapshot.\nminor {minor}\n");
-        for line in lines.values() { snapshot.push_str(line); snapshot.push('\n'); }
         fs::write(&path, snapshot).map_err(|error| format!("{}: {error}", path.display()))?;
         let mut snapshot = EXTENSION_HEADER.to_owned();
         for line in ext.values() { snapshot.push_str(line); snapshot.push('\n'); }
@@ -2007,6 +2201,8 @@ fn abi_snapshot(workspace: &Path, write: bool) -> Result<Vec<String>, String> {
         Ok(Vec::new())
     } else if old.is_empty() {
         Ok(vec!["abi-snapshot: abi/pxui.v1.txt is missing; create the initial baseline with `cargo run -p gate -- abi-snapshot --write`".to_owned()])
+    } else if old != snapshot {
+        Ok(vec!["abi-snapshot: abi/pxui.v1.txt is out of date; rerun with --write".to_owned()])
     } else {
         let have = abi_extension_lines(workspace)?;
         Ok(ext.iter().filter(|(key, line)| have.get(*key) != Some(*line))
@@ -2038,7 +2234,9 @@ fn abi_frozen(workspace: &Path) -> Result<Vec<String>, String> {
     for dir in abi_fixtures(workspace)? {
         let path = dir.join("pxui.v1.txt");
         let frozen = fs::read_to_string(&path).map_err(|error| format!("{}: {error}", path.display()))?;
-        issues.extend(compare_abi_snapshot(&frozen, minor, &rows, true).into_iter().map(|issue| issue.replacen("abi-snapshot", &format!("abi-frozen ({})", dir.display()), 1)));
+        let header_path = dir.join("pxui.h");
+        let header = fs::read_to_string(&header_path).map_err(|error| format!("{}: {error}", header_path.display()))?;
+        issues.extend(compare_abi_snapshot(&frozen, minor, &rows, &growth(workspace, &header, &rows)?).into_iter().map(|issue| issue.replacen("abi-snapshot", &format!("abi-frozen ({})", dir.display()), 1)));
     }
     Ok(issues)
 }
@@ -2291,8 +2489,10 @@ mod crate_name_tests {
 
 #[cfg(test)]
 mod abi_tests {
-    use super::{c_signature, compare_abi_snapshot, lex, rust_exports, rust_signature};
+    use super::{c_signature, compare_abi_snapshot, lex, rust_exports, rust_signature, Growth};
     use std::collections::BTreeMap;
+
+    fn none() -> Growth { Growth::new("", "", &BTreeMap::new(), &[]) }
 
     #[test]
     fn snapshot_is_append_only_and_additions_bump_minor() {
@@ -2302,32 +2502,94 @@ mod abi_tests {
             ("function pxui_b".to_owned(), "function pxui_b void pxui_b ( void ) ;".to_owned()),
             ("layout Rect".to_owned(), "layout Rect 16 4 0 4 8 12".to_owned()),
         ]);
-        assert!(!compare_abi_snapshot(old, 2, &current, false).is_empty());
-        assert!(compare_abi_snapshot(old, 3, &current, false).is_empty());
+        assert!(!compare_abi_snapshot(old, 2, &current, &none()).is_empty());
+        assert!(compare_abi_snapshot(old, 3, &current, &none()).is_empty());
 
         let changed = BTreeMap::from([
             ("function pxui_a".to_owned(), "function pxui_a int32_t pxui_a ( int32_t ) ;".to_owned()),
             ("layout Rect".to_owned(), "layout Rect 16 4 0 4 8 12".to_owned()),
         ]);
-        assert!(!compare_abi_snapshot(old, 4, &changed, false).is_empty());
+        assert!(!compare_abi_snapshot(old, 4, &changed, &none()).is_empty());
     }
 
-    /// A frozen layout row accepts growth at its end behind the size prefix and nothing else: a moved offset, a smaller size, a field
-    /// gone, a new field inside the frozen size, another alignment or name all fail; the working manifest (no `grow`) must match exactly.
+    /// The header fields of a record named `name`.
+    fn record(name: &str, fields: &str) -> String { format!("typedef struct {{ {fields} }} {name};\n") }
+
+    /// `old_row` (with `old_fields`) against `new_row` (with `new_fields`) at minor `minor` (the old one is 2); `extra` is more of both
+    /// headers and of the current rows (an export returning the record), `source` the library's.
+    fn grow(old_row: &str, old_fields: &str, new_row: &str, new_fields: &str, minor: u32, extra: (&str, &str), source: &str) -> Vec<String> {
+        let name = old_row.split_whitespace().next().unwrap();
+        let old = format!("minor 2\nlayout {old_row}\n");
+        let mut current = BTreeMap::from([(format!("layout {name}"), format!("layout {new_row}"))]);
+        if !extra.1.is_empty() { current.insert("function pxui_get".to_owned(), extra.1.to_owned()); }
+        let growth = Growth::new(&(record(name, old_fields) + extra.0), &(record(name, new_fields) + extra.0), &current, &[source.to_owned()]);
+        compare_abi_snapshot(&old, minor, &current, &growth)
+    }
+
+    /// The `body_kinds!` line that makes `PxuiTabConfig` a body config.
+    const KINDS: &str = "macro_rules! body_kinds {\n    tabs register_tabs_body TabBody PxuiTabConfig TabsConfig,\n};";
+
+    /// A recorded layout row grows only by trailing fields under a later minor, its recorded offsets and field types unchanged, and only
+    /// for a record the library writes (a body config, a returned snapshot) or a caller-written record with a `uint32_t size` prefix the
+    /// library reads at the recorded size (docs/abi.md, Append-only rules).
     #[test]
-    fn frozen_layouts_accept_only_growth_at_the_end() {
-        let old = "minor 2\nlayout Rec 16 8 0 4 8\n";
-        let check = |line: &str, grow: bool| compare_abi_snapshot(old, 3, &BTreeMap::from([("layout Rec".to_owned(), line.to_owned())]), grow);
-        assert!(check("layout Rec 16 8 0 4 8", true).is_empty(), "unchanged");
-        assert!(check("layout Rec 32 8 0 4 8 16 24", true).is_empty(), "grown at the end");
-        assert!(!check("layout Rec 32 8 0 4 8 16 24", false).is_empty(), "the working manifest matches exactly");
-        assert!(!check("layout Rec 32 8 0 4 12 16", true).is_empty(), "a moved offset");
-        assert!(!check("layout Rec 8 8 0 4 8", true).is_empty(), "a shrink");
-        assert!(!check("layout Rec 16 8 0 4", true).is_empty(), "a removed field");
-        assert!(!check("layout Rec 24 8 0 4 8 12", true).is_empty(), "a new field inside the frozen size");
-        assert!(!check("layout Rec 32 4 0 4 8 16", true).is_empty(), "another alignment");
+    fn recorded_layouts_grow_only_by_a_checked_trailing_append() {
+        let config = ("PxuiTabConfig 16 8 0 8", "uint32_t size; int64_t index;");
+        let appended = ("PxuiTabConfig 32 8 0 8 16", "uint32_t size; int64_t index; PxuiStr detail;");
+        let no = ("", "");
+        assert!(grow(config.0, config.1, config.0, config.1, 2, no, "").is_empty(), "unchanged");
+        assert!(grow(config.0, config.1, appended.0, appended.1, 3, no, KINDS).is_empty(), "a body config grown at its end");
+        assert!(!grow(config.0, config.1, appended.0, appended.1, 3, no, "").is_empty(), "a `*Config` no body kind names is caller-written");
+        let mut issues = grow(config.0, config.1, appended.0, appended.1, 2, no, KINDS);
+        assert!(issues.pop().is_some_and(|issue| issue.contains("require ABI minor > 2")) && issues.is_empty(), "growth needs a later minor");
+
+        // a borrowed snapshot (returned as `const T *`) grows through its last field, a record that grew at its own end
+        let bodies = |n: &str| record("PxuiBodies", n);
+        let snapshot = ("PxuiSnap 8 4 0 4", "uint32_t a; PxuiBodies bodies;");
+        let returned = "function pxui_get const PxuiSnap * pxui_get ( PxuiUi * ui ) ;";
+        let check = |old_b: &str, new_b: &str, row: &str| {
+            let old = format!("minor 2\nlayout {}\n", snapshot.0);
+            let current = BTreeMap::from([("layout PxuiSnap".to_owned(), format!("layout {row}")), ("function pxui_get".to_owned(), returned.to_owned())]);
+            let growth = Growth::new(&(bodies(old_b) + &record("PxuiSnap", snapshot.1)), &(bodies(new_b) + &record("PxuiSnap", snapshot.1)), &current, &[]);
+            compare_abi_snapshot(&old, 3, &current, &growth)
+        };
+        assert!(check("uint16_t a, b;", "uint16_t a, b, c;", "PxuiSnap 12 4 0 4").is_empty(), "a snapshot grown by its last record");
+        assert!(!check("uint16_t a, b;", "uint16_t a, c, b;", "PxuiSnap 12 4 0 4").is_empty(), "its last record changed inside");
+        assert!(!check("uint16_t a, b;", "uint16_t a, b;", "PxuiSnap 12 4 0 4").is_empty(), "a size grown with no new field");
+
+        // a caller-written record grows only behind a `uint32_t size` prefix the library reads at the recorded size
+        let desc = ("PxuiDesc 8 4 0 4", "uint32_t size; float w;");
+        let grown_desc = ("PxuiDesc 12 4 0 4 8", "uint32_t size; float w; float h;");
+        let read = "let d = read_desc!(desc, PxuiDesc, [8]);";
+        assert!(grow(desc.0, desc.1, grown_desc.0, grown_desc.1, 3, no, read).is_empty(), "a prefixed caller record read at 8");
+        assert!(!grow(desc.0, desc.1, grown_desc.0, grown_desc.1, 3, no, "read_desc!(desc, PxuiDesc)").is_empty(), "not read at its recorded size");
+        let unprefixed = ("PxuiDesc 8 4 0 4", "uint32_t kind; float w;");
+        assert!(!grow(unprefixed.0, unprefixed.1, grown_desc.0, "uint32_t kind; float w; float h;", 3, no, read).is_empty(), "no size prefix");
+        let by_hand = "const DESC_V1: usize = 8;\nlet valid = matches!(size, DESC_V1) || size >= FULL;";
+        assert!(grow(desc.0, desc.1, grown_desc.0, grown_desc.1, 3, no, by_hand).is_empty(), "read by hand at 8");
+        assert!(!grow(desc.0, desc.1, grown_desc.0, grown_desc.1, 3, no, "const DESC_V1: usize = 8;").is_empty(), "a `_V` constant no size check names");
+        let caller_config = ("PxuiDescConfig 8 4 0 4", "uint32_t size; float w;");
+        assert!(!grow(caller_config.0, caller_config.1, "PxuiDescConfig 12 4 0 4 8", grown_desc.1, 3, no, KINDS).is_empty(), "a caller-written `*Config` not read at 8");
+
+        // what stays refused
+        let refused = |row: &str, fields: &str, why: &str| assert!(!grow(config.0, config.1, row, fields, 3, no, KINDS).is_empty(), "{why}");
+        refused("PxuiTabConfig 32 8 0 16 24", "uint32_t size; PxuiStr detail; int64_t index;", "a field put mid-record");
+        refused("PxuiTabConfig 16 8 0 8", "uint32_t size; double index;", "a type change at the same offset");
+        refused("PxuiTabConfig 16 8 0 8", "uint32_t size; uint64_t index;", "a type change of the same size");
+        refused("PxuiTabConfig 24 8 0 8 12", "uint32_t size; int64_t index; float w;", "a field inside the recorded size");
+        refused("PxuiTabConfig 8 8 0 4", "uint32_t size; uint32_t index;", "a shrink");
+        refused("PxuiTabConfig 32 4 0 8 16", appended.1, "another alignment");
+        refused("PxuiTabConfig 24 8 0 8", "uint32_t size; int64_t index;", "a size grown with no new field");
         let renamed = BTreeMap::from([("layout Other".to_owned(), "layout Other 32 8 0 4 8 16".to_owned())]);
-        assert!(!compare_abi_snapshot(old, 3, &renamed, true).is_empty(), "a renamed record is a removed one");
+        assert!(!compare_abi_snapshot("minor 2\nlayout Rec 16 8 0 4 8\n", 3, &renamed, &none()).is_empty(), "a renamed record is a removed one");
+    }
+
+    #[test]
+    fn header_records_split_field_lists() {
+        let records = super::header_records("typedef struct PxuiUi PxuiUi;\n/* c */ typedef struct { uint32_t size; float a,b; const PxuiStates * t, *k; uint8_t r[3]; void (*f)(void *u); union { float v; float (*g)(float); } u; } PxuiX;");
+        let fields: Vec<_> = records["PxuiX"].iter().map(|(ty, name)| format!("{ty}|{name}")).collect();
+        assert_eq!(fields, ["uint32_t|size", "float|a", "float|b", "const PxuiStates *|t", "const PxuiStates *|k", "uint8_t[3]|r", "void ( *)(void * u)|f", "union { float v; float ( * g)(float); }|u"]);
+        assert_eq!(records.len(), 1);
     }
 
     #[test]

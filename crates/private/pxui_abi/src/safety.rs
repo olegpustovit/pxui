@@ -10,6 +10,16 @@ fn run(ui: *mut PxuiUi, build: Build, user: *mut c_void) -> i32 {
     let mut out = FrameOut::default();
     unsafe { pxui_frame(ui, &frame_in(), build, user, &mut out) }
 }
+/// `f`'s return code, run inside one frame of `ui`.
+fn in_frame(ui: *mut PxuiUi, f: &mut dyn FnMut(*mut PxuiUi) -> i32) -> i32 {
+    extern "C" fn build(user: *mut c_void, ui: *mut c_void) {
+        let (f, rc) = unsafe { &mut *user.cast::<(&mut dyn FnMut(*mut PxuiUi) -> i32, i32)>() };
+        *rc = f(ui.cast());
+    }
+    let mut state = (f, i32::MIN);
+    assert_eq!(run(ui, Some(build), (&mut state as *mut (&mut dyn FnMut(*mut PxuiUi) -> i32, i32)).cast()), 0, "{}", error(ui));
+    state.1
+}
 extern "C" fn nothing(_: *mut c_void, _: *mut c_void) {}
 extern "C" fn count(user: *mut c_void, _: *mut c_void) { unsafe { *user.cast::<u32>() += 1; } }
 
@@ -466,6 +476,38 @@ fn list_and_table_rows_exports_key_rows_by_item_id() {
     assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
 }
 
+// ABI 1.84: every tab argument is checked before the bar is built; a refused call writes no result.
+#[test]
+fn tabs_result_refuses_invalid_arguments_and_items() {
+    use pxui_types::ffi::{PxuiKeyedDesc, PxuiPickItem, PxuiResponse, PxuiSegmentedResult, Slice};
+    let item = |text: &'static [u8]| PxuiPickItem { text: Str { ptr: text.as_ptr(), len: text.len() }, ..PxuiPickItem::default() };
+    let good = [item(b"Songs"), PxuiPickItem { has_id: 1, id: 7, detail: Str { ptr: b"12".as_ptr(), len: 2 }, ..item(b"Albums") }];
+    let ui = create();
+    let keyed = PxuiKeyedDesc::new("tabs", "Sections");
+    let tabs = |items: &[PxuiPickItem], has_selected: u8, focus: u8, result: &mut PxuiSegmentedResult| in_frame(ui, &mut |ui| {
+        let mut out = PxuiResponse::EMPTY;
+        unsafe { pxui_ui_tabs_result(ui, &keyed, Slice { ptr: items.as_ptr(), len: items.len() }, has_selected, 1, focus, &mut out, result) }
+    });
+    let mut result = PxuiSegmentedResult::EMPTY;
+    assert_eq!(tabs(&good, 1, 1, &mut result), 0, "{}", error(ui));
+    assert_eq!((result.has_chosen, result.chosen), (1, 1), "the tab in use");
+    let refused = |items: &[PxuiPickItem], has_selected: u8, focus: u8, why: &str| {
+        let mut result = PxuiSegmentedResult { has_chosen: 9, ..PxuiSegmentedResult::EMPTY };
+        assert_ne!(tabs(items, has_selected, focus, &mut result), 0, "{why}");
+        assert_eq!(result.has_chosen, 9, "{why}: no result written");
+    };
+    refused(&good, 2, 0, "has_selected not 0 or 1");
+    refused(&good, 0, 2, "focus_on_click not 0 or 1");
+    refused(&[PxuiPickItem { has_id: 2, ..good[0] }], 0, 0, "has_id not 0 or 1");
+    refused(&[PxuiPickItem { reserved: [0, 0, 0, 1, 0, 0, 0], ..good[0] }], 0, 0, "a non-zero reserved byte");
+    refused(&[item(b"\xff")], 0, 0, "text that is not UTF-8");
+    refused(&[PxuiPickItem { detail: Str { ptr: core::ptr::null(), len: 3 }, ..good[0] }], 0, 0, "a null detail with a length");
+    let mut result = PxuiSegmentedResult::EMPTY;
+    assert_ne!(in_frame(ui, &mut |ui| { let mut out = PxuiResponse::EMPTY; unsafe { pxui_ui_tabs_result(ui, &keyed, Slice { ptr: core::ptr::null(), len: 2 }, 0, 0, 0, &mut out, &mut result) } }), 0, "a null span with a length");
+    assert_ne!(in_frame(ui, &mut |ui| unsafe { pxui_ui_tabs_result(ui, &keyed, Slice { ptr: good.as_ptr(), len: 2 }, 0, 0, 0, core::ptr::null_mut(), &mut result) }), 0, "a null response");
+    assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
+}
+
 #[test]
 fn measured_section_descriptors_validate_before_callbacks_and_restore_the_owner() {
     use pxui_types::ffi::PxuiMeasuredSectionDesc;
@@ -746,15 +788,6 @@ mod sized_records {
     }
 
     /// One frame on `ui` whose build runs `f` once; its result.
-    fn in_frame(ui: *mut PxuiUi, f: &mut dyn FnMut(*mut PxuiUi) -> i32) -> i32 {
-        extern "C" fn build(user: *mut c_void, ui: *mut c_void) {
-            let (f, rc) = unsafe { &mut *user.cast::<(&mut dyn FnMut(*mut PxuiUi) -> i32, i32)>() };
-            *rc = f(ui.cast());
-        }
-        let mut state = (f, i32::MIN);
-        assert_eq!(run(ui, Some(build), (&mut state as *mut (&mut dyn FnMut(*mut PxuiUi) -> i32, i32)).cast()), 0, "{}", error(ui));
-        state.1
-    }
     fn a_box(ui: *mut PxuiUi) -> PxuiBox {
         let mut node = PxuiBox::default();
         assert_eq!(unsafe { pxui_ui_node_keyed(ui, 9, &pxui_types::Node::DEFAULT, &mut node) }, 0);
@@ -1642,12 +1675,13 @@ mod sized_records {
 
 // ABI 1.60: the version an app was built against, recorded sizes of grown input records and `pxui_supports`.
 #[test]
-fn the_library_checks_the_major_the_app_was_built_against_once_at_create() {
+fn the_library_checks_the_version_the_app_was_built_against_once_at_create() {
     assert_eq!(pxui_types::ABI_BUILT, ABI_VERSION, "bump ABI_BUILT with ABI_VERSION");
     let major = ABI_VERSION >> 16;
     let make = |built: u32| { let ui = unsafe { pxui_ui_create(&PxuiUiDesc { abi_built: built, ..PxuiUiDesc::default() }) }; let ok = !ui.is_null(); if ok { unsafe { pxui_ui_destroy(ui); } } ok };
-    assert!(make(ABI_VERSION) && make(0) && make(major << 16) && make(ABI_VERSION - 1), "the same, unstated, the first and an older minor");
-    assert!(make(ABI_VERSION + 1) && make(major << 16 | 0xFFFF), "an app built for a newer minor runs and probes pxui_supports");
+    assert!(make(ABI_VERSION) && make(0) && make(major << 16) && make(ABI_VERSION - 1) && make(major << 16 | 57), "the same, unstated, the first and an older minor");
+    // the minimum-library rule: an app built for a newer minor may write or read records grown past this library's, so it is refused
+    assert!(!make(ABI_VERSION + 1) && !make(major << 16 | 0xFFFF), "an app built for a newer minor than the library");
     assert!(!make((major + 1) << 16) && !make((major - 1) << 16 | 1) && !make(u32::MAX), "another major");
     // a record from before 1.60 (12 bytes, no abi_built) is read as unstated; no other size short of the whole record is read
     let rec = |size: u32| [size.to_ne_bytes(), 1u32.to_ne_bytes(), 13u32.to_ne_bytes(), 0u32.to_ne_bytes()].concat();

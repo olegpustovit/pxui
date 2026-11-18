@@ -10,7 +10,7 @@ use crate::{PxuiBox, PxuiSignal, Str};
 use pxui_types::ffi::{PxuiResponse, PxuiTextStyle};
 use pxui_types::{text::LabelFields, TextGlyph, TextMetrics, TextSpans};
 use pxui_core::ui::{Segment, SegmentedOpts, ToggleOpts, Ui};
-use pxui_types::ui::{Checkbox, Choice, Overlay, SelectionList, Slider, TableResponse, TableView};
+use pxui_types::ui::{Checkbox, Overlay, SelectionList, Slider, TableResponse, TableView};
 use pxui_types::{Axis, FrameIn, FrameOut, Node, Size, ffi::Input, geom::Edges, layout::{Along, Justify}, theme::{State, States, ThemeSnapshot}};
 
 
@@ -357,7 +357,7 @@ pub unsafe fn choice(ui: *mut PxuiUi, kind: u32, key: &str, name: &str, options:
     let engine = unsafe { engine(ui) };
     let (r, at) = match kind {
         0 => { let (r, at, _) = engine.pick_radio(key, name, options.len(), &|i| Segment::new(options[i]), Some(selected), variant); (r, at.unwrap_or(0)) }
-        1 => engine.tabs(key, options, selected, &Choice { name, variant }),
+        1 => { let (r, at, _) = engine.tabs(key, name, options.len(), &|i| Segment::new(options[i]), Some(selected), variant, false); (r, at.unwrap_or(0)) }
         2 => { let (r, at, _) = engine.segmented_options(key, name, options.len(), &|i| Segment::new(options[i]), Some(selected), &SegmentedOpts::DEFAULT); (r, at.unwrap_or(0)) }
         3 => { let (r, at, _) = engine.pick_dropdown(key, name, options.len(), &|i| Segment::new(options[i]), Some(selected), variant); (r, at.unwrap_or(0)) }
         _ => return unsafe { fail(ui, "invalid choice kind") },
@@ -367,35 +367,36 @@ pub unsafe fn choice(ui: *mut PxuiUi, kind: u32, key: &str, name: &str, options:
     0
 }
 
-/// A pick-one control of `items` keyed by `key`: `kind` 0 a radio group (`name` its accessible name), 3 a dropdown (`name` its shown
-/// and accessible text); an item with an id is keyed by it. `chosen` is the choice (none: none), `secondary` the item a secondary
-/// press began on. Any other kind is refused.
+/// A pick-one control of `items` keyed by `key`: `kind` 0 a radio group and 1 a tab bar (`name` their accessible name; `focus` makes a
+/// press on a tab focus the bar), 3 a dropdown (`name` its shown and accessible text); an item with an id is keyed by it. `chosen` is
+/// the choice (none: none), `secondary` the item a secondary press began on. Any other kind is refused.
 #[allow(clippy::too_many_arguments)]
 #[inline]
-pub unsafe fn pick(ui: *mut PxuiUi, kind: u32, key: &str, name: &str, items: &[Segment], selected: Option<usize>, out: &mut PxuiResponse, chosen: &mut Option<usize>, secondary: &mut Option<usize>) -> i32 {
+pub unsafe fn pick(ui: *mut PxuiUi, kind: u32, key: &str, name: &str, items: &[Segment], selected: Option<usize>, focus: bool, out: &mut PxuiResponse, chosen: &mut Option<usize>, secondary: &mut Option<usize>) -> i32 {
     enter!(ui);
     let name = clip(name);
     let mut spare = Vec::new();
     let items = clip_segments(items, &mut spare);
     if bad_key(key) || !segments_ok(items) { return unsafe { fail(ui, "invalid widget strings") }; }
-    unsafe { pick_body(ui, kind, key, name, items, selected, out, chosen, secondary) }
+    unsafe { pick_body(ui, kind, key, name, items, selected, focus, out, chosen, secondary) }
 }
 
-/// `pick` for `pxui_ui_pick`, which has checked the key, the name and every item as C hands them over (`checked_key`, `checked`,
+/// `pick` for `pxui_ui_pick` and `pxui_ui_tabs_result`, which has checked the key, the name and every item as C hands them over (`checked_key`, `checked`,
 /// `pick_items`): only the handle is checked here, so nothing is checked twice.
 #[allow(clippy::too_many_arguments)]
 #[inline]
-pub(crate) unsafe fn pick_checked(ui: *mut PxuiUi, kind: u32, key: &str, name: &str, items: &[Segment], selected: Option<usize>, out: &mut PxuiResponse, chosen: &mut Option<usize>, secondary: &mut Option<usize>) -> i32 {
+pub(crate) unsafe fn pick_checked(ui: *mut PxuiUi, kind: u32, key: &str, name: &str, items: &[Segment], selected: Option<usize>, focus: bool, out: &mut PxuiResponse, chosen: &mut Option<usize>, secondary: &mut Option<usize>) -> i32 {
     enter!(ui);
-    unsafe { pick_body(ui, kind, key, name, items, selected, out, chosen, secondary) }
+    unsafe { pick_body(ui, kind, key, name, items, selected, focus, out, chosen, secondary) }
 }
 
 #[allow(clippy::too_many_arguments)]
 #[inline(always)]
-unsafe fn pick_body(ui: *mut PxuiUi, kind: u32, key: &str, name: &str, items: &[Segment], selected: Option<usize>, out: &mut PxuiResponse, chosen: &mut Option<usize>, secondary: &mut Option<usize>) -> i32 {
+unsafe fn pick_body(ui: *mut PxuiUi, kind: u32, key: &str, name: &str, items: &[Segment], selected: Option<usize>, focus: bool, out: &mut PxuiResponse, chosen: &mut Option<usize>, secondary: &mut Option<usize>) -> i32 {
     let engine = unsafe { engine(ui) };
     let (r, at, pressed) = match kind {
         0 => engine.pick_radio(key, name, items.len(), &|i| items[i], selected, 0),
+        1 => engine.tabs(key, name, items.len(), &|i| items[i], selected, 0, focus),
         3 => engine.pick_dropdown(key, name, items.len(), &|i| items[i], selected, 0),
         _ => return unsafe { fail(ui, "invalid pick kind") },
     };
