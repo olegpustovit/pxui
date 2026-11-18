@@ -2,11 +2,11 @@
 crates/public/pxui/src/bodies.rs		example,Allocates,Panics
 crates/public/pxui/src/bodies.rs	Ui::part	example,Allocates,Panics
 crates/public/pxui/src/bodies.rs	Ui::slot	example,Allocates,Panics
-crates/public/pxui/src/kit_ext.rs	Ui::field_drag	example,Allocates,Panics
-crates/public/pxui/src/kit_ext.rs	Ui::grip	example,Allocates,Panics,Identity
-crates/public/pxui/src/kit_ext.rs	Ui::inspector_bar	example,Allocates,Panics
-crates/public/pxui/src/kit_ext.rs	Ui::inspector_body	example,Allocates,Panics
-crates/public/pxui/src/kit_ext.rs	Ui::inspector_header	example,Allocates,Panics,Identity
+crates/public/pxui/src/kit_ext.rs	field_drag	example,Allocates,Panics
+crates/public/pxui/src/kit_ext.rs	grip	example,Allocates,Panics,Identity
+crates/public/pxui/src/kit_ext.rs	inspector_bar	example,Allocates,Panics
+crates/public/pxui/src/kit_ext.rs	inspector_body	example,Allocates,Panics
+crates/public/pxui/src/kit_ext.rs	inspector_header	example,Allocates,Panics,Identity
 crates/public/pxui/src/kit.rs	pxui_ui_footer	example,Allocates,Panics
 crates/public/pxui/src/kit.rs	pxui_ui_grid_list	example,Allocates,Panics
 crates/public/pxui/src/kit.rs	pxui_ui_inspector_button	example,Allocates,Panics,Identity
