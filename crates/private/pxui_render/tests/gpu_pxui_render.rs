@@ -1809,6 +1809,7 @@ fn shared_public_view_controls_keep_native_draws_and_instances() {
     let queue=ok(be::create_queue(&device));
     let target=texture(&device,640,600,&[TextureUsage::RenderAttachment,TextureUsage::TextureCopySrc]);
     let mut ui=pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
+    ui.verify_views(false); // the test counts kept views' rebuilds; verification rebuilds them
     let mut renderer=shared_renderer(&device,&ui);
     let (outer,inner)=(Cell::new(None),Cell::new(None));
     let builds=Cell::new(0);
