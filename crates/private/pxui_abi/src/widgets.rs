@@ -102,7 +102,7 @@ mod keyed_tests {
 export!(build pub unsafe fn pxui_ui_scrub(ui: *mut PxuiUi, label: Str, value: f32, min: f32, max: f32, step: f32, out: *mut pxui_types::ffi::PxuiScrubOut) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "invalid scrub output") }; };
-    let Some(label) = (unsafe { checked(label) }) else { return unsafe { fail(ui, "invalid scrub label") }; };
+    let Some(label) = (unsafe { crate::state::checked_label(label) }) else { return unsafe { fail(ui, "invalid scrub label") }; };
     if !value.is_finite() || !min.is_finite() || !max.is_finite() || min > max || !(max - min).is_finite() || !step.is_finite() || step <= 0.0 {
         return unsafe { fail(ui, "invalid scrub range, value or step") };
     }
@@ -117,7 +117,7 @@ export!(build pub unsafe fn pxui_ui_scrub_result(ui: *mut PxuiUi, label: Str, va
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     let Some(response) = sized_mut!(response) else { return unsafe { fail(ui, "invalid scrub response") }; };
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "invalid scrub output") }; };
-    let Some(label) = (unsafe { checked(label) }) else { return unsafe { fail(ui, "invalid scrub label") }; };
+    let Some(label) = (unsafe { crate::state::checked_label(label) }) else { return unsafe { fail(ui, "invalid scrub label") }; };
     if !value.is_finite() || !min.is_finite() || !max.is_finite() || min > max || !(max - min).is_finite() || !step.is_finite() || step <= 0.0 {
         return unsafe { fail(ui, "invalid scrub range, value or step") };
     }
@@ -153,7 +153,7 @@ pub(crate) unsafe fn read_keyed<'a>(desc: *const PxuiKeyedDesc) -> Option<(&'a s
 export!(trusted pub unsafe fn pxui_ui_checkbox(ui: *mut PxuiUi, label: Str, value: u8, out: *mut u8) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if out.is_null() || value > 1 { return unsafe { fail(ui, "invalid checkbox arguments") }; }
-    let Some(label) = (unsafe { checked(label) }) else { return unsafe { fail(ui, "invalid checkbox label") }; };
+    let Some(label) = (unsafe { crate::state::checked_label(label) }) else { return unsafe { fail(ui, "invalid checkbox label") }; };
     let mut r = PxuiResponse::EMPTY;
     let rc = unsafe { trusted::checkbox(ui, label, shown(label), value != 0, &Checkbox::DEFAULT, &mut r) };
     unsafe { *out = (value != 0) as u8 ^ (r.flags & PxuiResponse::CLICKED != 0) as u8; }
@@ -173,7 +173,7 @@ unsafe fn choice(ui: *mut PxuiUi, key: &str, name: &str, options: Slice<Str>, se
 unsafe fn legacy_choice(ui: *mut PxuiUi, label: Str, options: Slice<Str>, selected: usize, out: *mut usize, kind: u32) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if out.is_null() { return unsafe { fail(ui, "null widget output") }; }
-    let Some(label) = (unsafe { checked(label) }) else { return unsafe { fail(ui, "invalid widget strings") }; };
+    let Some(label) = (unsafe { crate::state::checked_label(label) }) else { return unsafe { fail(ui, "invalid widget strings") }; };
     let mut r = PxuiResponse::EMPTY;
     unsafe { choice(ui, label, shown(label), options, selected, kind, &mut r, &mut *out) }
 }
@@ -188,7 +188,7 @@ export!(trusted pub unsafe fn pxui_ui_dropdown(ui: *mut PxuiUi, label: Str, opti
 export!(trusted pub unsafe fn pxui_ui_slider(ui: *mut PxuiUi, label: Str, value: f32, min: f32, max: f32, out: *mut f32) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if out.is_null() { return unsafe { fail(ui, "invalid slider arguments") }; }
-    let Some(label) = (unsafe { checked(label) }) else { return unsafe { fail(ui, "invalid slider label") }; };
+    let Some(label) = (unsafe { crate::state::checked_label(label) }) else { return unsafe { fail(ui, "invalid slider label") }; };
     let mut r = PxuiResponse::EMPTY;
     unsafe { trusted::slider(ui, label, shown(label), value, min, max, &Slider::DEFAULT, &mut r, &mut *out) }
 });
@@ -237,7 +237,7 @@ export!(trusted pub unsafe fn pxui_ui_slider_result(ui: *mut PxuiUi, keyed: *con
 export!(trusted pub unsafe fn pxui_ui_progress(ui: *mut PxuiUi, label: Str, has_value: u8, value: f32, out: *mut PxuiBox) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if out.is_null() || has_value > 1 { return unsafe { fail(ui, "invalid progress arguments") }; }
-    let Some(label) = (unsafe { checked(label) }) else { return unsafe { fail(ui, "invalid progress label") }; };
+    let Some(label) = (unsafe { crate::state::checked_label(label) }) else { return unsafe { fail(ui, "invalid progress label") }; };
     unsafe { trusted::progress(ui, label, shown(label), (has_value != 0).then_some(value), &mut *out) }
 });
 
@@ -253,7 +253,7 @@ export!(trusted pub unsafe fn pxui_ui_progress_keyed(ui: *mut PxuiUi, keyed: *co
 export!(trusted pub unsafe fn pxui_ui_spinner(ui: *mut PxuiUi, label: Str, out: *mut PxuiBox) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if out.is_null() { return unsafe { fail(ui, "null spinner output") }; }
-    let Some(label) = (unsafe { checked(label) }) else { return unsafe { fail(ui, "invalid spinner label") }; };
+    let Some(label) = (unsafe { crate::state::checked_label(label) }) else { return unsafe { fail(ui, "invalid spinner label") }; };
     unsafe { trusted::spinner(ui, label, shown(label), &mut *out) }
 });
 
@@ -268,7 +268,7 @@ export!(trusted pub unsafe fn pxui_ui_spinner_keyed(ui: *mut PxuiUi, keyed: *con
 export!(trusted pub unsafe fn pxui_ui_icon_button(ui: *mut PxuiUi, label: Str, icon: Str, out: *mut u8) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if out.is_null() { return unsafe { fail(ui, "null icon button output") }; }
-    let (Some(label), Some(icon)) = (unsafe { checked(label) }, unsafe { checked(icon) }) else { return unsafe { fail(ui, "invalid icon button text") }; };
+    let (Some(label), Some(icon)) = (unsafe { crate::state::checked_label(label) }, unsafe { checked(icon) }) else { return unsafe { fail(ui, "invalid icon button text") }; };
     let mut pressed = false;
     let rc = unsafe { trusted::icon_button(ui, label, icon, &mut pressed) };
     unsafe { *out = pressed as u8; }
@@ -279,7 +279,7 @@ export!(trusted pub unsafe fn pxui_ui_icon_button(ui: *mut PxuiUi, label: Str, i
 export!(trusted pub unsafe fn pxui_ui_badge(ui: *mut PxuiUi, label: Str, value: Str, out: *mut PxuiBox) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if out.is_null() { return unsafe { fail(ui, "null badge output") }; }
-    let (Some(label), Some(value)) = (unsafe { checked(label) }, unsafe { checked(value) }) else { return unsafe { fail(ui, "invalid badge text") }; };
+    let (Some(label), Some(value)) = (unsafe { crate::state::checked_label(label) }, unsafe { checked(value) }) else { return unsafe { fail(ui, "invalid badge text") }; };
     unsafe { trusted::badge(ui, label, shown(label), value, &mut *out) }
 });
 
@@ -297,7 +297,7 @@ export!(trusted pub unsafe fn pxui_ui_search_field(ui: *mut PxuiUi, label: Str, 
     if changed.is_null() || out.is_null() { return unsafe { fail(ui, "null search field output") }; }
     unsafe { *changed = 0; *out = Str::default(); }
     let (Some(label), Some(icon), Some(value), Some(placeholder)) = (
-        unsafe { checked(label) }, unsafe { checked(icon) }, unsafe { crate::state::checked_text(value) }, unsafe { checked(placeholder) },
+        unsafe { crate::state::checked_label(label) }, unsafe { checked(icon) }, unsafe { crate::state::checked_text(value) }, unsafe { checked(placeholder) },
     ) else { return unsafe { fail(ui, "invalid search field text") }; };
     let mut found = None;
     let rc = unsafe { trusted::search_field(ui, label, icon, value, placeholder, &mut found) };

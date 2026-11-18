@@ -375,8 +375,9 @@ fn every_export_refuses_bad_arguments_without_panicking() {
     assert!(failures.is_empty(), "{} failing calls:\n{}", failures.len(), failures.join("\n"));
 }
 
-/// A label in the 0x01 resolved form that carries 0 or 1, or is malformed, is refused with `PXUI_ERR_ARGUMENT` by every kind of export
-/// that takes a key label (creation, scope, keyed record, image, lookup, hover wait): never the engine's reserved-key assertion.
+/// A label in the 0x01 resolved form that carries 0 or 1, or is malformed, is refused with `PXUI_ERR_ARGUMENT` by every export that takes a
+/// key label (creation, scope, keyed record, image, lookup, hover wait, and each legacy label-keyed call): never the engine's reserved-key
+/// assertion, never hashed as text.
 #[test]
 fn unusable_resolved_labels_are_refused_with_the_argument_error() {
     hook();
@@ -387,8 +388,8 @@ fn unusable_resolved_labels_are_refused_with_the_argument_error() {
             let key = Str { ptr: label.as_ptr(), len: 17 };
             let keyed = PxuiKeyedDesc { size: core::mem::size_of::<PxuiKeyedDesc>() as u32, reserved: 0, key, name: Str { ptr: b"n".as_ptr(), len: 1 } };
             let (mut b, mut response, mut flag) = (PxuiBox::default(), unsafe { core::mem::zeroed::<PxuiResponse>() }, 0u8);
-            let image = pxui_types::Image::default();
-            let px = PxuiSizeDesc { kind: 0, value: 0.0, relative: None };
+            let image = VALID_IMAGE;
+            let px = PX;
             unsafe {
                 assert_eq!(pxui_ui_node(ui, key, &Node::DEFAULT, &mut b), PXUI_ERR_ARGUMENT);
                 assert_eq!(pxui_scope(ui, key, None, core::ptr::null_mut()), PXUI_ERR_ARGUMENT);
@@ -399,8 +400,16 @@ fn unusable_resolved_labels_are_refused_with_the_argument_error() {
                 assert_eq!(pxui_ui_tooltip(ui, key, keyed.name), PXUI_ERR_ARGUMENT);
             }
         }
+        // each legacy label-keyed export, called with arguments it takes with a plain label, refuses the unusable resolved ones
+        for (name, call) in LEGACY_KEYED {
+            let failed = |what: String| FAILURES.with(|f| f.borrow_mut().push(format!("{name}: {what}")));
+            let rc = call(ui, Str { ptr: b"k".as_ptr(), len: 1 });
+            if rc == PXUI_ERR_ARGUMENT { failed(format!("a plain label refused: {}", lent(unsafe { pxui_last_error(ui) }))); }
+            for label in UNRESOLVED { let rc = call(ui, Str { ptr: label.as_ptr(), len: 17 }); if rc != PXUI_ERR_ARGUMENT { failed(format!("{label:?} answered {rc}")); } }
+        }
         // a usable resolved label is still taken as the key itself
         let mut b = PxuiBox::default();
+        assert_eq!(unsafe { pxui_ui_image_keyed(ui, Str { ptr: b"img".as_ptr(), len: 3 }, Str::default(), &VALID_IMAGE, 0, PX, PX, &mut b) }, 0);
         assert_eq!(unsafe { pxui_ui_node(ui, Str { ptr: b"\x010000000000000abc".as_ptr(), len: 17 }, &Node::DEFAULT, &mut b) }, 0);
         assert_eq!(b.box_key, 0xabc);
         assert_eq!(PANICS.with(Cell::get), panics, "no call panicked");
@@ -411,7 +420,78 @@ fn unusable_resolved_labels_are_refused_with_the_argument_error() {
     let mut out = FrameOut::default();
     assert_eq!(unsafe { pxui_frame(ui, &input, Some(build), core::ptr::null_mut(), &mut out) }, 0);
     assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
+    let failures = FAILURES.with(|f| core::mem::take(&mut *f.borrow_mut()));
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// The text of a string the library lends.
+fn lent(s: Str) -> String { if s.ptr.is_null() { String::new() } else { String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(s.ptr, s.len) }).into_owned() } }
+
+/// A zeroed response record with its size.
+fn response() -> PxuiResponse { PxuiResponse { size: core::mem::size_of::<PxuiResponse>() as u32, ..unsafe { core::mem::zeroed() } } }
+/// A zeroed menu-bar output with its size.
+fn menu_out() -> PxuiMenuOut { PxuiMenuOut { size: core::mem::size_of::<PxuiMenuOut>() as u32, ..unsafe { core::mem::zeroed() } } }
+
+/// Every legacy export whose label argument is the key, each called with otherwise valid arguments and `label`.
+type LegacyCall = fn(*mut PxuiUi, Str) -> i32;
+const PX: PxuiSizeDesc = PxuiSizeDesc { kind: 0, value: 10.0, relative: None };
+/// An image the image calls take (its texture is only an identity here: nothing is drawn).
+const VALID_IMAGE: pxui_types::Image = pxui_types::Image {
+    size: core::mem::size_of::<pxui_types::Image>() as u32, vk_image_view: core::ptr::null_mut(), mtl_texture: core::ptr::dangling_mut(), width: 1, height: 1,
+    format: pxui_types::Image::FORMAT_RGBA8,
+};
+static LEGACY_KEYED: &[(&str, LegacyCall)] = &[
+        ("pxui_ui_box", |ui, l| { let d = PxuiBoxDesc { w: PX, h: PX, size: core::mem::size_of::<PxuiBoxDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_box(ui, l, &d, &mut PxuiBox::default()) } }),
+        ("pxui_ui_grip", |ui, l| unsafe { pxui_ui_grip(ui, l, 0, 0, geom::Rect::default(), &mut PxuiBox::default(), &mut PxuiSignal::default()) }),
+        ("pxui_ui_list_measured", |ui, l| unsafe { pxui_ui_list_measured(ui, l, 0, 10.0, None, core::ptr::null_mut(), &mut PxuiBox::default()) }),
+        ("pxui_ui_section_list", |ui, l| { let d = PxuiSectionListDesc { label: l, row_height: 10.0, size: core::mem::size_of::<PxuiSectionListDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_section_list(ui, &d, &mut PxuiBox::default()) } }),
+        ("pxui_ui_section_list_measured", |ui, l| { let d = PxuiMeasuredSectionDesc { label: l, row_height: 10.0, size: core::mem::size_of::<PxuiMeasuredSectionDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_section_list_measured(ui, &d, &mut PxuiBox::default()) } }),
+        ("pxui_ui_grid_list", |ui, l| { let d = PxuiGridListDesc { label: l, cell_w: 10.0, cell_h: 10.0, size: core::mem::size_of::<PxuiGridListDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_grid_list(ui, &d, &mut PxuiBox::default()) } }),
+        ("pxui_ui_split", |ui, l| { let d = PxuiSplitDesc { label: l, ratio: 0.5, size: core::mem::size_of::<PxuiSplitDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_split(ui, &d, &mut 0, &mut 0.0) } }),
+        ("pxui_ui_split_result", |ui, l| { let d = PxuiSplitDesc { label: l, ratio: 0.5, size: core::mem::size_of::<PxuiSplitDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_split_result(ui, &d, &mut response(), &mut 0, &mut 0.0) } }),
+        ("pxui_ui_menu_bar", |ui, l| { let d = PxuiMenuBarDesc { label: l, size: core::mem::size_of::<PxuiMenuBarDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_menu_bar(ui, &d, &mut menu_out()) } }),
+        ("pxui_ui_menu_bar_result", |ui, l| { let d = PxuiMenuBarDesc { label: l, size: core::mem::size_of::<PxuiMenuBarDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_menu_bar_result(ui, &d, &mut menu_out(), &mut 0) } }),
+        ("pxui_ui_list_view", |ui, l| { let d = PxuiListViewDesc { label: l, size: core::mem::size_of::<PxuiListViewDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_list_view(ui, &d, &mut 0) } }),
+        ("pxui_ui_list_view_with", |ui, l| { let d = PxuiListViewWithDesc { label: l, size: core::mem::size_of::<PxuiListViewWithDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_list_view_with(ui, &d, &mut 0) } }),
+        ("pxui_ui_tree", |ui, l| { let (mut selected, mut len) = (0usize, 0usize); let d = PxuiTreeViewDesc { label: l, selected: &mut selected, visible_len: &mut len, size: core::mem::size_of::<PxuiTreeViewDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_tree(ui, &d, &mut 0) } }),
+        ("pxui_ui_tree_with", |ui, l| { let (mut selected, mut len) = (0usize, 0usize); let d = PxuiTreeViewWithDesc { label: l, selected: &mut selected, visible_len: &mut len, size: core::mem::size_of::<PxuiTreeViewWithDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_tree_with(ui, &d, &mut 0) } }),
+        ("pxui_ui_table_view", |ui, l| { let mut selected = 0usize; let d = PxuiTableViewDesc { label: l, selected: &mut selected, size: core::mem::size_of::<PxuiTableViewDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_table_view(ui, &d, &mut 0) } }),
+        ("pxui_ui_table_view_with", |ui, l| { let mut selected = 0usize; let d = PxuiTableViewWithDesc { label: l, selected: &mut selected, size: core::mem::size_of::<PxuiTableViewWithDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_table_view_with(ui, &d, &mut 0) } }),
+        ("pxui_ui_table", |ui, l| { let d = PxuiTableDesc { label: l, width: 10.0, height: 10.0, size: core::mem::size_of::<PxuiTableDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_table(ui, &d, &mut 0) } }),
+        ("pxui_ui_view", |ui, l| unsafe { pxui_ui_view(ui, l, 1, PX, PX, None, core::ptr::null_mut(), &mut PxuiBox::default()) }),
+        ("pxui_ui_view_flat", |ui, l| unsafe { pxui_ui_view_flat(ui, l, 1, PX, PX, None, core::ptr::null_mut(), &mut PxuiBox::default()) }),
+        ("pxui_ui_anchored", |ui, l| { let a = PxuiAnchorDesc { has_anchor: 1, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_anchored(ui, l, &a, PX, PX, None, core::ptr::null_mut(), &mut PxuiBox::default()) } }),
+        ("pxui_ui_toasts", |ui, l| unsafe { pxui_ui_toasts(ui, l, Slice { ptr: core::ptr::null(), len: 0 }, 1.0, &mut 0) }),
+        ("pxui_ui_modal", |ui, l| unsafe { pxui_ui_modal(ui, l, 0, 0.0, None, core::ptr::null_mut(), &mut 0) }),
+        ("pxui_ui_scroll_view", |ui, l| unsafe { pxui_ui_scroll_view(ui, l, PX, PX, None, core::ptr::null_mut(), &mut PxuiBox::default()) }),
+        ("pxui_ui_popup", |ui, l| { let d = PxuiPopupDesc { label: l, width: 10.0, height: 10.0, size: core::mem::size_of::<PxuiPopupDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_popup(ui, &d, None, core::ptr::null_mut(), &mut 0) } }),
+        ("pxui_panel", |ui, l| unsafe { pxui_panel(ui, &PxuiPanel::default(), l, None, core::ptr::null_mut()) }),
+        ("pxui_button", |ui, l| unsafe { pxui_button(ui, l, &mut 0) }),
+        ("pxui_toggle", |ui, l| unsafe { pxui_toggle(ui, l, 0, &mut 0) }),
+        ("pxui_text_field", |ui, l| unsafe { pxui_text_field(ui, l, Str::default(), &mut Str::default(), &mut 0) }),
+        ("pxui_text_field_with_options", |ui, l| { let o: pxui_types::PxuiTextInputOptions = unsafe { core::mem::zeroed() }; unsafe { pxui_text_field_with_options(ui, l, Str::default(), &o, &mut Str::default(), &mut 0) } }),
+        ("pxui_ui_button_styled", |ui, l| unsafe { pxui_ui_button_styled(ui, l, 0, 0, 0, 0, geom::Rgba::default(), &mut 0) }),
+        ("pxui_ui_icon_button", |ui, l| unsafe { pxui_ui_icon_button(ui, l, Str::default(), &mut 0) }),
+        ("pxui_ui_checkbox", |ui, l| unsafe { pxui_ui_checkbox(ui, l, 0, &mut 0) }),
+        ("pxui_ui_radio", |ui, l| unsafe { pxui_ui_radio(ui, l, Slice { ptr: core::ptr::null(), len: 0 }, 0, &mut 0) }),
+        ("pxui_ui_tabs", |ui, l| unsafe { pxui_ui_tabs(ui, l, Slice { ptr: core::ptr::null(), len: 0 }, 0, &mut 0) }),
+        ("pxui_ui_segmented", |ui, l| unsafe { pxui_ui_segmented(ui, l, Slice { ptr: core::ptr::null(), len: 0 }, 0, &mut 0) }),
+        ("pxui_ui_dropdown", |ui, l| unsafe { pxui_ui_dropdown(ui, l, Slice { ptr: core::ptr::null(), len: 0 }, 0, &mut 0) }),
+        ("pxui_ui_slider", |ui, l| unsafe { pxui_ui_slider(ui, l, 0.0, 0.0, 1.0, &mut 0.0) }),
+        ("pxui_ui_progress", |ui, l| unsafe { pxui_ui_progress(ui, l, 0, 0.0, &mut PxuiBox::default()) }),
+        ("pxui_ui_spinner", |ui, l| unsafe { pxui_ui_spinner(ui, l, &mut PxuiBox::default()) }),
+        ("pxui_ui_badge", |ui, l| unsafe { pxui_ui_badge(ui, l, Str::default(), &mut PxuiBox::default()) }),
+        ("pxui_ui_scrub", |ui, l| unsafe { pxui_ui_scrub(ui, l, 0.0, 0.0, 1.0, 0.1, &mut PxuiScrubOut::default()) }),
+        ("pxui_ui_scrub_result", |ui, l| unsafe { pxui_ui_scrub_result(ui, l, 0.0, 0.0, 1.0, 0.1, &mut response(), &mut PxuiScrubOut::default()) }),
+        ("pxui_ui_search_field", |ui, l| unsafe { pxui_ui_search_field(ui, l, Str::default(), Str::default(), Str::default(), &mut 0, &mut Str::default()) }),
+        ("pxui_ui_line_field", |ui, l| unsafe { pxui_ui_line_field(ui, 0.0, 0.0, 10.0, 10.0, 0, Str::default(), l, Str::default(), &mut Str::default(), &mut 0) }),
+        ("pxui_ui_text_area_submit", |ui, l| { let d = PxuiTextAreaDesc { label: l, width: 10.0, height: 10.0, size: core::mem::size_of::<PxuiTextAreaDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_text_area_submit(ui, &d, core::ptr::null(), &mut Str::default(), &mut 0, &mut 0) } }),
+        ("pxui_ui_text_area_node", |ui, l| { let d = PxuiTextAreaDesc { label: l, size: core::mem::size_of::<PxuiTextAreaDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_text_area_node(ui, &d, &Node::DEFAULT, core::ptr::null(), &mut Str::default(), &mut 0, &mut 0) } }),
+        ("pxui_ui_value_field", |ui, l| { let d = PxuiValueFieldDesc { label: l, width: 10.0, height: 10.0, size: core::mem::size_of::<PxuiValueFieldDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_value_field(ui, &d, None, None, None, core::ptr::null_mut(), &mut Str::default(), &mut 0, &mut 0) } }),
+        ("pxui_ui_context_menu", |ui, l| { let e = Slice { ptr: core::ptr::null(), len: 0 }; unsafe { pxui_ui_context_menu(ui, 0.0, 0.0, l, e, Slice { ptr: core::ptr::null(), len: 0 }, 0, 0.0, 0, 0, core::ptr::null(), &mut 0, &mut 0) } }),
+        ("pxui_ui_picker", |ui, l| unsafe { pxui_ui_picker(ui, 1, 0, 0, l, Str::default(), None, None, None, core::ptr::null_mut(), &mut Str::default(), &mut 0, &mut 0) }),
+        ("pxui_ui_image", |ui, l| unsafe { pxui_ui_image(ui, l, &VALID_IMAGE, 0, PX, PX, &mut PxuiBox::default()) }),
+];
 
 /// The fuzz calls every export the manifests name: a new export without a row here fails.
 #[test]

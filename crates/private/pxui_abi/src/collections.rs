@@ -50,7 +50,7 @@ export!(trusted pub unsafe fn pxui_ui_list_view(ui: *mut PxuiUi, desc: *const Px
     if desc.multi > 1 || desc.reserved != [0; 3] || desc.count > MAX_ITEMS || !valid_span(desc.selected.ptr, desc.selected.len, desc.count) {
         return unsafe { fail(ui, "invalid list view descriptor") };
     }
-    let Some(label) = (unsafe { checked(desc.label) }) else { return unsafe { fail(ui, "invalid list view label") }; };
+    let Some(label) = (unsafe { crate::state::checked_key(desc.label) }) else { return unsafe { fail(ui, "invalid list view label") }; };
     // the engine reads a flag as not 0 and writes 0 or 1, so the caller's bytes are its flags as they are: no scan, no copy
     let selected: &mut [u8] = if desc.selected.len == 0 { &mut [] } else { unsafe { core::slice::from_raw_parts_mut(desc.selected.ptr, desc.selected.len) } };
     let bad_text = Cell::new(false);
@@ -70,7 +70,7 @@ export!(trusted pub unsafe fn pxui_ui_tree(ui: *mut PxuiUi, desc: *const PxuiTre
         || !valid_output_span(desc.visible.ptr, desc.visible.len, desc.nodes.len) || desc.selected.is_null() || desc.visible_len.is_null() {
         return unsafe { fail(ui, "invalid tree descriptor") };
     }
-    let Some(label) = (unsafe { checked(desc.label) }) else { return unsafe { fail(ui, "invalid tree label") }; };
+    let Some(label) = (unsafe { crate::state::checked_key(desc.label) }) else { return unsafe { fail(ui, "invalid tree label") }; };
     let raw_nodes = if desc.nodes.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(desc.nodes.ptr, desc.nodes.len) } };
     // any byte is a valid flag (not 0: has children), so the nodes and the open flags need no scan
     let open: &mut [u8] = if desc.open.len == 0 { &mut [] } else { unsafe { core::slice::from_raw_parts_mut(desc.open.ptr, desc.open.len) } };
@@ -95,7 +95,7 @@ export!(trusted pub unsafe fn pxui_ui_table_view(ui: *mut PxuiUi, desc: *const P
         return unsafe { fail(ui, "invalid table descriptor") };
     }
     let mut titles = state.shared().take_strs();
-    let Some(label) = (unsafe { checked(desc.label) }).filter(|_| unsafe { strings(desc.titles, 4096, &mut titles) }) else {
+    let Some(label) = (unsafe { crate::state::checked_key(desc.label) }).filter(|_| unsafe { strings(desc.titles, 4096, &mut titles) }) else {
         state.shared().put_strs(titles);
         return unsafe { fail(ui, "invalid table strings") };
     };
@@ -127,7 +127,7 @@ export!(trusted pub unsafe fn pxui_ui_list_view_with(ui: *mut PxuiUi, desc: *con
     if desc.multi > 1 || desc.reserved != [0; 3] || desc.count > MAX_ITEMS || !valid_span(desc.selected.ptr, desc.selected.len, desc.count) {
         return unsafe { fail(ui, "invalid list view descriptor") };
     }
-    let Some(label) = (unsafe { checked(desc.label) }) else { return unsafe { fail(ui, "invalid list view label") }; };
+    let Some(label) = (unsafe { crate::state::checked_key(desc.label) }) else { return unsafe { fail(ui, "invalid list view label") }; };
     let selected: &mut [u8] = if desc.selected.len == 0 { &mut [] } else { unsafe { core::slice::from_raw_parts_mut(desc.selected.ptr, desc.selected.len) } };
     let mut activated = None;
     let rc = unsafe { crate::trusted::list_view(ui, label, desc.count, desc.multi != 0, selected, &mut |ui, row, column| if let Some(build) = desc.build { build(desc.user, ui.cast(), row, column) }, &mut activated) };
@@ -144,7 +144,7 @@ export!(trusted pub unsafe fn pxui_ui_tree_with(ui: *mut PxuiUi, desc: *const Px
         || !valid_output_span(desc.visible.ptr, desc.visible.len, desc.nodes.len) || desc.selected.is_null() || desc.visible_len.is_null() {
         return unsafe { fail(ui, "invalid tree descriptor") };
     }
-    let Some(label) = (unsafe { checked(desc.label) }) else { return unsafe { fail(ui, "invalid tree label") }; };
+    let Some(label) = (unsafe { crate::state::checked_key(desc.label) }) else { return unsafe { fail(ui, "invalid tree label") }; };
     let raw_nodes = if desc.nodes.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(desc.nodes.ptr, desc.nodes.len) } };
     let open: &mut [u8] = if desc.open.len == 0 { &mut [] } else { unsafe { core::slice::from_raw_parts_mut(desc.open.ptr, desc.open.len) } };
     let mut selected = (unsafe { *desc.selected } != usize::MAX).then_some(unsafe { *desc.selected });
@@ -183,7 +183,7 @@ export!(trusted pub unsafe fn pxui_ui_table_view_with(ui: *mut PxuiUi, desc: *co
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if out.is_null() { return unsafe { fail(ui, "null table argument") }; }
     let Some(desc) = sized!(desc) else { return unsafe { fail(ui, "invalid table descriptor") }; };
-    let Some(label) = (unsafe { checked(desc.label) }) else { return unsafe { fail(ui, "invalid table strings") }; };
+    let Some(label) = (unsafe { crate::state::checked_label(desc.label) }) else { return unsafe { fail(ui, "invalid table strings") }; };
     unsafe { table_view(ui, label, pxui_types::ui::shown(label), desc, None, out, core::ptr::null_mut()) }
 });
 

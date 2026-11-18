@@ -156,7 +156,7 @@ export!(build pub unsafe fn pxui_ui_box(ui: *mut PxuiUi, label: Str, desc: *cons
         return unsafe { fail(ui, "invalid box descriptor") };
     }
     let axis = match desc.axis { 0 => Axis::Row, 1 => Axis::Column, 2 => Axis::Stack, _ => return unsafe { fail(ui, "unknown box axis") } };
-    let (Some(label), Some(w), Some(h)) = (unsafe { checked(label) }, size(desc.w), size(desc.h)) else { return unsafe { fail(ui, "invalid box arguments") }; };
+    let (Some(label), Some(w), Some(h)) = (unsafe { crate::state::checked_key(label) }, size(desc.w), size(desc.h)) else { return unsafe { fail(ui, "invalid box arguments") }; };
     let hit = desc.hit.map(|hit| hit_closure(state.shared(), hit, desc.hit_user, owner));
     let opts = BoxOpts {
         flags: pxui_types::Flags(desc.flags), w, h, max_h: desc.max_h, axis, padding: desc.padding, at: (desc.has_at != 0).then_some((desc.at[0], desc.at[1])),

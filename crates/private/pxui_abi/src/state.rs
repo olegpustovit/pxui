@@ -362,6 +362,13 @@ pub(crate) unsafe fn checked_key(value: Str) -> Option<&'static str> {
     if unusable(key) { None } else { Some(key) }
 }
 
+/// `checked` (display-text cap) of a label that is also an identity, a legacy label-keyed call's: refused as `checked_key` refuses a
+/// 0x01-led label that is not a usable resolved key.
+#[inline(always)]
+pub(crate) unsafe fn checked_label(value: Str) -> Option<&'static str> {
+    unsafe { checked(value) }.filter(|label| !unusable(label))
+}
+
 /// Whether `key` begins with the 0x01 byte of a resolved key but is not a usable one (see `usable_resolved`).
 #[inline(always)]
 pub(crate) fn unusable(key: &str) -> bool { key.as_bytes().first() == Some(&1) && !usable_resolved(key) }

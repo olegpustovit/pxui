@@ -180,7 +180,7 @@ unsafe fn text_area(
     }
     let place = place.unwrap_or(Node { at: Some((d.x, d.y)).into(), w: Size::Px(d.width), h: Size::Px(d.height), ..Node::DEFAULT });
     unsafe { *out_text = Str::default(); *out_changed = 0; *out_submitted = 0; }
-    let (Some(label), Some(value)) = (unsafe { checked(d.label) }, unsafe { checked_text(d.value) }) else {
+    let (Some(label), Some(value)) = (unsafe { crate::state::checked_label(d.label) }, unsafe { checked_text(d.value) }) else {
         return unsafe { fail(ui, "invalid text area strings") };
     };
     let shared = state.shared();
@@ -253,7 +253,7 @@ unsafe fn field_desc(ui: *mut PxuiUi, desc: *const PxuiValueFieldDesc) -> Result
         return Err(unsafe { fail(ui, "invalid value field descriptor") });
     }
     let (Some(label), Some(value), Some(display), Some(placeholder), Some(lead), Some(trail)) = (
-        unsafe { checked(d.label) }, unsafe { checked(d.value) }, unsafe { checked(d.display) },
+        unsafe { crate::state::checked_label(d.label) }, unsafe { checked(d.value) }, unsafe { checked(d.display) },
         unsafe { checked(d.placeholder) }, unsafe { checked(d.lead) }, unsafe { checked(d.trail) },
     ) else { return Err(unsafe { fail(ui, "invalid value field strings") }); };
     Ok((d, [display, placeholder, lead, trail, label, value]))

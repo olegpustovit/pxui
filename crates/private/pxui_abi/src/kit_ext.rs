@@ -14,7 +14,7 @@ const MAX_ACTIONS: usize = 256;
 
 export!(build pub unsafe fn pxui_ui_button_styled(ui: *mut PxuiUi, text: Str, bare: u8, icon: u8, at_end: u8, has_ink: u8, ink: Rgba, out: *mut u8) -> i32 {
     let Some(e) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    let Some(text) = (unsafe { checked(text) }).filter(|_| bare <= 1 && icon <= 1 && at_end <= 1 && has_ink <= 1 && !out.is_null()) else { return unsafe { fail(ui, "invalid button arguments") }; };
+    let Some(text) = (unsafe { crate::state::checked_label(text) }).filter(|_| bare <= 1 && icon <= 1 && at_end <= 1 && has_ink <= 1 && !out.is_null()) else { return unsafe { fail(ui, "invalid button arguments") }; };
     unsafe { *out = e.button_styled(text, bare != 0, icon != 0, at_end != 0, (has_ink != 0).then_some(ink)) as u8; }
     0
 });
@@ -344,7 +344,7 @@ export!(build pub unsafe fn pxui_ui_disabled(ui: *mut PxuiUi, disabled: u8, buil
 export!(build pub unsafe fn pxui_ui_grip(ui: *mut PxuiUi, label: Str, axis: u32, has_rect: u8, rect: Rect, out: *mut PxuiBox, signal: *mut PxuiSignal) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     let axis = match axis { 0 => Axis::Row, 1 => Axis::Column, _ => return unsafe { fail(ui, "unknown grip axis") } };
-    let Some(label) = (unsafe { checked(label) }).filter(|_| has_rect <= 1 && !out.is_null() && !signal.is_null() && crate::state::finite(&[rect.x, rect.y, rect.w, rect.h])) else { return unsafe { fail(ui, "invalid grip arguments") }; };
+    let Some(label) = (unsafe { crate::state::checked_key(label) }).filter(|_| has_rect <= 1 && !out.is_null() && !signal.is_null() && crate::state::finite(&[rect.x, rect.y, rect.w, rect.h])) else { return unsafe { fail(ui, "invalid grip arguments") }; };
     let (handle, result) = unsafe { (&mut *state.engine).grip(format_args!("{label}"), axis, (has_rect != 0).then_some(rect)) };
     unsafe { *out = to_abi_box(handle); write_signal(state, &result, &mut *signal); }
     0
@@ -371,7 +371,7 @@ export!(build pub unsafe fn pxui_ui_popup(ui: *mut PxuiUi, desc: *const PxuiPopu
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if desc.is_null() || out.is_null() { return unsafe { fail(ui, "null popup argument") }; }
     let Some(d) = read_desc!(desc, PxuiPopupDesc) else { return unsafe { fail(ui, "invalid popup descriptor") }; };
-    let Some(label) = (unsafe { checked(d.label) }) else { return unsafe { fail(ui, "invalid popup label") }; };
+    let Some(label) = (unsafe { crate::state::checked_label(d.label) }) else { return unsafe { fail(ui, "invalid popup label") }; };
     unsafe { popup(ui, label, pxui_types::ui::shown(label), &d, build, user, out, None) }
 });
 
@@ -488,7 +488,7 @@ export!(build pub unsafe fn pxui_ui_inspector_toggle_value(ui: *mut PxuiUi, key:
 // `step`: 0 none, 1 next, 2 previous, 3 close. The text is borrowed until the next frame.
 export!(build pub unsafe fn pxui_ui_line_field(ui: *mut PxuiUi, x: f32, y: f32, w: f32, h: f32, grab: u8, placeholder: Str, label: Str, value: Str, text: *mut Str, step: *mut u32) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    let (Some(placeholder), Some(label), Some(value)) = (unsafe { checked(placeholder) }, unsafe { checked(label) }, unsafe { crate::state::checked_text(value) }) else { return unsafe { fail(ui, "invalid line field text") }; };
+    let (Some(placeholder), Some(label), Some(value)) = (unsafe { checked(placeholder) }, unsafe { crate::state::checked_label(label) }, unsafe { crate::state::checked_text(value) }) else { return unsafe { fail(ui, "invalid line field text") }; };
     if text.is_null() || step.is_null() || grab > 1 || !crate::state::finite(&[x, y, w, h]) { return unsafe { fail(ui, "invalid line field arguments") }; }
     let (edited, next) = unsafe { (&mut *state.engine).line_field((x, y), w, h, grab != 0, placeholder, label, value) };
     let Ok(edited) = state.give(edited) else { return crate::PXUI_ERR_STATE };

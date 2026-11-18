@@ -50,7 +50,7 @@ unsafe fn toasts(ui: *mut PxuiUi, key: &str, items: Slice<Str>, ids: Slice<i64>,
 // Legacy (cut at 2.0): keyed by its label, each toast by its text; `pxui_ui_toasts_keyed` keys each by an id.
 export!(build pub unsafe fn pxui_ui_toasts(ui: *mut PxuiUi, label: Str, items: Slice<Str>, seconds: f64, out_index: *mut i64) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
-    let Some(label) = (unsafe { checked(label) }) else { return unsafe { fail(ui, "invalid toast strings") }; };
+    let Some(label) = (unsafe { crate::state::checked_key(label) }) else { return unsafe { fail(ui, "invalid toast strings") }; };
     unsafe { toasts(ui, label, items, Slice { ptr: core::ptr::null(), len: 0 }, true, seconds, out_index) }
 });
 
@@ -73,7 +73,7 @@ export!(trusted pub unsafe fn pxui_ui_context_menu(
         return unsafe { fail(ui, "invalid context menu arguments") };
     }
     let mut list = state.shared().take_strs();
-    let Some(label) = (unsafe { checked(label) }).filter(|_| unsafe { strings(items, MAX_ROWS, &mut list) }) else {
+    let Some(label) = (unsafe { crate::state::checked_label(label) }).filter(|_| unsafe { strings(items, MAX_ROWS, &mut list) }) else {
         state.shared().put_strs(list);
         return unsafe { fail(ui, "invalid context menu strings") };
     };
@@ -250,7 +250,7 @@ export!(build pub unsafe fn pxui_ui_picker(
     rows_cb: PickerRows, mark_cb: PickerMark, off_cb: PickerOff, user: *mut c_void, out_query: *mut Str, out_tag: *mut u32, out_index: *mut i64,
 ) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
-    let Some(label) = (unsafe { checked(label) }) else { return unsafe { fail(ui, "invalid picker strings") }; };
+    let Some(label) = (unsafe { crate::state::checked_label(label) }) else { return unsafe { fail(ui, "invalid picker strings") }; };
     unsafe { picker(ui, limit, slash, at_rest, label, shown(label), query, rows_cb, mark_cb, off_cb, user, out_query, out_tag, out_index) }
 });
 

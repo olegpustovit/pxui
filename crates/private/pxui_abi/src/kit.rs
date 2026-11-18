@@ -12,7 +12,7 @@ const MAX_MENUS: usize = 256;
 export!(trusted pub unsafe fn pxui_ui_list_measured(ui:*mut PxuiUi,label:Str,count:usize,estimate_h:f32,build:pxui_types::ffi::PxuiGridBuild,user:*mut core::ffi::c_void,out:*mut PxuiBox)->i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if out.is_null() { return unsafe { fail(ui,"null measured list output") }; }
-    let Some(label)=(unsafe { checked(label) }) else { return unsafe { fail(ui,"invalid measured list label") }; };
+    let Some(label)=(unsafe { crate::state::checked_key(label) }) else { return unsafe { fail(ui,"invalid measured list label") }; };
     unsafe { crate::trusted::list_measured(ui,label,count,estimate_h,&mut |ui,index| {
         if let Some(build)=build { build(user,ui.cast(),index); }
     },&mut *out) }
@@ -26,7 +26,7 @@ export!(trusted pub unsafe fn pxui_ui_section_list(ui:*mut PxuiUi,desc:*const px
     if !unsafe {read_section_desc(desc.cast(),core::mem::size_of_val(&record),(&mut record as *mut pxui_types::ffi::PxuiSectionListDesc).cast())} {return unsafe {fail(ui,"invalid section list descriptor")};}
     let desc=record;
     if desc.overlay_scrollbar>1 || desc.reserved!=[0;3] {return unsafe {fail(ui,"invalid section list flags")};}
-    let Some(label)=(unsafe {checked(desc.label)}) else {return unsafe {fail(ui,"invalid section list label")};};
+    let Some(label)=(unsafe {crate::state::checked_key(desc.label)}) else {return unsafe {fail(ui,"invalid section list label")};};
     let section=pxui_types::ui::SectionList {count:desc.count,row_height:desc.row_height,leading_height:desc.leading_height,header_height:desc.header_height,trailing_height:desc.trailing_height,overlay_scrollbar:desc.overlay_scrollbar!=0,measured:false};
     unsafe {crate::trusted::section_list(ui,label,&section,desc.key.map(|key| move |index| key(desc.user,index)).as_ref().map(|key| key as &dyn Fn(usize)->i64),&mut |ui,index,_| {if let Some(build)=desc.build {build(desc.user,ui.cast(),index);}},&mut *out)}
 });
@@ -39,7 +39,7 @@ export!(trusted pub unsafe fn pxui_ui_section_list_measured(ui:*mut PxuiUi,desc:
     if !unsafe {read_section_desc(desc.cast(),core::mem::size_of_val(&record),(&mut record as *mut pxui_types::ffi::PxuiMeasuredSectionDesc).cast())} {return unsafe {fail(ui,"invalid section list descriptor")};}
     let desc=record;
     if desc.overlay_scrollbar>1 || desc.reserved!=[0;3] {return unsafe {fail(ui,"invalid section list flags")};}
-    let Some(label)=(unsafe {checked(desc.label)}) else {return unsafe {fail(ui,"invalid section list label")};};
+    let Some(label)=(unsafe {crate::state::checked_key(desc.label)}) else {return unsafe {fail(ui,"invalid section list label")};};
     let section=pxui_types::ui::SectionList {count:desc.count,row_height:desc.row_height,leading_height:desc.leading_height,header_height:desc.header_height,trailing_height:desc.trailing_height,overlay_scrollbar:desc.overlay_scrollbar!=0,measured:true};
     unsafe {crate::trusted::section_list(ui,label,&section,desc.key.map(|key| move |index| key(desc.user,index)).as_ref().map(|key| key as &dyn Fn(usize)->i64),&mut |ui,index,y| {if let Some(build)=desc.build {build(desc.user,ui.cast(),index,y);}},&mut *out)}
 });
@@ -152,7 +152,7 @@ export!(trusted pub unsafe fn pxui_ui_grid_list(ui: *mut PxuiUi, desc: *const Px
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if desc.is_null() || out.is_null() { return unsafe { fail(ui, "null grid list argument") }; }
     let Some(desc) = sized!(desc) else { return unsafe { fail(ui, "invalid grid list descriptor") }; };
-    let Some(label) = (unsafe { checked(desc.label) }) else { return unsafe { fail(ui, "invalid grid list label") }; };
+    let Some(label) = (unsafe { crate::state::checked_key(desc.label) }) else { return unsafe { fail(ui, "invalid grid list label") }; };
     let (shared, build, user) = (unsafe { (*ui).shared }, desc.build, desc.user);
     unsafe { crate::trusted::grid_cells(ui, label, desc.count, desc.cell_w, desc.cell_h, &mut |engine: &mut pxui_core::ui::Ui, index| {
         let mut borrowed = PxuiUi::borrowed(engine, shared);
@@ -285,7 +285,7 @@ unsafe fn split(ui: *mut PxuiUi, desc: *const PxuiSplitDesc, response: &mut Pxui
     if desc.is_null() || changed.is_null() || ratio.is_null() { return unsafe { fail(ui, "null split argument") }; }
     let Some(desc) = sized!(desc) else { return unsafe { fail(ui, "invalid split descriptor") }; };
     if desc.axis > 1 { return unsafe { fail(ui, "invalid split descriptor") }; }
-    let Some(label) = (unsafe { checked(desc.label) }) else { return unsafe { fail(ui, "invalid split label") }; };
+    let Some(label) = (unsafe { crate::state::checked_key(desc.label) }) else { return unsafe { fail(ui, "invalid split label") }; };
     let axis = if desc.axis == 0 { Axis::Row } else { Axis::Column };
     let (mut moved, mut at) = (false, None);
     let rc = unsafe { crate::trusted::split(ui, label, axis, desc.ratio, desc.min_a, desc.min_b,
@@ -313,7 +313,7 @@ unsafe fn menu_bar(ui: *mut PxuiUi, desc: *const PxuiMenuBarDesc, out: *mut Pxui
     if desc.is_null() || out.is_null() { return unsafe { fail(ui, "null menu bar argument") }; }
     let (Some(desc), Some(out)) = (sized!(desc), sized_mut!(out)) else { return unsafe { fail(ui, "invalid menu bar descriptor") }; };
     if desc.menus.len > MAX_MENUS || (desc.menus.len != 0 && desc.menus.ptr.is_null()) { return unsafe { fail(ui, "invalid menu bar span") }; }
-    let Some(label) = (unsafe { checked(desc.label) }) else { return unsafe { fail(ui, "invalid menu bar label") }; };
+    let Some(label) = (unsafe { crate::state::checked_key(desc.label) }) else { return unsafe { fail(ui, "invalid menu bar label") }; };
     let raw = if desc.menus.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(desc.menus.ptr, desc.menus.len) } };
     if !raw.iter().all(|menu| menu.size as usize == core::mem::size_of_val(menu)) { return unsafe { fail(ui, "invalid menu descriptor") }; }
     // all items go into one buffer, then each menu is a slice of it; both buffers are reused between frames
@@ -411,7 +411,7 @@ export!(trusted pub unsafe fn pxui_ui_table(ui: *mut PxuiUi, desc: *const PxuiTa
     let Some(desc) = sized!(desc) else { return unsafe { fail(ui, "invalid table descriptor") }; };
     if desc.headers.len > 256 || (desc.headers.len != 0 && desc.headers.ptr.is_null()) { return unsafe { fail(ui, "invalid table descriptor") }; }
     let mut list = state.shared().take_strs();
-    let Some(label) = (unsafe { checked(desc.label) }).filter(|_| unsafe { crate::state::strings(desc.headers, 256, &mut list) }) else {
+    let Some(label) = (unsafe { crate::state::checked_label(desc.label) }).filter(|_| unsafe { crate::state::strings(desc.headers, 256, &mut list) }) else {
         state.shared().put_strs(list);
         return unsafe { fail(ui, "invalid table strings") };
     };

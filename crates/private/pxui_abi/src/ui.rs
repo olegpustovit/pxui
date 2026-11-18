@@ -640,7 +640,7 @@ unsafe fn panel(ui: *mut PxuiUi, key: &str, name: &str, panel: *const PxuiPanel,
 // Legacy (cut at 2.0): keyed by its label, named up to a `##`; `pxui_ui_panel_keyed` keys apart.
 export!(trusted pub unsafe fn pxui_panel(ui: *mut PxuiUi, panel: *const PxuiPanel, label: Str, build: Build, user: *mut c_void) -> i32 {
     if unsafe { get(ui) }.is_none() || panel.is_null() { return PXUI_ERR_ARGUMENT; }
-    let Some(label) = (unsafe { checked(label) }) else { return unsafe { fail(ui, "invalid panel label") }; };
+    let Some(label) = (unsafe { crate::state::checked_label(label) }) else { return unsafe { fail(ui, "invalid panel label") }; };
     unsafe { self::panel(ui, label, pxui_types::ui::shown(label), panel, build, user, &mut PxuiBox::default()) }
 });
 
@@ -758,27 +758,27 @@ pub(crate) fn label_style(style: *const pxui_types::ffi::PxuiLabelStyle) -> Opti
 
 export!(trusted pub unsafe fn pxui_button(ui: *mut PxuiUi, label: Str, out: *mut u8) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
-    let (Some(label), false) = (unsafe { checked(label) }, out.is_null()) else { return unsafe { fail(ui, "invalid button arguments") } };
+    let (Some(label), false) = (unsafe { crate::state::checked_label(label) }, out.is_null()) else { return unsafe { fail(ui, "invalid button arguments") } };
     unsafe { trusted::pxui_button(ui, pair(label), out) }
 });
 
 export!(trusted pub unsafe fn pxui_toggle(ui: *mut PxuiUi, label: Str, on: u8, out: *mut u8) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
-    let (Some(label), false) = (unsafe { checked(label) }, out.is_null() || on > 1) else { return unsafe { fail(ui, "invalid toggle arguments") } };
+    let (Some(label), false) = (unsafe { crate::state::checked_label(label) }, out.is_null() || on > 1) else { return unsafe { fail(ui, "invalid toggle arguments") } };
     unsafe { trusted::pxui_toggle(ui, pair(label), on, out) }
 });
 
 export!(trusted pub unsafe fn pxui_text_field(ui: *mut PxuiUi, label: Str, value: Str, changed: *mut Str, out_changed: *mut u8) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if changed.is_null() || out_changed.is_null() { return unsafe { fail(ui, "null text field output") }; }
-    let (Some(label), Some(value)) = (unsafe { checked(label) }, unsafe { crate::state::checked_text(value) }) else { return unsafe { fail(ui, "invalid text field arguments") } };
+    let (Some(label), Some(value)) = (unsafe { crate::state::checked_label(label) }, unsafe { crate::state::checked_text(value) }) else { return unsafe { fail(ui, "invalid text field arguments") } };
     unsafe { trusted::pxui_text_field(ui, pair(label), pair(value), changed, out_changed) }
 });
 
 export!(build pub unsafe fn pxui_text_field_with_options(ui: *mut PxuiUi, label: Str, value: Str, options: *const pxui_types::PxuiTextInputOptions, changed: *mut Str, out_changed: *mut u8) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if options.is_null() || changed.is_null() || out_changed.is_null() { return unsafe { fail(ui,"null text field options or output") }; }
-    let (Some(label),Some(value))=(unsafe { checked(label) },unsafe { crate::state::checked_text(value) }) else { return unsafe { fail(ui,"invalid text field text") }; };
+    let (Some(label),Some(value))=(unsafe { crate::state::checked_label(label) },unsafe { crate::state::checked_text(value) }) else { return unsafe { fail(ui,"invalid text field text") }; };
     let o=unsafe { *options };
     let Some(options)=pxui_types::TextTraits::from_numbers(o.autocorrect,o.capitalization,o.action) else { return unsafe { fail(ui,"invalid text input options") }; };
     unsafe { *out_changed=0; *changed=Str::default(); }

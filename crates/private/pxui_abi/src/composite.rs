@@ -36,7 +36,7 @@ unsafe fn modal(ui: *mut PxuiUi, key: &str, name: &str, has_width: u8, width: f3
 // Legacy (cut at 2.0): keyed by its label, named up to a `##`; `pxui_ui_modal_keyed` keys apart.
 export!(trusted pub unsafe fn pxui_ui_modal(ui: *mut PxuiUi, label: Str, has_width: u8, width: f32, callback: Build, user: *mut c_void, out: *mut u8) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
-    let Some(label) = (unsafe { checked(label) }) else { return unsafe { fail(ui, "invalid modal label") }; };
+    let Some(label) = (unsafe { crate::state::checked_label(label) }) else { return unsafe { fail(ui, "invalid modal label") }; };
     unsafe { modal(ui, label, shown(label), has_width, width, callback, user, out, None) }
 });
 
@@ -65,7 +65,7 @@ unsafe fn scroll_view(ui: *mut PxuiUi, key: &str, name: &str, width: PxuiSizeDes
 // Legacy (cut at 2.0): keyed by its label, named up to a `##`; `pxui_ui_scroll_view_keyed` keys apart.
 export!(trusted pub unsafe fn pxui_ui_scroll_view(ui: *mut PxuiUi, label: Str, width: PxuiSizeDesc, height: PxuiSizeDesc, callback: Build, user: *mut c_void, out: *mut PxuiBox) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
-    let Some(label) = (unsafe { checked(label) }) else { return unsafe { fail(ui, "invalid scroll view arguments") }; };
+    let Some(label) = (unsafe { crate::state::checked_label(label) }) else { return unsafe { fail(ui, "invalid scroll view arguments") }; };
     unsafe { scroll_view(ui, label, shown(label), width, height, callback, user, out) }
 });
 
@@ -89,7 +89,7 @@ export!(trusted pub unsafe fn pxui_ui_scroll_view_node(ui: *mut PxuiUi, keyed: *
 unsafe fn view_with(ui: *mut PxuiUi, label: Str, revision: u64, width: PxuiSizeDesc, height: PxuiSizeDesc, callback: Build, user: *mut c_void, out: *mut PxuiBox, flat: bool) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if out.is_null() { return unsafe { fail(ui, "null view output") }; }
-    let (Some(label), Some(width), Some(height)) = (unsafe { checked(label) }, size(width), size(height)) else {
+    let (Some(label), Some(width), Some(height)) = (unsafe { crate::state::checked_key(label) }, size(width), size(height)) else {
         return unsafe { fail(ui, "invalid view arguments") };
     };
     unsafe { crate::trusted::view(ui, label, revision, width, height, flat, &mut |ui| if let Some(callback) = callback { callback(user, ui.cast()) }, out) }
@@ -126,7 +126,7 @@ fn placement(anchor: &PxuiAnchorDesc) -> Option<pxui_types::layout::Placement> {
 export!(build pub unsafe fn pxui_ui_anchored(ui: *mut PxuiUi, label: Str, anchor: *const PxuiAnchorDesc, width: PxuiSizeDesc, height: PxuiSizeDesc, callback: Build, user: *mut c_void, out: *mut PxuiBox) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if anchor.is_null() || out.is_null() { return unsafe { fail(ui, "null anchored argument") }; }
-    let (Some(label), Some(width), Some(height)) = (unsafe { checked(label) }, size(width), size(height)) else { return unsafe { fail(ui, "invalid anchored arguments") }; };
+    let (Some(label), Some(width), Some(height)) = (unsafe { crate::state::checked_key(label) }, size(width), size(height)) else { return unsafe { fail(ui, "invalid anchored arguments") }; };
     let anchor = unsafe { *anchor };
     let Some(place) = placement(&anchor) else { return unsafe { fail(ui, "invalid anchor descriptor") }; };
     let r = anchor.rect;
