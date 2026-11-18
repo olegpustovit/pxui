@@ -1889,7 +1889,7 @@ fn shared_public_measured_rows_render_settled_clipped_heights() {
                     calls.set(calls.get()+1);
                     ui.node("row",pxui::Node { w:pxui::ui::Size::Px(80.0),h:pxui::ui::Size::Px(10.0+(i%3) as f32*10.0),
                         look:pxui::ui::Look { fill:colors[i%3],..pxui::ui::Look::NONE },..pxui::Node::DEFAULT });
-                })));
+                }).handle));
             });
         }).unwrap();
         if frame>=5 { assert_eq!(mem_sys::local_alloc_count(),0,"warm measured row layout allocates nothing"); }
@@ -2031,11 +2031,12 @@ fn shared_section_list_pins_native_pixels_without_gutters_or_warm_allocations() 
                 ui.frame(&pxui::FrameIn::new(320.0, 240.0).scale(scale as f32).time(frame as f64/60.0),&mut |ui| {
                     let section=pxui::ui::SectionList::new(10_000).row_h(20.0).lead(100.0).header(30.0).trail(40.0).overlay_scrollbar();
                     let build=|ui:&mut pxui::Ui,part| {
-                        let (r,g,b)=match part {pxui::ui::SectionPart::Leading=>(255,0,0),pxui::ui::SectionPart::Header=>(255,255,255),pxui::ui::SectionPart::Row(_)=>(0,0,255)};
+                        // the trailer stays empty, as before it reached the builder
+                        let (r,g,b)=match part {pxui::ui::SectionPart::Trailing=>return,pxui::ui::SectionPart::Leading=>(255,0,0),pxui::ui::SectionPart::Header=>(255,255,255),pxui::ui::SectionPart::Row(_)=>(0,0,255)};
                         let mut paint=|ui:&mut pxui::Ui| {ui.node("paint",pxui::ui::Node {w:pxui::ui::Size::Grow,h:pxui::ui::Size::Px(if part==pxui::ui::SectionPart::Leading {100.0} else if part==pxui::ui::SectionPart::Header {30.0} else if measured && matches!(part,pxui::ui::SectionPart::Row(index) if index%2==0) {40.0} else {20.0}),look:pxui::ui::Look {fill:pxui::geom::Rgba {r,g,b,a:255},..pxui::ui::Look::NONE},..pxui::ui::Node::DEFAULT});};
                         if part==pxui::ui::SectionPart::Leading {{ let enclosing = ui.node("heading-cache", pxui::Node::column()); let mut view = enclosing; ui.within(&enclosing, &mut |ui| view = ui.view_of("heading-cache", &0, &mut paint)); view };} else {paint(ui);}
                     };
-                    body=Some(if measured {ui.section_list("section",&section.measured(),&|i| i as i64,&mut |ui,part,_| build(ui,part))} else {ui.section_list("section",&section,&|i| i as i64,&mut |ui,part,_| build(ui,part))});
+                    body=Some(if measured {ui.section_list("section",&section.measured(),&|i| i as i64,&mut |ui,part,_| build(ui,part)).handle} else {ui.section_list("section",&section,&|i| i as i64,&mut |ui,part,_| build(ui,part)).handle});
                 }).unwrap();
                 let build_allocations=mem_sys::local_alloc_count();
                 let commands=ok(be::begin_commands(&queue));

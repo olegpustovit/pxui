@@ -376,7 +376,7 @@ pub struct MenuRowConfig {
 
 pub type MenuRowBody = fn(&mut Ui, &MenuRowConfig, &str, Option<&str>);
 
-/// What a `list_view` or `table_view` row body is given (the row's content beside it: the text, or the caller's cells, which it calls
+/// What a `selection_list` or `table` row body is given (the row's content beside it: the text, or the caller's cells, which it calls
 /// once where it goes). It runs with the `row` entered (the built-in body is called without owning parts): a full-width row item that
 /// carries the kit's look and padding, its role, selected state and presses; the body may restyle it (`Ui::node_mut`, `set_look`) and
 /// builds what is inside. `state`: hovered, pressed, `checked` (selected), `focused` (the keyboard's row). Which rows are built, the
@@ -416,23 +416,6 @@ pub struct TableHeadConfig {
 }
 
 pub type TableHeadBody = fn(&mut Ui, &TableHeadConfig, &str);
-
-/// What a read-only `table` cell body is given (the cell's text beside it, as the caller's builder gave it). The cell is a header cell
-/// (`header`, with `row` -1) or the data cell of `row`; `key` is the key its node takes (the row's or the header's own, then the
-/// column); the column spans `left` to `right` across the table and the row is `height` high. The body builds the cell's nodes
-/// (the built-in one a node `height` high, left-aligned for a header and right-aligned for data). The row's hit area, its look and
-/// the clicked row are behaviour's.
-pub struct TableCellConfig {
-    pub header: bool,
-    pub row: i64,
-    pub column: i64,
-    pub key: i64,
-    pub left: f32,
-    pub right: f32,
-    pub height: f32,
-}
-
-pub type TableCellBody = fn(&mut Ui, &TableCellConfig, &str);
 
 /// What a picker row body is given (the row's label, its detail and the query that was typed, beside it). It runs with the `row`
 /// entered: a clickable row of the kit's height with the list-item role and its name; behaviour reads its click. The body gives it the
@@ -685,7 +668,6 @@ macro_rules! builtin {
     (tree) => { crate::ui_widgets::default_tree_row };
     (table_row) => { crate::ui_widgets::default_row };
     (table_head) => { crate::ui_widgets::default_table_head };
-    (table_cell) => { crate::ui_kit::default_table_cell };
     (picker) => { crate::kit_ext::default_picker_row };
     (search_field) => { crate::ui_widgets::default_search_field };
     (text_field) => { crate::ui_text::default_text_field };
@@ -711,8 +693,8 @@ macro_rules! registry {
             /// an opaque pointer of the host that registered bodies (the C ABI's state): what a registered body's trampoline finds its caller's data by
             host: *mut core::ffi::c_void,
             /// the variant the widget call in progress asked for (`Ui::set_variant`) and the body kind it is for
-            variant: u16,
-            variant_kind: u32,
+            pub(crate) variant: u16,
+            pub(crate) variant_kind: u32,
         }
 
         impl Default for BodyTable {

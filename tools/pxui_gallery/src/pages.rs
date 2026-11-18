@@ -61,14 +61,13 @@ pub struct Gallery {
     pub adds: u32,
     pub image: Option<Image>,
     // collections page
-    pub list: Vec<u8>,
+    pub list: pxui::ListState,
     pub nodes: Vec<TreeNode>,
     pub open: Vec<u8>,
     pub tree_sel: Option<usize>,
     pub visible: Vec<u32>,
-    pub widths: [f32; 3],
-    pub table_sel: Option<usize>,
-    pub sort: (usize, bool),
+    pub table: pxui::TableState,
+    pub old_table: pxui::TableState,
     pub split: f32,
     // overlays page
     pub dialog: bool,
@@ -86,14 +85,23 @@ pub struct Gallery {
 }
 
 impl Gallery {
+    /// The collections page's table: sorted by name, its second row selected.
+    fn points() -> pxui::TableState {
+        let mut table = pxui::TableState::new();
+        table.sort = Some((0, pxui::Sort::Ascending));
+        table.selection.rows = vec![0; ROWS];
+        table.selection.rows[1] = pxui::ListState::SELECTED;
+        table
+    }
+
     pub fn new() -> Gallery {
         Gallery {
             page: 0, dusk: false, compact: false, rtl: false, reduced: false, host_dirty: false, chrome_rev: 0, page_rev: 0, quit: false, reload: false,
             animate: true, wire: false, caption: "Functional UI".to_owned(), snap: true, scale: "1.5".to_owned(), notes: "(circle 4)\n(grid 8 8)".to_owned(),
             hints: &[("enter", "apply"), ("esc", "close")],
             check: true, radio: 1, slider: 0.4, tab: 0, segment: 1, choice: 2, search: String::new(), adds: 0, image: None,
-            list: vec![0; ROWS], nodes: (0..ROWS).map(|i| TreeNode { depth: [0, 1, 2, 2, 1, 2][i % 6], children: matches!(i % 6, 0 | 1 | 4) as u8 }).collect(),
-            open: (0..ROWS).map(|i| (i < 6) as u8).collect(), tree_sel: Some(2), visible: vec![0; ROWS], widths: [96.0, 72.0, 72.0], table_sel: Some(1), sort: (0, true), split: 0.34,
+            list: pxui::ListState::new(), nodes: (0..ROWS).map(|i| TreeNode { depth: [0, 1, 2, 2, 1, 2][i % 6], children: matches!(i % 6, 0 | 1 | 4) as u8 }).collect(),
+            open: (0..ROWS).map(|i| (i < 6) as u8).collect(), tree_sel: Some(2), visible: vec![0; ROWS], table: Gallery::points(), old_table: pxui::TableState::new(), split: 0.34,
             dialog: false, menu_at: None, picker: false, said: "", bounce: false, toasts: Vec::with_capacity(8), toasted: 0, busy: Vec::with_capacity(4), readout: None,
         }
     }
@@ -163,9 +171,10 @@ pub fn kit_page(ui: &mut Ui, s: &mut Gallery) {
         pxui::ext::footer(ui, Some("2 keys"), s.hints);
     });
     column(ui, "old-table", (332.0, 250.0), 296.0, Size::Px(200.0), &mut |ui: &mut Ui| {
-        const OLD_TABLE: pxui::TableView = pxui::TableView::text(pxui_types::geom::Rect { x: 0.0, y: 0.0, w: 296.0, h: 200.0 });
+        // the read-only text table of 1.x is gone (D28): the same 1,000 rows of text through `table`
+        const OLD_COLUMNS: [pxui::Column; 3] = [pxui::Column::new("row").w_px(64.0), pxui::Column::new("name").share(1.0), pxui::Column::new("x").w_px(80.0)];
         let mut cell = String::new();
-        let _ = ui.table_view("old-table", &["row", "name", "x"], &mut [], 1000, &|i| i as i64, &mut None, &OLD_TABLE, &mut |ui: &mut Ui, r: usize, c: usize| {
+        let _ = ui.table("old-table", &OLD_COLUMNS, 1000, &|i| i as i64, &mut s.old_table, &pxui::Table::DEFAULT, &mut |ui: &mut Ui, r: usize, c: usize, _| {
             cell.clear();
             let _ = if c == 0 { write!(cell, "{r}") } else if c == 1 { cell.write_str(NAMES[r % NAMES.len()]) } else { write!(cell, "{:.2}", r as f64 * 0.25) };
             ui.item_text(&cell);
@@ -222,13 +231,16 @@ pub fn controls_page(ui: &mut Ui, s: &mut Gallery) {
     });
 }
 
+/// The collections page's table columns: a sortable, resizable name and two fixed columns.
+const POINTS: [pxui::Column; 3] = [pxui::Column::new("Name").sortable(true).w_px(96.0), pxui::Column::new("Group").sortable(true).w_px(72.0), pxui::Column::new("Tag").w_px(72.0)];
+
 /// The collections page: a list beside a split of a tree over a table, all virtual over 100,000.
 pub fn collections_page(ui: &mut Ui, s: &mut Gallery) {
     let pad = node(ui, "collections", Node { w: Size::Grow, h: Size::Grow, padding: Edges::all(12.0), ..Node::DEFAULT });
     ui.within(&pad, &mut |ui: &mut Ui| {
         let ratio = s.split;
         if let Some(r) = ui.split("split", ratio, &pxui::Split::DEFAULT.min_a(120.0).min_b(200.0), &mut |ui: &mut Ui| {
-            let _ = ui.selection_list("files", ROWS, &|i| i as i64, &mut s.list, &pxui::SelectionList::DEFAULT.multi(), &mut |ui: &mut Ui, i: usize| names(i, &mut |t| ui.item_text(t)));
+            let _ = ui.selection_list("files", ROWS, &|i| i as i64, &mut s.list, &pxui::SelectionList::DEFAULT.multi(), &mut |ui: &mut Ui, part, _| if let pxui_types::ui::SectionPart::Row(i) = part { names(i, &mut |t| ui.item_text(t)) });
         }, &mut |ui: &mut Ui| {
             let half = node(ui, "right", Node { w: Size::Grow, h: Size::Grow, padding: Edges { l: 8.0, ..Edges::ZERO }, gap: 8.0, ..Node::DEFAULT });
             ui.within(&half, &mut |ui: &mut Ui| {
@@ -238,9 +250,7 @@ pub fn collections_page(ui: &mut Ui, s: &mut Gallery) {
                 });
                 let bottom = node(ui, "table-box", Node { h: Size::Grow, ..Node::DEFAULT });
                 ui.within(&bottom, &mut |ui: &mut Ui| {
-                    if let Some(c) = ui.table_view("points", &["Name", "Group", "Tag"], &mut s.widths, ROWS, &|i| i as i64, &mut s.table_sel, &pxui::TableView::DEFAULT.sort(s.sort.0, s.sort.1), &mut |ui: &mut Ui, r: usize, c: usize| cells(r, c, &mut |t| ui.item_text(t))).sort {
-                        s.sort = (c, if s.sort.0 == c { !s.sort.1 } else { true });
-                    }
+                    let _ = ui.table("points", &POINTS, ROWS, &|i| i as i64, &mut s.table, &pxui::Table::DEFAULT, &mut |ui: &mut Ui, r: usize, c: usize, _| cells(r, c, &mut |t| ui.item_text(t)));
                 });
             });
         }).ratio {

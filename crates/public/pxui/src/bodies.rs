@@ -10,7 +10,7 @@ use crate::{as_text, check, status, Error, Ui};
 use core::{ffi::c_void, mem::ManuallyDrop, ptr::NonNull};
 use pxui_types::{geom::Rect, theme::{BodyId, BodyKind, Curve, Part, States}, ffi::{PxuiBodyFn, PxuiHintDesc, PxuiSlot, Slice}, Node, PxuiBox, Str};
 
-use pxui_types::ffi::{PxuiToggleConfig, PxuiSliderConfig, PxuiProgressConfig, PxuiButtonConfig, PxuiIconButtonConfig, PxuiCheckConfig, PxuiSpinnerConfig, PxuiBadgeConfig, PxuiLabelConfig, PxuiFooterConfig, PxuiGripConfig, PxuiPanelConfig, PxuiDialogConfig, PxuiSectionConfig, PxuiInspectorRowConfig, PxuiSplitConfig, PxuiScrollConfig, PxuiToastConfig, PxuiTipConfig, PxuiTabConfig, PxuiSegmentConfig, PxuiDropdownConfig, PxuiMenuItemConfig, PxuiMenuRowConfig, PxuiRowConfig, PxuiTreeRowConfig, PxuiTableHeadConfig, PxuiTableCellConfig, PxuiPickerRowConfig, PxuiSearchFieldConfig, PxuiTextFieldConfig, PxuiLineFieldConfig, PxuiValueFieldConfig, PxuiPickerFieldConfig, PxuiSectionIndexConfig};
+use pxui_types::ffi::{PxuiToggleConfig, PxuiSliderConfig, PxuiProgressConfig, PxuiButtonConfig, PxuiIconButtonConfig, PxuiCheckConfig, PxuiSpinnerConfig, PxuiBadgeConfig, PxuiLabelConfig, PxuiFooterConfig, PxuiGripConfig, PxuiPanelConfig, PxuiDialogConfig, PxuiSectionConfig, PxuiInspectorRowConfig, PxuiSplitConfig, PxuiScrollConfig, PxuiToastConfig, PxuiTipConfig, PxuiTabConfig, PxuiSegmentConfig, PxuiDropdownConfig, PxuiMenuItemConfig, PxuiMenuRowConfig, PxuiRowConfig, PxuiTreeRowConfig, PxuiTableHeadConfig, PxuiPickerRowConfig, PxuiSearchFieldConfig, PxuiTextFieldConfig, PxuiLineFieldConfig, PxuiValueFieldConfig, PxuiPickerFieldConfig, PxuiSectionIndexConfig};
 
 mod sealed {
     pub trait Sealed { fn bounds(&self) -> (usize, usize); }
@@ -466,16 +466,17 @@ mod tests {
     #[test]
     fn collections_build_the_callers_cells() {
         let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
-        let (mut list, mut open, mut visible) = (vec![0u8; 5], vec![0u8; 3], vec![0u32; 3]);
+        let (mut list, mut open, mut visible) = (crate::ListState::new(), vec![0u8; 3], vec![0u32; 3]);
         let nodes = [crate::TreeNode { depth: 0, children: 1 }, crate::TreeNode { depth: 1, children: 0 }, crate::TreeNode { depth: 0, children: 0 }];
-        let (mut widths, mut selected, mut tree_selected) = ([80.0f32, 80.0], None, None);
+        let (mut table, mut tree_selected) = (crate::TableState::new(), None);
+        const COLUMNS: [crate::Column; 2] = [crate::Column::new("a").w_px(80.0), crate::Column::new("b").w_px(80.0)];
         let (rows, cells, nodes_built) = (Cell::new(0), Cell::new(0), Cell::new(0));
         for n in 0..3 {
             ui.frame(&input(n as f64), &mut |ui: &mut Ui| {
-                ui.selection_list("list", 5, &|i| i as i64, &mut list, &crate::SelectionList::DEFAULT, &mut |ui: &mut Ui, row| { rows.set(rows.get() + 1); ui.label(&format!("row {row}"), crate::Label::DEFAULT); });
+                ui.selection_list("list", 5, &|i| i as i64, &mut list, &crate::SelectionList::DEFAULT, &mut |ui: &mut Ui, part, _| if let crate::ui::SectionPart::Row(row) = part { rows.set(rows.get() + 1); ui.label(&format!("row {row}"), crate::Label::DEFAULT); });
                 let shown = ui.tree("tree", &nodes, &mut open, &mut tree_selected, &mut visible, &mut |ui: &mut Ui, node| { nodes_built.set(nodes_built.get() + 1); ui.label(&format!("node {node}"), crate::Label::DEFAULT); }).shown;
                 assert_eq!(shown, 2, "the first node's child is closed");
-                let _ = ui.table_view("table", &["a", "b"], &mut widths, 3, &|i| i as i64, &mut selected, &crate::TableView::DEFAULT, &mut |ui: &mut Ui, row, column| { cells.set(cells.get() + 1); ui.label(&format!("{row}:{column}"), crate::Label::DEFAULT); });
+                let _ = ui.table("table", &COLUMNS, 3, &|i| i as i64, &mut table, &crate::Table::DEFAULT, &mut |ui: &mut Ui, row, column, _| { cells.set(cells.get() + 1); ui.label(&format!("{row}:{column}"), crate::Label::DEFAULT); });
             }).expect("frame");
         }
         assert!(rows.get() > 0 && nodes_built.get() > 0 && cells.get() > 0, "rows {}, nodes {}, cells {}", rows.get(), nodes_built.get(), cells.get());

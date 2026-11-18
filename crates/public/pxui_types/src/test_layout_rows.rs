@@ -81,7 +81,8 @@ fn render_manifest(old: &str, rows: &[Row]) -> Result<String, String> {
         match name {
             Some(name) if seen.iter().any(|seen| seen == name) => continue,
             Some(name) => {
-                let r = rows.iter().find(|r| r.name == name).ok_or_else(|| format!("manifest row `{name}` has no Rust type reporting it"))?;
+                // a row whose record was deleted (D28: 1.x records change in place) leaves the rendering, so the check reports it
+                let Some(r) = rows.iter().find(|r| r.name == name) else { continue };
                 seen.push(name.to_owned());
                 out.push_str(&manifest_line(r));
             }
@@ -149,6 +150,7 @@ fn a_repeated_layout_row_fails_the_check() {
     assert_eq!(render_manifest(once, &rows).unwrap(), once);
     assert_eq!(render_manifest("# rows\nPxuiA 4 4 0\nPxuiA 4 4 0\n", &rows).unwrap(), once);
     assert_eq!(render_extension("layout PxuiA 4 4 0\nlayout PxuiA 4 4 0\n", &rows).unwrap(), "layout PxuiA 4 4 0\n");
+    assert_eq!(render_manifest("# rows\nPxuiGone 8 8 0\nPxuiA 4 4 0\n", &rows).unwrap(), once, "a deleted record's row leaves the manifest");
 }
 
 #[test]

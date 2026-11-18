@@ -69,7 +69,7 @@ pub mod ui {
     pub use pxui_types::ui::{
         Checkbox, Chosen, CodeContext, Completion, Cursor, Dropdown, Head, HeadAction, Key, Keyframe, Keyframes,
         LineStep, ListResponse, Menu, MenuItem, Overlay, PanelOpts, Pick, PickArt, PickRow, PickRows, PickerResponse, Presentation, Repeat, SectionList,
-        SectionPart, Segmented, SelectionList, Slider, TableResponse, TableView, Target, TextEdit, Toast, TreeResponse,
+        SectionPart, Segmented, SelectionList, Slider, Target, TextEdit, Toast, TreeResponse,
         UndoKind, DRAG_THRESHOLD, ROOT_KEY, int_key, key_of,
     };
     pub use pxui_types::{Flags, Image, Size};
@@ -91,7 +91,7 @@ pub use paint::{Fill, Paint, Stroke};
 mod widgets;
 mod composite;
 mod overlays;
-pub use pxui_types::ui::{Checkbox, DismissOpts, Dropdown, ListResponse, Menu, MenuItem, Chosen, Overlay, Pick, PickArt, PickRow, PickRows, PickerResponse, Presentation, SelectionList, Slider, TableResponse, TableView, Toast, TreeResponse};
+pub use pxui_types::ui::{Checkbox, DismissOpts, Dropdown, ListResponse, Menu, MenuItem, Chosen, Overlay, Pick, PickArt, PickRow, PickRows, PickerResponse, Presentation, SelectionList, Slider, Toast, TreeResponse};
 mod collections;
 pub mod bodies;
 pub use collections::TreeNode;
@@ -118,7 +118,7 @@ pub use ui_state::{Bytes, Ime, Platform};
 mod node;
 mod author;
 pub use author::{hash_of, AreaCallbacks, AreaNote, BracketsFn, Button, ColorizeFn, CompleteFn, ContextAtFn, DescribeFn, Icon, IconButton, IndentFn, Key, Language, LineField, LineFieldResponse, NumberAtFn, Picker, Pressable, Response, Reveal, RewriteFn, ScrubFn, Scrubber, SearchField, SearchFieldResponse, Segmented, SlideFn, Splice, TextArea, TextAreaResponse, TextField, TextFieldResponse, Toggle, ValidFn, ValueCallbacks, ValueField, ValueFieldResponse};
-pub use author::{Badge, GridList, OverlayResponse, Disclosure, PickResponse, Progress, Radio, SectionIndex, SliderResponse, Spinner, SplitResponse, Tabs};
+pub use author::{Badge, CellState, Column, GridList, HeadResponse, ListState, OverlayResponse, Sort, Table, TableHead, TableResponse, TableState, Disclosure, PickResponse, Progress, Radio, SectionIndex, SliderResponse, Spinner, SplitResponse, Tabs};
 pub use kit::{MenuBar, MenuBarMenu, Split};
 pub use pxui_types::ui::Segment;
 #[cfg(test)]
@@ -1062,7 +1062,7 @@ pub enum Feature {
     /// model of every segmented control (one Tab stop, the chosen option; every option focusable to assistive technology).
     SegmentedResult = pxui_types::feature::SEGMENTED_RESULT,
     /// ABI 1.68: the keyed widget and container calls (`PxuiKeyedDesc`): key and name apart for checkbox, radio, tabs, dropdown, slider,
-    /// progress, spinner, badge, panel, popup, modal, anchored, scroll_view, toasts, table_view and picker.
+    /// progress, spinner, badge, panel, popup, modal, anchored, scroll_view, toasts and picker.
     WidgetsKeyed = pxui_types::feature::WIDGETS_KEYED,
     /// ABI 1.69: `Segmented::focus_on_click`, and `PxuiSegmentConfig::stored` for a registered segment body.
     SegmentedStoredFocus = pxui_types::feature::SEGMENTED_STORED_FOCUS,

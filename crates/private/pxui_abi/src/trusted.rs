@@ -10,7 +10,7 @@ use crate::{PxuiBox, PxuiSignal, Str};
 use pxui_types::ffi::{PxuiResponse, PxuiTextStyle};
 use pxui_types::{text::LabelFields, TextGlyph, TextMetrics, TextSpans};
 use pxui_core::ui::{Segment, SegmentedOpts, ToggleOpts, Ui};
-use pxui_types::ui::{Checkbox, Overlay, SelectionList, Slider, TableResponse, TableView};
+use pxui_types::ui::{Checkbox, Overlay, Slider};
 use pxui_types::{Axis, FrameIn, FrameOut, Node, Size, ffi::Input, geom::Edges, layout::{Along, Justify}, theme::{State, States, ThemeSnapshot}};
 
 
@@ -810,17 +810,6 @@ fn bounded(put: &mut dyn FnMut(&str), bad: &core::cell::Cell<bool>, total: &core
     put(value);
 }
 
-/// The C text-row `list_view` (`pxui_ui_list_view`): each row's text from `text`, the kit's row label (rows are not named).
-#[inline]
-pub unsafe fn list_view_text(ui: *mut PxuiUi, label: &str, count: usize, multi: bool, selected: &mut [u8], text: &mut dyn FnMut(usize, &mut dyn FnMut(&str)), out: &mut Option<usize>) -> i32 {
-    enter!(ui);
-    if bad_key(label) || count > MAX_ITEMS || selected.len() != count { return unsafe { fail(ui, "invalid list view descriptor") }; }
-    let (bad, total, text) = (core::cell::Cell::new(false), core::cell::Cell::new(0), core::cell::RefCell::new(text));
-    *out = unsafe { engine(ui) }.selection_list(label, count, &|i| i as i64, selected, &SelectionList { multi }, &mut |ui, row| (text.borrow_mut())(row, &mut |value| bounded(&mut |t| { ui.row_text(t); }, &bad, &total, value))).activated;
-    if bad.get() { return unsafe { fail(ui, "invalid collection callback text") }; }
-    0
-}
-
 /// The C text-row `tree` (`pxui_ui_tree`): a preorder tree; `visible` holds a row per node, `open` and `nodes` one flag and one node each.
 #[inline]
 pub unsafe fn tree_text(ui: *mut PxuiUi, label: &str, nodes: &[pxui_types::ffi::PxuiTreeNode], open: &mut [u8], selected: &mut Option<usize>, visible: &mut [u32], text: &mut dyn FnMut(usize, &mut dyn FnMut(&str)), out: &mut (Option<usize>, usize)) -> i32 {
@@ -831,23 +820,6 @@ pub unsafe fn tree_text(ui: *mut PxuiUi, label: &str, nodes: &[pxui_types::ffi::
     let (bad, total, text) = (core::cell::Cell::new(false), core::cell::Cell::new(0), core::cell::RefCell::new(text));
     let r = unsafe { engine(ui) }.tree(label, nodes, open, selected, visible, &mut |ui, row| (text.borrow_mut())(row, &mut |value| bounded(&mut |t| ui.item_text(t), &bad, &total, value)));
     *out = (r.activated, r.shown);
-    if bad.get() { return unsafe { fail(ui, "invalid collection callback text") }; }
-    0
-}
-
-/// The C text-cell `table_view` (`pxui_ui_table_view`): each cell's text from `cell`, naming the cell.
-#[inline]
-pub unsafe fn table_view_text(ui: *mut PxuiUi, label: &str, titles: &[&str], widths: &mut [f32], rows: usize, sort: Option<(usize, bool)>, selected: &mut Option<usize>, cell: &mut dyn FnMut(usize, usize, &mut dyn FnMut(&str)), out: &mut Option<usize>) -> i32 {
-    enter!(ui);
-    let mut spare = Vec::new();
-    let titles = clip_strs(titles, &mut spare);
-    if bad_key(label) || rows > MAX_ITEMS || titles.len() > 4096 || widths.len() != titles.len() || !options_ok(titles) { return unsafe { fail(ui, "invalid table descriptor") }; }
-    if widths.iter().any(|w| !w.is_finite() || *w < 0.0) || sort.is_some_and(|(column, _)| column >= titles.len()) { return unsafe { fail(ui, "invalid table widths or sort column") }; }
-    let (bad, total, cell) = (core::cell::Cell::new(false), core::cell::Cell::new(0), core::cell::RefCell::new(cell));
-    let engine = unsafe { engine(ui) };
-    let r = engine.table_view(label, titles, widths, rows, &|i| i as i64, selected, &TableView { sort, text: None }, &mut |ui, row, column| (cell.borrow_mut())(row, column, &mut |value| bounded(&mut |t| ui.cell_text(t), &bad, &total, value)));
-    name_table(engine, label, pxui_types::ui::shown(label));
-    *out = r.sort;
     if bad.get() { return unsafe { fail(ui, "invalid collection callback text") }; }
     0
 }
@@ -869,23 +841,6 @@ pub unsafe fn list_measured(ui:*mut PxuiUi,label:&str,count:usize,estimate_h:f32
     0
 }
 
-/// A section list keyed by `key` (fixed or measured rows, as `section.measured`); `f` gets the borrowed handle, the part's index and its
-/// logical content Y.
-#[inline]
-pub unsafe fn section_list(ui:*mut PxuiUi,key:&str,section:&pxui_types::ui::SectionList,id:Option<&dyn Fn(usize)->i64>,f:&mut dyn FnMut(*mut PxuiUi,usize,f32),out:&mut PxuiBox)->i32 {
-    enter!(ui);
-    if !unsafe { (*(*ui).shared).in_frame } {return crate::PXUI_ERR_STATE;}
-    let total=section.leading_height+section.header_height+section.count as f32*section.row_height+section.trailing_height;
-    if bad_key(key) || section.count>MAX_ITEMS || !section.row_height.is_finite() || section.row_height<=0.0
-        || !total.is_finite() || [section.leading_height,section.header_height,section.trailing_height].iter().any(|v|!v.is_finite() || *v<0.0) {return unsafe {fail(ui,"invalid section list geometry")};}
-    let shared=unsafe {(*ui).shared};
-    *out=to_abi_box(unsafe {engine(ui)}.section_list(key,section,id,&mut |engine:&mut Ui,index,y| {
-        let mut borrowed=PxuiUi::borrowed(engine,shared);
-        let _current=crate::state::Current::set(shared,&mut borrowed);
-        f(&mut borrowed,index,y);
-    }));
-    0
-}
 
 /// A grid of `count` cells, built on demand: `f` gets the borrowed handle and the cell's index.
 #[inline]
@@ -967,26 +922,9 @@ pub unsafe fn dialog(ui: *mut PxuiUi, key: &str, title: &str, buttons: &[pxui_ty
     0
 }
 
-/// The 1.x text table (`pxui_ui_table`) at `at`, as `table_view` with `TableView::text`: `cell` writes a cell's text through `put`;
-/// the clicked row, if any.
-#[allow(clippy::too_many_arguments)]
-#[inline]
-pub unsafe fn table(ui: *mut PxuiUi, at: (f32, f32), width: f32, height: f32, headers: &[&str], rows: i64, cell: &mut dyn FnMut(i64, i64, &mut dyn FnMut(&str)), label: &str, out: &mut Option<i64>) -> i32 {
-    enter!(ui);
-    let mut spare = Vec::new();
-    let headers = clip_strs(headers, &mut spare);
-    if bad_key(label) || headers.len() > 256 || rows < 0 || rows as usize > MAX_ITEMS || !width.is_finite() || !height.is_finite() || width < 0.0 || height < 0.0 || !at.0.is_finite() || !at.1.is_finite() || !options_ok(headers) {
-        return unsafe { fail(ui, "invalid table descriptor") };
-    }
-    let (bad, total) = (core::cell::Cell::new(false), core::cell::Cell::new(0));
-    let text = TableView::text(pxui_types::geom::Rect::new(at.0, at.1, width, height));
-    *out = unsafe { engine(ui) }.table_view(label, headers, &mut [], rows as usize, &|i| i as i64, &mut None, &text, &mut |ui, row, column| cell(row as i64, column as i64, &mut |value| bounded(&mut |t| ui.item_text(t), &bad, &total, value))).row.map(|row| row as i64);
-    if bad.get() { return unsafe { fail(ui, "invalid table cell callback text") }; }
-    0
-}
 
 /// `pxui_slot` as the static wrapper calls it: the caller's content runs inside, and a panic of it unwinds to the app as in every trusted entry.
-/// The kit's text of the collection item being built (`Ui::item_text`); refused outside a `list_view`/`tree` row or `table_view` cell.
+/// The kit's text of the collection item being built (`Ui::item_text`); refused outside a `selection_list`/`tree` row or `table` cell.
 #[inline]
 pub unsafe fn item_text(ui: *mut PxuiUi, text: &str) -> i32 {
     enter!(ui);
@@ -998,16 +936,6 @@ pub unsafe fn item_text(ui: *mut PxuiUi, text: &str) -> i32 {
 
 #[inline]
 pub unsafe fn pxui_slot(ui: *mut PxuiUi, slot: pxui_types::ffi::PxuiSlot, out: *mut u8) -> i32 { unsafe { crate::bodies::slot(ui, slot, out) } }
-
-/// `selection_list` keyed by `key`: `cell(ui, row, 0)` builds the children of row `row`, `ui` the borrowed handle.
-#[inline]
-pub unsafe fn list_view(ui: *mut PxuiUi, key: &str, count: usize, ids: Option<&dyn Fn(usize) -> i64>, multi: bool, selected: &mut [u8], cell: &mut dyn FnMut(*mut PxuiUi, usize, usize), out: &mut Option<usize>) -> i32 {
-    enter!(ui);
-    if bad_key(key) || count > MAX_ITEMS || selected.len() != count { return unsafe { fail(ui, "invalid list view descriptor") }; }
-    let shared = unsafe { (*ui).shared };
-    *out = unsafe { engine(ui) }.selection_list(key, count, ids.unwrap_or(&|i| i as i64), selected, &SelectionList { multi }, &mut |engine, row| { let mut borrowed = PxuiUi::borrowed(engine, shared); let _current = crate::state::Current::set(shared, &mut borrowed); cell(&mut borrowed, row, 0) }).activated;
-    0
-}
 
 /// `tree` keyed by `key`: `cell(ui, node, 0)` builds the children of the row that shows tree node `node`.
 #[allow(clippy::too_many_arguments)]
@@ -1022,29 +950,9 @@ pub unsafe fn tree(ui: *mut PxuiUi, key: &str, nodes: &[pxui_types::ffi::PxuiTre
     0
 }
 
-/// `table_view` keyed by `key`, named `name` (empty: none): `cell(ui, row, column)` builds the children of one cell (with
-/// `TableView::text`, gives its text to `item_text`); `out` the clicked row (text table) or header (sort intent).
-#[allow(clippy::too_many_arguments)]
-#[inline]
-pub unsafe fn table_view(ui: *mut PxuiUi, key: &str, name: &str, titles: &[&str], widths: &mut [f32], rows: usize, ids: Option<&dyn Fn(usize) -> i64>, selected: &mut Option<usize>, table: &TableView, cell: &mut dyn FnMut(*mut PxuiUi, usize, usize), out: &mut TableResponse) -> i32 {
-    enter!(ui);
-    let name = clip(name);
-    let mut spare = Vec::new();
-    let titles = clip_strs(titles, &mut spare);
-    if bad_key(key) || rows > MAX_ITEMS || titles.len() > 4096 || !options_ok(titles) { return unsafe { fail(ui, "invalid table descriptor") }; }
-    match table.text {
-        Some(r) => if titles.len() > 256 || ![r.x, r.y, r.w, r.h].iter().all(|v| v.is_finite()) || r.w < 0.0 || r.h < 0.0 { return unsafe { fail(ui, "invalid text table rectangle") }; },
-        None => if widths.len() != titles.len() || widths.iter().any(|w| !w.is_finite() || *w < 0.0) || table.sort.is_some_and(|(column, _)| column >= titles.len()) { return unsafe { fail(ui, "invalid table widths or sort column") }; },
-    }
-    let shared = unsafe { (*ui).shared };
-    let engine = unsafe { engine(ui) };
-    *out = engine.table_view(key, titles, widths, rows, ids.unwrap_or(&|i| i as i64), selected, table, &mut |engine, row, column| { let mut borrowed = PxuiUi::borrowed(engine, shared); let _current = crate::state::Current::set(shared, &mut borrowed); cell(&mut borrowed, row, column) });
-    if !name.is_empty() { name_table(engine, key, name); }
-    0
-}
 
 /// Names the table keyed `key` under the current parent `name` (the 1.x exports named it by their label).
-fn name_table(engine: &mut Ui, key: &str, name: &str) {
+pub(crate) fn name_table(engine: &mut Ui, key: &str, name: &str) {
     if let Some(frame) = engine.box_of_key(pxui_types::ui::key_of(engine.current_seed(), key)) { engine.a11y_name(&frame, name); }
 }
 
@@ -1094,4 +1002,141 @@ pub unsafe fn label_rasterize_rgba(ui: *mut PxuiUi, value: Str, style: &LabelFie
 pub unsafe fn label_prewarm(ui: *mut PxuiUi, value: Str, style: &LabelFields, max_width: f32) -> i32 {
     let Some(style) = (unsafe { resolved(ui, style) }) else { return crate::PXUI_ERR_ARGUMENT };
     unsafe { crate::text::pxui_text_prewarm(ui, value, &style, max_width) }
+}
+
+// ---- U2b.1: selection list, table and heading, section list with its trailer (one validation pass each, the whole result in one record)
+
+use pxui_core::ui_lists::{ColumnSpec, ListCell, ListResult, MAX_COLUMNS};
+use pxui_types::ffi::{PxuiCellState, PxuiColumn, PxuiColumnWidth, PxuiHeadResult, PxuiSectionListDesc, PxuiListResult, PxuiSelectionListDesc, PxuiTableHeadDesc, PxuiTableDesc, PxuiTableResult};
+
+/// A section geometry the engine takes: a positive finite row height, finite non-negative part heights, a finite total, at most
+/// `MAX_ITEMS` rows.
+fn geometry_ok(count: usize, row: f32, parts: [f32; 3]) -> bool {
+    let total = parts.iter().sum::<f32>() + count as f32 * row;
+    count <= MAX_ITEMS && row.is_finite() && row > 0.0 && total.is_finite() && parts.iter().all(|v| v.is_finite() && *v >= 0.0)
+}
+
+/// The library-written cell record of `c`.
+fn cell_state(c: &ListCell) -> PxuiCellState {
+    PxuiCellState { size: core::mem::size_of::<PxuiCellState>() as u32, selected: c.selected as u8, enabled: c.enabled as u8, focused: c.focused as u8, held: c.held as u8, handle: to_abi_box(c.handle), y: c.y, reserved: 0 }
+}
+
+/// `r` and `anchor` written to `out` (its size already checked by the caller).
+fn write_list(r: &ListResult, anchor: Option<usize>, out: &mut PxuiListResult) {
+    let none = usize::MAX;
+    (out.reserved, out.handle, out.row) = (0, to_abi_box(r.handle), r.row.map_or(PxuiBox::default(), to_abi_box));
+    (out.activated, out.selected, out.secondary, out.anchor) = (r.activated.unwrap_or(none), r.selected.unwrap_or(none), r.secondary.unwrap_or(none), anchor.unwrap_or(none));
+}
+
+/// The columns of `span` checked in one pass before any effect into `out`: each record's size, flags and reserved byte, its title
+/// (a label, 64 KiB at most), a finite non-negative share and width, ids (an index without one) unique; at most `MAX_COLUMNS`.
+/// `None`: refused.
+pub(crate) unsafe fn read_columns<'a>(span: pxui_types::ffi::Slice<PxuiColumn>, out: &mut [ColumnSpec; MAX_COLUMNS], titles: &mut [&'a str; MAX_COLUMNS]) -> Option<usize> {
+    if span.len > MAX_COLUMNS || (span.len > 0 && span.ptr.is_null()) { return None; }
+    for i in 0..span.len {
+        let c = unsafe { span.ptr.add(i) };
+        if (unsafe { c.cast::<u32>().read_unaligned() } as usize) < core::mem::size_of::<PxuiColumn>() { return None; }
+        let c = unsafe { &*c };
+        let finite = |v: f32| v.is_finite() && v >= 0.0;
+        if c.sortable > 1 || c.grip > 1 || c.has_id > 1 || c.reserved != 0 || !finite(c.share) || !finite(c.w) { return None; }
+        let title = unsafe { crate::state::checked(c.title) }?;
+        let id = if c.has_id != 0 { c.id } else { i as i64 };
+        if out[..i].iter().any(|o| o.id == id) { return None; }
+        titles[i] = title;
+        out[i] = ColumnSpec { id, share: c.share, w: c.w, grip: c.grip != 0, sortable: c.sortable != 0 };
+    }
+    Some(span.len)
+}
+
+/// The widths span of a heading or table: one a column, writable.
+unsafe fn widths_of<'a>(ptr: *mut PxuiColumnWidth, len: usize, columns: usize) -> Option<&'a mut [PxuiColumnWidth]> {
+    if len != columns || (len > 0 && ptr.is_null()) { return None; }
+    Some(if len == 0 { &mut [] } else { unsafe { core::slice::from_raw_parts_mut(ptr, len) } })
+}
+
+/// The heading's results into `out`.
+fn write_head(h: &pxui_core::ui_lists::HeadResult, sort: Option<(i64, bool)>, out: &mut PxuiHeadResult) {
+    respond(&h.response, &mut out.response);
+    out.response.size = core::mem::size_of::<PxuiResponse>() as u32;
+    (out.sorted, out.resized, out.has_sort) = (h.sorted as u8, h.resized as u8, sort.is_some() as u8);
+    (out.ascending, out.sort_id) = (sort.is_some_and(|s| s.1) as u8, sort.map_or(0, |s| s.0));
+}
+
+/// `pxui_ui_section_list`'s body (and the static wrapper's `section_list`): `desc` checked, then the list keyed by `key` with
+/// its trailer; `f` gets the borrowed handle, the part's index (`usize::MAX - 2` the trailer) and its logical content Y.
+pub unsafe fn section_list(ui: *mut PxuiUi, key: &str, desc: &PxuiSectionListDesc, ids: Option<&dyn Fn(usize) -> i64>, f: &mut dyn FnMut(*mut PxuiUi, usize, f32), out: &mut PxuiListResult) -> i32 {
+    enter!(ui);
+    if bad_key(key) || desc.overlay_scrollbar > 1 || desc.measured > 1 || desc.reserved != [0; 2]
+        || !geometry_ok(desc.count, desc.row_height, [desc.leading_height, desc.header_height, desc.trailing_height]) { return unsafe { fail(ui, "invalid section list descriptor") }; }
+    let section = pxui_types::ui::SectionList { count: desc.count, row_height: desc.row_height, leading_height: desc.leading_height, header_height: desc.header_height, trailing_height: desc.trailing_height, overlay_scrollbar: desc.overlay_scrollbar != 0, measured: desc.measured != 0, reorder: false };
+    let shared = unsafe { (*ui).shared };
+    let body = unsafe { engine(ui) }.section_list(key, &section, ids, true, &mut |engine: &mut Ui, index, y| {
+        let mut borrowed = PxuiUi::borrowed(engine, shared);
+        let _current = crate::state::Current::set(shared, &mut borrowed);
+        f(&mut borrowed, index, y);
+    });
+    write_list(&ListResult { handle: body, ..ListResult::default() }, None, out);
+    0
+}
+
+/// `pxui_ui_selection_list`'s body (and the static wrapper's `selection_list`): `desc` checked (flags, geometry, a flag span of
+/// `count` bytes at least), then the list keyed by `key`; `cell` gets the borrowed handle, the part's index and its cell record.
+pub unsafe fn selection_list(ui: *mut PxuiUi, key: &str, desc: &PxuiSelectionListDesc, ids: Option<&dyn Fn(usize) -> i64>, cell: &mut dyn FnMut(*mut PxuiUi, usize, &PxuiCellState), out: &mut PxuiListResult) -> i32 {
+    enter!(ui);
+    if bad_key(key) || [desc.multi, desc.fit, desc.open_on_click, desc.overlay_scrollbar, desc.measured].iter().any(|f| *f > 1) || desc.reserved != [0; 3]
+        || !geometry_ok(desc.count, desc.row_height, [desc.leading_height, desc.header_height, desc.trailing_height])
+        || desc.rows.len < desc.count || (desc.count > 0 && desc.rows.ptr.is_null()) { return unsafe { fail(ui, "invalid selection list descriptor") }; }
+    let flags: &mut [u8] = if desc.count == 0 { &mut [] } else { unsafe { core::slice::from_raw_parts_mut(desc.rows.ptr, desc.count) } };
+    let mut anchor = (desc.anchor < desc.count).then_some(desc.anchor);
+    let list = pxui_types::ui::SelectionList { multi: desc.multi != 0, row_height: desc.row_height, leading_height: desc.leading_height, header_height: desc.header_height, trailing_height: desc.trailing_height,
+        overlay_scrollbar: desc.overlay_scrollbar != 0, measured: desc.measured != 0, fit: desc.fit != 0, open_on_click: desc.open_on_click != 0, ..pxui_types::ui::SelectionList::DEFAULT };
+    let shared = unsafe { (*ui).shared };
+    let r = unsafe { engine(ui) }.selection_rows(key, desc.count, ids.unwrap_or(&|i| i as i64), flags, &mut anchor, &list, &mut |engine, index, c| {
+        let mut borrowed = PxuiUi::borrowed(engine, shared);
+        let _current = crate::state::Current::set(shared, &mut borrowed);
+        cell(&mut borrowed, index, &cell_state(c));
+    });
+    write_list(&r, anchor, out);
+    0
+}
+
+/// `pxui_ui_table_head`'s body (and the static wrapper's `table_head`): the columns read in one pass, the widths span one a column,
+/// then the heading keyed by `key`.
+pub unsafe fn table_head(ui: *mut PxuiUi, key: &str, desc: &PxuiTableHeadDesc, out: &mut PxuiHeadResult) -> i32 {
+    enter!(ui);
+    let (mut columns, mut titles) = ([ColumnSpec::default(); MAX_COLUMNS], [""; MAX_COLUMNS]);
+    let n = if bad_key(key) || desc.has_sort > 1 || desc.ascending > 1 || desc.reserved != [0; 2] || desc.reserved2 != 0 || !desc.h.is_finite() || desc.h <= 0.0 { None } else { unsafe { read_columns(desc.columns, &mut columns, &mut titles) } };
+    let Some(n) = n else { return unsafe { fail(ui, "invalid table heading descriptor") } };
+    let Some(widths) = (unsafe { widths_of(desc.widths.ptr, desc.widths.len, n) }) else { return unsafe { fail(ui, "invalid table heading widths") } };
+    let mut sort = (desc.has_sort != 0).then_some((desc.sort_id, desc.ascending != 0)).filter(|(id, _)| columns[..n].iter().any(|c| c.id == *id));
+    let h = unsafe { engine(ui) }.table_head(key, &columns[..n], &titles[..n], widths, &mut sort, desc.h);
+    write_head(&h, sort, out);
+    0
+}
+
+/// `pxui_ui_table`'s body (and the static wrapper's `table`): the columns read in one pass, widths, flags and geometry checked, then
+/// the table keyed by `key`; `cell` gets the borrowed handle, the row, the column and the row's cell record.
+pub unsafe fn table(ui: *mut PxuiUi, key: &str, desc: &PxuiTableDesc, ids: Option<&dyn Fn(usize) -> i64>, cell: &mut dyn FnMut(*mut PxuiUi, usize, usize, &PxuiCellState), out: &mut PxuiTableResult) -> i32 {
+    enter!(ui);
+    let (mut columns, mut titles) = ([ColumnSpec::default(); MAX_COLUMNS], [""; MAX_COLUMNS]);
+    let positive = |v: f32| v.is_finite() && v > 0.0;
+    let n = if bad_key(key) || desc.multi > 1 || desc.has_sort > 1 || desc.ascending > 1 || desc.reserved != 0 || desc.reserved2 != [0; 6] || !positive(desc.head_h)
+        || !geometry_ok(desc.rows, desc.row_h, [0.0; 3]) || desc.flags.len < desc.rows || (desc.rows > 0 && desc.flags.ptr.is_null()) { None } else { unsafe { read_columns(desc.columns, &mut columns, &mut titles) } };
+    let Some(n) = n else { return unsafe { fail(ui, "invalid table descriptor") } };
+    let Some(widths) = (unsafe { widths_of(desc.widths.ptr, desc.widths.len, n) }) else { return unsafe { fail(ui, "invalid table widths") } };
+    let flags: &mut [u8] = if desc.rows == 0 { &mut [] } else { unsafe { core::slice::from_raw_parts_mut(desc.flags.ptr, desc.rows) } };
+    let mut anchor = (desc.anchor < desc.rows).then_some(desc.anchor);
+    let mut sort = (desc.has_sort != 0).then_some((desc.sort_id, desc.ascending != 0)).filter(|(id, _)| columns[..n].iter().any(|c| c.id == *id));
+    let shared = unsafe { (*ui).shared };
+    let (r, h) = unsafe { engine(ui) }.table(key, &columns[..n], &titles[..n], widths, &mut sort, desc.rows, ids.unwrap_or(&|i| i as i64), flags, &mut anchor, desc.multi != 0, desc.row_h, desc.head_h, desc.head_variant, &mut |engine, row, column, c| {
+        let mut borrowed = PxuiUi::borrowed(engine, shared);
+        let _current = crate::state::Current::set(shared, &mut borrowed);
+        cell(&mut borrowed, row, column, &cell_state(c));
+    });
+    out.reserved = 0;
+    out.rows.size = core::mem::size_of::<PxuiListResult>() as u32;
+    write_list(&r, anchor, &mut out.rows);
+    out.head.size = core::mem::size_of::<PxuiHeadResult>() as u32;
+    write_head(&h, sort, &mut out.head);
+    0
 }

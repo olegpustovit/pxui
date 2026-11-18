@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 86
+minor 87
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -183,9 +183,6 @@ function pxui_ui_layout_node int32_t pxui_ui_layout_node ( PxuiUi * ui , const P
 function pxui_ui_leave int32_t pxui_ui_leave ( PxuiUi * ui , const PxuiSaved * saved ) ;
 function pxui_ui_line_field_response int32_t pxui_ui_line_field_response ( PxuiUi * ui , float x , float y , float w , float h , uint8_t grab , PxuiStr placeholder , PxuiStr label , PxuiStr value , PxuiStr name , PxuiStr * text , uint32_t * step , PxuiResponse * response ) ;
 function pxui_ui_list_measured int32_t pxui_ui_list_measured ( PxuiUi * ui , PxuiStr label , size_t count , float estimate_h , PxuiGridBuild build , void * user , PxuiBox * out ) ;
-function pxui_ui_list_view int32_t pxui_ui_list_view ( PxuiUi * ui , const PxuiListViewDesc * desc , size_t * activated ) ;
-function pxui_ui_list_view_rows int32_t pxui_ui_list_view_rows ( PxuiUi * ui , const PxuiListViewWithDesc * desc , PxuiRowKey key , size_t * activated ) ;
-function pxui_ui_list_view_with int32_t pxui_ui_list_view_with ( PxuiUi * ui , const PxuiListViewWithDesc * desc , size_t * activated ) ;
 function pxui_ui_load_text_edit int32_t pxui_ui_load_text_edit ( PxuiUi * ui , int64_t key , PxuiStr text , PxuiStr * out_text , uint64_t * caret , uint64_t * anchor ) ;
 function pxui_ui_local_rect int32_t pxui_ui_local_rect ( PxuiUi * ui , const PxuiBox * box , PxuiRect * out ) ;
 function pxui_ui_menu_bar int32_t pxui_ui_menu_bar ( PxuiUi * ui , const PxuiMenuBarDesc * desc , PxuiMenuOut * out ) ;
@@ -240,13 +237,13 @@ function pxui_ui_scrub_result int32_t pxui_ui_scrub_result ( PxuiUi * ui , PxuiS
 function pxui_ui_search_field int32_t pxui_ui_search_field ( PxuiUi * ui , PxuiStr label , PxuiStr icon , PxuiStr value , PxuiStr placeholder , uint8_t * changed , PxuiStr * out ) ;
 function pxui_ui_search_field_response int32_t pxui_ui_search_field_response ( PxuiUi * ui , PxuiStr label , PxuiStr icon , PxuiStr value , PxuiStr placeholder , PxuiStr name , uint8_t * changed , PxuiStr * out , PxuiResponse * response ) ;
 function pxui_ui_section_index_result int32_t pxui_ui_section_index_result ( PxuiUi * ui , const PxuiKeyedDesc * keyed , PxuiStrSpan letters , PxuiResponse * out , PxuiSegmentedResult * result ) ;
-function pxui_ui_section_list int32_t pxui_ui_section_list ( PxuiUi * ui , const PxuiSectionListDesc * desc , PxuiBox * out ) ;
-function pxui_ui_section_list_measured int32_t pxui_ui_section_list_measured ( PxuiUi * ui , const PxuiMeasuredSectionDesc * desc , PxuiBox * out ) ;
+function pxui_ui_section_list int32_t pxui_ui_section_list ( PxuiUi * ui , const PxuiKeyedDesc * keyed , const PxuiSectionListDesc * desc , PxuiRowKey key , PxuiSectionBuild build , void * user , PxuiListResult * out ) ;
 function pxui_ui_segmented int32_t pxui_ui_segmented ( PxuiUi * ui , PxuiStr label , PxuiStrSpan options , size_t selected , size_t * out ) ;
 function pxui_ui_segmented_items int32_t pxui_ui_segmented_items ( PxuiUi * ui , const PxuiSegmentedDesc * desc , PxuiPickItemSpan items , PxuiResponse * out , PxuiSegmentedResult * result ) ;
 function pxui_ui_segmented_plain int32_t pxui_ui_segmented_plain ( PxuiUi * ui , PxuiStr key , PxuiStr name , PxuiStrSpan options , size_t selected , PxuiResponse * out , size_t * chosen ) ;
 function pxui_ui_segmented_response int32_t pxui_ui_segmented_response ( PxuiUi * ui , const PxuiSegmentedDesc * desc , PxuiStrSpan options , PxuiResponse * out , size_t * chosen ) ;
 function pxui_ui_segmented_result int32_t pxui_ui_segmented_result ( PxuiUi * ui , const PxuiSegmentedDesc * desc , PxuiStrSpan options , PxuiResponse * out , PxuiSegmentedResult * result ) ;
+function pxui_ui_selection_list int32_t pxui_ui_selection_list ( PxuiUi * ui , const PxuiKeyedDesc * keyed , const PxuiSelectionListDesc * desc , PxuiRowKey key , PxuiListCell cell , void * user , PxuiListResult * out ) ;
 function pxui_ui_set_a11y int32_t pxui_ui_set_a11y ( PxuiUi * ui , uint8_t on ) ;
 function pxui_ui_set_at int32_t pxui_ui_set_at ( PxuiUi * ui , const PxuiBox * box , float x , float y ) ;
 function pxui_ui_set_colors int32_t pxui_ui_set_colors ( PxuiUi * ui , const PxuiColor * light , const PxuiColor * dark , size_t count ) ;
@@ -275,11 +272,8 @@ function pxui_ui_state int32_t pxui_ui_state ( PxuiUi * ui , const PxuiBox * box
 function pxui_ui_style int32_t pxui_ui_style ( PxuiUi * ui , const PxuiBox * box , const PxuiLookDesc states [ 6 ] , const PxuiStateDesc * state ) ;
 function pxui_ui_swipe_actions int32_t pxui_ui_swipe_actions ( PxuiUi * ui , const PxuiBox * box , const PxuiSwipeIn * in ) ;
 function pxui_ui_system_appearance int32_t pxui_ui_system_appearance ( PxuiUi * ui , uint32_t * out ) ;
-function pxui_ui_table int32_t pxui_ui_table ( PxuiUi * ui , const PxuiTableDesc * desc , int64_t * clicked_row ) ;
-function pxui_ui_table_view int32_t pxui_ui_table_view ( PxuiUi * ui , const PxuiTableViewDesc * desc , size_t * sort_column ) ;
-function pxui_ui_table_view_keyed int32_t pxui_ui_table_view_keyed ( PxuiUi * ui , const PxuiKeyedDesc * keyed , const PxuiTableViewWithDesc * desc , const PxuiRect * text , size_t * sort , size_t * row ) ;
-function pxui_ui_table_view_rows int32_t pxui_ui_table_view_rows ( PxuiUi * ui , const PxuiKeyedDesc * keyed , const PxuiTableViewWithDesc * desc , PxuiRowKey key , const PxuiRect * text , size_t * sort , size_t * row ) ;
-function pxui_ui_table_view_with int32_t pxui_ui_table_view_with ( PxuiUi * ui , const PxuiTableViewWithDesc * desc , size_t * sort_column ) ;
+function pxui_ui_table int32_t pxui_ui_table ( PxuiUi * ui , const PxuiKeyedDesc * keyed , const PxuiTableDesc * desc , PxuiRowKey key , PxuiTableCellBuild cell , void * user , PxuiTableResult * out ) ;
+function pxui_ui_table_head int32_t pxui_ui_table_head ( PxuiUi * ui , const PxuiKeyedDesc * keyed , const PxuiTableHeadDesc * desc , PxuiHeadResult * out ) ;
 function pxui_ui_tabs int32_t pxui_ui_tabs ( PxuiUi * ui , PxuiStr label , PxuiStrSpan options , size_t selected , size_t * out ) ;
 function pxui_ui_tabs_result int32_t pxui_ui_tabs_result ( PxuiUi * ui , const PxuiKeyedDesc * keyed , PxuiPickItemSpan items , uint8_t has_selected , size_t selected , uint8_t focus_on_click , PxuiResponse * out , PxuiSegmentedResult * result ) ;
 function pxui_ui_text int32_t pxui_ui_text ( PxuiUi * ui , const PxuiBox * box , PxuiStr value ) ;
@@ -366,9 +360,13 @@ layout PxuiBoxDesc 112 8 0 4 8 16 32 48 52 56 60 61 62 64 72 88 96 104
 layout PxuiButtonConfig 464 8 0 4 12 13 14 16 48 80 88 104 105 106 107 108 112 116 132 134 135 144 145 146 147 148 152 216 232 248 256 264 280 296 297 298 304 368 384 448
 layout PxuiButtonDesc 424 8 0 4 5 6 7 8 9 10 11 12 16 20 40 48 64 80 96 97 104 105 106 107 108 112 176 192 208 216 224 240 256 257 258 264 328 344 408
 layout PxuiCell 8 2 0 2 4 6
+layout PxuiCellState 48 8 0 4 5 6 7 8 40 44
 layout PxuiCheckConfig 88 8 0 4 12 16 48 64 72 80 84 85
 layout PxuiCheckboxDesc 56 8 0 4 5 6 7 8 16 24 40
 layout PxuiColorSpan 24 8 0 8 16 20
+layout PxuiColumn 40 8 0 4 5 6 7 8 24 32 36
+layout PxuiColumnWidth 16 8 0 8 12
+layout PxuiColumnWidthSpan 16 8 0 8
 layout PxuiCompletion 80 8 0 8 16 32 48 64
 layout PxuiCurve 140 4 0 4
 layout PxuiCurveDesc 160 4 0 4 8 24 28 32 96
@@ -392,6 +390,7 @@ layout PxuiGrid 32 8
 layout PxuiGridListDesc 56 8 0 4 8 24 32 36 40 48
 layout PxuiGripConfig 56 8 0 4 12 13 16 48
 layout PxuiHeadActionDesc 40 8 0 4 5 6 8 24
+layout PxuiHeadResult 56 8 0 4 5 6 7 8 16
 layout PxuiHintDesc 40 8 0 4 8 24
 layout PxuiIconButtonConfig 136 8 0 4 16 48 64 80 88 89 90 92 96 100 104 112 120 124 128
 layout PxuiIconButtonDesc 112 8 0 4 5 6 7 8 12 16 24 32 48 64 80 88 96 104 105 106
@@ -402,14 +401,12 @@ layout PxuiLabelConfig 144 8 0 4 8 40 56 120 124
 layout PxuiLabelStyle 64 8 0 4 8 10 12 14 16 17 18 19 20 24 28 32 36 40 44 48
 layout PxuiLayerInfo 48 8 0 8 12 16 32
 layout PxuiLineFieldConfig 72 8 0 4 12 16 48 64
-layout PxuiListViewDesc 64 8 0 4 5 8 24 32 48 56
-layout PxuiListViewWithDesc 64 8 0 4 5 8 24 32 48 56
+layout PxuiListResult 104 8 0 4 8 40 72 80 88 96
 layout PxuiLook 160 8 0 4 12 16 20 24 28 44 92 96 128 132 144 148 152
 layout PxuiLookDesc 152 8 0 4 8 12 16 20 24 28 44 92 96 120 124 136 140 144 145
 layout PxuiMark 12 4
 layout PxuiMarkDesc 16 4 0 4 8 12 13
 layout PxuiMaybeRange 24 8 0 1 8 16
-layout PxuiMeasuredSectionDesc 72 8 0 4 5 8 24 32 36 40 44 48 56 64
 layout PxuiMenuBarDesc 40 8 0 4 8 24
 layout PxuiMenuDesc 40 8 0 4 8 24
 layout PxuiMenuExtra 192 8 0 4 8 16 32 48 64 80 84 88 104 108 109 112 128 144 145 152 168 184 188
@@ -448,10 +445,11 @@ layout PxuiScrubOut 48 8 0 4 8 40 44
 layout PxuiSearchFieldConfig 88 8 0 4 16 24 56 72 80
 layout PxuiSectionConfig 80 8 0 4 8 16 48 64 72
 layout PxuiSectionIndexConfig 80 8 0 4 12 16 24 56 72
-layout PxuiSectionListDesc 72 8 0 4 5 8 24 32 36 40 44 48 56 64
+layout PxuiSectionListDesc 32 8 0 4 5 6 8 16 20 24 28
 layout PxuiSegmentConfig 200 8 0 4 16 24 32 40 72 88 96 98 100 104 112 144 176 177 184 192 193
 layout PxuiSegmentedDesc 112 8 0 4 5 6 8 16 24 40 56 64 68 72 76 80 96 97 104 105
 layout PxuiSegmentedResult 24 8 0 4 5 6 8 16
+layout PxuiSelectionListDesc 64 8 0 4 5 6 7 8 9 16 24 28 32 36 40 56
 layout PxuiShadow 24 4 0 4 12 16 20
 layout PxuiShadowDesc 24 4 0 4 12 16 20 21
 layout PxuiSheetDesc 20 4 0 4 5 6 8 12 16
@@ -471,16 +469,15 @@ layout PxuiSubmenu 72 8 0 8 16 17 24 40 56
 layout PxuiSwatch 8 1 0 1 4
 layout PxuiSwipeIn 16 4 0 4 8 12
 layout PxuiTabConfig 96 8 0 4 16 24 56 72 80
-layout PxuiTableCellConfig 72 8 0 4 8 12 16 24 32 40 48 64
-layout PxuiTableDesc 80 8 0 4 8 24 32 36 40 56 64 72
+layout PxuiTableDesc 96 8 0 4 5 6 7 8 24 40 48 56 60 64 80 88 90
 layout PxuiTableHeadConfig 80 8 0 4 12 13 16 24 56 72
-layout PxuiTableViewDesc 96 8 0 4 5 6 8 24 40 56 64 72 80 88
-layout PxuiTableViewWithDesc 96 8 0 4 5 6 8 24 40 56 64 72 80 88
+layout PxuiTableHeadDesc 56 8 0 4 5 6 8 24 40 48 52
+layout PxuiTableResult 168 8 0 4 8 112
 layout PxuiTargetDesc 32 4 0 4 8 9 12 16 20 24 28
 layout PxuiTextAreaDesc 200 8 0 4 8 12 16 20 24 32 40 56 72 88 104 120 136 152 168 184
 layout PxuiTextFieldConfig 88 8 0 4 16 48 64 80
 layout PxuiTextFieldDesc 56 8 0 4 5 6 7 8 24 40
-layout PxuiThemeSnapshot 56896 8 0 136 140 144 156 160 168 56808
+layout PxuiThemeSnapshot 56888 8 0 136 140 144 156 160 168 56808
 layout PxuiThemeTokens 136 8 0 4 8 12 16 20 24 28 32 33 36 52 64 72 80 88 96 124 125 128
 layout PxuiTipConfig 72 8 0 4 8 16 48 64
 layout PxuiToastConfig 72 8 0 4 16 48 64

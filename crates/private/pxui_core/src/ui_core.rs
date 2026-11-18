@@ -57,7 +57,7 @@ pub use pxui_types::{Flags, Size};
 pub use crate::opts::{BoxOpts, HitFn};
 pub use pxui_types::shape::{clip_of, Shapes};
 pub use pxui_types::ui::{
-    ellipsis, text_top_for, display, hash_range, int_key, key_of, shown, Cursor, Keyframe, Keyframes, ListResponse, Overlay, PickerResponse, Repeat, SelectionList, TableResponse, TableView, Target, TreeResponse, UndoKind,
+    ellipsis, text_top_for, display, hash_range, int_key, key_of, shown, Cursor, Keyframe, Keyframes, ListResponse, Overlay, PickerResponse, Repeat, SelectionList, Target, TreeResponse, UndoKind,
     DRAG_THRESHOLD, ROOT_KEY,
 };
 /// What a carry holds: a `kind` and a `value`, both strings (the engine's own storage; the wrapper lends them as `PayloadRef`).
@@ -1106,7 +1106,9 @@ pub struct Ui {
     a11y_gen: u64,
     a11y_full: bool,
     a11y_written: usize,
-    a11y_on: bool,
+    pub(crate) a11y_on: bool,
+    /// sortable headings' composed accessible names (`ui_lists`), bounded
+    pub(crate) sort_names: crate::ui_lists::SortNames,
     timing: bool,
     a11y_seen: (i64, Option<i64>),
     /// how long the last frame's layout passes took
@@ -1394,6 +1396,7 @@ impl Ui {
             a11y_full: true,
             a11y_written: 0,
             a11y_on: false,
+            sort_names: crate::ui_lists::SortNames::default(),
             timing: false,
             a11y_seen: (0, None),
             parents: Vec::new(),
@@ -3975,6 +3978,16 @@ impl Ui {
             None => if self.active == Some(b.box_key) { self.active_keys.clone() } else { Vec::new() },
             Some(value) => value.press_keys.clone(),
         }
+    }
+
+    /// Whether Shift and the platform's command modifier were held at this box's captured press (no copy of the keys).
+    pub(crate) fn press_mods(&self, b: &UiBox) -> (bool, bool) {
+        let keys: &[Key] = match self.signals.get(&b.box_key) {
+            Some(value) => &value.press_keys,
+            None if self.active == Some(b.box_key) => &self.active_keys,
+            None => &[],
+        };
+        (keys.contains(&Key::Shift), self.command_modifiers(keys))
     }
 
     pub(crate) fn press_shift(&self, b: &UiBox) -> bool {
@@ -7557,14 +7570,15 @@ impl Ui {
     /// A scrolling lead-in, sticky heading and virtual rows (fixed, or measured with `SectionList::measured`) in one region keyed by
     /// `label`; `f(ui, index, y)` builds the part `index` (`usize::MAX` the lead-in, `usize::MAX - 1` the heading, else row `index`) at its
     /// logical content Y. With `row_key`, row `i`'s box is keyed by the item id `key(i)` (`Key::Id` under the rows), so a row's state
-    /// follows its item when the items reorder; without it, by its index.
-    pub fn section_list(&mut self,label:&str,section:&pxui_types::ui::SectionList,row_key:Option<&dyn Fn(usize)->i64>,f:&mut dyn FnMut(&mut Ui,usize,f32))->Handle {
-        if section.measured { return self.section_rows_measured(label,section,row_key,f); }
-        let y=|index:usize| match index { usize::MAX=>0.0, i if i==usize::MAX-1=>section.leading_height, i=>section.leading_height+section.header_height+i as f32*section.row_height };
-        self.section_rows_fixed(label,section,row_key,&mut |ui,index| f(ui,index,y(index)))
+    /// follows its item when the items reorder; without it, by its index. With `trailer`, the space after the last row is built too
+    /// (`usize::MAX - 2`); without it (the 1.x C contract: every other index is a row) it stays empty.
+    pub fn section_list(&mut self,label:&str,section:&pxui_types::ui::SectionList,row_key:Option<&dyn Fn(usize)->i64>,trailer:bool,f:&mut dyn FnMut(&mut Ui,usize,f32))->Handle {
+        if section.measured { return self.section_rows_measured(label,section,row_key,trailer,f); }
+        let y=|index:usize| match index { usize::MAX=>0.0, i if i==usize::MAX-1=>section.leading_height, i if i==usize::MAX-2=>section.leading_height+section.header_height+section.count as f32*section.row_height, i=>section.leading_height+section.header_height+i as f32*section.row_height };
+        self.section_rows_fixed(label,section,row_key,trailer,&mut |ui,index| f(ui,index,y(index)))
     }
 
-    fn section_rows_fixed(&mut self,label:&str,section:&pxui_types::ui::SectionList,row_key:Option<&dyn Fn(usize)->i64>,f:&mut dyn FnMut(&mut Ui,usize))->Handle {
+    fn section_rows_fixed(&mut self,label:&str,section:&pxui_types::ui::SectionList,row_key:Option<&dyn Fn(usize)->i64>,trailer:bool,f:&mut dyn FnMut(&mut Ui,usize))->Handle {
         let padding = self.list_padding(key_of(self.current_seed(), label));
         let rows_h=section.count as f32*section.row_height;
         let before=section.leading_height+section.header_height;
@@ -7574,7 +7588,8 @@ impl Ui {
         let flags=Flags::SCROLL|Flags::CLIP|if section.overlay_scrollbar {Flags::OVER_THUMB} else {Flags::NONE};
         let body=self.node_ref(label, &Node {flags,w:Size::Grow,h:Size::Grow,scroll_step:section.row_height,role:Role::List,..Node::DEFAULT});
         let seen=self.slots[body.box_slot].rh;
-        let height=if seen>0.0 {seen} else {self.view_h};
+        // a list never laid out guesses the window's height; one laid out to no height stays so (no rebuild every frame)
+        let height=if seen>0.0 || self.slots[body.box_slot].rw>0.0 {seen} else {self.view_h};
         self.expect(body.box_slot,f32::NAN,height);
         self.set_l_h(&body,height);
         self.set_l_content(&body,total+padding.t+padding.b);
@@ -7605,7 +7620,10 @@ impl Ui {
         }
         self.ahead=outer;
         self.leave(inner);
-        if section.trailing_height>0.0 {self.node("trailing".into(),Node {h:Size::Px(section.trailing_height),..Node::DEFAULT});}
+        if section.trailing_height>0.0 {
+            let t=self.node("trailing".into(),Node {w:Size::Grow,h:Size::Px(section.trailing_height),..Node::DEFAULT});
+            if trailer {let inner=self.enter(&t); f(self,usize::MAX-2); self.leave(inner);}
+        }
         self.leave(saved);
         self.remember_list(&body,ListGeometry::rows(&body,section.count,section.row_height,before,section.header_height,section.trailing_height,padding));
         body
@@ -7650,7 +7668,7 @@ impl Ui {
         }
     }
 
-    fn section_rows_measured(&mut self,label:&str,section:&pxui_types::ui::SectionList,row_key:Option<&dyn Fn(usize)->i64>,f:&mut dyn FnMut(&mut Ui,usize,f32))->Handle {
+    fn section_rows_measured(&mut self,label:&str,section:&pxui_types::ui::SectionList,row_key:Option<&dyn Fn(usize)->i64>,trailer:bool,f:&mut dyn FnMut(&mut Ui,usize,f32))->Handle {
         let key=key_of(self.current_seed(),label);
         let padding=self.list_padding(key);
         let mut cache=self.list_heights.remove(&key).unwrap_or_default();
@@ -7669,7 +7687,8 @@ impl Ui {
         let flags=Flags::SCROLL|Flags::CLIP|if section.overlay_scrollbar {Flags::OVER_THUMB} else {Flags::NONE};
         let body=self.node_ref(label, &Node {flags,w:Size::Grow,h:Size::Grow,scroll_step:section.row_height,role:Role::List,..Node::DEFAULT});
         let seen=self.slots[body.box_slot].rh;
-        let height=if seen>0.0 {seen} else {self.view_h};
+        // a list never laid out guesses the window's height; one laid out to no height stays so (no rebuild every frame)
+        let height=if seen>0.0 || self.slots[body.box_slot].rw>0.0 {seen} else {self.view_h};
         self.expect(body.box_slot,f32::NAN,height);
         self.set_l_h(&body,height);
         self.set_l_content(&body,total+padding.t+padding.b);
@@ -7702,7 +7721,10 @@ impl Ui {
         }
         self.ahead=outer;
         self.leave(inner);
-        if section.trailing_height>0.0 {self.node("trailing".into(),Node {h:Size::Px(section.trailing_height),..Node::DEFAULT});}
+        if section.trailing_height>0.0 {
+            let t=self.node("trailing".into(),Node {w:Size::Grow,h:Size::Px(section.trailing_height),..Node::DEFAULT});
+            if trailer {let inner=self.enter(&t); f(self,usize::MAX-2,before+rows_h); self.leave(inner);}
+        }
         self.leave(saved);
         cache.geometry=ListGeometry::rows(&body,section.count,0.0,before,section.header_height,section.trailing_height,padding);
         self.list_heights.insert(body.box_key,cache);
@@ -7734,7 +7756,8 @@ impl Ui {
         }
         cache.frame = self.frame_number;
         let seen = self.slots[body.box_slot].rh;
-        let height = if seen > 0.0 { seen } else { self.view_h };
+        // a list never laid out guesses the window's height; one laid out to no height stays so (no rebuild every frame)
+        let height = if seen > 0.0 || self.slots[body.box_slot].rw > 0.0 { seen } else { self.view_h };
         self.expect(body.box_slot, f32::NAN, height);
         self.set_l_h(&body, height);
         self.set_l_content(&body, cache.tops[count] + padding.t + padding.b);
@@ -7985,6 +8008,15 @@ impl Ui {
 
     /// Mark `v` and the views around it to rebuild at their next declaration; one already kept this
     /// frame rebuilds next frame.
+    /// Builds the frame again before it is drawn: a widget's state changed after part of it was built from the old one (a click on a
+    /// row that changes rows built before it), so `b`'s view and the frame settle once more.
+    pub(crate) fn build_again(&mut self, b: &Handle) {
+        if self.live(b) {
+            self.mark_view(self.slots[b.box_slot].owner);
+            self.settle = true;
+        }
+    }
+
     fn mark_view(&mut self, mut v: u32) {
         while v != 0 && v != NO_VIEW {
             let r = &mut self.views[v as usize];
@@ -8408,8 +8440,8 @@ impl Ui {
             }
         }
         let budget = packed.saturating_mul(2).max(256);
-        if kept != 0 {
-            // Existing fresh views may all be kept next frame; reserve their run padding now.
+        if kept != 0 || self.views.len() > 1 {
+            // Existing fresh views may all be kept next frame (a fresh UI's second frame too); reserve their run padding now.
             let reserve = packed.saturating_add(SLACK.saturating_mul(self.views.len().saturating_sub(kept)))
                 .saturating_add(s.instances.len() / 8).saturating_mul(2).max(256);
             d.instances.reserve(reserve.saturating_sub(d.instances.len()));

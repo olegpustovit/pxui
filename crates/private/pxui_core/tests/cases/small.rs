@@ -1,89 +1,12 @@
 //! Ports of lib/pxui ,  and .
 use crate::support::*;
-use input::{Event, Key, MouseButton, ScrollPhase};
+use input::{Event, Key, MouseButton};
 use pxui_core::ui::*;
 use input::frame;
 use std::cell::Cell;
 use std::rc::Rc;
 
 // ------------------------------------------------------------------ test_table
-
-fn table_frame(count: i64, events: Vec<Event>) -> frame::Frame {
-    let mut f = frame_at(Vec::new(), 1.0, count as f64 / 60.0, events);
-    f.input.size = (360, 240);
-    f
-}
-
-pub fn window_pxui_table() {
-    let mut ui = new_ui(None);
-    let cells = Rc::new(Cell::new(0i64));
-    let first = Rc::new(Cell::new(i64::MAX));
-    let clicked = Rc::new(Cell::new(None::<i64>));
-    let mut build = {
-        let (cells, first, clicked) = (cells.clone(), first.clone(), clicked.clone());
-        move |ui: &mut Ui| {
-            let (cells, first) = (cells.clone(), first.clone());
-            let headers = ["index", "value"];
-            let cell = move |row: i64, column: i64| {
-                cells.set(cells.get() + 1);
-                first.set(first.get().min(row));
-                (row + column).to_string()
-            };
-            let c = ui.table_view("table", &headers, &mut [], 1_000_000 as usize, &|i| i as i64, &mut None, &pxui_core::ui::TableView::text(pxui_core::ui::Rect::new(0.0, 0.0, 300.0, 168.0)), &mut |ui, r, c| ui.item_text(&cell(r as i64, c as i64))).row.map(|r| r as i64);
-            clicked.set(c);
-        }
-    };
-    ui.frame(&table_frame(0, vec![]), &mut build);
-    cells.set(0);
-    ui.frame(&table_frame(1, vec![]), &mut build);
-    assert!(cells.get() > 0 && cells.get() <= 20);
-    ui.frame(&table_frame(2, vec![press((30, 36)), release((30, 36))]), &mut build);
-    assert!(clicked.get() == Some(0));
-    cells.set(0);
-    first.set(i64::MAX);
-    ui.frame(&table_frame(3, vec![move_to((30, 100)), Event::Scrolled((0.0, -10000.0))]), &mut build);
-    assert!(cells.get() >= 12 && cells.get() <= 20 && first.get() == 10000);
-    cells.set(0);
-    ui.frame(&table_frame(4, vec![]), &mut build);
-    check(
-        cells.get() >= 12 && cells.get() <= 20 && first.get() == 10000,
-        &format!("scrolled table cells={} first={}", cells.get(), first.get()),
-    );
-    ui.frame(&table_frame(5, vec![press((30, 36)), release((30, 36))]), &mut build);
-    assert!(clicked.get() == Some(10000));
-    for count in 6..=15 {
-        cells.set(0);
-        first.set(i64::MAX);
-        ui.frame(&table_frame(count, vec![move_to((30, 100)), Event::Scrolled((0.0, -3.0))]), &mut build);
-        assert!(cells.get() >= 12 && cells.get() <= 20 && first.get() == 10000 + (count - 5) * 3);
-    }
-    cells.set(0);
-    first.set(i64::MAX);
-    ui.frame(
-        &table_frame(
-            16,
-            vec![
-                Event::TrackpadScrolled { delta: (0.0, -72.0), phase: ScrollPhase::Moved, time: 16.0 / 60.0 },
-                Event::Scrolled((0.0, -3.0)),
-            ],
-        ),
-        &mut build,
-    );
-    assert!(cells.get() >= 12 && cells.get() <= 20 && first.get() == 10033);
-    ui.frame(
-        &table_frame(17, vec![Event::TrackpadScrolled { delta: (0.0, -72.0), phase: ScrollPhase::Moved, time: 17.0 / 60.0 }]),
-        &mut build,
-    );
-    ui.frame(
-        &table_frame(18, vec![Event::TrackpadScrolled { delta: (0.0, 0.0), phase: ScrollPhase::Lifted, time: 18.0 / 60.0 }]),
-        &mut build,
-    );
-    cells.set(0);
-    first.set(i64::MAX);
-    ui.frame(&table_frame(19, vec![]), &mut build);
-    assert!(cells.get() >= 12 && cells.get() <= 20 && first.get() > 10036);
-    ui.destroy();
-}
 
 // ------------------------------------------------------------------ test_keyboard
 
@@ -538,7 +461,6 @@ pub const CASES: &[(&str, fn())] = &[
     ("fuzzy_score_ranks", fuzzy_score_ranks),
     ("dirty_ranges_merge_closest", dirty_ranges_merge_closest),
     ("window_pxui_typography", window_pxui_typography),
-    ("window_pxui_table", window_pxui_table),
     ("window_pxui_keyboard", window_pxui_keyboard),
     ("window_pxui_input", window_pxui_input),
 ];

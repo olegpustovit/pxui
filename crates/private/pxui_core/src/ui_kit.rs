@@ -4,7 +4,7 @@
 //! nodes, picks each node's look from its `States` for the node's state, and the engine paints them;
 //! no standard widget paints with a closure. Widgets must be built inside a `panel`.
 use crate::ui_core::*;
-use crate::bodies::{body_of, in_body, in_item, TableCellConfig, ButtonConfig, FooterConfig, GripConfig, LabelConfig, PanelConfig, SplitConfig, ToggleConfig};
+use crate::bodies::{body_of, in_body, in_item, ButtonConfig, FooterConfig, GripConfig, LabelConfig, PanelConfig, SplitConfig, ToggleConfig};
 pub use pxui_types::ui::{Head, HeadAction, PanelOpts};
 pub use pxui_types::Label;
 use pxui_text::{Align as TextAlign, Ellipsis, Style, Wrap};
@@ -595,18 +595,6 @@ impl Ui {
     }
 }
 
-/// The built-in `table` cell: a header's title 8 points in from its column's start, a data cell's text right-aligned 8 points in from its end.
-pub(crate) fn default_table_cell(this: &mut Ui, c: &TableCellConfig, text: &str) {
-    if c.header {
-        let look = text_only(&this.theme().table_head.idle);
-        this.placed(c.key, (c.left + 8.0, 0.0), Size::Px((c.right - c.left - 8.0).max(1.0)), c.height, look, Edges::default(), text);
-    } else {
-        let tw = this.text_width(None, text);
-        let look = text_only(&this.theme().table_row.idle);
-        this.placed(c.key, (c.right - 8.0 - tw, 0.0), Size::Px(tw.max(1.0)), c.height, look, Edges::default(), text);
-    }
-}
-
 /// A look's text alone (colour, font, opacity): a part that carries a widget's text without its ground.
 pub fn text_only(look: &Look) -> Look {
     Look { text: look.text, font: look.font, opacity: look.opacity, ..Look::NONE }
@@ -1137,84 +1125,6 @@ impl Ui {
 
 // Method bodies outside `impl` blocks: each module is its own codegen unit, so the big bodies
 // compile in parallel with the rest of the crate (rustc places methods with their type).
-/// The fixed text table of `table_view` (`TableView::text`): only visible rows ask `cell(ui, row, column)` for their text, which the
-/// cell gives `item_text` (a cell that gives none stays empty), or build hit boxes. Returns the clicked row.
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn table_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, headers: &[&str], rows: i64, cell: &mut dyn FnMut(&mut Ui, usize, usize), label: &str) -> (Option<i64>, Signal) {
-    if rows < 0 {
-        panic!("Ui.table: negative row count");
-    }
-    let row_h = (this.theme().row_h * this.theme().tokens.density).round();
-    // the column stops live in a vector kept between frames: a settled table allocates nothing
-    let mut stops = core::mem::take(&mut this.table_stops);
-    stops.clear();
-    stops.resize(headers.len() + 1, 0.0);
-    for (i, header) in headers.iter().enumerate() {
-        let width = 72.0f32.max(this.text_width(None, header) + 24.0);
-        stops[i + 1] = stops[i] + width;
-    }
-    let (head_look, row_look) = (this.theme().table_head.idle, this.theme().table_row.idle);
-    let cell_body = body_of!(this, table_cell);
-    let root = this.box_(label, BoxOpts::default().flags(Flags::CLIP).at(at).w(Size::Px(w)).h(Size::Px(h)));
-    let saved = this.enter(&root);
-    let header = this.box_fmt(format_args!("{}-header", label), BoxOpts::default().w(Size::Px(w)).h(Size::Px(row_h)));
-    this.set_role(&root, Role::Table, 0);
-    this.set_look(&header, head_look, State::default());
-    {
-        let saved = this.enter(&header);
-        for (i, title) in headers.iter().enumerate() {
-            let key = int_key(header.box_key, i as i64);
-            let config = TableCellConfig { header: true, row: -1, column: i as i64, key, left: stops[i], right: stops[i + 1], height: row_h };
-            in_item!(place; this, cell_body, key, default_table_cell(&config, title));
-        }
-        this.leave(saved);
-    }
-    let body_h = 0.0f32.max(h - row_h);
-    let body = this.box_fmt(format_args!("{}-body", label), BoxOpts::default().flags(Flags::SCROLL | Flags::CLIP).w(Size::Px(w)).h(Size::Px(body_h)).scroll_step(row_h));
-    // Both sizes are explicit: use the shared wheel/trackpad/coast state before choosing rows.
-    // Arrange then sees consumed input and a zero time delta.
-    this.set_l_h(&body, body_h);
-    this.set_l_content(&body, rows as f32 * row_h);
-    if let Some(t) = this.input_frame_time() {
-        this.apply_scroll(true, t, body.index);
-    }
-    let first = rows.min(0.max((this.scroll_offset(&body) / row_h).floor() as i64));
-    let last = rows.min(first + (body_h / row_h).ceil() as i64 + 2);
-    let mut clicked = None;
-    let saved_body = this.enter(&body);
-    let extent = this.box_fmt(format_args!("{}-extent", label), BoxOpts::default().w(Size::Px(w)).h(Size::Px(rows as f32 * row_h)));
-    let saved_extent = this.enter(&extent);
-    for index in first..last {
-        let row = this.box_fmt(format_args!("{}-row-{}", label, index), BoxOpts::default().flags(Flags::CLICKABLE).at((0.0, index as f32 * row_h)).w(Size::Px(w)).h(Size::Px(row_h)));
-        if this.signal_owned(&row).clicked {
-            clicked = Some(index);
-        }
-        this.set_look(&row, row_look, State::default());
-        let saved = this.enter(&row);
-        for column in 0..headers.len() {
-            // the cell's text comes back through `item_text` into a buffer kept between frames
-            this.text_cell.clear();
-            this.text_cell_set = false;
-            let outer = core::mem::replace(&mut this.bodies.item_kind, crate::ui_widgets::ITEM_TEXT_CELL);
-            cell(this, index as usize, column);
-            this.bodies.item_kind = outer;
-            if this.text_cell_set {
-                let value = core::mem::take(&mut this.text_cell);
-                let key = int_key(row.box_key, column as i64);
-                let config = TableCellConfig { header: false, row: index, column: column as i64, key, left: stops[column], right: stops[column + 1], height: row_h };
-                in_item!(place; this, cell_body, key, default_table_cell(&config, &value));
-                this.text_cell = value;
-            }
-        }
-        this.leave(saved);
-    }
-    this.leave(saved_extent);
-    this.leave(saved_body);
-    let sig = this.signal_owned(&body);
-    this.leave(saved);
-    this.table_stops = stops;
-    (clicked, sig)
-}
 
 /// The engine's panel record of `overlay` for a call whose own width is `width`.
 fn panel_opts(overlay: &Overlay, width: f32) -> PanelOpts {

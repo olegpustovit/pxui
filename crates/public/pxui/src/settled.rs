@@ -22,6 +22,8 @@ struct State {
     volume: f32,
     mode: usize,
     seen: u64,
+    list: crate::ListState,
+    table: crate::TableState,
 }
 
 fn panel(ui: &mut Ui, s: &mut State) {
@@ -67,8 +69,9 @@ fn engine_shaped(ui: &mut Ui, s: &mut State) {
         p.text(crate::Point::new(2.0, 12.0), Label::BODY, 0.0, "span");
         p.fill(Rect::new(40.0, 0.0, 8.0, 8.0), Fill::new(Rgba { r: 9, g: 9, b: 9, a: 255 }));
     });
-    s.seen += ui.selection_list("items", 3, &|i| i as i64, &mut [0; 3], &crate::SelectionList::DEFAULT, &mut |ui, row| ui.item_text(["one", "two", "three"][row])).activated.is_some() as u64;
-    s.seen += ui.table_view("table", &["Name", "Size"], &mut [], 3, &|i| i as i64, &mut None, &crate::TableView::text(crate::ui::Rect::new(0.0, 0.0, 120.0, 60.0)), &mut |ui, _, column| ui.item_text(if column == 0 { "row" } else { "1" })).row.is_some() as u64;
+    s.seen += ui.selection_list("items", 3, &|i| i as i64, &mut s.list, &crate::SelectionList::DEFAULT, &mut |ui, part, _| if let crate::ui::SectionPart::Row(row) = part { ui.item_text(["one", "two", "three"][row]) }).activated.is_some() as u64;
+    const COLUMNS: [crate::Column; 2] = [crate::Column::new("Name").sortable(true).share(1.0), crate::Column::new("Size").w_px(40.0)];
+    s.seen += ui.table("table", &COLUMNS, 3, &|i| i as i64, &mut s.table, &crate::Table::DEFAULT, &mut |ui, _, column, _| ui.item_text(if column == 0 { "row" } else { "1" })).rows.activated.is_some() as u64;
     s.seen += ui.popup("popup", &crate::Overlay::DEFAULT.at(crate::Point::new(10.0, 10.0)).w_px(80.0).h_px(30.0).dismiss_initial(), &mut |ui: &mut Ui| { ui.label("popped", crate::Label::DEFAULT); }).open as u64;
 }
 
@@ -80,7 +83,7 @@ fn a_settled_frame_through_the_wrapper_allocates_nothing() {
     assert!(mem_sys::local_alloc_count() > counted, "the counting allocator is installed");
     let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
     let mut state = State {
-        clicks: 0, night: false, check: false, volume: 0.5, mode: 0, seen: 0,
+        clicks: 0, night: false, check: false, volume: 0.5, mode: 0, seen: 0, list: crate::ListState::new(), table: crate::TableState::new(),
     };
     let input = FrameIn::new(320.0, 240.0);
     // `revision` is the page view's when there is one: a changing one rebuilds the whole page (every canvas callback runs and

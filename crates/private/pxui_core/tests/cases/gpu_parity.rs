@@ -117,7 +117,11 @@ fn table(ui: &mut Ui) {
             cfmt::g((row + column) as f64 * 0.125, 6)
         }
     };
-    ui.table_view("table", &headers, &mut [], 1000000 as usize, &|i| i as i64, &mut None, &pxui_core::ui::TableView::text(pxui_core::ui::Rect::new(8.0, 8.0, 304.0, 280.0)), &mut |ui, r, c| ui.item_text(&cell(r as i64, c as i64))).row.map(|r| r as i64);
+    let columns = [0, 1, 2, 3].map(|id| pxui_core::ui_lists::ColumnSpec { id, share: 0.0, w: 70.0, grip: true, sortable: false });
+    let mut widths = [0, 1, 2, 3].map(|id| pxui_types::ffi::PxuiColumnWidth { id, w: 70.0, reserved: 0 });
+    let (mut flags, mut anchor, mut sort) = (vec![0u8; 1_000_000], None, None);
+    let at = ui.node("table-at".into(), Node { at: Some((8.0, 8.0)).into(), w: Size::Px(304.0), h: Size::Px(280.0), ..Node::DEFAULT });
+    ui.within(&at, &mut |ui| { ui.table("table", &columns, &headers, &mut widths, &mut sort, 1_000_000, &|i| i as i64, &mut flags, &mut anchor, false, 24.0, 24.0, 0, &mut |ui, r, c, _| ui.item_text(&cell(r as i64, c as i64))); });
 }
 
 fn parity(name: &str, golden: &str, height: i64, build: fn(&mut Ui)) {

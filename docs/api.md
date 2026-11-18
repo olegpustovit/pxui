@@ -29,7 +29,7 @@ The target public surface. **Rule:** a call not marked with a step keeps its HEA
 | Text | `label(&str, Label) -> Handle`, `label_fmt(Arguments, Label)`, `label_digits(Arguments, Label)`; `text(&Handle, &str)`; `text_spans`, `text_line_box` take `Label` | label | HEAD; spans U1b.3 |
 | Measure (D20) | `Ui::text_service() -> UiText<'_>` and `Paint::text_service() -> UiText<'_>`; `UiText::measure(&str, Label, max_w: Option<f32>) -> Result<TextMetrics, Error>`, `measure_spans`, `width`, `rasterize_rgba`, `quads`, `add_font`, `enable_system_fonts`; worker form `Text::measure(&str, &TextStyle, max_w)` | — | U1b.3 |
 | Text worker | `TextStyle`, `Text`, `TextWorker`, `PreparedText`, `RetiredText`, `UiText::fork/install`, `prewarm_text`, `set_text_worker`, `resolve(&Label) -> TextStyle` | — | HEAD (D20) |
-| Button | `button<K>(key, text: &str, &Button) -> Response` (D25: one name, no short form, no `_with`); `button_content<K, F>(key, &Button, f /* (ui, State) */) -> Response`. `Button`: icon, icon_size, detail, accessory, label(Label), selected, disabled, danger, align, pad, axis, variant, look | button | name + `disabled` U1b.6; `icon_size` U2b.7 |
+| Button | `button<K>(key, text: &str, &Button) -> Response` (D25: one name, no short form, no `_with`); `button_content<K, F>(key, &Button, f /* (ui, State) */) -> Response`. `Button`: icon, icon_size, detail, accessory, label(Label), selected, disabled, danger, align, pad, axis, variant, look | button | name + `disabled` U1b.6; `icon_size` U2b.7; body configs `ButtonConfig::icon()`/`IconButtonConfig::icon() -> Option<Icon>` (D18) U2b.7 |
 | Icon button | `icon_button<K>(key, Icon, name: &str, &IconButton) -> Response` | icon_button | HEAD |
 | Toggle | `toggle<K>(key, text, on: bool, &Toggle) -> Response` (D25) | toggle | U1b.6 |
 | Checkbox | `checkbox<K>(key, text, on: bool, &Checkbox) -> Response`; `Checkbox<'a>`: look (borrowed), size, disabled(bool), passive(bool), variant | checkbox | U2a.3 |
@@ -40,14 +40,14 @@ The target public surface. **Rule:** a call not marked with a step keeps its HEA
 | Progress / spinner / badge | `progress<K>(key, text, value: Option<f32>, &Progress) -> Handle`; `spinner<K>(key, name, &Spinner) -> Handle`; `badge<K>(key, name, text, &Badge) -> Handle` (argument order as HEAD) | progress / spinner / badge | U1b.5 |
 | Menu | `menu<K>(key, at: Point, &[MenuItem], &Menu) -> Chosen`; `menu_bar<K>(key, &[MenuBarMenu], &MenuBar) -> Chosen` (flat index in menu order, item identity via `MenuItem::id`); `MenuBarMenu::new(title, &[MenuItem])` | menu_row / menu_item / menu_bar | U1b.1 |
 | Dialog | `dialog<K>(key, title: &str, &[DialogButton], &Dialog, body: &mut dyn FnMut(&mut Ui)) -> Chosen` | dialog | HEAD |
-| Overlays | `panel/popup/modal<K, F>(key, &Overlay, f) -> OverlayResponse { handle, open: bool }`; `anchored<K, F>(key, anchor: Rect, &Overlay, f) -> OverlayResponse`; sheets via `Overlay::present(Presentation::{Centered, Bottom, Full})` + `.dismiss(DismissOpts)`; `tooltip(&Handle, &str)` keyed by the owner; `toasts<K>(key, &[Toast], seconds: f64) -> Chosen` | panel / popup / modal / tooltip / toasts | U1b.1 (results, tooltip key); U2a.4 (present) |
-| Lists | `list<K, F>(key, count, row_h: f32, row_key: &dyn Fn(usize) -> i64, f) -> ListResponse`; `section_list<K>(key, &SectionList, row_key, build) -> ListResponse`; `grid_list<K>(key, count, &GridList, build) -> Handle`; `ListResponse { handle, activated, secondary, row: Option<Handle>, moved: Option<(usize, usize)>, drop_at: Option<usize> }` | — (rows are app content) | U1b.5 (grid_list); U2b.2–U2b.3 (ListResponse) |
-| Selection list | `selection_list<K>(key, count, row_key, state: &mut ListState /* selection, anchor; D25.3 */, &SelectionList, cell: &mut dyn FnMut(&mut Ui, usize, CellState)) -> ListResponse`; sections, header, measured rows, per-row enabled; selection semantics (click, Meta-toggle, Shift-range, double-click, keyboard) in the widget | selection_list | U2a.1 (row_key), U2b.1 (rest) |
-| Table | `table<K>(key, &[Column], rows, row_key, state: &mut TableState /* widths, sort, selection; D25.3 */, &Table, cell: &mut dyn FnMut(&mut Ui, usize, usize, CellState)) -> TableResponse`; `table_head<K>(key, &[Column], state: &mut TableState, &TableHead) -> HeadResponse { response, sort: Option<(usize, Sort)> }`; `Column::new(title).sortable(bool).share(f32).id(i64)`; `Sort::{Ascending, Descending}`, `None` = original order | table_row / table_head / table_cell | U2b.1 |
+| Overlays | `panel/popup/modal<K, F>(key, &Overlay, f) -> OverlayResponse { handle, open: bool }`; `anchored<K, F>(key, anchor: Rect, &Overlay, f) -> OverlayResponse`; sheets via `Overlay::present(Presentation::{Centered, Bottom, Full, Top})` (`Top`: centred across, top edge at `Overlay::at`'s y, U2b.5) + `.dismiss(DismissOpts)`; `tooltip(&Handle, &str)` keyed by the owner; `toasts<K>(key, &[Toast], seconds: f64) -> Chosen` | panel / popup / modal / tooltip / toasts | U1b.1 (results, tooltip key); U2a.4 (present) |
+| Lists | `list<K, F>(key, count, row_h: f32, row_key: &dyn Fn(usize) -> i64, f) -> ListResponse` (short form, never reorderable); `section_list<K>(key, &SectionList, row_key, build) -> ListResponse` (`SectionList::reorder(bool)`; the row content builds its `Part::HANDLE`); `grid_list<K>(key, count, &GridList, build) -> Handle`; `ListResponse { handle, activated, selected, secondary, row: Option<Handle>, moved: Option<(usize, usize)>, drop_at: Option<usize> }` (`selected`: set whenever the widget changed the selection this frame, naming the row; `moved.1` is the final index; no `Eq`: `Handle` has none); `SectionPart::Trailing` builds the `trail` area (an action row ending a list) | — (rows are app content; the insertion line is the row body's) | U1b.5 (grid_list); U2b.2–U2b.3 (ListResponse, reorder) |
+| Selection list | `selection_list<K>(key, count, row_key, state: &mut ListState, &SelectionList, cell: &mut dyn FnMut(&mut Ui, SectionPart, CellState)) -> ListResponse`; `ListState { rows: Vec<u8> /* SELECTED, DISABLED flags */, anchor: Option<usize> }`, `ListState::new()`; `CellState { selected, enabled, focused, held, handle, y }`; `SelectionList` carries the `SectionList` geometry (`row_h`, `lead`, `header`, `trail`, `measured`, `overlay_scrollbar`) plus `multi`, `reorder(bool)`, `variant(u16)`, `fit()` (as tall as its rows, no scroll), `drop_look(Look)` (a row's look while a payload hovers its drop target); selection semantics (click, Meta-toggle, Shift-range, double-click, keyboard, Command-A) in the widget | selection_list | U2a.1 (row_key), U2b.1 (rest; reorder U2b.3) |
+| Table | `table<K>(key, &[Column], rows, row_key, state: &mut TableState, &Table, cell: &mut dyn FnMut(&mut Ui, usize, usize, CellState)) -> TableResponse { rows: ListResponse, head: HeadResponse }`; `table_head<K>(key, &[Column], state: &mut TableState, &TableHead) -> HeadResponse { response, sorted: bool, resized: bool }` (also a `selection_list` heading: it writes `TableState::widths`); `Column::new(title).sortable(bool).share(f32).w_px(f32).grip(bool).id(i64)` (every column stays in the slice; `w_px(0.0)` hides one; without a grip `w_px` holds every frame); `TableState { widths: Vec<(i64, f32)>, sort: Option<(i64, Sort)>, selection: ListState }` (keyed by column id), `TableState::new()`; `Table::DEFAULT.multi().row_h(f32).head(TableHead).variant(u16)`; `TableHead::DEFAULT.h_px(f32).variant(u16)`; `Sort::{Ascending, Descending}`, `None` = original order; `TableView` and the fixed text table deleted | table_row / table_head (`table_cell` deleted with the text table) | U2b.1 |
 | Tree | `tree<K>(key, &[TreeNode], open: &mut [u8], selected: &mut Option<usize>, visible: &mut [u32], cell) -> TreeResponse`; `TreeNode::new(depth, has_children)` | tree | HEAD; builder U1b.5 |
 | Picker | `picker<K>(key, placeholder, query, &Picker, fill: &mut dyn FnMut(&str, &mut PickRows)) -> PickerResponse`; `PickRows::push(PickRow)`; `PickRow::new(label).detail(..).art(PickArt).heading(..)`; `PickerOpts` → `Picker` | picker | U1b.1 (rename); U2a.4 (rows) |
-| Text input | `text_field<K>(key, value: &str, &TextField) -> TextFieldResponse`; `search_field<K>(key, value, &SearchField) -> SearchFieldResponse` (+ variant, return key); `text_area<K>(key, value, node: Node, &TextArea, &AreaCallbacks) -> TextAreaResponse` | text_field / search_field | HEAD; text_area U1b.5; SearchField U2b.7 |
-| Gestures, drag, drop | `gesture`, `gesture_state`, `close_swipe`, `end_refresh`, `carry`, `carrying`, `transfer_carry`, `cancel_carry`, `drop_target` (any node), `States` gains `dropping`; `GestureOpts`, `SwipeActions`, `DismissOpts` | — | HEAD; drop U2b.2 |
+| Text input | `text_field<K>(key, value: &str, &TextField) -> TextFieldResponse`; `search_field<K>(key, value, &SearchField) -> SearchFieldResponse` (`SearchField::variant(u16)`, `SearchField::action(ReturnKey)` with `TextTraits::SEARCH` by default); `text_area<K>(key, value, node: Node, &TextArea, &AreaCallbacks) -> TextAreaResponse` | text_field / search_field | HEAD; text_area U1b.5; SearchField U2b.7 |
+| Gestures, drag, drop | `gesture`, `gesture_state`, `close_swipe`, `end_refresh`, `carry`, `carrying`, `transfer_carry`, `cancel_carry`, `drop_target` (any node, no pressable needed; a plain node's drop look is the app's pick of two theme `States` consts on hover, list rows take `SelectionList::drop_look`; `States` gains nothing); `GestureOpts`, `SwipeActions`, `DismissOpts` | — | HEAD; drop U2b.2 |
 | Keys (D23) | `key_pressed(KeyCode, Mods) -> bool`, `key_down(KeyCode) -> bool`, `testing::key(KeyCode)` | — | U1a.4 |
 | Local state | `state/set_state(&Handle, ..)`, `text_state/set_text_state`, `expanded<K>(key) -> Option<bool>`, `hover_delay<K>(key) -> bool`, `load_text_edit<K>(key, ..)`, `box_of_key<K>(key)`, `root_at(Point, &[Key]) -> Option<Key>` (innermost candidate), `part_box/part_rect(&Handle, ..)`. Authored keys resolve under the current seed. Already-resolved keys use `Key::Resolved` | — | U1b.2 |
 | Paint | `canvas/canvas_over(&Handle, f)`; Paint shapes Rect + Fill/Stroke; `Paint::text/text_chars/text_spans` take `Point` and `Label`. Measurement is on `text_service()`; `Paint::image(Rect, &Image, &ImageStyle)` with a tint builder on `ImageStyle` | — | U1b.3 (text), U1b.2 (image) |
@@ -55,7 +55,7 @@ The target public surface. **Rule:** a call not marked with a step keeps its HEA
 | Animation | `animate(&Handle, Target, Curve)`, `animate_keys(&Handle, &[Keyframe], &Keyframes)` (two jobs) | — | HEAD |
 | Images | `image<K>(key, name, &Image, &ImageStyle) -> Result<Handle, Error>`; `Image::rgba8(width, height, vk_image_view, mtl_texture)` describes native storage; `images::{Want, Request}`, `Images::store/get/requests` | — | U1b.2; builder U1b.5 |
 | A11y | `a11y_name(&Handle, &str) -> bool` with UTF-8-safe display clipping; `a11y_value/a11y_number(&Handle, ..) -> Result<bool, Error>`; `set_role(&Handle, Role, A11yStates)`; `a11y_tree() -> A11yTree<'_>` (borrowed strings, revision and first child); `a11y_nodes`, `a11y_name_of`, `a11y_value_of`, `box_of_a11y` | — | U1a.3 (rule), U1b.4 (types) |
-| Theme | `set_theme(&ThemeHandle) -> Result<(), Error>`, `themed(&ThemeHandle, f)`, `theme()`, `tokens()`, `ThemeHandle::parse/set_color/density/reduced_motion`; `bodies::register_<kind>_body(..) -> Result<BodyId, Error>`; `Rgba::token(T).alpha(a)` (D19); `ColorToken::ACCENT`; `Appearance`; sizes `f32` (`font_size`, `row_height`, `density`, `set_font_size`) | — | U1a.2; U1b.3 (units); U2b.7 (alpha, accent) |
+| Theme | `set_theme(&ThemeHandle) -> Result<(), Error>`, `themed(&ThemeHandle, f)`, `theme()`, `tokens()`, `ThemeHandle::parse/set_color/density/reduced_motion`; `bodies::register_<kind>_body(..) -> Result<BodyId, Error>`; `Rgba::token(T).alpha(a)` (D19); `ColorToken::ACCENT` (= `ColorToken(64)`, the theme's `Tokens::accent`); `Appearance`; sizes `f32` (`font_size`, `row_height`, `density`, `set_font_size`) | — | U1a.2; U1b.3 (units); U2b.7 (alpha, accent) |
 | Frame / lifecycle | `Ui::new(&UiDesc) -> Result<Ui, Error>` with `UiDesc::new(Platform).font_size(f32).fonts(&[FontData])` and `UiDesc::DEFAULT`; one `frame(&FrameIn, build)`; `FrameIn::new(w, h)` with event wire fields and const builders, or `unsafe FrameIn::snapshot(&Input)` for a host's complete borrowed snapshot; `layer(i) -> Option<Layer>`, `layers() -> Layers`, `output() -> Output`; `focus_box(&Handle)` stays public for the registered command editor body, with `focused` crate-private and `enter`/`leave` internal to the engine and C ABI | — | U1a.3 |
 | Host integration | `Renderer::new -> Result<_, Error>`; `Ui::register_<kind>_body(..) -> Result<BodyId, Error>`; `A11yBridge::connect -> Option`; `Gpu`, `Pass`, `Commands`, `Input`, `Output`, `Platform`, `Bytes`; pxui_host `Graphics::open/draw/close`, `Accessibility::open`, `Platform::pump/apply` → `Result<_, Error>` | — | U1a.3 |
 | Diagnostics | `phase_times`, `phase_cpu_times`, `set_timing`, `repaint_after`, `wants_frame`, `library_counter` (D3), `verify_views` (D22: per `Ui`, on under `debug_assertions`; `verify_new_views` deleted) | — | HEAD; U1c.2 |
@@ -119,6 +119,28 @@ Accepted at the U2a shape review (2026-11-18).
 - New public fields, `pxui_types` style: `Checkbox` `size`/`look`/`disabled`/`passive`; `Overlay` `present`/`dismiss`; `DismissOpts` `fraction`/`velocity`. New C records in the surface: `PxuiCheckboxDesc`, `PxuiSheetDesc`, `PxuiPickRow`, `PxuiSectionIndexConfig`, and the `PxuiPickerRowConfig` art fields (extension set).
 - Registered bodies receive what the built-in bodies honour, through records grown at their end under the growth rule (docs/abi.md): `PxuiTabConfig.detail` (1.84), `PxuiCheckConfig.states`/`box_size`/`passive` (1.85), `PxuiPanelConfig.present` (1.86), and the `section_index` body kind (`PxuiSectionIndexConfig`, `PxuiBodies.section_index`, 1.85). No second register path.
 - The `PxuiPickerRows` callback changed in place (extension set, no stability promise); a C caller built before 1.86 is refused by the row size check, never misread.
+
+### U2b shape decisions
+
+Proposed at the U2b shape stop (2026-11-18); see LocalWave `scratch/u2b-shape-report.md`.
+
+- `selection_list`'s cell takes `SectionPart` (not `usize`): the list carries the `SectionList` geometry, so the lead-in and the sticky heading (a `table_head`) are built by the same callback, as `section_list` does today for the songs list. `CellState.y` carries the part's content Y that `section_list` passes as its third argument. `CellState.handle` is the per-row handle (a row drop target).
+- `ListState` and `TableState` are owned (`Vec`), so the app holds one value and passes one `&mut` (D25.3); the wrapper sizes them, so the library never allocates for them. Per-row enabled is the app-written `ListState::DISABLED` flag in the same byte the widget writes `SELECTED` to (one span crosses the ABI).
+- `TableResponse` moves to `pxui` (it holds `HeadResponse`): `{ rows: ListResponse, head: HeadResponse }`; `pxui_types::ui::TableResponse` and `TableView` (with its fixed text table) are deleted with the old engine route.
+- `HeadResponse` reports `sorted` (a click changed `TableState::sort`; read the sort there, `None` being the original order) apart from `resized` (a grip drag changed a width). `TableState::widths` holds every column's `(id, laid-out width)` in slice order, so rows built elsewhere share them; widths and `sort` are keyed by column id (`Column::id`, the index without one: `Option<i64>`, no sentinel), so a dragged width or a sort follows its column.
+- `Column::w_px(f32)` is added beside `share`, with `Column::grip(bool)` (default true): with a grip `w_px` is the starting width, without one it is the width every frame (app-computed responsive widths). Columns stay in the slice every frame (indices are the cell callback's columns); `w_px(0.0)` hides one.
+- No dropping look on `States` (review: a seventh look would need a second C record beside `PxuiStates`, a twin). `States` and `PxuiStates` stay the six looks and `State` gains no bit (it is embedded in `PxuiNode`). A list row's drop look is the list style's (`SelectionList::drop_look`, carried in the list's own C record); the row body is told through the library-written row config (`PxuiRowConfig` grows by `drop: u8` — 0 none, 1 insertion line before, 2 after, 3 a payload over the row) and draws the insertion line. A plain drop-target node gets its look from the app picking one of two theme `States` consts while its `drop_target` reports a hover (`ui.style(&target, if hover { &UP_NEXT_DROP } else { &UP_NEXT }, ..)`, consts from builders).
+- `ListResponse::moved` is `(from, to)` with `to` the final index (remove at `from`, insert at `to`); `selected` is set by every widget write to the selection (navigation lists act on it; multi lists invalidate caches on it). `Part::HANDLE` takes the touch on press (as `GestureOpts::touch_drag`), so a handle drag never scrolls the list.
+- `SectionPart::Trailing` (gap from the site map, sidebar "+ New list"): the `trail` height is built by the callback after the last row, never a row (not selected, counted or keyed); a callback that ignores it leaves blank space as before.
+- `ListResponse` loses `PartialEq`/`Eq` (`PxuiBox` has neither). `SelectionList` loses `Eq` (it has `f32` fields).
+- `list` stays the short form with no style value, so it is never reorderable; a reorderable list is `section_list` with `SectionList::reorder(true)`. External drops between rows are reported by reorderable lists only.
+- `Presentation::Top` places a modal centred across with its top edge at `Overlay::at`'s y (the palette computes its 12%-capped rule inline, D25.2) and `Overlay::max_h` as its height cap; the C sheet record grows at its end (size-checked) by the top and max height. `PxuiPanelConfig.present` 3 reaches a registered body only for a modal the app asked to be `Top`, which needs the grown sheet record (the route refuses present 3 when the record's size does not cover `top`/`max_h`), so an app built before that minor never produces it (minimum-library rule: an older app is served as before); a body must draw a `present` it does not know as 0 (centred).
+- Site-map gaps (U2b.9) closed in the shape: `ListResponse::selected` (single-click navigation), `SelectionList::fit()` (sidebar Library group), `SectionPart::Trailing` (sidebar Lists group keeps virtual scrolling with its add row), `CellState::held` (a row drag starts the app's carry), `SearchField::action(ReturnKey)` (the ledger's "return key"); app-written `ListState::SELECTED` is honoured. Swipe-armed looks pick between two consts and palette icons travel as private-use `PickArt::Glyph`s drawn by the app body: no new items.
+- `ColorToken::ACCENT` is `ColorToken(64)`, the first number past the app table, resolved to the theme's accent.
+- C route (U2b.1, in place under D28; no parallel exports): `pxui_ui_section_list(ui, keyed, PxuiSectionListDesc, key, build, user, PxuiListResult*)` (fixed and measured rows, the trailer as build index `usize::MAX - 2`), `pxui_ui_selection_list(ui, keyed, PxuiSelectionListDesc, key, cell, user, PxuiListResult*)`, `pxui_ui_table(ui, keyed, PxuiTableDesc, key, cell, user, PxuiTableResult*)` and `pxui_ui_table_head(ui, keyed, PxuiTableHeadDesc, PxuiHeadResult*)`. Columns cross as one span of size-prefixed `PxuiColumn { size, sortable, grip, has_id, title, id, share, w }`, checked in one pass before any effect (record size, 0/1 flags, reserved zero, UTF-8 title of at most 64 KiB, finite non-negative share and width, unique ids with an index standing in for a missing id, at most 64 columns), the widths as one `(id, w)` span of the column count, the row flags as one byte span of at least the row count; a sort naming no column reads as none. The library writes the whole result in one size-checked record. Deleted in the same step: `pxui_ui_list_view`/`_with`/`_rows`, `pxui_ui_table_view`/`_with`/`_keyed`/`_rows`, `pxui_ui_section_list_measured`, the fixed text table and its `table_cell` body kind (later body kinds renumbered).
+- The "Sort by Title, ascending" accessible name is composed once per title or sort change into the engine's bounded store (64 sortable headings, round robin past it) and copied while it holds; a warm sort change allocates nothing once the store has its room.
+- A click that changes the selection builds the frame again before it is drawn (rows built earlier in the frame were styled from the old flags); the click is reported by the build it happened in. The keyboard steps over `DISABLED` rows; arrows select (never activate, even with `open_on_click`).
+- U2b.8 test plan, one test per bug: gone-slot `set_state` (pxui_core `state_on_gone_slot_is_ignored`, plus a wrapper test in both link modes); submenu beside the measured width (`submenu_opens_beside_measured_width`, Menus golden regenerated, listed); `Paint::text_spans` origin doc and a 12-sample CoreText baseline test (`text_spans_baseline_matches_coretext`, |Δ| ≤ 0.5 pt); `motion.slow` (`transition_honours_slow`, `moves_honours_slow`); tooltip `text_at` through a registered body (`tooltip_body_reads_text_at`); layout_scaling: nothing (U0.5 found no cause); the Layout page's popup layer pinned to one draw call (`popup_layer_is_one_draw_call`), fixed before U2b.10.
 
 <!-- surface -->
 ```text
@@ -254,16 +276,33 @@ pxui::Bytes::glyph_lists field i64 @HEAD
 pxui::Bytes::text_undo field i64 @HEAD
 pxui::COUNTER_ALLOCATIONS const u32 @HEAD
 pxui::Capitalize use pxui_types::Capitalize @HEAD
+pxui::CellState impl Clone @U2b.1
+pxui::CellState impl Copy @U2b.1
+pxui::CellState impl Debug @U2b.1
+pxui::CellState impl Default @U2b.1
 pxui::CellState struct @U2b.1
+pxui::CellState::enabled field bool @U2b.1
+pxui::CellState::focused field bool @U2b.1
+pxui::CellState::handle field Handle @U2b.1
+pxui::CellState::held field bool @U2b.1
+pxui::CellState::selected field bool @U2b.1
+pxui::CellState::y field f32 @U2b.1
 pxui::Checkbox use pxui_types::ui::Checkbox @HEAD
 -pxui::Choice use pxui_types::ui::Choice @U2a.2
 pxui::Chosen use pxui_types::ui::Chosen @HEAD
 pxui::ColorizeFn type <'a>= dyn Fn(&str) -> Vec<(usize, usize, Rgba)> + 'a @HEAD
+pxui::Column impl Clone @U2b.1
+pxui::Column impl Copy @U2b.1
+pxui::Column impl Debug @U2b.1
+pxui::Column impl PartialEq @U2b.1
+pxui::Column impl StructuralPartialEq @U2b.1
 pxui::Column struct <'a> @U2b.1
+pxui::Column::grip fn const (self, grip: bool) -> Column<'a> @U2b.1
 pxui::Column::id fn const (self, id: i64) -> Column<'a> @U2b.1
 pxui::Column::new fn const (title: &'a str) -> Column<'a> @U2b.1
 pxui::Column::share fn const (self, share: f32) -> Column<'a> @U2b.1
 pxui::Column::sortable fn const (self, sortable: bool) -> Column<'a> @U2b.1
+pxui::Column::w_px fn const (self, points: f32) -> Column<'a> @U2b.1
 pxui::Commands use pxui_types::Commands @HEAD
 pxui::CompleteFn type <'a>= dyn Fn(&str, usize) -> Vec<Completion> + 'a @HEAD
 pxui::ContextAtFn type <'a>= dyn Fn(&str, usize) -> CodeContext + 'a @HEAD
@@ -435,9 +474,13 @@ pxui::GridList::DEFAULT const GridList @U1b.5
 pxui::GridList::h_px fn const (self, points: f32) -> GridList @U1b.5
 pxui::GridList::w_px fn const (self, points: f32) -> GridList @U1b.5
 pxui::Handle type = PxuiBox @HEAD
+pxui::HeadResponse impl Clone @U2b.1
+pxui::HeadResponse impl Copy @U2b.1
+pxui::HeadResponse impl Debug @U2b.1
 pxui::HeadResponse struct @U2b.1
+pxui::HeadResponse::resized field bool @U2b.1
 pxui::HeadResponse::response field Response @U2b.1
-pxui::HeadResponse::sort field Option<(usize, Sort)> @U2b.1
+pxui::HeadResponse::sorted field bool @U2b.1
 pxui::Icon enum @HEAD
 pxui::Icon impl Clone @HEAD
 pxui::Icon impl Copy @HEAD
@@ -567,7 +610,18 @@ pxui::LineFieldResponse::changed field Option<&'a str> @HEAD
 pxui::LineFieldResponse::response field Response @HEAD
 pxui::LineFieldResponse::step field LineStep @HEAD
 pxui::ListResponse use pxui_types::ui::ListResponse @HEAD
+pxui::ListState impl Clone @U2b.1
+pxui::ListState impl Debug @U2b.1
+pxui::ListState impl Default @U2b.1
+pxui::ListState impl Eq @U2b.1
+pxui::ListState impl PartialEq @U2b.1
+pxui::ListState impl StructuralPartialEq @U2b.1
 pxui::ListState struct @U2b.1
+pxui::ListState::DISABLED const u8 @U2b.1
+pxui::ListState::SELECTED const u8 @U2b.1
+pxui::ListState::anchor field Option<usize> @U2b.1
+pxui::ListState::new fn const () -> ListState @U2b.1
+pxui::ListState::rows field Vec<u8> @U2b.1
 pxui::Menu use pxui_types::ui::Menu @HEAD
 pxui::MenuBar impl Clone @U1b.1
 pxui::MenuBar impl Copy @U1b.1
@@ -816,6 +870,7 @@ pxui::SearchField impl PartialEq @HEAD
 pxui::SearchField impl StructuralPartialEq @HEAD
 pxui::SearchField struct <'a> @HEAD
 pxui::SearchField::DEFAULT const SearchField<'a> @HEAD
+pxui::SearchField::action fn const (self, action: ReturnKey) -> SearchField<'a> @U2b.7
 pxui::SearchField::icon fn const (self, icon: &'a str) -> SearchField<'a> @HEAD
 pxui::SearchField::name fn const (self, name: &'a str) -> SearchField<'a> @HEAD
 pxui::SearchField::placeholder fn const (self, text: &'a str) -> SearchField<'a> @HEAD
@@ -882,6 +937,12 @@ pxui::SliderResponse::preview field Option<f32> @U1b.1
 pxui::SliderResponse::response field Response @U1b.1
 pxui::SliderResponse::value field f32 @U1b.1
 pxui::Sort enum @U2b.1
+pxui::Sort impl Clone @U2b.1
+pxui::Sort impl Copy @U2b.1
+pxui::Sort impl Debug @U2b.1
+pxui::Sort impl Eq @U2b.1
+pxui::Sort impl PartialEq @U2b.1
+pxui::Sort impl StructuralPartialEq @U2b.1
 pxui::Sort::Ascending variant @U2b.1
 pxui::Sort::Descending variant @U2b.1
 pxui::Spinner impl Clone @U1b.5
@@ -934,12 +995,43 @@ pxui::SwipeActions::DEFAULT const SwipeActions @HEAD
 pxui::SwipeActions::full fn const (self, travel: f32) -> SwipeActions @HEAD
 pxui::SwipeActions::leading fn const (self, width: f32) -> SwipeActions @HEAD
 pxui::SwipeActions::trailing fn const (self, width: f32) -> SwipeActions @HEAD
+pxui::Table impl Clone @U2b.1
+pxui::Table impl Copy @U2b.1
+pxui::Table impl Debug @U2b.1
+pxui::Table impl PartialEq @U2b.1
+pxui::Table impl StructuralPartialEq @U2b.1
 pxui::Table struct @U2b.1
 pxui::Table::DEFAULT const Table @U2b.1
+pxui::Table::head fn const (self, head: TableHead) -> Table @U2b.1
+pxui::Table::multi fn const (self) -> Table @U2b.1
+pxui::Table::row_h fn const (self, points: f32) -> Table @U2b.1
+pxui::Table::variant fn const (self, variant: u16) -> Table @U2b.1
+pxui::TableHead impl Clone @U2b.1
+pxui::TableHead impl Copy @U2b.1
+pxui::TableHead impl Debug @U2b.1
+pxui::TableHead impl PartialEq @U2b.1
+pxui::TableHead impl StructuralPartialEq @U2b.1
 pxui::TableHead struct @U2b.1
 pxui::TableHead::DEFAULT const TableHead @U2b.1
-pxui::TableResponse use pxui_types::ui::TableResponse @HEAD
+pxui::TableHead::h_px fn const (self, points: f32) -> TableHead @U2b.1
+pxui::TableHead::variant fn const (self, variant: u16) -> TableHead @U2b.1
+pxui::TableResponse impl Clone @U2b.1
+pxui::TableResponse impl Copy @U2b.1
+pxui::TableResponse impl Debug @U2b.1
+pxui::TableResponse struct @U2b.1
+-pxui::TableResponse use pxui_types::ui::TableResponse @U2b.1
+pxui::TableResponse::head field HeadResponse @U2b.1
+pxui::TableResponse::rows field ListResponse @U2b.1
+pxui::TableState impl Clone @U2b.1
+pxui::TableState impl Debug @U2b.1
+pxui::TableState impl Default @U2b.1
+pxui::TableState impl PartialEq @U2b.1
+pxui::TableState impl StructuralPartialEq @U2b.1
 pxui::TableState struct @U2b.1
+pxui::TableState::new fn const () -> TableState @U2b.1
+pxui::TableState::selection field ListState @U2b.1
+pxui::TableState::sort field Option<(i64, Sort)> @U2b.1
+pxui::TableState::widths field Vec<(i64, f32)> @U2b.1
 -pxui::TableView use pxui_types::ui::TableView @U2b.1
 pxui::Tabs impl Clone @U2a.2
 pxui::Tabs impl Copy @U2a.2
@@ -1210,8 +1302,8 @@ pxui::Ui::node_layout fn (&self, b: &Handle) -> Node @HEAD
 pxui::Ui::node_mut fn (&mut self, b: &Handle, edit: &mut dyn FnMut(&mut NodeFields)) @U1c.1
 pxui::Ui::now fn (&self) -> f64 @HEAD
 pxui::Ui::output fn (&self) -> Output @U1a.3
-pxui::Ui::panel fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, overlay: &Overlay<'_>, f: F) -> OverlayResponse @U1b.1
 -pxui::Ui::panel fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, overlay: &Overlay<'_>, f: F) @U1b.1
+pxui::Ui::panel fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, overlay: &Overlay<'_>, f: F) -> OverlayResponse @U1b.1
 pxui::Ui::part fn (&mut self, part: Part, node: Node) -> Handle @HEAD
 pxui::Ui::part_box fn (&self, owner: &Handle, part: Part) -> Option<Handle> @U1b.2
 -pxui::Ui::part_box fn (&self, owner: i64, part: Part) -> Option<Handle> @U1b.2
@@ -1271,7 +1363,7 @@ pxui::Ui::register_selection_list_body fn (&mut self, name: &str, body: fn(&mut 
 pxui::Ui::register_slider_body fn (&mut self, name: &str, body: fn(&mut Ui, &SliderConfig)) -> Result<BodyId, Error> @U1a.3
 pxui::Ui::register_spinner_body fn (&mut self, name: &str, body: fn(&mut Ui, &SpinnerConfig)) -> Result<BodyId, Error> @U1a.3
 pxui::Ui::register_split_body fn (&mut self, name: &str, body: fn(&mut Ui, &SplitConfig)) -> Result<BodyId, Error> @U1a.3
-pxui::Ui::register_table_cell_body fn (&mut self, name: &str, body: fn(&mut Ui, &TableCellConfig)) -> Result<BodyId, Error> @U1a.3
+-pxui::Ui::register_table_cell_body fn (&mut self, name: &str, body: fn(&mut Ui, &TableCellConfig)) -> Result<BodyId, Error> @U2b.1
 pxui::Ui::register_table_head_body fn (&mut self, name: &str, body: fn(&mut Ui, &TableHeadConfig)) -> Result<BodyId, Error> @U1a.3
 pxui::Ui::register_table_row_body fn (&mut self, name: &str, body: fn(&mut Ui, &TableRowConfig)) -> Result<BodyId, Error> @U1a.3
 pxui::Ui::register_tabs_body fn (&mut self, name: &str, body: fn(&mut Ui, &TabsConfig)) -> Result<BodyId, Error> @U1a.3
@@ -1307,8 +1399,8 @@ pxui::Ui::section_index fn <K: Into<Key>>(&mut self, key: K, letters: &[&str], i
 pxui::Ui::section_list fn <K: Into<Key>>(&mut self, key: K, section: &SectionList, row_key: &dyn Fn(usize) -> i64, build: &mut dyn FnMut(&mut Ui, SectionPart, f32)) -> ListResponse @U2b.3
 pxui::Ui::segmented fn <K: Into<Key>>(&mut self, key: K, items: &[Segment<'_>], selected: Option<usize>, segmented: &Segmented<'_>) -> PickResponse @U1b.1
 -pxui::Ui::segmented_with fn <K: Into<Key>>(&mut self, key: K, options: &[Segment<'_>], selected: Option<usize>, segmented: &Segmented<'_>) -> SegmentedResponse @U1b.1
-pxui::Ui::selection_list fn <K: Into<Key>>(&mut self, key: K, count: usize, row_key: &dyn Fn(usize) -> i64, selected: &mut [u8], list: &SelectionList, cell: &mut dyn FnMut(&mut Ui, usize)) -> ListResponse @U2a.1
-pxui::Ui::selection_list fn <K: Into<Key>>(&mut self, key: K, count: usize, row_key: &dyn Fn(usize) -> i64, state: &mut ListState, list: &SelectionList, cell: &mut dyn FnMut(&mut Ui, usize, CellState)) -> ListResponse @U2b.1
+-pxui::Ui::selection_list fn <K: Into<Key>>(&mut self, key: K, count: usize, row_key: &dyn Fn(usize) -> i64, selected: &mut [u8], list: &SelectionList, cell: &mut dyn FnMut(&mut Ui, usize)) -> ListResponse @U2b.1
+pxui::Ui::selection_list fn <K: Into<Key>>(&mut self, key: K, count: usize, row_key: &dyn Fn(usize) -> i64, state: &mut ListState, list: &SelectionList, cell: &mut dyn FnMut(&mut Ui, SectionPart, CellState)) -> ListResponse @U2b.1
 pxui::Ui::set_a11y fn (&mut self, on: bool) @HEAD
 pxui::Ui::set_at fn (&mut self, b: &Handle, at: (f32, f32)) @HEAD
 -pxui::Ui::set_colors fn (&mut self, colors: &[(Rgba, Rgba)]) @U1a.2
@@ -1343,7 +1435,7 @@ pxui::Ui::style fn (&mut self, box_: &Handle, states: &States, state: State) @HE
 pxui::Ui::system_appearance fn (&self) -> Appearance @U1a.4
 pxui::Ui::table fn <K: Into<Key>>(&mut self, key: K, columns: &[Column<'_>], rows: usize, row_key: &dyn Fn(usize) -> i64, state: &mut TableState, table: &Table, cell: &mut dyn FnMut(&mut Ui, usize, usize, CellState)) -> TableResponse @U2b.1
 pxui::Ui::table_head fn <K: Into<Key>>(&mut self, key: K, columns: &[Column<'_>], state: &mut TableState, head: &TableHead) -> HeadResponse @U2b.1
-pxui::Ui::table_view fn <K: Into<Key>>(&mut self, key: K, titles: &[&str], widths: &mut [f32], rows: usize, row_key: &dyn Fn(usize) -> i64, selected: &mut Option<usize>, table: &TableView, cell: &mut dyn FnMut(&mut Ui, usize, usize)) -> TableResponse @U2a.1
+-pxui::Ui::table_view fn <K: Into<Key>>(&mut self, key: K, titles: &[&str], widths: &mut [f32], rows: usize, row_key: &dyn Fn(usize) -> i64, selected: &mut Option<usize>, table: &TableView, cell: &mut dyn FnMut(&mut Ui, usize, usize)) -> TableResponse @U2b.1
 -pxui::Ui::table_view fn <K: Into<Key>>(&mut self, key: K, titles: &[&str], widths: &mut [f32], rows: usize, selected: &mut Option<usize>, table: &TableView, cell: &mut dyn FnMut(&mut Ui, usize, usize)) -> TableResponse @U2b.1
 pxui::Ui::tabs fn <K: Into<Key>>(&mut self, key: K, items: &[Segment<'_>], selected: Option<usize>, tabs: &Tabs<'_>) -> PickResponse @U2a.2
 pxui::Ui::text fn (&mut self, box_: &Handle, value: &str) @HEAD
@@ -1491,6 +1583,7 @@ pxui::bodies::BodyConfig::text_of fn (&self, field: &Str) -> &str @HEAD
 pxui::bodies::ButtonConfig impl BodyConfig @HEAD
 pxui::bodies::ButtonConfig impl Deref @HEAD
 pxui::bodies::ButtonConfig struct (_) @HEAD
+pxui::bodies::ButtonConfig::icon fn (&self) -> Option<Icon> @U2b.7
 pxui::bodies::CheckboxConfig impl BodyConfig @HEAD
 pxui::bodies::CheckboxConfig impl Deref @HEAD
 pxui::bodies::CheckboxConfig struct (_) @HEAD
@@ -1509,6 +1602,7 @@ pxui::bodies::GripConfig struct (_) @HEAD
 pxui::bodies::IconButtonConfig impl BodyConfig @HEAD
 pxui::bodies::IconButtonConfig impl Deref @HEAD
 pxui::bodies::IconButtonConfig struct (_) @HEAD
+pxui::bodies::IconButtonConfig::icon fn (&self) -> Option<Icon> @U2b.7
 pxui::bodies::InspectorRowConfig impl BodyConfig @HEAD
 pxui::bodies::InspectorRowConfig impl Deref @HEAD
 pxui::bodies::InspectorRowConfig struct (_) @HEAD
@@ -1575,9 +1669,9 @@ pxui::bodies::SpinnerConfig struct (_) @HEAD
 pxui::bodies::SplitConfig impl BodyConfig @HEAD
 pxui::bodies::SplitConfig impl Deref @HEAD
 pxui::bodies::SplitConfig struct (_) @HEAD
-pxui::bodies::TableCellConfig impl BodyConfig @HEAD
-pxui::bodies::TableCellConfig impl Deref @HEAD
-pxui::bodies::TableCellConfig struct (_) @HEAD
+-pxui::bodies::TableCellConfig impl BodyConfig @U2b.1
+-pxui::bodies::TableCellConfig impl Deref @U2b.1
+-pxui::bodies::TableCellConfig struct (_) @U2b.1
 pxui::bodies::TableHeadConfig impl BodyConfig @HEAD
 pxui::bodies::TableHeadConfig impl Deref @HEAD
 pxui::bodies::TableHeadConfig struct (_) @HEAD
@@ -2046,8 +2140,8 @@ pxui::ui::SwipeActions::DEFAULT const SwipeActions @HEAD
 pxui::ui::SwipeActions::full fn const (self, travel: f32) -> SwipeActions @HEAD
 pxui::ui::SwipeActions::leading fn const (self, width: f32) -> SwipeActions @HEAD
 pxui::ui::SwipeActions::trailing fn const (self, width: f32) -> SwipeActions @HEAD
-pxui::ui::TableResponse use pxui_types::ui::TableResponse @U1a.1
-pxui::ui::TableView use pxui_types::ui::TableView @U1a.1
+-pxui::ui::TableResponse use pxui_types::ui::TableResponse @U2b.1
+-pxui::ui::TableView use pxui_types::ui::TableView @U2b.1
 pxui::ui::Target use pxui_types::ui::Target @U1a.1
 pxui::ui::TextArea impl Clone @HEAD
 pxui::ui::TextArea impl Copy @HEAD
@@ -2217,8 +2311,8 @@ pxui::ui::Ui::node_layout fn (&self, b: &Handle) -> Node @HEAD
 pxui::ui::Ui::node_mut fn (&mut self, b: &Handle, edit: &mut dyn FnMut(&mut NodeFields)) @U1c.1
 pxui::ui::Ui::now fn (&self) -> f64 @HEAD
 pxui::ui::Ui::output fn (&self) -> Output @U1a.3
-pxui::ui::Ui::panel fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, overlay: &Overlay<'_>, f: F) -> OverlayResponse @U1b.1
 -pxui::ui::Ui::panel fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, overlay: &Overlay<'_>, f: F) @U1b.1
+pxui::ui::Ui::panel fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, overlay: &Overlay<'_>, f: F) -> OverlayResponse @U1b.1
 pxui::ui::Ui::part fn (&mut self, part: Part, node: Node) -> Handle @HEAD
 pxui::ui::Ui::part_box fn (&self, owner: &Handle, part: Part) -> Option<Handle> @U1b.2
 -pxui::ui::Ui::part_box fn (&self, owner: i64, part: Part) -> Option<Handle> @U1b.2
@@ -2278,7 +2372,7 @@ pxui::ui::Ui::register_selection_list_body fn (&mut self, name: &str, body: fn(&
 pxui::ui::Ui::register_slider_body fn (&mut self, name: &str, body: fn(&mut Ui, &SliderConfig)) -> Result<BodyId, Error> @U1a.3
 pxui::ui::Ui::register_spinner_body fn (&mut self, name: &str, body: fn(&mut Ui, &SpinnerConfig)) -> Result<BodyId, Error> @U1a.3
 pxui::ui::Ui::register_split_body fn (&mut self, name: &str, body: fn(&mut Ui, &SplitConfig)) -> Result<BodyId, Error> @U1a.3
-pxui::ui::Ui::register_table_cell_body fn (&mut self, name: &str, body: fn(&mut Ui, &TableCellConfig)) -> Result<BodyId, Error> @U1a.3
+-pxui::ui::Ui::register_table_cell_body fn (&mut self, name: &str, body: fn(&mut Ui, &TableCellConfig)) -> Result<BodyId, Error> @U2b.1
 pxui::ui::Ui::register_table_head_body fn (&mut self, name: &str, body: fn(&mut Ui, &TableHeadConfig)) -> Result<BodyId, Error> @U1a.3
 pxui::ui::Ui::register_table_row_body fn (&mut self, name: &str, body: fn(&mut Ui, &TableRowConfig)) -> Result<BodyId, Error> @U1a.3
 pxui::ui::Ui::register_tabs_body fn (&mut self, name: &str, body: fn(&mut Ui, &TabsConfig)) -> Result<BodyId, Error> @U1a.3
@@ -2314,8 +2408,8 @@ pxui::ui::Ui::section_index fn <K: Into<Key>>(&mut self, key: K, letters: &[&str
 pxui::ui::Ui::section_list fn <K: Into<Key>>(&mut self, key: K, section: &SectionList, row_key: &dyn Fn(usize) -> i64, build: &mut dyn FnMut(&mut Ui, SectionPart, f32)) -> ListResponse @U2b.3
 pxui::ui::Ui::segmented fn <K: Into<Key>>(&mut self, key: K, items: &[Segment<'_>], selected: Option<usize>, segmented: &Segmented<'_>) -> PickResponse @U1b.1
 -pxui::ui::Ui::segmented_with fn <K: Into<Key>>(&mut self, key: K, options: &[Segment<'_>], selected: Option<usize>, segmented: &Segmented<'_>) -> SegmentedResponse @U1b.1
-pxui::ui::Ui::selection_list fn <K: Into<Key>>(&mut self, key: K, count: usize, row_key: &dyn Fn(usize) -> i64, selected: &mut [u8], list: &SelectionList, cell: &mut dyn FnMut(&mut Ui, usize)) -> ListResponse @U2a.1
-pxui::ui::Ui::selection_list fn <K: Into<Key>>(&mut self, key: K, count: usize, row_key: &dyn Fn(usize) -> i64, state: &mut ListState, list: &SelectionList, cell: &mut dyn FnMut(&mut Ui, usize, CellState)) -> ListResponse @U2b.1
+-pxui::ui::Ui::selection_list fn <K: Into<Key>>(&mut self, key: K, count: usize, row_key: &dyn Fn(usize) -> i64, selected: &mut [u8], list: &SelectionList, cell: &mut dyn FnMut(&mut Ui, usize)) -> ListResponse @U2b.1
+pxui::ui::Ui::selection_list fn <K: Into<Key>>(&mut self, key: K, count: usize, row_key: &dyn Fn(usize) -> i64, state: &mut ListState, list: &SelectionList, cell: &mut dyn FnMut(&mut Ui, SectionPart, CellState)) -> ListResponse @U2b.1
 pxui::ui::Ui::set_a11y fn (&mut self, on: bool) @HEAD
 pxui::ui::Ui::set_at fn (&mut self, b: &Handle, at: (f32, f32)) @HEAD
 -pxui::ui::Ui::set_colors fn (&mut self, colors: &[(Rgba, Rgba)]) @U1a.2
@@ -2350,7 +2444,7 @@ pxui::ui::Ui::style fn (&mut self, box_: &Handle, states: &States, state: State)
 pxui::ui::Ui::system_appearance fn (&self) -> Appearance @U1a.4
 pxui::ui::Ui::table fn <K: Into<Key>>(&mut self, key: K, columns: &[Column<'_>], rows: usize, row_key: &dyn Fn(usize) -> i64, state: &mut TableState, table: &Table, cell: &mut dyn FnMut(&mut Ui, usize, usize, CellState)) -> TableResponse @U2b.1
 pxui::ui::Ui::table_head fn <K: Into<Key>>(&mut self, key: K, columns: &[Column<'_>], state: &mut TableState, head: &TableHead) -> HeadResponse @U2b.1
-pxui::ui::Ui::table_view fn <K: Into<Key>>(&mut self, key: K, titles: &[&str], widths: &mut [f32], rows: usize, row_key: &dyn Fn(usize) -> i64, selected: &mut Option<usize>, table: &TableView, cell: &mut dyn FnMut(&mut Ui, usize, usize)) -> TableResponse @U2a.1
+-pxui::ui::Ui::table_view fn <K: Into<Key>>(&mut self, key: K, titles: &[&str], widths: &mut [f32], rows: usize, row_key: &dyn Fn(usize) -> i64, selected: &mut Option<usize>, table: &TableView, cell: &mut dyn FnMut(&mut Ui, usize, usize)) -> TableResponse @U2b.1
 -pxui::ui::Ui::table_view fn <K: Into<Key>>(&mut self, key: K, titles: &[&str], widths: &mut [f32], rows: usize, selected: &mut Option<usize>, table: &TableView, cell: &mut dyn FnMut(&mut Ui, usize, usize)) -> TableResponse @U2b.1
 pxui::ui::Ui::tabs fn <K: Into<Key>>(&mut self, key: K, items: &[Segment<'_>], selected: Option<usize>, tabs: &Tabs<'_>) -> PickResponse @U2a.2
 pxui::ui::Ui::text fn (&mut self, box_: &Handle, value: &str) @HEAD
@@ -3562,7 +3656,6 @@ pxui_types::States::checked field Look @HEAD
 pxui_types::States::checked fn const (self, look: Look) -> States @HEAD
 pxui_types::States::disabled field Look @HEAD
 pxui_types::States::disabled fn const (self, look: Look) -> States @HEAD
-pxui_types::States::dropping field Option<&'a Look> @U2b.2
 pxui_types::States::focus field Look @HEAD
 pxui_types::States::focus fn const (self, look: Look) -> States @HEAD
 pxui_types::States::hover field Look @HEAD
@@ -4206,6 +4299,19 @@ pxui_types::ffi::PxuiButtonDesc::text field Str @HEAD
 pxui_types::ffi::PxuiButtonDesc::w field f32 @HEAD
 pxui_types::ffi::PxuiButtonDesc::w_kind field u8 @HEAD
 pxui_types::ffi::PxuiCellBuild type = Option<extern "C" fn(*mut c_void, *mut c_void, usize, usize)> @HEAD
+pxui_types::ffi::PxuiCellState impl Clone @U2b.1
+pxui_types::ffi::PxuiCellState impl Copy @U2b.1
+pxui_types::ffi::PxuiCellState impl Debug @U2b.1
+pxui_types::ffi::PxuiCellState impl Default @U2b.1
+pxui_types::ffi::PxuiCellState struct @U2b.1
+pxui_types::ffi::PxuiCellState::enabled field u8 @U2b.1
+pxui_types::ffi::PxuiCellState::focused field u8 @U2b.1
+pxui_types::ffi::PxuiCellState::handle field PxuiBox @U2b.1
+pxui_types::ffi::PxuiCellState::held field u8 @U2b.1
+pxui_types::ffi::PxuiCellState::reserved field u32 @U2b.1
+pxui_types::ffi::PxuiCellState::selected field u8 @U2b.1
+pxui_types::ffi::PxuiCellState::size field u32 @U2b.1
+pxui_types::ffi::PxuiCellState::y field f32 @U2b.1
 pxui_types::ffi::PxuiCheckConfig impl Clone @HEAD
 pxui_types::ffi::PxuiCheckConfig impl Copy @HEAD
 pxui_types::ffi::PxuiCheckConfig struct @HEAD
@@ -4242,6 +4348,33 @@ pxui_types::ffi::PxuiColorSpan::color field Rgba @HEAD
 pxui_types::ffi::PxuiColorSpan::end field i64 @HEAD
 pxui_types::ffi::PxuiColorSpan::reserved field u32 @HEAD
 pxui_types::ffi::PxuiColorSpan::start field i64 @HEAD
+pxui_types::ffi::PxuiColumn impl Clone @U2b.1
+pxui_types::ffi::PxuiColumn impl Copy @U2b.1
+pxui_types::ffi::PxuiColumn impl Debug @U2b.1
+pxui_types::ffi::PxuiColumn struct @U2b.1
+pxui_types::ffi::PxuiColumn::grip field u8 @U2b.1
+pxui_types::ffi::PxuiColumn::has_id field u8 @U2b.1
+pxui_types::ffi::PxuiColumn::id field i64 @U2b.1
+pxui_types::ffi::PxuiColumn::reserved field u8 @U2b.1
+pxui_types::ffi::PxuiColumn::share field f32 @U2b.1
+pxui_types::ffi::PxuiColumn::size field u32 @U2b.1
+pxui_types::ffi::PxuiColumn::sortable field u8 @U2b.1
+pxui_types::ffi::PxuiColumn::title field Str @U2b.1
+pxui_types::ffi::PxuiColumn::w field f32 @U2b.1
+pxui_types::ffi::PxuiColumnWidth impl Clone @U2b.1
+pxui_types::ffi::PxuiColumnWidth impl Copy @U2b.1
+pxui_types::ffi::PxuiColumnWidth impl Debug @U2b.1
+pxui_types::ffi::PxuiColumnWidth impl Default @U2b.1
+pxui_types::ffi::PxuiColumnWidth struct @U2b.1
+pxui_types::ffi::PxuiColumnWidth::id field i64 @U2b.1
+pxui_types::ffi::PxuiColumnWidth::reserved field u32 @U2b.1
+pxui_types::ffi::PxuiColumnWidth::w field f32 @U2b.1
+pxui_types::ffi::PxuiColumnWidthSpan impl Clone @U2b.1
+pxui_types::ffi::PxuiColumnWidthSpan impl Copy @U2b.1
+pxui_types::ffi::PxuiColumnWidthSpan impl Debug @U2b.1
+pxui_types::ffi::PxuiColumnWidthSpan struct @U2b.1
+pxui_types::ffi::PxuiColumnWidthSpan::len field usize @U2b.1
+pxui_types::ffi::PxuiColumnWidthSpan::ptr field *mut PxuiColumnWidth @U2b.1
 pxui_types::ffi::PxuiCompletion impl Clone @HEAD
 pxui_types::ffi::PxuiCompletion impl Copy @HEAD
 pxui_types::ffi::PxuiCompletion impl Debug @HEAD
@@ -4448,6 +4581,17 @@ pxui_types::ffi::PxuiHeadOut::renamed field Str @HEAD
 pxui_types::ffi::PxuiHeadOut::reserved field [u8; 2] @HEAD
 pxui_types::ffi::PxuiHeadOut::reset_pressed field u8 @HEAD
 pxui_types::ffi::PxuiHeadOut::size field u32 @HEAD
+pxui_types::ffi::PxuiHeadResult impl Clone @U2b.1
+pxui_types::ffi::PxuiHeadResult impl Copy @U2b.1
+pxui_types::ffi::PxuiHeadResult impl Debug @U2b.1
+pxui_types::ffi::PxuiHeadResult struct @U2b.1
+pxui_types::ffi::PxuiHeadResult::ascending field u8 @U2b.1
+pxui_types::ffi::PxuiHeadResult::has_sort field u8 @U2b.1
+pxui_types::ffi::PxuiHeadResult::resized field u8 @U2b.1
+pxui_types::ffi::PxuiHeadResult::response field PxuiResponse @U2b.1
+pxui_types::ffi::PxuiHeadResult::size field u32 @U2b.1
+pxui_types::ffi::PxuiHeadResult::sort_id field i64 @U2b.1
+pxui_types::ffi::PxuiHeadResult::sorted field u8 @U2b.1
 pxui_types::ffi::PxuiHeaderDesc impl Clone @HEAD
 pxui_types::ffi::PxuiHeaderDesc impl Copy @HEAD
 pxui_types::ffi::PxuiHeaderDesc struct @HEAD
@@ -4665,24 +4809,38 @@ pxui_types::ffi::PxuiLineFieldConfig::size field u32 @HEAD
 pxui_types::ffi::PxuiLineFieldConfig::state field PxuiStateDesc @HEAD
 pxui_types::ffi::PxuiLineFieldConfig::text field Str @HEAD
 pxui_types::ffi::PxuiLineFieldConfig::variant field u16 @HEAD
-pxui_types::ffi::PxuiListViewDesc struct @HEAD
-pxui_types::ffi::PxuiListViewDesc::count field usize @HEAD
-pxui_types::ffi::PxuiListViewDesc::label field Str @HEAD
-pxui_types::ffi::PxuiListViewDesc::multi field u8 @HEAD
-pxui_types::ffi::PxuiListViewDesc::reserved field [u8; 3] @HEAD
-pxui_types::ffi::PxuiListViewDesc::selected field PxuiU8MutSpan @HEAD
-pxui_types::ffi::PxuiListViewDesc::size field u32 @HEAD
-pxui_types::ffi::PxuiListViewDesc::text field PxuiCollectionText @HEAD
-pxui_types::ffi::PxuiListViewDesc::user field *mut c_void @HEAD
-pxui_types::ffi::PxuiListViewWithDesc struct @HEAD
-pxui_types::ffi::PxuiListViewWithDesc::build field PxuiCellBuild @HEAD
-pxui_types::ffi::PxuiListViewWithDesc::count field usize @HEAD
-pxui_types::ffi::PxuiListViewWithDesc::label field Str @HEAD
-pxui_types::ffi::PxuiListViewWithDesc::multi field u8 @HEAD
-pxui_types::ffi::PxuiListViewWithDesc::reserved field [u8; 3] @HEAD
-pxui_types::ffi::PxuiListViewWithDesc::selected field PxuiU8MutSpan @HEAD
-pxui_types::ffi::PxuiListViewWithDesc::size field u32 @HEAD
-pxui_types::ffi::PxuiListViewWithDesc::user field *mut c_void @HEAD
+pxui_types::ffi::PxuiListCell type = Option<extern "C" fn(*mut c_void, *mut c_void, usize, *const PxuiCellState)> @U2b.1
+pxui_types::ffi::PxuiListResult impl Clone @U2b.1
+pxui_types::ffi::PxuiListResult impl Copy @U2b.1
+pxui_types::ffi::PxuiListResult impl Debug @U2b.1
+pxui_types::ffi::PxuiListResult struct @U2b.1
+pxui_types::ffi::PxuiListResult::EMPTY const PxuiListResult @U2b.1
+pxui_types::ffi::PxuiListResult::activated field usize @U2b.1
+pxui_types::ffi::PxuiListResult::anchor field usize @U2b.1
+pxui_types::ffi::PxuiListResult::handle field PxuiBox @U2b.1
+pxui_types::ffi::PxuiListResult::reserved field u32 @U2b.1
+pxui_types::ffi::PxuiListResult::row field PxuiBox @U2b.1
+pxui_types::ffi::PxuiListResult::secondary field usize @U2b.1
+pxui_types::ffi::PxuiListResult::selected field usize @U2b.1
+pxui_types::ffi::PxuiListResult::size field u32 @U2b.1
+-pxui_types::ffi::PxuiListViewDesc struct @U2b.1
+-pxui_types::ffi::PxuiListViewDesc::count field usize @U2b.1
+-pxui_types::ffi::PxuiListViewDesc::label field Str @U2b.1
+-pxui_types::ffi::PxuiListViewDesc::multi field u8 @U2b.1
+-pxui_types::ffi::PxuiListViewDesc::reserved field [u8; 3] @U2b.1
+-pxui_types::ffi::PxuiListViewDesc::selected field PxuiU8MutSpan @U2b.1
+-pxui_types::ffi::PxuiListViewDesc::size field u32 @U2b.1
+-pxui_types::ffi::PxuiListViewDesc::text field PxuiCollectionText @U2b.1
+-pxui_types::ffi::PxuiListViewDesc::user field *mut c_void @U2b.1
+-pxui_types::ffi::PxuiListViewWithDesc struct @U2b.1
+-pxui_types::ffi::PxuiListViewWithDesc::build field PxuiCellBuild @U2b.1
+-pxui_types::ffi::PxuiListViewWithDesc::count field usize @U2b.1
+-pxui_types::ffi::PxuiListViewWithDesc::label field Str @U2b.1
+-pxui_types::ffi::PxuiListViewWithDesc::multi field u8 @U2b.1
+-pxui_types::ffi::PxuiListViewWithDesc::reserved field [u8; 3] @U2b.1
+-pxui_types::ffi::PxuiListViewWithDesc::selected field PxuiU8MutSpan @U2b.1
+-pxui_types::ffi::PxuiListViewWithDesc::size field u32 @U2b.1
+-pxui_types::ffi::PxuiListViewWithDesc::user field *mut c_void @U2b.1
 pxui_types::ffi::PxuiLookDesc impl Clone @HEAD
 pxui_types::ffi::PxuiLookDesc impl Copy @HEAD
 pxui_types::ffi::PxuiLookDesc impl Debug @HEAD
@@ -4734,22 +4892,22 @@ pxui_types::ffi::PxuiMaybeRange::end field i64 @HEAD
 pxui_types::ffi::PxuiMaybeRange::has field u8 @HEAD
 pxui_types::ffi::PxuiMaybeRange::reserved field [u8; 7] @HEAD
 pxui_types::ffi::PxuiMaybeRange::start field i64 @HEAD
-pxui_types::ffi::PxuiMeasuredSectionBuild type = Option<extern "C" fn(*mut c_void, *mut c_void, usize, f32)> @HEAD
-pxui_types::ffi::PxuiMeasuredSectionDesc impl Clone @HEAD
-pxui_types::ffi::PxuiMeasuredSectionDesc impl Copy @HEAD
-pxui_types::ffi::PxuiMeasuredSectionDesc struct @HEAD
-pxui_types::ffi::PxuiMeasuredSectionDesc::build field PxuiMeasuredSectionBuild @HEAD
-pxui_types::ffi::PxuiMeasuredSectionDesc::count field usize @HEAD
-pxui_types::ffi::PxuiMeasuredSectionDesc::header_height field f32 @HEAD
-pxui_types::ffi::PxuiMeasuredSectionDesc::key field PxuiRowKey @HEAD
-pxui_types::ffi::PxuiMeasuredSectionDesc::label field Str @HEAD
-pxui_types::ffi::PxuiMeasuredSectionDesc::leading_height field f32 @HEAD
-pxui_types::ffi::PxuiMeasuredSectionDesc::overlay_scrollbar field u8 @HEAD
-pxui_types::ffi::PxuiMeasuredSectionDesc::reserved field [u8; 3] @HEAD
-pxui_types::ffi::PxuiMeasuredSectionDesc::row_height field f32 @HEAD
-pxui_types::ffi::PxuiMeasuredSectionDesc::size field u32 @HEAD
-pxui_types::ffi::PxuiMeasuredSectionDesc::trailing_height field f32 @HEAD
-pxui_types::ffi::PxuiMeasuredSectionDesc::user field *mut c_void @HEAD
+-pxui_types::ffi::PxuiMeasuredSectionBuild type = Option<extern "C" fn(*mut c_void, *mut c_void, usize, f32)> @U2b.1
+-pxui_types::ffi::PxuiMeasuredSectionDesc impl Clone @U2b.1
+-pxui_types::ffi::PxuiMeasuredSectionDesc impl Copy @U2b.1
+-pxui_types::ffi::PxuiMeasuredSectionDesc struct @U2b.1
+-pxui_types::ffi::PxuiMeasuredSectionDesc::build field PxuiMeasuredSectionBuild @U2b.1
+-pxui_types::ffi::PxuiMeasuredSectionDesc::count field usize @U2b.1
+-pxui_types::ffi::PxuiMeasuredSectionDesc::header_height field f32 @U2b.1
+-pxui_types::ffi::PxuiMeasuredSectionDesc::key field PxuiRowKey @U2b.1
+-pxui_types::ffi::PxuiMeasuredSectionDesc::label field Str @U2b.1
+-pxui_types::ffi::PxuiMeasuredSectionDesc::leading_height field f32 @U2b.1
+-pxui_types::ffi::PxuiMeasuredSectionDesc::overlay_scrollbar field u8 @U2b.1
+-pxui_types::ffi::PxuiMeasuredSectionDesc::reserved field [u8; 3] @U2b.1
+-pxui_types::ffi::PxuiMeasuredSectionDesc::row_height field f32 @U2b.1
+-pxui_types::ffi::PxuiMeasuredSectionDesc::size field u32 @U2b.1
+-pxui_types::ffi::PxuiMeasuredSectionDesc::trailing_height field f32 @U2b.1
+-pxui_types::ffi::PxuiMeasuredSectionDesc::user field *mut c_void @U2b.1
 pxui_types::ffi::PxuiMenuBarDesc struct @HEAD
 pxui_types::ffi::PxuiMenuBarDesc::label field Str @HEAD
 pxui_types::ffi::PxuiMenuBarDesc::menus field Slice<PxuiMenuDesc> @HEAD
@@ -5035,12 +5193,10 @@ pxui_types::ffi::PxuiSearchFieldConfig::size field u32 @HEAD
 pxui_types::ffi::PxuiSearchFieldConfig::state field PxuiStateDesc @HEAD
 pxui_types::ffi::PxuiSearchFieldConfig::variant field u16 @HEAD
 pxui_types::ffi::PxuiSearchFieldConfig::well field PxuiBox @HEAD
+pxui_types::ffi::PxuiSectionBuild type = Option<extern "C" fn(*mut c_void, *mut c_void, usize, f32)> @U2b.1
 pxui_types::ffi::PxuiSectionConfig impl Clone @HEAD
 pxui_types::ffi::PxuiSectionConfig impl Copy @HEAD
 pxui_types::ffi::PxuiSectionConfig struct @HEAD
-pxui_types::ffi::PxuiSectionIndexConfig impl Clone @U2a.3
-pxui_types::ffi::PxuiSectionIndexConfig impl Copy @U2a.3
-pxui_types::ffi::PxuiSectionIndexConfig struct @U2a.3
 pxui_types::ffi::PxuiSectionConfig::content field PxuiSlot @HEAD
 pxui_types::ffi::PxuiSectionConfig::gap field f32 @HEAD
 pxui_types::ffi::PxuiSectionConfig::label field Str @HEAD
@@ -5048,6 +5204,9 @@ pxui_types::ffi::PxuiSectionConfig::open field u8 @HEAD
 pxui_types::ffi::PxuiSectionConfig::size field u32 @HEAD
 pxui_types::ffi::PxuiSectionConfig::title field PxuiBox @HEAD
 pxui_types::ffi::PxuiSectionConfig::variant field u16 @HEAD
+pxui_types::ffi::PxuiSectionIndexConfig impl Clone @U2a.3
+pxui_types::ffi::PxuiSectionIndexConfig impl Copy @U2a.3
+pxui_types::ffi::PxuiSectionIndexConfig struct @U2a.3
 pxui_types::ffi::PxuiSectionIndexConfig::active field usize @U2a.3
 pxui_types::ffi::PxuiSectionIndexConfig::has_active field u8 @U2a.3
 pxui_types::ffi::PxuiSectionIndexConfig::letters field Slice<Str> @U2a.3
@@ -5057,19 +5216,22 @@ pxui_types::ffi::PxuiSectionIndexConfig::state field PxuiStateDesc @U2a.3
 pxui_types::ffi::PxuiSectionIndexConfig::variant field u16 @U2a.3
 pxui_types::ffi::PxuiSectionListDesc impl Clone @HEAD
 pxui_types::ffi::PxuiSectionListDesc impl Copy @HEAD
+pxui_types::ffi::PxuiSectionListDesc impl Debug @U2b.1
 pxui_types::ffi::PxuiSectionListDesc struct @HEAD
-pxui_types::ffi::PxuiSectionListDesc::build field PxuiGridBuild @HEAD
+-pxui_types::ffi::PxuiSectionListDesc::build field PxuiGridBuild @U2b.1
 pxui_types::ffi::PxuiSectionListDesc::count field usize @HEAD
 pxui_types::ffi::PxuiSectionListDesc::header_height field f32 @HEAD
-pxui_types::ffi::PxuiSectionListDesc::key field PxuiRowKey @HEAD
-pxui_types::ffi::PxuiSectionListDesc::label field Str @HEAD
+-pxui_types::ffi::PxuiSectionListDesc::key field PxuiRowKey @U2b.1
+-pxui_types::ffi::PxuiSectionListDesc::label field Str @U2b.1
 pxui_types::ffi::PxuiSectionListDesc::leading_height field f32 @HEAD
+pxui_types::ffi::PxuiSectionListDesc::measured field u8 @U2b.1
 pxui_types::ffi::PxuiSectionListDesc::overlay_scrollbar field u8 @HEAD
-pxui_types::ffi::PxuiSectionListDesc::reserved field [u8; 3] @HEAD
+pxui_types::ffi::PxuiSectionListDesc::reserved field [u8; 2] @U2b.1
+-pxui_types::ffi::PxuiSectionListDesc::reserved field [u8; 3] @U2b.1
 pxui_types::ffi::PxuiSectionListDesc::row_height field f32 @HEAD
 pxui_types::ffi::PxuiSectionListDesc::size field u32 @HEAD
 pxui_types::ffi::PxuiSectionListDesc::trailing_height field f32 @HEAD
-pxui_types::ffi::PxuiSectionListDesc::user field *mut c_void @HEAD
+-pxui_types::ffi::PxuiSectionListDesc::user field *mut c_void @U2b.1
 pxui_types::ffi::PxuiSegmentConfig impl Clone @HEAD
 pxui_types::ffi::PxuiSegmentConfig impl Copy @HEAD
 pxui_types::ffi::PxuiSegmentConfig struct @HEAD
@@ -5124,6 +5286,23 @@ pxui_types::ffi::PxuiSegmentedResult::has_secondary field u8 @HEAD
 pxui_types::ffi::PxuiSegmentedResult::reserved field [u8; 2] @HEAD
 pxui_types::ffi::PxuiSegmentedResult::secondary field u64 @HEAD
 pxui_types::ffi::PxuiSegmentedResult::size field u32 @HEAD
+pxui_types::ffi::PxuiSelectionListDesc impl Clone @U2b.1
+pxui_types::ffi::PxuiSelectionListDesc impl Copy @U2b.1
+pxui_types::ffi::PxuiSelectionListDesc struct @U2b.1
+pxui_types::ffi::PxuiSelectionListDesc::anchor field usize @U2b.1
+pxui_types::ffi::PxuiSelectionListDesc::count field usize @U2b.1
+pxui_types::ffi::PxuiSelectionListDesc::fit field u8 @U2b.1
+pxui_types::ffi::PxuiSelectionListDesc::header_height field f32 @U2b.1
+pxui_types::ffi::PxuiSelectionListDesc::leading_height field f32 @U2b.1
+pxui_types::ffi::PxuiSelectionListDesc::measured field u8 @U2b.1
+pxui_types::ffi::PxuiSelectionListDesc::multi field u8 @U2b.1
+pxui_types::ffi::PxuiSelectionListDesc::open_on_click field u8 @U2b.1
+pxui_types::ffi::PxuiSelectionListDesc::overlay_scrollbar field u8 @U2b.1
+pxui_types::ffi::PxuiSelectionListDesc::reserved field [u8; 3] @U2b.1
+pxui_types::ffi::PxuiSelectionListDesc::row_height field f32 @U2b.1
+pxui_types::ffi::PxuiSelectionListDesc::rows field PxuiU8MutSpan @U2b.1
+pxui_types::ffi::PxuiSelectionListDesc::size field u32 @U2b.1
+pxui_types::ffi::PxuiSelectionListDesc::trailing_height field f32 @U2b.1
 pxui_types::ffi::PxuiShadowDesc impl Clone @HEAD
 pxui_types::ffi::PxuiShadowDesc impl Copy @HEAD
 pxui_types::ffi::PxuiShadowDesc impl Debug @HEAD
@@ -5294,31 +5473,48 @@ pxui_types::ffi::PxuiTabConfig::size field u32 @HEAD
 pxui_types::ffi::PxuiTabConfig::state field PxuiStateDesc @HEAD
 pxui_types::ffi::PxuiTabConfig::text field Str @HEAD
 pxui_types::ffi::PxuiTabConfig::variant field u16 @HEAD
-pxui_types::ffi::PxuiTableCell type = Option<extern "C" fn(*mut c_void, i64, i64) -> Str> @HEAD
-pxui_types::ffi::PxuiTableCellConfig impl Clone @HEAD
-pxui_types::ffi::PxuiTableCellConfig impl Copy @HEAD
-pxui_types::ffi::PxuiTableCellConfig struct @HEAD
-pxui_types::ffi::PxuiTableCellConfig::column field i64 @HEAD
-pxui_types::ffi::PxuiTableCellConfig::header field u8 @HEAD
-pxui_types::ffi::PxuiTableCellConfig::height field f32 @HEAD
-pxui_types::ffi::PxuiTableCellConfig::key field i64 @HEAD
-pxui_types::ffi::PxuiTableCellConfig::left field f32 @HEAD
-pxui_types::ffi::PxuiTableCellConfig::right field f32 @HEAD
-pxui_types::ffi::PxuiTableCellConfig::row field i64 @HEAD
-pxui_types::ffi::PxuiTableCellConfig::size field u32 @HEAD
-pxui_types::ffi::PxuiTableCellConfig::text field Str @HEAD
-pxui_types::ffi::PxuiTableCellConfig::variant field u16 @HEAD
+-pxui_types::ffi::PxuiTableCell type = Option<extern "C" fn(*mut c_void, i64, i64) -> Str> @U2b.1
+pxui_types::ffi::PxuiTableCellBuild type = Option<extern "C" fn(*mut c_void, *mut c_void, usize, usize, *const PxuiCellState)> @U2b.1
+-pxui_types::ffi::PxuiTableCellConfig impl Clone @U2b.1
+-pxui_types::ffi::PxuiTableCellConfig impl Copy @U2b.1
+-pxui_types::ffi::PxuiTableCellConfig struct @U2b.1
+-pxui_types::ffi::PxuiTableCellConfig::column field i64 @U2b.1
+-pxui_types::ffi::PxuiTableCellConfig::header field u8 @U2b.1
+-pxui_types::ffi::PxuiTableCellConfig::height field f32 @U2b.1
+-pxui_types::ffi::PxuiTableCellConfig::key field i64 @U2b.1
+-pxui_types::ffi::PxuiTableCellConfig::left field f32 @U2b.1
+-pxui_types::ffi::PxuiTableCellConfig::right field f32 @U2b.1
+-pxui_types::ffi::PxuiTableCellConfig::row field i64 @U2b.1
+-pxui_types::ffi::PxuiTableCellConfig::size field u32 @U2b.1
+-pxui_types::ffi::PxuiTableCellConfig::text field Str @U2b.1
+-pxui_types::ffi::PxuiTableCellConfig::variant field u16 @U2b.1
+pxui_types::ffi::PxuiTableDesc impl Clone @U2b.1
+pxui_types::ffi::PxuiTableDesc impl Copy @U2b.1
 pxui_types::ffi::PxuiTableDesc struct @HEAD
-pxui_types::ffi::PxuiTableDesc::at field [f32; 2] @HEAD
-pxui_types::ffi::PxuiTableDesc::cell field PxuiTableCell @HEAD
-pxui_types::ffi::PxuiTableDesc::headers field Slice<Str> @HEAD
-pxui_types::ffi::PxuiTableDesc::height field f32 @HEAD
-pxui_types::ffi::PxuiTableDesc::label field Str @HEAD
-pxui_types::ffi::PxuiTableDesc::reserved field u32 @HEAD
-pxui_types::ffi::PxuiTableDesc::rows field i64 @HEAD
+pxui_types::ffi::PxuiTableDesc::anchor field usize @U2b.1
+pxui_types::ffi::PxuiTableDesc::ascending field u8 @U2b.1
+-pxui_types::ffi::PxuiTableDesc::at field [f32; 2] @U2b.1
+-pxui_types::ffi::PxuiTableDesc::cell field PxuiTableCell @U2b.1
+pxui_types::ffi::PxuiTableDesc::columns field Slice<PxuiColumn> @U2b.1
+pxui_types::ffi::PxuiTableDesc::flags field PxuiU8MutSpan @U2b.1
+pxui_types::ffi::PxuiTableDesc::has_sort field u8 @U2b.1
+pxui_types::ffi::PxuiTableDesc::head_h field f32 @U2b.1
+pxui_types::ffi::PxuiTableDesc::head_variant field u16 @U2b.1
+-pxui_types::ffi::PxuiTableDesc::headers field Slice<Str> @U2b.1
+-pxui_types::ffi::PxuiTableDesc::height field f32 @U2b.1
+-pxui_types::ffi::PxuiTableDesc::label field Str @U2b.1
+pxui_types::ffi::PxuiTableDesc::multi field u8 @U2b.1
+-pxui_types::ffi::PxuiTableDesc::reserved field u32 @U2b.1
+pxui_types::ffi::PxuiTableDesc::reserved field u8 @U2b.1
+pxui_types::ffi::PxuiTableDesc::reserved2 field [u8; 6] @U2b.1
+pxui_types::ffi::PxuiTableDesc::row_h field f32 @U2b.1
+-pxui_types::ffi::PxuiTableDesc::rows field i64 @U2b.1
+pxui_types::ffi::PxuiTableDesc::rows field usize @U2b.1
 pxui_types::ffi::PxuiTableDesc::size field u32 @HEAD
-pxui_types::ffi::PxuiTableDesc::user field *mut c_void @HEAD
-pxui_types::ffi::PxuiTableDesc::width field f32 @HEAD
+pxui_types::ffi::PxuiTableDesc::sort_id field i64 @U2b.1
+-pxui_types::ffi::PxuiTableDesc::user field *mut c_void @U2b.1
+-pxui_types::ffi::PxuiTableDesc::width field f32 @U2b.1
+pxui_types::ffi::PxuiTableDesc::widths field PxuiColumnWidthSpan @U2b.1
 pxui_types::ffi::PxuiTableHeadConfig impl Clone @HEAD
 pxui_types::ffi::PxuiTableHeadConfig impl Copy @HEAD
 pxui_types::ffi::PxuiTableHeadConfig struct @HEAD
@@ -5330,32 +5526,53 @@ pxui_types::ffi::PxuiTableHeadConfig::size field u32 @HEAD
 pxui_types::ffi::PxuiTableHeadConfig::state field PxuiStateDesc @HEAD
 pxui_types::ffi::PxuiTableHeadConfig::title field Str @HEAD
 pxui_types::ffi::PxuiTableHeadConfig::variant field u16 @HEAD
-pxui_types::ffi::PxuiTableViewDesc struct @HEAD
-pxui_types::ffi::PxuiTableViewDesc::ascending field u8 @HEAD
-pxui_types::ffi::PxuiTableViewDesc::has_sort field u8 @HEAD
-pxui_types::ffi::PxuiTableViewDesc::label field Str @HEAD
-pxui_types::ffi::PxuiTableViewDesc::reserved field [u8; 2] @HEAD
-pxui_types::ffi::PxuiTableViewDesc::rows field usize @HEAD
-pxui_types::ffi::PxuiTableViewDesc::selected field *mut usize @HEAD
-pxui_types::ffi::PxuiTableViewDesc::size field u32 @HEAD
-pxui_types::ffi::PxuiTableViewDesc::sort_column field usize @HEAD
-pxui_types::ffi::PxuiTableViewDesc::text field PxuiCollectionText @HEAD
-pxui_types::ffi::PxuiTableViewDesc::titles field Slice<Str> @HEAD
-pxui_types::ffi::PxuiTableViewDesc::user field *mut c_void @HEAD
-pxui_types::ffi::PxuiTableViewDesc::widths field PxuiF32MutSpan @HEAD
-pxui_types::ffi::PxuiTableViewWithDesc struct @HEAD
-pxui_types::ffi::PxuiTableViewWithDesc::ascending field u8 @HEAD
-pxui_types::ffi::PxuiTableViewWithDesc::build field PxuiCellBuild @HEAD
-pxui_types::ffi::PxuiTableViewWithDesc::has_sort field u8 @HEAD
-pxui_types::ffi::PxuiTableViewWithDesc::label field Str @HEAD
-pxui_types::ffi::PxuiTableViewWithDesc::reserved field [u8; 2] @HEAD
-pxui_types::ffi::PxuiTableViewWithDesc::rows field usize @HEAD
-pxui_types::ffi::PxuiTableViewWithDesc::selected field *mut usize @HEAD
-pxui_types::ffi::PxuiTableViewWithDesc::size field u32 @HEAD
-pxui_types::ffi::PxuiTableViewWithDesc::sort_column field usize @HEAD
-pxui_types::ffi::PxuiTableViewWithDesc::titles field Slice<Str> @HEAD
-pxui_types::ffi::PxuiTableViewWithDesc::user field *mut c_void @HEAD
-pxui_types::ffi::PxuiTableViewWithDesc::widths field PxuiF32MutSpan @HEAD
+pxui_types::ffi::PxuiTableHeadDesc impl Clone @U2b.1
+pxui_types::ffi::PxuiTableHeadDesc impl Copy @U2b.1
+pxui_types::ffi::PxuiTableHeadDesc impl Debug @U2b.1
+pxui_types::ffi::PxuiTableHeadDesc struct @U2b.1
+pxui_types::ffi::PxuiTableHeadDesc::ascending field u8 @U2b.1
+pxui_types::ffi::PxuiTableHeadDesc::columns field Slice<PxuiColumn> @U2b.1
+pxui_types::ffi::PxuiTableHeadDesc::h field f32 @U2b.1
+pxui_types::ffi::PxuiTableHeadDesc::has_sort field u8 @U2b.1
+pxui_types::ffi::PxuiTableHeadDesc::reserved field [u8; 2] @U2b.1
+pxui_types::ffi::PxuiTableHeadDesc::reserved2 field u32 @U2b.1
+pxui_types::ffi::PxuiTableHeadDesc::size field u32 @U2b.1
+pxui_types::ffi::PxuiTableHeadDesc::sort_id field i64 @U2b.1
+pxui_types::ffi::PxuiTableHeadDesc::widths field PxuiColumnWidthSpan @U2b.1
+pxui_types::ffi::PxuiTableResult impl Clone @U2b.1
+pxui_types::ffi::PxuiTableResult impl Copy @U2b.1
+pxui_types::ffi::PxuiTableResult impl Debug @U2b.1
+pxui_types::ffi::PxuiTableResult struct @U2b.1
+pxui_types::ffi::PxuiTableResult::head field PxuiHeadResult @U2b.1
+pxui_types::ffi::PxuiTableResult::reserved field u32 @U2b.1
+pxui_types::ffi::PxuiTableResult::rows field PxuiListResult @U2b.1
+pxui_types::ffi::PxuiTableResult::size field u32 @U2b.1
+-pxui_types::ffi::PxuiTableViewDesc struct @U2b.1
+-pxui_types::ffi::PxuiTableViewDesc::ascending field u8 @U2b.1
+-pxui_types::ffi::PxuiTableViewDesc::has_sort field u8 @U2b.1
+-pxui_types::ffi::PxuiTableViewDesc::label field Str @U2b.1
+-pxui_types::ffi::PxuiTableViewDesc::reserved field [u8; 2] @U2b.1
+-pxui_types::ffi::PxuiTableViewDesc::rows field usize @U2b.1
+-pxui_types::ffi::PxuiTableViewDesc::selected field *mut usize @U2b.1
+-pxui_types::ffi::PxuiTableViewDesc::size field u32 @U2b.1
+-pxui_types::ffi::PxuiTableViewDesc::sort_column field usize @U2b.1
+-pxui_types::ffi::PxuiTableViewDesc::text field PxuiCollectionText @U2b.1
+-pxui_types::ffi::PxuiTableViewDesc::titles field Slice<Str> @U2b.1
+-pxui_types::ffi::PxuiTableViewDesc::user field *mut c_void @U2b.1
+-pxui_types::ffi::PxuiTableViewDesc::widths field PxuiF32MutSpan @U2b.1
+-pxui_types::ffi::PxuiTableViewWithDesc struct @U2b.1
+-pxui_types::ffi::PxuiTableViewWithDesc::ascending field u8 @U2b.1
+-pxui_types::ffi::PxuiTableViewWithDesc::build field PxuiCellBuild @U2b.1
+-pxui_types::ffi::PxuiTableViewWithDesc::has_sort field u8 @U2b.1
+-pxui_types::ffi::PxuiTableViewWithDesc::label field Str @U2b.1
+-pxui_types::ffi::PxuiTableViewWithDesc::reserved field [u8; 2] @U2b.1
+-pxui_types::ffi::PxuiTableViewWithDesc::rows field usize @U2b.1
+-pxui_types::ffi::PxuiTableViewWithDesc::selected field *mut usize @U2b.1
+-pxui_types::ffi::PxuiTableViewWithDesc::size field u32 @U2b.1
+-pxui_types::ffi::PxuiTableViewWithDesc::sort_column field usize @U2b.1
+-pxui_types::ffi::PxuiTableViewWithDesc::titles field Slice<Str> @U2b.1
+-pxui_types::ffi::PxuiTableViewWithDesc::user field *mut c_void @U2b.1
+-pxui_types::ffi::PxuiTableViewWithDesc::widths field PxuiF32MutSpan @U2b.1
 pxui_types::ffi::PxuiTextAreaDesc impl Clone @HEAD
 pxui_types::ffi::PxuiTextAreaDesc impl Copy @HEAD
 pxui_types::ffi::PxuiTextAreaDesc impl Debug @HEAD
@@ -6287,7 +6504,7 @@ pxui_types::theme::Bodies::set fn (&mut self, kind: &str, id: BodyId) -> bool @H
 pxui_types::theme::Bodies::slider field BodyId @HEAD
 pxui_types::theme::Bodies::spinner field BodyId @HEAD
 pxui_types::theme::Bodies::split field BodyId @HEAD
-pxui_types::theme::Bodies::table_cell field BodyId @HEAD
+-pxui_types::theme::Bodies::table_cell field BodyId @U2b.1
 pxui_types::theme::Bodies::table_head field BodyId @HEAD
 pxui_types::theme::Bodies::table_row field BodyId @HEAD
 pxui_types::theme::Bodies::tabs field BodyId @HEAD
@@ -6344,7 +6561,7 @@ pxui_types::theme::BodyKind::selection_list variant @HEAD
 pxui_types::theme::BodyKind::slider variant @HEAD
 pxui_types::theme::BodyKind::spinner variant @HEAD
 pxui_types::theme::BodyKind::split variant @HEAD
-pxui_types::theme::BodyKind::table_cell variant @HEAD
+-pxui_types::theme::BodyKind::table_cell variant @U2b.1
 pxui_types::theme::BodyKind::table_head variant @HEAD
 pxui_types::theme::BodyKind::table_row variant @HEAD
 pxui_types::theme::BodyKind::tabs variant @HEAD
@@ -6471,6 +6688,7 @@ pxui_types::theme::Part::BAR const Part @HEAD
 pxui_types::theme::Part::CLEAR const Part @HEAD
 pxui_types::theme::Part::DISCLOSURE const Part @HEAD
 pxui_types::theme::Part::EDITOR const Part @HEAD
+pxui_types::theme::Part::HANDLE const Part @U2b.3
 pxui_types::theme::Part::HIT const Part @HEAD
 pxui_types::theme::Part::RAIL const Part @HEAD
 pxui_types::theme::Part::THUMB const Part @HEAD
@@ -6538,7 +6756,6 @@ pxui_types::theme::States::checked field Look @HEAD
 pxui_types::theme::States::checked fn const (self, look: Look) -> States @HEAD
 pxui_types::theme::States::disabled field Look @HEAD
 pxui_types::theme::States::disabled fn const (self, look: Look) -> States @HEAD
-pxui_types::theme::States::dropping field Option<&'a Look> @U2b.2
 pxui_types::theme::States::focus field Look @HEAD
 pxui_types::theme::States::focus fn const (self, look: Look) -> States @HEAD
 pxui_types::theme::States::hover field Look @HEAD
@@ -6676,8 +6893,8 @@ pxui_types::ui::Checkbox impl Debug @HEAD
 -pxui_types::ui::Checkbox impl Eq @U2a.3
 pxui_types::ui::Checkbox impl PartialEq @HEAD
 pxui_types::ui::Checkbox impl StructuralPartialEq @HEAD
-pxui_types::ui::Checkbox struct <'a> @U2a.3
 -pxui_types::ui::Checkbox struct @U2a.3
+pxui_types::ui::Checkbox struct <'a> @U2a.3
 -pxui_types::ui::Checkbox::DEFAULT const Checkbox @U2a.3
 pxui_types::ui::Checkbox::DEFAULT const Checkbox<'a> @U2a.3
 pxui_types::ui::Checkbox::disabled field bool @U2a.3
@@ -6874,16 +7091,17 @@ pxui_types::ui::ListResponse impl Clone @HEAD
 pxui_types::ui::ListResponse impl Copy @HEAD
 pxui_types::ui::ListResponse impl Debug @HEAD
 pxui_types::ui::ListResponse impl Default @HEAD
-pxui_types::ui::ListResponse impl Eq @HEAD
-pxui_types::ui::ListResponse impl PartialEq @HEAD
-pxui_types::ui::ListResponse impl StructuralPartialEq @HEAD
+-pxui_types::ui::ListResponse impl Eq @U2b.2
+-pxui_types::ui::ListResponse impl PartialEq @U2b.2
+-pxui_types::ui::ListResponse impl StructuralPartialEq @U2b.2
 pxui_types::ui::ListResponse struct @HEAD
 pxui_types::ui::ListResponse::activated field Option<usize> @U2b.2
 pxui_types::ui::ListResponse::drop_at field Option<usize> @U2b.2
-pxui_types::ui::ListResponse::handle field Handle @U2b.2
+pxui_types::ui::ListResponse::handle field PxuiBox @U2b.2
 pxui_types::ui::ListResponse::moved field Option<(usize, usize)> @U2b.2
-pxui_types::ui::ListResponse::row field Option<Handle> @U2b.2
+pxui_types::ui::ListResponse::row field Option<PxuiBox> @U2b.2
 pxui_types::ui::ListResponse::secondary field Option<usize> @U2b.2
+pxui_types::ui::ListResponse::selected field Option<usize> @U2b.2
 pxui_types::ui::Menu impl Clone @HEAD
 pxui_types::ui::Menu impl Copy @HEAD
 pxui_types::ui::Menu impl Debug @HEAD
@@ -7056,6 +7274,7 @@ pxui_types::ui::Presentation impl StructuralPartialEq @U2a.4
 pxui_types::ui::Presentation::Bottom variant @U2a.4
 pxui_types::ui::Presentation::Centered variant @U2a.4
 pxui_types::ui::Presentation::Full variant @U2a.4
+pxui_types::ui::Presentation::Top variant @U2b.5
 pxui_types::ui::ROOT_KEY const i64 @HEAD
 pxui_types::ui::Repeat enum @HEAD
 pxui_types::ui::Repeat impl Clone @HEAD
@@ -7091,6 +7310,8 @@ pxui_types::ui::SectionList::measured fn const (self) -> SectionList @HEAD
 pxui_types::ui::SectionList::new fn const (count: usize) -> SectionList @HEAD
 pxui_types::ui::SectionList::overlay_scrollbar field bool @HEAD
 pxui_types::ui::SectionList::overlay_scrollbar fn const (self) -> SectionList @HEAD
+pxui_types::ui::SectionList::reorder field bool @U2b.3
+pxui_types::ui::SectionList::reorder fn const (self, on: bool) -> SectionList @U2b.3
 pxui_types::ui::SectionList::row_h fn const (self, h: f32) -> SectionList @HEAD
 pxui_types::ui::SectionList::row_height field f32 @HEAD
 pxui_types::ui::SectionList::trail fn const (self, h: f32) -> SectionList @HEAD
@@ -7105,6 +7326,7 @@ pxui_types::ui::SectionPart impl StructuralPartialEq @HEAD
 pxui_types::ui::SectionPart::Header variant @HEAD
 pxui_types::ui::SectionPart::Leading variant @HEAD
 pxui_types::ui::SectionPart::Row variant (usize) @HEAD
+pxui_types::ui::SectionPart::Trailing variant @U2b.1
 pxui_types::ui::Segment impl Clone @HEAD
 pxui_types::ui::Segment impl Copy @HEAD
 pxui_types::ui::Segment impl Debug @HEAD
@@ -7151,13 +7373,35 @@ pxui_types::ui::Segmented::w_px fn const (self, w: f32) -> Segmented<'a> @HEAD
 pxui_types::ui::SelectionList impl Clone @HEAD
 pxui_types::ui::SelectionList impl Copy @HEAD
 pxui_types::ui::SelectionList impl Debug @HEAD
-pxui_types::ui::SelectionList impl Eq @HEAD
+-pxui_types::ui::SelectionList impl Eq @U2b.1
 pxui_types::ui::SelectionList impl PartialEq @HEAD
 pxui_types::ui::SelectionList impl StructuralPartialEq @HEAD
 pxui_types::ui::SelectionList struct @HEAD
 pxui_types::ui::SelectionList::DEFAULT const SelectionList @HEAD
+pxui_types::ui::SelectionList::drop_look field Option<Look> @U2b.2
+pxui_types::ui::SelectionList::drop_look fn const (self, look: Look) -> SelectionList @U2b.2
+pxui_types::ui::SelectionList::fit field bool @U2b.1
+pxui_types::ui::SelectionList::fit fn const (self) -> SelectionList @U2b.1
+pxui_types::ui::SelectionList::header fn const (self, h: f32) -> SelectionList @U2b.1
+pxui_types::ui::SelectionList::header_height field f32 @U2b.1
+pxui_types::ui::SelectionList::lead fn const (self, h: f32) -> SelectionList @U2b.1
+pxui_types::ui::SelectionList::leading_height field f32 @U2b.1
+pxui_types::ui::SelectionList::measured field bool @U2b.1
+pxui_types::ui::SelectionList::measured fn const (self) -> SelectionList @U2b.1
 pxui_types::ui::SelectionList::multi field bool @HEAD
 pxui_types::ui::SelectionList::multi fn const (self) -> SelectionList @HEAD
+pxui_types::ui::SelectionList::open_on_click field bool @U2b.1
+pxui_types::ui::SelectionList::open_on_click fn const (self, on: bool) -> SelectionList @U2b.1
+pxui_types::ui::SelectionList::overlay_scrollbar field bool @U2b.1
+pxui_types::ui::SelectionList::overlay_scrollbar fn const (self) -> SelectionList @U2b.1
+pxui_types::ui::SelectionList::reorder field bool @U2b.3
+pxui_types::ui::SelectionList::reorder fn const (self, on: bool) -> SelectionList @U2b.3
+pxui_types::ui::SelectionList::row_h fn const (self, h: f32) -> SelectionList @U2b.1
+pxui_types::ui::SelectionList::row_height field f32 @U2b.1
+pxui_types::ui::SelectionList::trail fn const (self, h: f32) -> SelectionList @U2b.1
+pxui_types::ui::SelectionList::trailing_height field f32 @U2b.1
+pxui_types::ui::SelectionList::variant field u16 @U2b.1
+pxui_types::ui::SelectionList::variant fn const (self, variant: u16) -> SelectionList @U2b.1
 pxui_types::ui::Slider impl Clone @HEAD
 pxui_types::ui::Slider impl Copy @HEAD
 pxui_types::ui::Slider impl Debug @HEAD
@@ -7168,16 +7412,16 @@ pxui_types::ui::Slider struct @HEAD
 pxui_types::ui::Slider::DEFAULT const Slider @HEAD
 pxui_types::ui::Slider::variant field u16 @HEAD
 pxui_types::ui::Slider::variant fn const (self, variant: u16) -> Slider @HEAD
-pxui_types::ui::TableResponse impl Clone @HEAD
-pxui_types::ui::TableResponse impl Copy @HEAD
-pxui_types::ui::TableResponse impl Debug @HEAD
-pxui_types::ui::TableResponse impl Default @HEAD
-pxui_types::ui::TableResponse impl Eq @HEAD
-pxui_types::ui::TableResponse impl PartialEq @HEAD
-pxui_types::ui::TableResponse impl StructuralPartialEq @HEAD
-pxui_types::ui::TableResponse struct @HEAD
-pxui_types::ui::TableResponse::row field Option<usize> @HEAD
-pxui_types::ui::TableResponse::sort field Option<usize> @HEAD
+-pxui_types::ui::TableResponse impl Clone @U2b.1
+-pxui_types::ui::TableResponse impl Copy @U2b.1
+-pxui_types::ui::TableResponse impl Debug @U2b.1
+-pxui_types::ui::TableResponse impl Default @U2b.1
+-pxui_types::ui::TableResponse impl Eq @U2b.1
+-pxui_types::ui::TableResponse impl PartialEq @U2b.1
+-pxui_types::ui::TableResponse impl StructuralPartialEq @U2b.1
+-pxui_types::ui::TableResponse struct @U2b.1
+-pxui_types::ui::TableResponse::row field Option<usize> @U2b.1
+-pxui_types::ui::TableResponse::sort field Option<usize> @U2b.1
 -pxui_types::ui::TableView impl Clone @U2b.1
 -pxui_types::ui::TableView impl Copy @U2b.1
 -pxui_types::ui::TableView impl Debug @U2b.1

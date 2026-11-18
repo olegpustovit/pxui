@@ -437,120 +437,184 @@ fn accessibility_batches_validate_the_entire_span_before_applying_any_chunk() {
     unsafe {pxui_ui_destroy(ui);}
 }
 
+/// ABI 1.87: a section list's record is checked before any callback (fixed and measured rows); the build gets the lead-in, heading,
+/// rows and trailer (`usize::MAX - 2`) with their logical Y, and every builder's parent is restored after it.
 #[test]
-fn section_list_descriptors_validate_before_callbacks_and_restore_the_owner() {
-    use pxui_types::ffi::PxuiSectionListDesc;
-    extern "C" fn part(user:*mut c_void,raw:*mut c_void,index:usize) {
-        let count=unsafe {&mut *user.cast::<usize>()};
-        if *count==0 {assert_eq!(index,usize::MAX);}
-        if *count==1 {assert_eq!(index,usize::MAX-1);}
-        *count+=1;
-        let mut node=PxuiBox::default();
-        assert_eq!(unsafe {pxui_ui_node_keyed(raw.cast(),17,&pxui_types::Node::DEFAULT,&mut node)},0);
+fn section_list_validates_before_callbacks_and_builds_every_part() {
+    use pxui_types::ffi::{PxuiKeyedDesc, PxuiListResult, PxuiSectionListDesc};
+    type Seen = (usize, [bool; 3]);
+    extern "C" fn part(user: *mut c_void, raw: *mut c_void, index: usize, y: f32) {
+        let seen = unsafe { &mut *user.cast::<Seen>() };
+        assert!(y.is_finite());
+        if index >= usize::MAX - 2 { seen.1[usize::MAX - index] = true; }
+        seen.0 += 1;
+        let mut node = PxuiBox::default();
+        assert_eq!(unsafe { pxui_ui_node_keyed(raw.cast(), 17, &pxui_types::Node { h: pxui_types::Size::Px(20.0), ..pxui_types::Node::DEFAULT }, &mut node) }, 0);
     }
-    extern "C" fn build(user:*mut c_void,raw:*mut c_void) {
-        let ui=raw.cast::<PxuiUi>();
-        let valid=PxuiSectionListDesc {size:core::mem::size_of::<PxuiSectionListDesc>() as u32,
-            overlay_scrollbar:1,reserved:[0;3],label:Str {ptr:b"section".as_ptr(),len:7},count:10_000,
-            row_height:20.0,leading_height:100.0,header_height:30.0,trailing_height:40.0,build:Some(part),user,key:None};
-        let mut out=PxuiBox {box_key:777,..PxuiBox::default()};
-        let mut bad=[valid;10];
-        bad[0].size-=1; bad[1].overlay_scrollbar=2; bad[2].reserved[1]=1;
-        bad[3].label=Str {ptr:core::ptr::null(),len:1}; bad[4].count=1_000_001;
-        bad[5].row_height=0.0; bad[6].leading_height=-1.0; bad[7].header_height=f32::NAN;
-        bad[8].trailing_height=f32::INFINITY; bad[9].row_height=f32::MAX;
+    extern "C" fn build(user: *mut c_void, raw: *mut c_void) {
+        let ui = raw.cast::<PxuiUi>();
+        let keyed = PxuiKeyedDesc::new("section", "");
+        let valid = PxuiSectionListDesc { size: core::mem::size_of::<PxuiSectionListDesc>() as u32, overlay_scrollbar: 1, measured: 0, reserved: [0; 2], count: 3,
+            row_height: 20.0, leading_height: 30.0, header_height: 20.0, trailing_height: 40.0 };
+        let mut out = PxuiListResult { selected: 7, ..PxuiListResult::EMPTY };
+        let mut bad = [valid; 11];
+        bad[0].size -= 1; bad[1].overlay_scrollbar = 2; bad[2].reserved[1] = 1; bad[3].measured = 2; bad[4].count = 1_000_001;
+        bad[5].row_height = 0.0; bad[6].leading_height = -1.0; bad[7].header_height = f32::NAN; bad[8].trailing_height = f32::INFINITY;
+        bad[9].row_height = f32::MAX; bad[10].row_height = -20.0;
+        let before = unsafe { (*user.cast::<Seen>()).0 };
         for desc in &bad {
-            assert_eq!(unsafe {pxui_ui_section_list(ui,desc,&mut out)},PXUI_ERR_ARGUMENT);
-            assert_eq!(out.box_key,777,"invalid descriptor leaves output unchanged");
-            assert_eq!(unsafe {*user.cast::<usize>()},0,"invalid descriptor calls no builder");
+            assert_eq!(unsafe { pxui_ui_section_list(ui, &keyed, desc, None, Some(part), user, &mut out) }, PXUI_ERR_ARGUMENT);
+            assert_eq!(out.selected, 7, "an invalid record leaves the result unchanged");
+            assert_eq!(unsafe { (*user.cast::<Seen>()).0 }, before, "an invalid record calls no builder");
         }
-        assert_eq!(unsafe {pxui_ui_section_list(ui,core::ptr::null(),&mut out)},PXUI_ERR_ARGUMENT);
-        assert_eq!(unsafe {pxui_ui_section_list(ui,&valid,core::ptr::null_mut())},PXUI_ERR_ARGUMENT);
-        assert_eq!(unsafe {pxui_ui_section_list(ui,&valid,&mut out)},0);
-        assert!((3..30).contains(&unsafe {*user.cast::<usize>()}));
-        let mut node=PxuiBox::default();
-        assert_eq!(unsafe {pxui_ui_node_keyed(ui,19,&pxui_types::Node::DEFAULT,&mut node)},0,"section callback restores its parent handle");
+        assert_eq!(unsafe { pxui_ui_section_list(ui, core::ptr::null(), &valid, None, Some(part), user, &mut out) }, PXUI_ERR_ARGUMENT);
+        assert_eq!(unsafe { pxui_ui_section_list(ui, &keyed, core::ptr::null(), None, Some(part), user, &mut out) }, PXUI_ERR_ARGUMENT);
+        assert_eq!(unsafe { pxui_ui_section_list(ui, &keyed, &valid, None, Some(part), user, core::ptr::null_mut()) }, PXUI_ERR_ARGUMENT);
+        assert_eq!(unsafe { pxui_ui_section_list(ui, &keyed, &valid, None, Some(part), user, &mut PxuiListResult { size: 8, ..PxuiListResult::EMPTY }) }, PXUI_ERR_ARGUMENT, "a short result record");
+        assert_eq!(unsafe { (*user.cast::<Seen>()).0 }, before);
+        assert_eq!(unsafe { pxui_ui_section_list(ui, &keyed, &valid, None, Some(part), user, &mut out) }, 0);
+        assert_eq!(unsafe { pxui_ui_section_list(ui, &PxuiKeyedDesc::new("measured", ""), &PxuiSectionListDesc { measured: 1, ..valid }, None, Some(part), user, &mut out) }, 0, "measured rows");
+        assert_eq!((out.activated, out.selected, out.anchor), (usize::MAX, usize::MAX, usize::MAX), "a section list selects nothing");
+        let mut node = PxuiBox::default();
+        assert_eq!(unsafe { pxui_ui_node_keyed(ui, 19, &pxui_types::Node::DEFAULT, &mut node) }, 0, "the builder's parent is restored");
     }
-    let ui=create(); let mut calls=0usize;
-    assert_eq!(unsafe {pxui_ui_section_list(core::ptr::null_mut(),core::ptr::null(),core::ptr::null_mut())},PXUI_ERR_ARGUMENT);
-    assert_eq!(run(ui,Some(build),(&mut calls as *mut usize).cast()),0,"{}",error(ui));
-    assert_eq!(unsafe {pxui_ui_destroy(ui)},0);
+    let ui = create();
+    let mut seen: Seen = (0, [false; 3]);
+    assert_eq!(unsafe { pxui_ui_section_list(core::ptr::null_mut(), core::ptr::null(), core::ptr::null(), None, None, core::ptr::null_mut(), core::ptr::null_mut()) }, PXUI_ERR_ARGUMENT);
+    assert_eq!(run(ui, Some(build), (&mut seen as *mut Seen).cast()), 0, "{}", error(ui));
+    assert_eq!(seen.1, [true; 3], "lead-in, heading and trailer each built");
+    assert!((10..40).contains(&seen.0), "{} parts", seen.0);
+    assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
 }
 
-/// An ABI 1.20 caller's 64-byte record (no `key`) still builds, its rows keyed by index; a 72-byte one with `key` keys each row box
-/// by the id it returns, so the id's row keeps its key when the items reorder.
+/// ABI 1.87: section list, selection list and table rows (and so their children) are keyed by `key(user, i)`, so an id's row keeps its
+/// key when the items reorder; a NULL key keys them by index.
 #[test]
-fn section_lists_take_the_old_record_and_key_rows_by_item_id() {
-    use pxui_types::ffi::PxuiSectionListDesc;
-    extern "C" fn row(user:*mut c_void,raw:*mut c_void,index:usize) {
-        let state=unsafe {&mut *user.cast::<([i64;3],[i64;3])>()};
-        let mut node=PxuiBox::default();
-        // a child of the row box: its key follows the row's
-        assert_eq!(unsafe {crate::pxui_ui_node(raw.cast(),Str {ptr:b"title".as_ptr(),len:5},&pxui_types::Node::DEFAULT,&mut node)},0);
-        if index<3 {state.1[index]=node.box_key;}
-    }
-    extern "C" fn key(user:*mut c_void,index:usize)->i64 { unsafe {(*user.cast::<([i64;3],[i64;3])>()).0[index]} }
-    extern "C" fn build(user:*mut c_void,raw:*mut c_void) {
-        let ui=raw.cast::<PxuiUi>();
-        let keyed=PxuiSectionListDesc {size:core::mem::size_of::<PxuiSectionListDesc>() as u32,overlay_scrollbar:0,reserved:[0;3],
-            label:Str {ptr:b"keyed".as_ptr(),len:5},count:3,row_height:20.0,leading_height:0.0,header_height:0.0,trailing_height:0.0,
-            build:Some(row),user,key:Some(key)};
-        let mut out=PxuiBox::default();
-        assert_eq!(unsafe {pxui_ui_section_list(ui,&keyed,&mut out)},0);
-        let old=PxuiSectionListDesc {size:64,label:Str {ptr:b"old".as_ptr(),len:3},build:None,..keyed};
-        assert_eq!(unsafe {pxui_ui_section_list(ui,&old,&mut out)},0);
-    }
-    let ui=create();
-    let mut state=([10i64,20,30],[0i64;3]);
-    assert_eq!(run(ui,Some(build),(&mut state as *mut ([i64;3],[i64;3])).cast()),0,"{}",error(ui));
-    let before=state.1;
-    state.0.reverse();
-    assert_eq!(run(ui,Some(build),(&mut state as *mut ([i64;3],[i64;3])).cast()),0,"{}",error(ui));
-    assert_eq!((state.1[0],state.1[2]),(before[2],before[0]),"each id's row (and its child) keeps its key");
-    assert_ne!(before[0],before[1]);
-    assert_eq!(unsafe {pxui_ui_destroy(ui)},0);
-}
-
-/// ABI 1.83: `ui_list_view_rows` and `ui_table_view_rows` key row `i` (and so its children) by `key(user, i)`, so an id's row keeps its
-/// key when the items reorder; a NULL key and the legacy `ui_list_view_with` key by index.
-#[test]
-fn list_and_table_rows_exports_key_rows_by_item_id() {
-    use pxui_types::ffi::{PxuiKeyedDesc, PxuiListViewWithDesc, PxuiTableViewWithDesc, PxuiU8MutSpan, PxuiF32MutSpan};
-    type State = ([i64; 3], [i64; 3], [u8; 3], [f32; 1], usize);
-    extern "C" fn cell(user: *mut c_void, raw: *mut c_void, row: usize, _column: usize) {
-        let state = unsafe { &mut *user.cast::<State>() };
+fn list_and_table_rows_key_by_item_id() {
+    use pxui_types::ffi::{PxuiColumn, PxuiColumnWidth, PxuiColumnWidthSpan, PxuiKeyedDesc, PxuiListResult, PxuiSectionListDesc, PxuiSelectionListDesc, PxuiTableDesc, PxuiTableResult, PxuiU8MutSpan, Slice};
+    type State = ([i64; 3], [[i64; 3]; 3], [u8; 3], [PxuiColumnWidth; 1], usize);
+    fn child(raw: *mut c_void) -> i64 {
         let mut node = PxuiBox::default();
         assert_eq!(unsafe { crate::pxui_ui_node(raw.cast(), Str { ptr: b"title".as_ptr(), len: 5 }, &pxui_types::Node::DEFAULT, &mut node) }, 0);
-        if row < 3 && state.4 == 0 { state.1[row] = node.box_key; }
+        node.box_key
     }
+    extern "C" fn part(user: *mut c_void, raw: *mut c_void, index: usize, _: f32) { let s = unsafe { &mut *user.cast::<State>() }; if index < 3 { s.1[0][index] = child(raw); } }
+    extern "C" fn cell(user: *mut c_void, raw: *mut c_void, index: usize, _: *const pxui_types::ffi::PxuiCellState) { let s = unsafe { &mut *user.cast::<State>() }; if index < 3 { s.1[1][index] = child(raw); } }
+    extern "C" fn table_cell(user: *mut c_void, raw: *mut c_void, row: usize, _: usize, _: *const pxui_types::ffi::PxuiCellState) { let s = unsafe { &mut *user.cast::<State>() }; s.1[2][row] = child(raw); }
     extern "C" fn key(user: *mut c_void, row: usize) -> i64 { unsafe { (*user.cast::<State>()).0[row] } }
     extern "C" fn build(user: *mut c_void, raw: *mut c_void) {
         let (ui, state) = (raw.cast::<PxuiUi>(), unsafe { &mut *user.cast::<State>() });
-        let mut hit = 0usize;
-        let list = PxuiListViewWithDesc { size: core::mem::size_of::<PxuiListViewWithDesc>() as u32, multi: 0, reserved: [0; 3], label: Str { ptr: b"list".as_ptr(), len: 4 }, count: 3,
-            selected: PxuiU8MutSpan { ptr: state.2.as_mut_ptr(), len: 3 }, build: Some(cell), user };
-        assert_eq!(unsafe { pxui_ui_list_view_rows(ui, &list, Some(key), &mut hit) }, 0);
-        let plain = PxuiListViewWithDesc { label: Str { ptr: b"plain".as_ptr(), len: 5 }, build: None, ..list };
-        assert_eq!(unsafe { pxui_ui_list_view_rows(ui, &plain, None, &mut hit) }, 0, "no key: by index");
-        assert_eq!(unsafe { pxui_ui_list_view_with(ui, &PxuiListViewWithDesc { label: Str { ptr: b"legacy".as_ptr(), len: 6 }, ..plain }, &mut hit) }, 0);
-        assert_ne!(unsafe { pxui_ui_list_view_rows(ui, &PxuiListViewWithDesc { size: 60, ..plain }, Some(key), &mut hit) }, 0, "a short record is refused");
-        let (mut selected, mut sort, mut row) = (usize::MAX, 0usize, 0usize);
-        let titles = [Str { ptr: b"A".as_ptr(), len: 1 }];
-        let table = PxuiTableViewWithDesc { size: core::mem::size_of::<PxuiTableViewWithDesc>() as u32, has_sort: 0, ascending: 0, reserved: [0; 2], label: Str { ptr: core::ptr::null(), len: 0 },
-            titles: pxui_types::ffi::Slice { ptr: titles.as_ptr(), len: 1 }, widths: PxuiF32MutSpan { ptr: state.3.as_mut_ptr(), len: 1 }, rows: 3, sort_column: 0, selected: &mut selected, build: Some(cell), user };
-        state.4 = 1;
-        let keyed = PxuiKeyedDesc::new("table", "");
-        assert_eq!(unsafe { pxui_ui_table_view_rows(ui, &keyed, &table, Some(key), core::ptr::null(), &mut sort, &mut row) }, 0);
-        state.4 = 0;
+        let mut out = PxuiListResult::EMPTY;
+        let section = PxuiSectionListDesc { size: core::mem::size_of::<PxuiSectionListDesc>() as u32, overlay_scrollbar: 0, measured: 0, reserved: [0; 2], count: 3, row_height: 20.0, leading_height: 0.0, header_height: 0.0, trailing_height: 0.0 };
+        assert_eq!(unsafe { pxui_ui_section_list(ui, &PxuiKeyedDesc::new("section", ""), &section, Some(key), Some(part), user, &mut out) }, 0);
+        assert_eq!(unsafe { pxui_ui_section_list(ui, &PxuiKeyedDesc::new("plain", ""), &section, None, None, user, &mut out) }, 0, "no key: by index");
+        let mut list: PxuiSelectionListDesc = unsafe { core::mem::zeroed() };
+        (list.size, list.count, list.row_height, list.rows, list.anchor) = (core::mem::size_of::<PxuiSelectionListDesc>() as u32, 3, 20.0, PxuiU8MutSpan { ptr: state.2.as_mut_ptr(), len: 3 }, usize::MAX);
+        assert_eq!(unsafe { pxui_ui_selection_list(ui, &PxuiKeyedDesc::new("list", ""), &list, Some(key), Some(cell), user, &mut out) }, 0);
+        let columns = [PxuiColumn { size: core::mem::size_of::<PxuiColumn>() as u32, sortable: 0, grip: 0, has_id: 0, reserved: 0, title: Str { ptr: b"A".as_ptr(), len: 1 }, id: 0, share: 1.0, w: 0.0 }];
+        let mut table: PxuiTableDesc = unsafe { core::mem::zeroed() };
+        (table.size, table.columns, table.widths, table.rows, table.row_h, table.head_h, table.anchor) = (core::mem::size_of::<PxuiTableDesc>() as u32, Slice { ptr: columns.as_ptr(), len: 1 },
+            PxuiColumnWidthSpan { ptr: state.3.as_mut_ptr(), len: 1 }, 3, 20.0, 20.0, usize::MAX);
+        table.flags = PxuiU8MutSpan { ptr: state.2.as_mut_ptr(), len: 3 };
+        let mut result: PxuiTableResult = unsafe { core::mem::zeroed() };
+        result.size = core::mem::size_of::<PxuiTableResult>() as u32;
+        assert_eq!(unsafe { pxui_ui_table(ui, &PxuiKeyedDesc::new("table", ""), &table, Some(key), Some(table_cell), user, &mut result) }, 0);
+        state.4 += 1;
     }
     let ui = create();
-    let mut state: State = ([10, 20, 30], [0; 3], [0; 3], [60.0], 0);
+    let mut state: State = ([10, 20, 30], [[0; 3]; 3], [0; 3], [PxuiColumnWidth::default()], 0);
     assert_eq!(run(ui, Some(build), (&mut state as *mut State).cast()), 0, "{}", error(ui));
     let before = state.1;
     state.0.reverse();
     assert_eq!(run(ui, Some(build), (&mut state as *mut State).cast()), 0, "{}", error(ui));
-    assert_eq!((state.1[0], state.1[2]), (before[2], before[0]), "each id's row (and its child) keeps its key");
-    assert_ne!(before[0], before[1]);
+    for (now, was) in state.1.iter().zip(before.iter()) {
+        assert_eq!((now[0], now[2]), (was[2], was[0]), "each id's row (and its child) keeps its key");
+        assert_ne!(was[0], was[1]);
+    }
+    assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
+}
+
+/// ABI 1.87: the selection list, the table and the heading check every record, flag span and column in one pass before any effect: a
+/// refused call runs no cell builder and writes no result; a table's columns are size-prefixed, carry 0/1 flags, a UTF-8 title, finite
+/// non-negative share and width, unique ids, at most 64, with one width entry a column.
+#[test]
+fn selection_list_table_and_heading_refuse_invalid_records_before_effects() {
+    use pxui_types::ffi::{PxuiColumn, PxuiColumnWidth, PxuiColumnWidthSpan, PxuiHeadResult, PxuiKeyedDesc, PxuiListResult, PxuiSelectionListDesc, PxuiTableDesc, PxuiTableHeadDesc, PxuiTableResult, PxuiU8MutSpan, Slice};
+    extern "C" fn cell(user: *mut c_void, _: *mut c_void, _: usize, _: *const pxui_types::ffi::PxuiCellState) { unsafe { *user.cast::<u32>() += 1; } }
+    extern "C" fn table_cell(user: *mut c_void, _: *mut c_void, _: usize, _: usize, _: *const pxui_types::ffi::PxuiCellState) { unsafe { *user.cast::<u32>() += 1; } }
+    let ui = create();
+    let keyed = PxuiKeyedDesc::new("k", "");
+    let mut calls = 0u32;
+    let user = (&mut calls as *mut u32).cast::<c_void>();
+    let mut flags = [0u8; 4];
+    let fp = flags.as_mut_ptr();
+    let mut list: PxuiSelectionListDesc = unsafe { core::mem::zeroed() };
+    (list.size, list.count, list.row_height, list.rows, list.anchor) = (core::mem::size_of::<PxuiSelectionListDesc>() as u32, 4, 20.0, PxuiU8MutSpan { ptr: flags.as_mut_ptr(), len: 4 }, usize::MAX);
+    let refuse_list = |d: PxuiSelectionListDesc, why: &str| {
+        let mut out = PxuiListResult { selected: 7, ..PxuiListResult::EMPTY };
+        assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_selection_list(ui, &keyed, &d, None, Some(cell), user, &mut out) }), PXUI_ERR_ARGUMENT, "{why}");
+        assert_eq!(out.selected, 7, "{why}: no result written");
+    };
+    refuse_list(PxuiSelectionListDesc { multi: 2, ..list }, "multi not 0 or 1");
+    refuse_list(PxuiSelectionListDesc { fit: 2, ..list }, "fit not 0 or 1");
+    refuse_list(PxuiSelectionListDesc { open_on_click: 2, ..list }, "open_on_click not 0 or 1");
+    refuse_list(PxuiSelectionListDesc { reserved: [0, 1, 0], ..list }, "a reserved byte");
+    refuse_list(PxuiSelectionListDesc { rows: PxuiU8MutSpan { ptr: flags.as_mut_ptr(), len: 3 }, ..list }, "fewer flags than rows");
+    refuse_list(PxuiSelectionListDesc { rows: PxuiU8MutSpan { ptr: core::ptr::null_mut(), len: 4 }, ..list }, "a null flag span");
+    refuse_list(PxuiSelectionListDesc { row_height: f32::NAN, ..list }, "a NaN row height");
+    assert_eq!(calls, 0, "a refused list builds no cell");
+    let mut out = PxuiListResult::EMPTY;
+    assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_selection_list(ui, &keyed, &list, None, Some(cell), user, &mut out) }), 0, "{}", error(ui));
+    assert!(calls >= 4, "the valid list builds its rows");
+
+    let col = |title: &'static [u8], id: Option<i64>| PxuiColumn { size: core::mem::size_of::<PxuiColumn>() as u32, sortable: 1, grip: 1, has_id: id.is_some() as u8, reserved: 0,
+        title: Str { ptr: title.as_ptr(), len: title.len() }, id: id.unwrap_or(0), share: 0.0, w: 80.0 };
+    let good = [col(b"Name", Some(4)), col(b"Size", None)];
+    let mut widths = [PxuiColumnWidth::default(); 65];
+    let table_of = |columns: &[PxuiColumn], widths: &mut [PxuiColumnWidth], width_len: usize| {
+        let mut t: PxuiTableDesc = unsafe { core::mem::zeroed() };
+        (t.size, t.columns, t.widths, t.rows, t.row_h, t.head_h, t.anchor) = (core::mem::size_of::<PxuiTableDesc>() as u32, Slice { ptr: columns.as_ptr(), len: columns.len() },
+            PxuiColumnWidthSpan { ptr: widths.as_mut_ptr(), len: width_len }, 4, 20.0, 20.0, usize::MAX);
+        t.flags = PxuiU8MutSpan { ptr: fp, len: 4 };
+        t
+    };
+    let refuse_table = |t: PxuiTableDesc, why: &str| {
+        let mut out: PxuiTableResult = unsafe { core::mem::zeroed() };
+        (out.size, out.rows.selected) = (core::mem::size_of::<PxuiTableResult>() as u32, 7);
+        assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_table(ui, &keyed, &t, None, Some(table_cell), user, &mut out) }), PXUI_ERR_ARGUMENT, "{why}");
+        assert_eq!(out.rows.selected, 7, "{why}: no result written");
+        let mut head: PxuiTableHeadDesc = unsafe { core::mem::zeroed() };
+        (head.size, head.columns, head.widths, head.h) = (core::mem::size_of::<PxuiTableHeadDesc>() as u32, t.columns, t.widths, 20.0);
+        let mut hout: PxuiHeadResult = unsafe { core::mem::zeroed() };
+        (hout.size, hout.sort_id) = (core::mem::size_of::<PxuiHeadResult>() as u32, 7);
+        if t.multi == 0 && t.rows <= t.flags.len {
+            assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_table_head(ui, &keyed, &head, &mut hout) }), PXUI_ERR_ARGUMENT, "heading: {why}");
+            assert_eq!(hout.sort_id, 7, "heading: {why}: no result written");
+        }
+    };
+    let before = calls;
+    let wp = widths.as_mut_ptr();
+    let ws = |n: usize| unsafe { core::slice::from_raw_parts_mut(wp, n) };
+    refuse_table(table_of(&[PxuiColumn { size: 8, ..good[0] }, good[1]], ws(2), 2), "a short column record");
+    refuse_table(table_of(&[PxuiColumn { sortable: 2, ..good[0] }, good[1]], ws(2), 2), "sortable not 0 or 1");
+    refuse_table(table_of(&[PxuiColumn { grip: 2, ..good[0] }, good[1]], ws(2), 2), "grip not 0 or 1");
+    refuse_table(table_of(&[PxuiColumn { reserved: 1, ..good[0] }, good[1]], ws(2), 2), "a reserved byte");
+    refuse_table(table_of(&[col(b"\xff", None)], ws(1), 1), "a title that is not UTF-8");
+    refuse_table(table_of(&[PxuiColumn { share: f32::NAN, ..good[0] }], ws(1), 1), "a NaN share");
+    refuse_table(table_of(&[PxuiColumn { w: -1.0, ..good[0] }], ws(1), 1), "a negative width");
+    refuse_table(table_of(&[col(b"A", Some(1)), col(b"B", Some(1))], ws(2), 2), "duplicate ids");
+    refuse_table(table_of(&[col(b"A", Some(1)), col(b"B", None)], ws(2), 2), "an index id colliding with an explicit one");
+    refuse_table(table_of(&good, ws(2), 1), "fewer widths than columns");
+    refuse_table(table_of(&[good[1]; 65], ws(65), 65), "more than 64 columns");
+    refuse_table(PxuiTableDesc { multi: 2, ..table_of(&good, ws(2), 2) }, "multi not 0 or 1");
+    refuse_table(PxuiTableDesc { flags: PxuiU8MutSpan { ptr: fp, len: 3 }, ..table_of(&good, ws(2), 2) }, "fewer flags than rows");
+    assert_eq!(calls, before, "a refused table builds no cell");
+    let mut out: PxuiTableResult = unsafe { core::mem::zeroed() };
+    out.size = core::mem::size_of::<PxuiTableResult>() as u32;
+    let t = table_of(&good, ws(2), 2);
+    assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_table(ui, &keyed, &t, None, Some(table_cell), user, &mut out) }), 0, "{}", error(ui));
+    assert!(calls >= before + 8, "the valid table builds its cells");
+    assert_eq!((widths[0].id, widths[1].id), (4, 1), "each column's id (an index without one) is written with its width");
     assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
 }
 
@@ -633,48 +697,6 @@ fn section_index_and_disclosure_refuse_invalid_arguments() {
     assert_ne!(in_frame(ui, &mut |ui| unsafe { pxui_ui_disclosure(ui, &more, 1, Some(ran), (&mut built as *mut u32).cast(), core::ptr::null_mut()) }), 0, "a null response");
     assert_eq!(built, 1);
     assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
-}
-
-#[test]
-fn measured_section_descriptors_validate_before_callbacks_and_restore_the_owner() {
-    use pxui_types::ffi::PxuiMeasuredSectionDesc;
-    extern "C" fn part(user:*mut c_void,raw:*mut c_void,index:usize,y:f32) {
-        let count=unsafe {&mut *user.cast::<usize>()};
-        assert!(y.is_finite());
-        if *count==0 {assert_eq!(index,usize::MAX);assert_eq!(y,0.0);}
-        if *count==1 {assert_eq!(index,usize::MAX-1);}
-        *count+=1;
-        let mut node=PxuiBox::default();
-        assert_eq!(unsafe {pxui_ui_node_keyed(raw.cast(),17,&pxui_types::Node {h:pxui_types::Size::Px(20.0),..pxui_types::Node::DEFAULT},&mut node)},0);
-    }
-    extern "C" fn build(user:*mut c_void,raw:*mut c_void) {
-        let ui=raw.cast::<PxuiUi>();
-        let valid=PxuiMeasuredSectionDesc {size:core::mem::size_of::<PxuiMeasuredSectionDesc>() as u32,
-            overlay_scrollbar:1,reserved:[0;3],label:Str {ptr:b"section".as_ptr(),len:7},count:10_000,
-            row_height:20.0,leading_height:100.0,header_height:30.0,trailing_height:40.0,build:Some(part),user,key:None};
-        let before=unsafe {*user.cast::<usize>()};
-        let mut out=PxuiBox {box_key:777,..PxuiBox::default()};
-        let mut bad=[valid;10];
-        bad[0].size-=1; bad[1].overlay_scrollbar=2; bad[2].reserved[1]=1;
-        bad[3].label=Str {ptr:core::ptr::null(),len:1}; bad[4].count=1_000_001;
-        bad[5].row_height=0.0; bad[6].leading_height=-1.0; bad[7].header_height=f32::NAN;
-        bad[8].trailing_height=f32::INFINITY; bad[9].row_height=f32::MAX;
-        for desc in &bad {
-            assert_eq!(unsafe {pxui_ui_section_list_measured(ui,desc,&mut out)},PXUI_ERR_ARGUMENT);
-            assert_eq!(out.box_key,777,"invalid descriptor leaves output unchanged");
-            assert_eq!(unsafe {*user.cast::<usize>()},before,"invalid descriptor calls no builder");
-        }
-        assert_eq!(unsafe {pxui_ui_section_list_measured(ui,core::ptr::null(),&mut out)},PXUI_ERR_ARGUMENT);
-        assert_eq!(unsafe {pxui_ui_section_list_measured(ui,&valid,core::ptr::null_mut())},PXUI_ERR_ARGUMENT);
-        assert_eq!(unsafe {pxui_ui_section_list_measured(ui,&valid,&mut out)},0);
-        assert!((3..30).contains(&(unsafe {*user.cast::<usize>()}-before)));
-        let mut node=PxuiBox::default();
-        assert_eq!(unsafe {pxui_ui_node_keyed(ui,19,&pxui_types::Node::DEFAULT,&mut node)},0,"section callback restores its parent handle");
-    }
-    let ui=create(); let mut calls=0usize;
-    assert_eq!(unsafe {pxui_ui_section_list_measured(core::ptr::null_mut(),core::ptr::null(),core::ptr::null_mut())},PXUI_ERR_ARGUMENT);
-    assert_eq!(run(ui,Some(build),(&mut calls as *mut usize).cast()),0,"{}",error(ui));
-    assert_eq!(unsafe {pxui_ui_destroy(ui)},0);
 }
 
 #[test]
@@ -1455,28 +1477,67 @@ mod sized_records {
         unsafe { pxui_ui_destroy(ui); }
     }
 
+    fn keyed() -> PxuiKeyedDesc { PxuiKeyedDesc::new("k", "") }
+
     #[test]
     fn section_list() {
         let ui = create();
         let mut value: PxuiSectionListDesc = unsafe { core::mem::zeroed() };
-        let fix: fn(&mut PxuiSectionListDesc) = |d| d.row_height = 20.0;
-        fix(&mut value);
+        value.row_height = 20.0;
         four(ui, ((&value as *const PxuiSectionListDesc).cast(), size_of_val(&value), align_of_val(&value)), true, &mut |p| {
             let p = p.cast::<PxuiSectionListDesc>();
-            in_frame(ui, &mut |ui| unsafe { pxui_ui_section_list(ui, p, &mut PxuiBox::default()) })
+            in_frame(ui, &mut |ui| unsafe { pxui_ui_section_list(ui, &keyed(), p, None, None, core::ptr::null_mut(), &mut { PxuiListResult::EMPTY }) })
         });
         unsafe { pxui_ui_destroy(ui); }
     }
 
     #[test]
-    fn section_list_measured() {
+    fn selection_list() {
         let ui = create();
-        let mut value: PxuiMeasuredSectionDesc = unsafe { core::mem::zeroed() };
-        let fix: fn(&mut PxuiMeasuredSectionDesc) = |d| d.row_height = 20.0;
-        fix(&mut value);
-        four(ui, ((&value as *const PxuiMeasuredSectionDesc).cast(), size_of_val(&value), align_of_val(&value)), true, &mut |p| {
-            let p = p.cast::<PxuiMeasuredSectionDesc>();
-            in_frame(ui, &mut |ui| unsafe { pxui_ui_section_list_measured(ui, p, &mut PxuiBox::default()) })
+        let mut value: PxuiSelectionListDesc = unsafe { core::mem::zeroed() };
+        value.row_height = 20.0;
+        four(ui, ((&value as *const PxuiSelectionListDesc).cast(), size_of_val(&value), align_of_val(&value)), true, &mut |p| {
+            let p = p.cast::<PxuiSelectionListDesc>();
+            in_frame(ui, &mut |ui| unsafe { pxui_ui_selection_list(ui, &keyed(), p, None, None, core::ptr::null_mut(), &mut { PxuiListResult::EMPTY }) })
+        });
+        unsafe { pxui_ui_destroy(ui); }
+    }
+
+    #[test]
+    fn list_result() {
+        let ui = create();
+        let value = PxuiListResult::EMPTY;
+        four(ui, ((&value as *const PxuiListResult).cast(), size_of_val(&value), align_of_val(&value)), true, &mut |p| {
+            let p = p.cast::<PxuiListResult>();
+            let mut d: PxuiSelectionListDesc = unsafe { core::mem::zeroed() };
+            (d.size, d.row_height) = (size_of_val(&d) as u32, 20.0);
+            in_frame(ui, &mut |ui| unsafe { pxui_ui_selection_list(ui, &keyed(), &d, None, None, core::ptr::null_mut(), p) })
+        });
+        unsafe { pxui_ui_destroy(ui); }
+    }
+
+    #[test]
+    fn table_head() {
+        let ui = create();
+        let mut value: PxuiTableHeadDesc = unsafe { core::mem::zeroed() };
+        value.h = 20.0;
+        four(ui, ((&value as *const PxuiTableHeadDesc).cast(), size_of_val(&value), align_of_val(&value)), true, &mut |p| {
+            let p = p.cast::<PxuiTableHeadDesc>();
+            in_frame(ui, &mut |ui| { let mut out: PxuiHeadResult = unsafe { core::mem::zeroed() }; out.size = size_of_val(&out) as u32; unsafe { pxui_ui_table_head(ui, &keyed(), p, &mut out) } })
+        });
+        unsafe { pxui_ui_destroy(ui); }
+    }
+
+    #[test]
+    fn table_result() {
+        let ui = create();
+        let mut value: PxuiTableResult = unsafe { core::mem::zeroed() };
+        value.size = size_of_val(&value) as u32;
+        four(ui, ((&value as *const PxuiTableResult).cast(), size_of_val(&value), align_of_val(&value)), true, &mut |p| {
+            let p = p.cast::<PxuiTableResult>();
+            let mut d: PxuiTableDesc = unsafe { core::mem::zeroed() };
+            (d.size, d.row_h, d.head_h) = (size_of_val(&d) as u32, 20.0, 20.0);
+            in_frame(ui, &mut |ui| unsafe { pxui_ui_table(ui, &keyed(), &d, None, None, core::ptr::null_mut(), p) })
         });
         unsafe { pxui_ui_destroy(ui); }
     }
@@ -1615,37 +1676,10 @@ mod sized_records {
     fn table() {
         let ui = create();
         let mut value: PxuiTableDesc = unsafe { core::mem::zeroed() };
-        let fix: fn(&mut PxuiTableDesc) = |_| {};
-        fix(&mut value);
+        (value.row_h, value.head_h) = (20.0, 20.0);
         four(ui, ((&value as *const PxuiTableDesc).cast(), size_of_val(&value), align_of_val(&value)), true, &mut |p| {
             let p = p.cast::<PxuiTableDesc>();
-            in_frame(ui, &mut |ui| { let mut clicked = 0i64; unsafe { pxui_ui_table(ui, p, &mut clicked) } })
-        });
-        unsafe { pxui_ui_destroy(ui); }
-    }
-
-    #[test]
-    fn list_view() {
-        let ui = create();
-        let mut value: PxuiListViewDesc = unsafe { core::mem::zeroed() };
-        let fix: fn(&mut PxuiListViewDesc) = |_| {};
-        fix(&mut value);
-        four(ui, ((&value as *const PxuiListViewDesc).cast(), size_of_val(&value), align_of_val(&value)), true, &mut |p| {
-            let p = p.cast::<PxuiListViewDesc>();
-            in_frame(ui, &mut |ui| { let mut hit = 0usize; unsafe { pxui_ui_list_view(ui, p, &mut hit) } })
-        });
-        unsafe { pxui_ui_destroy(ui); }
-    }
-
-    #[test]
-    fn list_view_with() {
-        let ui = create();
-        let mut value: PxuiListViewWithDesc = unsafe { core::mem::zeroed() };
-        let fix: fn(&mut PxuiListViewWithDesc) = |_| {};
-        fix(&mut value);
-        four(ui, ((&value as *const PxuiListViewWithDesc).cast(), size_of_val(&value), align_of_val(&value)), true, &mut |p| {
-            let p = p.cast::<PxuiListViewWithDesc>();
-            in_frame(ui, &mut |ui| { let mut hit = 0usize; unsafe { pxui_ui_list_view_with(ui, p, &mut hit) } })
+            in_frame(ui, &mut |ui| { let mut out: PxuiTableResult = unsafe { core::mem::zeroed() }; out.size = size_of_val(&out) as u32; unsafe { pxui_ui_table(ui, &keyed(), p, None, None, core::ptr::null_mut(), &mut out) } })
         });
         unsafe { pxui_ui_destroy(ui); }
     }
@@ -1672,32 +1706,6 @@ mod sized_records {
         four(ui, ((&value as *const PxuiTreeViewWithDesc).cast(), size_of_val(&value), align_of_val(&value)), true, &mut |p| {
             let p = p.cast::<PxuiTreeViewWithDesc>();
             in_frame(ui, &mut |ui| { let mut hit = 0usize; unsafe { pxui_ui_tree_with(ui, p, &mut hit) } })
-        });
-        unsafe { pxui_ui_destroy(ui); }
-    }
-
-    #[test]
-    fn table_view() {
-        let ui = create();
-        let mut value: PxuiTableViewDesc = unsafe { core::mem::zeroed() };
-        let fix: fn(&mut PxuiTableViewDesc) = |d| d.selected = Box::leak(Box::new(0));
-        fix(&mut value);
-        four(ui, ((&value as *const PxuiTableViewDesc).cast(), size_of_val(&value), align_of_val(&value)), true, &mut |p| {
-            let p = p.cast::<PxuiTableViewDesc>();
-            in_frame(ui, &mut |ui| { let mut hit = 0usize; unsafe { pxui_ui_table_view(ui, p, &mut hit) } })
-        });
-        unsafe { pxui_ui_destroy(ui); }
-    }
-
-    #[test]
-    fn table_view_with() {
-        let ui = create();
-        let mut value: PxuiTableViewWithDesc = unsafe { core::mem::zeroed() };
-        let fix: fn(&mut PxuiTableViewWithDesc) = |d| d.selected = Box::leak(Box::new(0));
-        fix(&mut value);
-        four(ui, ((&value as *const PxuiTableViewWithDesc).cast(), size_of_val(&value), align_of_val(&value)), true, &mut |p| {
-            let p = p.cast::<PxuiTableViewWithDesc>();
-            in_frame(ui, &mut |ui| { let mut hit = 0usize; unsafe { pxui_ui_table_view_with(ui, p, &mut hit) } })
         });
         unsafe { pxui_ui_destroy(ui); }
     }

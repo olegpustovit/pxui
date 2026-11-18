@@ -5,7 +5,7 @@ use crate::{PXUI_ERR_ARGUMENT, PxuiBox, Str};
 use pxui_types::ffi::PxuiResponse;
 use pxui_core::ui::{Axis, Keyframe, Keyframes, Repeat, Target, MAX_KEYS};
 use pxui_types::ffi::{PxuiCurveDesc, PxuiGridListDesc, Slice};
-pub use pxui_types::ffi::{PxuiFooterDesc, PxuiHintDesc, PxuiInspectorRowDesc, PxuiInspectorSectionDesc, PxuiInspectorTextDesc, PxuiInspectorValueDesc, PxuiKeyframeDesc, PxuiMenuBarDesc, PxuiMenuOut, PxuiSplitDesc, PxuiTableDesc};
+pub use pxui_types::ffi::{PxuiFooterDesc, PxuiHintDesc, PxuiInspectorRowDesc, PxuiInspectorSectionDesc, PxuiInspectorTextDesc, PxuiInspectorValueDesc, PxuiKeyframeDesc, PxuiMenuBarDesc, PxuiMenuOut, PxuiSplitDesc};
 
 const MAX_MENUS: usize = 256;
 
@@ -17,41 +17,6 @@ export!(trusted pub unsafe fn pxui_ui_list_measured(ui:*mut PxuiUi,label:Str,cou
         if let Some(build)=build { build(user,ui.cast(),index); }
     },&mut *out) }
 });
-
-export!(trusted pub unsafe fn pxui_ui_section_list(ui:*mut PxuiUi,desc:*const pxui_types::ffi::PxuiSectionListDesc,out:*mut PxuiBox)->i32 {
-    if unsafe {get(ui)}.is_none() {return PXUI_ERR_ARGUMENT;}
-    if desc.is_null() || out.is_null() {return unsafe {fail(ui,"null section list argument")};}
-    // all-zero is a valid record: null pointers, empty strings, no callbacks
-    let mut record=unsafe {core::mem::zeroed::<pxui_types::ffi::PxuiSectionListDesc>()};
-    if !unsafe {read_section_desc(desc.cast(),core::mem::size_of_val(&record),(&mut record as *mut pxui_types::ffi::PxuiSectionListDesc).cast())} {return unsafe {fail(ui,"invalid section list descriptor")};}
-    let desc=record;
-    if desc.overlay_scrollbar>1 || desc.reserved!=[0;3] {return unsafe {fail(ui,"invalid section list flags")};}
-    let Some(label)=(unsafe {crate::state::checked_key(desc.label)}) else {return unsafe {fail(ui,"invalid section list label")};};
-    let section=pxui_types::ui::SectionList {count:desc.count,row_height:desc.row_height,leading_height:desc.leading_height,header_height:desc.header_height,trailing_height:desc.trailing_height,overlay_scrollbar:desc.overlay_scrollbar!=0,measured:false};
-    unsafe {crate::trusted::section_list(ui,label,&section,desc.key.map(|key| move |index| key(desc.user,index)).as_ref().map(|key| key as &dyn Fn(usize)->i64),&mut |ui,index,_| {if let Some(build)=desc.build {build(desc.user,ui.cast(),index);}},&mut *out)}
-});
-
-export!(trusted pub unsafe fn pxui_ui_section_list_measured(ui:*mut PxuiUi,desc:*const pxui_types::ffi::PxuiMeasuredSectionDesc,out:*mut PxuiBox)->i32 {
-    if unsafe {get(ui)}.is_none() {return PXUI_ERR_ARGUMENT;}
-    if desc.is_null() || out.is_null() {return unsafe {fail(ui,"null section list argument")};}
-    // all-zero is a valid record: null pointers, empty strings, no callbacks
-    let mut record=unsafe {core::mem::zeroed::<pxui_types::ffi::PxuiMeasuredSectionDesc>()};
-    if !unsafe {read_section_desc(desc.cast(),core::mem::size_of_val(&record),(&mut record as *mut pxui_types::ffi::PxuiMeasuredSectionDesc).cast())} {return unsafe {fail(ui,"invalid section list descriptor")};}
-    let desc=record;
-    if desc.overlay_scrollbar>1 || desc.reserved!=[0;3] {return unsafe {fail(ui,"invalid section list flags")};}
-    let Some(label)=(unsafe {crate::state::checked_key(desc.label)}) else {return unsafe {fail(ui,"invalid section list label")};};
-    let section=pxui_types::ui::SectionList {count:desc.count,row_height:desc.row_height,leading_height:desc.leading_height,header_height:desc.header_height,trailing_height:desc.trailing_height,overlay_scrollbar:desc.overlay_scrollbar!=0,measured:true};
-    unsafe {crate::trusted::section_list(ui,label,&section,desc.key.map(|key| move |index| key(desc.user,index)).as_ref().map(|key| key as &dyn Fn(usize)->i64),&mut |ui,index,y| {if let Some(build)=desc.build {build(desc.user,ui.cast(),index,y);}},&mut *out)}
-});
-
-/// Copies a section list record of `full` bytes from `desc` into `out` up to the record's own `size`: the record without its last
-/// field, `key` (the 64-byte ABI 1.20/1.21 record), leaves `key` as `out` had it (none); any other size short of `full` is refused.
-unsafe fn read_section_desc(desc: *const u8, full: usize, out: *mut u8) -> bool {
-    let size = unsafe { desc.cast::<u32>().read_unaligned() } as usize;
-    if size < full && size != full - core::mem::size_of::<pxui_types::ffi::PxuiRowKey>() { return false; }
-    unsafe { core::ptr::copy_nonoverlapping(desc, out, size.min(full)); }
-    true
-}
 
 #[cfg(test)]
 mod curve_tests {
@@ -403,30 +368,6 @@ export!(trusted pub unsafe fn pxui_ui_inspector_message(ui: *mut PxuiUi, desc: *
     let Some(desc)=sized!(desc) else { return unsafe { fail(ui, "invalid inspector message descriptor") }; };
     let (Some(key), Some(value)) = (unsafe { crate::state::checked_key(desc.key) }, unsafe { checked(desc.text) }) else { return unsafe { fail(ui, "invalid inspector message text") }; };
     unsafe { crate::trusted::inspector_message(ui, key, value) }
-});
-
-export!(trusted pub unsafe fn pxui_ui_table(ui: *mut PxuiUi, desc: *const PxuiTableDesc, clicked_row: *mut i64) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    if desc.is_null() || clicked_row.is_null() { return unsafe { fail(ui, "null table argument") }; }
-    let Some(desc) = sized!(desc) else { return unsafe { fail(ui, "invalid table descriptor") }; };
-    if desc.headers.len > 256 || (desc.headers.len != 0 && desc.headers.ptr.is_null()) { return unsafe { fail(ui, "invalid table descriptor") }; }
-    let mut list = state.shared().take_strs();
-    let Some(label) = (unsafe { crate::state::checked_label(desc.label) }).filter(|_| unsafe { crate::state::strings(desc.headers, 256, &mut list) }) else {
-        state.shared().put_strs(list);
-        return unsafe { fail(ui, "invalid table strings") };
-    };
-    let (callback, user) = (desc.cell, desc.user);
-    let mut bad_text = false;
-    let mut clicked = None;
-    let rc = unsafe { crate::trusted::table(ui, (desc.at[0], desc.at[1]), desc.width, desc.height, &list, desc.rows, &mut |row, col, put| {
-        let Some(callback) = callback else { return put("") };
-        match checked(callback(user, row, col)) { Some(value) => put(value), None => { bad_text = true; put("") } }
-    }, label, &mut clicked) };
-    state.shared().put_strs(list);
-    if rc != 0 { return rc; }
-    if bad_text { return unsafe { fail(ui, "invalid table cell callback text") }; }
-    unsafe { *clicked_row = clicked.unwrap_or(-1); }
-    0
 });
 
 #[cfg(test)]

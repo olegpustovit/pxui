@@ -926,7 +926,7 @@ struct Cells {
     sel: std::cell::RefCell<Vec<u8>>,
     open: std::cell::RefCell<Vec<u8>>,
     visible: std::cell::RefCell<Vec<u32>>,
-    widths: std::cell::RefCell<Vec<f32>>,
+    widths: std::cell::RefCell<Vec<pxui_types::ffi::PxuiColumnWidth>>,
     row: Cell<Option<usize>>,
 }
 
@@ -1466,7 +1466,9 @@ fn list_build(ui: &mut Ui, c: &Cells) {
     if sel.is_empty() {
         sel.resize(4, 0);
     }
-    let got = ui.selection_list("List", 4, &|i| i as i64, &mut sel, &pxui_core::ui::SelectionList { multi: false }, &mut |ui, i| ui.item_text(["one", "two", "three", "four"][i])).activated;
+    let mut anchor = c.row.get();
+    let got = ui.selection_rows("List", 4, &|i| i as i64, &mut sel, &mut anchor, &SelectionList::DEFAULT, &mut |ui, i, _| if i < 4 { ui.item_text(["one", "two", "three", "four"][i]) }).activated;
+    c.row.set(anchor);
     if got.is_some() {
         c.b.set(c.b.get() + 1);
     }
@@ -1480,7 +1482,7 @@ fn bullet_list_row(ui: &mut Ui, c: &RowConfig, content: &mut dyn FnMut(&mut Ui))
     content(ui);
 }
 
-pub fn list_view_bullet_body() {
+pub fn selection_list_bullet_body() {
     let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.selection_list = id, &|ui| ui.register_selection_list_body("bullet", bullet_list_row));
     // a click on the second row selects it; Down moves the selection to the third; Enter activates it
     let script = |_: &Ui| {
@@ -1489,8 +1491,8 @@ pub fn list_view_bullet_body() {
         frames.extend(keys_then(&[Key::ArrowDown, Key::Enter]));
         frames
     };
-    let got = swap_root("list_view", &install, 0, false, &script, &list_build);
-    check(got == (3, 1), &format!("list_view: the click, Down and Enter gave {got:?}"));
+    let got = swap_root("selection_list", &install, 0, false, &script, &list_build);
+    check(got == (3, 1), &format!("selection_list: the click, Down and Enter gave {got:?}"));
 }
 
 fn tree_build(ui: &mut Ui, c: &Cells) {
@@ -1529,17 +1531,29 @@ pub fn tree_boxed_body() {
 
 const NAMES: [[&str; 2]; 3] = [["r0a", "r0b"], ["r1a", "r1b"], ["r2a", "r2b"]];
 
-fn table_view_build(ui: &mut Ui, c: &Cells) {
+/// Two 120-point gripped, sortable columns (ids 0 and 1) with their widths.
+const TWO: [pxui_core::ui_lists::ColumnSpec; 2] = [pxui_core::ui_lists::ColumnSpec { id: 0, share: 0.0, w: 120.0, grip: true, sortable: true }, pxui_core::ui_lists::ColumnSpec { id: 1, share: 0.0, w: 120.0, grip: true, sortable: true }];
+
+fn two_widths(c: &Cells) -> std::cell::RefMut<'_, Vec<pxui_types::ffi::PxuiColumnWidth>> {
     let mut widths = c.widths.borrow_mut();
     if widths.is_empty() {
-        widths.extend([120.0, 120.0]);
+        widths.extend([0, 1].map(|id| pxui_types::ffi::PxuiColumnWidth { id, w: 120.0, reserved: 0 }));
     }
-    let mut selected = c.row.get();
-    let sorted = ui.table_view("Table", &["Name", "Size"], &mut widths, 3, &|i| i as i64, &mut selected, &pxui_core::ui::TableView { sort: Some((0, true)), text: None }, &mut |ui, r, col| ui.item_text(NAMES[r][col])).sort;
-    c.row.set(selected);
-    c.a.set(selected.map_or(0, |n| n as i64 + 1));
-    if let Some(col) = sorted {
-        c.b.set(col as i64 + 1);
+    widths
+}
+
+fn table_build(ui: &mut Ui, c: &Cells) {
+    let mut widths = two_widths(c);
+    let mut sel = c.sel.borrow_mut();
+    if sel.is_empty() {
+        sel.resize(3, 0);
+    }
+    let (mut anchor, mut sort) = (c.row.get(), Some((0, true)));
+    let (_, head) = ui.table("Table", &TWO, &["Name", "Size"], &mut widths, &mut sort, 3, &|i| i as i64, &mut sel, &mut anchor, false, 24.0, 24.0, 0, &mut |ui, r, col, _| ui.item_text(NAMES[r][col]));
+    c.row.set(anchor);
+    c.a.set(sel.iter().position(|b| *b != 0).map_or(0, |i| i as i64 + 1));
+    if head.sorted {
+        c.b.set(sort.map_or(0, |(id, _)| id + 1));
     }
 }
 
@@ -1557,24 +1571,24 @@ fn flat_head(ui: &mut Ui, c: &TableHeadConfig, title: &str) {
 
 fn table_script(ui: &Ui) -> Vec<Vec<Event>> {
     let mut frames = click_on(ui, Role::Cell, "r1a");
-    frames.extend(click_on(ui, Role::ColumnHeader, "Size"));
+    frames.extend(click_on(ui, Role::ColumnHeader, "Sort by Size"));
     frames
 }
 
-pub fn table_view_ruled_body() {
+pub fn table_row_ruled_body() {
     let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.table_row = id, &|ui| ui.register_table_row_body("ruled", ruled_table_row));
-    let got = swap_root("table_view", &install, 0, false, &table_script, &table_view_build);
-    check(got == (2, 2), &format!("table_view: the clicks gave {got:?}"));
+    let got = swap_root("table_row", &install, 0, false, &table_script, &table_build);
+    check(got == (2, 2), &format!("table_row: the clicks gave {got:?}"));
 }
 
 pub fn table_head_flat_body() {
     let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.table_head = id, &|ui| ui.register_table_head_body("flat", flat_head));
-    let got = swap_root("table_head", &install, 0, false, &table_script, &table_view_build);
+    let got = swap_root("table_head", &install, 0, false, &table_script, &table_build);
     check(got == (2, 2), &format!("table_head: the clicks gave {got:?}"));
 }
 
 /// The caller's own cells: a label and a button in a row of a table, and that the button works.
-pub fn table_view_with_widget_cell() {
+pub fn table_with_widget_cell() {
     let mut runs = Vec::new();
     for custom in [false, true] {
         let mut ui = new_ui(None);
@@ -1582,18 +1596,20 @@ pub fn table_view_with_widget_cell() {
         if custom {
             pick(&mut ui, &|t, id| t.body.table_row = id, &|ui| ui.register_table_row_body("ruled", ruled_table_row));
         }
-        let (goes, widths, mut selected) = (Cell::new(0), std::cell::RefCell::new(vec![120.0, 120.0]), None);
+        let (goes, cells) = (Cell::new(0), Cells::default());
+        let mut flags = [0u8; 3];
         let mut t = 0.0;
         let mut step = |ui: &mut Ui, e: Vec<Event>| {
             t += 0.1;
             ui.frame(&frame(t, e), &mut |ui| {
-                ui.table_view("Table", &["Name", "Action"], &mut widths.borrow_mut(), 3, &|i| i as i64, &mut selected, &pxui_core::ui::TableView { sort: None, text: None }, &mut |ui, row, col| {
+                let (mut anchor, mut sort) = (None, None);
+                ui.table("Table", &TWO, &["Name", "Action"], &mut two_widths(&cells), &mut sort, 3, &|i| i as i64, &mut flags, &mut anchor, false, 24.0, 24.0, 0, &mut |ui, row, col, _| {
                     if col == 0 {
                         ui.label(["row 0", "row 1", "row 2"][row], pxui_core::ui::Label::DEFAULT);
                     } else if ui.button("Go") {
                         goes.set(goes.get() * 10 + row as i64 + 1);
                     }
-                }).sort;
+                });
             });
         };
         for _ in 0..3 {
@@ -1608,35 +1624,14 @@ pub fn table_view_with_widget_cell() {
         for _ in 0..20 {
             step(&mut ui, vec![]);
         }
-        check(mem_sys::local_alloc_count() == before, &format!("table_view_with custom {custom}: warm frames allocated"));
+        check(mem_sys::local_alloc_count() == before, &format!("table_with custom {custom}: warm frames allocated"));
         let tree = ui.output().a11y;
         let facts: Facts = tree.nodes.iter().map(|n| (n.role, tree.str(n.name).to_owned(), n.value, n.states, n.actions)).collect();
-        runs.push((goes.get(), selected, facts));
+        runs.push((goes.get(), flags, facts));
         ui.destroy();
     }
-    check(runs[0].0 == 1, &format!("table_view_with: the button in the first row's cell was pressed as {}", runs[0].0));
-    check(runs[0].0 == runs[1].0 && runs[0].2 == runs[1].2, "table_view_with: a row body changed what behaviour reports");
-}
-
-fn read_only_table(ui: &mut Ui, c: &Cells) {
-    let clicked = ui.table_view("t", &["Name", "Size"], &mut [], 5, &|i| i as i64, &mut None, &pxui_core::ui::TableView::text(pxui_core::ui::Rect::new(0.0, 0.0, 200.0, 100.0)), &mut |ui, r, col| ui.item_text(NAMES[r % 3][col])).row.map(|r| r as i64);
-    if let Some(r) = clicked {
-        c.a.set(r + 1);
-    }
-}
-
-/// A read-only table's cells all left-aligned, header and data, in the row's look.
-fn left_cell(ui: &mut Ui, c: &TableCellConfig, text: &str) {
-    let look = if c.header { ui.theme().table_head.idle } else { ui.theme().table_row.idle };
-    let n = ui.node_keyed(c.key, Node { at: Some((c.left + 2.0, 0.0)).into(), w: Size::Px((c.right - c.left - 4.0).max(1.0)), h: Size::Px(c.height), look, ..Node::DEFAULT });
-    ui.text(&n, text);
-}
-
-pub fn table_left_cell_body() {
-    let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.table_cell = id, &|ui| ui.register_table_cell_body("left", left_cell));
-    // a click on the second row (below the 24-point header)
-    let got = swap_root("table", &install, 0, false, &|_| click_on_at((50, 24 + 24 + 12)), &read_only_table);
-    check(got.0 == 2, &format!("table: the click on the second row gave {}", got.0));
+    check(runs[0].0 == 1, &format!("table_with: the button in the first row's cell was pressed as {}", runs[0].0));
+    check(runs[0].0 == runs[1].0 && runs[0].2 == runs[1].2, "table_with: a row body changed what behaviour reports");
 }
 
 fn click_on_at(p: (i64, i64)) -> Vec<Vec<Event>> {
@@ -1955,12 +1950,11 @@ pub const CASES: &[(&str, fn())] = &[
     ("menu_item_dotted_body", menu_item_dotted_body),
     ("menu_bar_cell_body", menu_bar_cell_body),
     ("context_menu_bar_body", context_menu_bar_body),
-    ("list_view_bullet_body", list_view_bullet_body),
+    ("selection_list_bullet_body", selection_list_bullet_body),
     ("tree_boxed_body", tree_boxed_body),
-    ("table_view_ruled_body", table_view_ruled_body),
+    ("table_row_ruled_body", table_row_ruled_body),
     ("table_head_flat_body", table_head_flat_body),
-    ("table_view_with_widget_cell", table_view_with_widget_cell),
-    ("table_left_cell_body", table_left_cell_body),
+    ("table_with_widget_cell", table_with_widget_cell),
     ("picker_label_body", picker_label_body),
     ("kept_view_runs_no_item_body", kept_view_runs_no_item_body),
     ("search_field_icon_clear_body", search_field_icon_clear_body),

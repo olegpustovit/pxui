@@ -9,7 +9,7 @@ pub mod pxui {
     pub mod collections { pub use pxui_core::ui_widgets::TreeNode; }
     pub use pxui_types::theme;
     pub use pxui_core::ui::Handle;
-    pub use super::shapes::{Badge, Button, GridList, MenuBar, MenuBarMenu, OverlayResponse, PickResponse, Progress, Radio, SliderResponse, Spinner, Split, SplitResponse, Tabs, Toggle, Ui};
+    pub use super::shapes::{Badge, Button, GridList, MenuBar, MenuBarMenu, OverlayResponse, PickResponse, Progress, Radio, SliderResponse, Spinner, Split, SplitResponse, Tabs, Toggle, Ui, ListState, TableState, Column, Table, TableHead, Sort, CellState, TableResponse, HeadResponse};
     /// The extension set as the wrapper names it (`pxui::ext`): free functions over the engine's own calls.
     pub mod ext {
         use super::{Handle, Ui};
@@ -32,9 +32,46 @@ pub mod shapes {
     use pxui_core::ui::{Axis, Handle, Node, Rect, Response, Segment, SegmentedOpts};
     use pxui_core::ui_widgets::TreeNode;
     use pxui_types::theme::BodyKind;
-    use pxui_types::ui::{Chosen, Dialog, DialogButton, Dropdown, ListResponse, MenuItem, Overlay, Segmented, SelectionList, Slider, TableResponse, TableView, TreeResponse};
+    use pxui_types::ui::{Chosen, Dialog, DialogButton, Dropdown, ListResponse, MenuItem, Overlay, SectionPart, Segmented, SelectionList, Slider, TreeResponse};
+    use pxui_core::ui_lists::{ColumnSpec, ListCell, ListResult, MAX_COLUMNS};
+    use pxui_types::ffi::PxuiColumnWidth;
 
     pub type Engine = pxui_core::ui::Ui;
+
+    // The wrapper's app-owned list and table state, columns and results (`pxui::author::collection`), as the page source names them.
+    #[derive(Clone, Debug, Default)] pub struct ListState { pub rows: Vec<u8>, pub anchor: Option<usize> }
+    impl ListState { pub const SELECTED: u8 = 1; pub const DISABLED: u8 = 2; pub const fn new() -> ListState { ListState { rows: Vec::new(), anchor: None } } }
+    #[derive(Clone, Copy, Debug, Default)] pub struct CellState { pub selected: bool, pub enabled: bool, pub focused: bool, pub held: bool, pub handle: Handle, pub y: f32 }
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)] pub enum Sort { Ascending, Descending }
+    #[derive(Clone, Copy, Debug)] pub struct Column<'a> { title: &'a str, sortable: bool, share: f32, w: f32, grip: bool, id: Option<i64> }
+    impl<'a> Column<'a> {
+        pub const fn new(title: &'a str) -> Column<'a> { Column { title, sortable: false, share: 0.0, w: 100.0, grip: true, id: None } }
+        pub const fn sortable(mut self, sortable: bool) -> Column<'a> { self.sortable = sortable; self }
+        pub const fn share(mut self, share: f32) -> Column<'a> { self.share = share; self }
+        pub const fn w_px(mut self, points: f32) -> Column<'a> { self.w = points; self.share = 0.0; self }
+        pub const fn grip(mut self, grip: bool) -> Column<'a> { self.grip = grip; self }
+        pub const fn id(mut self, id: i64) -> Column<'a> { self.id = Some(id); self }
+    }
+    #[derive(Clone, Debug, Default)] pub struct TableState { pub widths: Vec<(i64, f32)>, pub sort: Option<(i64, Sort)>, pub selection: ListState }
+    impl TableState { pub const fn new() -> TableState { TableState { widths: Vec::new(), sort: None, selection: ListState::new() } } }
+    #[derive(Clone, Copy, Debug)] pub struct TableHead { h: f32, variant: u16 }
+    impl TableHead { pub const DEFAULT: TableHead = TableHead { h: 24.0, variant: 0 }; pub const fn h_px(mut self, h: f32) -> TableHead { self.h = h; self } pub const fn variant(mut self, v: u16) -> TableHead { self.variant = v; self } }
+    #[derive(Clone, Copy, Debug)] pub struct Table { multi: bool, row_h: f32, head: TableHead, variant: u16 }
+    impl Table {
+        pub const DEFAULT: Table = Table { multi: false, row_h: 24.0, head: TableHead::DEFAULT, variant: 0 };
+        pub const fn multi(mut self) -> Table { self.multi = true; self }
+        pub const fn row_h(mut self, h: f32) -> Table { self.row_h = h; self }
+        pub const fn head(mut self, head: TableHead) -> Table { self.head = head; self }
+        pub const fn variant(mut self, v: u16) -> Table { self.variant = v; self }
+    }
+    #[derive(Clone, Copy, Debug, Default)] pub struct HeadResponse { pub response: Response, pub sorted: bool, pub resized: bool }
+    #[derive(Clone, Copy, Debug, Default)] pub struct TableResponse { pub rows: ListResponse, pub head: HeadResponse }
+    fn part_of(index: usize) -> SectionPart {
+        match index { usize::MAX => SectionPart::Leading, i if i == usize::MAX - 1 => SectionPart::Header, i if i == usize::MAX - 2 => SectionPart::Trailing, i => SectionPart::Row(i) }
+    }
+    fn cell_of(c: &ListCell) -> CellState { CellState { selected: c.selected, enabled: c.enabled, focused: c.focused, held: c.held, handle: c.handle, y: c.y } }
+    fn abi(b: Handle) -> pxui_types::PxuiBox { pxui_types::PxuiBox { index: b.index as u64, box_key: b.box_key, box_slot: b.box_slot as u64, generation: b.generation } }
+    fn list_response(r: &ListResult) -> ListResponse { ListResponse { handle: abi(r.handle), activated: r.activated, selected: r.selected, secondary: r.secondary, row: r.row.map(abi), ..ListResponse::default() } }
 
     #[repr(transparent)]
     pub struct Ui(Engine);
@@ -175,14 +212,33 @@ pub mod shapes {
             let (response, _, ratio) = self.0.split_result(key, split.axis, ratio, split.min_a, split.min_b, page!(a), page!(b));
             SplitResponse { response, ratio }
         }
-        pub fn selection_list(&mut self, key: &str, count: usize, row_key: &dyn Fn(usize) -> i64, selected: &mut [u8], list: &SelectionList, f: &mut dyn FnMut(&mut Ui, usize)) -> ListResponse {
-            self.0.selection_list(key, count, row_key, selected, list, &mut |e: &mut Engine, i| f(Ui::of(e), i))
+        pub fn selection_list(&mut self, key: &str, count: usize, row_key: &dyn Fn(usize) -> i64, state: &mut ListState, list: &SelectionList, f: &mut dyn FnMut(&mut Ui, SectionPart, CellState)) -> ListResponse {
+            state.rows.resize(count, 0);
+            if list.variant != 0 { self.0.set_variant(BodyKind::selection_list as u32, list.variant); }
+            let r = self.0.selection_rows(key, count, row_key, &mut state.rows, &mut state.anchor, list, &mut |e: &mut Engine, i, c| f(Ui::of(e), part_of(i), cell_of(c)));
+            if list.variant != 0 { self.0.set_variant(BodyKind::selection_list as u32, 0); }
+            list_response(&r)
         }
         pub fn tree(&mut self, key: &str, nodes: &[TreeNode], open: &mut [u8], selected: &mut Option<usize>, visible: &mut [u32], f: &mut dyn FnMut(&mut Ui, usize)) -> TreeResponse {
             self.0.tree(key, nodes, open, selected, visible, &mut |e: &mut Engine, i| f(Ui::of(e), i))
         }
-        pub fn table_view(&mut self, key: &str, titles: &[&str], widths: &mut [f32], rows: usize, row_key: &dyn Fn(usize) -> i64, selected: &mut Option<usize>, table: &TableView, f: &mut dyn FnMut(&mut Ui, usize, usize)) -> TableResponse {
-            self.0.table_view(key, titles, widths, rows, row_key, selected, table, &mut |e: &mut Engine, r, c| f(Ui::of(e), r, c))
+        #[allow(clippy::too_many_arguments)]
+        pub fn table(&mut self, key: &str, columns: &[Column], rows: usize, row_key: &dyn Fn(usize) -> i64, state: &mut TableState, table: &Table, f: &mut dyn FnMut(&mut Ui, usize, usize, CellState)) -> TableResponse {
+            let n = columns.len().min(MAX_COLUMNS);
+            let (mut specs, mut titles, mut widths) = ([ColumnSpec::default(); MAX_COLUMNS], [""; MAX_COLUMNS], [PxuiColumnWidth::default(); MAX_COLUMNS]);
+            for (i, c) in columns[..n].iter().enumerate() {
+                (specs[i], titles[i]) = (ColumnSpec { id: c.id.unwrap_or(i as i64), share: c.share, w: c.w, grip: c.grip, sortable: c.sortable }, c.title);
+            }
+            state.widths.resize(n, (0, 0.0));
+            for (w, s) in widths.iter_mut().zip(&state.widths) { (w.id, w.w) = *s; }
+            state.selection.rows.resize(rows, 0);
+            let mut sort = state.sort.map(|(id, s)| (id, s == Sort::Ascending)).filter(|(id, _)| specs[..n].iter().any(|c| c.id == *id));
+            if table.variant != 0 { self.0.set_variant(BodyKind::table_row as u32, table.variant); }
+            let (r, h) = self.0.table(key, &specs[..n], &titles[..n], &mut widths[..n], &mut sort, rows, row_key, &mut state.selection.rows, &mut state.selection.anchor, table.multi, table.row_h, table.head.h, table.head.variant, &mut |e: &mut Engine, row, c, cell| f(Ui::of(e), row, c, cell_of(cell)));
+            if table.variant != 0 { self.0.set_variant(BodyKind::table_row as u32, 0); }
+            for (s, w) in state.widths.iter_mut().zip(&widths[..n]) { *s = (w.id, w.w); }
+            state.sort = sort.map(|(id, a)| (id, if a { Sort::Ascending } else { Sort::Descending }));
+            TableResponse { rows: list_response(&r), head: HeadResponse { response: h.response, sorted: h.sorted, resized: h.resized } }
         }
     }
 }

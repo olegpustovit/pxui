@@ -1,9 +1,10 @@
 //! Plain UI data and pure functions shared by the engine and the wrapper: box flags, keys, small results and text helpers. One
 //! definition each; `pxui_core` and `pxui` re-export them. The option records that hold closures (`Rc<dyn Fn>`) are not here: they
 //! are not ABI types, and the engine and the wrapper each keep theirs (`opts` in both).
-use crate::geom::{hash, Rect, Rgba};
+use crate::geom::{hash, Rgba};
 use crate::theme::{Look, States};
 use std::borrow::Cow;
+use crate::PxuiBox as Handle;
 
 /// Virtual rows in one scroll region, with a scrolling lead-in and a sticky column heading, as a `Copy` value built with `const fn`
 /// builders from `SectionList::new(count)` (`Ui::section_list`). The fields are what the engine reads; write them through the builders.
@@ -23,6 +24,10 @@ pub struct SectionList {
     pub overlay_scrollbar: bool,
     /// Rows take the heights they lay out to (`row_height` is their estimate until built).
     pub measured: bool,
+    /// Rows move by dragging their `Part::HANDLE`, by Alt with Up or Down on the focused row and by the rows' accessibility move
+    /// actions; a payload carried between rows shows the engine's insertion line in the drop look (`ListResponse::moved`,
+    /// `ListResponse::drop_at`).
+    pub reorder: bool,
 }
 
 impl SectionList {
@@ -36,7 +41,7 @@ impl SectionList {
     /// assert_eq!(SONGS.row_height, 44.0);
     /// ```
     pub const fn new(count: usize) -> SectionList {
-        SectionList { count, row_height: 24.0, leading_height: 0.0, header_height: 0.0, trailing_height: 0.0, overlay_scrollbar: false, measured: false }
+        SectionList { count, row_height: 24.0, leading_height: 0.0, header_height: 0.0, trailing_height: 0.0, overlay_scrollbar: false, measured: false, reorder: false }
     }
 
     /// Sets each row's height in points (positive and finite; the estimate until built when `measured`).
@@ -66,7 +71,8 @@ impl SectionList {
     /// ```
     pub const fn header(mut self, h: f32) -> SectionList { self.header_height = h; self }
 
-    /// Sets the height in points of the space after the last row.
+    /// Sets the height in points of the trailer after the last row (built as `SectionPart::Trailing`; blank when the callback builds
+    /// nothing there).
     /// Allocates: never.
     /// Panics: never.
     ///
@@ -93,19 +99,57 @@ impl SectionList {
     /// assert!(pxui_types::ui::SectionList::new(3).measured().measured);
     /// ```
     pub const fn measured(mut self) -> SectionList { self.measured = true; self }
+
+    /// Makes the rows reorderable (`true`) or not: a drag that starts on a row's `Part::HANDLE` lifts the row, the rows between make
+    /// room with the theme's move animation, and the release reports `ListResponse::moved` (the app moves its item); Alt with Up or
+    /// Down moves the focused row and each row offers the accessibility actions Move up and Move down, reported the same way. A payload
+    /// carried over the list (`Ui::carry`) shows an insertion line between the rows it would land between, which the engine draws in
+    /// the list style's drop look (`SelectionList::drop_look`; a `section_list` uses the theme's accent), and its drop reports
+    /// `ListResponse::drop_at`.
+    /// Allocates: never (dragging allocates nothing either).
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert!(pxui_types::ui::SectionList::new(3).reorder(true).reorder);
+    /// ```
+    pub const fn reorder(mut self, on: bool) -> SectionList { self.reorder = on; self }
 }
 
 /// How `Ui::selection_list` varies the kit's selectable list, as a `Copy` value built with `const fn` builders from
-/// `SelectionList::DEFAULT`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// `SelectionList::DEFAULT`: one or many rows selected, the `SectionList` geometry (row height, lead-in, sticky heading, trailer,
+/// measured rows, overlay scrollbar), reordering and the `selection_list` body variant. The row count is the call's runtime parameter.
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SelectionList {
     /// Command (Ctrl) toggles a row and Shift selects a run; without, a click selects a row alone.
     pub multi: bool,
+    /// Height of each row in points (its estimate until built when `measured`).
+    pub row_height: f32,
+    /// Height in points of the lead-in that scrolls above the heading (`SectionPart::Leading`).
+    pub leading_height: f32,
+    /// Height in points of the sticky heading (`SectionPart::Header`).
+    pub header_height: f32,
+    /// Height in points of the space after the last row.
+    pub trailing_height: f32,
+    /// The scrollbar floats over the rows instead of taking width from them.
+    pub overlay_scrollbar: bool,
+    /// Rows take the heights they lay out to (`row_height` is their estimate until built).
+    pub measured: bool,
+    /// Rows move as `SectionList::reorder` describes.
+    pub reorder: bool,
+    /// The `selection_list` body variant the rows are built with (0: the theme's).
+    pub variant: u16,
+    /// The list is as tall as its rows and does not scroll: every row is built (a short group in a sidebar column).
+    pub fit: bool,
+    /// A single pointer or touch click (without Command or Shift) also activates the row (`open_on_click`).
+    pub open_on_click: bool,
+    /// The look a row shows in place of its state look while a carried payload hovers that row's drop target
+    /// (`Ui::drop_target(&cell.handle)`); `None`: the row keeps its state look.
+    pub drop_look: Option<Look>,
 }
 
 impl SelectionList {
-    /// One row selected at a time.
-    pub const DEFAULT: SelectionList = SelectionList { multi: false };
+    /// One row selected at a time, 24-point fixed rows, no lead-in, heading or trailer, not reorderable, the theme's row body.
+    pub const DEFAULT: SelectionList = SelectionList { multi: false, row_height: 24.0, leading_height: 0.0, header_height: 0.0, trailing_height: 0.0, overlay_scrollbar: false, measured: false, reorder: false, variant: 0, fit: false, open_on_click: false, drop_look: None };
 
     /// Lets Command (Ctrl) toggle a row and Shift select a run (Space toggles the keyboard's row).
     /// Allocates: never.
@@ -116,50 +160,143 @@ impl SelectionList {
     /// assert!(FILES.multi);
     /// ```
     pub const fn multi(mut self) -> SelectionList { self.multi = true; self }
-}
 
-/// How `Ui::table_view` varies the kit's virtual table, as a `Copy` value built with `const fn` builders from `TableView::DEFAULT`.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct TableView {
-    /// The sorted column and whether it ascends (its header shows a chevron); `None`: unsorted.
-    pub sort: Option<(usize, bool)>,
-    /// A fixed text table at this rectangle (in its parent) instead of the virtual table filling its parent: a 24-point header,
-    /// hairlines and right-aligned text cells, a click reporting the row.
-    pub text: Option<Rect>,
-}
-
-impl TableView {
-    /// The virtual table, unsorted.
-    pub const DEFAULT: TableView = TableView { sort: None, text: None };
-
-    /// The fixed text table at `rect` (in its parent): every cell is the text its callback gives `Ui::item_text`; widths, selection and
-    /// sort do not apply, and a click reports its row.
+    /// Sets each row's height in points (positive and finite; the estimate until built when `measured`).
     /// Allocates: never.
-    /// Panics: never (a rect that is not finite or is negative is refused by `Ui::table_view`).
+    /// Panics: never (a height that is not positive and finite is refused by `Ui::selection_list`).
     ///
     /// ```
-    /// use pxui_types::{geom::Rect, ui::TableView};
-    /// const POINTS: TableView = TableView::text(Rect { x: 0.0, y: 0.0, w: 296.0, h: 200.0 });
-    /// assert!(POINTS.text.is_some());
+    /// assert_eq!(pxui_types::ui::SelectionList::DEFAULT.row_h(38.0).row_height, 38.0);
     /// ```
-    pub const fn text(rect: Rect) -> TableView { TableView { sort: None, text: Some(rect) } }
+    pub const fn row_h(mut self, h: f32) -> SelectionList { self.row_height = h; self }
 
-    /// Marks column `column` sorted, ascending or not (a chevron up or down in its header); the app sorts its rows.
+    /// Sets the height in points of the lead-in that scrolls above the heading (built as `SectionPart::Leading`).
     /// Allocates: never.
-    /// Panics: never (a column past the titles is refused by `Ui::table_view`).
+    /// Panics: never.
     ///
     /// ```
-    /// let by_name = pxui_types::ui::TableView::DEFAULT.sort(0, true);
-    /// assert_eq!(by_name.sort, Some((0, true)));
+    /// assert_eq!(pxui_types::ui::SelectionList::DEFAULT.lead(120.0).leading_height, 120.0);
     /// ```
-    pub const fn sort(mut self, column: usize, ascending: bool) -> TableView { self.sort = Some((column, ascending)); self }
+    pub const fn lead(mut self, h: f32) -> SelectionList { self.leading_height = h; self }
+
+    /// Sets the height in points of the sticky heading (built as `SectionPart::Header`; a `Ui::table_head` fits there).
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert_eq!(pxui_types::ui::SelectionList::DEFAULT.header(28.0).header_height, 28.0);
+    /// ```
+    pub const fn header(mut self, h: f32) -> SelectionList { self.header_height = h; self }
+
+    /// Sets the height in points of the trailer after the last row (built as `SectionPart::Trailing`, never a row: not selectable,
+    /// not counted, skipped by the keyboard).
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert_eq!(pxui_types::ui::SelectionList::DEFAULT.trail(40.0).trailing_height, 40.0);
+    /// ```
+    pub const fn trail(mut self, h: f32) -> SelectionList { self.trailing_height = h; self }
+
+    /// Floats the scrollbar over the rows instead of taking width from them.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert!(pxui_types::ui::SelectionList::DEFAULT.overlay_scrollbar().overlay_scrollbar);
+    /// ```
+    pub const fn overlay_scrollbar(mut self) -> SelectionList { self.overlay_scrollbar = true; self }
+
+    /// Lets each row take the height it lays out to, as `SectionList::measured` does (the same height cache and bounds).
+    /// Allocates: never here; built, as `SectionList::measured` says.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert!(pxui_types::ui::SelectionList::DEFAULT.measured().measured);
+    /// ```
+    pub const fn measured(mut self) -> SelectionList { self.measured = true; self }
+
+    /// Makes the rows reorderable (`true`) or not, as `SectionList::reorder` describes; a row moved keeps its selection flags (the
+    /// widget moves them in the list state with the row).
+    /// Allocates: never (dragging allocates nothing either).
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert!(pxui_types::ui::SelectionList::DEFAULT.reorder(true).reorder);
+    /// ```
+    pub const fn reorder(mut self, on: bool) -> SelectionList { self.reorder = on; self }
+
+    /// Builds the rows with variant `variant` of the `selection_list` body (0: the theme's), so one registered body can draw several
+    /// row styles (a sidebar row, a song row).
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert_eq!(pxui_types::ui::SelectionList::DEFAULT.variant(2).variant, 2);
+    /// ```
+    pub const fn variant(mut self, variant: u16) -> SelectionList { self.variant = variant; self }
+
+    /// Makes the list as tall as its rows, without scrolling or virtualizing (every row is built each frame): for a short group
+    /// stacked with others in one column (a sidebar's routes, sources and lists). Keep such lists short; a long one is the default
+    /// virtual list.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert!(pxui_types::ui::SelectionList::DEFAULT.fit().fit);
+    /// ```
+    pub const fn fit(mut self) -> SelectionList { self.fit = true; self }
+
+    /// With `true`, a single pointer or touch click (without Command or Shift) selects the row and also reports it in
+    /// `ListResponse::activated` (a folder list that opens on one click); Enter and a double click always activate, and the arrow,
+    /// Page, Home and End keys only move the selection, never activate.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert!(pxui_types::ui::SelectionList::DEFAULT.open_on_click(true).open_on_click);
+    /// ```
+    pub const fn open_on_click(mut self, on: bool) -> SelectionList { self.open_on_click = on; self }
+
+    /// Shows `look` on a row in place of its state look while a carried payload hovers the row's drop target (the cell made it one
+    /// with `Ui::drop_target(&cell.handle)`): a sidebar list a song is dragged onto. The look is the list style's, so no per-row style
+    /// call and no per-frame look swap; the row body is told the same through its config.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{ui::SelectionList, Look};
+    /// const LISTS: SelectionList = SelectionList::DEFAULT.drop_look(Look::NONE.radius(6.0));
+    /// assert!(LISTS.drop_look.is_some());
+    /// ```
+    pub const fn drop_look(mut self, look: Look) -> SelectionList { self.drop_look = Some(look); self }
 }
 
-/// What `Ui::selection_list` reports this frame.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// What `Ui::list`, `Ui::section_list` and `Ui::selection_list` report this frame.
+#[derive(Clone, Copy, Debug, Default)]
 pub struct ListResponse {
-    /// The row a double click or Enter activated.
+    /// The list's scroll box (for `Ui::reveal`, `Ui::scroll`, `Ui::transfer_carry` and `Ui::drop_target`).
+    pub handle: Handle,
+    /// The row a double click or Enter activated (`Ui::selection_list`; a plain list's rows report their own presses).
     pub activated: Option<usize>,
+    /// Set whenever the widget changed the list state's selection this frame (`Ui::selection_list`, `Ui::table`), naming the row the
+    /// change acted on: the row clicked, Command-toggled (on or off), Shift-extended to, moved to by a key or toggled by Space; for
+    /// Command-A the keyboard's row (0 without one). A navigation list (a sidebar, a folder browser) acts on it as "this row was
+    /// chosen"; a multi-selection list reads it as "the selection changed" (to invalidate what it caches). Either way the app never
+    /// scans `ListState::rows` per frame. App writes to `ListState` never set it.
+    pub selected: Option<usize>,
+    /// The row a secondary press (right click, Control-click or long press) began on (`Ui::selection_list`).
+    pub secondary: Option<usize>,
+    /// The box of the row `activated` or `secondary` names, to anchor a menu or popover on it; valid for this frame.
+    pub row: Option<Handle>,
+    /// A reorder this frame (`SectionList::reorder`, `SelectionList::reorder`): `(from, to)`, the row at index `from` before the move
+    /// now sits at index `to` after it (`to` is the final index: removing the item at `from` and inserting it at `to` gives the new
+    /// order; `from != to`). The app moves its item that way; a `selection_list` has already moved the row's flags in its state.
+    pub moved: Option<(usize, usize)>,
+    /// The insertion index (0 to the row count) a carried payload was dropped at between the rows of a reorderable list, this
+    /// frame only; read the payload with `Ui::drop_target(&response.handle)` on the same frame. A move of the list's own row is
+    /// `moved`, never `drop_at`.
+    pub drop_at: Option<usize>,
 }
 
 /// What `Ui::tree` reports this frame.
@@ -169,15 +306,6 @@ pub struct TreeResponse {
     pub activated: Option<usize>,
     /// How many rows are shown (the start of `visible` the tree wrote).
     pub shown: usize,
-}
-
-/// What `Ui::table_view` reports this frame.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct TableResponse {
-    /// The row clicked (a text table, `TableView::text`).
-    pub row: Option<usize>,
-    /// The column whose header was clicked: the sort intent (the virtual table).
-    pub sort: Option<usize>,
 }
 
 /// One toast of `Ui::toasts`: its text and the item id that keys it (never its text), a `Copy` value.
@@ -490,6 +618,10 @@ pub enum SectionPart {
     Header,
     /// Row `n`, counted from 0.
     Row(usize),
+    /// The trailer after the last row (`trail`), scrolling with the rows: an action row such as "+ New list" that ends a list
+    /// without being one of its rows (never selected, keyed or counted). Built only when the trailer has a height; a callback that
+    /// builds nothing in it leaves blank space.
+    Trailing,
 }
 
 /// How `Ui::panel`, `Ui::popup`, `Ui::modal` and `Ui::anchored` place and dress their sheet, as one `Copy` value built with `const fn`

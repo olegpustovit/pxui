@@ -342,7 +342,6 @@ macro_rules! body_kinds {
             tree register_tree_body TreeRowBody PxuiTreeRowConfig TreeConfig,
             table_row register_table_row_body RowBody PxuiRowConfig TableRowConfig,
             table_head register_table_head_body TableHeadBody PxuiTableHeadConfig TableHeadConfig,
-            table_cell register_table_cell_body TableCellBody PxuiTableCellConfig TableCellConfig,
             picker register_picker_body PickerRowBody PxuiPickerRowConfig PickerConfig,
             search_field register_search_field_body SearchFieldBody PxuiSearchFieldConfig SearchFieldConfig,
             text_field register_text_field_body TextFieldBody PxuiTextFieldConfig TextFieldConfig,
@@ -450,6 +449,12 @@ impl Part {
     /// A text field's editing surface: where its value shows and its caret and selection are placed and painted, and what takes its
     /// presses (the field's own box when a body builds none).
     pub const EDITOR: Part = Part(9);
+    /// A reorderable list row's drag handle (`SectionList::reorder`, `SelectionList::reorder`): the row's content or its body builds
+    /// it with `Ui::part` (allowed in a reorderable list's row; build it last in the row, or under its own `Ui::id`, so its key never
+    /// collides with the row's content). A press on it takes the touch at once (as `GestureOpts::touch_drag`: no long-press delay,
+    /// never scrolling the list or an enclosing scroll view) and its drag lifts and moves the row; behaviour gives it the button role
+    /// and the name Reorder. A row without one cannot be dragged (the keyboard and accessibility moves still work).
+    pub const HANDLE: Part = Part(10);
     /// Dot `i` of a spinner, which `busy_step` turns.
     ///
     /// Allocates: never.
@@ -470,10 +475,10 @@ impl Part {
     /// ```
     /// use pxui_types::theme::Part;
     /// assert!(Part::valid(Part::HIT.0));
-    /// assert!(!Part::valid(0) && !Part::valid(10));
+    /// assert!(!Part::valid(0) && !Part::valid(11));
     /// ```
     pub const fn valid(n: u32) -> bool {
-        matches!(n, 1..=9 | 16..=271 | 1024..=1279)
+        matches!(n, 1..=10 | 16..=271 | 1024..=1279)
     }
 }
 

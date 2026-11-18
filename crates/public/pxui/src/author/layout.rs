@@ -2,7 +2,7 @@
 use crate::Handle;
 use pxui_types::Node;
 use pxui_types::node::Axis;
-use pxui_types::ui::{SectionList, SectionPart};
+use pxui_types::ui::{ListResponse, SectionList, SectionPart};
 use crate::Ui;
 pub use pxui_types::ui::Key;
 
@@ -215,9 +215,11 @@ impl Ui {
     /// The fixed-height list of app-built rows. Only the rows in view (and a few past each edge) are built, so the list costs the same
     /// at ten rows or a million. Like React's row key, `row_key(i)` is the item's own id (never its index or text): a row's state and
     /// its children's identities follow the item when the items reorder; the rows are the app's own structure, so `list` has no body
-    /// kind. The returned handle is the list's scroll box (`reveal(&list, i)` scrolls row `i` into view). The other list jobs:
-    /// `section_list` (a lead-in, a sticky heading, rows of differing heights with `SectionList::measured`), `grid_list` (cells in
-    /// columns), `selection_list` (kit rows that keep a selection), `tree` and `table_view`.
+    /// kind. It reports the list's scroll box in `ListResponse::handle` (`reveal(&r.handle, i)` scrolls row `i` into view); the other
+    /// fields stay `None` (`list` is `section_list`'s short form without reordering; a reorderable list is a `section_list` with
+    /// `SectionList::reorder`). The other list jobs: `section_list` (a lead-in, a sticky heading, rows of differing heights with
+    /// `SectionList::measured`, reordering), `grid_list` (cells in columns), `selection_list` (kit rows that keep a selection), `tree`
+    /// and `table`.
     /// Allocates: never on a warm frame.
     /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); each row box is
     /// `Key::Id(row_key(i))` under the list, so ids must be unique among the rows (a repeated id takes a `#dup` key).
@@ -235,11 +237,11 @@ impl Ui {
     /// ```
     #[inline]
     #[track_caller]
-    pub fn list<K: Into<Key>, F: FnMut(&mut Ui, usize)>(&mut self, key: K, count: usize, row_h: f32, row_key: &dyn Fn(usize) -> i64, mut f: F) -> Handle { self.list_rows(key.into(), count, row_h, row_key, &mut f) }
+    pub fn list<K: Into<Key>, F: FnMut(&mut Ui, usize)>(&mut self, key: K, count: usize, row_h: f32, row_key: &dyn Fn(usize) -> i64, mut f: F) -> ListResponse { self.list_rows(key.into(), count, row_h, row_key, &mut f) }
 
     /// The one body of `list`: a section list with no lead-in, heading or trailer, its rows handed to `f`.
     #[track_caller]
-    fn list_rows(&mut self, key: Key, count: usize, row_h: f32, row_key: &dyn Fn(usize) -> i64, f: &mut dyn FnMut(&mut Ui, usize)) -> Handle {
+    fn list_rows(&mut self, key: Key, count: usize, row_h: f32, row_key: &dyn Fn(usize) -> i64, f: &mut dyn FnMut(&mut Ui, usize)) -> ListResponse {
         self.section_list_key(key, &SectionList::new(count).row_h(row_h), row_key, &mut |ui, part, _| if let SectionPart::Row(i) = part { f(ui, i) })
     }
 
@@ -289,7 +291,7 @@ mod tests {
                 list.set(Some(ui.list("rows", 10_000, 20.0, &|i| i as i64 * 3 + 1, |ui, i| {
                     built.set(built.get() + 1);
                     rows[i].set(Some(ui.node("cell", Node { h: Size::Px(20.0), ..Node::DEFAULT })));
-                })));
+                }).handle));
             });
         };
         let input = crate::FrameIn::new(320.0, 240.0);

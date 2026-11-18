@@ -167,9 +167,9 @@ fn reveal_uses_fixed_measured_section_and_grid_geometry_without_warm_allocations
                 };
                 let section=SectionList::new(count.get()).row_h(20.0).lead(35.0).header(14.0).trail(11.0).overlay_scrollbar();
                 let list=match kind {
-                    0=>ui.section_list("rows",&section,&|i| i as i64,&mut |ui,part,_| if let SectionPart::Row(index)=part {row(ui,index)}),
-                    1=>ui.section_list("rows",&SectionList::new(count.get()).row_h(20.0).measured(),&|i| i as i64,&mut |ui,part,_| if let SectionPart::Row(index)=part {row(ui,index)}),
-                    2=>ui.section_list("rows",&section.measured(),&|i| i as i64,&mut |ui,part,_| if let SectionPart::Row(index)=part {row(ui,index)}),
+                    0=>ui.section_list("rows",&section,&|i| i as i64,&mut |ui,part,_| if let SectionPart::Row(index)=part {row(ui,index)}).handle,
+                    1=>ui.section_list("rows",&SectionList::new(count.get()).row_h(20.0).measured(),&|i| i as i64,&mut |ui,part,_| if let SectionPart::Row(index)=part {row(ui,index)}).handle,
+                    2=>ui.section_list("rows",&section.measured(),&|i| i as i64,&mut |ui,part,_| if let SectionPart::Row(index)=part {row(ui,index)}).handle,
                     _=>ui.grid_list("rows",count.get(),&crate::GridList::DEFAULT.w_px(25.0).h_px(20.0),&mut row),
                 };
                 ui.set_node_layout(&list,&Node::DEFAULT.w(Size::Grow).h(Size::Grow).padding(crate::geom::Edges::all(6.0)));
@@ -720,7 +720,7 @@ fn shrinking_virtual_sections_select_the_clamped_rows_in_one_build_without_warm_
         builds.set(builds.get()+1);rows.set(0);first.set(None);
         body.set(Some(ui.section_list("shrinking",&SectionList::new(count.get()).row_h(20.0).lead(100.0).header(30.0).trail(40.0).overlay_scrollbar(),&|i| i as i64,&mut |_,part,_| {
             if let SectionPart::Row(index)=part {if first.get().is_none() {first.set(Some(index));}rows.set(rows.get()+1);}
-        })));
+        }).handle));
     };
     ui.frame(&input(),&mut build).unwrap();
     for cycle in 0..8 {
@@ -754,6 +754,7 @@ fn section_list_scrolls_leading_content_pins_blocks_and_virtualizes_without_warm
         rows.set(0); clicked.set(false); sorted.set(false); first.set(None);
         body.set(Some(ui.section_list("section",&section,&|i| i as i64,&mut |ui,part,_| {
             match part {
+                SectionPart::Trailing=>{},
                 SectionPart::Leading=>{
                     let clip=ui.node("heading-clip",Node::DEFAULT.flags(pxui_types::Flags::CLIP).w(Size::Grow).h_px(100.0));
                     ui.within(&clip,&mut |ui| {
@@ -775,7 +776,7 @@ fn section_list_scrolls_leading_content_pins_blocks_and_virtualizes_without_warm
                     clicked.set(clicked.get() || ui.signal(&node).clicked);
                 }
             }
-        })));
+        }).handle));
     };
     ui.frame(&input(),&mut build).unwrap();
     assert_eq!(ui.rect(&lead.get().unwrap()).y,0.0);
@@ -829,12 +830,12 @@ fn section_lists_validate_geometry_recover_callbacks_and_support_empty_unpinned_
         assert!(catch_unwind(AssertUnwindSafe(|| {let _=ui.frame(&input(),&mut |ui| {ui.section_list("bad",&bad,&|i| i as i64,&mut |_,_,_|called.set(true));});})).is_err());
         assert!(!called.get(),"invalid geometry reached the callback");
     }
-    for fail in [SectionPart::Leading,SectionPart::Header,SectionPart::Row(0)] {
+    for fail in [SectionPart::Leading,SectionPart::Header,SectionPart::Row(0),SectionPart::Trailing] {
         let section=SectionList {count:1,header_height:20.0,..valid};
         assert!(catch_unwind(AssertUnwindSafe(|| {let _=ui.frame(&input(),&mut |ui| {ui.section_list("panic",&section,&|i| i as i64,&mut |_,part,_| {if part==fail {panic!("section callback");}});});})).is_err());
         let mut calls=0;
-        ui.frame(&input(),&mut |ui| {ui.section_list("empty",&valid,&|i| i as i64,&mut |_,part,_| {assert_eq!(part,SectionPart::Leading);calls+=1;});}).unwrap();
-        assert!(calls>=1,"empty sections retain the lead-in and omit a zero heading and all rows");
+        ui.frame(&input(),&mut |ui| {ui.section_list("empty",&valid,&|i| i as i64,&mut |_,part,_| {assert!(matches!(part,SectionPart::Leading|SectionPart::Trailing),"{part:?}");calls+=1;});}).unwrap();
+        assert!(calls>=2,"empty sections retain the lead-in and the trailer and omit a zero heading and all rows");
     }
 }
 
@@ -848,12 +849,12 @@ fn measured_sections_validate_geometry_recover_callbacks_and_support_empty_unpin
         assert!(catch_unwind(AssertUnwindSafe(|| {let _=ui.frame(&input(),&mut |ui| {ui.section_list("bad",&bad.measured(),&|i| i as i64,&mut |_,_,_|called.set(true));});})).is_err());
         assert!(!called.get(),"invalid geometry reached the callback");
     }
-    for fail in [SectionPart::Leading,SectionPart::Header,SectionPart::Row(0)] {
+    for fail in [SectionPart::Leading,SectionPart::Header,SectionPart::Row(0),SectionPart::Trailing] {
         let section=SectionList {count:1,header_height:20.0,..valid};
         assert!(catch_unwind(AssertUnwindSafe(|| {let _=ui.frame(&input(),&mut |ui| {ui.section_list("panic",&section.measured(),&|i| i as i64,&mut |_,part,_| {if part==fail {panic!("section callback");}});});})).is_err());
         let mut calls=0;
-        ui.frame(&input(),&mut |ui| {ui.section_list("empty",&valid.measured(),&|i| i as i64,&mut |_,part,_| {assert_eq!(part,SectionPart::Leading);calls+=1;});}).unwrap();
-        assert!(calls>=1,"empty sections retain the lead-in and omit a zero heading and all rows");
+        ui.frame(&input(),&mut |ui| {ui.section_list("empty",&valid.measured(),&|i| i as i64,&mut |_,part,_| {assert!(matches!(part,SectionPart::Leading|SectionPart::Trailing),"{part:?}");calls+=1;});}).unwrap();
+        assert!(calls>=2,"empty sections retain the lead-in and the trailer and omit a zero heading and all rows");
     }
 }
 
@@ -2044,7 +2045,7 @@ fn public_measured_list_settles_virtual_rows_and_reuses_warm_storage() {
                 assert!(i<count.get());
                 calls.set(calls.get()+1);
                 rows[i].set(Some(ui.node("row",crate::Node::DEFAULT.w_px(80.0).h_px(10.0+(i%3) as f32*10.0))));
-            })));
+            }).handle));
         });
     };
     ui.frame(&input(),&mut build).unwrap();
@@ -2763,6 +2764,7 @@ fn measured_section_rows_settle_positions_pin_heading_and_reuse_warm_storage() {
         body.set(Some(ui.section_list("measured",&SectionList::new(count.get()).row_h(20.0).lead(100.0).header(30.0).trail(40.0).overlay_scrollbar().measured(),&|i| i as i64,&mut |ui,part,y| {
             match part {
                 SectionPart::Leading=>assert_eq!(y,0.0),
+                SectionPart::Trailing=>{},
                 SectionPart::Header=>{assert_eq!(y,100.0);header.set(Some(ui.node("heading",Node::DEFAULT.w(Size::Grow).h(Size::Grow))));},
                 SectionPart::Row(index)=>{
                     let h=if taller.get() {40.0} else {20.0};
@@ -2770,7 +2772,7 @@ fn measured_section_rows_settle_positions_pin_heading_and_reuse_warm_storage() {
                     positions.borrow_mut().push((index,y,row));
                 }
             }
-        })));
+        }).handle));
     };
     ui.frame(&input(),&mut build).unwrap();
     for cycle in 0..10 {
@@ -2963,7 +2965,7 @@ fn touch_gestures_drive_virtual_rows_catch_coasts_and_keep_warm_allocations_zero
                     if signal.clicked { clicked.set(Some(index)); }
                     assert!(!signal.hovered, "finger input must not leave mouse hover on a row");
                 }
-            })));
+            }).handle));
         });
     };
     let mut packet = Touch { device: u64::MAX, finger: 7, x: 50.0, y: 100.0, pressure: 1.0, ..Touch::default() };

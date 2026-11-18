@@ -65,17 +65,17 @@ fn wrap(i: usize, by: i64, n: usize) -> usize {
 }
 
 /// `i` moved by `by` within `0..n`, held at the ends.
-fn clamp_step(i: usize, by: i64, n: usize) -> usize {
+pub(crate) fn clamp_step(i: usize, by: i64, n: usize) -> usize {
     if n == 0 { 0 } else { (i as i64 + by).clamp(0, n as i64 - 1) as usize }
 }
 
 /// What `BodyTable::item` is a row of.
 pub(crate) const ITEM_NONE: u8 = 0;
-const ITEM_LIST: u8 = 1;
+pub(crate) const ITEM_LIST: u8 = 1;
 const ITEM_TREE: u8 = 2;
-const ITEM_TABLE: u8 = 3;
+pub(crate) const ITEM_TABLE: u8 = 3;
 pub(crate) const ITEM_TEXT_CELL: u8 = 4;
-const ROW_FLAGS: Flags = Flags::CLICKABLE.or(Flags::BLOCKING);
+pub(crate) const ROW_FLAGS: Flags = Flags::CLICKABLE.or(Flags::BLOCKING);
 const STOP_FLAGS: Flags = Flags::CLICKABLE.or(Flags::FOCUSABLE).or(Flags::BLOCKING).or(Flags::TAB_ONLY);
 
 /// The built-in dialog: the title bar, the content, then the buttons at the end of a row. Each button is built through the button
@@ -229,7 +229,7 @@ pub(crate) fn default_dropdown(this: &mut Ui, c: &DropdownConfig, text: &str) {
 }
 
 impl Ui {
-    fn rtl(&self) -> bool {
+    pub(crate) fn rtl(&self) -> bool {
         self.dir() == Direction::Rtl
     }
 
@@ -243,17 +243,17 @@ impl Ui {
         }
     }
 
-    /// The row a `list_view`, `tree` or `table_view` is building: the node a text row's or cell's text is put in and takes its look
+    /// The row a `selection_list`, `tree` or `table` is building: the node a text row's or cell's text is put in and takes its look
     /// from, and where a cell's widgets get its accessible name.
     pub fn item(&self) -> Handle {
         self.bodies.item
     }
 
-    /// The kit's text of the collection item being built: a `table_view` cell's text (it names the cell), a `list_view` or `tree`
+    /// The kit's text of the collection item being built: a `table` cell's text (it names the cell), a `selection_list` or `tree`
     /// row's text. A row-high label in the look of `item`.
     /// A list row's text names nothing (as before), a tree row's names the row. Panics outside a collection item (`in_item`).
     pub fn item_text(&mut self, text: &str) {
-        assert!(self.in_item(), "Ui.item_text: outside a list_view or tree row or a table_view cell");
+        assert!(self.in_item(), "Ui.item_text: outside a selection_list or tree row or a table cell");
         match self.bodies.item_kind {
             ITEM_LIST => { self.row_text(text); }
             ITEM_TREE => { let n = self.row_text(text); self.a11y_name(&n, text); }
@@ -262,7 +262,7 @@ impl Ui {
         }
     }
 
-    /// Whether a `list_view`/`tree` row or a `table_view` cell is being built (where `item_text` puts its text).
+    /// Whether a `selection_list`/`tree` row or a `table` cell is being built (where `item_text` puts its text).
     pub fn in_item(&self) -> bool { self.bodies.item_kind != ITEM_NONE }
 
     /// A text row's text: a row-high label in the look of `item`, which it returns (the C text-row exports' row; it names nothing).
@@ -282,7 +282,7 @@ impl Ui {
     }
 
     /// The theme's scroll thumb, 2 points in from the ends.
-    fn thumb(&self) -> Bar {
+    pub(crate) fn thumb(&self) -> Bar {
         let t = self.theme();
         let thumb = t.scrollbar.idle;
         Bar::new(thumb.fill, t.scrollbar_w).radius(thumb.radius[0]).gap(t.scrollbar_gap).margin(2.0).whole()
@@ -969,76 +969,6 @@ impl Ui {
         }
     }
 
-    /// A virtual list of `count` rows filling its parent: only the rows in view are built, each
-    /// row's content from `cell`. `selected` (one byte a row, not 0: selected) is the selection: a click selects
-    /// a row alone; with `multi`, Command (Ctrl) toggles one and Shift selects the run from the
-    /// keyboard's row. One Tab stop; Up, Down, Page keys, Home and End move the keyboard's row
-    /// (selecting it alone without `multi`; Space toggles it with `multi`). Returns the row a
-    /// double click or Enter activated.
-    /// `cell(ui, i)` builds row `i`'s children (any widgets; `item_text` for the kit's text row) inside the row node (`Ui::item`) the
-    /// `list_view` body shapes.
-    /// Keyed by `key` (hashed under the parent's seed); `list.multi` lets Command (Ctrl) and Shift select several rows. Row `i`'s box is
-    /// keyed by the item id `ids(i)`, so its state follows the item when the items reorder.
-    pub fn selection_list(&mut self, key: &str, count: usize, ids: &dyn Fn(usize) -> i64, selected: &mut [u8], list: &SelectionList, cell: &mut dyn FnMut(&mut Ui, usize)) -> ListResponse {
-        ListResponse { activated: self.list_view(key, count, ids, list.multi, selected, cell) }
-    }
-
-    fn list_view(&mut self, label: &str, count: usize, ids: &dyn Fn(usize) -> i64, multi: bool, selected: &mut [u8], cell: &mut dyn FnMut(&mut Ui, usize)) -> Option<usize> {
-        let count = count.min(selected.len());
-        let rh = self.row_px() as f32;
-        let frame = self.node_ref(label, &Node { flags: Flags::FOCUSABLE | Flags::CLIP, w: Size::Grow, h: Size::Grow, look: self.theme().scroll_view.idle, padding: Edges::all(1.0), ..Node::DEFAULT });
-        let s = self.signal_owned(&frame);
-        let focused = self.focused(&frame);
-        let page = (self.rect(&frame).h / rh).floor().max(1.0) as i64;
-        let cursor = (self.state(&frame, 0).max(0) as usize).min(count.saturating_sub(1));
-        let (mut c, enter, space) = self.list_keys(&s.keys, cursor, count, page);
-        if c != cursor && !multi {
-            selected[..count].fill(0);
-            selected[c] = 1;
-        }
-        if space && multi && count > 0 {
-            selected[c] = (selected[c] == 0) as u8;
-        }
-        let mut activated = enter.then_some(c).filter(|_| count > 0);
-        let states = self.theme().listbox;
-        let row_body = body_of!(self, selection_list);
-        let saved = self.enter(&frame);
-        let body = self.list_keyed("rows", count, rh, Some(ids), &mut |ui, i| {
-            let (n, rs, state) = ui.virtual_row(&states, selected[i] != 0, focused && i == c, ui.space(2), Role::ListItem, st::SELECTABLE | if selected[i] != 0 { st::SELECTED } else { 0 });
-            if rs.clicked {
-                let keys = ui.press_keys(&n);
-                let command = ui.command_modifiers(&keys);
-                if multi && command {
-                    selected[i] = (selected[i] == 0) as u8;
-                } else if multi && keys.contains(&Key::Shift) {
-                    let (a, b) = (c.min(i), c.max(i));
-                    selected[..count].fill(0);
-                    selected[a..=b].fill(1);
-                } else {
-                    selected[..count].fill(0);
-                    selected[i] = 1;
-                }
-                c = i;
-            }
-            if rs.double_clicked {
-                activated = Some(i);
-            }
-            let config = RowConfig { state, index: i, row: n };
-            let outer = (core::mem::replace(&mut ui.bodies.item, n), core::mem::replace(&mut ui.bodies.item_kind, ITEM_LIST));
-            in_item!(ui, row_body, n.box_key, n, default_row(&config, &mut |ui| cell(ui, i)));
-            (ui.bodies.item, ui.bodies.item_kind) = outer;
-        });
-        self.leave(saved);
-        self.node_mut(&body).bar = Some(self.thumb()).into();
-        self.set_role(&body, Role::List, if multi { st::SELECTABLE } else { 0 });
-        self.a11y_name(&body, shown(label));
-        if c != cursor {
-            self.reveal_row(&body, c);
-        }
-        self.set_state(&frame, c as i64);
-        activated
-    }
-
     /// A tree over `nodes` (preorder), virtualised: the first rows of `visible` (a scratch the caller
     /// keeps, at least a row per node) list the nodes shown, the expanded (`open`, not 0) nodes'
     /// children under them, each row indented 14 points a level with a chevron when it has children.
@@ -1149,26 +1079,6 @@ impl Ui {
         let cursor_node = visible[..rows_shown].get(c).copied().unwrap_or(0);
         self.set_state(&frame, cursor_node as i64);
         (activated, rows_shown)
-    }
-
-    /// A table filling its parent: a header row of `titles` over a virtual list of `rows`, columns
-    /// `widths` points wide. The header stays while the rows scroll; the table scrolls sideways when
-    /// the columns are wider than it. Dragging the grip after a header resizes its column (32
-    /// points at least; `widths` is updated). `sort` marks a column with a chevron (up when
-    /// ascending). A click selects a row (`selected`); Up, Down, Page keys, Home and End move it.
-    /// Returns the column whose header was clicked (the sort intent).
-    #[allow(clippy::too_many_arguments)]
-    /// `cell(ui, row, col)` builds the children of one cell (any widgets; `item_text` for the kit's text cell), inside the cell node
-    /// (the column's width, the cell role) of a row node (`Ui::item`) the `table_view` body shapes.
-    /// Keyed by `key` (hashed under the parent's seed). With `TableView::text(rect)`, the fixed text table at `rect` instead: a
-    /// 24-point header of `titles`, hairlines and right-aligned cells whose text each `cell` gives `item_text`; a click reports the row.
-    /// The virtual table's row `i` box is keyed by the item id `ids(i)`; the text table has no row boxes and ignores `ids`.
-    pub fn table_view(&mut self, key: &str, titles: &[&str], widths: &mut [f32], rows: usize, ids: &dyn Fn(usize) -> i64, selected: &mut Option<usize>, table: &TableView, cell: &mut dyn FnMut(&mut Ui, usize, usize)) -> TableResponse {
-        if let Some(r) = table.text {
-            let row = crate::ui_kit::table_body(self, (r.x, r.y), r.w, r.h, titles, rows.min(i64::MAX as usize) as i64, cell, key).0;
-            return TableResponse { row: row.map(|row| row as usize), sort: None };
-        }
-        TableResponse { row: None, sort: table_view_body(self, key, titles, widths, rows, ids, table.sort, selected, cell) }
     }
 
     /// A modal dialog titled `title`: its title bar, `body`, then `buttons` at the end of a row, built through the dialog body and
@@ -1346,75 +1256,6 @@ impl Ui {
 
 // Method bodies outside `impl` blocks: each module is its own codegen unit, so the big bodies
 // compile in parallel with the rest of the crate (rustc places methods with their type).
-fn table_view_body(this: &mut Ui, label: &str, titles: &[&str], widths: &mut [f32], rows: usize, ids: &dyn Fn(usize) -> i64, sort: Option<(usize, bool)>, selected: &mut Option<usize>, cell: &mut dyn FnMut(&mut Ui, usize, usize)) -> Option<usize> {
-    let rh = this.row_px() as f32;
-    let columns = titles.len().min(widths.len());
-    let t = this.theme();
-    let (frame_look, head_look, states) = (t.scroll_view.idle, t.table_head.idle, t.listbox);
-    let (head_body, row_body) = (body_of!(this, table_head), body_of!(this, table_row));
-    let bar = this.thumb();
-    let frame = this.node_ref(label, &Node { flags: Flags::FOCUSABLE | Flags::SCROLL_X | Flags::CLIP, w: Size::Grow, h: Size::Grow, look: frame_look, bar: Some(bar).into(), padding: Edges::all(1.0), role: Role::Table, ..Node::DEFAULT });
-    let s = this.signal_owned(&frame);
-    let focused = this.focused(&frame);
-    let page = (this.rect(&frame).h / rh - 1.0).floor().max(1.0) as i64;
-    let cursor = selected.unwrap_or(0).min(rows.saturating_sub(1));
-    let (c, _, _) = this.list_keys(&s.keys, cursor, rows, page);
-    if c != cursor || (selected.is_none() && s.keys.iter().any(|e| matches!(e, Event::KeyPressed(Key::ArrowDown | Key::ArrowUp)))) {
-        *selected = (rows > 0).then_some(c);
-    }
-    let total: f32 = widths[..columns].iter().map(|w| w + 1.0).sum();
-    let mut sorted = None;
-    let saved = this.enter(&frame);
-    let sheet = this.node("sheet".into(), Node { w: Size::Grow, min_w: total, h: Size::Grow, ..Node::DEFAULT });
-    let inner = this.enter(&sheet);
-    let head = this.node("head".into(), Node { h: Size::Px(rh), axis: Axis::Row, look: head_look, ..Node::DEFAULT });
-    let hs = this.enter(&head);
-    for i in 0..columns {
-        let n = this.node_keyed(int_key(head.box_key, i as i64), Node { flags: ROW_FLAGS, w: Size::Px(widths[i]), h: Size::Grow, axis: Axis::Row, align: Align::Center, justify: Justify::SpaceBetween, padding: Edges { l: 8.0, r: 8.0, ..Edges::ZERO }, role: Role::ColumnHeader, ..Node::DEFAULT });
-        let ns = this.signal_owned(&n);
-        if ns.clicked {
-            sorted = Some(i);
-        }
-        let by = sort.filter(|(col, _)| *col == i);
-        this.a11y_name(&n, titles[i]);
-        let config = TableHeadConfig { state: State { hovered: ns.hovered, pressed: ns.held, checked: by.is_some(), ..State::default() }, index: i, ascending: by.map(|(_, ascending)| ascending), node: n };
-        in_item!(this, head_body, n.box_key, n, default_table_head(&config, titles[i]));
-        let (_, gs) = this.grip(format_args!("grip{}", i), Axis::Row, None);
-        if gs.held && gs.drag.0 != 0.0 {
-            widths[i] = (widths[i] + if this.rtl() { -gs.drag.0 } else { gs.drag.0 }).max(32.0);
-        }
-    }
-    this.leave(hs);
-    let w = widths;
-    let body = this.list_keyed("rows", rows, rh, Some(ids), &mut |ui, i| {
-        let on = *selected == Some(i);
-        let (n, rs, state) = ui.virtual_row(&states, on, focused && on, 0.0, Role::Row, st::SELECTABLE | if on { st::SELECTED } else { 0 });
-        if rs.clicked {
-            *selected = Some(i);
-        }
-        ui.node_mut(&n).gap = 1.0;
-        let config = RowConfig { state, index: i, row: n };
-        let outer = (core::mem::replace(&mut ui.bodies.item, n), core::mem::replace(&mut ui.bodies.item_kind, ITEM_TABLE));
-        in_item!(ui, row_body, n.box_key, n, default_row(&config, &mut |ui| {
-            for col in 0..columns {
-                let c = ui.node_keyed(int_key(n.box_key, col as i64), Node { w: Size::Px(w[col]), h: Size::Grow, axis: Axis::Row, align: Align::Center, padding: Edges { l: 8.0, r: 8.0, ..Edges::ZERO }, role: Role::Cell, ..Node::DEFAULT });
-                let inner = ui.enter(&c);
-                cell(ui, i, col);
-                ui.leave(inner);
-            }
-        }));
-        (ui.bodies.item, ui.bodies.item_kind) = outer;
-    });
-    this.node_mut(&body).bar = Some(this.thumb()).into();
-    this.set_role(&body, Role::Unknown, 0);
-    this.leave(inner);
-    this.leave(saved);
-    if c != cursor {
-        this.reveal_row(&body, c);
-    }
-    sorted
-}
-
 /// True when the query changed: the new one is in `returned`.
 fn search_field_body(this: &mut Ui, label: &str, icon: &str, value: &str, placeholder: &str) -> bool {
     let key = key_of(this.current_seed(), label);

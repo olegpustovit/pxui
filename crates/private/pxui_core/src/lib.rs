@@ -11,6 +11,7 @@ pub mod ui_core;
 pub mod ui_kit;
 pub mod ui_text;
 pub mod ui_widgets;
+pub mod ui_lists;
 pub mod opts;
 pub mod ui;
 

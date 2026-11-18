@@ -215,9 +215,6 @@ mod tramps {
     tramp!(table_head, |ui, sh, c: &TableHeadConfig, title: &str| PxuiTableHeadConfig {
         state: st(c.state), has_ascending: flag(c.ascending).0, ascending: flag(c.ascending).1, index: c.index, node: bx(c.node), title: pair(title)
     });
-    tramp!(table_cell, |ui, sh, c: &TableCellConfig, text: &str| PxuiTableCellConfig {
-        header: c.header as u8, left: c.left, right: c.right, height: c.height, row: c.row, column: c.column, key: c.key, text: pair(text)
-    });
     tramp!(picker, |ui, sh, c: &PickerRowConfig, label: &str, detail: &str, query: &str| PxuiPickerRowConfig {
         state: st(c.state), current: c.current as u8, doomed: c.doomed as u8, unavailable: c.unavailable as u8, marked: c.marked as u8, has_swatch: c.swatch.is_some() as u8,
         swatch: c.swatch.unwrap_or_default(), index: c.index, row: bx(c.row), label: pair(label), detail: pair(detail), query: pair(query),
@@ -358,7 +355,7 @@ mod tests {
         let label = String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(c.label.ptr, c.label.len) }).into_owned();
         let (node, mut out) = (Node::DEFAULT, PxuiBox::default());
         let hit = unsafe { pxui_part(ui, Part::HIT.0, &node, &mut out) };
-        let bad = unsafe { pxui_part(ui, 10, &node, &mut out) };
+        let bad = unsafe { pxui_part(ui, 11, &node, &mut out) };
         // the owner's key is the row's: its part is found by it, one it never built is not
         let mut found = PxuiBox::default();
         let again = unsafe { pxui_part_box(ui, c.row.box_key, Part::HIT.0, &mut found) } + 10 * unsafe { pxui_part_box(ui, c.row.box_key, Part::TRACK.0, &mut found) };
@@ -403,7 +400,7 @@ mod tests {
         assert_eq!(theme(ui, "toggle.body = probe"), 0);
         frame(ui, toggle_frame);
         let seen = TOGGLE.with(|t| t.borrow().clone());
-        assert_eq!(seen, vec![(core::mem::size_of::<PxuiToggleConfig>() as u32, "Wi-Fi".to_owned(), 1, 0, PXUI_ERR_ARGUMENT, 10)], "the body call: its record, HIT built and found, 10 (no part) refused, TRACK never built");
+        assert_eq!(seen, vec![(core::mem::size_of::<PxuiToggleConfig>() as u32, "Wi-Fi".to_owned(), 1, 0, PXUI_ERR_ARGUMENT, 10)], "the body call: its record, HIT built and found, 11 (no part) refused, TRACK never built");
         assert_eq!(REGISTERED_IN_FRAME.with(Cell::get), 0, "a body is not registered inside a frame");
         frame(ui, toggle_frame);
         assert_eq!(TOGGLE.with(|t| t.borrow().last().map(|s| s.5)), Some(10), "the second frame finds the part it built");

@@ -27,8 +27,7 @@ pub struct BodiesPage {
     pub volume: f32,
     pub align: usize,
     pub query: String,
-    pub widths: [f32; 2],
-    pub selected: Option<usize>,
+    pub table: pxui::TableState,
     pub flags: [bool; 3],
     pub letter: usize,
     pub more: bool,
@@ -42,8 +41,15 @@ pub struct BodiesPage {
 }
 
 impl BodiesPage {
+    /// The settings table's state: its second row selected.
+    fn settings() -> pxui::TableState {
+        let mut table = pxui::TableState::new();
+        table.selection.rows = vec![0, pxui::ListState::SELECTED, 0];
+        table
+    }
+
     pub fn new(custom: bool) -> BodiesPage {
-        BodiesPage { custom, dirty: false, wifi: true, volume: 0.6, align: 1, query: String::new(), widths: [120.0, 120.0], selected: Some(1), flags: [true, false, true], letter: 0, more: true, sheet: true, tab: 0, sync: true, big: false, art: None }
+        BodiesPage { custom, dirty: false, wifi: true, volume: 0.6, align: 1, query: String::new(), table: BodiesPage::settings(), flags: [true, false, true], letter: 0, more: true, sheet: true, tab: 0, sync: true, big: false, art: None }
     }
 
     /// The theme text the host applies (`Ui::set_theme`): `base` (a theme file's text, or none), then the body lines when `custom`.
@@ -298,11 +304,12 @@ pub fn page(ui: &mut Ui, s: &mut BodiesPage) {
         s.sheet = false;
     }
     ui.panel("table", &Overlay::DEFAULT.at(pxui_types::geom::Point::new(332.0, 12.0)).w_px(296.0).window(), &mut |ui: &mut Ui| {
-        let (widths, selected, flags) = (&mut s.widths, &mut s.selected, &mut s.flags);
+        const SETTINGS: [pxui::Column; 2] = [pxui::Column::new("Name").w_px(120.0), pxui::Column::new("On").w_px(120.0)];
+        let (table, flags) = (&mut s.table, &mut s.flags);
         // the table fills its parent: give it a height
         let frame = ui.node("frame", Node { h: Size::Px(140.0), ..Node::DEFAULT });
         ui.within(&frame, &mut |ui: &mut Ui| {
-            let _ = ui.table_view("settings", &["Name", "On"], widths, 3, &|i| i as i64, selected, &pxui::TableView::DEFAULT, &mut |ui: &mut Ui, row, column| {
+            let _ = ui.table("settings", &SETTINGS, 3, &|i| i as i64, table, &pxui::Table::DEFAULT, &mut |ui: &mut Ui, row, column, _| {
                 if column == 0 { ui.label(NAMES[row], pxui::Label::DEFAULT); } else { flags[row] = ui.toggle("toggle", NAMES[row], flags[row], &pxui::Toggle::DEFAULT).changed != flags[row]; }
             });
         });

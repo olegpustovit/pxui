@@ -26,6 +26,6 @@ pub use press::{Pressable, Response};
 pub use pxui_types::ui::Segmented;
 pub use toggle::Toggle;
 pub use kit::{Badge, Disclosure, Progress, Radio, SectionIndex, Spinner, Tabs};
-pub use collection::GridList;
+pub use collection::{CellState, Column, GridList, HeadResponse, ListState, Sort, Table, TableHead, TableResponse, TableState};
 pub use results::{OverlayResponse, PickResponse, SliderResponse, SplitResponse};
 pub use view::hash_of;

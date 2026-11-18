@@ -54,9 +54,11 @@ pub struct S {
     pub tree_sel: Option<usize>,
     pub visible: Vec<u32>,
     pub shown: usize,
-    pub widths: [f32; 3],
-    pub table_sel: Option<usize>,
-    pub sorted: Option<usize>,
+    pub list_anchor: Option<usize>,
+    pub widths: [pxui_types::ffi::PxuiColumnWidth; 3],
+    pub table_flags: Vec<u8>,
+    pub table_anchor: Option<usize>,
+    pub sort: Option<(i64, bool)>,
     pub search: String,
     pub icon: u32,
     pub toasts: usize,
@@ -73,7 +75,8 @@ impl S {
         let nodes = (0..BIG).map(|i| TreeNode { depth: if i % 10 == 0 { 0 } else { 1 }, children: (i % 10 == 0) as u8 }).collect();
         S {
             check: false, radio: 0, slider: 0.25, tab: 0, seg: 0, drop: 0, picked: None, list: vec![0; BIG], multi: false, activated: None,
-            nodes, open: vec![0; BIG], tree_sel: None, visible: vec![0; BIG], shown: 0, widths: [80.0, 80.0, 80.0], table_sel: None, sorted: None,
+            nodes, open: vec![0; BIG], tree_sel: None, visible: vec![0; BIG], shown: 0, list_anchor: None,
+            widths: [0, 1, 2].map(|id| pxui_types::ffi::PxuiColumnWidth { id, w: 80.0, reserved: 0 }), table_flags: vec![0; BIG], table_anchor: None, sort: Some((0, true)),
             search: String::new(), icon: 0, toasts: 0, gone: None, busy: Vec::with_capacity(4), image: None, add: None, scroll: None, list_frame: None,
         }
     }
@@ -154,7 +157,7 @@ pub fn body(ui: &mut Ui, s: &mut S) {
         ui.within(&right, &mut |ui| {
             let b = ui.node("list-box".into(), Node { h: Size::Px(120.0), ..Node::DEFAULT });
             ui.within(&b, &mut |ui| {
-                if let Some(a) = ui.selection_list("List", BIG, &|i| i as i64, &mut s.list, &pxui_core::ui::SelectionList { multi: s.multi }, &mut |ui, i| names(i, &mut |t| ui.item_text(t))).activated {
+                if let Some(a) = ui.selection_rows("List", BIG, &|i| i as i64, &mut s.list, &mut s.list_anchor, &pxui_core::ui::SelectionList { multi: s.multi, ..pxui_core::ui::SelectionList::DEFAULT }, &mut |ui, i, _| if i < BIG { names(i, &mut |t| ui.item_text(t)) }).activated {
                     s.activated = Some(a);
                 }
             });
@@ -163,9 +166,8 @@ pub fn body(ui: &mut Ui, s: &mut S) {
                 s.shown = { let r = ui.tree("Tree", &s.nodes, &mut s.open, &mut s.tree_sel, &mut s.visible, &mut |ui, i| names(i, &mut |t| ui.item_text(t))); (r.activated, r.shown) }.1;
             });
             sized(ui, "table-box", 150.0, &mut |ui| {
-                if let Some(c) = ui.table_view("Table", &["Name", "Next", "More"], &mut s.widths, BIG, &|i| i as i64, &mut s.table_sel, &pxui_core::ui::TableView { sort: Some((0, true)), text: None }, &mut |ui, r, c| cells(r, c, &mut |t| ui.item_text(t))).sort {
-                    s.sorted = Some(c);
-                }
+                let columns = [0, 1, 2].map(|id| pxui_core::ui_lists::ColumnSpec { id, share: 0.0, w: 80.0, grip: true, sortable: true });
+                ui.table("Table", &columns, &["Name", "Next", "More"], &mut s.widths, &mut s.sort, BIG, &|i| i as i64, &mut s.table_flags, &mut s.table_anchor, false, 24.0, 24.0, 0, &mut |ui, r, c, _| cells(r, c, &mut |t| ui.item_text(t)));
             });
         });
     });
@@ -543,8 +545,12 @@ fn widgets_list_keys_multi() {
         ui.frame(&at(4.0 + i as f64 * 0.01, vec![Event::KeyPressed(Key::Tab)]), &mut |ui| all(ui, &mut s));
     }
     check(s.list_frame.is_some_and(|b| ui.focused(&b)), "Tab reaches the list");
-    keys(&mut ui, &mut s, 5.0, &[Key::ArrowDown, Key::Space]);
-    check(s.list[5] != 0 && s.list[4] != 0, "Down then Space adds row 5");
+    keys(&mut ui, &mut s, 5.0, &[Key::ArrowDown]);
+    check(s.list[5] != 0 && s.list.iter().filter(|f| **f != 0).count() == 1, "Down selects row 5 alone");
+    keys(&mut ui, &mut s, 6.0, &[Key::Space]);
+    check(s.list[5] == 0, "Space toggles the keyboard's row off");
+    keys(&mut ui, &mut s, 7.0, &[Key::Space]);
+    check(s.list[5] != 0, "and on again");
     ui.destroy();
 }
 
@@ -573,19 +579,19 @@ fn widgets_table() {
     let mut ui = warm(&mut s);
     let rows = ui.output().a11y.nodes.iter().filter(|n| n.role == Role::Row).count();
     check(rows > 0 && rows < 30, &format!("100,000 rows built {rows}"));
-    let head = node(&ui, Role::ColumnHeader, "Next");
+    let head = node(&ui, Role::ColumnHeader, "Sort by Next");
     click(&mut ui, &mut s, 1.0, centre(&head));
-    check(s.sorted == Some(1), "a header click asks to sort by it");
+    check(s.sort == Some((1, true)), "a header click sorts by it, ascending");
     // drag the grip after the first column 30 points right
-    let name = node(&ui, Role::ColumnHeader, "Name");
+    let name = node(&ui, Role::ColumnHeader, "Sort by Name");
     let g = ((name.rect.x + name.rect.w) as i64, centre(&name).1);
     for (t, e) in [(2.0, vec![move_to(g)]), (2.1, vec![press(g)]), (2.2, vec![move_to((g.0 + 30, g.1))]), (2.3, vec![release((g.0 + 30, g.1))]), (2.4, vec![])] {
         ui.frame(&at(t, e), &mut |ui| all(ui, &mut s));
     }
-    check((s.widths[0] - 110.0).abs() < 0.5, &format!("the grip widens Name to 110: {:?}", s.widths));
+    check((s.widths[0].w - 110.0).abs() < 0.5, &format!("the grip widens Name to 110: {:?}", s.widths));
     let row = *ui.output().a11y.nodes.iter().filter(|n| n.role == Role::Row).nth(1).unwrap();
     click(&mut ui, &mut s, 3.0, centre(&row));
-    check(s.table_sel == Some(1), "a click selects row 1");
+    check(s.table_flags[1] != 0 && s.table_flags.iter().filter(|f| **f != 0).count() == 1, "a click selects row 1 alone");
     check(ui.output().a11y.nodes.iter().any(|n| n.role == Role::Cell), "cells are in the tree");
     ui.destroy();
 }
