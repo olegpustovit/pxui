@@ -58,13 +58,13 @@ The target public surface. **Rule:** a call not marked with a step keeps its HEA
 | Theme | `set_theme(&ThemeHandle) -> Result<(), Error>`, `themed(&ThemeHandle, f)`, `theme()`, `tokens()`, `ThemeHandle::parse/set_color/density/reduced_motion`; `bodies::register_<kind>_body(..) -> Result<BodyId, Error>`; `Rgba::token(T).alpha(a)` (D19); `ColorToken::ACCENT`; `Appearance`; sizes `f32` (`font_size`, `row_height`, `density`, `set_font_size`) | — | U1a.2; U1b.3 (units); U2b.7 (alpha, accent) |
 | Frame / lifecycle | `Ui::new(&UiDesc) -> Result<Ui, Error>` with `UiDesc::new(Platform).font_size(f32).fonts(&[FontData])` and `UiDesc::DEFAULT`; one `frame(&FrameIn, build)`; `FrameIn::new(w, h)` with event wire fields and const builders, or `unsafe FrameIn::snapshot(&Input)` for a host's complete borrowed snapshot; `layer(i) -> Option<Layer>`, `layers() -> Layers`, `output() -> Output`; `focus_box(&Handle)` stays public for the registered command editor body, with `focused` crate-private and `enter`/`leave` internal to the engine and C ABI | — | U1a.3 |
 | Host integration | `Renderer::new -> Result<_, Error>`; `Ui::register_<kind>_body(..) -> Result<BodyId, Error>`; `A11yBridge::connect -> Option`; `Gpu`, `Pass`, `Commands`, `Input`, `Output`, `Platform`, `Bytes`; pxui_host `Graphics::open/draw/close`, `Accessibility::open`, `Platform::pump/apply` → `Result<_, Error>` | — | U1a.3 |
-| Diagnostics | `phase_times`, `phase_cpu_times`, `set_timing`, `repaint_after`, `wants_frame`, `library_counter` (D3), `verify_views` (D22) | — | HEAD; U1c.2 |
+| Diagnostics | `phase_times`, `phase_cpu_times`, `set_timing`, `repaint_after`, `wants_frame`, `library_counter` (D3), `verify_views` (D22: per `Ui`, on under `debug_assertions`; `verify_new_views` deleted) | — | HEAD; U1c.2 |
 | Getters | `keyboard()`, `environment()`, `text_traits()` (was `text_input_options`), `ime() -> Option<Ime>`, `platform()`, `now()`, `frame_index()`, `system_appearance() -> Appearance` | — | U1a.4 (appearance), U1b.2 |
 | Signals | `signal`, `signal_keys` → `Signal`: documented as the body/custom-control layer | — | HEAD |
 | Hover / press queries | `hovered(&Handle, within: bool) -> bool` replaces the `hovered_exactly`/`hovered_within` twin; `press_keys`, `last_press_within(&[Event], &[Key]) -> Option<Key>`, `context_at(&Handle) -> Option<Point>`, free `context_clicked` | — | U1b.2 |
 | Kept as HEAD (listed so the two-way check passes) | Build/retained: `set_at`, `to_front`, `node_layout`/`set_node_layout`, `node_mut` (made non-generic U1c.1), `cached_label`, `busy_step`, `set_dir`, `rtl`, `view_size() -> ViewSize` (width and height in logical points, U1b.3). Input/text: `captured`, `clipboard_request`, `paste_requested`, `passed_undo`, `text_input_focused`, `text_undo_bytes`, `unfocus`, `remember<K>(key, ..)` (key-first with `load_text_edit`, U1b.2), `event_text`, `dismiss_popup`. Frame/diagnostics: `request_frame`, `request_cursor`, `arranged_nodes`, `built_nodes`, `rebuilt_views`, `rebuilt_named`, `draw_calls`, `draw_revision`, `text_layout_count`, `verifying`, `abi_version`. A11y: `set_a11y`, `inject_a11y`. | — | HEAD unless noted |
 | Testing | `testing::{frame, click, click_node, key, find}` | — | U1a.4 |
-| Extension set (no stability) | `pxui::ext::{inspector_*, footer, line_field, value_field, grip, field_drag, inspector_width, inspector_label_x}` | through bodies | U1c.3 |
+| Extension set (no stability) | `pxui::ext::{inspector_*, footer, line_field, value_field, grip, field_drag, inspector_width, inspector_label_x}`: free functions taking the `Ui` first (`pxui::ext::inspector_toggle(ui, key, label, on)`); the inspector toggle and button are the toggle and button bodies' | through bodies | U1c.3 |
 | 2.0 additions | Error/diagnostics export and font list at create (C, U5.9); `pxui_supports` baseline (U5.8); surface registration (U5.2) | — | U5 |
 
 ## 2. Machine list
@@ -1595,6 +1595,22 @@ pxui::bodies::WindowConfig struct (_) @HEAD
 pxui::draw use pxui_types::draw @U1a.1
 pxui::event_text fn (event: &Event) -> &str @HEAD
 pxui::ext mod @U1c.3
+pxui::ext::field_drag fn (ui: &Ui, field: &Handle) -> Option<(f32, f32)> @U1c.3
+pxui::ext::footer fn (ui: &mut Ui, right: Option<&str>, hints: &[(&str, &str)]) @U1c.3
+pxui::ext::grip fn (ui: &mut Ui, label: Arguments<'_>, axis: Axis, rect: Option<Rect>) -> (Handle, Signal) @U1c.3
+pxui::ext::inspector_bar fn (ui: &mut Ui, hints: &[(&str, &str)], count: i64) @U1c.3
+pxui::ext::inspector_body fn (ui: &mut Ui, f: &mut dyn FnMut(&mut Ui)) @U1c.3
+pxui::ext::inspector_button fn (ui: &mut Ui, key: &str, label: &str) -> bool @U1c.3
+pxui::ext::inspector_header fn (ui: &mut Ui, key: &str, kind: Option<&str>, badge: Option<&str>, index: Option<&str>, rename: Option<Rc<dyn Fn(&str) -> bool>>, actions: &[HeadAction], reset: Option<&str>, reset_enabled: bool, title: &str, detail: &str) -> Head @U1c.3
+pxui::ext::inspector_label_x fn (ui: &Ui) -> f32 @U1c.3
+pxui::ext::inspector_message fn (ui: &mut Ui, key: &str, message: &str) @U1c.3
+pxui::ext::inspector_readout fn (ui: &mut Ui, width: Option<f32>, key: &str, label: &str, value: &str) @U1c.3
+pxui::ext::inspector_row fn (ui: &mut Ui, width: Option<f32>, pin: Option<bool>, key: &str, label: &str) -> (Handle, f32, f32, f32) @U1c.3
+pxui::ext::inspector_section fn (ui: &mut Ui, key: &str, expanded: bool, set_expanded: Option<bool>, label: &str, build: &mut dyn FnMut(&mut Ui)) -> bool @U1c.3
+pxui::ext::inspector_toggle fn (ui: &mut Ui, key: &str, label: &str, value: bool) -> bool @U1c.3
+pxui::ext::inspector_width fn (ui: &Ui) -> f32 @U1c.3
+pxui::ext::line_field fn <'a, K: Into<Key>>(ui: &'a mut Ui, key: K, value: &str, rect: Rect, field: &LineField<'_>) -> LineFieldResponse<'a> @U1c.3
+pxui::ext::value_field fn <'a, K: Into<Key>>(ui: &'a mut Ui, key: K, value: &str, rect: Rect, field: &ValueField<'_>, callbacks: &ValueCallbacks<'_>) -> ValueFieldResponse<'a> @U1c.3
 pxui::geom use pxui_types::geom @U1a.1
 pxui::guide mod @U1a.1
 pxui::hash_of fn <T: Hash + ?Sized>(value: &T) -> u64 @HEAD
