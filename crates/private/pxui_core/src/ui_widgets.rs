@@ -84,7 +84,7 @@ const STOP_FLAGS: Flags = Flags::CLICKABLE.or(Flags::FOCUSABLE).or(Flags::BLOCKI
 pub(crate) fn default_dialog(this: &mut Ui, title: &str, buttons: &[DialogButton], content: &mut dyn FnMut(&mut Ui)) {
     let t = this.theme();
     let (bar, invalid) = (t.dialog.idle, t.tokens.invalid);
-    let rh = this.row_height() as f32;
+    let rh = this.row_px() as f32;
     let head = this.part(Part::TITLE, Node { h: Size::Px(rh + 8.0), look: bar, inset: Edges { l: this.space(2), ..Edges::ZERO }, ..Node::DEFAULT });
     this.text(&head, shown(title));
     content(this);
@@ -101,7 +101,7 @@ pub(crate) fn default_dialog(this: &mut Ui, title: &str, buttons: &[DialogButton
 
 /// The built-in toast: a row-and-a-half high box in the toast look, text 12 points in.
 pub(crate) fn default_toast(this: &mut Ui, c: &ToastConfig, text: &str) {
-    let (states, rh, side) = (this.theme().toast, this.row_height() as f32, this.space(2));
+    let (states, rh, side) = (this.theme().toast, this.row_px() as f32, this.space(2));
     let n = this.node_new(&c.node);
     (n.h, n.inset) = (Size::Px(rh + 12.0), Edges { l: side, r: side, ..Edges::ZERO });
     this.style(&c.node, &states, c.state);
@@ -133,7 +133,7 @@ pub(crate) fn default_table_head(this: &mut Ui, c: &TableHeadConfig, title: &str
     let chevron = this.theme().chevron.idle;
     let look = *this.theme().column.pick(c.state);
     this.set_look(&c.node, look, c.state);
-    let rh = this.row_height() as f32;
+    let rh = this.row_px() as f32;
     this.text_leaf(int_key(c.node.box_key, 0), rh, look, title);
     if let Some(ascending) = c.ascending {
         let m = this.node("sort".into(), Node { w: Size::Px(6.0), h: Size::Grow, look: chevron, ..Node::DEFAULT });
@@ -338,7 +338,7 @@ impl Ui {
 
     /// A text row's text: a row-high label in the look of `item`, which it returns (the C text-row exports' row; it names nothing).
     pub fn row_text(&mut self, text: &str) -> Handle {
-        let (n, rh) = (self.bodies.item, self.row_height() as f32);
+        let (n, rh) = (self.bodies.item, self.row_px() as f32);
         let look = self.node_mut(&n).look;
         self.text_leaf(int_key(n.box_key, 1), rh, look, text);
         n
@@ -346,7 +346,7 @@ impl Ui {
 
     /// A table cell's text: the cell (the node being built into) is named by it, and it is a row-high label in the look of `item`.
     pub fn cell_text(&mut self, text: &str) {
-        let (c, row, rh) = (self.entered(), self.bodies.item, self.row_height() as f32);
+        let (c, row, rh) = (self.entered(), self.bodies.item, self.row_px() as f32);
         self.a11y_name(&c, text);
         let look = text_only(&self.node_mut(&row).look);
         self.text_leaf(int_key(c.box_key, 0), rh, look, text);
@@ -361,14 +361,14 @@ impl Ui {
 
     /// A kit row `rh` high laid out as a row: `space(2)` in from both ends, children centred, 8 apart.
     fn kit_line(&mut self, key: i64, flags: Flags, role: Role) -> Handle {
-        let rh = self.row_height() as f32;
+        let rh = self.row_px() as f32;
         let side = self.space(2);
         self.node_keyed(key, Node { flags, h: Size::Px(rh), axis: Axis::Row, align: Align::Center, padding: Edges { l: side, r: side, ..Edges::ZERO }, gap: self.space(1), role, ..Node::DEFAULT })
     }
 
     /// A text leaf as wide as its text, `h` high, in `look`'s text.
     fn text_leaf(&mut self, key: i64, h: f32, look: Look, text: &str) -> Handle {
-        let w = self.text_width(Some(look.font.points(self.font_size())), text);
+        let w = self.text_width(Some(crate::ui_core::font_px(&look.font, self.font_px())), text);
         let n = self.node_keyed(key, Node { w: Size::Px(w.max(1.0)), h: Size::Px(h), shrink: 1.0, flags: Flags::FIT_TEXT, look: text_only(&look), ..Node::DEFAULT });
         self.text(&n, text);
         n
@@ -626,7 +626,7 @@ impl Ui {
         let variant = choice.variant;
         if variant != 0 { self.set_variant(BodyKind::tabs as u32, variant); }
         let name = choice.name;
-        let rh = self.row_height() as f32;
+        let rh = self.row_px() as f32;
         let bar_look = self.theme().header.idle;
         let body = body_of!(self, tabs);
         let bar = self.node_ref(key, &Node { flags: Flags::FOCUSABLE | Flags::TAB_ONLY, h: Size::Px(rh), axis: Axis::Row, padding: Edges { l: self.space(2), r: self.space(2), ..Edges::ZERO }, gap: self.space(2), look: bar_look, role: Role::TabList, ..Node::DEFAULT });
@@ -704,7 +704,7 @@ impl Ui {
         let unique = self.unique_key_repeated(key_of(self.current_seed(), key));
         let key = unique.0;
         let ch = opts.h.filter(|h| *h > 0.0).unwrap_or_else(|| self.control_h());
-        let rh = self.row_height() as f32;
+        let rh = self.row_px() as f32;
         let (side, gap) = (self.space(2), self.space(1));
         let line = self.node_unique(unique, &Node { flags: Flags::NONE, h: Size::Px(rh.max(ch)), axis: Axis::Row, align: Align::Center, padding: Edges { l: side, r: side, ..Edges::ZERO }, gap, role: Role::Unknown, ..Node::DEFAULT });
         let body = body_of!(self, segmented);
@@ -778,7 +778,7 @@ impl Ui {
         let t = self.theme();
         let sheet = t.popup.idle;
         let body = body_of!(self, menu_item);
-        let rh = self.row_height() as f32;
+        let rh = self.row_px() as f32;
         let place = Placement { side: Side::Below, align: Along::Start, gap: 2.0, margin: 4.0, flip: true };
         let mut picked = None;
         let menu = self.anchored_label("menu", anchor, place, Size::Px(width), Size::Fit, &mut |ui| {
@@ -822,7 +822,7 @@ impl Ui {
         if variant != 0 { self.set_variant(BodyKind::dropdown as u32, variant); }
         let key = key_of(self.current_seed(), key);
         let row = self.kit_line(key, Flags::NONE, Role::Unknown);
-        let rh = self.row_height() as f32;
+        let rh = self.row_px() as f32;
         let ch = self.control_h();
         let t = self.theme();
         let label_look = t.row.idle;
@@ -890,7 +890,7 @@ impl Ui {
     /// `menu_bar`, also reporting a dismissal: a menu open when the frame began closed without a pick (Escape, a press outside, or
     /// its title clicked again).
     pub fn menu_bar_result<'a>(&mut self, label: &str, count: usize, entry: &dyn Fn(usize) -> (&'a str, usize), item: &dyn Fn(usize, usize) -> &'a str) -> (Option<(usize, usize)>, bool) {
-        let rh = self.row_height() as f32;
+        let rh = self.row_px() as f32;
         let t = self.theme();
         let bar_look = t.menubar.idle;
         let body = body_of!(self, menu_bar);
@@ -977,7 +977,7 @@ impl Ui {
     pub fn scroll_view(&mut self, label: &str, w: Size, h: Size, f: &mut dyn FnMut(&mut Ui)) -> Handle {
         let bar = self.thumb();
         let look = self.theme().scroll_view.idle;
-        let rh = self.row_height() as f32;
+        let rh = self.row_px() as f32;
         let n = self.node_ref(label, &Node { flags: Flags::SCROLL | Flags::SCROLL_X | Flags::CLIP | Flags::BLOCKING, w, h, look, bar: Some(bar).into(), scroll_step: rh, padding: Edges::all(1.0), role: Role::ScrollArea, ..Node::DEFAULT });
         in_body!(self, n.box_key, n, scroll_view, default_scroll(&ScrollConfig { node: n }, f));
         n
@@ -985,7 +985,7 @@ impl Ui {
 
     /// The row being built by `ui.list`: its kit row look on a clickable child that fills it.
     fn virtual_row(&mut self, states: &States, checked: bool, cursor: bool, inset: f32, role: Role, a11y: u32) -> (Handle, Signal, State) {
-        let rh = self.row_height() as f32;
+        let rh = self.row_px() as f32;
         if let Some(row) = self.box_of_key(self.current_seed()) {
             self.set_role(&row, Role::Unknown, 0);
         }
@@ -1015,7 +1015,7 @@ impl Ui {
 
     /// Keep row `row` of the virtual list `body` in view.
     fn reveal_row(&mut self, body: &Handle, row: usize) {
-        let rh = self.row_height() as f32;
+        let rh = self.row_px() as f32;
         let (top, h) = (self.scroll_offset(body), self.rect(body).h);
         let y = row as f32 * rh;
         if y < top {
@@ -1040,7 +1040,7 @@ impl Ui {
 
     fn list_view(&mut self, label: &str, count: usize, multi: bool, selected: &mut [u8], cell: &mut dyn FnMut(&mut Ui, usize)) -> Option<usize> {
         let count = count.min(selected.len());
-        let rh = self.row_height() as f32;
+        let rh = self.row_px() as f32;
         let frame = self.node_ref(label, &Node { flags: Flags::FOCUSABLE | Flags::CLIP, w: Size::Grow, h: Size::Grow, look: self.theme().scroll_view.idle, padding: Edges::all(1.0), ..Node::DEFAULT });
         let s = self.signal_owned(&frame);
         let focused = self.focused(&frame);
@@ -1128,7 +1128,7 @@ impl Ui {
             count
         };
         let mut rows_shown = flatten(visible, open);
-        let rh = self.row_height() as f32;
+        let rh = self.row_px() as f32;
         let frame = self.node_ref(label, &Node { flags: Flags::FOCUSABLE | Flags::CLIP, w: Size::Grow, h: Size::Grow, look: self.theme().scroll_view.idle, padding: Edges::all(1.0), ..Node::DEFAULT });
         let s = self.signal_owned(&frame);
         let focused = self.focused(&frame);
@@ -1401,7 +1401,7 @@ impl Ui {
 // Method bodies outside `impl` blocks: each module is its own codegen unit, so the big bodies
 // compile in parallel with the rest of the crate (rustc places methods with their type).
 fn table_view_body(this: &mut Ui, label: &str, titles: &[&str], widths: &mut [f32], rows: usize, sort: Option<(usize, bool)>, selected: &mut Option<usize>, cell: &mut dyn FnMut(&mut Ui, usize, usize)) -> Option<usize> {
-    let rh = this.row_height() as f32;
+    let rh = this.row_px() as f32;
     let columns = titles.len().min(widths.len());
     let t = this.theme();
     let (frame_look, head_look, states) = (t.scroll_view.idle, t.table_head.idle, t.listbox);
@@ -1518,7 +1518,7 @@ fn search_field_body(this: &mut Ui, label: &str, icon: &str, value: &str, placeh
         ui.node_mut(&field).look = Look { text: if current.is_empty() { hint.text } else { look.text }, ..text_only(&look) };
         match edit {
             Some(edit) => {
-                let font_size = ui.font_size();
+                let font_size = ui.font_px();
                 let marks = Some((look.selection, look.caret));
                 let composition = ui.composition().to_owned();
                 ui.canvas(&field, move |paint, rect| {
@@ -1576,7 +1576,7 @@ pub(crate) fn default_spinner(this: &mut Ui, c: &SpinnerConfig, _label: &str) {
 /// The built-in badge: the text in the badge look on a 16-point pill as wide as the text and 4 points either side.
 pub(crate) fn default_badge(this: &mut Ui, c: &BadgeConfig, _label: &str, text: &str) {
     let look = this.theme().badge.idle;
-    let w = this.text_width(Some(look.font.points(this.font_size())), text) + 8.0;
+    let w = this.text_width(Some(crate::ui_core::font_px(&look.font, this.font_px())), text) + 8.0;
     let n = this.node_new(&c.node);
     (n.w, n.h, n.look, n.inset) = (Size::Px(w), Size::Px(16.0), look, Edges { l: 4.0, ..Edges::ZERO });
     this.text(&c.node, text);
@@ -1692,7 +1692,7 @@ fn check_parts(this: &mut Ui, c: &CheckConfig, text: &str, round: bool) {
     let t = this.theme();
     let (states, inner, label) = (if round { t.radio } else { t.checkbox }, if round { t.notice.idle } else { t.mark.idle }, *t.toggle.pick(State { hovered, ..State::default() }));
     this.set_look(&c.row, Look { text: Rgba::CLEAR, ..label }, State { hovered, ..State::default() });
-    let rh = this.row_height() as f32;
+    let rh = this.row_px() as f32;
     let bx = this.node_keyed(int_key(c.row.box_key, 0), Node { w: Size::Px(12.0), h: Size::Px(12.0), padding: Edges::all(3.0), ..Node::DEFAULT });
     this.style(&bx, &states, State { hovered, pressed: held, checked: on, ..State::default() });
     if on {
@@ -1706,7 +1706,7 @@ fn check_parts(this: &mut Ui, c: &CheckConfig, text: &str, round: bool) {
 /// The built-in progress row: the label, then a 4-point track holding the bar.
 pub(crate) fn default_progress(this: &mut Ui, c: &ProgressConfig, label: &str) {
     let (track_look, bar, label_look) = (this.theme().progress.idle, this.theme().mark.idle, this.theme().row.idle);
-    let rh = this.row_height() as f32;
+    let rh = this.row_px() as f32;
     this.text_leaf(int_key(c.row.box_key, 1), rh, label_look, shown(label));
     let track = this.part(Part::TRACK, Node { flags: Flags::CLIP, h: Size::Px(4.0), look: track_look, role: Role::Progress, ..Node::DEFAULT });
     let inner = this.enter(&track);
@@ -1744,7 +1744,7 @@ fn slider_body(this: &mut Ui, key: &str, text: &str, value: f32, range: RangeInc
     let span = (hi - lo).max(f32::MIN_POSITIVE);
     let key = key_of(this.current_seed(), key);
     let row = this.kit_line(key, Flags::NONE, Role::Unknown);
-    let rh = this.row_height() as f32;
+    let rh = this.row_px() as f32;
     let ch = this.control_h();
     let label_look = this.theme().row.idle;
     let saved = this.enter(&row);

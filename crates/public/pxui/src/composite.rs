@@ -86,7 +86,7 @@ impl Ui {
         #[cfg(not(feature = "static"))]
         let rc = {
             // the options a panel usually has are written as they are; each optional part only when it is there
-            let mut panel = PxuiPanel { x: overlay.at.0, y: overlay.at.1, width: overlay.w.unwrap_or(280.0), padding: overlay.padding as i64, window: overlay.window as u8, ..PxuiPanel::default() };
+            let mut panel = PxuiPanel { x: overlay.at.0, y: overlay.at.1, width: overlay.w.unwrap_or(280.0), padding_points: overlay.padding, padding: if overlay.padding.is_finite() && overlay.padding >= 0.0 { overlay.padding.round() as i64 } else { -1 }, window: overlay.window as u8, ..PxuiPanel::default() };
             if let Some(height) = overlay.h { (panel.has_height, panel.height) = (1, height); }
             if let Some(height) = overlay.max_h { (panel.has_max_height, panel.max_height) = (1, height); }
             if let Some(stroke) = overlay.stroke { (panel.has_stroke, panel.stroke) = (1, stroke); }

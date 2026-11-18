@@ -140,7 +140,7 @@ const MENU: Menu = Menu::DEFAULT.row_h(36.0);
 const BUTTONS: [DialogButton; 2] = [DialogButton::new("Cancel").cancel(), DialogButton::new("Delete").primary().danger()];
 let (mut chosen, mut confirmed) = (None, None);
 pxui::doc::frames(2, &mut |ui| {
-    chosen = ui.menu("song-menu", (10.0, 10.0), &ITEMS, &MENU).chosen;
+    chosen = ui.menu("song-menu", pxui::Point::new(10.0, 10.0), &ITEMS, &MENU).chosen;
     confirmed = ui.dialog("delete", "Delete song", &BUTTONS, &Dialog::DEFAULT, &mut |ui: &mut pxui::Ui| {
         ui.label("This cannot be undone.", Label::BODY);
     }).chosen;

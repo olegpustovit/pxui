@@ -169,7 +169,7 @@ pub fn window_pxui_keyboard() {
     let mut menu = Chosen::default();
     let mut background = false;
     let mut popup = |ui: &mut Ui| {
-        menu = ui.menu("menu".into(), (100.0, 100.0), &ITEMS, &Menu::DEFAULT);
+        menu = ui.menu("menu".into(), pxui_types::geom::Point::new(100.0, 100.0), &ITEMS, &Menu::DEFAULT);
         ui.panel("background", &pxui_core::ui::Overlay::DEFAULT.name("background"), &mut |ui| background = ui.button("Background"));
     };
     ui.frame(&keyboard_frame(vec![], vec![]), &mut popup);
@@ -692,7 +692,7 @@ fn menu_padding_name_and_the_current_choice() {
     let mut ui = new_ui(None);
     ui.set_a11y(true);
     let seen = |ui: &mut Ui, menu: Menu<'static>| {
-        for _ in 0..2 { ui.frame(&frame_at(vec![], 1.0, 0.0, vec![]), &mut |ui| { ui.menu("sizes".into(), (20.0, 20.0), &ITEMS, &menu); }); }
+        for _ in 0..2 { ui.frame(&frame_at(vec![], 1.0, 0.0, vec![]), &mut |ui| { ui.menu("sizes".into(), pxui_types::geom::Point::new(20.0, 20.0), &ITEMS, &menu); }); }
         let tree = ui.output().a11y;
         let sheet = *tree.nodes.iter().find(|n| n.role == Role::Menu).expect("the sheet");
         let row = |name: &str| *tree.nodes.iter().find(|n| n.role == Role::MenuItem && tree.str(n.name) == name).expect("a row");

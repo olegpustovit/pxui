@@ -1452,7 +1452,7 @@ pub fn context_menu_bar_body() {
     let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.menu_row = id, &|ui| ui.register_menu_row_body("bar", bar_row));
     const ITEMS: [MenuItem; 3] = [MenuItem::new("Alpha").checked(true), MenuItem::new("Beta").checked(false).shortcut("Ctrl B"), MenuItem::new("Gamma").enabled(false).danger()];
     let got = swap_root("context_menu", &install, 0, true, &|ui| click_on(ui, Role::MenuItem, "Beta"), &|ui, c| {
-        if let Some(i) = ui.menu("menu".into(), (20.0, 20.0), &ITEMS, &Menu::DEFAULT).chosen {
+        if let Some(i) = ui.menu("menu".into(), pxui_types::geom::Point::new(20.0, 20.0), &ITEMS, &Menu::DEFAULT).chosen {
             c.a.set(i as i64 + 1);
         }
     });

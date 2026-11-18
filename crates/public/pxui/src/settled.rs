@@ -64,7 +64,7 @@ fn engine_shaped(ui: &mut Ui, s: &mut State) {
         p.fill(Rect::new(origin, 0.0, 8.0, 8.0), Fill::new(Rgba { r: 9, g: 9, b: 9, a: 255 }));
         p.line((0.0, 0.0), (20.0, 9.0), Stroke::new(Rgba { r: 1, g: 2, b: 3, a: 255 }).width(1.5));
         p.circle((30.0, 10.0), 4.0, Some(Fill::new(Rgba { r: 7, g: 7, b: 7, a: 255 })), None);
-        p.text((2.0, 12.0), &Label::BODY, 0.0, "span");
+        p.text(crate::Point::new(2.0, 12.0), Label::BODY, 0.0, "span");
         p.fill(Rect::new(40.0, 0.0, 8.0, 8.0), Fill::new(Rgba { r: 9, g: 9, b: 9, a: 255 }));
     });
     s.seen += ui.selection_list("items", 3, &mut [0; 3], &crate::SelectionList::DEFAULT, &mut |ui, row| ui.item_text(["one", "two", "three"][row])).activated.is_some() as u64;

@@ -983,9 +983,14 @@ fn lay_out_spans(t:&mut Text,style:&Style,width:f32,text:&str,spans:&[TextSpan])
     t.layout_spans(key,text,style,width,spans).map(|metrics|(key,metrics))
 }
 
-fn plain_style(look:&Look,size:i64,flags:Flags)->Style {
-    Style {font:look.font.family,size:size as f32,weight:look.font.weight,
-        tracking:look.font.tracking*size as f32,
+/// `points` rounded half away from zero to whole points, at least 1: the integer kit's view of a fractional size.
+pub(crate) fn round_points(points: f32) -> i64 {
+    (points.round() as i64).max(1)
+}
+
+fn plain_style(look:&Look,size:f32,flags:Flags)->Style {
+    Style {font:look.font.family,size,weight:look.font.weight,
+        tracking:look.font.tracking*size,
         ellipsis:if flags.any(Flags::FIT_TEXT) {pxui_text::Ellipsis::End} else {pxui_text::Ellipsis::None},
         ..Style::default()}
 }
@@ -993,6 +998,16 @@ fn plain_style(look:&Look,size:i64,flags:Flags)->Style {
 /// Kit text: the UI face (font 0) at `size` points with `tracking` points after every glyph.
 pub fn kit_style(size: i64, tracking: f32) -> Style {
     Style { size: size as f32, tracking, ..Style::default() }
+}
+
+/// The top of text `size` points tall centred (floored) in a row at `y` of height `h`: `text_top_for` with a fractional size.
+pub(crate) fn text_top_at(size: f32, y: f32, h: f32) -> f32 {
+    y + ((h - size) / 2.0).floor()
+}
+
+/// `font` at the integer kit's whole points, for a body of `body` whole points.
+pub(crate) fn font_px(font: &Font, body: i64) -> i64 {
+    round_points(font.points(body as f32))
 }
 
 /// Lay `text` out (a cache hit when unchanged) and return its key and metrics.
@@ -1041,6 +1056,8 @@ pub struct Ui {
     theme_colors: Option<Palette>,
     theme_reduced_motion:bool,
     font_size: i64,
+    /// The body size exactly as created or set (`font_size` is it rounded, for the integer kit and the 1.x C getters).
+    font_points: f32,
     platform: Platform,
     /// the text engine; `Paint` holds it while a frame paints
     text: Option<Text>,
@@ -1115,6 +1132,8 @@ pub struct Ui {
     frame_number: i64,
     density: i64,
     kit_row_height: i64,
+    /// The kit row exactly (`kit_row_height` is it rounded): the theme's row in a frame, `font_points + 11` (at least 24) between.
+    row_points: f32,
     closed_section: usize,
     kit_window: bool,
     // input
@@ -1305,10 +1324,11 @@ impl Ui {
     /// `platform` is the host's modifier conventions: the text keys and every Command check follow
     /// it. `text` holds the fonts the host loaded: font 0 is the kit face (`pxui_text::PRAGMASEVKA`
     /// in the default theme); `font_size` is the logical size of kit text.
-    pub fn create(platform: Platform, font_size: Option<i64>, mut text: Text) -> Ui {
+    pub fn create(platform: Platform, font_points: Option<f32>, mut text: Text) -> Ui {
         text.set_apple_raster(platform == Platform::Apple);
-        let font_size = font_size.unwrap_or(theme::FONT_SIZE);
-        if font_size <= 0 {
+        let font_points = font_points.unwrap_or(theme::FONT_SIZE as f32);
+        let font_size = round_points(font_points);
+        if !(font_points.is_finite() && font_points > 0.0) {
             panic!("Ui.create: font_size must be positive");
         }
         Ui {
@@ -1332,6 +1352,7 @@ impl Ui {
             theme_colors: None,
             theme_reduced_motion:false,
             font_size,
+            font_points,
             platform,
             text: Some(text),
             table: SlotTable::create(),
@@ -1384,6 +1405,7 @@ impl Ui {
             frame_number: 0,
             density: 1,
             kit_row_height: 24,
+            row_points: 24.0,
             closed_section: NONE,
             kit_window: false,
             pointer: (f32::NAN, f32::NAN),
@@ -1773,21 +1795,30 @@ impl Ui {
         self.theme_id & DISABLED_ID != 0
     }
 
-    pub fn font_size(&self) -> i64 {
+    /// The body size exactly as created or set, fractions kept.
+    pub fn font_size(&self) -> f32 {
+        self.font_points
+    }
+
+    /// The body size rounded to whole points: what the integer kit measures and the 1.x C getter reports.
+    pub fn font_px(&self) -> i64 {
         self.font_size
     }
 
     /// The kit text size from the next frame on, and the row height with it (`max 24 (size + 11)`).
     /// Call it between frames, never inside `frame`.
-    pub fn set_font_size(&mut self, size: i64) {
-        if size <= 0 {
+    pub fn set_font_size(&mut self, points: f32) {
+        if !(points.is_finite() && points > 0.0) {
             panic!("Ui.set_font_size: size must be positive");
         }
-        if size != self.font_size {
+        if points != self.font_points {
             self.epoch += 1;
         }
+        let size = round_points(points);
+        self.font_points = points;
         self.font_size = size;
         self.kit_row_height = 24.max(size + 11);
+        self.row_points = (points + 11.0).max(24.0);
     }
 
     /// The most recently completed frame.
@@ -2246,7 +2277,13 @@ impl Ui {
     /// Cumulative text layout misses. None while the painter temporarily owns the text service.
     pub fn text_layout_count(&self) -> Option<u64> { self.text.as_ref().map(Text::layout_count) }
 
-    pub fn row_height(&self) -> i64 {
+    /// The kit row height exactly, fractions kept.
+    pub fn row_height(&self) -> f32 {
+        self.row_points
+    }
+
+    /// The kit row height in whole points, as the integer kit lays it out.
+    pub fn row_px(&self) -> i64 {
         self.kit_row_height
     }
 
@@ -4270,7 +4307,7 @@ impl Ui {
             // a Fit width is the text's: any text, not only pixel-fitted or line-box text (else it collapsed to 0)
             let has_text=rich.is_some() || !self.slots[slot].text.is_empty();
             if (line_box && (matches!(n.w,Size::Fit) || matches!(n.h,Size::Fit))) || ((pixel || has_text) && matches!(n.w,Size::Fit)) {
-                let style=rich.map_or_else(||plain_style(&n.look,n.look.font.points(self.font_size),n.flags),|r|r.style(n,self.dir==Direction::Rtl));
+                let style=rich.map_or_else(||plain_style(&n.look,n.look.font.points(self.font_points),n.flags),|r|r.style(n,self.dir==Direction::Rtl));
                 let inset=n.inset;
                 let stored=&self.slots[slot];
                 let value=if rich.is_none() && n.look.font.caps {
@@ -4848,7 +4885,7 @@ impl Ui {
             return if top_known { n.padding.t + self.nd(f).margin.t + self.baseline(f) } else { h };
         }
         let (look, inset) = (self.slots[slot].node.look, self.slots[slot].node.inset);
-        let size = look.font.points(self.font_size);
+        let size = look.font.points(self.font_points);
         let stored=&self.slots[slot];
         let flags=stored.node.flags;
         let pixel=flags.any(Flags::FIT_TEXT_PIXEL);
@@ -4862,7 +4899,7 @@ impl Ui {
         let m=if let Some(rich)=rich {lay_out_node(text,&stored.text_layout,flags,&rich.style(&stored.node,self.dir==Direction::Rtl),self.l_w[c]-inset.l-inset.r,value,rich.spans(),ahead).unwrap().1}
             else {lay_out_node(text,&stored.text_layout,flags,&style,0.0,value,&[],ahead).unwrap().1};
         if let Some(rich)=rich.filter(|r|r.line_box) { return rich.line_box_baseline(inset.t,h-inset.t-inset.b,m); }
-        let top=rich.map_or_else(||text_top_for(self.font_size,Some(size),inset.t,h-inset.t-inset.b),|r|r.top(inset.t,h-inset.t-inset.b,m));
+        let top=rich.map_or_else(||text_top_at(size,inset.t,h-inset.t-inset.b),|r|r.top(inset.t,h-inset.t-inset.b,m));
         top+m.baseline
     }
 
@@ -5352,7 +5389,7 @@ impl Paint {
     /// against this painter's theme (`label_look`, its rows and colour tokens); the label's box fields (width, pad) do not apply.
     /// `None`, drawing nothing, when the style does not resolve.
     pub fn label(&mut self, at: (f32, f32), label: &pxui_types::text::LabelFields, width: f32, text: &str) -> Option<Metrics> {
-        let resolved = crate::ui_kit::resolve_label(label, &self.label_look, self.font_size, self.row_height as f32, label.color.map(|t| self.color(t.0)))?;
+        let resolved = crate::ui_kit::resolve_label(label, &self.label_look, self.font_size as f32, self.row_height as f32, label.color.map(|t| self.color(t.0)))?;
         if !resolved.caps { return Some(self.text_styled(at, &resolved.style, width, Some(resolved.color), text)); }
         let mut buffer = core::mem::take(&mut self.label);
         buffer.clear();
@@ -5364,8 +5401,33 @@ impl Paint {
 
     /// `text` in `label` one cached character layout at a time, digits on the advance of `0`, resolved as `label`; the width drawn.
     pub fn label_chars(&mut self, at: (f32, f32), label: &pxui_types::text::LabelFields, text: &str) -> Option<f32> {
-        let resolved = crate::ui_kit::resolve_label(label, &self.label_look, self.font_size, self.row_height as f32, label.color.map(|t| self.color(t.0)))?;
+        let resolved = crate::ui_kit::resolve_label(label, &self.label_look, self.font_size as f32, self.row_height as f32, label.color.map(|t| self.color(t.0)))?;
         Some(self.chars(at, &resolved.style, Some(resolved.color), resolved.caps, text))
+    }
+
+    /// `text` laid out in `label` within `width` (0: unbounded) with `spans`, as `label` resolves and draws it (capitals included),
+    /// without drawing: the painter's text service measures what this painter paints. `None` when the style or spans do not resolve.
+    pub fn label_metrics(&mut self, label: &pxui_types::text::LabelFields, width: f32, text: &str, spans: &[TextSpan]) -> Option<Metrics> {
+        let resolved = crate::ui_kit::resolve_label(label, &self.label_look, self.font_size as f32, self.row_height as f32, label.color.map(|t| self.color(t.0)))?;
+        let mut buffer = core::mem::take(&mut self.label);
+        buffer.clear();
+        if resolved.caps { buffer.extend(text.chars().map(|c| c.to_ascii_uppercase())); }
+        let value = if resolved.caps { buffer.as_str() } else { text };
+        let laid = lay_out_spans(&mut self.text, &resolved.style, width, value, spans).map(|(_, m)| m);
+        self.label = buffer;
+        laid
+    }
+
+    /// `text` in `label` with `spans` at `at`, laid out within `width`, resolved as `label` resolves it; the metrics drawn.
+    pub fn label_spans(&mut self, at: (f32, f32), label: &pxui_types::text::LabelFields, width: f32, text: &str, spans: &[TextSpan]) -> Option<Metrics> {
+        let resolved = crate::ui_kit::resolve_label(label, &self.label_look, self.font_size as f32, self.row_height as f32, label.color.map(|t| self.color(t.0)))?;
+        if !resolved.caps { return self.text_spans(at, &resolved.style, width, Some(resolved.color), text, spans); }
+        let mut buffer = core::mem::take(&mut self.label);
+        buffer.clear();
+        buffer.extend(text.chars().map(|c| c.to_ascii_uppercase()));
+        let m = self.text_spans(at, &resolved.style, width, Some(resolved.color), &buffer, spans);
+        self.label = buffer;
+        m
     }
 
     /// Draws `text` one character at a time from one-character layouts in `style` (capitals when `caps`), digits on the advance of
@@ -5435,9 +5497,9 @@ impl Paint {
             return;
         }
         let look = &node.look;
-        let size = look.font.points(self.font_size);
+        let size = look.font.points(self.font_size as f32);
         let style = if node.flags.any(Flags::FIT_TEXT_PIXEL) { plain_style(look, size, node.flags) }
-            else { Style { font: look.font.family, size: size as f32, weight: look.font.weight, tracking: look.font.tracking * size as f32, ..Style::default() } };
+            else { Style { font: look.font.family, size, weight: look.font.weight, tracking: look.font.tracking * size, ..Style::default() } };
         let mut buffer = std::mem::take(&mut self.label);
         buffer.clear();
         if look.font.caps { buffer.extend(text.chars().map(|c| c.to_ascii_uppercase())); }
@@ -5522,7 +5584,7 @@ impl Paint {
                 self.text_laid(at,below,&style,Some(look.text),key,metrics,o,!spans.is_empty());
             }
         } else if !text.is_empty() && node.flags.any(Flags::FIT_TEXT_PIXEL) {
-            let size=look.font.points(self.font_size);
+            let size=look.font.points(self.font_size as f32);
             let style=plain_style(look,size,node.flags);
             let inset=node.inset;
             let mut buffer=std::mem::take(&mut self.label);
@@ -5534,15 +5596,15 @@ impl Paint {
             if node.flags.any(Flags::FIT_TEXT) && metrics.w>limit {
                 (key,metrics)=lay_out_node(&mut self.text,memo,node.flags,&style,limit,value,&[],self.ahead).unwrap();
             }
-            let at=(if self.rtl {x+w-inset.l-metrics.w} else {x+inset.l},text_top_for(self.font_size,Some(size),y+inset.t,h-inset.t-inset.b));
+            let at=(if self.rtl {x+w-inset.l-metrics.w} else {x+inset.l},text_top_at(size,y+inset.t,h-inset.t-inset.b));
             let below=self.text.ascent(style.font)*style.size;
             self.text_laid(at,below,&style,Some(fade(look.text)),key,metrics,1.0,false);
             self.label=buffer;
         } else if !text.is_empty() {
-            let size = look.font.points(self.font_size);
+            let size = look.font.points(self.font_size as f32);
             let inset = node.inset;
-            let at = (x + inset.l, text_top_for(self.font_size, Some(size), y + inset.t, h - inset.t - inset.b));
-            let style = Style { font: look.font.family, size: size as f32, weight: look.font.weight, tracking: look.font.tracking * size as f32, ..Style::default() };
+            let at = (x + inset.l, text_top_at(size, y + inset.t, h - inset.t - inset.b));
+            let style = Style { font: look.font.family, size, weight: look.font.weight, tracking: look.font.tracking * size, ..Style::default() };
             let ink = Some(fade(look.text));
             let mut buffer = std::mem::take(&mut self.label);
             buffer.clear();
@@ -6612,7 +6674,8 @@ impl Ui {
         }
         self.density = density;
         // outside a panel the kit row is the theme's row (a panel sets its own while it builds)
-        self.kit_row_height = (self.theme.row_h * self.theme.tokens.density).round() as i64;
+        self.row_points = self.theme.row_h * self.theme.tokens.density;
+        self.kit_row_height = self.row_points.round() as i64;
         self.frame_number += 1;
         // a request made between frames is this frame; one made while building is the next
         self.frame_requested = false;
@@ -8616,6 +8679,7 @@ impl Ui {
 
     pub(crate) fn set_kit_row_height(&mut self, height: i64) {
         self.kit_row_height = height;
+        self.row_points = height as f32;
     }
 
     pub(crate) fn closed_section_index(&self) -> usize {

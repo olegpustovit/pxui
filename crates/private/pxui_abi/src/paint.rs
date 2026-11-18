@@ -164,6 +164,27 @@ export!(pub unsafe fn pxui_paint_span(p: *mut PxuiPaint, at_least: usize, span: 
 });
 
 
+// ABI 1.78: `text` in a label style resolved against this painter's theme (as `pxui_paint_label` resolves it, capitals included),
+// laid out within `max_width` (0: unbounded) with `spans` (null: none), measured without drawing. PXUI_ERR_ARGUMENT, `out` untouched,
+// for a null painter or output, a non-finite width, invalid text, style or spans, or a style that does not resolve.
+export!(pub unsafe fn pxui_paint_label_measure(p:*mut PxuiPaint,text:Str,style:*const pxui_types::ffi::PxuiLabelStyle,max_width:f32,spans:*const pxui_types::TextSpans,out:*mut TextMetrics)->i32 {
+    if !max_width.is_finite() || out.is_null() { return PXUI_ERR_ARGUMENT; }
+    let (Some(p),Some((label,_)),Some(text))=(unsafe { value(p) },crate::ui::label_style(style),unsafe { string(text) }) else { return PXUI_ERR_ARGUMENT };
+    let spans=if spans.is_null() { None } else { let Some(packet)=(unsafe { crate::text::span_packet(spans) }) else { return PXUI_ERR_ARGUMENT }; Some(packet) };
+    let Some(m)=p.label_metrics(&label,max_width,text,spans.as_ref().map_or(&[][..],|s| s.as_slice())) else { return PXUI_ERR_ARGUMENT };
+    unsafe { out.write(metrics(m)); }
+    0
+});
+
+// ABI 1.78: `pxui_paint_text_spans` in a label style resolved against this painter's theme (its colour included).
+export!(pub unsafe fn pxui_paint_label_spans(p:*mut PxuiPaint,x:f32,y:f32,style:*const pxui_types::ffi::PxuiLabelStyle,width:f32,text:Str,spans:*const pxui_types::TextSpans,out:*mut TextMetrics)->i32 {
+    if !finite(&[x,y,width]) || out.is_null() { return PXUI_ERR_ARGUMENT; }
+    let (Some(p),Some((label,_)),Some(text),Some(spans))=(unsafe { value(p) },crate::ui::label_style(style),unsafe { string(text) },unsafe { crate::text::span_packet(spans) }) else { return PXUI_ERR_ARGUMENT };
+    let Some(m)=p.label_spans((x,y),&label,width,text,spans.as_slice()) else { return PXUI_ERR_ARGUMENT };
+    unsafe { out.write(metrics(m)); }
+    0
+});
+
 export!(pub unsafe fn pxui_paint_text_spans(p:*mut PxuiPaint,x:f32,y:f32,style_:*const TextStyle,width:f32,has_color:u8,color:Rgba,text:Str,spans:*const pxui_types::TextSpans,out:*mut TextMetrics)->i32 {
     if !finite(&[x,y,width]) || has_color>1 || style_.is_null() || out.is_null() { return crate::PXUI_ERR_ARGUMENT; }
     let (Some(p),Some(text),Some(style),Some(spans))=(unsafe { value(p) },unsafe { string(text) },unsafe { read_style(style_) },unsafe { crate::text::span_packet(spans) }) else { return crate::PXUI_ERR_ARGUMENT };

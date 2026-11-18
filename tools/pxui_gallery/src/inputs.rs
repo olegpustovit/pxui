@@ -3,6 +3,12 @@
 use pxui::{draw::Fit, ui::{Pick, Rect}, AreaCallbacks, Image, ImageStyle, Picker, SearchField, TextArea, TextField, Ui, ValueCallbacks, ValueField};
 
 /// The caption field: edits `caption` in place.
+/// The window's logical size (the engine's `view_size` is a pair).
+pub fn view_size(ui: &Ui) -> (f32, f32) {
+    let pxui::ViewSize { width, height } = ui.view_size();
+    (width, height)
+}
+
 pub fn caption(ui: &mut Ui, caption: &mut String) {
     const FIELD: TextField = TextField::DEFAULT.name("Caption");
     if let Some(v) = ui.text_field("caption", caption, &FIELD).changed { *caption = v.to_owned(); }

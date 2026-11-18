@@ -113,7 +113,7 @@ fn gpu_gallery_pages() {
             for density in [1, 2] {
                 let mut s = Gallery::new();
                 s.image = Some(image);
-                (s.dialog, s.menu_at) = (*i == 3, (*i == 3).then_some((360.0, 40.0)));
+                (s.dialog, s.menu_at) = (*i == 3, (*i == 3).then_some(pxui_types::geom::Point::new(360.0, 40.0)));
                 let pixels = shoot(&mut gpu, theme, *rtl, (PAGE_W, PAGE_H), density, None, &mut |ui: &mut Ui| {
                     ui.view_of("page", &1, |ui: &mut Ui| page(ui, &mut s, *i));
                 });

@@ -57,8 +57,8 @@ impl Default for Theme {
 /// The PXUI kit's looks from `t`.
 fn kit(t: &Tokens) -> Theme {
     let n = Look::NONE;
-    let label_font = Font { size: t.label_size - t.font_size, tracking: 0.08, caps: true, ..Font::BODY };
-    let small = Font { size: t.label_size - t.font_size, ..Font::BODY };
+    let label_font = Font::BODY.size(t.label_size - t.font_size).tracking(0.08).caps();
+    let small = Font::BODY.size(t.label_size - t.font_size);
     let ink = |c: Rgba| Look { text: c, ..n };
     let sheet = |edge: Rgba| Look { fill: t.input, border: edge, border_w: 1.0, radius: [t.radius[1]; 4], ..n };
     let line = |c: Rgba, sides: u8| Look { border: c, border_w: 1.0, sides, ..n };

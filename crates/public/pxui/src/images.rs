@@ -393,7 +393,7 @@ impl Images {
                     continue;
                 };
                 let rect = ui.rect(&node);
-                let (width, height) = ui.view_size();
+                let crate::ViewSize { width, height } = ui.view_size();
                 let margin = rect.h * 2.0;
                 if rect.w <= 0.0
                     || rect.h <= 0.0

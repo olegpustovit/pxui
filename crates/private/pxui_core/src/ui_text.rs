@@ -244,7 +244,7 @@ pub fn word_at(text: &str, i: usize) -> (usize, usize) {
 impl Ui {
     /// The byte of kit text whose caret is nearest `x` points from its start (pxui_text's hit test).
     pub(crate) fn text_caret_at(&mut self, size: Option<i64>, text: &str, x: f32) -> usize {
-        let style = kit_style(size.unwrap_or(self.font_size()), 0.0);
+        let style = kit_style(size.unwrap_or(self.font_px()), 0.0);
         let t = self.text_mut();
         let (key, m) = lay_out(t, &style, 0.0, text);
         t.hit(key, x, m.h / 2.0).min(text.len())
@@ -1359,8 +1359,8 @@ impl Ui {
     /// second menu overlapping the first by a point, level with the row; the rows of the submenus are numbered after those of the
     /// menu, in the order of the rows that open them. A press outside the menu in the frame that first builds it dismisses it. A row is
     /// keyed by its `id` (a submenu's rows by place), else by its place, never by its text; past `max_rows` or `max_h` the sheet itself scrolls.
-    pub fn menu(&mut self, key: NodeKey, at: (f32, f32), items: &[MenuItem], menu: &Menu) -> Chosen {
-        menu_body(self, key, at, items, menu)
+    pub fn menu(&mut self, key: NodeKey, at: pxui_types::geom::Point, items: &[MenuItem], menu: &Menu) -> Chosen {
+        menu_body(self, key, (at.x, at.y), items, menu)
     }
 }
 
@@ -1520,7 +1520,7 @@ fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &Text
         }
         let (view_w, _) = this.view_size();
         let width = width.min(120.0f32.max(view_w - 16.0));
-        let height = (shown as i64 * this.row_height()) as f32 + if doc_empty { 4.0 } else { 22.0 };
+        let height = (shown as i64 * this.row_px()) as f32 + if doc_empty { 4.0 } else { 22.0 };
         let container = this.overlay_box(Flags::BLOCKING, (0.0, 0.0), width, height, &format!("{}-completions", label));
         let saved = this.enter(&container);
         let mut boxes = Vec::new();
@@ -1768,7 +1768,7 @@ fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &Text
         let doc = &items[selected].doc;
         if !doc.is_empty() {
             let saved = this.enter(container);
-            let size = this.font_size() as f32;
+            let size = this.font_px() as f32;
             let n = this.node_keyed(int_key(container.box_key, -1), Node { w: Size::Px((width - 8.0).max(1.0)), h: Size::Px(size), at: Some((8.0, height - 18.0)).into(), look: hint, ..Node::DEFAULT });
             this.text(&n, &display(doc));
             this.leave(saved);
@@ -1781,7 +1781,7 @@ fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &Text
             this.node_mut(r).inset = Edges { l: this.space(2), ..Edges::default() };
             this.text(r, &c.label);
             let dw = this.text_width(None, &c.detail) as i64 as f32;
-            let rh = this.row_height() as f32;
+            let rh = this.row_px() as f32;
             this.end_row(r, this.space(2));
             let saved = this.enter(r);
             this.flow_part(int_key(r.box_key, 0), dw, rh, Edges::ZERO, hint, &c.detail);
@@ -2252,7 +2252,7 @@ pub(crate) fn default_menu_row(this: &mut Ui, c: &MenuRowConfig, text: &str, key
     let t = this.theme();
     let look = *(if c.danger { t.menu_danger } else { t.menu }).pick(c.state);
     let (mark, swatch_look, chevron_look, key_look) = (t.mark.idle, t.swatch.idle, t.hint.idle, t.menu_key.idle);
-    let (font_size, rh) = (this.font_size(), c.row_h);
+    let (font_size, rh) = (this.font_px(), c.row_h);
     this.set_look(&c.row, look, c.state);
     this.node_mut(&c.row).inset = Edges { l: this.space(2) + c.lead + c.swatch_pad, ..Edges::default() };
     this.text(&c.row, shown(text));
@@ -2270,7 +2270,7 @@ pub(crate) fn default_menu_row(this: &mut Ui, c: &MenuRowConfig, text: &str, key
         this.node_mut(&n).mark = Mark::Chevron(Dir::Right);
     }
     if let Some(key) = key {
-        let kw = this.text_width(Some(key_look.font.points(font_size)), key);
+        let kw = this.text_width(Some(crate::ui_core::font_px(&key_look.font, font_size)), key);
         this.flow_part(k(3), kw, rh, Edges { r: this.space(2), ..Edges::ZERO }, key_look, key);
     }
 }
@@ -2289,7 +2289,7 @@ fn text_field_body(this: &mut Ui, key: &str, text: &str, value: &str, options: p
     // Pointer geometry and its font describe the editor the user saw last frame.
     let size = this.part_box(row.box_key, Part::EDITOR).and_then(|part| {
         let font = this.node_mut(&part).look.font;
-        (font.size != 0).then(|| font.points(this.font_size()))
+        (font.size != 0).then(|| crate::ui_core::font_px(&font, this.font_px()))
     });
     // an unfocused field paints `value` as it is (kept in its slot); only editing copies it
     let edit = if focused {
@@ -2342,8 +2342,8 @@ fn text_field_body(this: &mut Ui, key: &str, text: &str, value: &str, options: p
             let control = this.part_built(row.box_key, Part::EDITOR).unwrap_or(row);
             let field = *this.theme().field.pick(State { focused, ..State::default() });
             let font = this.node_at(control.index).look.font;
-            let size = (font.size != 0).then(|| font.points(this.font_size()));
-            let font_size = size.unwrap_or(this.font_size());
+            let size = (font.size != 0).then(|| crate::ui_core::font_px(&font, this.font_px()));
+            let font_size = size.unwrap_or(this.font_px());
             let marks = Some((field.selection, field.caret));
             let (caret, anchor) = (edit.caret, edit.anchor);
             this.canvas(&control, move |paint, rect| {
@@ -2371,7 +2371,7 @@ pub(crate) fn default_text_field(this: &mut Ui, c: &TextFieldConfig, text: &str,
     this.text(&c.row, shown(text));
     // the value on its hairline in the control column (`value_control_at` of the row, from its
     // end; the start padding only narrows the room `value_control_w` sees)
-    let rh = this.row_height() as f32;
+    let rh = this.row_px() as f32;
     let pad = (rh - this.control_h()) / 2.0;
     this.end_row(&c.row, side as f32);
     this.node_mut(&c.row).padding.l = side as f32;
@@ -2388,11 +2388,11 @@ fn menu_body(this: &mut Ui, key: NodeKey, at: (f32, f32), items: &[MenuItem], me
     let (x, y) = at;
     // the width follows the longest row; an empty text is a separator line; shortcuts are at the right of the rows, in ink-2 at the
     // label size
-    let row_height = menu.row_h.unwrap_or(this.row_height() as f32);
+    let row_height = menu.row_h.unwrap_or(this.row_px() as f32);
     // `pad` above the first row and below the last, inside the sheet's 1-point edge
     let pad = menu.padding;
     let gap = 9.0;
-    let key_size = 8.max(this.font_size() - 2);
+    let key_size = 8.max(this.font_px() - 2);
     let has_submenus = items.iter().any(|i| !i.submenu.is_empty());
     let swatch_pad = if items.iter().chain(items.iter().flat_map(|i| i.submenu)).any(|i| i.swatch.is_some()) { 14.0 } else { 0.0 };
     let (view_w, view_h) = this.view_size();

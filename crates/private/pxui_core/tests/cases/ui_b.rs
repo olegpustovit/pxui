@@ -152,7 +152,7 @@ pub fn window_pxui_context_menu() {
     let result = Cell::new(Chosen::default());
     let menu = |ui: &mut Ui, events: Vec<Event>| {
         ui.frame(&frame_at(vec![], 1.0, 0.0, events), &mut |ui| {
-            result.set(ui.menu("ctx".into(), (20.0, 20.0), &ITEMS, &Menu::DEFAULT));
+            result.set(ui.menu("ctx".into(), pxui_types::geom::Point::new(20.0, 20.0), &ITEMS, &Menu::DEFAULT));
         });
     };
     let row = |index: i64| (60, 20 + 3 + index * 24 + 12);
@@ -187,7 +187,7 @@ pub fn window_pxui_submenu() {
     let submenu = |ui: &mut Ui, events: Vec<Event>| -> Chosen {
         let mut out = Chosen::default();
         ui.frame(&frame_at(vec![], 1.0, 0.0, events), &mut |ui| {
-            out = ui.menu("submenu".into(), (20.0, 20.0), &ITEMS, &Menu::DEFAULT.w_px(150.0));
+            out = ui.menu("submenu".into(), pxui_types::geom::Point::new(20.0, 20.0), &ITEMS, &Menu::DEFAULT.w_px(150.0));
         });
         out
     };
@@ -287,7 +287,7 @@ impl Rig {
 
 pub fn text_area_start(platform: Platform) -> Rig {
     let mut rig = Rig {
-        ui: Ui::create(platform, Some(11), golden_text()),
+        ui: Ui::create(platform, Some(11.0), golden_text()),
         area: String::new(),
         errors: Vec::new(),
         wrapped: false,

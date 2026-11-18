@@ -4,8 +4,23 @@ use crate::ui::key;
 use crate::{PXUI_ERR_ARGUMENT, Str};
 use pxui_core::ui::{Cursor, UndoKind};
 
-export!(pub unsafe fn pxui_ui_font_size(ui: *mut PxuiUi) -> i64 { unsafe { engine(ui) }.map_or(0, |e| e.font_size()) });
-export!(pub unsafe fn pxui_ui_row_height(ui: *mut PxuiUi) -> i64 { unsafe { engine(ui) }.map_or(0, |e| e.row_height()) });
+export!(pub unsafe fn pxui_ui_font_size(ui: *mut PxuiUi) -> i64 { unsafe { engine(ui) }.map_or(0, |e| e.font_px()) });
+export!(pub unsafe fn pxui_ui_row_height(ui: *mut PxuiUi) -> i64 { unsafe { engine(ui) }.map_or(0, |e| e.row_px()) });
+
+// ABI 1.78: the body size and kit row exactly as created or set, fractions kept (`pxui_ui_font_size`/`_row_height` report them
+// rounded to whole points).
+export!(pub unsafe fn pxui_ui_font_points(ui: *mut PxuiUi, out: *mut f32) -> i32 {
+    let Some(e) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if out.is_null() { return unsafe { fail(ui, "null font size output") }; }
+    unsafe { *out = e.font_size(); }
+    0
+});
+export!(pub unsafe fn pxui_ui_row_points(ui: *mut PxuiUi, out: *mut f32) -> i32 {
+    let Some(e) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if out.is_null() { return unsafe { fail(ui, "null row height output") }; }
+    unsafe { *out = e.row_height(); }
+    0
+});
 export!(pub unsafe fn pxui_ui_density(ui: *mut PxuiUi) -> i64 { unsafe { engine(ui) }.map_or(0, |e| e.density()) });
 export!(pub unsafe fn pxui_ui_environment(ui:*mut PxuiUi,out:*mut pxui_types::Environment)->i32 {
     let Some(e)=(unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
@@ -133,7 +148,16 @@ export!(pub unsafe fn pxui_ui_icon_word(ui: *mut PxuiUi, word: u32) -> i32 {
 export!(pub unsafe fn pxui_ui_set_font_size(ui: *mut PxuiUi, size: i64) -> i32 {
     let Some(e) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if !(1..=1024).contains(&size) { return unsafe { fail(ui, "font size out of range") }; }
-    e.set_font_size(size);
+    e.set_font_size(size as f32);
+    0
+});
+
+// ABI 1.78: `pxui_ui_set_font_size` in points, fractions kept: finite, at least 0.5 (it rounds to a whole point of at least 1) and at
+// most 1024.
+export!(pub unsafe fn pxui_ui_set_font_points(ui: *mut PxuiUi, points: f32) -> i32 {
+    let Some(e) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if !(points.is_finite() && (0.5..=1024.0).contains(&points)) { return unsafe { fail(ui, "font size out of range") }; }
+    e.set_font_size(points);
     0
 });
 

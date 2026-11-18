@@ -638,7 +638,7 @@ pub fn window_pxui_modal_3() {
     let menu = |ui: &mut Ui, events: Vec<Event>| -> Chosen {
         let mut out = Chosen::default();
         ui.frame(&frame_at(vec![], 1.0, 0.0, events), &mut |ui| {
-            out = ui.menu("choices".into(), (20.0, 20.0), &ITEMS, &Menu::DEFAULT.w_px(240.0));
+            out = ui.menu("choices".into(), pxui_types::geom::Point::new(20.0, 20.0), &ITEMS, &Menu::DEFAULT.w_px(240.0));
         });
         out
     };

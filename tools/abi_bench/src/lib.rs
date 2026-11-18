@@ -16,6 +16,7 @@ pub mod inputs {
     use super::pxui::{Pick, Ui};
     use pxui_core::opts::{PickerOpts, TextAreaOpts, ValueFieldOpts};
 
+    pub fn view_size(ui: &Ui) -> (f32, f32) { ui.view_size() }
     pub fn caption(ui: &mut Ui, caption: &mut String) {
         if let Some(v) = ui.text_field("Caption", caption) { *caption = v; }
     }

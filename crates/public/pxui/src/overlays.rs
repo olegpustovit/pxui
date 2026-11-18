@@ -58,7 +58,7 @@ mod raw {
     ///
     /// ```
     /// use pxui::ui::{Menu, MenuItem};
-    /// pxui::doc::frames(1, &mut |ui| { ui.menu("m", (10.0, 10.0), &[MenuItem::new("Open")], &Menu::DEFAULT); });
+    /// pxui::doc::frames(1, &mut |ui| { ui.menu("m", pxui::Point::new(10.0, 10.0), &[MenuItem::new("Open")], &Menu::DEFAULT); });
     /// ```
     pub fn pxui_ui_context_menu(ui:*mut PxuiUi,x:f32,y:f32,label:Str,items:Slice<Str>,enabled:Slice<u8>,has_width:u8,width:f32,has_selected:u8,selected:i64,extra:*const PxuiMenuExtra,out_tag:*mut u32,out_index:*mut i64)->i32;
     /// The C entry `Ui::picker` calls: a search field over the rows `rows` computes for the query, windowed to `limit` rows; writes the edited

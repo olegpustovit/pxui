@@ -43,23 +43,23 @@ impl Ui {
     /// use pxui::ui::{Menu, MenuItem};
     /// const ITEMS: [MenuItem; 3] = [MenuItem::new("Play next"), MenuItem::new("Add to playlist"), MenuItem::new("Delete").danger()];
     /// let mut chosen = None;
-    /// let mut build = |ui: &mut pxui::Ui| { chosen = ui.menu("song-menu", (10.0, 10.0), &ITEMS, &Menu::DEFAULT.row_h(36.0)).chosen; };
+    /// let mut build = |ui: &mut pxui::Ui| { chosen = ui.menu("song-menu", pxui::Point::new(10.0, 10.0), &ITEMS, &Menu::DEFAULT.row_h(36.0)).chosen; };
     /// let mut ui = pxui::doc::frames(2, &mut build);
     /// pxui::testing::click(&mut ui, 40.0, 10.0 + 7.0 + 18.0, &mut build);
     /// assert_eq!(chosen, Some(0));
     /// ```
     #[inline]
     #[track_caller]
-    pub fn menu<K: Into<Key>>(&mut self, key: K, at: (f32, f32), items: &[MenuItem], menu: &Menu) -> Chosen {
+    pub fn menu<K: Into<Key>>(&mut self, key: K, at: crate::Point, items: &[MenuItem<'_>], menu: &Menu<'_>) -> Chosen {
         self.menu_call(key.into(), at, items, menu)
     }
 
     /// The one body of `menu`: the engine call, with the menu's variant set around it, then the chosen row's id.
     #[inline(always)]
     #[track_caller]
-    fn menu_call(&mut self, key: Key, at: (f32, f32), items: &[MenuItem], menu: &Menu) -> Chosen {
+    fn menu_call(&mut self, key: Key, at: crate::Point, items: &[MenuItem<'_>], menu: &Menu<'_>) -> Chosen {
         if menu.variant != 0 { self.set_variant(pxui_types::theme::BodyKind::menu_row, menu.variant); }
-        let mut response = self.menu_keyed(key, at, items, menu);
+        let mut response = self.menu_keyed(key, (at.x, at.y), items, menu);
         if menu.variant != 0 { self.set_variant(pxui_types::theme::BodyKind::menu_row, 0); }
         // a chosen index past the menu's rows is a submenu's row, numbered in the order of the rows that open them
         response.chosen_id = response.chosen.and_then(|index| match items.get(index) {
@@ -93,7 +93,7 @@ mod tests {
     #[test]
     fn a_click_chooses_a_row_and_a_disabled_row_is_not_choosable() {
         let (last, menu) = (Cell::new(Chosen::default()), Menu::DEFAULT.row_h(36.0));
-        let mut build = |ui: &mut Ui| { let got = ui.menu("song-menu", (10.0, 10.0), &ITEMS, &menu); if got != Chosen::default() { last.set(got); } };
+        let mut build = |ui: &mut Ui| { let got = ui.menu("song-menu", crate::Point::new(10.0, 10.0), &ITEMS, &menu); if got != Chosen::default() { last.set(got); } };
         let mut ui = crate::doc::frames(3, &mut build);
         let r = testing::find(&ui, Role::MenuItem, "Play next").unwrap();
         assert_eq!(r.h, 36.0, "Menu::row_h is the row's height");
@@ -109,7 +109,7 @@ mod tests {
     #[test]
     fn enter_chooses_the_focused_row_and_escape_or_an_outside_press_dismisses() {
         let (last, menu) = (Cell::new(Chosen::default()), Menu::DEFAULT);
-        let mut build = |ui: &mut Ui| { let got = ui.menu("song-menu", (10.0, 10.0), &ITEMS, &menu); if got != Chosen::default() { last.set(got); } };
+        let mut build = |ui: &mut Ui| { let got = ui.menu("song-menu", crate::Point::new(10.0, 10.0), &ITEMS, &menu); if got != Chosen::default() { last.set(got); } };
         let mut ui = crate::doc::frames(3, &mut build);
         testing::key(&mut ui, TAB, &mut build);
         testing::key(&mut ui, ENTER, &mut build);
@@ -129,7 +129,7 @@ mod tests {
     fn the_danger_row_reads_in_the_error_ink() {
         let (last, menu) = (Cell::new(Chosen::default()), Menu::DEFAULT);
         let mut danger_ink = None;
-        let mut build = |ui: &mut Ui| { danger_ink = Some(ui.theme().menu_danger.idle.text); last.set(ui.menu("song-menu", (10.0, 10.0), &ITEMS, &menu)); };
+        let mut build = |ui: &mut Ui| { danger_ink = Some(ui.theme().menu_danger.idle.text); last.set(ui.menu("song-menu", crate::Point::new(10.0, 10.0), &ITEMS, &menu)); };
         let ui = crate::doc::frames(3, &mut build);
         let (plain, danger) = (ui.theme().menu.idle.text, danger_ink.unwrap());
         assert_ne!(plain, danger);
@@ -160,7 +160,7 @@ mod tests {
         let menu = Menu::DEFAULT.row_h(30.0);
         for _ in 0..3 {
             SEEN.with(|s| s.borrow_mut().clear());
-            testing::frame(&mut ui, &[], &mut |ui| { ui.menu("m", (10.0, 10.0), &ITEMS, &menu); });
+            testing::frame(&mut ui, &[], &mut |ui| { ui.menu("m", crate::Point::new(10.0, 10.0), &ITEMS, &menu); });
         }
         let seen = SEEN.with(|s| s.borrow().clone());
         assert_eq!(seen, vec![
@@ -176,7 +176,7 @@ mod tests {
         const KINDS: [MenuItem; 2] = [MenuItem::new("Draw"), MenuItem::new("Value").checked(true)];
         const ITEMS: [MenuItem; 2] = [MenuItem::new("New").submenu(&KINDS), MenuItem::new("Quit")];
         let (last, menu) = (Cell::new(Chosen::default()), Menu::DEFAULT);
-        let mut build = |ui: &mut Ui| { let got = ui.menu("song-menu", (10.0, 10.0), &ITEMS, &menu); if got != Chosen::default() { last.set(got); } };
+        let mut build = |ui: &mut Ui| { let got = ui.menu("song-menu", crate::Point::new(10.0, 10.0), &ITEMS, &menu); if got != Chosen::default() { last.set(got); } };
         let mut ui = crate::doc::frames(3, &mut build);
         let (x, y) = centre(&ui, "New");
         testing::frame(&mut ui, &[Event { kind: Event::POINTER_MOVED, x, y, ..Default::default() }], &mut build);
@@ -188,7 +188,7 @@ mod tests {
         assert_eq!(last.get().chosen, Some(3));
         let long = [MenuItem::new("Row"); 40];
         last.set(Chosen::default());
-        let mut build = |ui: &mut Ui| { let got = ui.menu("song-menu", (10.0, 10.0), &long, &menu); if got != Chosen::default() { last.set(got); } };
+        let mut build = |ui: &mut Ui| { let got = ui.menu("song-menu", crate::Point::new(10.0, 10.0), &long, &menu); if got != Chosen::default() { last.set(got); } };
         let mut ui = crate::doc::frames(3, &mut build);
         testing::key(&mut ui, TAB, &mut build);
         testing::key(&mut ui, ENTER, &mut build);
@@ -208,10 +208,10 @@ mod tests {
         let mut build = |ui: &mut Ui| {
             ui.label("Songs", crate::Label::DEFAULT);
             if shown.get() {
-                ui.menu("song-menu", (10.0, 10.0), &ITEMS, &menu);
-                ui.menu("long-menu", (200.0, 10.0), &LONG, &Menu::DEFAULT.max_rows(8));
-                ui.menu("sizes", (100.0, 120.0), &SIZES, &Menu::DEFAULT.padding(10.0).name("Cache size"));
-                ui.menu("bounded", (40.0, 60.0), &LONG, &Menu::DEFAULT.max_h(150.0));
+                ui.menu("song-menu", crate::Point::new(10.0, 10.0), &ITEMS, &menu);
+                ui.menu("long-menu", crate::Point::new(200.0, 10.0), &LONG, &Menu::DEFAULT.max_rows(8));
+                ui.menu("sizes", crate::Point::new(100.0, 120.0), &SIZES, &Menu::DEFAULT.padding(10.0).name("Cache size"));
+                ui.menu("bounded", crate::Point::new(40.0, 60.0), &LONG, &Menu::DEFAULT.max_h(150.0));
             }
         };
         for _ in 0..8 { ui.frame(&input, &mut build).unwrap(); }
@@ -236,7 +236,7 @@ mod tests {
         let names: Vec<String> = (0..40).map(|n| format!("Row {n}")).collect();
         let items: Vec<MenuItem> = names.iter().map(|name| MenuItem::new(name)).collect();
         let (last, menu) = (Cell::new(Chosen::default()), Menu::DEFAULT.max_rows(8));
-        let mut build = |ui: &mut Ui| { let got = ui.menu("long", (10.0, 10.0), &items, &menu); if got != Chosen::default() { last.set(got); } };
+        let mut build = |ui: &mut Ui| { let got = ui.menu("long", crate::Point::new(10.0, 10.0), &items, &menu); if got != Chosen::default() { last.set(got); } };
         let mut ui = crate::doc::frames(3, &mut build);
         let top = |ui: &Ui, name: &str| testing::find(ui, Role::MenuItem, name).unwrap().y;
         let bottom = 10.0 + 7.0 + 8.0 * 24.0;
@@ -262,14 +262,14 @@ mod tests {
         // a row is 24, the padding 6 above and below, the edge a point at each end: n rows are 14 + 24 n
         for (items, menu, h) in [(&LONG[..], Menu::DEFAULT.max_h(120.0), 120.0), (&LONG[..], Menu::DEFAULT.max_rows(3).max_h(200.0), 86.0),
             (&LONG[..], Menu::DEFAULT.max_rows(8).max_h(120.0), 120.0), (&TWO[..], Menu::DEFAULT.max_h(200.0), 62.0), (&LONG[..], Menu::DEFAULT.max_h(0.0).max_rows(2), 62.0)] {
-            let mut build = |ui: &mut Ui| { ui.menu("m", (10.0, 10.0), items, &menu.name("Sheet")); };
+            let mut build = |ui: &mut Ui| { ui.menu("m", crate::Point::new(10.0, 10.0), items, &menu.name("Sheet")); };
             let ui = crate::doc::frames(3, &mut build);
             let sheet = testing::find(&ui, Role::Menu, "Sheet").expect("the sheet");
             assert_eq!(sheet.h, h, "{menu:?}");
         }
         // the bounded sheet scrolls its rows: the wheel brings the last row into view
         let (last, menu) = (Cell::new(Chosen::default()), Menu::DEFAULT.max_h(120.0));
-        let mut build = |ui: &mut Ui| { let got = ui.menu("m", (10.0, 10.0), &LONG, &menu); if got != Chosen::default() { last.set(got); } };
+        let mut build = |ui: &mut Ui| { let got = ui.menu("m", crate::Point::new(10.0, 10.0), &LONG, &menu); if got != Chosen::default() { last.set(got); } };
         let mut ui = crate::doc::frames(3, &mut build);
         testing::frame(&mut ui, &[Event { kind: Event::POINTER_MOVED, x: 60.0, y: 60.0, ..Default::default() }], &mut build);
         for _ in 0..40 { testing::frame(&mut ui, &[Event { kind: Event::SCROLLED, x: 0.0, y: -1.0, ..Default::default() }], &mut build); }
@@ -299,7 +299,7 @@ mod tests {
         ui.register_menu_row_body("current", current_row).expect("row body");
         let scoped = crate::ThemeHandle::parse("menu_row.body = current").expect("theme");
         let menu = Cell::new(Menu::DEFAULT);
-        let mut build = |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| { ui.menu("cache-size-menu", (10.0, 10.0), &SIZES, &menu.get()); });
+        let mut build = |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| { ui.menu("cache-size-menu", crate::Point::new(10.0, 10.0), &SIZES, &menu.get()); });
         let run = |ui: &mut Ui, build: &mut dyn FnMut(&mut Ui)| for n in 0..3 { CURRENT.with(|s| s.borrow_mut().clear()); ui.frame(&FrameIn::new(320.0, 240.0).time(n as f64), build).expect("frame"); };
         run(&mut ui, &mut build);
         let seen = CURRENT.with(|s| s.borrow().clone());
@@ -325,7 +325,7 @@ mod tests {
         const MIXES: [MenuItem; 2] = [MenuItem::new("Mix").id(70), MenuItem::new("Mix").id(71)];
         const ITEMS: [MenuItem; 4] = [MenuItem::new("Mix"), MenuItem::new("Mix"), MenuItem::new("Mix").id(9), MenuItem::new("Add to").submenu(&MIXES)];
         let (last, menu) = (Cell::new(Chosen::default()), Menu::DEFAULT);
-        let mut build = |ui: &mut Ui| { let got = ui.menu("m", (10.0, 10.0), &ITEMS, &menu); if got != Chosen::default() { last.set(got); } };
+        let mut build = |ui: &mut Ui| { let got = ui.menu("m", crate::Point::new(10.0, 10.0), &ITEMS, &menu); if got != Chosen::default() { last.set(got); } };
         let mut ui = crate::doc::frames(3, &mut build);
         let rows: Vec<crate::geom::Rect> = ui.a11y_nodes().iter().filter(|n| n.is_role(Role::MenuItem) && ui.a11y_name_of(n) == "Mix").map(|n| n.rect).collect();
         assert_eq!(rows.len(), 3, "three rows named Mix: {rows:?}");
@@ -351,7 +351,7 @@ mod tests {
     fn a_row_keyed_by_id_keeps_its_focus_when_rows_move() {
         let order = Cell::new(false);
         let (a, b) = (MenuItem::new("A").id(1), MenuItem::new("B").id(2));
-        let mut build = |ui: &mut Ui| { let items = if order.get() { [b, a] } else { [a, b] }; ui.menu("m", (10.0, 10.0), &items, &Menu::DEFAULT); };
+        let mut build = |ui: &mut Ui| { let items = if order.get() { [b, a] } else { [a, b] }; ui.menu("m", crate::Point::new(10.0, 10.0), &items, &Menu::DEFAULT); };
         let mut ui = crate::doc::frames(3, &mut build);
         testing::key(&mut ui, TAB, &mut build);
         let focused = |ui: &Ui| ui.a11y_nodes().iter().find(|n| n.is_role(Role::MenuItem) && n.states & crate::ui::state::FOCUSED != 0).map(|n| ui.a11y_name_of(n).to_owned());
@@ -367,7 +367,7 @@ mod tests {
     fn focus_on_click_focuses_the_pressed_row() {
         const ITEMS: [MenuItem; 2] = [MenuItem::new("One"), MenuItem::new("Two")];
         for (menu, focuses) in [(Menu::DEFAULT, false), (Menu::DEFAULT.focus_on_click(true), true)] {
-            let mut build = |ui: &mut Ui| { ui.menu("m", (10.0, 10.0), &ITEMS, &menu); };
+            let mut build = |ui: &mut Ui| { ui.menu("m", crate::Point::new(10.0, 10.0), &ITEMS, &menu); };
             let mut ui = crate::doc::frames(3, &mut build);
             let (x, y) = centre(&ui, "Two");
             testing::frame(&mut ui, &[Event { kind: Event::POINTER_PRESSED, x, y, ..Default::default() }], &mut build);
@@ -399,23 +399,23 @@ mod tests {
         ui.register_scroll_view_body("counted", counted_scroll).expect("scroll body");
         let scoped = crate::ThemeHandle::parse("popup.body = listing\nscroll_view.body = counted").expect("theme");
         const LONG: [MenuItem; 20] = [MenuItem::new("Row"); 20];
-        let mut build = |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| { ui.menu("m", (10.0, 10.0), &LONG, &Menu::DEFAULT.max_rows(4)); });
+        let mut build = |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| { ui.menu("m", crate::Point::new(10.0, 10.0), &LONG, &Menu::DEFAULT.max_rows(4)); });
         for _ in 0..3 { testing::frame(&mut ui, &[], &mut build); }
         assert!(ui.a11y_nodes().iter().any(|n| n.is_role(Role::List)) && !ui.a11y_nodes().iter().any(|n| n.is_role(Role::Menu)), "the body's role stays");
         assert_eq!(SCROLL_BODIES.with(Cell::get), 0, "no scroll view inside the sheet");
         let sheet = ui.a11y_nodes().iter().find(|n| n.is_role(Role::List)).map(|n| n.rect).expect("sheet");
         assert_eq!(sheet.h, 2.0 + 12.0 + 4.0 * 24.0, "four rows tall");
-        let plain = crate::doc::frames(3, &mut |ui: &mut Ui| { ui.menu("m", (10.0, 10.0), &LONG, &Menu::DEFAULT.max_rows(4)); });
+        let plain = crate::doc::frames(3, &mut |ui: &mut Ui| { ui.menu("m", crate::Point::new(10.0, 10.0), &LONG, &Menu::DEFAULT.max_rows(4)); });
         assert!(plain.a11y_nodes().iter().any(|n| n.is_role(Role::Menu)), "the built-in sheet is a Menu");
     }
 
     /// A menu asked for at the view's far corner is moved inside the view, so the caller clamps nothing.
     #[test]
     fn a_menu_at_the_corner_stays_inside_the_view() {
-        let mut build = |ui: &mut Ui| { ui.menu("m", (315.0, 235.0), &ITEMS, &Menu::DEFAULT.row_h(36.0)); };
+        let mut build = |ui: &mut Ui| { ui.menu("m", crate::Point::new(315.0, 235.0), &ITEMS, &Menu::DEFAULT.row_h(36.0)); };
         let ui = crate::doc::frames(3, &mut build);
         let sheet = ui.a11y_nodes().iter().find(|n| n.is_role(Role::Menu)).map(|n| n.rect).expect("sheet");
-        let (w, h) = ui.view_size();
+        let crate::ViewSize { width: w, height: h } = ui.view_size();
         assert!(sheet.x >= 0.0 && sheet.y >= 0.0 && sheet.x + sheet.w <= w && sheet.y + sheet.h <= h, "{sheet:?} inside {w} x {h}");
     }
 }

@@ -13,11 +13,10 @@ fn input() -> FrameIn<'static> { FrameIn::new(320.0, 240.0) }
 fn em_top_to_layout_top(points:f32)->f32 {
     let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let label=crate::Label::BODY.size(points);
-    let style=ui.resolve(&label);
     ui.frame(&input(),&mut |ui| {
         let b=ui.node("probe",crate::Node::DEFAULT.w_px(200.0).h_px(points));
-        ui.text_spans(&b,"H",&label,&[]).unwrap();
-        ui.canvas(&b,move |paint,rect| {paint.text_spans((rect.x,rect.y),&style,0.0,"H",&[]).unwrap();});
+        ui.text_spans(&b,"H",label,&[]).unwrap();
+        ui.canvas(&b,move |paint,rect| {paint.text_spans(crate::Point::new(rect.x,rect.y),label,0.0,"H",&[]).unwrap();});
     }).unwrap();
     let ys:Vec<f32>=ui.layers().flat_map(|layer|layer.instances.iter().map(|i|i.rect[1])).collect();
     assert_eq!(ys.len(),2,"one node glyph and one canvas glyph");
@@ -57,14 +56,14 @@ fn prepared_text_moves_between_worker_and_ui_without_shaping_or_allocating_on_in
         let expected=record.metrics();
         let storage=match ui.text_service().install(record) {Ok(storage)=>storage,Err((code,_))=>panic!("installation failed: {code}")};
         retired.push(storage);
-        let actual=ui.text_service().measure_spans(&text,&label,200.0,&spans).unwrap();
+        let actual=ui.text_service().measure_spans(&text,label,Some(200.0),&spans).unwrap();
         assert_eq!((actual.width,actual.height,actual.baseline,actual.lines),(expected.width,expected.height,expected.baseline,expected.lines));
     }
     assert_eq!(ui.text_layout_count(),layouts);
     assert_eq!(mem_sys::local_alloc_count(),0);
     ui.frame(&input(),&mut |ui| {
         let node=ui.node("prepared-label",crate::Node::DEFAULT.w_px(200.0).h_px(30.0));
-        ui.text_spans(&node,"Track 00000",&label,&spans).unwrap();
+        ui.text_spans(&node,"Track 00000",label,&spans).unwrap();
     }).unwrap();
     assert_eq!(ui.text_layout_count(),layouts,"ordinary node drawing must use the prepared content key");
     std::thread::spawn(move || drop(retired)).join().unwrap();
@@ -857,14 +856,14 @@ fn measured_sections_validate_geometry_recover_callbacks_and_support_empty_unpin
 fn rendering_density_matches_paint_updates_cached_views_and_allocates_nothing() {
     mem_sys::set_peer(crate::library_counter);
     let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
-    assert_eq!(ui.density(),1);
+    assert_eq!(ui.density(),1.0);
     let builds=std::cell::Cell::new(0);
     for round in 0..6 {
         mem_sys::local_reset();
         let before=builds.get();
         for scale in [1.0,2.0,3.0,3.0] {
             ui.frame(&input().scale(scale),&mut |ui| {
-                assert_eq!(ui.density(),scale as i64);
+                assert_eq!(ui.density(),scale as i64 as f32);
                 ui.column("density", Node::column().w_px(40.0).h_px(40.0), |ui| { ui.view_of("density", &0, |ui| {
                     builds.set(builds.get()+1);
                     let density=ui.density();
@@ -872,7 +871,7 @@ fn rendering_density_matches_paint_updates_cached_views_and_allocates_nothing() 
                     ui.canvas(&node,move |paint,_| {assert_eq!(paint.density(),density);});
                 }); });
             }).unwrap();
-            assert_eq!(ui.density(),scale as i64,"owner keeps the last frame's density");
+            assert_eq!(ui.density(),scale as i64 as f32,"owner keeps the last frame's density");
         }
         assert_eq!(builds.get()-before,3,"density changes invalidate cached contents; equal density retains them");
         if round>=3 {assert_eq!(mem_sys::local_alloc_count(),0,"cached density changes");}
@@ -922,22 +921,22 @@ fn soft_wrap_separator_widths_preserve_glyphs_and_cached_measurements() {
             for (index,value) in values.into_iter().enumerate() {
                 let plain=crate::Label::BODY.size(12.0).line_height(20.0).wrap();
                 let logical=crate::Label::BODY.size(12.0).line_height(20.0).wrap_spaces();
-                let a=ui.text_service().measure(value,&plain,50.0).unwrap();
-                let b=ui.text_service().measure(value,&logical,50.0).unwrap();
+                let a=ui.text_service().measure(value,plain,Some(50.0)).unwrap();
+                let b=ui.text_service().measure(value,logical,Some(50.0)).unwrap();
                 assert_eq!((a.height,a.lines,a.baseline),(b.height,b.lines,b.baseline));
                 assert!(b.width>=a.width && b.width.is_finite());
                 if index==0 {
-                    let space=ui.text_service().width(" ",&plain,0.0).unwrap();
+                    let space=ui.text_service().width(" ",plain,None).unwrap();
                     assert!((b.width-a.width-space).abs()<0.001,"the longest wrapped word retains its break space");
                 }
                 if round==0 {
-                    let a={ let mut glyphs=Vec::new(); ui.text_service().quads(value,&plain,50.0,(0.0,0.0),1.0, &mut glyphs).map(|_|glyphs) }.unwrap();
-                    let b={ let mut glyphs=Vec::new(); ui.text_service().quads(value,&logical,50.0,(0.0,0.0),1.0, &mut glyphs).map(|_|glyphs) }.unwrap();
+                    let a={ let mut glyphs=Vec::new(); ui.text_service().quads(value,plain,Some(50.0),crate::Point::new(0.0, 0.0),1.0, &mut glyphs).map(|_|glyphs) }.unwrap();
+                    let b={ let mut glyphs=Vec::new(); ui.text_service().quads(value,logical,Some(50.0),crate::Point::new(0.0, 0.0),1.0, &mut glyphs).map(|_|glyphs) }.unwrap();
                     assert_eq!(a,b,"separator metrics leave visible glyphs unchanged");
                 }
                 let plain=plain.lines(1);
                 let logical=logical.lines(1);
-                assert_eq!(ui.text_service().measure(value,&plain,50.0).unwrap(),ui.text_service().measure(value,&logical,50.0).unwrap(),"hidden paragraphs must not contribute trailing spaces");
+                assert_eq!(ui.text_service().measure(value,plain,Some(50.0)).unwrap(),ui.text_service().measure(value,logical,Some(50.0)).unwrap(),"hidden paragraphs must not contribute trailing spaces");
             }
         }).unwrap();
         if round>=3 {assert_eq!(mem_sys::local_alloc_count(),0,"both wrapping modes retain measurement storage");}
@@ -1301,11 +1300,13 @@ fn sampled_and_stepped_animations_keep_overshoot_and_allocate_nothing_when_warm(
 #[test]
 fn queries_boxes_patches_and_text_state_have_the_engine_shape() {
     let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
-    assert_eq!(ui.font_size(), 13);
-    ui.set_font_size(14);
-    assert_eq!((ui.font_size(), ui.row_height()), (14, 25));
-    ui.set_font_size(13);
-    assert_eq!(ui.text_top(None, 10.0, 24.0), 10.0 + ((24.0f32 - 13.0) / 2.0).floor());
+    assert_eq!(ui.font_size(), 13.0);
+    ui.set_font_size(14.0);
+    assert_eq!((ui.font_size(), ui.row_height()), (14.0, 25.0));
+    // fractions are kept: the body size, its row, and the theme's body token
+    ui.set_font_size(14.5);
+    assert_eq!((ui.font_size(), ui.row_height()), (14.5, 25.5));
+    ui.set_font_size(13.0);
     let mut seen = false;
     ui.frame(&input(), &mut |ui: &mut Ui| {
         assert!(!ui.captured() && !ui.text_input_focused() && !ui.verifying());
@@ -1351,9 +1352,9 @@ fn a_caller_bug_panics_with_the_librarys_message_at_the_call() {
     let err = catch_unwind(AssertUnwindSafe(|| { let _ = ui.scroll(&stale).settled; })).expect_err("a stale box is refused");
     let message = err.downcast_ref::<String>().expect("a formatted message");
     assert!(message.contains("stale box"), "{message}");
-    let err = catch_unwind(AssertUnwindSafe(|| ui.set_font_size(0))).expect_err("a font size of zero is refused");
+    let err = catch_unwind(AssertUnwindSafe(|| ui.set_font_size(0.0))).expect_err("a font size of zero is refused");
     assert!(err.downcast_ref::<String>().is_some_and(|m| m.contains("font size")));
-    assert_eq!(ui.font_size(), 13, "the refused call changed nothing");
+    assert_eq!(ui.font_size(), 13.0, "the refused call changed nothing");
 }
 
 #[test]
@@ -1419,15 +1420,15 @@ fn canvas_text_goes_through_the_uis_own_text_service() {
     let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
     let style = crate::Label::BODY;
     let mut text = ui.text_service();
-    let metrics = text.measure("abc", &style, 0.0).expect("measure");
+    let metrics = text.measure("abc", style, None).expect("measure");
     assert!(metrics.width > 0.0 && metrics.lines == 1);
-    let glyphs = { let mut glyphs=Vec::new(); text.quads("abc", &style, 0.0, (10.0, 20.0), 1.0, &mut glyphs).map(|_|glyphs) }.expect("quads");
+    let glyphs = { let mut glyphs=Vec::new(); text.quads("abc",style,None,crate::Point::new(10.0,20.0), 1.0, &mut glyphs).map(|_|glyphs) }.expect("quads");
     assert_eq!(glyphs.len(), 3, "one quad per glyph");
     assert!(glyphs.iter().all(|g| g.rect[0] >= 10.0));
-    let (w, h, pixels) = { let mut px=Vec::new(); text.rasterize_rgba("abc", &style, 0.0, 1.0, [255, 255, 255, 255], &mut px).map(|(w,h)|(w,h,px)) }.expect("rasterize");
+    let (w, h, pixels) = { let mut px=Vec::new(); text.rasterize_rgba("abc",style,None, 1.0, [255, 255, 255, 255], &mut px).map(|(w,h)|(w,h,px)) }.expect("rasterize");
     assert_eq!(pixels.len(), (w * h * 4) as usize);
     let bad = style.size(f32::NAN);
-    assert!(text.measure("abc", &bad, 0.0).is_err(), "a NaN size is refused");
+    assert!(text.measure("abc", bad, None).is_err(), "a NaN size is refused");
 }
 
 #[test]
@@ -1436,13 +1437,13 @@ fn second_atlas_pages_reach_public_quads_and_both_rasterizers() {
     let style=crate::Label::BODY.size(600.0);
     let resolved=ui.resolve(&style);
     let mut text=ui.text_service();
-    let first={ let mut glyphs=Vec::new(); text.quads("A",&style,0.0,(0.0,0.0),2.0, &mut glyphs).map(|_|glyphs) }.unwrap();
-    let glyphs={ let mut glyphs=Vec::new(); text.quads("ABCDEF",&style,0.0,(0.0,0.0),2.0, &mut glyphs).map(|_|glyphs) }.unwrap();
+    let first={ let mut glyphs=Vec::new(); text.quads("A",style,None,crate::Point::new(0.0,0.0),2.0, &mut glyphs).map(|_|glyphs) }.unwrap();
+    let glyphs={ let mut glyphs=Vec::new(); text.quads("ABCDEF",style,None,crate::Point::new(0.0,0.0),2.0, &mut glyphs).map(|_|glyphs) }.unwrap();
     assert_eq!(glyphs.len(),6);
     assert_eq!(glyphs[0],first[0],"page growth preserves the first public quad");
     assert!(glyphs.iter().any(|g|g.atlas==0) && glyphs.iter().any(|g|g.atlas==2));
     assert!(glyphs.iter().all(|g|g.atlas==0 || g.atlas==2));
-    let (w,h,pixels)={ let mut px=Vec::new(); text.rasterize_rgba("ABCDEF",&style,0.0,2.0,[17,33,65,255], &mut px).map(|(w,h)|(w,h,px)) }.unwrap();
+    let (w,h,pixels)={ let mut px=Vec::new(); text.rasterize_rgba("ABCDEF",style,None,2.0,[17,33,65,255], &mut px).map(|(w,h)|(w,h,px)) }.unwrap();
     let mut shaper=crate::Text::new(&[crate::pragmasevka()]).unwrap();
     let (sw,sh,rgba)={ let mut px=Vec::new(); shaper.rasterize_rgba("ABCDEF",&resolved,0.0,2.0,[17,33,65,255], &mut px).map(|(w,h)|(w,h,px)) }.unwrap();
     assert_eq!((w,h),(sw,sh));
@@ -1455,7 +1456,7 @@ fn second_atlas_pages_reach_public_quads_and_both_rasterizers() {
             pixels[start..end].chunks_exact(4).any(|p|p[3]>0)
         }),"each page-backed quad has raster coverage: {glyph:?}");
     }
-    assert_eq!({ let mut glyphs=Vec::new(); text.quads("ABCDEF",&style,0.0,(0.0,0.0),2.0, &mut glyphs).map(|_|glyphs) }.unwrap(),glyphs);
+    assert_eq!({ let mut glyphs=Vec::new(); text.quads("ABCDEF",style,None,crate::Point::new(0.0,0.0),2.0, &mut glyphs).map(|_|glyphs) }.unwrap(),glyphs);
 }
 
 #[test]
@@ -1493,7 +1494,7 @@ fn a_shaper_of_its_own_measures_and_rasterizes_off_the_ui() {
     let metrics = text.measure("abc", &style, 0.0).expect("measure");
     assert!(metrics.width > 0.0);
     // the same text measures the same in the Ui's own service: one font, two homes
-    assert_eq!(ui.text_service().measure("abc", &crate::Label::BODY, 0.0).expect("service").width, metrics.width);
+    assert_eq!(ui.text_service().measure("abc", crate::Label::BODY, None).expect("service").width, metrics.width);
     let (w, h, pixels) = { let mut px=Vec::new(); text.rasterize_rgba("abc", &style, 0.0, 1.0, [255, 255, 255, 255], &mut px).map(|(w,h)|(w,h,px)) }.expect("rasterize");
     assert_eq!(pixels.len(), (w * h * 4) as usize);
     assert!(pixels.chunks(4).any(|p| p[3] != 0), "something was inked");
@@ -1624,16 +1625,16 @@ fn canvas_feature_styles_have_distinct_warm_cache_entries() {
     const FONT: &[u8]=include_bytes!("../../../../assets/fonts/Inter-Regular.ttf");
     mem_sys::set_peer(crate::library_counter);
     let mut ui=Ui::new(&crate::UiDesc::new(crate::Platform::Apple).fonts(&[crate::FontData(FONT)])).expect("pxui Ui");
-    let a=ui.text_service().measure("1111",&crate::Label::BODY.size(20.0),0.0).unwrap();
-    let b=ui.text_service().measure("1111",&crate::Label::BODY.size(20.0).tabular(),0.0).unwrap();
+    let a=ui.text_service().measure("1111",crate::Label::BODY.size(20.0),None).unwrap();
+    let b=ui.text_service().measure("1111",crate::Label::BODY.size(20.0).tabular(),None).unwrap();
     assert!((a.width-b.width).abs()>1.0);
     for frame in 0..7 {
         mem_sys::local_reset();
         ui.frame(&input().time(frame as f64/60.0),&mut |ui| {
             let bounds=ui.node("numbers",crate::Node::DEFAULT.w_px(240.0).h_px(80.0));
             ui.canvas(&bounds,move |paint,rect| {
-                assert_eq!(paint.text((rect.x,rect.y), &crate::Label::BODY.size(20.0), 0.0, "1111"),a);
-                assert_eq!(paint.text((rect.x,rect.y+30.0), &crate::Label::MONO.size(20.0), 0.0, "1111"),b);
+                assert_eq!(paint.text(crate::Point::new(rect.x, rect.y), crate::Label::BODY.size(20.0), 0.0, "1111"),a);
+                assert_eq!(paint.text(crate::Point::new(rect.x, rect.y+30.0), crate::Label::MONO.size(20.0), 0.0, "1111"),b);
             });
         }).unwrap();
         if frame>=3 { assert_eq!(mem_sys::local_alloc_count(),0,"mixed feature styles must keep separate warm layout/glyph caches"); }
@@ -1655,14 +1656,14 @@ fn inline_spans_on_nodes_preserve_labels_opacity_and_zero_allocation_rebuilds() 
         color:Rgba::rgba(255,0,0,255),background:Rgba::rgba(0,0,255,64),underline:Rgba::rgba(0,255,0,255),..Default::default() };
     let mut shaper=crate::Text::new(&[crate::pragmasevka()]).unwrap();
     let measured=shaper.measure_spans(text,&style,200.0,&[span]).unwrap();
-    assert_eq!(ui.text_service().measure_spans(text,&label,200.0,&[span]).unwrap(),measured);
+    assert_eq!(ui.text_service().measure_spans(text,label,Some(200.0),&[span]).unwrap(),measured);
     for frame in 0..10 {
         let plain=frame%3==0;
         let opacity=if frame%2==0 { 0.5 } else { 1.0 };
         mem_sys::local_reset();
         ui.frame(&input().time(frame as f64/60.0),&mut |ui| {
             let b=ui.node("label",crate::Node::DEFAULT.role(crate::ui::Role::Label).w_px(200.0).h_px(40.0).look(crate::ui::Look::NONE.text(Rgba::rgba(30,30,30,255)).opacity(opacity)));
-            if plain { ui.text(&b,text); } else { ui.text_spans(&b,text,&label,&[span]).unwrap(); }
+            if plain { ui.text(&b,text); } else { ui.text_spans(&b,text,label,&[span]).unwrap(); }
         }).unwrap();
         if frame>=6 { assert_eq!(mem_sys::local_alloc_count(),0,"warm rich/plain rebuilds retain their span storage and glyph caches"); }
         let alpha=if opacity==0.5 { 128 } else { 255 };
@@ -1684,20 +1685,19 @@ fn inline_canvas_styles_keep_independent_caches_and_reject_invalid_ranges() {
     mem_sys::set_peer(crate::library_counter);
     let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let label=crate::Label::BODY.size(20.0);
-    let style=ui.resolve(&label);
     let red=TextSpan { start:0,end:2,flags:TextSpan::COLOR|TextSpan::UNDERLINE,color:Rgba::rgba(255,0,0,255),underline:Rgba::rgba(255,0,0,255),..Default::default() };
     let green=TextSpan { color:Rgba::rgba(0,255,0,255),underline:Rgba::rgba(0,255,0,255),..red };
     for bad in [TextSpan { start:1,end:2,..red },TextSpan { end:99,..red },TextSpan { flags:8,..red }] {
-        assert!(ui.text_service().measure_spans("é!",&label,0.0,&[bad]).is_err());
+        assert!(ui.text_service().measure_spans("é!",label,None,&[bad]).is_err());
     }
-    assert!(ui.text_service().measure_spans("abcdefghij",&label,0.0,&[red;9]).is_err());
+    assert!(ui.text_service().measure_spans("abcdefghij",label,None,&[red;9]).is_err());
     for frame in 0..7 {
         mem_sys::local_reset();
         ui.frame(&input().time(frame as f64/60.0),&mut |ui| {
             let b=ui.node("canvas",crate::Node::DEFAULT.w_px(200.0).h_px(80.0));
             ui.canvas(&b,move |paint,rect| {
-                let a=paint.text_spans((rect.x,rect.y),&style,0.0,"ab cd",&[red]).unwrap();
-                let b=paint.text_spans((rect.x,rect.y+30.0),&style,0.0,"ab cd",&[green]).unwrap();
+                let a=paint.text_spans(crate::Point::new(rect.x,rect.y),label,0.0,"ab cd",&[red]).unwrap();
+                let b=paint.text_spans(crate::Point::new(rect.x,rect.y+30.0),label,0.0,"ab cd",&[green]).unwrap();
                 assert_eq!(a,b,"decoration colour changes preserve text geometry");
             });
         }).unwrap();
@@ -1715,15 +1715,14 @@ fn inline_node_fractional_font_alignment_matches_canvas_text() {
     theme.set_color(crate::theme::ColorToken(0), Rgba::rgba(0, 0, 0, 255));
     ui.set_theme(&theme).unwrap();
     let label=crate::Label::BODY.size(20.25).color(crate::theme::ColorToken(0));
-    let style=ui.resolve(&label);
     let span=TextSpan { start:0,end:2,flags:TextSpan::COLOR,color:Rgba::rgba(255,0,0,255),..Default::default() };
     let shift=em_top_to_layout_top(20.25);
     ui.frame(&input(),&mut |ui| {
         let b=ui.node("fractional",crate::Node::DEFAULT.w_px(200.0).h_px(40.0).look(crate::ui::Look::NONE.text(Rgba::rgba(0,0,0,255))));
-        ui.text_spans(&b,"ab cd",&label,&[span]).unwrap();
+        ui.text_spans(&b,"ab cd",label,&[span]).unwrap();
         ui.canvas(&b,move |paint,rect| {
             let top=rect.y+((rect.h-20.25)/2.0).floor()+shift;
-            paint.text_spans((rect.x,top),&style,200.0,"ab cd",&[span]).unwrap();
+            paint.text_spans(crate::Point::new(rect.x,top),label,200.0,"ab cd",&[span]).unwrap();
         });
     }).unwrap();
     let instances:Vec<_>=ui.layers().flat_map(|layer|layer.instances.iter().copied()).collect();
@@ -1745,18 +1744,17 @@ fn inline_node_wrapped_alignment_matches_the_complete_canvas_block() {
     theme.set_color(crate::theme::ColorToken(0), Rgba::rgba(0, 0, 0, 255));
     ui.set_theme(&theme).unwrap();
     let label=crate::Label::BODY.size(20.0).line_height(24.0).wrap().color(crate::theme::ColorToken(0));
-    let style=ui.resolve(&label);
     let span=TextSpan { start:3,end:5,flags:TextSpan::COLOR,color:Rgba::rgba(255,0,0,255),..Default::default() };
-    let metrics=ui.text_service().measure_spans("aa bb cc",&label,45.0,&[span]).unwrap();
+    let metrics=ui.text_service().measure_spans("aa bb cc",label,Some(45.0),&[span]).unwrap();
     assert_eq!(metrics.lines,3);
     let shift=em_top_to_layout_top(20.0);
     ui.frame(&input(),&mut |ui| {
         let b=ui.node("wrapped",crate::Node::DEFAULT.w_px(45.0).h_px(80.0).look(crate::ui::Look::NONE.text(Rgba::rgba(0,0,0,255))));
-        ui.text_spans(&b,"aa bb cc",&label,&[span]).unwrap();
+        ui.text_spans(&b,"aa bb cc",label,&[span]).unwrap();
         ui.canvas(&b,move |paint,rect| {
             let block=20.0+(metrics.lines-1) as f32*24.0;
             let top=rect.y+((rect.h-block)/2.0).floor()+shift;
-            paint.text_spans((rect.x,top),&style,45.0,"aa bb cc",&[span]).unwrap();
+            paint.text_spans(crate::Point::new(rect.x,top),label,45.0,"aa bb cc",&[span]).unwrap();
         });
     }).unwrap();
     let instances:Vec<_>=ui.layers().flat_map(|layer|layer.instances.iter().copied()).collect();
@@ -1778,10 +1776,10 @@ fn ellipsis_modes_match_standalone_ui_measurement_quads_and_rasterization() {
     for (cut,label) in [(false,body),(true,body.ellipsis()),(true,body.ellipsis_middle()),(true,body.ellipsis_head())] {
         let style=ui.resolve(&label);
         let a=shaper.measure(source,&style,100.0).unwrap();
-        assert_eq!(a,ui.text_service().measure(source,&label,100.0).unwrap());
+        assert_eq!(a,ui.text_service().measure(source,label,Some(100.0)).unwrap());
         let raster={ let mut px=Vec::new(); shaper.rasterize_rgba(source,&style,100.0,1.0,[0,0,0,255], &mut px).map(|(w,h)|(w,h,px)) }.unwrap();
-        assert_eq!(raster,{ let mut px=Vec::new(); ui.text_service().rasterize_rgba(source,&label,100.0,1.0,[0,0,0,255], &mut px).map(|(w,h)|(w,h,px)) }.unwrap());
-        let glyphs={ let mut glyphs=Vec::new(); ui.text_service().quads(source,&label,100.0,(0.0,0.0),1.0, &mut glyphs).map(|_|glyphs) }.unwrap();
+        assert_eq!(raster,{ let mut px=Vec::new(); ui.text_service().rasterize_rgba(source,label,Some(100.0),1.0,[0,0,0,255], &mut px).map(|(w,h)|(w,h,px)) }.unwrap());
+        let glyphs={ let mut glyphs=Vec::new(); ui.text_service().quads(source,label,Some(100.0),crate::Point::new(0.0, 0.0),1.0, &mut glyphs).map(|_|glyphs) }.unwrap();
         assert!(!glyphs.is_empty());
         if cut { assert!(a.width<=100.001 && glyphs.len()<26); }
         if let Some(previous)=previous { assert_ne!(raster,previous,"mode changes select distinct cached layouts"); }
@@ -1807,16 +1805,15 @@ fn ellipsis_modes_on_nodes_and_canvas_preserve_labels_fit_modes_and_warm_storage
     ui.set_theme(&theme).unwrap();
     let body=crate::Label::BODY.size(20.0).color(crate::theme::ColorToken(0));
     let labels=[body.ellipsis(),body.ellipsis_middle(),body.ellipsis_head()];
-    let styles=labels.map(|label| ui.resolve(&label));
     for frame in 0..15 {
-        let (label,style)=(labels[frame%3],styles[frame%3]);
+        let label=labels[frame%3];
         mem_sys::local_reset();
         ui.frame(&input().time(frame as f64/60.0),&mut |ui| {
             let b=ui.node("ellipsis",crate::Node::DEFAULT.flags(pxui_types::Flags::FIT_TEXT).role(crate::ui::Role::Label).w_px(100.0).h_px(40.0).look(crate::ui::Look::NONE.text(Rgba::rgba(0,0,0,255))));
-            ui.text_spans(&b,source,&label,&spans).unwrap();
+            ui.text_spans(&b,source,label,&spans).unwrap();
             ui.canvas(&b,move |paint,rect| {
                 let top=rect.y+((rect.h-20.0)/2.0).floor()+shift;
-                paint.text_spans((rect.x,top),&style,100.0,source,&spans).unwrap();
+                paint.text_spans(crate::Point::new(rect.x,top),label,100.0,source,&spans).unwrap();
             });
         }).unwrap();
         if frame>=9 { assert_eq!(mem_sys::local_alloc_count(),0,"mixed modes retain independent layout/glyph caches"); }
@@ -1843,24 +1840,24 @@ fn system_fonts_reach_standalone_and_ui_shapers_without_warm_allocations() {
     let style=ui.resolve(&label);
     let old={ let mut px=Vec::new(); text.rasterize_rgba("漢字",&style,300.0,1.0,[0,0,0,255], &mut px).map(|(w,h)|(w,h,px)) }.unwrap();
     text.enable_system_fonts().unwrap();
-    ui.enable_system_fonts().unwrap();
+    ui.text_service().enable_system_fonts().unwrap();
     let new={ let mut px=Vec::new(); text.rasterize_rgba("漢字",&style,300.0,1.0,[0,0,0,255], &mut px).map(|(w,h)|(w,h,px)) }.unwrap();
     assert_ne!(old,new,"enabling invalidates an earlier missing-font layout");
     let cases=["漢字","العربية","😀"];
     let mut measured=[pxui_types::TextMetrics::default();3];
     for (i,source) in cases.into_iter().enumerate() {
         measured[i]=text.measure(source,&style,300.0).unwrap();
-        assert_eq!(measured[i],ui.text_service().measure(source,&label,300.0).unwrap());
+        assert_eq!(measured[i],ui.text_service().measure(source,label,Some(300.0)).unwrap());
         let (w,h,rgba)={ let mut px=Vec::new(); text.rasterize_rgba(source,&style,300.0,1.0,[0,0,0,255], &mut px).map(|(w,h)|(w,h,px)) }.unwrap();
         assert!(w>0 && h>0 && rgba.chunks_exact(4).any(|p|p[3]>0),"native fallback rasterizes {source}");
     }
     for _ in 0..4 {
         mem_sys::local_reset();
         text.enable_system_fonts().unwrap();
-        ui.enable_system_fonts().unwrap();
+        ui.text_service().enable_system_fonts().unwrap();
         for (i,source) in cases.into_iter().enumerate() {
             assert_eq!(text.measure(source,&style,300.0).unwrap(),measured[i]);
-            assert_eq!(ui.text_service().measure(source,&label,300.0).unwrap(),measured[i]);
+            assert_eq!(ui.text_service().measure(source,label,Some(300.0)).unwrap(),measured[i]);
         }
         assert_eq!(mem_sys::local_alloc_count(),0,"warm fallback measurement crosses both ABI paths without allocating");
     }
@@ -1871,7 +1868,7 @@ fn system_fonts_reach_standalone_and_ui_shapers_without_warm_allocations() {
 fn system_font_nodes_keep_labels_warm_storage_and_refuse_late_enable() {
     mem_sys::set_peer(crate::library_counter);
     let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
-    ui.enable_system_fonts().unwrap();
+    ui.text_service().enable_system_fonts().unwrap();
     ui.set_a11y(true);
     let source="漢字 العربية 😀";
     let label=crate::Label::BODY.size(20.0);
@@ -1879,14 +1876,14 @@ fn system_font_nodes_keep_labels_warm_storage_and_refuse_late_enable() {
         mem_sys::local_reset();
         ui.frame(&input().time(frame as f64/60.0),&mut |ui| {
             let b=ui.node("native-fonts",crate::Node::DEFAULT.role(crate::ui::Role::Label).w_px(300.0).h_px(40.0));
-            ui.text_spans(&b,source,&label,&[]).unwrap();
-            ui.canvas(&b,move |paint,rect| { paint.text((rect.x,rect.y+50.0), &crate::Label::BODY.size(20.0), 300.0, source); });
+            ui.text_spans(&b,source,label,&[]).unwrap();
+            ui.canvas(&b,move |paint,rect| { paint.text(crate::Point::new(rect.x, rect.y+50.0), crate::Label::BODY.size(20.0), 300.0, source); });
         }).unwrap();
         if frame>=3 { assert_eq!(mem_sys::local_alloc_count(),0,"mixed-script nodes and canvas reuse warm layouts and glyphs"); }
         assert!(ui.a11y_nodes().iter().any(|node|ui.a11y_name_of(node)==source));
         assert!(!ui.layers().all(|layer|layer.instances.is_empty()));
     }
-    assert_eq!(ui.enable_system_fonts(),Err(crate::Error::State));
+    assert_eq!(ui.text_service().enable_system_fonts(),Err(crate::Error::State));
     assert!(ui.last_error().contains("before the first frame"));
 }
 
@@ -2184,7 +2181,7 @@ fn custom_text_field_font_sizes_keep_glyphs_caret_hit_selection_and_ime_without_
         ui.set_node_layout(&c.row, &row);
         ui.set_look(&c.row, Look::NONE, State::default());
         let editor = ui.part(Part::EDITOR, Node::DEFAULT.at(18.0, 0.0).w_px(280.0).h_px(59.0).inset(Edges { l: 2.0, ..Edges::ZERO })
-            .look(Look::NONE.text(ui.theme().tokens.foreground).font(Font::BODY.size(SIZE.get()))));
+            .look(Look::NONE.text(ui.theme().tokens.foreground).font(Font::BODY.size(SIZE.get() as f32))));
         if c.state.focused == 0 { ui.text(&editor, c.text_of(&c.value)); }
     }
     mem_sys::set_peer(crate::library_counter);
@@ -2202,8 +2199,8 @@ fn custom_text_field_font_sizes_keep_glyphs_caret_hit_selection_and_ime_without_
             for tick in 0..3 { ui.frame(&frame.time(tick as f64/60.0),&mut build).unwrap(); }
             let glyphs = ui.layers().flat_map(|layer|layer.instances.iter()).filter(|quad|quad.kind==crate::draw::kind::MASK).map(|quad|(quad.rect,quad.aux)).collect::<Vec<_>>();
             assert!(!glyphs.is_empty());
-            let points = if size==0 {ui.font_size()} else {Font::BODY.size(size).points(ui.font_size())};
-            let full_width = ui.text_width(Some(points),value);
+            let points = if size==0 {ui.font_size()} else {Font::BODY.size(size as f32).points(ui.font_size())};
+            let full_width = ui.text_service().width(value,crate::Label::BODY.size(points as f32),None).unwrap();
             let focus = Event {kind:Event::KEY_PRESSED,code:crate::KeyCode::Tab.wire(),..Default::default()};
             ui.frame(&{
                 let mut frame = frame.time(0.1);
@@ -2214,7 +2211,7 @@ fn custom_text_field_font_sizes_keep_glyphs_caret_hit_selection_and_ime_without_
             assert_eq!(ui.ime().unwrap().caret,(2.0+full_width).round(),"focused text uses the body's editor font size {size}");
             assert!(ui.layers().flat_map(|layer|layer.instances.iter()).filter(|quad|quad.kind==crate::draw::kind::MASK).map(|quad|(quad.rect,quad.aux)).eq(glyphs.iter().copied()),"focus preserves the exact glyph positions and atlas samples");
             let editor = ui.part_rect(&ui.box_of_key(crate::Key::Resolved(ROW.get())).unwrap(),Part::EDITOR).unwrap();
-            let prefix = ui.text_width(Some(points),"café ");
+            let prefix = ui.text_service().width("café ",crate::Label::BODY.size(points as f32),None).unwrap();
             let x = editor.x+2.0+prefix;
             let y = editor.y+editor.h/2.0;
             if size==20 { SIZE.set(24); }
@@ -2230,7 +2227,7 @@ fn custom_text_field_font_sizes_keep_glyphs_caret_hit_selection_and_ime_without_
             let selected = ui.a11y_nodes().iter().find(|node|node.role==Role::TextField as u32).unwrap();
             assert_eq!(selected.selection,[5,5],"pointer hit testing uses the displayed UTF-8 text at size {size}");
             if size==20 {
-                let width = ui.text_width(Some(24),"café ");
+                let width = ui.text_service().width("café ",crate::Label::BODY.size(24 as f32),None).unwrap();
                 assert_eq!(ui.ime().unwrap().caret,(2.0+width).round(),"a body size change paints the new font immediately, after hit testing the previous frame");
             }
             let key = |kind,code: crate::KeyCode| Event {kind,code:code.wire(),..Default::default()};
@@ -2705,7 +2702,7 @@ fn line_box_text_fits_wraps_and_resizes_in_one_frame_without_warm_allocations() 
     let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap(); ui.set_a11y(true);
     let style=crate::Label::BODY.size(12.0).line_height(20.0).wrap();
     let value="one two three four";
-    let expected=[80.0,200.0].map(|width| ui.text_service().measure(value,&style,width).unwrap().lines as f32*20.0);
+    let expected=[80.0,200.0].map(|width| ui.text_service().measure(value,style,Some(width)).unwrap().lines as f32*20.0);
     assert!(expected[0]>expected[1],"fixture must wrap");
     let handle=Cell::new(None);
     for round in 0..6 {
@@ -2715,7 +2712,7 @@ fn line_box_text_fits_wraps_and_resizes_in_one_frame_without_warm_allocations() 
                 ui.frame(&input().time(round as f64),&mut |ui| {
                     ui.column("wrapper", Node::column().w_px(width), |ui| { ui.view_of("wrapper", &((width as u64)*2+u64::from(empty)), |ui| {
                         let node=ui.node("line",Node::DEFAULT.role(Role::Label).w(Size::Grow).h(Size::Fit));
-                        ui.text_line_box(&node,if empty {""} else {value},&style,&[]).unwrap();
+                        ui.text_line_box(&node,if empty {""} else {value},style,&[]).unwrap();
                         handle.set(Some(node));
                     }); });
                 }).unwrap();
@@ -2729,14 +2726,14 @@ fn line_box_text_fits_wraps_and_resizes_in_one_frame_without_warm_allocations() 
     ui.frame(&input(),&mut |ui| {
         let node=ui.node("checked",Node::DEFAULT.role(Role::Label).w_px(200.0).h_px(20.0));
         let ink = crate::TextSpan { start: 0, end: 3, color: crate::geom::Rgba::rgb(17, 59, 137), flags: crate::TextSpan::COLOR, ..Default::default() };
-        ui.text_line_box(&node,value,&style,&[ink]).unwrap();
+        ui.text_line_box(&node,value,style,&[ink]).unwrap();
         for invalid in [
             style.line_height(0.0), style.line_height(f32::NAN), style.font(u16::MAX),
             style.size(f32::MAX).tracking(f32::MAX),
         ] {
-            assert!(ui.text_line_box(&node,"wrong",&invalid,&[]).is_err());
+            assert!(ui.text_line_box(&node,"wrong",invalid,&[]).is_err());
         }
-        assert!(ui.text_line_box(&node,"é",&style,&[crate::TextSpan {start:1,end:2,..Default::default()}]).is_err());
+        assert!(ui.text_line_box(&node,"é",style,&[crate::TextSpan {start:1,end:2,..Default::default()}]).is_err());
     }).unwrap();
     assert!(ui.a11y_nodes().iter().any(|node|ui.a11y_name_of(node)==value));
     assert!(ui.layers().flat_map(|layer| layer.instances.iter()).any(|quad| quad.color == [17, 59, 137, 255]));
@@ -3113,7 +3110,7 @@ fn marked_text_replaces_the_selection_and_tracks_unicode_caret_without_warm_allo
     use crate::{Event,Part,Str};
     fn body(ui:&mut Ui,c:&crate::bodies::TextFieldConfig) { use crate::bodies::BodyConfig;
         ui.set_look(&c.row,crate::theme::Look::NONE,crate::theme::State::default());
-        let editor=ui.part(Part::EDITOR,crate::Node::DEFAULT.w_px(240.0).h_px(30.0).look(crate::theme::Look::NONE.font(crate::theme::Font::BODY.size(18))));
+        let editor=ui.part(Part::EDITOR,crate::Node::DEFAULT.w_px(240.0).h_px(30.0).look(crate::theme::Look::NONE.font(crate::theme::Font::BODY.size(18.0))));
         if c.state.focused==0 {ui.text(&editor,c.text_of(&c.value));}
     }
     mem_sys::set_peer(crate::library_counter);
@@ -3147,14 +3144,14 @@ fn marked_text_replaces_the_selection_and_tracks_unicode_caret_without_warm_allo
             frame
         },&mut build).unwrap();
         let prefix=if start>3.0 {value} else {"éi"};
-        assert_eq!(ui.ime().unwrap().caret,(2.0+ui.text_width(Some(18),prefix)).round(),"marked selection uses Unicode scalar offsets");
+        assert_eq!(ui.ime().unwrap().caret,(2.0+ui.text_service().width(prefix,crate::Label::BODY.size(18 as f32),None).unwrap()).round(),"marked selection uses Unicode scalar offsets");
     }
     for frame in 0..182 {
         mem_sys::local_reset();
         ui.frame(&input().time(frame as f64/120.0),&mut build).unwrap();
         assert_eq!(ui.layers().flat_map(|layer|layer.instances.iter()).filter(|quad|quad.kind==crate::draw::kind::MASK).count(),3,
             "preedit must replace the selected base text instead of appending to it");
-        assert_eq!(ui.ime().unwrap().caret,(2.0+ui.text_width(Some(18),"éi")).round());
+        assert_eq!(ui.ime().unwrap().caret,(2.0+ui.text_service().width("éi",crate::Label::BODY.size(18 as f32),None).unwrap()).round());
         if frame>=82 {assert_eq!(mem_sys::local_alloc_count(),0,"warm marked selection frame {frame}");}
     }
     let commit=[Event {kind:Event::TEXT_INPUT,text:Str {ptr:value.as_ptr(),len:value.len()},..Default::default()},key(Event::KEY_PRESSED,crate::KeyCode::Enter),key(Event::KEY_RELEASED,crate::KeyCode::Enter)];
@@ -3198,10 +3195,10 @@ fn keyless_text_measurement_retains_interleaved_values_styles_widths_and_spans()
             for (index,(value,label,width)) in cases.into_iter().enumerate() {
                 assert_eq!(text.measure(value,&resolved[index],width).unwrap(),expected[index]);
                 assert_eq!(text.width(value,&resolved[index],width).unwrap(),expected[index].width);
-                assert_eq!(ui.text_service().measure(value,&label,width).unwrap(),expected[index]);
+                assert_eq!(ui.text_service().measure(value,label,Some(width)).unwrap(),expected[index]);
             }
             assert_eq!(text.measure_spans(cases[3].0,&resolved[3],40.0,&spans).unwrap(),rich);
-            assert_eq!(ui.text_service().measure_spans(cases[3].0,&plain,40.0,&spans).unwrap(),rich);
+            assert_eq!(ui.text_service().measure_spans(cases[3].0,plain,Some(40.0),&spans).unwrap(),rich);
         }).unwrap();
         if round>=3 { assert_eq!(mem_sys::local_alloc_count(),0,"keyless layout identity must retain every interleaved variant"); }
     }
@@ -3229,20 +3226,20 @@ fn pixel_fit_text_rounds_density_and_reuses_recycled_identity_style_and_span_lay
                 ui.frame(&input().scale(scale).time(serial as f64/60.0),&mut |ui| {
                     for (index,value) in values.into_iter().enumerate() {
                         let node=ui.node(index as i64+100+100*(round%2) as i64,Node::DEFAULT.flags(pxui_types::Flags::FIT_TEXT|pxui_types::Flags::FIT_TEXT_PIXEL).w(Size::Fit).h_px(24.0).role(Role::Label).look(look));
-                        ui.text_line_box(&node,value,&style,&[]).unwrap();nodes[index]=Some(node);
+                        ui.text_line_box(&node,value,style,&[]).unwrap();nodes[index]=Some(node);
                     }
                     let node=ui.node("spans",Node::DEFAULT.flags(pxui_types::Flags::FIT_TEXT_PIXEL).w(Size::Fit).h_px(24.0).look(look));
-                    ui.text_spans(&node,values[0],&styles[0],&span).unwrap();nodes[4]=Some(node);
-                    let node=ui.node("plain-caps",Node::DEFAULT.flags(pxui_types::Flags::FIT_TEXT_PIXEL).w(Size::Fit).h_px(24.0).role(Role::Label).look(look.font(Font::BODY.size(14).caps())));
+                    ui.text_spans(&node,values[0],styles[0],&span).unwrap();nodes[4]=Some(node);
+                    let node=ui.node("plain-caps",Node::DEFAULT.flags(pxui_types::Flags::FIT_TEXT_PIXEL).w(Size::Fit).h_px(24.0).role(Role::Label).look(look.font(Font::BODY.size(14.0).caps())));
                     ui.text(&node,values[0]);nodes[5]=Some(node);
                     let node=ui.node("limited",Node::DEFAULT.flags(pxui_types::Flags::FIT_TEXT_PIXEL).w(Size::Fit).max_w(10.25).h_px(24.0).look(look));
-                    ui.text_line_box(&node,values[2],&style,&[]).unwrap();nodes[6]=Some(node);
+                    ui.text_line_box(&node,values[2],style,&[]).unwrap();nodes[6]=Some(node);
                     let node=ui.node("insets",Node::DEFAULT.flags(pxui_types::Flags::FIT_TEXT_PIXEL).w(Size::Fit).h_px(24.0).inset(crate::ui::Edges {l:0.2,r:0.3,..Default::default()}).look(look));
-                    ui.text_line_box(&node,values[0],&style,&[]).unwrap();nodes[7]=Some(node);
-                    let node=ui.node("plain-limited",Node::DEFAULT.flags(pxui_types::Flags::FIT_TEXT|pxui_types::Flags::FIT_TEXT_PIXEL).w(Size::Fit).max_w(10.25).h_px(24.0).look(Look::NONE.text(crate::geom::Rgba::rgba(255,0,0,255)).font(Font::BODY.size(14))));
+                    ui.text_line_box(&node,values[0],style,&[]).unwrap();nodes[7]=Some(node);
+                    let node=ui.node("plain-limited",Node::DEFAULT.flags(pxui_types::Flags::FIT_TEXT|pxui_types::Flags::FIT_TEXT_PIXEL).w(Size::Fit).max_w(10.25).h_px(24.0).look(Look::NONE.text(crate::geom::Rgba::rgba(255,0,0,255)).font(Font::BODY.size(14.0))));
                     ui.text(&node,values[0]);nodes[8]=Some(node);
                 }).unwrap();
-                let density=ui.density() as f32;
+                let density=ui.density();
                 let ceil=|value:f32|(value*density).ceil()/density;
                 for index in 0..4 {assert_eq!(ui.rect(&nodes[index].unwrap()).w,ceil(widths[variant][index]));}
                 assert_eq!(ui.rect(&nodes[4].unwrap()).w,ceil(span_width));
@@ -3270,19 +3267,19 @@ fn text_into_forms_match_and_allocate_nothing_with_capacity() {
     let mut ui_pixels = Vec::new();
     let mut shaper_pixels = Vec::new();
     for _ in 0..2 {
-        ui.text_service().quads("abc def", &label, 0.0, (3.0, 4.0), 1.0, &mut glyphs).unwrap();
-        ui.text_service().rasterize_rgba("abc def", &label, 0.0, 1.0, color, &mut ui_pixels).unwrap();
+        ui.text_service().quads("abc def", label, None, crate::Point::new(3.0, 4.0), 1.0, &mut glyphs).unwrap();
+        ui.text_service().rasterize_rgba("abc def", label, None, 1.0, color, &mut ui_pixels).unwrap();
         shaper.rasterize_rgba("abc def", &style, 0.0, 1.0, color, &mut shaper_pixels).unwrap();
     }
-    assert_eq!(glyphs, { let mut glyphs=Vec::new(); ui.text_service().quads("abc def", &label, 0.0, (3.0, 4.0), 1.0, &mut glyphs).map(|_|glyphs) }.unwrap());
-    let (w, h, old) = { let mut px=Vec::new(); ui.text_service().rasterize_rgba("abc def", &label, 0.0, 1.0, color, &mut px).map(|(w,h)|(w,h,px)) }.unwrap();
-    assert_eq!(ui.text_service().rasterize_rgba("abc def", &label, 0.0, 1.0, color, &mut ui_pixels), Ok((w, h)));
+    assert_eq!(glyphs, { let mut glyphs=Vec::new(); ui.text_service().quads("abc def", label, None, crate::Point::new(3.0, 4.0), 1.0, &mut glyphs).map(|_|glyphs) }.unwrap());
+    let (w, h, old) = { let mut px=Vec::new(); ui.text_service().rasterize_rgba("abc def", label, None, 1.0, color, &mut px).map(|(w,h)|(w,h,px)) }.unwrap();
+    assert_eq!(ui.text_service().rasterize_rgba("abc def", label, None, 1.0, color, &mut ui_pixels), Ok((w, h)));
     assert_eq!(ui_pixels, old);
     assert_eq!({ let mut px=Vec::new(); shaper.rasterize_rgba("abc def", &style, 0.0, 1.0, color, &mut px).map(|(w,h)|(w,h,px)) }.unwrap(), (w, h, shaper_pixels.clone()));
     let scope = mem_sys::warm_scope();
     mem_sys::local_reset();
-    ui.text_service().quads("abc def", &label, 0.0, (3.0, 4.0), 1.0, &mut glyphs).unwrap();
-    ui.text_service().rasterize_rgba("abc def", &label, 0.0, 1.0, color, &mut ui_pixels).unwrap();
+    ui.text_service().quads("abc def", label, None, crate::Point::new(3.0, 4.0), 1.0, &mut glyphs).unwrap();
+    ui.text_service().rasterize_rgba("abc def", label, None, 1.0, color, &mut ui_pixels).unwrap();
     shaper.rasterize_rgba("abc def", &style, 0.0, 1.0, color, &mut shaper_pixels).unwrap();
     assert_eq!(mem_sys::local_alloc_count(), 0);
     drop(scope);
@@ -3443,7 +3440,7 @@ fn a_registered_menu_row_body_is_given_a_swatch_token_resolved_for_the_theme() {
     dark.set_color(ColorToken(0), c(16));
     for (theme, want) in [(&light, c(240)), (&dark, c(16)), (&light, c(240))] {
         ui.set_theme(theme).unwrap();
-        ui.frame(&input(), &mut |ui| { ui.menu("m", (10.0, 10.0), &ITEMS, &Menu::DEFAULT); }).unwrap();
+        ui.frame(&input(), &mut |ui| { ui.menu("m", crate::Point::new(10.0, 10.0), &ITEMS, &Menu::DEFAULT); }).unwrap();
         assert_eq!(SWATCH_SEEN.with(|s| s.get()), want);
     }
 }
@@ -3465,8 +3462,8 @@ fn resolve_gives_the_style_a_label_shapes_with() {
     assert!(theme.size_points>0.0,"the theme label's size");
     ui.frame(&input(),&mut |ui| {
         let node=ui.node("n",crate::Node::DEFAULT);
-        assert!(ui.text_line_box(&node,"x",&crate::Label::BODY.size(-1.0),&[]).is_err());
-        ui.text_line_box(&node,"x",&crate::Label::BODY.line_height(20.0),&[]).unwrap();
+        assert!(ui.text_line_box(&node,"x",crate::Label::BODY.size(-1.0),&[]).is_err());
+        ui.text_line_box(&node,"x",crate::Label::BODY.line_height(20.0),&[]).unwrap();
     }).unwrap();
 }
 
@@ -3672,4 +3669,37 @@ fn u1b2_keys_resolve_once_and_lookups_keep_the_innermost_candidate_without_warm_
         let _ = ui.root_at(at, &many);
     }
     assert_eq!(mem_sys::local_alloc_count(), 0, "warm lookups and the resolved hover wait allocate nothing");
+}
+
+/// U1b.3 units: a fractional body size is kept by creation and the setter (the 1.x C getters keep whole points; the C snapshot's
+/// projection is checked in pxui_abi); a painter's text service measures what `Ui::text_service` measures in the same label; painting a
+/// label with spans and measuring it in a canvas allocate nothing warm.
+#[test]
+fn u1b3_fractional_sizes_and_the_painters_text_service_without_warm_allocations() {
+    use crate::{Label, Point, TextSpan};
+    use std::cell::Cell;
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT.font_size(14.5)).unwrap();
+    assert_eq!((ui.font_size(), ui.row_height()), (14.5, 25.5));
+    ui.set_font_size(13.25);
+    assert_eq!(ui.font_size(), 13.25);
+    const LABEL: Label = Label::BODY.size(17.5);
+    let expected = ui.text_service().measure("Painted 0123", LABEL, None).unwrap();
+    let painted = std::rc::Rc::new(Cell::new((0.0f32, 0.0f32)));
+    let mut build = |ui: &mut Ui| {
+        let node = ui.node("canvas", crate::Node::DEFAULT.w_px(200.0).h_px(60.0));
+        let painted = painted.clone();
+        ui.canvas(&node, move |paint, rect| {
+            let m = paint.text_service().measure("Painted 0123", LABEL, None).unwrap();
+            let spans = paint.text_spans(Point::new(rect.x, rect.y), LABEL, 0.0, "Painted 0123", &[TextSpan { start: 0, end: 7, weight: 700, ..Default::default() }]).unwrap();
+            painted.set((m.width, spans.height));
+        });
+    };
+    for t in 0..12 {
+        if t == 8 { mem_sys::local_reset(); }
+        ui.frame(&input().time(t as f64 / 60.0), &mut build).unwrap();
+    }
+    assert_eq!(mem_sys::local_alloc_count(), 0, "a warm painter measure and label spans allocate nothing");
+    assert_eq!(painted.get().0, expected.width, "the painter measures what the Ui measures");
+    assert!(painted.get().1 > 0.0);
 }

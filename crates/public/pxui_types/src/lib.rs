@@ -676,6 +676,10 @@ pub struct PxuiPanel {
     pub y: f32,
     pub width: f32,
     pub height: f32,
+    /// The inner padding in points, fractions kept, in the 1.x record's alignment hole (offsets unchanged). It counts only while it
+    /// agrees with `padding` (within half a point, as the wrapper writes them), so a 1.x caller's record keeps its integer meaning.
+    #[doc(hidden)]
+    pub padding_points: f32,
     pub padding: i64,
     pub has_height: u8,
     pub window: u8,
@@ -689,7 +693,7 @@ pub struct PxuiPanel {
 }
 impl Default for PxuiPanel {
     fn default() -> Self {
-        Self { size: core::mem::size_of::<Self>() as u32, x: 0.0, y: 0.0, width: 0.0, height: 0.0, padding: 0, has_height: 0, window: 0,
+        Self { size: core::mem::size_of::<Self>() as u32, x: 0.0, y: 0.0, width: 0.0, height: 0.0, padding_points: 0.0, padding: 0, has_height: 0, window: 0,
             has_max_height: 0, has_stroke: 0, has_look: 0, reserved: [0; 3], max_height: 0.0, stroke: geom::Rgba::default(), look: ffi::PxuiLookDesc::default() }
     }
 }
@@ -790,7 +794,7 @@ pub mod feature {
 }
 
 /// The ABI version this crate's records describe (`major << 16 | minor`); an app states it as `PxuiUiDesc::abi_built`.
-pub const ABI_BUILT: u32 = 1 << 16 | 77;
+pub const ABI_BUILT: u32 = 1 << 16 | 78;
 impl Default for PxuiUiDesc { fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, platform: 0, font_size: 0, abi_built: ABI_BUILT } } }
 
 #[cfg(test)]
@@ -857,6 +861,8 @@ mod abi_layout {
         assert_layout("PxuiPlacement", size_of::<Placement>(), align_of::<Placement>(), &[("side", core::mem::offset_of!(Placement, side)), ("align", core::mem::offset_of!(Placement, align)), ("gap", core::mem::offset_of!(Placement, gap)), ("margin", core::mem::offset_of!(Placement, margin)), ("flip", core::mem::offset_of!(Placement, flip))]);
         assert_layout("PxuiAnchor", size_of::<Anchor>(), align_of::<Anchor>(), &[("rect", core::mem::offset_of!(Anchor, rect)), ("placement", core::mem::offset_of!(Anchor, placement))]);
         assert_layout("PxuiFont", size_of::<Font>(), align_of::<Font>(), &[("family", core::mem::offset_of!(Font, family)), ("size", core::mem::offset_of!(Font, size)), ("weight", core::mem::offset_of!(Font, weight)), ("tracking", core::mem::offset_of!(Font, tracking)), ("caps", core::mem::offset_of!(Font, caps))]);
+        // the fractional size sits in PxuiFont's tail padding: the 1.x size and offsets above are unchanged
+        assert_eq!((size_of::<Font>(), core::mem::offset_of!(Font, size_points)), (32, 28));
         assert_layout("PxuiShadow", size_of::<Shadow>(), align_of::<Shadow>(), &[("color", core::mem::offset_of!(Shadow, color)), ("offset", core::mem::offset_of!(Shadow, offset)), ("blur", core::mem::offset_of!(Shadow, blur)), ("spread", core::mem::offset_of!(Shadow, spread)), ("inner", core::mem::offset_of!(Shadow, inner))]);
         assert_layout("PxuiRing", size_of::<Ring>(), align_of::<Ring>(), &[("color", core::mem::offset_of!(Ring, color)), ("width", core::mem::offset_of!(Ring, width)), ("sides", core::mem::offset_of!(Ring, sides))]);
         assert_layout("PxuiLook", size_of::<Look>(), align_of::<Look>(), &[
@@ -1132,7 +1138,7 @@ mod builders {
     use crate::layout::{Align, Justify};
 
     const INK: Rgba = Rgba { r: 10, g: 20, b: 30, a: 255 };
-    const FONT: Font = Font::BODY.size(14).weight(700);
+    const FONT: Font = Font::BODY.size(14.0).weight(700);
     const LOOK: Look = Look::NONE.fill(INK).radius(6.0).border(INK, 1.0).text(INK).font(FONT);
     const NODE: Node = Node::row().w(Size::Px(44.0)).h_px(30.0).grow(0.0).gap(8.0).pad(2.0).pad_x(4.0).pad_y(6.0)
         .center().align(Align::End).role(Role::Button).flags(Flags(5));
@@ -1162,14 +1168,14 @@ mod builders {
         same(&COLUMN, &Node { axis: Axis::Column, ..Node::DEFAULT });
         same(&STACK, &Node { axis: Axis::Stack, w: Size::Fit, h: Size::Grow, ..Node::DEFAULT });
         assert_eq!(Edges::xy(1.0, 2.0), Edges { l: 1.0, t: 2.0, r: 1.0, b: 2.0 });
-        assert_eq!(FONT, Font { size: 14, weight: 700, ..Font::BODY });
+        assert_eq!(FONT, Font { size: 14, size_points: 14.0, weight: 700, ..Font::BODY });
         assert_eq!(LOOK, Look {
             fill: INK,
             radius: [6.0; 4],
             border: INK,
             border_w: 1.0,
             text: INK,
-            font: Font { size: 14, weight: 700, ..Font::BODY },
+            font: Font { size: 14, size_points: 14.0, weight: 700, ..Font::BODY },
             ..Look::NONE
         });
     }

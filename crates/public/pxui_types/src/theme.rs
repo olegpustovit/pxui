@@ -22,7 +22,7 @@ impl From<crate::ffi::PxuiMotion> for Motion {
 
 /// Ergonomic Rust view of the stable paint-token snapshot. `invalid` is a fixed kit color because
 /// the C snapshot intentionally carries only the six theme colors and optional ink ground.
-#[repr(C)]
+#[repr(C, align(8))]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Tokens {
     /// The ground colour of docked panels.
@@ -45,14 +45,20 @@ pub struct Tokens {
     pub space: [f32; 4],
     /// The corner radii in points: small, medium, large.
     pub radius: [f32; 3],
-    /// Point size of display text.
-    pub display_size: i64,
-    /// Point size of titles.
-    pub title_size: i64,
-    /// Point size of body text.
-    pub font_size: i64,
-    /// Point size of captions.
-    pub label_size: i64,
+    /// Point size of display text, fractions kept.
+    pub display_size: f32,
+    // each size keeps the 8-byte slot the 1.x C snapshot gives its integer, so the layout and offsets of `PxuiTokens` hold; the
+    // engine writes the integers over these slots only in the legacy C projection, which Rust never reads
+    display_hi: u32,
+    /// Point size of titles, fractions kept.
+    pub title_size: f32,
+    title_hi: u32,
+    /// Point size of body text, fractions kept.
+    pub font_size: f32,
+    font_hi: u32,
+    /// Point size of captions, fractions kept.
+    pub label_size: f32,
+    label_hi: u32,
     /// Durations and easing for state transitions.
     pub motion: Motion,
     /// When set, transitions are instant.
@@ -135,10 +141,11 @@ impl From<crate::ffi::ThemeTokens> for Tokens {
             ink_ground: (value.has_ink_ground != 0).then_some(value.ink_ground).into(),
             space: value.space,
             radius: value.radius,
-            display_size: value.display_size,
-            title_size: value.title_size,
-            font_size: value.font_size,
-            label_size: value.label_size,
+            display_size: value.display_size as f32,
+            title_size: value.title_size as f32,
+            font_size: value.font_size as f32,
+            label_size: value.label_size as f32,
+            display_hi: 0, title_hi: 0, font_hi: 0, label_hi: 0,
             motion: value.motion.into(),
             reduced_motion: value.reduced_motion != 0,
             density: value.density,
@@ -151,8 +158,9 @@ impl From<Tokens> for crate::ffi::ThemeTokens {
         Self {
             size: core::mem::size_of::<crate::ffi::ThemeTokens>() as u32, panel: t.panel, foreground: t.foreground, control: t.control, input: t.input, track: t.track, accent: t.accent,
             ink_ground: t.ink_ground.get().unwrap_or_default(), has_ink_ground: t.ink_ground.is_some() as u8, reserved: [0; 3],
-            space: t.space, radius: t.radius, display_size: t.display_size, title_size: t.title_size,
-            font_size: t.font_size, label_size: t.label_size,
+            // the 1.x wire keeps whole points: the legacy projection rounds
+            space: t.space, radius: t.radius, display_size: t.display_size.round() as i64, title_size: t.title_size.round() as i64,
+            font_size: t.font_size.round() as i64, label_size: t.label_size.round() as i64,
             motion: crate::ffi::PxuiMotion { fast: t.motion.fast, normal: t.motion.normal, slow: t.motion.slow, ease: t.motion.ease },
             reduced_motion: t.reduced_motion as u8, reserved_tail: [0; 3], density: t.density,
         }
@@ -470,7 +478,9 @@ impl Part {
 
 macro_rules! snapshot {
     ($($(#[$doc:meta])* $name:ident),* $(,)?) => {
-        /// The tokens and one `States` per kit part: the engine's `Theme` (the same C layout), borrowed from the library.
+        /// The tokens and one `States` per kit part: the engine-owned fractional theme snapshot (`f32` text sizes and fonts) that
+        /// `Ui::theme` borrows. The 1.x C getter returns the legacy integer layout of `include/pxui.h` instead; the engine prepares that
+        /// projection when a theme or style changes, never on the warm path, and Rust never sees it.
         #[repr(C)]
         #[derive(Clone, Copy, Debug, PartialEq)]
         pub struct ThemeSnapshot {
@@ -521,7 +531,7 @@ impl From<crate::ffi::PxuiLookDesc> for Look {
             fill:v.fill, gradient:(v.has_gradient != 0).then_some(v.gradient).into(), angle:v.angle,
             border:v.border, border_w:v.border_w, sides:v.sides as u8, radius:v.radius,
             shadows:[shadow(v.shadows[0]),shadow(v.shadows[1])], text:v.text,
-            font:Font { family:v.font.family, size:v.font.size, weight:v.font.weight, tracking:v.font.tracking, caps:v.font.caps != 0 },
+            font:Font { family:v.font.family, size:v.font.size, weight:v.font.weight, tracking:v.font.tracking, caps:v.font.caps != 0, size_points:v.font.size as f32 },
             opacity:v.opacity, ring:Ring { color:v.ring.color, width:v.ring.width, sides:v.ring.sides as u8 },
             selection:v.selection, caret:v.caret, dashed:v.dashed != 0,
         }
@@ -551,7 +561,8 @@ impl Tokens {
         panel: Rgba::hex(0xf4f5f0), foreground: Rgba::hex(0x222b2b), control: Rgba::hex(0xdce3de),
         input: Rgba::hex(0xffffff), track: Rgba::hex(0xe3e8e4), accent: Rgba::hex(0xf0481f),
         invalid: INVALID, ink_ground: crate::node::OptColor::None, space: [4.0, 8.0, 12.0, 16.0], radius: [0.0; 3],
-        display_size: DISPLAY_SIZE, title_size: TITLE_SIZE, font_size: FONT_SIZE, label_size: LABEL_SIZE,
+        display_size: DISPLAY_SIZE as f32, title_size: TITLE_SIZE as f32, font_size: FONT_SIZE as f32, label_size: LABEL_SIZE as f32,
+        display_hi: 0, title_hi: 0, font_hi: 0, label_hi: 0,
         motion: Motion { fast: 0.0, normal: 0.0, slow: 0.0, ease: [0.25, 0.1, 0.25, 1.0] },
         reduced_motion: false, density: 1.0,
     };
@@ -763,7 +774,7 @@ impl Shadow {
     }
 }
 
-/// Node text: font `family` (the `pxui_text` font index), `size` points (0: the UI's font size; below 0:
+/// Node text: font `family` (the `pxui_text` font index), `size_points` points (0: the UI's font size; below 0:
 /// that many points from it, at least 8), `weight`, `tracking` in ems after every glyph, `caps`
 /// upper-cases it.
 #[repr(C)]
@@ -779,6 +790,11 @@ pub struct Font {
     pub tracking: f32,
     /// Upper-case the text.
     pub caps: bool,
+    /// The exact size in points, fractions kept, with the meaning of `size` (0 the UI font size, negative relative, at least 8).
+    /// It lies in the tail padding at offset 28, so the 1.x `PxuiFont` size, alignment and offsets are unchanged. It counts only while
+    /// it agrees with `size` (within half a point, as `Font::size` sets them): a 1.x record, whose padding never carries it, keeps its
+    /// integer `size` meaning.
+    pub size_points: f32,
 }
 
 impl Font {
@@ -789,20 +805,25 @@ impl Font {
         weight: 400,
         tracking: 0.0,
         caps: false,
+        size_points: 0.0,
     };
     /// Sets the size in points (0 the UI body size, negative relative to it).
     ///
+    /// The size is kept exactly in `size_points`, including fractional points, and `size` holds it rounded half away from zero for
+    /// 1.x readers. `points` reads `size_points` only while the two agree, so the 1.x C `PxuiFont`, `PxuiFontDesc` and `PxuiLookDesc`
+    /// keep their integer meaning; a non-finite size never agrees, so it reads as its integer `size`.
     /// Allocates: never.
     /// Panics: never.
     ///
     /// ```
     /// use pxui_types::Font;
-    /// const F: Font = Font::BODY.size(14);
-    /// assert_eq!(F.size, 14);
+    /// const F: Font = Font::BODY.size(14.5);
+    /// assert_eq!(F.points(13.0), 14.5);
     /// ```
     #[inline]
-    pub const fn size(mut self, points: i64) -> Font {
-        self.size = points;
+    pub const fn size(mut self, points: f32) -> Font {
+        self.size_points = points;
+        self.size = (points + if points < 0.0 { -0.5 } else { 0.5 }) as i64;
         self
     }
     /// Sets the weight (400 regular, 700 bold).
@@ -873,16 +894,21 @@ impl Font {
     ///
     /// ```
     /// use pxui_types::Font;
-    /// assert_eq!(Font::BODY.points(13), 13);
-    /// assert_eq!(Font::BODY.size(20).points(13), 20);
-    /// assert_eq!(Font::BODY.size(-2).points(13), 11);
-    /// assert_eq!(Font::BODY.size(-9).points(13), 8);
+    /// assert_eq!(Font::BODY.points(13.0), 13.0);
+    /// assert_eq!(Font::BODY.size(20.0).points(13.0), 20.0);
+    /// assert_eq!(Font::BODY.size(-2.0).points(13.0), 11.0);
+    /// assert_eq!(Font::BODY.size(-9.0).points(13.0), 8.0);
+    /// assert_eq!(Font::BODY.size(14.5).points(13.0), 14.5);
+    /// // a record that never set `size_points` (a 1.x C record's padding, a Rust literal) reads its integer `size`
+    /// assert_eq!(Font { size: 14, ..Font::BODY }.points(13.0), 14.0);
     /// ```
-    pub fn points(&self, body: i64) -> i64 {
-        if self.size > 0 {
-            self.size
-        } else if self.size < 0 {
-            8.max(body + self.size)
+    pub fn points(&self, body: f32) -> f32 {
+        // `size_points` counts only where it agrees with the rounded `size` it was set with; otherwise `size` is the record's meaning
+        let size = if (self.size_points - self.size as f32).abs() <= 0.5 { self.size_points } else { self.size as f32 };
+        if size > 0.0 {
+            size
+        } else if size < 0.0 {
+            8.0f32.max(body + size)
         } else {
             body
         }
@@ -1090,7 +1116,7 @@ impl Look {
     ///
     /// ```
     /// use pxui_types::{Font, Look};
-    /// const L: Look = Look::NONE.font(Font::BODY.size(14));
+    /// const L: Look = Look::NONE.font(Font::BODY.size(14.0));
     /// assert_eq!(L.font.size, 14);
     /// ```
     #[inline]

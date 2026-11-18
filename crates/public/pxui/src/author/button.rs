@@ -410,7 +410,7 @@ mod tests {
         let mut ui = crate::doc::frames(3, &mut build);
         let (is_button, states, w, h) = node(&ui, "Songs tab");
         assert!(is_button && states & state::SELECTED != 0 && states & state::ENABLED != 0 && states & state::FOCUSABLE != 0);
-        let view_w = ui.view_size().0;
+        let view_w = ui.view_size().width;
         assert_eq!(h, 44.0);
         assert!(w > 0.8 * view_w, "the box fills its line: {w} of {view_w}");
         let r = ui.rect(&last.get().unwrap().handle);

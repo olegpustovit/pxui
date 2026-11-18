@@ -18,7 +18,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 77u)
+#define PXUI_ABI_BUILT ((1u << 16) | 78u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 typedef struct { uint32_t autocorrect, capitalization, action; } PxuiTextInputOptions;
@@ -275,6 +275,7 @@ enum PxuiTargetFormat { PXUI_TARGET_RGBA8=1, PXUI_TARGET_BGRA8=2 };
 typedef struct {
     uint32_t size;
     float x, y, width, height;
+    float padding_points; /* ABI 1.78: padding in points, fractions kept; read only while it agrees with padding within half a point */
     int64_t padding;
     uint8_t has_height, window, has_max_height, has_stroke, has_look, reserved[3];
     float max_height; PxuiColor stroke; PxuiLookDesc look;
@@ -507,6 +508,9 @@ const PxuiOutput *pxui_ui_output(PxuiUi *ui); /* borrowed from the Ui until its 
 /* The theme in effect, lent: valid until the Ui next changes it (a theme swap, a themed scope) or is freed. NULL when the call is refused
    (a poisoned Ui, a handle that is not the current one): see pxui_last_error. */
 const PxuiThemeSnapshot *pxui_ui_theme(PxuiUi *ui);
+/* ABI 1.78: the theme as the engine keeps it: each PxuiTokens text size is a float in the low half of its int64_t slot (the other
+   half 0), fonts carry a fractional size in PxuiFont's tail padding. pxui_ui_theme lends the integer projection of it. */
+const PxuiThemeSnapshot *pxui_ui_theme_exact(PxuiUi *ui);
 /* Measured virtual rows: count <= 1,000,000, finite positive estimate and finite estimated total.
    Called inside a frame; build may repeat while measured heights settle. The returned box scrolls the list. */
 int32_t pxui_ui_list_measured(PxuiUi *ui, PxuiStr label, size_t count, float estimate_h, PxuiGridBuild build, void *user, PxuiBox *out);
@@ -865,6 +869,10 @@ uint32_t pxui_paint_icon_word(PxuiPaint *paint);
    layout at a time, digits on the advance of 0, and returns the width drawn. An invalid style draws nothing and returns 0. */
 PxuiTextMetrics pxui_paint_label(PxuiPaint *paint, float x, float y, const PxuiLabelStyle *style, float width, PxuiStr text);
 float pxui_paint_label_chars(PxuiPaint *paint, float x, float y, const PxuiLabelStyle *style, PxuiStr text);
+/* ABI 1.78: text in a label style resolved against this painter's theme (as pxui_paint_label, capitals included): measured within
+   max_width (0: unbounded) with spans (NULL: none) without drawing, or drawn with spans. PXUI_ERR_ARGUMENT for invalid arguments. */
+int32_t pxui_paint_label_measure(PxuiPaint *paint, PxuiStr text, const PxuiLabelStyle *style, float max_width, const PxuiTextSpans *spans, PxuiTextMetrics *out);
+int32_t pxui_paint_label_spans(PxuiPaint *paint, float x, float y, const PxuiLabelStyle *style, float width, PxuiStr text, const PxuiTextSpans *spans, PxuiTextMetrics *out);
 /* Legacy, cut at 2.0: drops bad input silently; superseded by pxui_paint_image_checked (ABI 1.70). */
 void pxui_paint_image(PxuiPaint *paint, const PxuiImage *image, float x, float y, float width, float height, uint32_t fit, PxuiColor tint);
 /* ABI 1.70: pxui_paint_image that reports a refusal: PXUI_ERR_ARGUMENT (nothing drawn) for a null painter or descriptor, an invalid
@@ -927,6 +935,10 @@ int32_t pxui_ui_key_pressed_with(PxuiUi *ui, uint32_t code, uint32_t modifier, u
 /* Match all requested modifiers on one press (Shift=1, Ctrl=2, Alt=4, Meta=8). 0 requires none and 16 accepts any. */
 int32_t pxui_ui_key_pressed_mods(PxuiUi *ui, uint32_t code, uint32_t modifiers, uint8_t *out);
 int32_t pxui_ui_set_font_size(PxuiUi *ui, int64_t size);
+/* ABI 1.78: the body size and kit row exactly (pxui_ui_font_size/_row_height round them); the setter keeps fractions (0.5..=1024). */
+int32_t pxui_ui_font_points(PxuiUi *ui, float *out);
+int32_t pxui_ui_row_points(PxuiUi *ui, float *out);
+int32_t pxui_ui_set_font_points(PxuiUi *ui, float points);
 int32_t pxui_ui_unfocus(PxuiUi *ui);
 int32_t pxui_ui_dismiss_popup(PxuiUi *ui);
 int32_t pxui_ui_request_cursor(PxuiUi *ui, uint32_t shape); /* 1 horizontal resize, 2 vertical resize, 3 text */

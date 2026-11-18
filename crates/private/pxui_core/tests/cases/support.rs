@@ -12,7 +12,7 @@ pub fn golden_text() -> pxui_core::text::Text {
 
 /// A UI over the golden face.
 pub fn new_ui(font_size: Option<i64>) -> Ui {
-    Ui::create(Platform::Apple, font_size, golden_text())
+    Ui::create(Platform::Apple, font_size.map(|s| s as f32), golden_text())
 }
 
 /// The host's clipboard, in the test process.

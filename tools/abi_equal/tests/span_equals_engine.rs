@@ -76,9 +76,9 @@ fn wrapper_art(p: &mut pxui::Paint<'_>) {
     p.cubic([(40.0, 5.0), (44.0, 13.0), (48.0, -3.0), (52.0, 5.0)], ink_line.width(1.5));
     p.flag((270.0, 150.0), true, true);
     p.flag((270.0, 180.0), false, false);
-    p.text((8.0, 120.0), &Label::BODY, 0.0, "shapes then text");
+    p.text(pxui::Point::new(8.0, 120.0), Label::BODY, 0.0, "shapes then text");
     p.fill(Rect::new(150.0, 150.0, 30.0, 12.0), ink);
-    p.text((150.0, 170.0), &CAPTION, 0.0, "caption");
+    p.text(pxui::Point::new(150.0, 170.0), CAPTION, 0.0, "caption");
     for i in 0..1300 {
         p.fill(Rect::new((i % 50) as f32 * 5.0, (i / 50) as f32 * 4.0, 3.0, 3.0), if i % 2 == 0 { ink } else { wash });
     }

@@ -412,7 +412,7 @@ pub struct Overlay<'a> {
     pub stroke: Option<Rgba>,
     /// A look in place of the theme's (panel).
     pub look: Option<Look>,
-    /// The inner padding in whole points (panel).
+    /// The inner padding in points (panel), fractions kept.
     pub padding: f32,
     /// Lays the sheet out as a window with inspector rows (panel).
     pub window: bool,
@@ -495,9 +495,12 @@ impl<'a> Overlay<'a> {
     /// ```
     pub const fn look(mut self, look: Look) -> Overlay<'a> { self.look = Some(look); self }
 
-    /// Sets the inner padding in whole points (panel; a fraction is dropped).
+    /// Sets the panel's inner padding in points, fractions kept.
+    ///
+    /// The panel call sends it in the size-prefixed panel record with an explicit presence flag, checked finite and nonnegative before
+    /// the body starts; the 1.x `PxuiPanel` integer `padding` keeps its meaning for C callers.
     /// Allocates: never.
-    /// Panics: never (a negative padding is refused by the call).
+    /// Panics: never (a negative or non-finite padding is refused by the call).
     ///
     /// ```
     /// const ROOMY: pxui_types::ui::Overlay = pxui_types::ui::Overlay::DEFAULT.padding(8.0);
@@ -1440,12 +1443,12 @@ pub struct PanelOpts {
     /// Largest height in points; `None` for no limit.
     pub max_height: Option<f32>,
     /// Inner padding in points.
-    pub padding: i64,
+    pub padding: f32,
 }
 
 impl Default for PanelOpts {
     fn default() -> PanelOpts {
-        PanelOpts { stroke: None, look: None, window: false, x: 12.0, y: 12.0, width: 280.0, height: None, max_height: None, padding: 0 }
+        PanelOpts { stroke: None, look: None, window: false, x: 12.0, y: 12.0, width: 280.0, height: None, max_height: None, padding: 0.0 }
     }
 }
 
@@ -1507,9 +1510,9 @@ impl PanelOpts {
     /// Panics: never.
     ///
     /// ```
-    /// assert_eq!(pxui_types::ui::PanelOpts::default().padding(8).padding, 8);
+    /// assert_eq!(pxui_types::ui::PanelOpts::default().padding(8.0).padding, 8.0);
     /// ```
-    pub fn padding(mut self, padding: i64) -> PanelOpts {
+    pub const fn padding(mut self, padding: f32) -> PanelOpts {
         self.padding = padding;
         self
     }

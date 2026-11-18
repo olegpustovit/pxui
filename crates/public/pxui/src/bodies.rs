@@ -540,8 +540,8 @@ mod tests {
         let scoped = crate::ThemeHandle::parse("menu_row.body = rows\nlabel.body = nested\ntoggle.body = t\nsegmented.body = s").expect("theme");
         const ITEMS: [MenuItem; 3] = [MenuItem::new("A"), MenuItem::new("B"), MenuItem::new("C")];
         let mut build = |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| {
-            ui.menu("menu", (10.0, 10.0), &ITEMS, &Menu::DEFAULT.variant(2));
-            ui.menu("plain", (100.0, 10.0), &ITEMS, &Menu::DEFAULT);
+            ui.menu("menu", crate::Point::new(10.0, 10.0), &ITEMS, &Menu::DEFAULT.variant(2));
+            ui.menu("plain", crate::Point::new(100.0, 10.0), &ITEMS, &Menu::DEFAULT);
             // the built-in button body runs the contents; the registered label inside is given no variant
             ui.button_content("pill", &Button::DEFAULT.variant(1).size(Size::Px(60.0), Size::Px(30.0)).name("Pill"), |ui, _| { ui.label("inside", Label::DEFAULT); });
             ui.label("after", Label::DEFAULT.variant(5));
@@ -574,7 +574,7 @@ mod tests {
         ui.register_scroll_view_body("scroll", scroll_probe).expect("scroll body");
         let scoped = crate::ThemeHandle::parse("menu_row.body = rows\nscroll_view.body = scroll").expect("theme");
         const ITEMS: [MenuItem; 5] = [MenuItem::new("A"), MenuItem::new("B"), MenuItem::new("C"), MenuItem::new("D"), MenuItem::new("E")];
-        let mut build = |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| { ui.menu("menu", (10.0, 10.0), &ITEMS, &Menu::DEFAULT.max_rows(2).variant(1)); });
+        let mut build = |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| { ui.menu("menu", crate::Point::new(10.0, 10.0), &ITEMS, &Menu::DEFAULT.max_rows(2).variant(1)); });
         for n in 0..3 { VARIANTS.with(|v| v.borrow_mut().clear()); ui.frame(&input(n as f64), &mut build).expect("frame"); }
         let seen = VARIANTS.with(|v| v.borrow().clone());
         assert!(!seen.iter().any(|s| s.0 == "scroll"), "the sheet scrolls, no scroll view body runs: {seen:?}");

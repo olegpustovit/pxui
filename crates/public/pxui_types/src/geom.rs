@@ -11,6 +11,19 @@ pub struct Point {
     pub y: f32,
 }
 
+impl Point {
+    /// Creates a position in logical points.
+    ///
+    /// The caller specifies the coordinate space.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert_eq!(pxui_types::geom::Point::new(4.0, 8.0).x, 4.0);
+    /// ```
+    pub const fn new(x: f32, y: f32) -> Point { Point { x, y } }
+}
+
 /// An axis-aligned rectangle in logical points: top-left `x`, `y` and size `w` by `h` (a negative size is kept, and contains nothing).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 #[repr(C)]

@@ -34,7 +34,7 @@ pub(crate) fn default_toggle(this: &mut Ui, c: &ToggleConfig, track: Option<&Sta
     let on = State { checked: c.on, ..State::default() };
     let look = *t.toggle.pick(c.state);
     let (track, knob) = (*track.unwrap_or(&t.switch).pick(on), *knob.unwrap_or(&t.knob).pick(on));
-    let (rh, w, h) = (if c.row_h > 0.0 { c.row_h } else { this.row_height() as f32 }, if c.switch_w > 0.0 { c.switch_w } else { 28.0 }, if c.switch_h > 0.0 { c.switch_h } else { 14.0 });
+    let (rh, w, h) = (if c.row_h > 0.0 { c.row_h } else { this.row_height() }, if c.switch_w > 0.0 { c.switch_w } else { 28.0 }, if c.switch_h > 0.0 { c.switch_h } else { 14.0 });
     // the switch's end is `space(2)` from the row's end at any density
     let side = if c.inset > 0.0 { c.inset } else { this.space(2) };
     this.set_look(&c.row, look, c.state);
@@ -59,7 +59,7 @@ pub(crate) fn default_toggle(this: &mut Ui, c: &ToggleConfig, track: Option<&Sta
         match c.label {
             None => {
                 let look = ink(look);
-                let size = look.font.points(this.font_size());
+                let size = crate::ui_core::font_px(&look.font, this.font_px());
                 let width = this.text_width(Some(size), label).max(1.0);
                 let line = this.node_keyed(int_key(c.row.box_key, 3), Node { w: Size::Px(width), h: Size::Px((size + 4) as f32), shrink: 1.0, flags: Flags::FIT_TEXT, look, ..Node::DEFAULT });
                 this.text(&line, label);
@@ -217,7 +217,7 @@ pub(crate) fn default_button(this: &mut Ui, c: &ButtonConfig, states: &States, t
     if laid_out {
         // the contents laid out by the box: the text on a node of its own (or the caller's contents), the kit's side insets as padding
         let control_h = this.control_h();
-        let rh = this.row_height() as f32;
+        let rh = this.row_height();
         let pad = (rh - control_h) / 2.0;
         // two lines in a kit-high box: the box fits them, at least a control high
         let tall = !given[1].is_empty() && matches!(c.h, Size::Fit);
@@ -239,7 +239,7 @@ pub(crate) fn default_button(this: &mut Ui, c: &ButtonConfig, states: &States, t
     }
     let measure = this.text_width(None, shown(text));
     let control_h = this.control_h();
-    let rh = this.row_height() as f32;
+    let rh = this.row_height();
     let width = if c.icon { control_h } else { measure + if c.bare { 10.0 } else { 14.0 } };
     let pad = (rh - control_h) / 2.0;
     let line = this.node_new(&c.line);
@@ -363,9 +363,9 @@ pub(crate) struct LabelText {
 /// `label` with its unset fields from the theme's label `look` (font, size, weight, tracking, capitals, colour) and `row_height`
 /// (the line height when unset; 0 is 1.2 times the size); `token` is its colour token already resolved. `None` for a size that
 /// is not positive and finite, a non-finite tracking or line height, or a feature bit no style has.
-pub(crate) fn resolve_label(label: &LabelFields, look: &Look, font_size: i64, row_height: f32, token: Option<Rgba>) -> Option<LabelText> {
+pub(crate) fn resolve_label(label: &LabelFields, look: &Look, font_size: f32, row_height: f32, token: Option<Rgba>) -> Option<LabelText> {
     use pxui_types::text as T;
-    let size = label.size.unwrap_or_else(|| look.font.points(font_size) as f32);
+    let size = label.size.unwrap_or_else(|| look.font.points(font_size));
     let tracking = label.tracking.unwrap_or(look.font.tracking);
     let line_height = label.line_height.unwrap_or(row_height);
     if !size.is_finite() || size <= 0.0 || !tracking.is_finite() || !line_height.is_finite() || line_height < 0.0 || label.features & !TextStyle::FEATURE_TABULAR_NUMBERS != 0 { return None; }
@@ -414,13 +414,13 @@ fn build_label(this: &mut Ui, c: &LabelConfig, text: &str, resolved: Option<Labe
         if let Some(weight) = label.weight { look.font.weight = weight; }
         if let Some(tracking) = label.tracking { look.font.tracking = tracking; }
         if let Some(caps) = label.caps { look.font.caps = caps; }
-        let h = gap + this.row_height() as f32;
+        let h = gap + this.row_height();
         let n = this.node_new(&c.node);
         (n.h, n.look, n.inset) = (Size::Px(h), look, inset);
         this.text(&c.node, text);
         return;
     }
-    let Some(mut resolved) = resolved.or_else(|| resolve_label(label, look, this.font_size(), this.row_height() as f32, None)) else { return };
+    let Some(mut resolved) = resolved.or_else(|| resolve_label(label, look, this.font_size(), this.row_height(), None)) else { return };
     if let Some(token) = token { resolved.color = token; }
     let mut style = resolved.style;
     if style.line_height <= 0.0 { style.line_height = style.size * 1.2; }
@@ -459,13 +459,13 @@ pub(crate) const LABEL_DIGITS: usize = 128;
 /// The built-in footer: the hairline under 4 points of space, the hints and the key at the end.
 pub(crate) fn default_footer(this: &mut Ui, c: &FooterConfig, right: Option<&str>, hints: &[(&str, &str)]) {
     let row = c.row;
-    let rh = this.row_height() as f32;
+    let rh = this.row_height();
     let t = this.theme();
     let (rule, key, hint, label) = (t.footer.idle, t.key.idle, t.hint.idle, t.label.idle);
     // the hairline 4 points under what is above
     let n = this.node_new(&row);
     (n.h, n.margin, n.look) = (Size::Px(1.0 + rh), Edges { t: 4.0, ..Edges::ZERO }, rule);
-    let size = key.font.points(this.font_size());
+    let size = crate::ui_core::font_px(&key.font, this.font_px());
     let mut pen = this.space(2);
     for (i, (k, what)) in hints.iter().enumerate() {
         let kw = this.text_width(Some(size), k);
@@ -521,7 +521,7 @@ impl Ui {
 
     /// Text whose top is exactly `at` (a part as high as its text), `w` wide.
     pub(crate) fn text_part(&mut self, key: i64, at: (f32, f32), w: f32, look: Look, text: &str) -> Handle {
-        let size = look.font.points(self.font_size()) as f32;
+        let size = look.font.points(self.font_size());
         self.placed(key, at, Size::Px(w.max(1.0)), size, look, Edges::default(), text)
     }
 
@@ -583,7 +583,7 @@ impl Ui {
 
     pub(crate) fn kit_row(&mut self, flags: Option<Flags>, hit: Option<HitFn>, label: &str) -> UiBox {
         let flags = flags.unwrap_or(Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | Flags::TAB_ONLY);
-        let mut opts = BoxOpts::default().flags(flags).w(Size::Grow).h(Size::Px(self.row_height() as f32));
+        let mut opts = BoxOpts::default().flags(flags).w(Size::Grow).h(Size::Px(self.row_height()));
         opts.hit = hit;
         self.box_(label, opts)
     }
@@ -591,7 +591,7 @@ impl Ui {
     /// Where the top of kit text of `size` points goes to sit centred in a row at `y` of height
     /// `h`. Every row, bar and field places its text with this one rule.
     pub fn text_top(&self, size: Option<i64>, y: f32, h: f32) -> f32 {
-        text_top_for(self.font_size(), size, y, h)
+        text_top_for(self.font_px(), size, y, h)
     }
 }
 
@@ -742,12 +742,12 @@ impl Ui {
     /// Open a panel: the box and the kit state to give back to `panel_leave`.
     pub fn panel_enter(&mut self, opts: &PanelOpts, label: &str) -> (UiBox, (i64, bool)) {
         let row_height = (self.theme().row_h * self.theme().tokens.density).round() as i64;
-        if opts.padding < 0 {
+        if !(opts.padding.is_finite() && opts.padding >= 0.0) {
             panic!("Ui.panel: padding must be non-negative");
         }
         let width = 180.0f32.max(opts.width);
         let max_h = match opts.max_height {
-            Some(height) => height.max((row_height + 2 * opts.padding) as f32),
+            Some(height) => height.max(row_height as f32 + 2.0 * opts.padding),
             None => f32::INFINITY,
         };
         let padding = opts.padding;
@@ -780,7 +780,7 @@ impl Ui {
         );
         self.set_role(&panel, if opts.window { Role::Window } else { Role::Panel }, 0);
         self.a11y_name(&panel, shown(label));
-        let previous = (self.row_height(), self.kit_window_flag());
+        let previous = (self.row_px(), self.kit_window_flag());
         self.set_kit_row_height(row_height);
         self.set_kit_window(opts.window);
         (panel, previous)
@@ -841,7 +841,7 @@ impl Ui {
         popts.stroke = opts.stroke;
         popts.look = opts.look;
         popts.max_height = opts.max_height;
-        popts.padding = if opts.stroke.is_none() && opts.look.is_none() { 0 } else { 1 };
+        popts.padding = if opts.stroke.is_none() && opts.look.is_none() { 0.0 } else { 1.0 };
         // the sheet's role (a menu, a dialog) is set before its body runs: a registered body's own role stays
         let modal = if opts.role == Role::Dialog { st::MODAL } else { 0 };
         let root = self.sheet(&popts, if opts.role == Role::Dialog { Sheet::Modal } else { Sheet::Popup }, label, name, Some((opts.role, modal)), f);
@@ -906,7 +906,7 @@ impl Ui {
     /// The text style `label` shapes with, resolved against this `Ui`'s theme label as `label` resolves it (unset fields are the
     /// theme label's; tracking becomes points): what `label` would shape. `None` for a style that does not resolve.
     pub fn resolve(&self, label: &LabelFields) -> Option<TextStyle> {
-        let s = resolve_label(label, &self.theme().label.idle, self.font_size(), self.row_height() as f32, None)?.style;
+        let s = resolve_label(label, &self.theme().label.idle, self.font_size(), self.row_height(), None)?.style;
         use pxui_types::text as T;
         Some(TextStyle {
             size: core::mem::size_of::<TextStyle>() as u32, font: s.font, weight: s.weight, size_points: s.size, line_height: s.line_height,
@@ -928,7 +928,7 @@ impl Ui {
         } else {
             let width = match style.width { Some(Size::Px(v) | Size::Pct(v)) => v.is_finite(), _ => true };
             if !width || !style.pad.is_none_or(f32::is_finite) || !style.height.is_none_or(|h| h.is_finite() && h >= 0.0) { return None; }
-            let resolved = resolve_label(style, &self.theme().label.idle, self.font_size(), self.row_height() as f32, None)?;
+            let resolved = resolve_label(style, &self.theme().label.idle, self.font_size(), self.row_height(), None)?;
             if self.text_mut().font_metrics(resolved.style.font).is_none() { return None; }
             Some(resolved)
         };
@@ -1062,7 +1062,7 @@ impl Ui {
         let tab = if opts.press_row { Flags::NONE } else { Flags::TAB_ONLY };
         let flags = if enabled { Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | tab } else { Flags::BLOCKING | tab };
         let row_h = opts.row_h.unwrap_or(0.0);
-        let h = if row_h > 0.0 { row_h } else { self.row_height() as f32 };
+        let h = if row_h > 0.0 { row_h } else { self.row_height() };
         self.require_building();
         let unique = self.unique_key_repeated(key_of(self.current_seed(), key));
         let row = self.node_unique(unique, &Node { flags, w: Size::Grow, h: Size::Px(h), ..Node::DEFAULT });
@@ -1225,5 +1225,5 @@ pub(crate) fn table_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, headers:
 /// The engine's panel record of `overlay` for a call whose own width is `width`.
 fn panel_opts(overlay: &Overlay, width: f32) -> PanelOpts {
     PanelOpts { stroke: overlay.stroke, look: overlay.look, window: overlay.window, x: overlay.at.0, y: overlay.at.1, width: overlay.w.unwrap_or(width), height: overlay.h,
-        max_height: overlay.max_h, padding: overlay.padding as i64 }
+        max_height: overlay.max_h, padding: overlay.padding }
 }

@@ -551,7 +551,7 @@ pub unsafe fn menu(ui: *mut PxuiUi, key: pxui_types::ui::Key, at: (f32, f32), it
     let row_ok = menu.row_h.is_none_or(|row| row.is_finite() && row > 0.0);
     let menu = &pxui_types::ui::Menu { name: menu.name.map(clip), ..*menu };
     if !at.0.is_finite() || !at.1.is_finite() || !width_ok || !row_ok || !(0.0..=f32::MAX).contains(&menu.padding) { return unsafe { fail(ui, "invalid context menu arguments") }; }
-    *out = unsafe { engine(ui) }.menu(key, at, items, menu);
+    *out = unsafe { engine(ui) }.menu(key, pxui_types::geom::Point::new(at.0, at.1), items, menu);
     0
 }
 

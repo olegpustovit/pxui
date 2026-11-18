@@ -98,7 +98,7 @@ unsafe fn create_ui(desc: PxuiUiDesc, fonts: &[&[u8]]) -> *mut PxuiUi {
     #[cfg(debug_assertions)]
     { text.reporter = Some(mem_sys::report); }
     let platform = match desc.platform { 0 => platform(), 1 => Platform::Apple, _ => Platform::Other };
-    let font_size = (desc.font_size != 0).then_some(i64::from(desc.font_size));
+    let font_size = (desc.font_size != 0).then_some(desc.font_size as f32);
     let mut ui = Ui::create(platform, font_size, text);
     ui.verify_views(crate::ui_state::VERIFY_NEW_VIEWS.load(core::sync::atomic::Ordering::Relaxed));
     let engine = Box::into_raw(Box::new(ui));
@@ -628,8 +628,10 @@ unsafe fn panel(ui: *mut PxuiUi, key: &str, name: &str, panel: *const PxuiPanel,
     // read where it lies (a record at least as long as ours), the look only when it has one
     let Some(panel) = sized!(panel) else { return unsafe { fail(ui, "invalid panel descriptor") }; };
     if panel.padding < 0 { return unsafe { fail(ui, "invalid panel padding") }; }
+    // the fractional padding counts only where it agrees with the integer one (a 1.x record leaves the hole unset)
+    let padding = if (panel.padding_points - panel.padding as f32).abs() <= 0.5 && panel.padding_points >= 0.0 { panel.padding_points } else { panel.padding as f32 };
     let mut overlay = pxui_types::ui::Overlay { at: (panel.x, panel.y), w: Some(panel.width), h: (panel.has_height != 0).then_some(panel.height),
-        max_h: (panel.has_max_height != 0).then_some(panel.max_height), window: panel.window != 0, padding: panel.padding as f32, name: Some(name), ..pxui_types::ui::Overlay::DEFAULT };
+        max_h: (panel.has_max_height != 0).then_some(panel.max_height), window: panel.window != 0, padding, name: Some(name), ..pxui_types::ui::Overlay::DEFAULT };
     if panel.has_stroke != 0 { overlay.stroke = Some(panel.stroke); }
     if panel.has_look != 0 { let Some(look) = crate::style::decode_look(panel.look) else { return unsafe { fail(ui, "invalid panel look") }; }; overlay.look = Some(look); }
     unsafe { trusted::panel(ui, key, &overlay, &mut |ui| if let Some(build) = build { build(user, ui.cast()) }, root) }

@@ -9,11 +9,36 @@ const _: () = assert!(core::mem::size_of::<Theme>() == core::mem::size_of::<Them
     && core::mem::offset_of!(Theme, tokens) == core::mem::offset_of!(ThemeSnapshot, tokens) && core::mem::offset_of!(Theme, ring) == core::mem::offset_of!(ThemeSnapshot, ring)
     && core::mem::offset_of!(Theme, image) == core::mem::offset_of!(ThemeSnapshot, image));
 
-// The theme in effect, whole, lent: valid until the `Ui` next changes it (a theme swap, a `themed` scope) or is freed.
-export!(trusted pub unsafe fn pxui_ui_theme(ui:*mut PxuiUi) -> *const ThemeSnapshot {
+// The theme in effect, whole, lent in the 1.x layout (`include/pxui.h`: integer token text sizes): valid until the `Ui` next
+// changes it (a theme swap, a `themed` scope) or is freed, or until the next call. The engine's own snapshot keeps fractional sizes
+// (`pxui_ui_theme_exact`); this projection of it is copied for C callers only, here, never on a frame's path.
+export!(pub unsafe fn pxui_ui_theme(ui:*mut PxuiUi) -> *const ThemeSnapshot {
+    let Some(state) = (unsafe { get(ui) }) else { return core::ptr::null(); };
+    let exact = unsafe { crate::trusted::pxui_ui_theme(ui) };
+    if exact.is_null() { return core::ptr::null(); }
+    let legacy = state.shared().legacy_theme.get_or_insert_with(|| Box::new(unsafe { *exact }));
+    **legacy = unsafe { *exact };
+    legacy_tokens(&mut legacy.tokens);
+    &**legacy
+});
+
+// ABI 1.78: the theme in effect as the engine keeps it, lent: `Tokens` text sizes are `float` in each 8-byte slot of the 1.x layout
+// (the slot's other half 0), fonts carry `size_points`. Valid as `pxui_ui_theme`'s.
+export!(trusted pub unsafe fn pxui_ui_theme_exact(ui:*mut PxuiUi) -> *const ThemeSnapshot {
     if unsafe{get(ui)}.is_none() { return core::ptr::null(); }
     unsafe{crate::trusted::pxui_ui_theme(ui)}
 });
+
+/// Writes each token text size as the 1.x C snapshot has it, a whole-point `int64_t` rounded half away from zero, over its 8-byte slot.
+fn legacy_tokens(tokens: &mut pxui_types::theme::Tokens) {
+    let sizes = [tokens.display_size, tokens.title_size, tokens.font_size, tokens.label_size];
+    let base = (tokens as *mut pxui_types::theme::Tokens).cast::<u8>();
+    for (offset, size) in [core::mem::offset_of!(pxui_types::theme::Tokens, display_size), core::mem::offset_of!(pxui_types::theme::Tokens, title_size),
+        core::mem::offset_of!(pxui_types::theme::Tokens, font_size), core::mem::offset_of!(pxui_types::theme::Tokens, label_size)].into_iter().zip(sizes) {
+        // the slots are 8-byte aligned (`Tokens` is `align(8)`; checked by the layout rows) and lie inside `tokens`
+        unsafe { base.add(offset).cast::<i64>().write(size.round() as i64) };
+    }
+}
 
 /// A theme a caller builds from tokens and key/value pairs, then scopes over a subtree with `pxui_ui_themed`. Each `set`
 /// or `load` applies over what is there already, as `Theme::parse` does over its base: a `tokens.*` key re-derives every
@@ -260,4 +285,29 @@ fn legacy_theme_edit_and_load_keep_their_error_detail() {
     assert_eq!(unsafe { pxui_theme_set(theme, pair("tokens.accent"), pair("red")) }, PXUI_ERR_ARGUMENT);
     assert_eq!(unsafe { pxui_theme_load(theme, pair("/no/such/file.theme")) }, PXUI_ERR_ARGUMENT);
     unsafe { pxui_theme_destroy(theme) };
+}
+
+#[cfg(test)]
+mod legacy_tests {
+    use pxui_types::theme::{ThemeSnapshot, Tokens};
+
+    /// The 1.x C snapshot holds each token text size as a whole-point `int64_t` in the slot where the engine's snapshot keeps an `f32`
+    /// (its other half 0); the rest of the snapshot is the same bytes, and the 1.x getters report the body size rounded.
+    #[test]
+    fn the_c_snapshot_is_the_integer_projection_of_the_exact_one() {
+        let ui = unsafe { crate::pxui_ui_create(&crate::PxuiUiDesc::default()) };
+        assert_eq!(unsafe { crate::ui_state::pxui_ui_set_font_points(ui, 14.5) }, 0);
+        let (exact, legacy): (&ThemeSnapshot, &ThemeSnapshot) = unsafe { (&*super::pxui_ui_theme_exact(ui), &*super::pxui_ui_theme(ui)) };
+        let slot = |t: &Tokens, at: usize| unsafe { (t as *const Tokens).cast::<u8>().add(at).cast::<i64>().read() };
+        for (at, size) in [(core::mem::offset_of!(Tokens, display_size), exact.tokens.display_size), (core::mem::offset_of!(Tokens, font_size), exact.tokens.font_size),
+            (core::mem::offset_of!(Tokens, title_size), exact.tokens.title_size), (core::mem::offset_of!(Tokens, label_size), exact.tokens.label_size)] {
+            assert_eq!(slot(&legacy.tokens, at), size.round() as i64);
+            assert_eq!(slot(&exact.tokens, at), size.to_bits() as i64, "an exact slot is the f32's bits, its other half 0");
+        }
+        assert!(exact.button == legacy.button && exact.row_h == legacy.row_h && exact.tokens.accent == legacy.tokens.accent);
+        let mut points = 0.0;
+        assert_eq!(unsafe { crate::ui_state::pxui_ui_font_points(ui, &mut points) }, 0);
+        assert_eq!((points, unsafe { crate::ui_state::pxui_ui_font_size(ui) }), (14.5, 15));
+        unsafe { crate::pxui_ui_destroy(ui) };
+    }
 }

@@ -2,12 +2,12 @@
 //! caller bug the engine would panic on (a stale handle, a non-finite number, oversized text): it panics
 //! here with the library's message, inside the frame callback or at the app's call.
 use crate::{as_str, check, Ui};
-use pxui_types::ui::{text_top_for, Cursor, UndoKind};
+use pxui_types::ui::{Cursor, UndoKind};
 use crate::{KeyCode, Mods};
 
 library!(lib {
-    fn pxui_ui_font_size(ui: *mut PxuiUi) -> i64;
-    fn pxui_ui_row_height(ui: *mut PxuiUi) -> i64;
+    fn pxui_ui_font_points(ui: *mut PxuiUi, out: *mut f32) -> i32;
+    fn pxui_ui_row_points(ui: *mut PxuiUi, out: *mut f32) -> i32;
     fn pxui_ui_environment(ui: *mut PxuiUi, out: *mut pxui_types::Environment) -> i32;
     fn pxui_ui_keyboard(ui: *mut PxuiUi, out: *mut pxui_types::Keyboard) -> i32;
     fn pxui_ui_content_rect(ui: *mut PxuiUi, out: *mut pxui_types::geom::Rect) -> i32;
@@ -25,7 +25,7 @@ library!(lib {
     fn pxui_ui_key_down(ui: *mut PxuiUi, code: u32, out: *mut u8) -> i32;
     fn pxui_ui_key_pressed_mods(ui: *mut PxuiUi, code: u32, modifiers: u32, out: *mut u8) -> i32;
     fn pxui_ui_variant(ui: *mut PxuiUi, kind: u32, variant: u16) -> i32;
-    fn pxui_ui_set_font_size(ui: *mut PxuiUi, size: i64) -> i32;
+    fn pxui_ui_set_font_points(ui: *mut PxuiUi, points: f32) -> i32;
     fn pxui_ui_unfocus(ui: *mut PxuiUi) -> i32;
     fn pxui_ui_dismiss_popup(ui: *mut PxuiUi) -> i32;
     fn pxui_ui_request_cursor(ui: *mut PxuiUi, shape: u32) -> i32;
@@ -41,7 +41,6 @@ library!(lib {
     fn pxui_ui_rebuilt_named(ui: *mut PxuiUi, prefix: pxui_types::Str, out: *mut u64) -> i32;
     fn pxui_ui_expanded(ui: *mut PxuiUi, key: pxui_types::Str, out: *mut u8) -> i32;
     fn pxui_ui_hover_delay(ui: *mut PxuiUi, key: pxui_types::Str, out: *mut u8) -> i32;
-    fn pxui_ui_cap_width(ui: *mut PxuiUi, text: pxui_types::Str, out: *mut f32) -> i32;
 });
 
 /// The platform whose editing conventions the `Ui` follows.
@@ -107,13 +106,44 @@ impl Ui {
         let [x, y, w, h] = p.ime_rect.map(|value| value as f32);
         (p.has_ime != 0).then_some(Ime { rect: crate::Rect::new(x, y, w, h), caret: p.ime_caret as f32 })
     }
-    #[inline] pub fn font_size(&self) -> i64 { unsafe { lib::pxui_ui_font_size(self.0.as_ptr()) } }
-    #[inline] pub fn row_height(&self) -> i64 { unsafe { lib::pxui_ui_row_height(self.0.as_ptr()) } }
+    /// The surface's body font size, in logical points.
+    ///
+    /// Read the current surface's value exactly as created or set, including fractional points. It is read through the checked
+    /// fractional query; the 1.x C integer getter keeps reporting its integer form.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
+    /// assert!(ui.font_size() > 0.0);
+    /// ```
+    #[inline] pub fn font_size(&self) -> f32 { let mut out = 0.0; unsafe { lib::pxui_ui_font_points(self.0.as_ptr(), &mut out) }; out }
+    /// The kit's row height, in logical points.
+    ///
+    /// Read the current surface's value, derived from the fractional font size without truncation. The 1.x C integer getter keeps
+    /// its integer form.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
+    /// assert!(ui.row_height() > 0.0);
+    /// ```
+    #[inline] pub fn row_height(&self) -> f32 { let mut out = 0.0; unsafe { lib::pxui_ui_row_points(self.0.as_ptr(), &mut out) }; out }
     /// Hands the registered bodies of kind `kind` that the widget call in progress builds `variant` (0 clears it); called only for a non-zero style variant, around that call.
     #[inline(never)]
     pub(crate) fn set_variant(&mut self, kind: pxui_types::theme::BodyKind, variant: u16) { unsafe { lib::pxui_ui_variant(self.0.as_ptr(), kind as u32, variant) }; }
-    /// Integer rendering density shared with Paint: host scale rounded to at least one.
-    #[inline] pub fn density(&self) -> i64 { unsafe { lib::pxui_ui_density(self.0.as_ptr()) } }
+    /// The rounded rendering density used by authoring and paint.
+    ///
+    /// Read the current surface's value.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
+    /// assert!(ui.density() > 0.0);
+    /// ```
+    #[inline] pub fn density(&self) -> f32 { (unsafe { lib::pxui_ui_density(self.0.as_ptr()) }) as f32 }
     /// The last frame's host geometry (safe-area insets, keyboard frame and animation), the same value every cached view sees.
     /// Allocates: never.
     /// Panics: when the library refuses the call (a null `Ui`).
@@ -239,6 +269,30 @@ impl Ui {
         check(self, unsafe { lib::pxui_ui_key_pressed_mods(self.0.as_ptr(), key.wire(), mods.0, &mut out) });
         out != 0
     }
+    /// Sets the surface's body font size in logical points.
+    ///
+    /// Set a positive finite size between frames. The kit recomputes the row height and uses the chosen fonts.
+    /// Allocates: never at this call.
+    /// Panics: with the library's message for a size that is not finite or lies outside 0.5..=1024.
+    ///
+    /// ```
+    /// let mut ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
+    /// ui.set_font_size(14.5);
+    /// assert_eq!(ui.font_size(), 14.5);
+    /// ```
+    #[inline]
+    #[track_caller]
+    pub fn set_font_size(&mut self, size: f32) {
+        check(self, unsafe { lib::pxui_ui_set_font_points(self.0.as_ptr(), size) })
+    }
+
+    /// The checked fractional setter `set_font_size` and creation share.
+    pub(crate) fn set_font_points(&self, points: f32) -> Result<(), crate::Error> {
+        let rc = unsafe { lib::pxui_ui_set_font_points(self.0.as_ptr(), points) };
+        if rc == 0 { Ok(()) } else { Err(crate::Error::from_code(rc)) }
+    }
+    #[inline] #[track_caller] pub fn unfocus(&mut self) { check(self, unsafe { lib::pxui_ui_unfocus(self.0.as_ptr()) }) }
+    #[inline] #[track_caller] pub fn dismiss_popup(&mut self) { check(self, unsafe { lib::pxui_ui_dismiss_popup(self.0.as_ptr()) }) }
     /// Asks the window host for a pointer cursor `shape` for this frame; the request lapses unless it is repeated every build.
     /// Allocates: never.
     /// Panics: when the library refuses the call (outside a frame).
@@ -246,9 +300,6 @@ impl Ui {
     /// ```
     /// pxui::doc::frames(1, &mut |ui| ui.request_cursor(pxui::ui::Cursor::Text));
     /// ```
-    #[inline] #[track_caller] pub fn set_font_size(&mut self, size: i64) { check(self, unsafe { lib::pxui_ui_set_font_size(self.0.as_ptr(), size) }) }
-    #[inline] #[track_caller] pub fn unfocus(&mut self) { check(self, unsafe { lib::pxui_ui_unfocus(self.0.as_ptr()) }) }
-    #[inline] #[track_caller] pub fn dismiss_popup(&mut self) { check(self, unsafe { lib::pxui_ui_dismiss_popup(self.0.as_ptr()) }) }
     #[inline]
     #[track_caller]
     pub fn request_cursor(&mut self, shape: Cursor) {
@@ -361,20 +412,5 @@ impl Ui {
         check(self, unsafe { lib::pxui_ui_hover_delay(self.0.as_ptr(), as_str(key.label(&mut label)), &mut out) });
         out != 0
     }
-    /// The width in points a string takes in the small-caps label style at the current theme.
-    /// Allocates: on the first measurement of `text` (the text cache); never when it is cached.
-    /// Panics: when the library refuses the call (outside a frame, or text over the limit). Display text past 64 KiB is clipped at a character boundary, never refused.
-    ///
-    /// ```
-    /// pxui::doc::frames(1, &mut |ui| assert!(ui.cap_width("TITLE") > ui.cap_width("T")));
-    /// ```
-    #[track_caller]
-    pub fn cap_width(&mut self, text: &str) -> f32 {
-        let mut out = 0.0;
-        check(self, unsafe { lib::pxui_ui_cap_width(self.0.as_ptr(), as_str(text), &mut out) });
-        out
-    }
-    /// Where the top of kit text of `size` points sits centred in a row at `y` of height `h`.
-    #[inline] pub fn text_top(&self, size: Option<i64>, y: f32, h: f32) -> f32 { text_top_for(self.font_size(), size, y, h) }
 
 }

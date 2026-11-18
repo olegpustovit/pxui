@@ -100,6 +100,6 @@ fn the_text_service_of_a_poisoned_ui_answers_errors() {
     let style = crate::Label::BODY;
     let mut text = ui.text_service();
     assert_eq!(text.add_font(crate::pragmasevka()), Err(crate::Error::InvalidInput));
-    assert_eq!({ let mut glyphs=Vec::new(); text.quads("", &style, f32::INFINITY, (0.0, 0.0), 1.0, &mut glyphs).map(|_|glyphs) }, Err(crate::Error::InvalidInput));
-    assert_eq!({ let mut px=Vec::new(); text.rasterize_rgba("", &style, f32::INFINITY, 1.0, [255; 4], &mut px).map(|(w,h)|(w,h,px)) }, Err(crate::Error::InvalidInput));
+    assert_eq!({ let mut glyphs=Vec::new(); text.quads("", style, Some(f32::INFINITY), crate::Point::new(0.0, 0.0), 1.0, &mut glyphs).map(|_|glyphs) }, Err(crate::Error::InvalidInput));
+    assert_eq!({ let mut px=Vec::new(); text.rasterize_rgba("", style, Some(f32::INFINITY), 1.0, [255; 4], &mut px).map(|(w,h)|(w,h,px)) }, Err(crate::Error::InvalidInput));
 }

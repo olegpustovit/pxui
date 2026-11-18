@@ -8,17 +8,14 @@ use crate::sys::PxuiPaint as RawPaint;
 use core::{ffi::c_void, marker::PhantomData, ptr::NonNull};
 use std::alloc::Layout;
 use pxui_types::{node::Dir, draw::Instance, ffi::{PxuiLabelStyle, PxuiPaintInfo}, Label, geom::{Rect, Rgba}, shape::{clip_of, Shapes}, theme::Tokens, PxuiBox, Span, Str, TextMetrics};
-use pxui_types::ffi::PxuiTextStyle;
-use crate::TextStyle;
 
 library!(lib {
-    fn pxui_paint_text_spans(p:*mut RawPaint,x:f32,y:f32,style:*const PxuiTextStyle,width:f32,has_color:u8,color:Rgba,text:Str,spans:*const pxui_types::TextSpans,out:*mut TextMetrics)->i32;
+    fn pxui_paint_label_spans(p:*mut RawPaint,x:f32,y:f32,style:*const PxuiLabelStyle,width:f32,text:Str,spans:*const pxui_types::TextSpans,out:*mut TextMetrics)->i32;
     fn pxui_ui_draw(ui: *mut PxuiUi, box_: *const PxuiBox, over: u8, build: Option<extern "C" fn(*mut c_void, *mut RawPaint, Rect, *const PxuiPaintInfo)>, user: *mut c_void, release: Option<extern "C" fn(*mut c_void)>) -> i32;
     fn pxui_paint_span(p: *mut RawPaint, at_least: usize, span: *mut Span) -> i32;
     fn pxui_paint_icon(p: *mut RawPaint, x: f32, y: f32, font: u16, size: f32, codepoint: u32, c: Rgba) -> f32;
     fn pxui_paint_label(p: *mut RawPaint, x: f32, y: f32, style: *const PxuiLabelStyle, width: f32, s: Str) -> TextMetrics;
     fn pxui_paint_label_chars(p: *mut RawPaint, x: f32, y: f32, style: *const PxuiLabelStyle, s: Str) -> f32;
-    fn pxui_paint_text_metrics(p: *mut RawPaint, style: *const PxuiTextStyle, width: f32, s: Str) -> TextMetrics;
     fn pxui_paint_scroll_y(p: *mut RawPaint, slot: u64) -> f32;
     fn pxui_paint_color(p: *mut RawPaint, token: u16) -> Rgba;
     fn pxui_paint_icon_word(p: *mut RawPaint) -> u32;
@@ -68,9 +65,6 @@ impl Writer {
 
 #[track_caller]
 fn refused(what: &str, rc: i32) { if rc != 0 { panic!("pxui: {what} refused ({rc})"); } }
-
-#[inline]
-fn some(color: Option<Rgba>) -> (u8, Rgba) { (color.is_some() as u8, color.unwrap_or_default()) }
 
 impl<'a> Paint<'a> {
     unsafe fn from_raw(raw: *mut RawPaint, info: &PxuiPaintInfo) -> Option<Self> {
@@ -147,10 +141,10 @@ impl<'a> Paint<'a> {
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
     ///     let node = ui.node("canvas", pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
-    ///     ui.canvas(&node, |paint, _| assert!(paint.density() >= 1));
+    ///     ui.canvas(&node, |paint, _| assert!(paint.density() >= 1.0));
     /// });
     /// ```
-    #[inline] pub fn density(&self) -> i64 { self.w.density }
+    #[inline] pub fn density(&self) -> f32 { self.w.density as f32 }
     /// Whether the node paints right to left (its layout direction), so a canvas can mirror what it draws.
     ///
     /// Allocates: never.
@@ -207,14 +201,14 @@ impl<'a> Paint<'a> {
     /// pxui::doc::frames(2, &mut |ui| {
     ///     let node = ui.node("title", pxui::Node { w: pxui::ui::Size::Px(100.0), h: pxui::ui::Size::Px(20.0), ..pxui::Node::DEFAULT });
     ///     let width = width.clone();
-    ///     ui.canvas(&node, move |paint, rect| width.set(paint.text((rect.x, rect.y), &Label::TITLE, 0.0, "Songs").width));
+    ///     ui.canvas(&node, move |paint, rect| width.set(paint.text(pxui::Point::new(rect.x, rect.y), Label::TITLE, 0.0, "Songs").width));
     /// });
     /// assert!(width.get() > 0.0);
     /// ```
     #[inline]
-    pub fn text(&mut self, at: (f32, f32), style: &Label, width: f32, s: &str) -> TextMetrics {
-        let style = PxuiLabelStyle::from(style);
-        unsafe { lib::pxui_paint_label(self.raw(), at.0, at.1, &style, width, crate::as_str(s)) }
+    pub fn text(&mut self, at: crate::Point, style: Label, width: f32, s: &str) -> TextMetrics {
+        let style = PxuiLabelStyle::from(&style);
+        unsafe { lib::pxui_paint_label(self.raw(), at.x, at.y, &style, width, crate::as_str(s)) }
     }
     /// Draws `s` in `style` one character at a time from one-character layouts, digits on the advance of `0` (tabular): a number
     /// that changes every frame shapes nothing after the first use of its characters in that style.
@@ -231,18 +225,18 @@ impl<'a> Paint<'a> {
     /// pxui::doc::frames(2, &mut |ui| {
     ///     let node = ui.node("clock", pxui::Node { w: pxui::ui::Size::Px(100.0), h: pxui::ui::Size::Px(20.0), ..pxui::Node::DEFAULT });
     ///     let width = width.clone();
-    ///     ui.canvas(&node, move |paint, rect| width.set(paint.text_chars((rect.x, rect.y), &pxui::Label::MONO, "1:23.4")));
+    ///     ui.canvas(&node, move |paint, rect| width.set(paint.text_chars(pxui::Point::new(rect.x, rect.y), pxui::Label::MONO, "1:23.4")));
     /// });
     /// assert!(width.get() > 0.0);
     /// ```
-    pub fn text_chars(&mut self, at: (f32, f32), style: &Label, s: &str) -> f32 {
-        let style = PxuiLabelStyle::from(style);
-        unsafe { lib::pxui_paint_label_chars(self.raw(), at.0, at.1, &style, crate::as_str(s)) }
+    pub fn text_chars(&mut self, at: crate::Point, style: Label, s: &str) -> f32 {
+        let style = PxuiLabelStyle::from(&style);
+        unsafe { lib::pxui_paint_label_chars(self.raw(), at.x, at.y, &style, crate::as_str(s)) }
     }
     /// Draws `text` at `at` (the top-left of its layout, in points; the first baseline is `TextMetrics::baseline` below it) in one shaped layout, wrapped within `width` points (0: unbounded), with up to eight styled byte ranges `spans`; returns its metrics.
     ///
-    /// `style` is a resolved `TextStyle` (`Ui::resolve` of a `Label`, made before the canvas); the text is in the label's colour token, resolved
-    /// for this painter's theme, or the theme's ink when the label sets none. Spans may colour their own ranges. Spans are ordered, non-overlapping and nonempty, as UTF-8 byte ranges of `text` on character boundaries.
+    /// `style` is a `Label`, resolved in this call under the painter's theme as `Paint::text` resolves it; the text is in the label's colour
+    /// token, or the theme's ink when the label sets none. Spans may colour their own ranges. Spans are ordered, non-overlapping and nonempty, as UTF-8 byte ranges of `text` on character boundaries.
     /// Allocates: never when warm; text it has not shaped before is shaped once.
     /// Panics: never; a bad argument is the `Err` below.
     /// Errors: `Error::InvalidInput` for more than eight or overlapping spans, a bad range or a non-finite size; `Error::State` when a span is open.
@@ -255,39 +249,32 @@ impl<'a> Paint<'a> {
     /// pxui::doc::frames(2, &mut |ui| {
     ///     let node = ui.node("rich", pxui::Node { w: pxui::ui::Size::Px(200.0), h: pxui::ui::Size::Px(30.0), ..pxui::Node::DEFAULT });
     ///     let out = out.clone();
-    ///     let style = ui.resolve(&Label::BODY);
     ///     ui.canvas(&node, move |paint, rect| {
     ///         let bold = TextSpan { start: 0, end: 5, weight: 700, ..Default::default() };
-    ///         out.set(paint.text_spans((rect.x, rect.y), &style, 0.0, "Hello world", &[bold]).unwrap().width);
+    ///         out.set(paint.text_spans(pxui::Point::new(rect.x, rect.y), Label::BODY, 0.0, "Hello world", &[bold]).unwrap().width);
     ///     });
     /// });
     /// assert!(width.get() > 0.0);
     /// ```
-    pub fn text_spans(&mut self,at:(f32,f32),style:&TextStyle,width:f32,text:&str,spans:&[pxui_types::TextSpan])->Result<TextMetrics,crate::Error> {
+    pub fn text_spans(&mut self,at:crate::Point,style:Label,width:f32,text:&str,spans:&[pxui_types::TextSpan])->Result<TextMetrics,crate::Error> {
         let spans=pxui_types::TextSpans::new(spans).ok_or(crate::Error::InvalidInput)?;
-        let (has_color,color)=some(style.1.map(|token| self.color(token)));
         let mut out=TextMetrics::default();
-        let rc=unsafe { lib::pxui_paint_text_spans(self.raw(),at.0,at.1,&style.0,width,has_color,color,crate::as_str(text),&spans,&mut out) };
+        let rc=unsafe { lib::pxui_paint_label_spans(self.raw(),at.x,at.y,&PxuiLabelStyle::from(&style),width,crate::as_str(text),&spans,&mut out) };
         if rc==0 { Ok(out) } else { Err(crate::Error::from_code(rc)) }
     }
-    /// The metrics of `s` in the resolved `style` laid out within `width` points (0: unbounded), without drawing it: its width,
-    /// height, lines and first baseline, as `text_spans` with no spans would draw it.
+    /// Borrows the active painter's text service.
     ///
-    /// Allocates: never when warm; text it has not shaped before is shaped once.
-    /// Panics: never; a style or width the library refuses measures as zero metrics.
+    /// The service uses the same fonts and label defaults as this painting scope. The borrow ends before painting continues.
+    /// Allocates: never to borrow the service.
+    /// Panics: never.
     ///
     /// ```
-    /// use std::{cell::Cell, rc::Rc};
-    /// let width = Rc::new(Cell::new(0.0));
-    /// let out = width.clone();
-    /// pxui::doc::frames(2, &mut |ui| {
-    ///     let node = ui.node("measure", pxui::Node { w: pxui::ui::Size::Px(100.0), h: pxui::ui::Size::Px(20.0), ..pxui::Node::DEFAULT });
-    ///     let (out, style) = (out.clone(), ui.resolve(&pxui::Label::BODY));
-    ///     ui.canvas(&node, move |paint, _| out.set(paint.text_metrics(&style, 0.0, "Songs").width));
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     let node = ui.node("canvas", pxui::Node::DEFAULT.w_px(60.0).h_px(20.0));
+    ///     ui.canvas(&node, |paint, _| { let _ = paint.text_service(); });
     /// });
-    /// assert!(width.get() > 0.0);
     /// ```
-    #[inline] pub fn text_metrics(&mut self, style: &TextStyle, width: f32, s: &str) -> TextMetrics { unsafe { lib::pxui_paint_text_metrics(self.raw(), &style.0, width, crate::as_str(s)) } }
+    pub fn text_service(&mut self) -> crate::UiText<'_> { crate::UiText::from_paint(self) }
 }
 
 /// How a shape's area is filled: one colour, its edges snapped to whole device pixels unless `fractional`.

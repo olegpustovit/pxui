@@ -21,11 +21,11 @@ const CLEAR: Rgba = Rgba::CLEAR;
 pub(crate) fn default_inspector_row(this: &mut Ui, c: &InspectorRowConfig, label: &str) {
     let (look, dot) = (*this.theme().row.pick(c.state), this.theme().pin);
     this.set_look(&c.row, look, c.state);
-    let shown = this.fit_text(this.font_size(), c.label_w, label);
+    let shown = this.fit_text(this.font_px(), c.label_w, label);
     this.text(&c.row, &shown);
     // the pin dot: filled ink when the row is on its card, an ink-3 ring when it is not
     if let Some(on) = c.pin {
-        let rh = this.row_height() as f32;
+        let rh = this.row_px() as f32;
         let saved = this.enter(&c.row);
         this.placed(int_key(c.row.box_key, 0), (12.0, rh / 2.0 - 3.0), Size::Px(6.0), 6.0, *dot.pick(State { checked: on, ..State::default() }), Edges::default(), "");
         this.leave(saved);
@@ -34,7 +34,7 @@ pub(crate) fn default_inspector_row(this: &mut Ui, c: &InspectorRowConfig, label
 
 /// The built-in section header: the section look, the label, the disclosure chevron at the end, then the content when open.
 pub(crate) fn default_section(this: &mut Ui, c: &SectionConfig, label: &str, content: &mut dyn FnMut(&mut Ui)) {
-    let (title, rh) = (c.title, this.row_height() as f32);
+    let (title, rh) = (c.title, this.row_px() as f32);
     // the sheet has no hover state on a section header
     let (look, chevron) = (this.theme().section.idle, this.theme().chevron.idle);
     this.set_look(&title, look, State::default());
@@ -174,7 +174,7 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, label: &str, placeholder: &str, qu
     let length = o.limit.min(count);
     let start = if length == count { 0 } else { 0.max((count - length).min(cursor - length / 2)) };
     let composition = this.composition().to_owned();
-    let font_size = this.font_size();
+    let font_size = this.font_px();
     let (slash, at_rest) = (o.slash, o.at_rest);
     let t = this.theme();
     // a field that has not been typed in yet can sit at rest: the hairline and no caret
@@ -197,7 +197,7 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, label: &str, placeholder: &str, qu
         });
     }
     let saved = this.enter(&list);
-    let row_height = this.row_height();
+    let row_height = this.row_px();
     let body = body_of!(this, picker);
     for visible in 0..length {
         let index = start + visible;
@@ -252,7 +252,7 @@ pub(crate) fn default_picker_field(this: &mut Ui, c: &PickerFieldConfig, placeho
 /// detail with the query's letters in the accent, the detail, and the Enter hint on the keyboard's row.
 pub(crate) fn default_picker_row(this: &mut Ui, c: &PickerRowConfig, text: &str, detail: &str, query: &str) {
     let (row, current, doomed, unavailable, swatch, state) = (c.row, c.current, c.doomed, c.unavailable, c.swatch, c.state);
-    let (font_size, row_height) = (this.font_size(), this.row_height());
+    let (font_size, row_height) = (this.font_px(), this.row_px());
     let t = this.theme();
     let ink3 = t.placeholder.idle.text;
     let look = if doomed { t.row_doomed.idle } else { *t.list.pick(state) };
@@ -264,7 +264,7 @@ pub(crate) fn default_picker_row(this: &mut Ui, c: &PickerRowConfig, text: &str,
     let rh = row_height as f32;
     let text_x = if !c.marked { this.space(2) } else { this.space(2) + 16.0 };
     // a label that would run into the detail is cut with an ellipsis
-    let key_size = key_look.font.points(font_size);
+    let key_size = crate::ui_core::font_px(&key_look.font, font_size);
     let key_text = "\u{21b5}";
     let kw = this.text_width(Some(key_size), key_text);
     let right = if current { width - this.space(2) - kw - 8.0 } else { width - this.space(2) };
@@ -396,7 +396,7 @@ fn value_field_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &ValueFiel
     let config = ValueFieldConfig { state: State { focused: editing, ..State::default() }, invalid, w, h, field: bx };
     in_body!(this, bx.box_key, bx, value_field, default_value_field(&config, o, shown));
     if let Some((edit, composition)) = edit {
-        let (size, fs) = (o.size, this.font_size());
+        let (size, fs) = (o.size, this.font_px());
         let ty = 0.max((h as i64 - size.unwrap_or(fs)) / 2);
         let (selection, caret) = (field.selection, field.caret);
         this.canvas(&bx, move |paint, rect| {
@@ -434,7 +434,7 @@ pub(crate) fn default_value_field(this: &mut Ui, c: &ValueFieldConfig, o: &Value
     this.set_look(&bx, look, State { focused: editing, ..State::default() });
     let x = 0.0;
     let size = o.size;
-    let fs = this.font_size();
+    let fs = this.font_px();
     // the content is centred in the 19 points above the hairline: a body line starts half a point up
     let text_y = match size {
         Some(size) => (0.max((h as i64 - size) / 2)) as f32,
@@ -492,13 +492,13 @@ pub(crate) fn default_value_field(this: &mut Ui, c: &ValueFieldConfig, o: &Value
 
 fn inspector_header_body(this: &mut Ui, key: &str, kind: Option<&str>, badge: Option<&str>, index: Option<&str>, rename: Option<Rc<dyn Fn(&str) -> bool>>, actions: &[HeadAction], reset: Option<&str>, reset_enabled: bool, title: &str, detail: &str) -> Head {
     let win = this.kit_window_flag();
-    let font_size = this.font_size();
+    let font_size = this.font_px();
     // a window's head (windows.html): the 20-point title and one detail line, 8 above, no
     // chips, buttons or hairline
     let display_size = font_size * (if win { theme::TITLE_SIZE } else { theme::DISPLAY_SIZE }) / theme::FONT_SIZE;
     let small = 8.max(font_size - 2);
-    let line = this.row_height() as f32;
-    let title_h = if win { this.row_height() as f32 } else { (display_size + 8) as f32 };
+    let line = this.row_px() as f32;
+    let title_h = if win { this.row_px() as f32 } else { (display_size + 8) as f32 };
     let width = this.inspector_width();
     let chips = !win && (kind.is_some() || badge.is_some() || index.is_some());
     let actions: Vec<HeadAction> = if win { Vec::new() } else { actions.to_vec() };
@@ -659,7 +659,7 @@ impl Ui {
         let control_x = if window { 12.0 + 88.0 + 8.0 } else { inspector_control_x(width) };
         let pin = if window { None } else { pin };
         self.lead_gap();
-        let rh = self.row_height() as f32;
+        let rh = self.row_px() as f32;
         let row = self.node_ref(key, &Node { flags: Flags::CLICKABLE, h: Size::Px(rh), inset: Edges { l: label_x, ..Edges::default() }, ..Node::DEFAULT });
         let state = State { hovered: self.hovered_within(&row), ..State::default() };
         self.set_role(&row, Role::Label, 0);
@@ -709,7 +709,7 @@ impl Ui {
     }
 
     fn section_at(&mut self, at: (bool, bool), key: &str, expanded: bool, set_expanded: Option<bool>, label: &str, f: &mut dyn FnMut(&mut Ui)) -> bool {
-        let rh = self.row_height() as f32;
+        let rh = self.row_px() as f32;
         let title = self.box_(key, BoxOpts::default().flags(Flags::CLICKABLE | Flags::TAB_STOP).w(Size::Grow).h(Size::Px(rh)));
         let open = self.state(&title, if expanded { 1 } else { 0 }) != 0;
         let open = set_expanded.unwrap_or(open);
@@ -767,8 +767,8 @@ impl Ui {
     /// A text button on a row of its own.
     pub fn inspector_button(&mut self, key: &str, label: &str) -> bool {
         self.lead_gap();
-        let pad = (self.row_height() as f32 - self.control_h()) / 2.0;
-        let row = self.node_ref(key, &Node { flags: Flags::CLICKABLE | Flags::TAB_STOP, h: Size::Px(self.row_height() as f32), axis: Axis::Row, padding: Edges { l: 6.0, t: pad, r: 6.0, b: pad }, ..Node::DEFAULT });
+        let pad = (self.row_px() as f32 - self.control_h()) / 2.0;
+        let row = self.node_ref(key, &Node { flags: Flags::CLICKABLE | Flags::TAB_STOP, h: Size::Px(self.row_px() as f32), axis: Axis::Row, padding: Edges { l: 6.0, t: pad, r: 6.0, b: pad }, ..Node::DEFAULT });
         let signal = self.signal_owned(&row);
         // the ground is the label and 6 points each side, from 6 in; the label is cut to the row less 24
         let tw = self.text_width(None, label);
@@ -789,9 +789,9 @@ impl Ui {
         let (row, control_x, _, control_width) = self.inspector_row(width, None, key, label);
         let look = self.theme().value.idle;
         self.a11y_value(&row, value, (0, 0));
-        let shown = self.fit_text(self.font_size(), control_width, value);
+        let shown = self.fit_text(self.font_px(), control_width, value);
         let tw = self.text_width(None, &shown);
-        let rh = self.row_height() as f32;
+        let rh = self.row_px() as f32;
         let saved = self.enter(&row);
         self.placed(int_key(row.box_key, 1), (control_x + control_width - tw, 0.0), Size::Px(tw.max(1.0)), rh, look, Edges::default(), &shown);
         self.leave(saved);
@@ -800,7 +800,7 @@ impl Ui {
     /// The scrolling part of an inspector under its head (the head stays): a column that takes the
     /// rest of the panel and scrolls, its 4-point line-3 thumb 2 from the right edge.
     pub fn inspector_body(&mut self, f: &mut dyn FnMut(&mut Ui)) {
-        let rh = self.row_height() as f32;
+        let rh = self.row_px() as f32;
         let t = self.theme();
         let bar = Bar::new(t.scrollbar.idle.fill, t.scrollbar_w).radius(t.scrollbar.idle.radius[0]).gap(t.scrollbar_gap).margin(6.0);
         let body = self.node("inspector-body".into(), Node { flags: Flags::SCROLL | Flags::CLIP | Flags::OVER_THUMB, h: Size::Grow, scroll_step: rh, bar: Some(bar).into(), role: Role::ScrollArea, ..Node::DEFAULT });
@@ -811,9 +811,9 @@ impl Ui {
     /// each a key in ink-3 at the label size and what it does in ink-2, and at the right a 6-point
     /// dot and a count as a label.
     pub fn inspector_bar(&mut self, hints: &[(&str, &str)], count: i64) {
-        let small = 8.max(self.font_size() - 2);
-        let font_size = self.font_size();
-        let line = self.row_height() as f32;
+        let small = 8.max(self.font_px() - 2);
+        let font_size = self.font_px();
+        let line = self.row_px() as f32;
         let bar = self.box_("inspector-bar", BoxOpts::default().w(Size::Grow).h(Size::Px(line + 1.0)));
         let t = self.theme();
         let (rule, key, hint, label, dot) = (t.footer.idle, t.key.idle, t.hint.idle, t.label.idle, *t.pin.pick(State { checked: true, ..State::default() }));
@@ -840,7 +840,7 @@ impl Ui {
 
     pub fn inspector_message(&mut self, key: &str, message: &str) {
         self.lead_gap();
-        let rh = self.row_height() as f32;
+        let rh = self.row_px() as f32;
         let (dot, hint) = (self.theme().notice.idle, self.theme().hint.idle);
         let row = self.node_ref(key, &Node { flags: Flags::FIT_TEXT, h: Size::Px(rh), look: hint, inset: Edges { l: 26.0, r: 12.0, ..Edges::default() }, role: Role::Label, ..Node::DEFAULT });
         self.text(&row, message);
@@ -973,9 +973,9 @@ impl Ui {
         self.text(&b, label);
         if !hint.is_empty() {
             let inner = self.enter(&b);
-            let font_size = self.font_size();
+            let font_size = self.font_px();
             let at = 1.0 + pad + mono_width(0.0, font_size, label) + 6.0;
-            let hw = self.text_width(Some(key_look.font.points(font_size)), hint);
+            let hw = self.text_width(Some(crate::ui_core::font_px(&key_look.font, font_size)), hint);
             let n = self.node_keyed(int_key(b.box_key, 0), Node { w: Size::Px(hw.max(1.0)), h: Size::Px(self.control_h()), at: Some((at, 0.0)).into(), look: key_look, ..Node::DEFAULT });
             self.text(&n, hint);
             self.leave(inner);
@@ -1032,7 +1032,7 @@ impl Ui {
         if focused {
             let field = *self.theme().field.pick(state);
             let composition = self.composition().to_owned();
-            let font_size = self.font_size();
+            let font_size = self.font_px();
             let pedit = edit.clone();
             let marks = Some((field.selection, field.caret));
             self.canvas(&field_box, move |paint, rect| {

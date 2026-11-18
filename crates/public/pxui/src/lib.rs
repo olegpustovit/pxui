@@ -94,7 +94,6 @@ pub use pxui_types::ui::{Keyframes, Repeat};
 mod a11y_ffi;
 mod a11y_state;
 mod style;
-mod text_width;
 mod interaction;
 mod ui_state;
 mod box_ops;
@@ -123,7 +122,7 @@ pub use pxui_types::Node;
 mod sys {
     pub use pxui_abi_link::*;
     // what the library's trusted entries replace: this wrapper's arguments are valid Rust values (see `pxui_abi::trusted`)
-    pub use pxui_abi_link::trusted::{pxui_ui_text, pxui_ui_theme};
+    pub use pxui_abi_link::trusted::{pxui_ui_text, pxui_ui_theme as pxui_ui_theme_exact};
 }
 
 #[cfg(not(feature = "static"))]
@@ -147,7 +146,7 @@ mod sys {
         pub fn pxui_ui_create(desc:*const PxuiUiDesc) -> *mut PxuiUi;
         pub fn pxui_ui_create_with_fonts(desc:*const PxuiUiDesc,fonts:*const Str,count:usize)->*mut PxuiUi;
         pub fn pxui_ui_output(ui:*mut PxuiUi)->*const pxui_types::ffi::Output;
-        pub fn pxui_ui_theme(ui:*mut PxuiUi)->*const pxui_types::theme::ThemeSnapshot;
+        pub fn pxui_ui_theme_exact(ui:*mut PxuiUi)->*const pxui_types::theme::ThemeSnapshot;
         pub fn pxui_ui_view_size(ui:*mut PxuiUi,out:*mut pxui_types::geom::Point)->i32;
         pub fn pxui_ui_layer_drawn(ui:*mut PxuiUi,layer:u64)->i32;
         pub fn pxui_ui_frame(ui:*mut PxuiUi,input:*const Input,build:pxui_types::ffi::UiBuild,user:*mut c_void,out:*mut FrameOut)->i32;
@@ -389,6 +388,16 @@ pub struct Frame<'a> {
 
 impl core::ops::Deref for Frame<'_> { type Target=FrameOut; #[inline] fn deref(&self)->&FrameOut { &self.out } }
 
+/// The logical extent of the UI surface.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ViewSize {
+    /// Width in logical points.
+    pub width: f32,
+    /// Height in logical points.
+    pub height: f32,
+}
+
+/// The UI for one surface.
 #[repr(transparent)]
 pub struct Ui(NonNull<sys::PxuiUi>);
 
@@ -460,14 +469,15 @@ impl<'a> UiDesc<'a> {
 
     /// Sets the kit's logical font size in points.
     ///
-    /// The current library accepts positive whole-point sizes representable as a signed 32-bit integer.
+    /// Any positive finite size is kept exactly, including fractional points. Creation sends it in the size-prefixed fractional
+    /// creation record; the 1.x `PxuiUiDesc::font_size` integer field keeps its meaning for C callers.
     /// Allocates: never.
-    /// Panics: never. Creation reports an invalid size as `Error::InvalidInput`.
+    /// Panics: never. Creation reports a nonpositive or non-finite size as `Error::InvalidInput`.
     ///
     /// ```
     /// use pxui::{Ui, UiDesc};
-    /// let ui = Ui::new(&UiDesc::DEFAULT.font_size(15.0)).unwrap();
-    /// assert_eq!(ui.font_size(), 15);
+    /// let ui = Ui::new(&UiDesc::DEFAULT.font_size(14.5)).unwrap();
+    /// assert_eq!(ui.font_size(), 14.5);
     /// ```
     pub const fn font_size(mut self, points: f32) -> UiDesc<'a> {
         self.font_size = Some(points);
@@ -507,9 +517,11 @@ impl Ui {
     /// ```
     pub fn new(desc: &UiDesc) -> Result<Self, Error> {
         if abi_version() >> 16 != pxui_types::ABI_BUILT >> 16 { return Err(Error::Version); }
-        let font_size = match desc.font_size {
-            None => 0,
-            Some(points) if (1.0..i32::MAX as f32).contains(&points) && points.fract() == 0.0 => points as i32,
+        // a fractional size is created at its whole points, then set exactly (the 1.x creation record holds an integer)
+        let (font_size, exact) = match desc.font_size {
+            None => (0, None),
+            Some(points) if (1.0..i32::MAX as f32).contains(&points) && points.fract() == 0.0 => (points as i32, None),
+            Some(points) if points.is_finite() && (0.5..=1024.0).contains(&points) => (points.round().max(1.0) as i32, Some(points)),
             Some(_) => return Err(Error::InvalidInput),
         };
         let raw = sys::PxuiUiDesc {
@@ -528,7 +540,9 @@ impl Ui {
             }
             unsafe { sys::pxui_ui_create_with_fonts(&raw, fonts.as_ptr(), fonts.len()) }
         };
-        NonNull::new(ui).map(Self).ok_or(Error::InvalidInput)
+        let ui = NonNull::new(ui).map(Self).ok_or(Error::InvalidInput)?;
+        if let Some(points) = exact { ui.set_font_points(points)?; }
+        Ok(ui)
     }
 
     /// The engine the library keeps behind this `Ui`, for the checks that compare the wrapper's drawing with the engine's own;
@@ -699,13 +713,14 @@ impl Ui {
 
     /// The theme in effect's tokens, by value: what a canvas closure captures.
     #[inline] pub fn tokens(&self) -> pxui_types::theme::Tokens { self.theme().tokens }
-    /// The theme in effect, whole: the library's own, lent (no copy). Anything that could change it takes `&mut self`, so the
-    /// borrow cannot outlive it.
+    /// The theme in effect, whole: the library's own fractional snapshot, lent (no copy). Text sizes and fonts keep fractional
+    /// points. Anything that could change it takes `&mut self`, so the borrow cannot outlive it.
     /// Panics with the library's message when the call is refused (a `Ui` an earlier panic poisoned): the library returns null.
     #[inline]
     #[track_caller]
     pub fn theme(&self) -> &pxui_types::theme::Theme {
-        let theme = unsafe { sys::pxui_ui_theme(self.0.as_ptr()) };
+        // the 1.x `pxui_ui_theme` lends the legacy integer layout, which this type no longer matches
+        let theme = unsafe { sys::pxui_ui_theme_exact(self.0.as_ptr()) };
         if theme.is_null() { refused(self, pxui_types::PXUI_ERR_PANIC) }
         unsafe { &*theme }
     }
@@ -714,11 +729,21 @@ impl Ui {
     #[inline] pub fn built_nodes(&self) -> usize { self.output().built_nodes as usize }
     #[inline] pub fn rebuilt_views(&self) -> usize { self.output().rebuilt_views as usize }
     #[inline] pub fn arranged_nodes(&self) -> usize { self.output().arranged_nodes as usize }
+    /// Returns the logical extent of this UI surface.
+    ///
+    /// Dimensions are in logical points.
+    /// Allocates: never.
+    /// Panics: when reading the surface size fails.
+    ///
+    /// ```
+    /// let ui = pxui::doc::frames(1, &mut |_| {});
+    /// assert!(ui.view_size().width > 0.0);
+    /// ```
     #[track_caller]
-    pub fn view_size(&self) -> (f32, f32) {
+    pub fn view_size(&self) -> ViewSize {
         let mut out = pxui_types::geom::Point::default();
         check(self, unsafe { sys::pxui_ui_view_size(self.0.as_ptr(), &mut out) });
-        (out.x, out.y)
+        ViewSize { width: out.x, height: out.y }
     }
     #[inline]
     pub fn repaint_at(&self) -> Option<f64> {

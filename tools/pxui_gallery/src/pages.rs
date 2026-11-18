@@ -71,7 +71,7 @@ pub struct Gallery {
     pub split: f32,
     // overlays page
     pub dialog: bool,
-    pub menu_at: Option<(f32, f32)>,
+    pub menu_at: Option<pxui_types::geom::Point>,
     pub picker: bool,
     pub said: &'static str,
     // layout page: the keyframed chip and whether its button asked for a run
@@ -257,7 +257,7 @@ pub fn overlays_page(ui: &mut Ui, s: &mut Gallery) {
             s.dialog = true;
         }
         if ui.button("Context menu") {
-            s.menu_at = Some((140.0, 120.0));
+            s.menu_at = Some(pxui_types::geom::Point::new(140.0, 120.0));
         }
         if ui.button("Pick a preset") {
             s.picker = true;
@@ -492,7 +492,7 @@ pub fn page(ui: &mut Ui, s: &mut Gallery, i: usize) {
 /// the toasts.
 pub fn app(ui: &mut Ui, s: &mut Gallery) {
     // one Window node holds the menu bar and the page: the screen reader's application -> window
-    let (w, h) = ui.view_size();
+    let (w, h) = inputs::view_size(ui);
     let window = node(ui, "window", Node { w: Size::Px(w), h: Size::Px(h), role: Role::Window, ..Node::DEFAULT });
     ui.a11y_name(&window, "PXUI kit gallery");
     ui.within(&window, &mut |ui: &mut Ui| {

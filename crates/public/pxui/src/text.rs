@@ -43,6 +43,7 @@ library!(lib {
     fn pxui_ui_label_text_spans(ui:*mut PxuiUi,box_:*const crate::PxuiBox,value:Str,style:*const PxuiLabelStyle,spans:*const TextSpans)->i32;
     fn pxui_ui_label_text_line_box(ui:*mut PxuiUi,box_:*const crate::PxuiBox,value:Str,style:*const PxuiLabelStyle,spans:*const TextSpans)->i32;
     fn pxui_ui_label_measure(ui:*mut PxuiUi,value:Str,style:*const PxuiLabelStyle,max_width:f32,spans:*const TextSpans,out:*mut TextMetrics)->i32;
+    fn pxui_paint_label_measure(paint:*mut crate::sys::PxuiPaint,value:Str,style:*const PxuiLabelStyle,max_width:f32,spans:*const TextSpans,out:*mut TextMetrics)->i32;
     fn pxui_ui_label_quads(ui:*mut PxuiUi,value:Str,style:*const PxuiLabelStyle,max_width:f32,origin_x:f32,origin_y:f32,scale:f32,out:*mut TextGlyph,capacity:usize)->usize;
     fn pxui_ui_label_rasterize_rgba(ui:*mut PxuiUi,value:Str,style:*const PxuiLabelStyle,max_width:f32,scale:f32,color_r:u8,color_g:u8,color_b:u8,color_a:u8,width:*mut u32,height:*mut u32,out:*mut u8,capacity:usize)->usize;
     fn pxui_ui_label_prewarm(ui:*mut PxuiUi,value:Str,style:*const PxuiLabelStyle,max_width:f32)->i32;
@@ -330,24 +331,16 @@ impl TextWorker {
 
 impl Drop for TextWorker { fn drop(&mut self) { unsafe { lib::pxui_text_worker_destroy(self.0.as_ptr()) } } }
 
-/// The text service of a `Ui`: its one font system and glyph atlas.
-pub struct UiText<'ui>(&'ui mut Ui);
+/// The text service of a `Ui`: its one font system and glyph atlas, reached from the `Ui` while building or from a `Paint` while
+/// painting (where the painter holds it: measuring works, the calls that change or copy the font system answer `Error::State`).
+pub struct UiText<'ui>(Service<'ui>);
+
+enum Service<'ui> {
+    Ui(&'ui mut Ui),
+    Paint(NonNull<crate::sys::PxuiPaint>, core::marker::PhantomData<&'ui mut ()>),
+}
 
 impl Ui {
-    /// Enables the platform's font fallback for this `Ui` (Apple) before its first frame; a `Ui` with explicit fonts stays deterministic without it.
-    /// A first missing character can then discover and map a font file.
-    /// Allocates: nothing until a fallback font is first needed.
-    /// Panics: never.
-    /// Errors: `Error::State` once a frame has run or when the platform has no system fonts.
-    ///
-    /// ```
-    /// let mut ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
-    /// let _ = ui.enable_system_fonts(); // `Err(State)` where the platform has none
-    /// ```
-    pub fn enable_system_fonts(&mut self)->Result<(),Error> {
-        let rc=unsafe { lib::pxui_text_system_fonts(self.0.as_ptr()) };
-        if rc==0 { Ok(()) } else { Err(Error::from_code(rc)) }
-    }
     /// The text style `style` shapes with: its unset fields the theme label's, its tracking in points. What `ui.label` (line-box
     /// text) would shape, so text measured or prepared with the result (`UiText`, a worker's `Text`) matches what the `Ui` draws.
     ///
@@ -380,19 +373,19 @@ impl Ui {
     /// pxui::doc::frames(1, &mut |ui| {
     ///     let node = ui.node("name", pxui::Node::DEFAULT);
     ///     let bold = pxui::TextSpan { start: 0, end: 4, weight: 700, ..Default::default() };
-    ///     ui.text_spans(&node, "Song title", &NAME, &[bold]).unwrap();
+    ///     ui.text_spans(&node, "Song title", NAME, &[bold]).unwrap();
     /// });
     /// ```
     ///
     /// Errors: InvalidInput for more than eight or overlapping spans or a style that does not resolve; Stale for a gone box.
-    pub fn text_spans(&mut self,box_:&crate::Handle,text:&str,style:&Label,spans:&[TextSpan])->Result<(),Error> {
+    pub fn text_spans(&mut self,box_:&crate::Handle,text:&str,style:Label,spans:&[TextSpan])->Result<(),Error> {
         let mut storage=None;
         let spans=packed_spans(spans,&mut storage)?;
         let rc={
             #[cfg(feature = "static")]
             let rc = unsafe { pxui_abi_link::trusted::label_text_spans(self.0.as_ptr(), box_, as_text(text), style.fields(), spans) };
             #[cfg(not(feature = "static"))]
-            let rc = unsafe { lib::pxui_ui_label_text_spans(self.0.as_ptr(), box_, as_text(text), &PxuiLabelStyle::from(style), spans) };
+            let rc = unsafe { lib::pxui_ui_label_text_spans(self.0.as_ptr(), box_, as_text(text), &PxuiLabelStyle::from(&style), spans) };
             rc
         };
         if rc==0 { Ok(()) } else { Err(Error::from_code(rc)) }
@@ -407,19 +400,19 @@ impl Ui {
     /// const NAME: pxui::Label = pxui::Label::BODY.size(15.0).line_height(21.0);
     /// pxui::doc::frames(1, &mut |ui| {
     ///     let node = ui.node("name", pxui::Node::DEFAULT);
-    ///     ui.text_line_box(&node, "Song title", &NAME, &[]).unwrap();
+    ///     ui.text_line_box(&node, "Song title", NAME, &[]).unwrap();
     /// });
     /// ```
     ///
     /// Errors: InvalidInput for a non-positive line height, bad spans or a style that does not resolve; Stale for a gone box.
-    pub fn text_line_box(&mut self,box_:&crate::Handle,text:&str,style:&Label,spans:&[TextSpan])->Result<(),Error> {
+    pub fn text_line_box(&mut self,box_:&crate::Handle,text:&str,style:Label,spans:&[TextSpan])->Result<(),Error> {
         let mut storage=None;
         let spans=packed_spans(spans,&mut storage)?;
         let rc={
             #[cfg(feature = "static")]
             let rc = unsafe { pxui_abi_link::trusted::label_text_line_box(self.0.as_ptr(), box_, as_text(text), style.fields(), spans) };
             #[cfg(not(feature = "static"))]
-            let rc = unsafe { lib::pxui_ui_label_text_line_box(self.0.as_ptr(), box_, as_text(text), &PxuiLabelStyle::from(style), spans) };
+            let rc = unsafe { lib::pxui_ui_label_text_line_box(self.0.as_ptr(), box_, as_text(text), &PxuiLabelStyle::from(&style), spans) };
             rc
         };
         if rc==0 {Ok(())} else {Err(Error::from_code(rc))}
@@ -488,9 +481,9 @@ impl Ui {
     ///
     /// ```
     /// let mut ui = pxui::doc::frames(1, &mut |ui| { ui.label("x", pxui::Label::DEFAULT); });
-    /// assert!(ui.text_service().width("abc", &pxui::Label::BODY, 0.0).unwrap() > 0.0);
+    /// assert!(ui.text_service().width("abc", pxui::Label::BODY, None).unwrap() > 0.0);
     /// ```
-    pub fn text_service(&mut self) -> UiText<'_> { UiText(self) }
+    pub fn text_service(&mut self) -> UiText<'_> { UiText(Service::Ui(self)) }
 
     /// The label call of `label`, `label_fmt` and `label_digits`, returning the label's node: linked statically, the library's trusted
     /// entry with the style as it is; else `pxui_ui_label_node` with no record for `Label::DEFAULT` (every field unset: the C label), or
@@ -522,7 +515,33 @@ impl Ui {
     }
 }
 
+impl<'ui> UiText<'ui> {
+    pub(crate) fn from_paint(paint: &'ui mut crate::Paint<'_>) -> UiText<'ui> {
+        // `raw` commits the painter's open span: the service's calls are library calls
+        UiText(Service::Paint(NonNull::new(paint.raw()).expect("a live painter"), core::marker::PhantomData))
+    }
+
+    /// The `Ui` behind the service; `Error::State` while a painter holds the font system.
+    fn ui(&mut self) -> Result<*mut crate::sys::PxuiUi, Error> {
+        match &self.0 { Service::Ui(ui) => Ok(ui.0.as_ptr()), Service::Paint(..) => Err(Error::State) }
+    }
+}
+
 impl UiText<'_> {
+    /// Enables the platform's font fallback for this `Ui` (Apple) before its first frame; a `Ui` with explicit fonts stays deterministic without it.
+    /// A first missing character can then discover and map a font file.
+    /// Allocates: nothing until a fallback font is first needed.
+    /// Panics: never.
+    /// Errors: `Error::State` once a frame has run or when the platform has no system fonts.
+    ///
+    /// ```
+    /// let mut ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
+    /// let _ = ui.text_service().enable_system_fonts(); // `Err(State)` where the platform has none
+    /// ```
+    pub fn enable_system_fonts(&mut self)->Result<(),Error> {
+        let rc=unsafe { lib::pxui_text_system_fonts(self.ui()?) };
+        if rc==0 { Ok(()) } else { Err(Error::from_code(rc)) }
+    }
     /// Between frames, clones the `Ui`'s font database into a `Text` for a worker, with a bounded cache for delivering layouts back.
     /// The fork keeps this `Ui`'s font identities, so what it prepares installs here. Move it to the worker thread.
     /// Allocates: the cloned font sources and the receiving cache, once.
@@ -534,7 +553,7 @@ impl UiText<'_> {
     /// let worker_text = ui.text_service().fork();
     /// assert!(worker_text.is_ok());
     /// ```
-    pub fn fork(&mut self)->Result<Text,Error> { NonNull::new(unsafe { lib::pxui_text_fork(self.0.0.as_ptr()) }).map(Text).ok_or(Error::State) }
+    pub fn fork(&mut self)->Result<Text,Error> { NonNull::new(unsafe { lib::pxui_text_fork(self.ui()?) }).map(Text).ok_or(Error::State) }
     /// Between frames, adopts a layout a forked shaper prepared, without shaping or allocating; ordinary text with the same content, style and width then uses it.
     /// Glyph rasterization and atlas growth may still allocate. Success returns storage to hand back to the worker to destroy; failure returns the record with the error.
     /// Allocates: never.
@@ -550,7 +569,8 @@ impl UiText<'_> {
     /// assert!(retired.is_ok()); // send the `RetiredText` back to the worker to drop
     /// ```
     pub fn install(&mut self,prepared:PreparedText)->Result<RetiredText,(Error,PreparedText)> {
-        let rc=unsafe { lib::pxui_text_install(self.0.0.as_ptr(),prepared.raw.as_ptr()) };
+        let ui=match self.ui() { Ok(ui) => ui, Err(error) => return Err((error,prepared)) };
+        let rc=unsafe { lib::pxui_text_install(ui,prepared.raw.as_ptr()) };
         if rc!=0 { return Err((Error::from_code(rc),prepared)); }
         let raw=prepared.raw;
         core::mem::forget(prepared);
@@ -568,30 +588,22 @@ impl UiText<'_> {
     /// assert!(ui.text_service().add_font(pxui::pragmasevka()).is_ok());
     /// ```
     pub fn add_font(&mut self, bytes: &[u8]) -> Result<u32, Error> {
-        let index = unsafe { lib::pxui_text_add_font(self.0.0.as_ptr(), Str { ptr: bytes.as_ptr(), len: bytes.len() }) };
+        let index = unsafe { lib::pxui_text_add_font(self.ui()?, Str { ptr: bytes.as_ptr(), len: bytes.len() }) };
         if index == u32::MAX { Err(Error::InvalidInput) } else { Ok(index) }
     }
     /// The size of `value` in `style` (resolved as `Ui::resolve` resolves it, so as `ui.label` would shape it) within `max_width`
-    /// points (0: unbounded), without drawing; a worker measures the resolved style with `Text::measure`.
+    /// points (None: natural width), without drawing; a worker measures the resolved style with `Text::measure`.
     /// Allocates: the first measurement of a text and style shapes and caches it; never for a cached one.
     /// Panics: never.
     /// Errors: `Error::InvalidInput` for a style that does not resolve, a non-finite `max_width` or oversized text.
     ///
     /// ```
     /// let mut ui = pxui::doc::frames(1, &mut |ui| { ui.label("x", pxui::Label::DEFAULT); });
-    /// let m = ui.text_service().measure("Song title", &pxui::Label::BODY, 0.0).unwrap();
+    /// let m = ui.text_service().measure("Song title", pxui::Label::BODY, None).unwrap();
     /// assert!(m.width > 0.0);
     /// ```
-    pub fn measure(&mut self, value: &str, style: &Label, max_width: f32) -> Result<TextMetrics, Error> {
-        let mut out = TextMetrics::default();
-        let rc = {
-            #[cfg(feature = "static")]
-            let rc = unsafe { pxui_abi_link::trusted::label_measure(self.0.0.as_ptr(), as_text(value), style.fields(), max_width, core::ptr::null(), &mut out) };
-            #[cfg(not(feature = "static"))]
-            let rc = unsafe { lib::pxui_ui_label_measure(self.0.0.as_ptr(), as_text(value), &PxuiLabelStyle::from(style), max_width, core::ptr::null(), &mut out) };
-            rc
-        };
-        if rc == 0 { Ok(out) } else { Err(Error::from_code(rc)) }
+    pub fn measure(&mut self, value: &str, style: Label, max_width: Option<f32>) -> Result<TextMetrics, Error> {
+        self.measured(value, &style, max_width.unwrap_or(0.0), core::ptr::null())
     }
     /// `measure` for one layout with up to eight ordered, disjoint UTF-8 byte ranges `spans` (a bold word shapes wider than a plain one).
     /// Allocates: as `measure`.
@@ -601,19 +613,24 @@ impl UiText<'_> {
     /// ```
     /// let mut ui = pxui::doc::frames(1, &mut |ui| { ui.label("x", pxui::Label::DEFAULT); });
     /// let bold = pxui::TextSpan { start: 0, end: 4, weight: 700, ..Default::default() };
-    /// assert!(ui.text_service().measure_spans("Song title", &pxui::Label::BODY, 0.0, &[bold]).unwrap().width > 0.0);
+    /// assert!(ui.text_service().measure_spans("Song title", pxui::Label::BODY, None, &[bold]).unwrap().width > 0.0);
     /// ```
-    pub fn measure_spans(&mut self,value:&str,style:&Label,max_width:f32,spans:&[TextSpan])->Result<TextMetrics,Error> {
+    pub fn measure_spans(&mut self,value:&str,style:Label,max_width:Option<f32>,spans:&[TextSpan])->Result<TextMetrics,Error> {
         let spans=TextSpans::new(spans).ok_or(Error::InvalidInput)?;
-        let mut out=TextMetrics::default();
-        let rc={
+        self.measured(value, &style, max_width.unwrap_or(0.0), &spans)
+    }
+
+    /// The one body of `measure` and `measure_spans` (`spans` null: none), through the `Ui` or the painter that holds the service.
+    fn measured(&mut self, value: &str, style: &Label, max_width: f32, spans: *const TextSpans) -> Result<TextMetrics, Error> {
+        let mut out = TextMetrics::default();
+        let rc = match &self.0 {
+            Service::Paint(paint, _) => unsafe { lib::pxui_paint_label_measure(paint.as_ptr(), as_text(value), &PxuiLabelStyle::from(style), max_width, spans, &mut out) },
             #[cfg(feature = "static")]
-            let rc = unsafe { pxui_abi_link::trusted::label_measure(self.0.0.as_ptr(), as_text(value), style.fields(), max_width, &spans, &mut out) };
+            Service::Ui(ui) => unsafe { pxui_abi_link::trusted::label_measure(ui.0.as_ptr(), as_text(value), style.fields(), max_width, spans, &mut out) },
             #[cfg(not(feature = "static"))]
-            let rc = unsafe { lib::pxui_ui_label_measure(self.0.0.as_ptr(), as_text(value), &PxuiLabelStyle::from(style), max_width, &spans, &mut out) };
-            rc
+            Service::Ui(ui) => unsafe { lib::pxui_ui_label_measure(ui.0.as_ptr(), as_text(value), &PxuiLabelStyle::from(style), max_width, spans, &mut out) },
         };
-        if rc==0 { Ok(out) } else { Err(Error::from_code(rc)) }
+        if rc == 0 { Ok(out) } else { Err(Error::from_code(rc)) }
     }
     /// `measure` returning only the width in points.
     /// Allocates: as `measure`.
@@ -622,9 +639,9 @@ impl UiText<'_> {
     ///
     /// ```
     /// let mut ui = pxui::doc::frames(1, &mut |ui| { ui.label("x", pxui::Label::DEFAULT); });
-    /// assert!(ui.text_service().width("Song title", &pxui::Label::BODY, 0.0).unwrap() > 0.0);
+    /// assert!(ui.text_service().width("Song title", pxui::Label::BODY, None).unwrap() > 0.0);
     /// ```
-    pub fn width(&mut self, value: &str, style: &Label, max_width: f32) -> Result<f32, Error> { self.measure(value, style, max_width).map(|m| m.width) }
+    pub fn width(&mut self, value: &str, style: Label, max_width: Option<f32>) -> Result<f32, Error> { self.measure(value, style, max_width).map(|m| m.width) }
     /// The text in `style` (resolved as `measure` resolves it) as straight-alpha RGBA8 written into `out` (cleared first): width and
     /// height; `out` holds `width * height * 4` bytes. Reuses `out`'s capacity.
     ///
@@ -635,20 +652,21 @@ impl UiText<'_> {
     /// let mut ui = pxui::doc::frames(1, &mut |ui| { ui.label("x", pxui::Label::DEFAULT); });
     /// let mut text = ui.text_service();
     /// let mut pixels = Vec::new();
-    /// let (w, h) = text.rasterize_rgba("abc", &pxui::Label::BODY, 0.0, 1.0, [255; 4], &mut pixels).unwrap();
+    /// let (w, h) = text.rasterize_rgba("abc", pxui::Label::BODY, None, 1.0, [255; 4], &mut pixels).unwrap();
     /// assert_eq!(pixels.len(), (w * h * 4) as usize);
     /// ```
     ///
     /// Errors: InvalidInput for a style that does not resolve, empty or oversized text or a non-finite size; Allocation when the pixels
     /// cannot be reserved; Engine when rendering fails.
-    pub fn rasterize_rgba(&mut self, value: &str, style: &Label, max_width: f32, scale: f32, color: [u8; 4], out: &mut Vec<u8>) -> Result<(u32, u32), Error> {
-        let ui = self.0.0.as_ptr();
+    pub fn rasterize_rgba(&mut self, value: &str, style: Label, max_width: Option<f32>, scale: f32, color: [u8; 4], out: &mut Vec<u8>) -> Result<(u32, u32), Error> {
+        let max_width = max_width.unwrap_or(0.0);
+        let ui = self.ui()?;
         let (mut width, mut height) = (0, 0);
         let mut call = |pixels: *mut u8, capacity: usize| {
             #[cfg(feature = "static")]
             let rc = unsafe { pxui_abi_link::trusted::label_rasterize_rgba(ui, as_text(value), style.fields(), max_width, scale, color[0], color[1], color[2], color[3], &mut width, &mut height, pixels, capacity) };
             #[cfg(not(feature = "static"))]
-            let rc = unsafe { lib::pxui_ui_label_rasterize_rgba(ui, as_text(value), &PxuiLabelStyle::from(style), max_width, scale, color[0], color[1], color[2], color[3], &mut width, &mut height, pixels, capacity) };
+            let rc = unsafe { lib::pxui_ui_label_rasterize_rgba(ui, as_text(value), &PxuiLabelStyle::from(&style), max_width, scale, color[0], color[1], color[2], color[3], &mut width, &mut height, pixels, capacity) };
             rc
         };
         out.clear();
@@ -669,19 +687,20 @@ impl UiText<'_> {
     /// ```
     /// let mut ui = pxui::doc::frames(1, &mut |ui| { ui.label("x", pxui::Label::DEFAULT); });
     /// let mut glyphs = Vec::new();
-    /// let n = ui.text_service().quads("abc", &pxui::Label::BODY, 0.0, (0.0, 0.0), 1.0, &mut glyphs).unwrap();
+    /// let n = ui.text_service().quads("abc", pxui::Label::BODY, None, pxui::Point::new(0.0, 0.0), 1.0, &mut glyphs).unwrap();
     /// assert_eq!((n, glyphs.len()), (3, 3));
     /// ```
     ///
     /// Errors: InvalidInput for a style that does not resolve, empty or oversized text or a non-finite size; Allocation when `out`
     /// cannot grow; Engine when the quads cannot be written.
-    pub fn quads(&mut self, value: &str, style: &Label, max_width: f32, origin: (f32, f32), scale: f32, out: &mut Vec<TextGlyph>) -> Result<usize, Error> {
-        let ui = self.0.0.as_ptr();
+    pub fn quads(&mut self, value: &str, style: Label, max_width: Option<f32>, origin: crate::Point, scale: f32, out: &mut Vec<TextGlyph>) -> Result<usize, Error> {
+        let max_width = max_width.unwrap_or(0.0);
+        let ui = self.ui()?;
         let call = |out, capacity| {
             #[cfg(feature = "static")]
-            let rc = unsafe { pxui_abi_link::trusted::label_quads(ui, as_text(value), style.fields(), max_width, origin.0, origin.1, scale, out, capacity) };
+            let rc = unsafe { pxui_abi_link::trusted::label_quads(ui, as_text(value), style.fields(), max_width, origin.x, origin.y, scale, out, capacity) };
             #[cfg(not(feature = "static"))]
-            let rc = unsafe { lib::pxui_ui_label_quads(ui, as_text(value), &PxuiLabelStyle::from(style), max_width, origin.0, origin.1, scale, out, capacity) };
+            let rc = unsafe { lib::pxui_ui_label_quads(ui, as_text(value), &PxuiLabelStyle::from(&style), max_width, origin.x, origin.y, scale, out, capacity) };
             rc
         };
         out.clear();
