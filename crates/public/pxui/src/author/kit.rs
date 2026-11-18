@@ -132,8 +132,8 @@ impl Ui {
 
     /// Builds a radio group and reports its current choice and interaction.
     ///
-    /// The caller supplies its current selection. Arrows or a press choose an item. None leaves the group unselected.
-    /// Each option uses its explicit name when supplied and otherwise uses its text.
+    /// The caller supplies its current selection. One Tab stop; the arrows move the choice and a press on a row chooses it. None
+    /// leaves the group unselected. Each option uses its explicit name when supplied and otherwise uses its text.
     /// Allocates: never on a warm frame within the inline item capacity.
     /// Identity: The key identifies this control among siblings. Items are keyed as in [Ui::segmented]: an item id (never display
     /// text) follows the item through a reorder for node creation, focus and secondary presses, and unnamed items use a positional
@@ -141,9 +141,17 @@ impl Ui {
     /// Panics: an invalid build or a key whose label exceeds 256 bytes.
     ///
     /// ```
-    /// pxui::doc::frames(1, &mut |ui| {
-    ///     let _ = ui.radio("mode", &[pxui::Segment::new("Auto")], None, &pxui::Radio::DEFAULT);
-    /// });
+    /// use pxui::{Radio, Segment};
+    /// let mut mode = Some(0);
+    /// let mut build = |ui: &mut pxui::Ui| {
+    ///     const MODE: Radio = Radio::DEFAULT.name("Mode");
+    ///     let items = [Segment::new("Auto"), Segment::new("Light"), Segment::new("Dark")];
+    ///     mode = ui.radio("mode", &items, mode, &MODE).chosen;
+    /// };
+    /// let mut ui = pxui::doc::frames(1, &mut build);
+    /// let dark = pxui::testing::find(&ui, pxui::Role::Radio, "Dark").expect("the Dark row");
+    /// pxui::testing::click(&mut ui, f64::from(dark.x + 4.0), f64::from(dark.y + 4.0), &mut build);
+    /// assert_eq!(mode, Some(2));
     /// ```
     #[inline]
     #[track_caller]
@@ -175,8 +183,9 @@ impl Ui {
 
     /// Builds a dropdown and reports the button interaction and current selection.
     ///
-    /// None leaves the group unselected. The button is named by text. Click, Enter, Space or Down opens the menu.
-    /// Arrows move through the menu. Enter picks. Escape and an outside press close the menu.
+    /// None leaves the group unselected. The button is named by text and shows the chosen option and a chevron. A click, Enter,
+    /// Space or Down opens its menu below (Up and Down move in it, Enter picks, Escape or a press outside closes it). While open, the
+    /// menu escapes a cached view, so that view rebuilds each frame until it closes.
     /// Allocates: never on a warm frame within the inline item capacity.
     /// Identity: The key identifies this control among siblings. Items are keyed as in [Ui::segmented]: an item id (never display
     /// text) follows the item through a reorder for node creation, focus and secondary presses, and unnamed items use a positional
@@ -184,9 +193,12 @@ impl Ui {
     /// Panics: an invalid build or a key whose label exceeds 256 bytes.
     ///
     /// ```
+    /// use pxui::Segment;
+    /// let mut blend = Some(1);
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let _ = ui.dropdown("blend", "Blend", &[pxui::Segment::new("Normal")], None, &pxui::Dropdown::DEFAULT);
+    ///     blend = ui.dropdown("blend", "Blend", &[Segment::new("Normal"), Segment::new("Multiply")], blend, &pxui::Dropdown::DEFAULT).chosen;
     /// });
+    /// assert_eq!(blend, Some(1));
     /// ```
     #[inline]
     #[track_caller]
@@ -196,17 +208,22 @@ impl Ui {
 
     /// Builds a slider and reports the resulting value and interaction.
     ///
-    /// The value is clamped to the finite, ordered range. Dragging previews it. Release, keyboard and accessibility edits commit it,
-    /// and on that frame `preview` equals `commit` (see [crate::SliderResponse] for which frames supply each).
+    /// The value is clamped to the finite, ordered range. Dragging previews it. Release, the arrows (a hundredth of the range; Page
+    /// keys a tenth; Home and End the ends) and an assistive technology's SetValue commit it, and on that frame `preview` equals
+    /// `commit` (see [crate::SliderResponse] for which frames supply each).
     /// The track's accessible name is text.
     /// Allocates: never on a warm frame.
     /// Identity: The key identifies this control among siblings. An item's id is independent of its display text.
     /// Panics: an invalid build, a nonfinite value or bound, a reversed range, or an overlong key.
     ///
     /// ```
+    /// let mut volume = 0.5;
+    /// let mut moved = None;
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let _ = ui.slider("volume", "Volume", 0.5, 0.0..=1.0, &pxui::Slider::DEFAULT);
+    ///     let slider = ui.slider("volume", "Volume", volume, 0.0..=1.0, &pxui::Slider::DEFAULT);
+    ///     (volume, moved) = (slider.value, slider.commit);
     /// });
+    /// assert_eq!((volume, moved), (0.5, None));
     /// ```
     #[inline]
     #[track_caller]
