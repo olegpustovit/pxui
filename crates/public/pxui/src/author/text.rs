@@ -73,7 +73,7 @@ impl Ui {
     ///         ui.label_digits(format_args!("{m}:{s:02}"), CLOCK);
     ///         ui.label("Section", Label::DEFAULT);
     ///         let badge = ui.label("New", Label::CAPTION);
-    ///         ui.set_look(&badge, pxui::ui::Look { fill: ink, ..pxui::ui::Look::NONE }, pxui::ui::State::default());
+    ///         ui.style(&badge, &pxui::theme::States::of(pxui::ui::Look { fill: ink, ..pxui::ui::Look::NONE }), pxui::ui::State::default());
     ///     }).unwrap();
     /// }
     /// assert!(ui.a11y_nodes().iter().any(|n| ui.a11y_name_of(n) == "5 of 12"));

@@ -1172,7 +1172,7 @@ impl<'a> Segmented<'a> {
     ///
     /// ```
     /// use pxui_types::{theme::{Look, States}, ui::Segmented};
-    /// const CHIP: States = States::all(Look::NONE);
+    /// const CHIP: States = States::of(Look::NONE);
     /// const S: Segmented = Segmented::DEFAULT.look(&CHIP);
     /// let _ = S;
     /// ```

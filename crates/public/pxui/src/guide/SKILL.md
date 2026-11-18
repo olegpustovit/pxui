@@ -32,7 +32,7 @@ collide. A list row is keyed by its model id, so reordering moves its state with
 use pxui::{theme::ColorToken, ui::{Node, Look, Role, Size, States}, Label, Pressable};
 
 const ROW: Node = Node::row().h(Size::Px(44.0)).role(Role::Button);
-const LIST_ROW: States = States::all(Look::NONE); // the app's theme look per state
+const LIST_ROW: States = States::of(Look::NONE); // the app's theme look per state
 const TITLE: Label = Label::BODY.size(15.0).bold();
 const DIM: Label = Label::BODY.color(ColorToken(3));
 

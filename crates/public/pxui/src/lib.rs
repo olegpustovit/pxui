@@ -26,7 +26,7 @@ pub use pxui_types::{draw, geom};
 pub use pxui_types::a11y::Role;
 pub use pxui_types::geom::{Point, Rect, Rgba};
 pub use pxui_types::{Flags, Size};
-pub use pxui_types::ffi::{A11yAction, A11yNode, A11yTree, Input, Output, PlatformOut, ThemeSource};
+pub use pxui_types::ffi::{A11yAction, A11yNode, Input, Output, PlatformOut, ThemeSource};
 
 pub use pxui_types::theme;
 pub mod images;
@@ -65,7 +65,7 @@ pub mod ui {
     pub use pxui_types::geom::*;
     pub use pxui_types::layout::*;
     pub use pxui_types::theme::{Curve, Font, Look, Ring, Shadow, State, States, Tokens};
-    pub use pxui_types::a11y::{state, Role};
+    pub use pxui_types::a11y::Role;
 }
 /// A node's identity as returned by a build operation (the C record is `PxuiBox`).
 pub type Handle = pxui_types::PxuiBox;
@@ -100,6 +100,7 @@ mod box_ops;
 mod kit_ext;
 mod theme_scope;
 pub use theme_scope::ThemeHandle;
+pub use a11y_state::A11yStates;
 pub use ui_state::{Bytes, Ime, Platform};
 mod node;
 mod author;
@@ -397,6 +398,17 @@ pub struct ViewSize {
     pub height: f32,
 }
 
+/// Text and top-level ordering from the last published accessibility tree.
+#[derive(Clone, Copy, Debug)]
+pub struct A11yTree<'a> {
+    /// Bytes referenced by published nodes' name, description and value ranges.
+    pub strings: &'a [u8],
+    /// Revision of the published accessibility data.
+    pub revision: u64,
+    /// Index of the first top-level node, or u32::MAX when the tree is empty.
+    pub first_child: u32,
+}
+
 /// The UI for one surface.
 #[repr(transparent)]
 pub struct Ui(NonNull<sys::PxuiUi>);
@@ -608,12 +620,20 @@ impl Ui {
         if nodes.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(nodes.ptr, nodes.len) } }
     }
 
-    /// The text every node's name, description and text value ranges point into, and the revision of the tree
-    /// (it changes only when the tree's content did) with its first top-level node (`u32::MAX` when empty).
-    pub fn a11y_tree(&self) -> (&[u8], u64, u32) {
+    /// Borrows the text and ordering of the last published accessibility tree.
+    ///
+    /// The string table is borrowed until the next mutable call. The revision changes when tree content changes.
+    /// Allocates: never on a warm query.
+    /// Panics: when reading output fails.
+    ///
+    /// ```
+    /// let ui = pxui::doc::frames(1, &mut |_| {});
+    /// assert_eq!(ui.a11y_tree().first_child, u32::MAX);
+    /// ```
+    pub fn a11y_tree(&self) -> A11yTree<'_> {
         let tree = self.output().a11y;
         let strings = if tree.strings.len == 0 { &[][..] } else { unsafe { core::slice::from_raw_parts(tree.strings.ptr, tree.strings.len) } };
-        (strings, tree.revision, tree.first_child)
+        A11yTree { strings, revision: tree.revision, first_child: tree.first_child }
     }
 
     /// The accessible name of `node`, one of `a11y_nodes()`.

@@ -103,7 +103,7 @@ impl<'a> IconButton<'a> {
     ///
     /// ```
     /// use pxui::{ui::{Look, States}, IconButton};
-    /// const PLATE: States = States::all(Look::NONE);
+    /// const PLATE: States = States::of(Look::NONE);
     /// const B: IconButton = IconButton::DEFAULT.look(&PLATE);
     /// let _ = B;
     /// ```
@@ -170,7 +170,7 @@ impl<'a> IconButton<'a> {
     ///     if ui.icon_button("shuffle", Icon::glyph('~'), "Shuffle", &KEY.selected(shuffle)).clicked { shuffle = !shuffle; }
     /// });
     /// let node = *ui.a11y_nodes().iter().find(|n| ui.a11y_name_of(n) == "Shuffle").unwrap();
-    /// assert!(node.states & pxui::ui::state::CHECKABLE != 0 && node.states & pxui::ui::state::CHECKED == 0);
+    /// assert!(node.states & pxui::A11yStates::CHECKABLE.bits() != 0 && node.states & pxui::A11yStates::CHECKED.bits() == 0);
     /// ```
     pub const fn selected(mut self, on: bool) -> IconButton<'a> { self.selected = Some(on); self }
 }
@@ -211,7 +211,7 @@ impl Ui {
 #[cfg(test)]
 mod tests {
     use super::{Icon, IconButton};
-    use crate::ui::state;
+    use pxui_types::a11y::state;
     use crate::ui::Role;
     use crate::{testing, Response, Ui};
     use std::cell::Cell;
@@ -291,7 +291,7 @@ mod tests {
     #[test]
     fn a_drawn_icon_is_painted_in_the_plate_with_the_states_ink_and_its_word() {
         use crate::ui::{Look, States};
-        let looks = States::all(Look { text: crate::geom::Rgba { r: 33, g: 0, b: 0, a: 255 }, ..Look::NONE });
+        let looks = States::of(Look { text: crate::geom::Rgba { r: 33, g: 0, b: 0, a: 255 }, ..Look::NONE });
         let key = KEY.look(&looks);
         let mut build = |ui: &mut Ui| {
             ui.icon_button("play", Icon::draw(play, 7), "Play", &key);

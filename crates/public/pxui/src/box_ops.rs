@@ -457,7 +457,8 @@ impl Ui {
         let rc = unsafe { lib::pxui_ui_patch_mark(self.0.as_ptr(), b, &mark(value), &mut out) };
         crate::live(self, rc) && out != 0
     }
-    /// The rectangle of `b` as its view lays it out, in the space `patch_rect` takes (`Ui::rect` is where the window shows it); empty for a stale handle.
+    /// Returns the node's local layout rectangle before its retained view transform.
+    /// The result uses the same coordinates as [Ui::patch_rect]. [Ui::rect] reports its surface rectangle. A stale handle is empty.
     /// Allocates: never.
     /// Panics: when the library refuses the call (a null `Ui`).
     ///
@@ -791,7 +792,7 @@ impl Ui {
     /// One table entry, no rebuild; unchanged values change nothing, and a scale of 1 leaves every point exact.
     /// Every field is checked before any is applied, so a refused call changes nothing.
     /// Allocates: never.
-    /// Panics: when an offset, scale or matrix value is not finite, the opacity is outside 0 to 1, or the library refuses the call (a stale or non-view box).
+    /// Panics: when an offset, scale or matrix is not finite, opacity is outside 0 to 1, a clip is invalid, blur or saturation is not finite and nonnegative, or the library refuses the handle.
     ///
     /// ```
     /// use pxui::ui::ViewTransform;
@@ -815,22 +816,10 @@ impl Ui {
         if let Some(opacity) = view.opacity { check(self, unsafe { lib::pxui_ui_view_opacity(ui, b, opacity) }) }
         if let Some(scale) = view.scale { check(self, unsafe { lib::pxui_ui_view_scale(ui, b, scale) }) }
         if let Some(about) = view.about { check(self, unsafe { lib::pxui_ui_view_transform_about(ui, b, about.scale, about.matrix.as_ptr(), about.pivot.0, about.pivot.1) }) }
+        if let Some(clip) = view.clip { check(self, unsafe { lib::pxui_ui_view_clip(ui, b, clip.as_ref().map_or(core::ptr::null(), |r| r)) }) }
+        if let Some(blur) = view.blur { check(self, unsafe { lib::pxui_ui_view_backdrop_blur(ui, b, blur) }) }
+        if let Some(saturation) = view.saturation { check(self, unsafe { lib::pxui_ui_view_backdrop_saturation(ui, b, saturation) }) }
     }
-    /// Clips the view `b` to `clip` in window points, for painting and hit testing (`None` removes the clip).
-    /// One table entry, no rebuild; an unchanged clip changes nothing.
-    /// Allocates: never.
-    /// Panics: when the library refuses the call (a stale or non-view box, or a rectangle that is not finite or has a negative size).
-    ///
-    /// ```
-    /// pxui::doc::frames(1, &mut |ui| {
-    ///     let mut v = None;
-    ///     ui.column("frame", pxui::Node::column().w_px(40.0).h_px(40.0), |ui| v = Some(ui.view_of("v", &1, |_| {})));
-    ///     let v = v.unwrap();
-    ///     ui.view_clip(&v, Some(pxui::ui::Rect::new(0.0, 0.0, 20.0, 20.0)));
-    ///     ui.view_clip(&v, None);
-    /// });
-    /// ```
-    #[inline] #[track_caller] pub fn view_clip(&mut self,b:&Handle,clip:Option<Rect>) { check(self,unsafe { lib::pxui_ui_view_clip(self.0.as_ptr(),b,clip.as_ref().map_or(core::ptr::null(),|r|r)) }) }
     /// Edits what a widget finishes of a node it declared this frame: `edit` gets the node's look, mark and inset, and what it leaves there is written back; returns what `edit` returns.
     /// `edit` must not call the `Ui`. For a stale handle the library refuses.
     /// Allocates: never.
@@ -894,9 +883,7 @@ impl Ui {
     pub fn set_node_layout(&mut self, b: &Handle, node: &pxui_types::Node) {
         check(self, unsafe { lib::pxui_ui_set_node_layout(self.0.as_ptr(), b, node) });
     }
-    #[inline] #[track_caller] pub fn view_backdrop_blur(&mut self, b: &Handle, sigma: f32) { check(self, unsafe { lib::pxui_ui_view_backdrop_blur(self.0.as_ptr(), b, sigma) }) }
-    /// Blurred backdrop saturation: 0 is grayscale, 1 preserves colour (the default).
-    #[inline] #[track_caller] pub fn view_backdrop_saturation(&mut self, b: &Handle, saturation: f32) { check(self, unsafe { lib::pxui_ui_view_backdrop_saturation(self.0.as_ptr(), b, saturation) }) }
+
 }
 
 /// A string the library lent: copied, since it only lives until the next frame.
@@ -919,6 +906,9 @@ pub struct ViewTransform {
     opacity: Option<f32>,
     scale: Option<f32>,
     about: Option<About>,
+    clip: Option<Option<Rect>>,
+    blur: Option<f32>,
+    saturation: Option<f32>,
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct About {
@@ -929,7 +919,7 @@ struct About {
 
 impl ViewTransform {
     /// Nothing set.
-    pub const DEFAULT: ViewTransform = ViewTransform { offset: None, opacity: None, scale: None, about: None };
+    pub const DEFAULT: ViewTransform = ViewTransform { offset: None, opacity: None, scale: None, about: None, clip: None, blur: None, saturation: None };
     /// Shifts the view by `(dx, dy)` points.
     /// Allocates: never.
     /// Panics: never.
@@ -967,6 +957,39 @@ impl ViewTransform {
     /// let _ = ViewTransform::DEFAULT.about(1.5, [1.0, 0.0, 0.0, 1.0], (20.0, 20.0));
     /// ```
     pub const fn about(self, scale: f32, matrix: [f32; 4], pivot: (f32, f32)) -> ViewTransform { ViewTransform { about: Some(About { scale, matrix, pivot }), ..self } }
+
+    /// Clips painting and hit testing to a surface rectangle.
+    ///
+    /// Passing None removes the clip. Leaving the builder unused preserves the previous clip.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const VIEW: pxui::ViewTransform = pxui::ViewTransform::DEFAULT.clip(None);
+    /// ```
+    pub const fn clip(self, clip: Option<Rect>) -> ViewTransform { ViewTransform { clip: Some(clip), ..self } }
+
+    /// Sets the backdrop blur sigma in logical points.
+    ///
+    /// Zero disables blur. The set_view call checks that the value is finite and nonnegative.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const VIEW: pxui::ViewTransform = pxui::ViewTransform::DEFAULT.blur(14.0);
+    /// ```
+    pub const fn blur(self, blur: f32) -> ViewTransform { ViewTransform { blur: Some(blur), ..self } }
+
+    /// Sets the blurred backdrop's saturation.
+    ///
+    /// Zero is grayscale and one preserves colour. The set_view call checks that the value is finite and nonnegative.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const VIEW: pxui::ViewTransform = pxui::ViewTransform::DEFAULT.saturation(0.8);
+    /// ```
+    pub const fn saturation(self, saturation: f32) -> ViewTransform { ViewTransform { saturation: Some(saturation), ..self } }
 }
 impl Default for ViewTransform {
     fn default() -> ViewTransform { ViewTransform::DEFAULT }

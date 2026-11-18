@@ -638,6 +638,10 @@ pub struct PxuiAnchorDesc {
 pub struct PxuiFontDesc {
     pub family: u16,
     pub weight: u16,
+    /// The size in points, fractions kept, in the 1.x record's alignment hole (offsets unchanged); read only while it agrees with
+    /// `size` within half a point, so a 1.x caller's record keeps its integer meaning.
+    #[doc(hidden)]
+    pub size_points: f32,
     pub size: i64,
     pub tracking: f32,
     pub caps: u8,

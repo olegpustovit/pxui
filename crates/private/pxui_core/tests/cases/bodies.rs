@@ -702,7 +702,7 @@ pub fn icon_button_body_receives_the_drawing() {
     let mut ui = new_ui(None);
     pick(&mut ui, &|t, id| t.body.icon_button = id, &|ui| ui.register_icon_button_body("art", art_icon));
     PLAYED.with(|p| p.set((0, 0.0, 0.0, 0)));
-    let b = IconButton { states: Some(States::all(Look { text: pxui_core::geom::Rgba { r: 77, g: 0, b: 0, a: 255 }, ..Look::NONE })), ..IconButton::DEFAULT };
+    let b = IconButton { states: Some(States::of(Look { text: pxui_core::geom::Rgba { r: 77, g: 0, b: 0, a: 255 }, ..Look::NONE })), ..IconButton::DEFAULT };
     for k in 0..3 { ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| { ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { ui.icon_button("Go", Icon::Draw(recorded_play, [0; 4]), "Go", &b); }); }); }
     check(ICON_ART.with(|a| a.get()) == (true, 77), &format!("the body's config: {:?}", ICON_ART.with(|a| a.get())));
     check(PLAYED.with(|p| p.get()).0 > 0, "the body's own node was not drawn on");

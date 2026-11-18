@@ -30,7 +30,7 @@ opt!(/** `Option<Grid>` */ OptGrid(Grid) Grid, |v| v, |v| Self::Some(v));
 opt!(/** `Option<Anchor>` */ OptAnchor(Anchor) Anchor, |v| v, |v| Self::Some(v));
 opt!(/** `Option<(f32, f32)>`: a point */ OptPoint(f32, f32) (f32, f32), |x, y| (x, y), |v| Self::Some(v.0, v.1));
 opt!(/** `Option<Bar>` */ OptBar(Bar) Bar, |v| v, |v| Self::Some(v));
-/// The transition a node carries from `set_look` to its paint: a Bezier or a spring. A sampled table is 128 bytes, and kept
+/// The transition a node carries from `style` to its paint: a Bezier or a spring. A sampled table is 128 bytes, and kept
 /// inline it made every `Node` copy 112 bytes longer, so `Ui::animate` and keyframes take tables and a node does not.
 #[repr(C, u8)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -220,7 +220,7 @@ impl Bar {
 ///
 /// Build one with the const builders from `Node::DEFAULT`, `Node::row()`, `Node::column()` or `Node::stack()`
 /// (`const ROW: Node = Node::row().h_px(44.0).gap(8.0).center();`); the fields are public only because the record is C's.
-/// `state` and `transition` are written by the engine (`set_look`), and `size` by `DEFAULT`.
+/// `state` and `transition` are written by the engine (`style`), and `size` by `DEFAULT`.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct Node {
@@ -263,7 +263,7 @@ pub struct Node {
     pub inset: Edges,
     pub mark: Mark,
     pub bar: OptBar,
-    /// the transition `set_look` picked for a change of state, started when the node is painted
+    /// the transition `style` picked for a change of state, started when the node is painted
     pub transition: OptTransition,
 }
 
@@ -857,7 +857,7 @@ impl Node {
         self.scroll_step = points;
         self
     }
-    /// Sets how the node is painted (`set_look` replaces it by state while the app builds).
+    /// Sets how the node is painted (`style` replaces it by state while the app builds).
     ///
     /// Allocates: never.
     /// Panics: never.

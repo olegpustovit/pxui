@@ -55,7 +55,7 @@ impl Accessibility {
         if !self.enabled {
             return;
         }
-        let (strings, revision, first_top) = ui.a11y_tree();
+        let pxui::A11yTree { strings, revision, first_child: first_top } = ui.a11y_tree();
         if self.revision != Some(revision) {
             self.nodes.clear();
             self.nodes.extend(ui.a11y_nodes().iter().map(|n| Node {

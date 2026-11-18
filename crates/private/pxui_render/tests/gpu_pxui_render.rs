@@ -1368,11 +1368,11 @@ fn shared_backdrop_blur_case(prepared: bool, reenter: bool, large: bool) {
     let mut nested = reenter.then(|| shared_renderer(&device, &ui));
     if prepared { renderer.resize(640, 600).expect("prepare blur targets before recording"); }
     ui.set_view(&glass.get().unwrap(), &pxui::ViewTransform::DEFAULT.offset(80.0, 40.0));
-    ui.view_backdrop_blur(&glass.get().unwrap(), 8.0);
-    ui.view_backdrop_saturation(&glass.get().unwrap(), 0.9);
+    ui.set_view(&glass.get().unwrap(), &pxui::ViewTransform::DEFAULT.blur(8.0));
+    ui.set_view(&glass.get().unwrap(), &pxui::ViewTransform::DEFAULT.saturation(0.9));
     ui.set_view(&second.get().unwrap(), &pxui::ViewTransform::DEFAULT.offset(220.0, 60.0));
-    ui.view_backdrop_blur(&second.get().unwrap(), 1.5);
-    ui.view_backdrop_saturation(&second.get().unwrap(), 0.9);
+    ui.set_view(&second.get().unwrap(), &pxui::ViewTransform::DEFAULT.blur(1.5));
+    ui.set_view(&second.get().unwrap(), &pxui::ViewTransform::DEFAULT.saturation(0.9));
     build(&mut ui);
     ui.set_view(&glass.get().unwrap(), &pxui::ViewTransform::DEFAULT.offset(40.0, 20.0));
     build(&mut ui);
@@ -1402,7 +1402,7 @@ fn shared_backdrop_blur_case(prepared: bool, reenter: bool, large: bool) {
         let mut splits = 0;
         mem_sys::local_reset();
         ui.set_view(&glass.get().unwrap(), &pxui::ViewTransform::DEFAULT.about(if frame%2==0 { 1.0 } else { 0.8 }, [1.0,0.0,0.0,1.0], (80.0,40.0)));
-        ui.view_backdrop_blur(&glass.get().unwrap(),if frame%2==0 { 8.0 } else { 0.5 });
+        ui.set_view(&glass.get().unwrap(),&pxui::ViewTransform::DEFAULT.blur(if frame%2==0 { 8.0 } else { 0.5 }));
         let layers = ui.layers().count();
         for layer in 0..layers as u32 {
             let pass = pass_of(&open_pass);
@@ -1525,8 +1525,8 @@ fn shared_backdrop_blur_bgra() {
     };
     let input=pxui::FrameIn::new(320.0, 300.0).scale(2.0);
     ui.frame(&input,&mut build).unwrap();
-    ui.view_backdrop_blur(&glass.get().unwrap(),8.0);
-    ui.view_backdrop_saturation(&glass.get().unwrap(),0.9);
+    ui.set_view(&glass.get().unwrap(),&pxui::ViewTransform::DEFAULT.blur(8.0));
+    ui.set_view(&glass.get().unwrap(),&pxui::ViewTransform::DEFAULT.saturation(0.9));
     ui.frame(&input,&mut build).unwrap();
     let native=ok(be::native_leased(&device));
     let mut renderer=pxui::Renderer::new(&ui,pxui_types::Gpu { backend:native.backend,mtl_device:native.mtl_device,
@@ -1838,7 +1838,7 @@ fn shared_public_view_controls_keep_native_draws_and_instances() {
         ui.set_view(&view, &pxui::ViewTransform::DEFAULT.opacity(0.5));
         ui.set_view(&inner.get().unwrap(), &pxui::ViewTransform::DEFAULT.opacity(0.5));
         ui.set_view(&view, &pxui::ViewTransform::DEFAULT.scale(scale));
-        ui.view_clip(&view,clip);
+        ui.set_view(&view,&pxui::ViewTransform::DEFAULT.clip(clip));
         if frame>=5 { assert_eq!(mem_sys::local_alloc_count(),0,"warm public view updates keep their table storage"); }
         let instances=ui.layer(0).expect("base layer").instances;
         if let Some(original)=&original { assert_eq!(instances,original,"view controls preserve retained instances"); }

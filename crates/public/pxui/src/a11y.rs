@@ -104,7 +104,7 @@ impl Ui {
     ///     let b = ui.node("name", pxui::Node::DEFAULT.role(pxui::Role::TextField));
     ///     assert!(ui.a11y_value(&b, "héllo", (0, 3)).unwrap());
     /// });
-    /// assert!(ui.a11y_tree().0.windows("héllo".len()).any(|w| w == "héllo".as_bytes()));
+    /// assert!(ui.a11y_tree().strings.windows("héllo".len()).any(|w| w == "héllo".as_bytes()));
     /// ```
     pub fn a11y_value(&mut self, box_: &Handle, value: &str, selection: (u32, u32)) -> Result<bool, crate::Error> {
         let boundary=|offset:u32|{let mut at=(offset as usize).min(value.len());while !value.is_char_boundary(at) {at-=1;}at as u32};
@@ -124,7 +124,7 @@ impl Ui {
     ///     let b = ui.node("play", pxui::Node::DEFAULT.role(pxui::Role::Button));
     ///     assert!(ui.a11y_name(&b, "Play"));
     /// });
-    /// assert!(ui.a11y_tree().0.windows(4).any(|w| w == b"Play"));
+    /// assert!(ui.a11y_tree().strings.windows(4).any(|w| w == b"Play"));
     /// ```
     #[inline]
     #[track_caller] pub fn a11y_name(&mut self, box_: &Handle, name: &str) -> bool {

@@ -48,7 +48,7 @@ fn ink(ui: &Ui) -> Look { Look { fill: ui.theme().tokens.accent, ..Look::NONE } 
 fn checkbox_toggle(ui: &mut Ui, c: &ToggleConfig) {
     let state = state_of(&c.state);
     let (look, boxes) = { let t = ui.theme(); (*t.toggle.pick(state), t.checkbox) };
-    ui.set_look(&c.row, look, state);
+    ui.style(&c.row, &pxui::theme::States::of(look), state);
     ui.node_mut(&c.row, |n| n.inset = Edges { l: 24.0, ..Edges::ZERO });
     ui.text(&c.row, c.text_of(&c.label));
     let b = ui.part(Part::HIT, Node { at: Some((6.0, 6.0)).into(), w: Size::Px(12.0), h: Size::Px(12.0), ..Node::DEFAULT });
@@ -79,7 +79,7 @@ fn sliding_segment(ui: &mut Ui, c: &SegmentedConfig) {
     let mut node = ui.node_layout(&c.node);
     node.w = Size::Px(70.0);
     ui.set_node_layout(&c.node, &node);
-    ui.set_look(&c.node, Look { text: look.text, font: look.font, ..Look::NONE }, state);
+    ui.style(&c.node, &pxui::theme::States::of(Look { text: look.text, font: look.font, ..Look::NONE }), state);
     ui.text(&c.node, c.text_of(&c.text));
     if state.checked {
         let (own, strip) = (ui.rect(&c.node), ui.rect(&c.strip));
@@ -94,7 +94,7 @@ fn ruled_row(ui: &mut Ui, c: &TableRowConfig) {
     let state = state_of(&c.state);
     let accent = ui.theme().tokens.accent;
     let look = if state.checked { Look { fill: accent, ..Look::NONE } } else { Look { border: accent, border_w: 1.0, ..Look::NONE } };
-    ui.set_look(&c.row, look, state);
+    ui.style(&c.row, &pxui::theme::States::of(look), state);
     ui.slot(c.content);
 }
 
@@ -105,7 +105,7 @@ fn boxed_search(ui: &mut Ui, c: &SearchFieldConfig) {
     let mut well = ui.node_layout(&c.well);
     (well.h, well.axis, well.align, well.gap, well.padding) = (Size::Px(24.0), Axis::Row, Align::Center, 6.0, Edges { l: 6.0, ..Edges::ZERO });
     ui.set_node_layout(&c.well, &well);
-    ui.set_look(&c.well, look, state);
+    ui.style(&c.well, &pxui::theme::States::of(look), state);
     ui.node("icon", Node { w: Size::Px(14.0), h: Size::Px(14.0), look: Look { fill: accent, radius: [7.0; 4], ..Look::NONE }, ..Node::DEFAULT });
     if ui.slot(c.editor) {
         let clear = ui.part(Part::CLEAR, Node { flags: Flags::CLICKABLE | Flags::BLOCKING, w: Size::Px(20.0), h: Size::Px(20.0), look: Look { text: hint.text, ..Look::NONE }, ..Node::DEFAULT });

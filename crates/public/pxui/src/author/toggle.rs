@@ -52,7 +52,7 @@ impl<'a> Toggle<'a> {
     ///
     /// ```
     /// use pxui::{ui::{Look, States}, Toggle};
-    /// const TRACK: States = States::all(Look::NONE);
+    /// const TRACK: States = States::of(Look::NONE);
     /// const T: Toggle = Toggle::DEFAULT.track(&TRACK);
     /// let _ = T;
     /// ```
@@ -64,7 +64,7 @@ impl<'a> Toggle<'a> {
     ///
     /// ```
     /// use pxui::{ui::{Look, States}, Toggle};
-    /// const KNOB: States = States::all(Look::NONE);
+    /// const KNOB: States = States::of(Look::NONE);
     /// const T: Toggle = Toggle::DEFAULT.knob(&KNOB);
     /// let _ = T;
     /// ```
@@ -249,7 +249,7 @@ impl Ui {
 #[cfg(test)]
 mod tests {
     use super::{Segment, Segmented, Toggle};
-    use crate::ui::state;
+    use pxui_types::a11y::state;
     use crate::ui::{Look, Node, Rect, Role, Size, States};
     use crate::{testing, Part, Response, Ui};
     use std::cell::Cell;
@@ -855,7 +855,7 @@ mod tests {
         if c.index == 0 {
             let line = Node { padding: crate::ui::Edges::ZERO, ..ui.node_layout(&c.line) };
             ui.set_node_layout(&c.line, &line);
-            ui.set_look(&c.strip, Look { fill: crate::geom::Rgba { r: 1, g: 2, b: 3, a: 255 }, ..Look::NONE }, crate::ui::State::default());
+            ui.style(&c.strip, &crate::theme::States::of(Look { fill: crate::geom::Rgba { r: 1, g: 2, b: 3, a: 255 }, ..Look::NONE }), crate::ui::State::default());
         }
         let segment = Node { w: Size::Px(30.0), ..ui.node_layout(&c.node) };
         ui.set_node_layout(&c.node, &segment);
@@ -935,7 +935,7 @@ mod tests {
     /// Every option and scope on a warm frame allocates nothing.
     #[test]
     fn warm_frames_allocate_nothing() {
-        let looks = States::all(Look::NONE);
+        let looks = States::of(Look::NONE);
         let mut ui = crate::doc::frames(1, &mut |_| {});
         let mut build = |ui: &mut Ui| {
             ui.segmented("none", &THREE, None, &Segmented::DEFAULT);

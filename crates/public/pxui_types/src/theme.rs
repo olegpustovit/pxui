@@ -515,7 +515,7 @@ impl From<Look> for crate::ffi::PxuiLookDesc {
         Self {
             fill: v.fill, gradient: v.gradient.get().unwrap_or_default(), has_gradient: v.gradient.is_some() as u8, reserved: [0; 3], angle: v.angle,
             border: v.border, border_w: v.border_w, sides: v.sides as u32, radius: v.radius, shadows: [shadow(v.shadows[0]), shadow(v.shadows[1])], text: v.text,
-            font: crate::ffi::PxuiFontDesc { family: v.font.family, weight: v.font.weight, size: v.font.size, tracking: v.font.tracking, caps: v.font.caps as u8, reserved: [0; 3] },
+            font: crate::ffi::PxuiFontDesc { family: v.font.family, weight: v.font.weight, size_points: v.font.size_points, size: v.font.size, tracking: v.font.tracking, caps: v.font.caps as u8, reserved: [0; 3] },
             opacity: v.opacity, ring: crate::ffi::PxuiRingDesc { color: v.ring.color, width: v.ring.width, sides: v.ring.sides as u32 },
             selection: v.selection, caret: v.caret, dashed: v.dashed as u8, reserved_tail: [0; 3],
         }
@@ -531,7 +531,7 @@ impl From<crate::ffi::PxuiLookDesc> for Look {
             fill:v.fill, gradient:(v.has_gradient != 0).then_some(v.gradient).into(), angle:v.angle,
             border:v.border, border_w:v.border_w, sides:v.sides as u8, radius:v.radius,
             shadows:[shadow(v.shadows[0]),shadow(v.shadows[1])], text:v.text,
-            font:Font { family:v.font.family, size:v.font.size, weight:v.font.weight, tracking:v.font.tracking, caps:v.font.caps != 0, size_points:v.font.size as f32 },
+            font:Font { family:v.font.family, size:v.font.size, weight:v.font.weight, tracking:v.font.tracking, caps:v.font.caps != 0, size_points:v.font.size_points },
             opacity:v.opacity, ring:Ring { color:v.ring.color, width:v.ring.width, sides:v.ring.sides as u8 },
             selection:v.selection, caret:v.caret, dashed:v.dashed != 0,
         }
@@ -1592,10 +1592,10 @@ impl States {
     /// ```
     /// use pxui_types::theme::{State, States};
     /// use pxui_types::Look;
-    /// let states = States::all(Look::NONE.radius(4.0));
+    /// let states = States::of(Look::NONE.radius(4.0));
     /// assert_eq!(states.pick(State { hovered: true, ..Default::default() }).radius, [4.0; 4]);
     /// ```
-    pub const fn all(look: Look) -> States {
+    pub const fn of(look: Look) -> States {
         States {
             idle: look,
             hover: look,
@@ -1612,7 +1612,7 @@ impl States {
     ///
     /// ```
     /// use pxui_types::{geom::Rgba, Look, States};
-    /// const V: States = States::all(Look::NONE).idle(Look::NONE.fill(Rgba::BLACK));
+    /// const V: States = States::of(Look::NONE).idle(Look::NONE.fill(Rgba::BLACK));
     /// assert!(V.idle.fill == Rgba::BLACK);
     /// ```
     #[inline]
@@ -1627,7 +1627,7 @@ impl States {
     ///
     /// ```
     /// use pxui_types::{geom::Rgba, Look, States};
-    /// const V: States = States::all(Look::NONE).hover(Look::NONE.fill(Rgba::BLACK));
+    /// const V: States = States::of(Look::NONE).hover(Look::NONE.fill(Rgba::BLACK));
     /// assert!(V.hover.fill == Rgba::BLACK);
     /// ```
     #[inline]
@@ -1642,7 +1642,7 @@ impl States {
     ///
     /// ```
     /// use pxui_types::{geom::Rgba, Look, States};
-    /// const V: States = States::all(Look::NONE).pressed(Look::NONE.fill(Rgba::BLACK));
+    /// const V: States = States::of(Look::NONE).pressed(Look::NONE.fill(Rgba::BLACK));
     /// assert!(V.pressed.fill == Rgba::BLACK);
     /// ```
     #[inline]
@@ -1657,7 +1657,7 @@ impl States {
     ///
     /// ```
     /// use pxui_types::{geom::Rgba, Look, States};
-    /// const V: States = States::all(Look::NONE).focus(Look::NONE.fill(Rgba::BLACK));
+    /// const V: States = States::of(Look::NONE).focus(Look::NONE.fill(Rgba::BLACK));
     /// assert!(V.focus.fill == Rgba::BLACK);
     /// ```
     #[inline]
@@ -1672,7 +1672,7 @@ impl States {
     ///
     /// ```
     /// use pxui_types::{geom::Rgba, Look, States};
-    /// const V: States = States::all(Look::NONE).disabled(Look::NONE.fill(Rgba::BLACK));
+    /// const V: States = States::of(Look::NONE).disabled(Look::NONE.fill(Rgba::BLACK));
     /// assert!(V.disabled.fill == Rgba::BLACK);
     /// ```
     #[inline]
@@ -1687,7 +1687,7 @@ impl States {
     ///
     /// ```
     /// use pxui_types::{geom::Rgba, Look, States};
-    /// const V: States = States::all(Look::NONE).checked(Look::NONE.fill(Rgba::BLACK));
+    /// const V: States = States::of(Look::NONE).checked(Look::NONE.fill(Rgba::BLACK));
     /// assert!(V.checked.fill == Rgba::BLACK);
     /// ```
     #[inline]
@@ -1703,7 +1703,7 @@ impl States {
     ///
     /// ```
     /// use pxui_types::{theme::{State, States}, Look};
-    /// let mut states = States::all(Look::NONE);
+    /// let mut states = States::of(Look::NONE);
     /// states.pressed = Look::NONE.radius(2.0);
     /// let both = State { hovered: true, pressed: true, ..Default::default() };
     /// assert_eq!(states.pick(both).radius, [2.0; 4]);

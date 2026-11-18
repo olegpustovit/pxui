@@ -662,10 +662,14 @@ fn repeating_keyframes_keep_instances_and_builds_idle_when_hidden_and_stop_witho
             assert_eq!(builds.get(), built);
             assert_eq!(ui.layer(0).expect("base layer").instances, instances.as_slice());
         }
-        ui.view_clip(&view, Some(Rect::new(0.0, 0.0, 0.0, 0.0)));
+        ui.set_view(&view, &crate::ViewTransform::DEFAULT.clip(Some(Rect::new(0.0, 0.0, 0.0, 0.0))));
         ui.frame(&input().time(start + 2.0), &mut build).unwrap();
         assert!(!ui.wants_frame(&[], start + 2.0), "hidden loops must idle");
-        ui.view_clip(&view, None);
+        // a transform that omits the clip keeps the one the view has
+        ui.set_view(&view, &ViewTransform::DEFAULT.opacity(1.0));
+        ui.frame(&input().time(start + 2.5), &mut build).unwrap();
+        assert!(!ui.wants_frame(&[], start + 2.5), "an omitted clip keeps the existing one");
+        ui.set_view(&view, &crate::ViewTransform::DEFAULT.clip(None));
         ui.frame(&input().time(start + 3.0), &mut build).unwrap();
         assert!(ui.wants_frame(&[], start + 3.0));
         ui.set_view(&view, &ViewTransform::DEFAULT.opacity(0.0));
@@ -790,7 +794,7 @@ fn section_list_scrolls_leading_content_pins_blocks_and_virtualizes_without_warm
             assert!((ui.rect(&lead.get().unwrap()).y+offset).abs()<0.001,"retained heading rect: {:?}",ui.rect(&lead.get().unwrap()));
             let heading=ui.a11y_nodes().iter().find(|n|ui.a11y_name_of(n)=="Page heading").unwrap();
             assert!((heading.rect.y+offset).abs()<0.001,"retained heading accessibility: {:?}",heading.rect);
-            assert_eq!(heading.states & crate::ui::state::VISIBLE!=0,offset<100.0,"offscreen headings are not visible to accessibility");
+            assert_eq!(heading.states & crate::A11yStates::VISIBLE.bits()!=0,offset<100.0,"offscreen headings are not visible to accessibility");
             assert!((ui.rect(&header.get().unwrap()).y-(100.0-offset).max(0.0)).abs()<0.001);
             assert!((1..30).contains(&rows.get()),"only viewport rows plus overscan: {}",rows.get());
         }
@@ -1145,16 +1149,16 @@ fn backdrop_saturation_validates_and_updates_without_warm_allocations() {
     };
     ui.frame(&input(), &mut build).unwrap();
     let view = view.get().unwrap();
-    ui.view_backdrop_blur(&view, 8.0);
+    ui.set_view(&view, &crate::ViewTransform::DEFAULT.blur(8.0));
     for time in [1.0, 2.0] { ui.frame(&input().time(time), &mut build).unwrap(); }
     for saturation in [0.0, 0.9, 1.0, 1.5] {
         mem_sys::local_reset();
-        ui.view_backdrop_saturation(&view, saturation);
+        ui.set_view(&view, &crate::ViewTransform::DEFAULT.saturation(saturation));
         ui.frame(&input().time(3.0), &mut build).unwrap();
         assert_eq!(mem_sys::local_alloc_count(), 0, "warm backdrop saturation update");
     }
     for invalid in [-1.0, f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
-        assert!(catch_unwind(AssertUnwindSafe(|| ui.view_backdrop_saturation(&view, invalid))).is_err());
+        assert!(catch_unwind(AssertUnwindSafe(|| ui.set_view(&view, &crate::ViewTransform::DEFAULT.saturation(invalid)))).is_err());
         assert!(ui.last_error().contains("saturation"));
     }
 }
@@ -1980,8 +1984,8 @@ fn public_view_controls_retain_instances_geometry_and_hit_clips_without_warm_all
             (0.0,Rect::new(90.0,70.0,0.0,0.0)),(-1.0,Rect::new(110.0,90.0,20.0,10.0))] {
             ui.set_view(&v,&ViewTransform::DEFAULT.opacity(0.5));
             ui.set_view(&v,&ViewTransform::DEFAULT.scale(scale));
-            ui.view_clip(&v,Some(Rect::new(0.0,0.0,320.0,240.0)));
-            ui.view_clip(&v,None);
+            ui.set_view(&v,&crate::ViewTransform::DEFAULT.clip(Some(Rect::new(0.0,0.0,320.0,240.0))));
+            ui.set_view(&v,&crate::ViewTransform::DEFAULT.clip(None));
             assert!(near(ui.rect(&c),expected),"scale {scale}: {:?}",ui.rect(&c));
             assert_eq!(ui.layer(0).expect("base layer").instances,original.as_slice(),"view table edits never rewrite instances");
         }
@@ -1990,7 +1994,7 @@ fn public_view_controls_retain_instances_geometry_and_hit_clips_without_warm_all
         if cycle>0 { assert_eq!(mem_sys::local_alloc_count(),0); }
     }
     ui.set_view(&v,&ViewTransform::DEFAULT.scale(2.0));
-    ui.view_clip(&v,Some(Rect::new(20.0,15.0,10.0,10.0)));
+    ui.set_view(&v,&crate::ViewTransform::DEFAULT.clip(Some(Rect::new(20.0,15.0,10.0,10.0))));
     for (time,x,hovered) in [(1.0,25.0,true),(1.1,15.0,false)] {
         let event=pxui_types::Event { kind:pxui_types::Event::POINTER_MOVED,x,y:20.0,..Default::default() };
         ui.frame(&{
@@ -2001,7 +2005,7 @@ fn public_view_controls_retain_instances_geometry_and_hit_clips_without_warm_all
         },&mut build).unwrap();
         assert_eq!(ui.signal(&c).hovered,hovered,"a view's window clip also clips hit testing");
     }
-    ui.view_clip(&v,None);
+    ui.set_view(&v,&crate::ViewTransform::DEFAULT.clip(None));
     let event=pxui_types::Event { kind:pxui_types::Event::POINTER_MOVED,x:15.0,y:20.0,..Default::default() };
     ui.frame(&{
         let mut frame = input().time(1.2);
@@ -2013,7 +2017,7 @@ fn public_view_controls_retain_instances_geometry_and_hit_clips_without_warm_all
     for opacity in [-1.0,1.01,f32::NAN,f32::INFINITY] { assert!(catch_unwind(AssertUnwindSafe(||ui.set_view(&v,&ViewTransform::DEFAULT.opacity(opacity)))).is_err()); }
     for scale in [f32::NAN,f32::INFINITY,f32::NEG_INFINITY] { assert!(catch_unwind(AssertUnwindSafe(||ui.set_view(&v,&ViewTransform::DEFAULT.scale(scale)))).is_err()); }
     for clip in [Rect::new(0.0,0.0,-1.0,2.0),Rect::new(f32::NAN,0.0,1.0,1.0),Rect::new(f32::MAX,0.0,f32::MAX,1.0)] {
-        assert!(catch_unwind(AssertUnwindSafe(||ui.view_clip(&v,Some(clip)))).is_err());
+        assert!(catch_unwind(AssertUnwindSafe(||ui.set_view(&v,&crate::ViewTransform::DEFAULT.clip(Some(clip))))).is_err());
     }
 }
 
@@ -2179,7 +2183,7 @@ fn custom_text_field_font_sizes_keep_glyphs_caret_hit_selection_and_ime_without_
         let mut row = ui.node_layout(&c.row);
         row.h = Size::Px(59.0);
         ui.set_node_layout(&c.row, &row);
-        ui.set_look(&c.row, Look::NONE, State::default());
+        ui.style(&c.row, &crate::theme::States::of(Look::NONE), State::default());
         let editor = ui.part(Part::EDITOR, Node::DEFAULT.at(18.0, 0.0).w_px(280.0).h_px(59.0).inset(Edges { l: 2.0, ..Edges::ZERO })
             .look(Look::NONE.text(ui.theme().tokens.foreground).font(Font::BODY.size(SIZE.get() as f32))));
         if c.state.focused == 0 { ui.text(&editor, c.text_of(&c.value)); }
@@ -2849,7 +2853,7 @@ fn accessible_text_values_preserve_utf8_selection_precedence_and_warm_storage() 
         assert_eq!(ui.a11y_number(&replacement, f64::NAN, 0.0, 1.0, 0.0), Err(crate::Error::InvalidInput));
         assert!(!ui.a11y_name(&retired, "stale"));
         assert_eq!(ui.a11y_number(&retired, 1.0, 0.0, 2.0, 1.0), Ok(false));
-        ui.set_role(&retired, crate::Role::Slider, 0);
+        ui.set_role(&retired, crate::Role::Slider, crate::A11yStates::NONE);
         ui.focus_box(&replacement);
         assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| ui.focus_box(&retired))).is_err());
         assert!(ui.last_error().contains("stale focus box"));
@@ -3109,7 +3113,7 @@ fn text_input_options_follow_the_focused_field_and_done_keeps_warm_storage() {
 fn marked_text_replaces_the_selection_and_tracks_unicode_caret_without_warm_allocations() {
     use crate::{Event,Part,Str};
     fn body(ui:&mut Ui,c:&crate::bodies::TextFieldConfig) { use crate::bodies::BodyConfig;
-        ui.set_look(&c.row,crate::theme::Look::NONE,crate::theme::State::default());
+        ui.style(&c.row,&crate::theme::States::of(crate::theme::Look::NONE),crate::theme::State::default());
         let editor=ui.part(Part::EDITOR,crate::Node::DEFAULT.w_px(240.0).h_px(30.0).look(crate::theme::Look::NONE.font(crate::theme::Font::BODY.size(18.0))));
         if c.state.focused==0 {ui.text(&editor,c.text_of(&c.value));}
     }
@@ -3380,7 +3384,7 @@ fn const_looks_naming_colour_tokens_resolve_for_the_theme_in_effect_without_app_
     const PAPER: ColorToken = ColorToken(0);
     const INK: ColorToken = ColorToken(1);
     const ROW: Look = Look::NONE.fill(Rgba::token(PAPER)).text(Rgba::token(INK)).border(Rgba::rgb(1, 2, 3), 1.0);
-    const PLATE: States = States::all(ROW);
+    const PLATE: States = States::of(ROW);
     const KEY: crate::IconButton = crate::IconButton::sized(36.0, 36.0).look(&PLATE);
     mem_sys::set_peer(crate::library_counter);
     let c = |v: u8| Rgba::rgb(v, v, v);

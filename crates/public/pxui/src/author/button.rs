@@ -18,7 +18,7 @@ use pxui_types::{geom::Edges, layout::{Along, Justify}, theme::{BodyKind, State,
 /// use pxui::{geom::Rgba, ui::{Look, States}, Button, Icon, Label};
 /// const INK: Look = Look::NONE.text(Rgba::rgb(40, 90, 200));
 /// const HOT: Look = Look::NONE.text(Rgba::rgb(20, 50, 140));
-/// const LINK_LOOK: States = States::all(INK).hover(HOT).pressed(HOT);
+/// const LINK_LOOK: States = States::of(INK).hover(HOT).pressed(HOT);
 /// const LINK: Button = Button::DEFAULT.look(&LINK_LOOK).label(Label::BODY.size(13.0)).pad(pxui::ui::Edges::ZERO);
 /// const SEARCH: Button = Button::sized(200.0, 28.0).icon(Icon::glyph('?')).accessory("⌘K");
 /// let _ = (LINK, SEARCH);
@@ -96,7 +96,7 @@ impl<'a> Button<'a> {
     ///
     /// ```
     /// use pxui::{ui::{Look, States}, Button};
-    /// const PLATE: States = States::all(Look::NONE);
+    /// const PLATE: States = States::of(Look::NONE);
     /// const B: Button = Button::DEFAULT.look(&PLATE);
     /// let _ = B;
     /// ```
@@ -382,7 +382,7 @@ impl Ui {
 #[cfg(test)]
 mod tests {
     use super::Button;
-    use crate::ui::state;
+    use pxui_types::a11y::state;
     use crate::ui::{Edges, Justify, Node, Role, Size};
     use crate::{testing, Response, Ui};
     use std::cell::Cell;
@@ -489,7 +489,7 @@ mod tests {
     fn centered_button_is_its_box_with_the_text_centred() {
         use crate::ui::{Look, States};
         let red = crate::geom::Rgba { r: 200, g: 0, b: 0, a: 255 };
-        let plate = States::all(Look { fill: red, text: crate::geom::Rgba { r: 1, g: 2, b: 3, a: 255 }, ..Look::NONE });
+        let plate = States::of(Look { fill: red, text: crate::geom::Rgba { r: 1, g: 2, b: 3, a: 255 }, ..Look::NONE });
         let (action, tab) = (Button::sized(120.0, 44.0).look(&plate), Button::DEFAULT.size(Size::Grow, Size::Px(44.0)).centered().look(&plate));
         let last: Cell<Option<Response>> = Cell::new(None);
         let mut build = |ui: &mut Ui| {
@@ -617,7 +617,7 @@ mod tests {
         use crate::ui::{Along, Look, States};
         use crate::Label;
         let ink = crate::geom::Rgba { r: 1, g: 2, b: 3, a: 255 };
-        let plate = States::all(Look { text: ink, ..Look::NONE });
+        let plate = States::of(Look { text: ink, ..Look::NONE });
         let align = Cell::new(Along::Start);
         let centered = Cell::new(true);
         let last: Cell<Option<Response>> = Cell::new(None);

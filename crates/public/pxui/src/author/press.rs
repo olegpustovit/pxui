@@ -61,7 +61,7 @@ impl<'a> Pressable<'a> {
     ///
     /// ```
     /// use pxui::{ui::{Look, States}, Pressable};
-    /// const ROW_LOOKS: States = States::all(Look::NONE);
+    /// const ROW_LOOKS: States = States::of(Look::NONE);
     /// const ROW: Pressable = Pressable::DEFAULT.look(&ROW_LOOKS);
     /// let _ = ROW;
     /// ```
@@ -130,7 +130,7 @@ impl Ui {
     /// ```
     /// use pxui::{ui::{Look, Node, Role, States}, Pressable};
     /// const ROW: Node = Node::row().h_px(20.0).w_px(50.0).role(Role::Button);
-    /// const LOOKS: States = States::all(Look::NONE);
+    /// const LOOKS: States = States::of(Look::NONE);
     /// let mut clicked = false;
     /// let mut build = |ui: &mut pxui::Ui| {
     ///     clicked |= ui.pressable("save", ROW, &Pressable::DEFAULT.look(&LOOKS), |_, state| { let _ = state.hovered; }).clicked;
@@ -187,7 +187,7 @@ impl Ui {
         // a touch gesture's highlight (taken with `ui.gesture` on this node) shows as the press it is
         let highlighted = self.gesture_state(&b).highlighted;
         let state = State { hovered: signal.hovered, pressed: signal.held || highlighted, focused, disabled: !p.enabled, checked: p.selected };
-        if let Some(looks) = p.look { self.set_look(&b, *looks.pick(state), state); }
+        if let Some(looks) = p.look { self.style(&b, &crate::theme::States::of(*looks.pick(state)), state); }
         self.within(&b, &mut |ui| f(ui, state));
         let clicked = signal.clicked && p.enabled;
         Response { clicked, hovered: signal.hovered, held: signal.held, focused, activated: clicked && !signal.released, changed: false,
@@ -394,7 +394,7 @@ mod tests {
     #[test]
     fn warm_frames_allocate_nothing() {
         let mut ui = crate::doc::frames(1, &mut |_| {});
-        let looks = States::all(Look::NONE);
+        let looks = States::of(Look::NONE);
         let mut build = |ui: &mut Ui| {
             ui.pressable("p", node(), &P.look(&looks).selected(true), |ui, _| { ui.node("c", node()); });
             let r = ui.pressable(7i64, node(), &P.enabled(false), |_, _| {});

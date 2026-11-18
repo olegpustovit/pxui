@@ -5,7 +5,8 @@ use std::rc::Rc;
 use pxui_types::{a11y::Role, layout::{Align, Along, Anchor, Grid, Justify, MAX_TRACKS, Side, Track}, node::{OptAlign, OptAnchor, OptBar, OptTransition, OptGrid}, theme::{Font, Look, Ring, Shadow, State}, Axis, Bar, Dir, Mark, Node, Size, geom::Rect, ffi::{PxuiFontDesc, PxuiLookDesc, PxuiShadowDesc, PxuiStateDesc}, PxuiBox};
 
 pub(crate) fn size(v:pxui_types::ffi::PxuiSizeDesc)->Option<Size>{if !v.value.is_finite(){return None;} Some(match v.kind {0=>Size::Px(v.value),1=>Size::Pct(v.value),2=>Size::Rel(v.relative?),3=>Size::Grow,4=>Size::Fit,_=>return None})}
-fn font(v:PxuiFontDesc)->Font { Font { family:v.family, weight:v.weight, size:v.size, tracking:v.tracking, caps:v.caps!=0, size_points:v.size as f32 } }
+// the fractional size counts only where it agrees with the integer one (a 1.x record leaves the hole unset), as `Font::points` reads it
+fn font(v:PxuiFontDesc)->Font { Font { family:v.family, weight:v.weight, size:v.size, tracking:v.tracking, caps:v.caps!=0, size_points:v.size_points } }
 fn shadow(v:PxuiShadowDesc)->Shadow { Shadow { color:v.color, offset:v.offset, blur:v.blur, spread:v.spread, inner:v.inner!=0 } }
 pub(crate) fn look(v:PxuiLookDesc)->Look { Look {
     fill:v.fill, gradient:(v.has_gradient!=0).then_some(v.gradient).into(), angle:v.angle,

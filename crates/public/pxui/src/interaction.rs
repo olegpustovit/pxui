@@ -118,12 +118,12 @@ impl Ui {
     /// Panics: if the handle has retired or the library refuses the Ui.
     ///
     /// ```
-    /// use pxui::{Flags, Node, Role, ui::state};
+    /// use pxui::{A11yStates, Flags, Node, Role};
     /// let ui = pxui::doc::frames(1, &mut |ui| {
     ///     let row = ui.node("editor", Node::DEFAULT.flags(Flags::FOCUSABLE).role(Role::TextField));
     ///     ui.focus_box(&row);
     /// });
-    /// assert!(ui.a11y_nodes().iter().any(|node| node.is_role(Role::TextField) && node.states & state::FOCUSED != 0));
+    /// assert!(ui.a11y_nodes().iter().any(|node| node.is_role(Role::TextField) && node.states & A11yStates::FOCUSED.bits() != 0));
     /// ```
     #[inline] #[track_caller] pub fn focus_box(&mut self,box_:&Handle) {check(self, unsafe{sys::pxui_ui_focus_box(self.0.as_ptr(),box_)})}
     #[inline] #[track_caller] pub(crate) fn focused(&self,box_:&Handle)-> bool {let mut out=0;check(self, unsafe{sys::pxui_ui_focused(self.0.as_ptr(),box_,&mut out)});out!=0}

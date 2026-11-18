@@ -27,10 +27,84 @@ mod sys {
         /// Panics: never.
         ///
         /// ```
-        /// pxui::doc::frames(1, &mut |ui| { let b = ui.node("go", pxui::Node::DEFAULT); ui.set_role(&b, pxui::Role::Button, 0); });
+        /// pxui::doc::frames(1, &mut |ui| { let b = ui.node("go", pxui::Node::DEFAULT); ui.set_role(&b, pxui::Role::Button, pxui::A11yStates::NONE); });
         /// ```
         pub fn pxui_ui_set_role(ui: *mut PxuiUi, box_: *const PxuiBox, role: u32, states: u32) -> i32;
     }
+}
+
+/// Accessibility state flags authored for a node.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct A11yStates(u32);
+
+impl A11yStates {
+    /// No explicit accessibility state.
+    pub const NONE: A11yStates = A11yStates(0);
+    /// Can take keyboard focus.
+    pub const FOCUSABLE: A11yStates = A11yStates(pxui_types::a11y::state::FOCUSABLE);
+    /// Holds keyboard focus.
+    pub const FOCUSED: A11yStates = A11yStates(pxui_types::a11y::state::FOCUSED);
+    /// Accepts input (not disabled).
+    pub const ENABLED: A11yStates = A11yStates(pxui_types::a11y::state::ENABLED);
+    /// Has a checked state (a check box, toggle, radio, checkable menu item).
+    pub const CHECKABLE: A11yStates = A11yStates(pxui_types::a11y::state::CHECKABLE);
+    /// Is checked (on).
+    pub const CHECKED: A11yStates = A11yStates(pxui_types::a11y::state::CHECKED);
+    /// Neither checked nor unchecked (a mixed check box).
+    pub const MIXED: A11yStates = A11yStates(pxui_types::a11y::state::MIXED);
+    /// Can be selected (a list or tree item, a tab).
+    pub const SELECTABLE: A11yStates = A11yStates(pxui_types::a11y::state::SELECTABLE);
+    /// Is selected.
+    pub const SELECTED: A11yStates = A11yStates(pxui_types::a11y::state::SELECTED);
+    /// Can expand to show children (a tree item, a dropdown).
+    pub const EXPANDABLE: A11yStates = A11yStates(pxui_types::a11y::state::EXPANDABLE);
+    /// Is expanded.
+    pub const EXPANDED: A11yStates = A11yStates(pxui_types::a11y::state::EXPANDED);
+    /// Its text can be edited.
+    pub const EDITABLE: A11yStates = A11yStates(pxui_types::a11y::state::EDITABLE);
+    /// Its text spans several lines.
+    pub const MULTILINE: A11yStates = A11yStates(pxui_types::a11y::state::MULTILINE);
+    /// Its value can be read but not changed.
+    pub const READ_ONLY: A11yStates = A11yStates(pxui_types::a11y::state::READ_ONLY);
+    /// Is on screen.
+    pub const VISIBLE: A11yStates = A11yStates(pxui_types::a11y::state::VISIBLE);
+    /// Is held down.
+    pub const PRESSED: A11yStates = A11yStates(pxui_types::a11y::state::PRESSED);
+    /// Blocks input to everything behind it.
+    pub const MODAL: A11yStates = A11yStates(pxui_types::a11y::state::MODAL);
+    /// The window holding keyboard focus.
+    pub const ACTIVE: A11yStates = A11yStates(pxui_types::a11y::state::ACTIVE);
+    /// Lays out or moves horizontally (a slider, a scroll bar, a splitter).
+    pub const HORIZONTAL: A11yStates = A11yStates(pxui_types::a11y::state::HORIZONTAL);
+    /// Lays out or moves vertically.
+    pub const VERTICAL: A11yStates = A11yStates(pxui_types::a11y::state::VERTICAL);
+    /// Is loading or working; its content may change.
+    pub const BUSY: A11yStates = A11yStates(pxui_types::a11y::state::BUSY);
+    /// Is the default action (the button Return presses).
+    pub const DEFAULT: A11yStates = A11yStates(pxui_types::a11y::state::DEFAULT);
+
+    /// Combines two sets of accessibility state flags.
+    ///
+    /// The engine still supplies states derived from the live node.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::A11yStates;
+    /// const CHECKED: A11yStates = A11yStates::CHECKABLE.with(A11yStates::CHECKED);
+    /// ```
+    pub const fn with(self, other: A11yStates) -> A11yStates { A11yStates(self.0 | other.0) }
+
+    /// Returns the state mask used by the accessibility wire records.
+    ///
+    /// Compare it with the mask on a published accessibility node.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert_eq!(pxui::A11yStates::NONE.bits(), 0);
+    /// ```
+    pub const fn bits(self) -> u32 { self.0 }
 }
 
 impl Ui {
@@ -63,13 +137,13 @@ impl Ui {
     /// use pxui::Role;
     /// let ui = pxui::doc::frames(2, &mut |ui| {
     ///     let b = ui.node("go", pxui::Node::DEFAULT);
-    ///     ui.set_role(&b, Role::Button, 0);
+    ///     ui.set_role(&b, Role::Button, pxui::A11yStates::NONE);
     /// });
     /// assert!(ui.a11y_nodes().iter().any(|n| n.role == Role::Button as u32));
     /// ```
     #[inline]
-    #[track_caller] pub fn set_role(&mut self, box_: &Handle, role: pxui_types::a11y::Role, states: u32)  {
-        let rc = unsafe { sys::pxui_ui_set_role(self.0.as_ptr(), box_, role as u32, states) };
+    #[track_caller] pub fn set_role(&mut self, box_: &Handle, role: pxui_types::a11y::Role, states: A11yStates)  {
+        let rc = unsafe { sys::pxui_ui_set_role(self.0.as_ptr(), box_, role as u32, states.bits()) };
         crate::live(self, rc);
     }
 }

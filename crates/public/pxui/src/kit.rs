@@ -123,7 +123,7 @@ fn encode_look(value: Look) -> PxuiLookDesc {
         fill: value.fill, gradient: value.gradient.get().unwrap_or_default(), has_gradient: value.gradient.is_some() as u8, reserved: [0; 3], angle: value.angle,
         border: value.border, border_w: value.border_w, sides: value.sides as u32, radius: value.radius,
         shadows: [shadow(value.shadows[0]), shadow(value.shadows[1])], text: value.text,
-        font: PxuiFontDesc { family: value.font.family, weight: value.font.weight, size: value.font.size, tracking: value.font.tracking, caps: value.font.caps as u8, reserved: [0; 3] },
+        font: PxuiFontDesc { family: value.font.family, weight: value.font.weight, size_points: value.font.size_points, size: value.font.size, tracking: value.font.tracking, caps: value.font.caps as u8, reserved: [0; 3] },
         opacity: value.opacity, ring: PxuiRingDesc { color: value.ring.color, width: value.ring.width, sides: value.ring.sides as u32 },
         selection: value.selection, caret: value.caret, dashed: value.dashed as u8, reserved_tail: [0; 3],
     }

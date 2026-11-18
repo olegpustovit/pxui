@@ -129,10 +129,10 @@ impl<'a> Paint<'a> {
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
     ///     let node = ui.node("canvas", pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
-    ///     ui.canvas(&node, |paint, _| { let _accent = paint.theme().accent; });
+    ///     ui.canvas(&node, |paint, _| { let _accent = paint.tokens().accent; });
     /// });
     /// ```
-    #[inline] pub fn theme(&self) -> Tokens { self.w.theme }
+    #[inline] pub fn tokens(&self) -> Tokens { self.w.theme }
     /// Device pixels per point of the surface being painted (1 or more).
     ///
     /// Allocates: never.

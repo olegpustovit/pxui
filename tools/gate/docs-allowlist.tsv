@@ -20,7 +20,6 @@ crates/public/pxui/src/kit.rs	pxui_ui_section_list	example,Allocates,Panics
 crates/public/pxui/src/kit.rs	pxui_ui_section_list_measured	example,Allocates,Panics
 crates/public/pxui/src/kit.rs	pxui_ui_split_result	example,Allocates,Panics
 crates/public/pxui/src/kit.rs	pxui_ui_wants_frame	example,Allocates,Panics
-crates/public/pxui/src/style.rs	pxui_ui_set_look	example,Allocates,Panics
 crates/public/pxui/src/style.rs	pxui_ui_style	example,Allocates,Panics
 crates/public/pxui/src/testing.rs	click	Panics
 crates/public/pxui/src/testing.rs	click_node	Panics
