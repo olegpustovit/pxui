@@ -1635,6 +1635,7 @@ pub enum Key {
     /// An item id, hashed as the label of a NUL byte and its 16 lowercase hex digits under the parent's seed.
     Id(i64),
     /// An already resolved key such as Handle::box_key: used as it is, never hashed again, in lookups, hit queries and creation calls.
+    /// 0 and 1 are never a box key: a lookup of them finds nothing, and a creation call takes them as `Id(0)` and `Id(1)`.
     Resolved(i64),
 }
 impl From<&'static str> for Key { #[inline] fn from(label: &'static str) -> Key { Key::Label(label) } }
@@ -1645,7 +1646,8 @@ impl Key {
     /// The label form this key crosses the C ABI in: a `Label` itself; an `Id` written into `buf` as a NUL byte and its 16 lowercase
     /// hex digits (so an id never collides with a printable label); a `Resolved` key written as a 0x01 byte and its 16 lowercase hex
     /// digits, which the engine takes as the already hashed key itself (no seed, no rehash), so a resolved key is a valid identity in
-    /// creation calls and lookups alike. Authored labels that begin with a byte below 0x20 are reserved for these forms and the engine's
+    /// creation calls and lookups alike; the reserved `Resolved(0)` and `Resolved(1)` cross as `Id(0)` and `Id(1)`, since a call refuses
+    /// a resolved label carrying 0 or 1. Authored labels that begin with a byte below 0x20 are reserved for these forms and the engine's
     /// own positional keys; a call refuses them.
     ///
     /// Allocates: never.
@@ -1657,13 +1659,14 @@ impl Key {
     /// assert_eq!(Key::Label("row").label(&mut buf), "row");
     /// assert_eq!(Key::Id(255).label(&mut buf), "\u{0}00000000000000ff");
     /// assert_eq!(Key::Resolved(255).label(&mut buf), "\u{1}00000000000000ff");
+    /// assert_eq!(Key::Resolved(1).label(&mut buf), "\u{0}0000000000000001");
     /// ```
     #[inline]
     pub fn label<'b>(&self, buf: &'b mut [u8; 17]) -> &'b str {
         match *self {
             Key::Label(label) => label,
             Key::Id(id) => id_text(0, id, buf),
-            Key::Resolved(key) => id_text(1, key, buf),
+            Key::Resolved(key) => id_text((key as u64 > 1) as u8, key, buf),
         }
     }
 }
@@ -1679,12 +1682,14 @@ fn id_text(tag: u8, id: i64, out: &mut [u8; 17]) -> &str {
     core::str::from_utf8(out).unwrap_or_default()
 }
 
-/// The key a `Key::Resolved` label carries (a 0x01 byte and 16 lowercase hex digits), or `None` for any other label.
+/// The key a `Key::Resolved` label carries (a 0x01 byte and 16 lowercase hex digits), or `None` for any other label and for the
+/// reserved values 0 and 1.
 #[inline]
 fn resolved(text: &str) -> Option<i64> {
     let b = text.as_bytes();
     if b.len() != 17 || b[0] != 1 { return None; }
-    b[1..].iter().try_fold(0u64, |key, &d| Some(key << 4 | match d { b'0'..=b'9' => d - b'0', b'a'..=b'f' => d - b'a' + 10, _ => return None } as u64)).map(|k| k as i64)
+    // 0 and 1 are the tables' empty and tombstone marks, never a box key: such a label is hashed as text, as a malformed one is
+    b[1..].iter().try_fold(0u64, |key, &d| Some(key << 4 | match d { b'0'..=b'9' => d - b'0', b'a'..=b'f' => d - b'a' + 10, _ => return None } as u64)).filter(|k| *k > 1).map(|k| k as i64)
 }
 
 /// The seed of a root: the key every top-level label hashes under.
@@ -1715,7 +1720,8 @@ pub(crate) fn find_marker(text: &str, marker: &str) -> Option<usize> {
 /// The key of the label `text` under the parent seed `seed`: the id after a `###` replaces the label's hash, otherwise all of `text`
 /// is hashed (a `##` suffix is part of the key; `shown` is what strips it from the display).
 ///
-/// Never 0 or 1 (a `Key::Resolved` label is the key it carries, taken as it is). Two labels that differ only before `###` share a key.
+/// Never 0 or 1 (a `Key::Resolved` label is the key it carries, taken as it is; one carrying 0 or 1 is hashed as text). Two labels
+/// that differ only before `###` share a key.
 /// Allocates: never.
 /// Identity: `text` is the node label; the same text under the same seed collides.
 /// Panics: never.
@@ -1727,6 +1733,8 @@ pub(crate) fn find_marker(text: &str, marker: &str) -> Option<usize> {
 /// // a resolved key's label is the key itself, under any seed
 /// let mut buf = [0u8; 17];
 /// assert_eq!(key_of(1, pxui_types::ui::Key::Resolved(-5).label(&mut buf)), -5);
+/// // the reserved values are never returned, whatever the label
+/// assert!(key_of(1, "\u{1}0000000000000000") > 1 && key_of(1, "\u{1}0000000000000001") > 1);
 /// ```
 pub fn key_of(seed: i64, text: &str) -> i64 {
     if let Some(key) = resolved(text) { return key; }

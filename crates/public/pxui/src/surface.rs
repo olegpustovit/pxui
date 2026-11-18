@@ -3675,6 +3675,28 @@ fn u1b2_keys_resolve_once_and_lookups_keep_the_innermost_candidate_without_warm_
     assert_eq!(mem_sys::local_alloc_count(), 0, "warm lookups and the resolved hover wait allocate nothing");
 }
 
+/// The reserved resolved keys 0 and 1 (the key tables' marks, never a box key) never panic: a creation call takes them as `Id(0)` and
+/// `Id(1)`, and lookups, the hover wait and `root_at` find nothing for them.
+#[test]
+fn reserved_resolved_keys_create_as_ids_and_find_nothing() {
+    use crate::{Key, Point, ui::Node};
+    use std::cell::Cell;
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+    let keys = Cell::new([0i64; 4]);
+    ui.frame(&input(), &mut |ui: &mut Ui| {
+        let made = [ui.node(Key::Resolved(0), Node::DEFAULT), ui.node(Key::Resolved(1), Node::DEFAULT), ui.node(Key::Id(0), Node::DEFAULT), ui.node(Key::Id(1), Node::DEFAULT)];
+        keys.set(made.map(|b| b.box_key));
+        assert!(ui.box_of_key(Key::Resolved(0)).is_none() && ui.box_of_key(Key::Resolved(1)).is_none());
+        assert!(!ui.hover_delay(Key::Resolved(0)) && !ui.hover_delay(Key::Resolved(1)));
+        let _ = ui.load_text_edit(Key::Resolved(0), "a");
+    }).unwrap();
+    let [zero, one, id0, id1] = keys.get();
+    assert!(keys.get().iter().all(|k| *k as u64 > 1), "a reserved value is never the key");
+    // the same key twice in one parent: `Resolved(0)` and `Id(0)` are one identity, the second a `#dup`
+    assert!(zero != one && id0 != zero && id1 != one);
+    assert_eq!(ui.root_at(Point { x: 1.0, y: 1.0 }, &[Key::Resolved(0), Key::Resolved(1)]), None);
+}
+
 /// U1b.3 units: a fractional body size is kept by creation and the setter (the 1.x C getters keep whole points; the C snapshot's
 /// projection is checked in pxui_abi); a painter's text service measures what `Ui::text_service` measures in the same label; painting a
 /// label with spans and measuring it in a canvas allocate nothing warm.

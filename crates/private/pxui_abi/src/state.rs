@@ -354,10 +354,21 @@ pub(crate) fn clip(text: &str) -> &str {
     &text[..end]
 }
 
-/// `text` limited to `MAX_KEY_BYTES`: an identifier.
+/// `text` limited to `MAX_KEY_BYTES`: an identifier. A label that begins with a 0x01 byte must be a usable resolved key (`Key::Resolved`):
+/// one not of a 0x01 byte and 16 lowercase hex digits, or one carrying the reserved 0 or 1, is refused.
 #[inline(always)]
 pub(crate) unsafe fn checked_key(value: Str) -> Option<&'static str> {
-    if value.len <= 16 { unsafe { text(value) } } else if value.len > MAX_KEY_BYTES { None } else { unsafe { text(value) } }
+    let key = if value.len <= 16 { unsafe { text(value) } } else if value.len > MAX_KEY_BYTES { None } else { unsafe { text(value) } }?;
+    if key.as_bytes().first() == Some(&1) && !usable_resolved(key) { None } else { Some(key) }
+}
+
+/// Whether a 0x01-led label is a resolved key the engine may take as it is: 16 lowercase hex digits after the byte, carrying neither 0
+/// nor 1 (the key tables' empty and tombstone marks).
+#[cold]
+#[inline(never)]
+fn usable_resolved(key: &str) -> bool {
+    let digits = &key.as_bytes()[1..];
+    digits.len() == 16 && digits.iter().all(|d| matches!(d, b'0'..=b'9' | b'a'..=b'f')) && (digits[..15].iter().any(|d| *d != b'0') || digits[15] > b'1')
 }
 
 /// `text` limited to `MAX_TEXT_BYTES`: editor text.

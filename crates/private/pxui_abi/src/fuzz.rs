@@ -20,6 +20,8 @@ const VARIANTS: u32 = 6;
 const BUF_BYTES: usize = 1 << 20;
 static GARBAGE: [u8; 8] = [0xff, 0xfe, 0xc0, 0x80, 0xed, 0xa0, 0x80, 0xff];
 static LONG: [u8; 70_000] = [b'a'; 70_000];
+/// Labels in the reserved resolved form that carry no usable key: 0 and 1 (the key tables' marks) and a 0x01 byte with non-hex digits.
+static UNRESOLVED: [&[u8; 17]; 3] = [b"\x010000000000000000", b"\x010000000000000001", b"\x0100000000000000zz"];
 
 thread_local! {
     static BUF: Cell<*mut u8> = Cell::new(Box::leak(vec![0u128; BUF_BYTES / 16].into_boxed_slice()).as_mut_ptr().cast());
@@ -125,6 +127,8 @@ impl Arg for *const PxuiBox { fn arg(v: u32) -> Self { <*mut PxuiBox>::arg(v).ca
 impl Arg for Str {
     fn arg(v: u32) -> Self {
         match v % VARIANTS {
+            // the second round of the first three variants: an unusable resolved label (`UNRESOLVED`)
+            0..=2 if v % 12 >= 6 => Str { ptr: UNRESOLVED[(v % 6) as usize].as_ptr(), len: 17 },
             0 => Str { ptr: core::ptr::null(), len: 0 },
             1 => Str { ptr: core::ptr::null(), len: 5 },
             2 => Str { ptr: GARBAGE.as_ptr(), len: GARBAGE.len() },
@@ -152,6 +156,7 @@ impl Arg for *const PxuiKeyedDesc {
             2 => PxuiKeyedDesc { size: 0, reserved: 0, key: ok, name: ok },
             3 => PxuiKeyedDesc { size, reserved: 0, key: Str { ptr: GARBAGE.as_ptr(), len: GARBAGE.len() }, name: Str { ptr: LONG.as_ptr(), len: LONG.len() } },
             4 => PxuiKeyedDesc { size, reserved: 0, key: Str { ptr: LONG.as_ptr(), len: 300 }, name: Str { ptr: GARBAGE.as_ptr(), len: 1 << 40 } },
+            5 if v % 12 == 11 => PxuiKeyedDesc { size, reserved: 0, key: Str { ptr: UNRESOLVED[0].as_ptr(), len: 17 }, name: ok },
             5 => PxuiKeyedDesc { size, reserved: 7, key: ok, name: ok },
             _ => PxuiKeyedDesc { size, reserved: 0, key: ok, name: Str { ptr: b"Name".as_ptr(), len: 4 } },
         };
@@ -368,6 +373,44 @@ fn every_export_refuses_bad_arguments_without_panicking() {
     }
     let failures = FAILURES.with(|f| core::mem::take(&mut *f.borrow_mut()));
     assert!(failures.is_empty(), "{} failing calls:\n{}", failures.len(), failures.join("\n"));
+}
+
+/// A label in the 0x01 resolved form that carries 0 or 1, or is malformed, is refused with `PXUI_ERR_ARGUMENT` by every kind of export
+/// that takes a key label (creation, scope, keyed record, image, lookup, hover wait): never the engine's reserved-key assertion.
+#[test]
+fn unusable_resolved_labels_are_refused_with_the_argument_error() {
+    hook();
+    extern "C" fn build(_: *mut c_void, ui: *mut c_void) {
+        let ui: *mut PxuiUi = ui.cast();
+        let panics = PANICS.with(Cell::get);
+        for label in UNRESOLVED {
+            let key = Str { ptr: label.as_ptr(), len: 17 };
+            let keyed = PxuiKeyedDesc { size: core::mem::size_of::<PxuiKeyedDesc>() as u32, reserved: 0, key, name: Str { ptr: b"n".as_ptr(), len: 1 } };
+            let (mut b, mut response, mut flag) = (PxuiBox::default(), unsafe { core::mem::zeroed::<PxuiResponse>() }, 0u8);
+            let image = pxui_types::Image::default();
+            let px = PxuiSizeDesc { kind: 0, value: 0.0, relative: None };
+            unsafe {
+                assert_eq!(pxui_ui_node(ui, key, &Node::DEFAULT, &mut b), PXUI_ERR_ARGUMENT);
+                assert_eq!(pxui_scope(ui, key, None, core::ptr::null_mut()), PXUI_ERR_ARGUMENT);
+                assert_eq!(pxui_ui_checkbox_keyed(ui, &keyed, 0, &mut response), PXUI_ERR_ARGUMENT);
+                assert_eq!(pxui_ui_image_keyed(ui, key, keyed.name, &image, 0, px, px, &mut b), PXUI_ERR_ARGUMENT);
+                assert_eq!(pxui_ui_expanded(ui, key, &mut flag), PXUI_ERR_ARGUMENT);
+                assert_eq!(pxui_ui_hover_delay(ui, key, &mut flag), PXUI_ERR_ARGUMENT);
+                assert_eq!(pxui_ui_tooltip(ui, key, keyed.name), PXUI_ERR_ARGUMENT);
+            }
+        }
+        // a usable resolved label is still taken as the key itself
+        let mut b = PxuiBox::default();
+        assert_eq!(unsafe { pxui_ui_node(ui, Str { ptr: b"\x010000000000000abc".as_ptr(), len: 17 }, &Node::DEFAULT, &mut b) }, 0);
+        assert_eq!(b.box_key, 0xabc);
+        assert_eq!(PANICS.with(Cell::get), panics, "no call panicked");
+        assert!(!unsafe { (*(*ui).shared).poisoned });
+    }
+    let ui = unsafe { pxui_ui_create(&PxuiUiDesc::default()) };
+    let input = FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() };
+    let mut out = FrameOut::default();
+    assert_eq!(unsafe { pxui_frame(ui, &input, Some(build), core::ptr::null_mut(), &mut out) }, 0);
+    assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
 }
 
 /// The fuzz calls every export the manifests name: a new export without a row here fails.
