@@ -151,8 +151,8 @@ mod tramps {
         w_kind: size_kind(c.w).0, h_kind: size_kind(c.h).0, reserved: 0, w: size_kind(c.w).1, h: size_kind(c.h).1, press_scale: c.press_scale,
         draw: foreign_draw(c.draw).0, draw_user: foreign_draw(c.draw).1, ink: c.ink, press: c.press.map_or(core::ptr::null(), |p| p.as_ptr())
     });
-    tramp!(checkbox, |ui, sh, c: &CheckConfig, label: &str| PxuiCheckConfig { state: st(c.state), on: c.on as u8, row: bx(c.row), label: pair(label) });
-    tramp!(radio, |ui, sh, c: &CheckConfig, label: &str| PxuiCheckConfig { state: st(c.state), on: c.on as u8, row: bx(c.row), label: pair(label) });
+    tramp!(checkbox, |ui, sh, c: &CheckConfig, label: &str| PxuiCheckConfig { state: st(c.state), on: c.on as u8, row: bx(c.row), label: pair(label), states: &c.states, box_size: c.size, passive: c.passive as u8, reserved2: [0; 3] });
+    tramp!(radio, |ui, sh, c: &CheckConfig, label: &str| PxuiCheckConfig { state: st(c.state), on: c.on as u8, row: bx(c.row), label: pair(label), states: &c.states, box_size: c.size, passive: c.passive as u8, reserved2: [0; 3] });
     tramp!(spinner, |ui, sh, c: &SpinnerConfig, label: &str| PxuiSpinnerConfig { node: bx(c.node), label: pair(label) });
     tramp!(badge, |ui, sh, c: &BadgeConfig, label: &str, text: &str| PxuiBadgeConfig { node: bx(c.node), label: pair(label), text: pair(text) });
     tramp!(label, |ui, sh, c: &LabelConfig, text: &str| PxuiLabelConfig { first: c.first as u8, node: bx(c.node), text: pair(text), style: PxuiLabelStyle { digits: c.digits as u8, ..PxuiLabelStyle::from(&c.style) }, label_box: pxui_types::ffi::PxuiLabelBox::from(&c.style) });
@@ -183,6 +183,9 @@ mod tramps {
     });
     tramp!(scroll_view, |ui, sh, c: &ScrollConfig, body: &mut dyn FnMut(&mut Ui)| PxuiScrollConfig { node: bx(c.node), content: content(sh, body) });
     tramp!(toasts, |ui, sh, c: &ToastConfig, text: &str| PxuiToastConfig { state: st(c.state), node: bx(c.node), text: pair(text) });
+    tramp_span!(section_index, strs, |ui, sh, span, c: &SectionIndexConfig, letters: &[&str]| {
+        span.extend(letters.iter().map(|l| pair(l)));
+    }, PxuiSectionIndexConfig { state: st(c.state), has_active: c.active.is_some() as u8, active: c.active.unwrap_or(0), node: bx(c.node), letters: Slice { ptr: span.as_ptr(), len: span.len() } });
     tramp_span!(tooltip, strs, |ui, sh, span, c: &TipConfig, lines: &[String]| {
         span.extend(lines.iter().map(|l| pair(l)));
     }, PxuiTipConfig { width: c.width, height: c.height, tip: bx(c.tip), lines: Slice { ptr: span.as_ptr(), len: span.len() } });
@@ -382,7 +385,7 @@ mod tests {
         assert_eq!(register(BodyKind::toggle as u32, "probe", Some(toggle_body)), 1, "a name again keeps its id");
         assert_eq!(register(BodyKind::toggle as u32, "other", Some(toggle_body)), 2);
         for (kind, name, body) in [(BodyKind::toggle as u32, "default", Some(toggle_body as _)), (BodyKind::toggle as u32, "", Some(toggle_body as _)), (BodyKind::toggle as u32, "a b", Some(toggle_body as _)),
-            (BodyKind::toggle as u32, "a=b", Some(toggle_body as _)), (BodyKind::toggle as u32, "nobody", None), (40, "probe", Some(toggle_body as _)), (u32::MAX, "probe", Some(toggle_body as _))] {
+            (BodyKind::toggle as u32, "a=b", Some(toggle_body as _)), (BodyKind::toggle as u32, "nobody", None), (41, "probe", Some(toggle_body as _)), (u32::MAX, "probe", Some(toggle_body as _))] {
             assert_eq!(register(kind, name, body), 0, "kind {kind} name {name:?} should be refused");
             assert!(!error(ui).is_empty());
         }

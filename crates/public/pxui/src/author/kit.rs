@@ -87,6 +87,63 @@ impl<'a> Tabs<'a> {
     pub const fn focus_on_click(mut self, focus: bool) -> Tabs<'a> { self.focus_on_click = focus; self }
 }
 
+/// The section index's accessible name and body variant used by [Ui::section_index].
+#[derive(Clone, Copy, Debug)]
+pub struct SectionIndex<'a> {
+    pub(crate) name: &'a str,
+    pub(crate) variant: u16,
+}
+
+impl<'a> SectionIndex<'a> {
+    /// An unnamed strip, the theme's `section_index` body with its default variant.
+    pub const DEFAULT: SectionIndex<'a> = SectionIndex { name: "", variant: 0 };
+
+    /// Names the strip for assistive technology (a slider named so).
+    ///
+    /// The name is borrowed for the build call.
+    /// Allocates: never.
+    /// Identity: The name supplies accessible text. The strip is identified by its key.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const INDEX: pxui::SectionIndex = pxui::SectionIndex::DEFAULT.name("Jump to letter");
+    /// ```
+    pub const fn name(mut self, name: &'a str) -> SectionIndex<'a> { self.name = name; self }
+
+    /// Selects the `section_index` body's `variant` (`PxuiSectionIndexConfig.variant`; 0 is the default).
+    ///
+    /// Allocates: never.
+    /// Identity: none; the strip is identified by its key.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const COMPACT: pxui::SectionIndex = pxui::SectionIndex::DEFAULT.variant(1);
+    /// ```
+    pub const fn variant(mut self, variant: u16) -> SectionIndex<'a> { self.variant = variant; self }
+}
+
+/// The disclosure's header variant used by [Ui::disclosure].
+#[derive(Clone, Copy, Debug)]
+pub struct Disclosure {
+    pub(crate) variant: u16,
+}
+
+impl Disclosure {
+    /// The theme's `inspector_section` body with its default variant.
+    pub const DEFAULT: Disclosure = Disclosure { variant: 0 };
+
+    /// Selects the variant the registered `inspector_section` body receives (an app's disclosure body builds its header by it).
+    ///
+    /// Zero uses the theme's variant.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const DRIVE: pxui::Disclosure = pxui::Disclosure::DEFAULT.variant(2);
+    /// ```
+    pub const fn variant(mut self, variant: u16) -> Disclosure { self.variant = variant; self }
+}
+
 /// The progress row's body and variant used by [Ui::progress].
 #[derive(Clone, Copy, Debug)]
 pub struct Progress {
@@ -154,13 +211,16 @@ impl Badge {
 }
 
 impl Ui {
-    /// Declares a kit checkbox (a row with the 12-point box and `text`) under the current parent and reports what happened to it.
+    /// Declares a kit checkbox (a row with the box, 12 points unless `Checkbox::size` says otherwise, and `text`) under the current parent and reports what happened to it.
+    ///
+    /// `Checkbox::disabled(true)` shows the disabled look and takes no press or focus; `Checkbox::passive(true)` makes a mark with no input of its own
+    /// (for a row that owns the press), whose `Response` never clicks.
     ///
     /// The row is the checkbox's node (role CheckBox, named `text`, CHECKABLE and CHECKED by `on`); the caller owns the value: `changed`
     /// (also `clicked`) is a press and release on the row or Enter/Space while it is focused, and the new value is `on != changed`.
     /// Allocates: never on a warm frame.
     /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); never the display text.
-    /// Panics: when the library refuses the call (outside a frame). A key over 256 bytes panics (a programmer error). Display text past 64 KiB is clipped at a character boundary, never refused.
+    /// Panics: when the library refuses the call (outside a frame, or a `Checkbox::size` that is negative or not finite). A key over 256 bytes panics (a programmer error). Display text past 64 KiB is clipped at a character boundary, never refused.
     ///
     /// ```
     /// use pxui::Checkbox;
@@ -174,7 +234,7 @@ impl Ui {
     /// ```
     #[inline]
     #[track_caller]
-    pub fn checkbox<K: Into<Key>>(&mut self, key: K, text: &str, on: bool, checkbox: &Checkbox) -> Response { self.checkbox_key(key.into(), text, on, checkbox) }
+    pub fn checkbox<K: Into<Key>>(&mut self, key: K, text: &str, on: bool, checkbox: &Checkbox<'_>) -> Response { self.checkbox_key(key.into(), text, on, checkbox) }
 
     /// Builds a radio group and reports its current choice and interaction.
     ///
@@ -239,6 +299,62 @@ impl Ui {
     #[track_caller]
     pub fn tabs<K: Into<Key>>(&mut self, key: K, items: &[Segment<'_>], selected: Option<usize>, tabs: &Tabs<'_>) -> PickResponse {
         self.pick_one_key(1, key.into(), tabs.name, items, selected, tabs.variant, tabs.focus_on_click)
+    }
+
+    /// Builds a vertical section index (the A–Z strip beside a long list) and reports the strip's response and the letter chosen this
+    /// frame.
+    ///
+    /// `letters` share the strip's height; a press or drag on it chooses the letter under the pointer, and the arrows, Home/End and an
+    /// assistive technology's value move the choice (the strip is a focusable slider over the letters, named by `SectionIndex::name`).
+    /// `chosen` is `Some(i)` while the pointer holds the strip, on its release and for a key or an assistive value, `None` when nothing
+    /// moved it, and `response.changed` says the same; `chosen_id` and `secondary` are `None`. Size it with its parent (it is as wide as a
+    /// control and as tall as the room it is given). An empty `letters` is a disabled strip. The letters are drawn by the `section_index`
+    /// body (`Ui::register_section_index_body`, `section_index.body = NAME` in a theme).
+    /// Allocates: never on a warm frame (up to 32 letters; more allocate a span).
+    /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); never a letter.
+    /// Panics: an invalid build (outside a frame), more than 4096 letters, or a key whose label exceeds 256 bytes. Display text past
+    /// 64 KiB is clipped at a character boundary, never refused.
+    ///
+    /// ```
+    /// use pxui::SectionIndex;
+    /// let mut letter = None;
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     const INDEX: SectionIndex = SectionIndex::DEFAULT.name("Jump to letter");
+    ///     letter = ui.section_index("index", &["A", "B", "C"], &INDEX).chosen;
+    /// });
+    /// assert_eq!(letter, None);
+    /// ```
+    #[inline]
+    #[track_caller]
+    pub fn section_index<K: Into<Key>>(&mut self, key: K, letters: &[&str], index: &SectionIndex<'_>) -> PickResponse {
+        self.section_index_key(key.into(), letters, index)
+    }
+
+    /// Builds a collapsible section: a header row showing `text` that a press (or Enter/Space while focused) toggles, and `f` under it
+    /// while open. The caller owns `open` and passes it back each frame.
+    ///
+    /// The response is the header's; `changed` (with `clicked`) is a toggle, so the new value is `open != changed`. The header is built
+    /// through the `inspector_section` body (the theme's section look and a chevron by default; a registered body or a theme file's
+    /// `inspector_section.body` replaces it, `Disclosure::variant` reaching its config), role Heading, named `text`, EXPANDABLE and
+    /// EXPANDED by `open`. `f` runs only while open, its nodes the header's following siblings.
+    /// Allocates: never on a warm frame.
+    /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); never the text.
+    /// Panics: an invalid build (outside a frame) or a key whose label exceeds 256 bytes; a panic in `f` follows the callback panic rule.
+    ///
+    /// ```
+    /// use pxui::Disclosure;
+    /// let mut open = false;
+    /// let mut build = |ui: &mut pxui::Ui| {
+    ///     if ui.disclosure("more", "More options", open, &Disclosure::DEFAULT, &mut |ui| { ui.label("Body", pxui::Label::BODY); }).changed { open = !open; }
+    /// };
+    /// let mut ui = pxui::doc::frames(1, &mut build);
+    /// pxui::testing::click(&mut ui, 20.0, 12.0, &mut build);
+    /// assert!(open);
+    /// ```
+    #[inline]
+    #[track_caller]
+    pub fn disclosure<K: Into<Key>>(&mut self, key: K, text: &str, open: bool, disclosure: &Disclosure, f: &mut dyn FnMut(&mut Ui)) -> Response {
+        self.disclosure_key(key.into(), text, open, disclosure.variant, f)
     }
 
     /// Builds a dropdown and reports the button interaction and current selection.

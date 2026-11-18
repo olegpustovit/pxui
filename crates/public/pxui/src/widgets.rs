@@ -3,7 +3,9 @@ use crate::{Key, PickResponse, PxuiBox, Response, Scrubber, Segment, SliderRespo
 use pxui_types::{ffi::{PxuiKeyedDesc, PxuiResponse, Slice}, theme::BodyKind, ui::Checkbox, Str};
 
 library!(keyed_lib {
-    fn pxui_ui_checkbox_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, on: u8, out: *mut PxuiResponse) -> i32;
+    fn pxui_ui_checkbox_response(ui: *mut PxuiUi, desc: *const pxui_types::ffi::PxuiCheckboxDesc, out: *mut PxuiResponse) -> i32;
+    fn pxui_ui_section_index_result(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, letters: Slice<Str>, out: *mut PxuiResponse, result: *mut pxui_types::ffi::PxuiSegmentedResult) -> i32;
+    fn pxui_ui_disclosure(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, open: u8, build: pxui_types::ffi::UiBuild, user: *mut core::ffi::c_void, out: *mut PxuiResponse) -> i32;
     fn pxui_ui_slider_result(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, value: f32, min: f32, max: f32, out: *mut PxuiResponse, result: *mut pxui_types::ffi::PxuiScrubOut) -> i32;
     fn pxui_ui_pick(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, kind: u32, items: Slice<pxui_types::ffi::PxuiPickItem>, has_selected: u8, selected: usize, out: *mut PxuiResponse, result: *mut pxui_types::ffi::PxuiSegmentedResult) -> i32;
     fn pxui_ui_tabs_result(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, items: Slice<pxui_types::ffi::PxuiPickItem>, has_selected: u8, selected: usize, focus_on_click: u8, out: *mut PxuiResponse, result: *mut pxui_types::ffi::PxuiSegmentedResult) -> i32;
@@ -86,18 +88,68 @@ impl Ui {
         slider_response(&response, &out, value.clamp(*range.start(), *range.end()))
     }
 
-    /// The one body of `checkbox`: the key's label and the text apart in a `PxuiKeyedDesc`, the variant around the call.
+    /// The one body of `checkbox`: linked statically, the library's trusted entry with the style as it is; else the style, key and text
+    /// in one `PxuiCheckboxDesc` (the looks as six look records on the stack). The variant around the call.
     #[track_caller]
-    pub(crate) fn checkbox_key(&mut self, key: Key, text: &str, on: bool, checkbox: &Checkbox) -> Response {
+    pub(crate) fn checkbox_key(&mut self, key: Key, text: &str, on: bool, checkbox: &Checkbox<'_>) -> Response {
         let mut id_label = [0u8; 17];
         let label = key.label(&mut id_label);
         let mut out = PxuiResponse::EMPTY;
         #[cfg(feature = "static")]
-        self.with_variant(BodyKind::checkbox, checkbox.variant, &mut |ui| check(ui, unsafe { pxui_abi_link::trusted::checkbox(ui.0.as_ptr(), label, text, on, &Checkbox::DEFAULT, &mut out) }));
+        self.with_variant(BodyKind::checkbox, checkbox.variant, &mut |ui| check(ui, unsafe { pxui_abi_link::trusted::checkbox(ui.0.as_ptr(), label, text, on, checkbox, &mut out) }));
+        #[cfg(not(feature = "static"))]
+        {
+            let look = checkbox.look.map(crate::kit_ext::six);
+            let desc = pxui_types::ffi::PxuiCheckboxDesc {
+                size: core::mem::size_of::<pxui_types::ffi::PxuiCheckboxDesc>() as u32, disabled: checkbox.disabled as u8, on: on as u8, passive: checkbox.passive as u8,
+                reserved: 0, box_size: checkbox.size.unwrap_or(0.0), look: look.as_ref().map_or(core::ptr::null(), |l| l.as_ptr()), key: crate::as_str(label), text: crate::as_str(crate::clip(text)),
+            };
+            self.with_variant(BodyKind::checkbox, checkbox.variant, &mut |ui| check(ui, unsafe { keyed_lib::pxui_ui_checkbox_response(ui.0.as_ptr(), &desc, &mut out) }));
+        }
+        let mut r = crate::kit_ext::response(&out);
+        r.changed = r.clicked;
+        r
+    }
+
+    /// The one body of `section_index`: one library call with the letters as a span (on the stack up to 32) and the name in the keyed
+    /// descriptor.
+    #[track_caller]
+    pub(crate) fn section_index_key(&mut self, key: Key, letters: &[&str], index: &crate::SectionIndex<'_>) -> PickResponse {
+        let (name, variant) = (index.name, index.variant);
+        let mut id_label = [0u8; 17];
+        let label = key.label(&mut id_label);
+        let mut out = PxuiResponse::EMPTY;
+        #[cfg(feature = "static")]
+        let chosen = {
+            let mut chosen = None;
+            self.with_variant(BodyKind::section_index, variant, &mut |ui| check(ui, unsafe { pxui_abi_link::trusted::section_index(ui.0.as_ptr(), label, name, letters, &mut out, &mut chosen) }));
+            chosen
+        };
+        #[cfg(not(feature = "static"))]
+        let chosen = {
+            let keyed = PxuiKeyedDesc::new(label, crate::clip(name));
+            let letters = crate::Strs::new(letters);
+            let mut result = pxui_types::ffi::PxuiSegmentedResult::EMPTY;
+            self.with_variant(BodyKind::section_index, variant, &mut |ui| check(ui, unsafe { keyed_lib::pxui_ui_section_index_result(ui.0.as_ptr(), &keyed, letters.span(), &mut out, &mut result) }));
+            (result.has_chosen != 0).then_some(result.chosen as usize)
+        };
+        let mut response = crate::kit_ext::response(&out);
+        response.changed = chosen.is_some();
+        PickResponse { response, chosen, chosen_id: None, secondary: None }
+    }
+
+    /// The one body of `disclosure`: the section engine with the caller's `open`, the variant given to the `inspector_section` body.
+    #[track_caller]
+    pub(crate) fn disclosure_key(&mut self, key: Key, text: &str, open: bool, variant: u16, mut f: &mut dyn FnMut(&mut Ui)) -> Response {
+        let mut id_label = [0u8; 17];
+        let label = key.label(&mut id_label);
+        let mut out = PxuiResponse::EMPTY;
+        #[cfg(feature = "static")]
+        self.with_variant(BodyKind::inspector_section, variant, &mut |ui| check(ui, unsafe { pxui_abi_link::trusted::disclosure(ui.0.as_ptr(), label, text, open, inner!(|ui: &mut Ui| f(ui)), &mut out) }));
         #[cfg(not(feature = "static"))]
         {
             let keyed = PxuiKeyedDesc::new(label, crate::clip(text));
-            self.with_variant(BodyKind::checkbox, checkbox.variant, &mut |ui| check(ui, unsafe { keyed_lib::pxui_ui_checkbox_keyed(ui.0.as_ptr(), &keyed, on as u8, &mut out) }));
+            self.with_variant(BodyKind::inspector_section, variant, &mut |ui| check(ui, unsafe { keyed_lib::pxui_ui_disclosure(ui.0.as_ptr(), &keyed, open as u8, Some(crate::composite::call), &mut f as *mut _ as *mut core::ffi::c_void, &mut out) }));
         }
         let mut r = crate::kit_ext::response(&out);
         r.changed = r.clicked;

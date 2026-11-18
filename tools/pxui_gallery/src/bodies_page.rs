@@ -1,16 +1,17 @@
-//! The Bodies page: five widget bodies written against the public wrapper (`Ui::register_*_body`, `Ui::part`, `Ui::slot`) and picked by
+//! The Bodies page: seven widget bodies written against the public wrapper (`Ui::register_*_body`, `Ui::part`, `Ui::slot`) and picked by
 //! a theme text (`THEME_LINES`: `toggle.body = checkbox`, ...). A checkbox-style toggle, a slider with a round thumb, a segmented control
-//! whose marker slides, a table whose rows are ruled and whose cells hold widgets, and a search field with an icon and a clear button.
+//! whose marker slides, a table whose rows are ruled and whose cells hold widgets, a search field with an icon and a clear button, and a
+//! section index whose letters are pills, the active one filled, and a disclosure whose header is its text after a + or - sign.
 //! The page itself is plain widget calls: with the bodies not selected it draws the built-in widgets, with them the proof bodies.
 //! Not in `PAGES`: it needs the wrapper (the pages there also compile against the engine for the A7 bench).
-use pxui::bodies::{BodyConfig, SearchFieldConfig, SegmentedConfig, SliderConfig, ToggleConfig, TableRowConfig};
+use pxui::bodies::{BodyConfig, InspectorSectionConfig, SearchFieldConfig, SectionIndexConfig, SegmentedConfig, SliderConfig, ToggleConfig, TableRowConfig};
 use pxui::theme::{Look, State};
 use pxui::{Overlay, Part, SearchField, Ui};
 use pxui_types::Flags;
 use pxui_types::{ffi::PxuiStateDesc, geom::Edges, layout::Align, Axis, Node, Size};
 
 /// The theme lines that select the proof bodies, on top of any base theme text.
-pub const THEME_LINES: &str = "toggle.body = checkbox\nslider.body = round\nsegmented.body = sliding\ntable_row.body = ruled\nsearch_field.body = boxed\n";
+pub const THEME_LINES: &str = "toggle.body = checkbox\nslider.body = round\nsegmented.body = sliding\ntable_row.body = ruled\nsearch_field.body = boxed\nsection_index.body = pills\ninspector_section.body = signed\n";
 
 /// The page's state.
 pub struct BodiesPage {
@@ -25,11 +26,13 @@ pub struct BodiesPage {
     pub widths: [f32; 2],
     pub selected: Option<usize>,
     pub flags: [bool; 3],
+    pub letter: usize,
+    pub more: bool,
 }
 
 impl BodiesPage {
     pub fn new(custom: bool) -> BodiesPage {
-        BodiesPage { custom, dirty: false, wifi: true, volume: 0.6, align: 1, query: String::new(), widths: [120.0, 120.0], selected: Some(1), flags: [true, false, true] }
+        BodiesPage { custom, dirty: false, wifi: true, volume: 0.6, align: 1, query: String::new(), widths: [120.0, 120.0], selected: Some(1), flags: [true, false, true], letter: 0, more: true }
     }
 
     /// The theme text the host applies (`Ui::set_theme`): `base` (a theme file's text, or none), then the body lines when `custom`.
@@ -113,6 +116,33 @@ fn boxed_search(ui: &mut Ui, c: &SearchFieldConfig) {
     }
 }
 
+/// A section index whose letters are 16-point pills down the strip, the active one filled with the accent.
+fn pill_index(ui: &mut Ui, c: &SectionIndexConfig) {
+    let (text, accent) = { let t = ui.theme(); (t.row.idle.text, t.tokens.accent) };
+    for i in 0..c.letters.len {
+        let active = c.has_active != 0 && c.active == i;
+        let look = Look { fill: if active { accent } else { Look::NONE.fill }, text, radius: [8.0; 4], ..Look::NONE };
+        let pill = ui.node(i as i64, Node { w: Size::Px(16.0), h: Size::Px(16.0), look, ..Node::DEFAULT });
+        ui.text(&pill, c.text_at(&c.letters, i));
+    }
+}
+
+/// A disclosure whose header row is a + (closed) or - (open) sign before its text; the content is built under it while open.
+fn signed_section(ui: &mut Ui, c: &InspectorSectionConfig) {
+    let text = ui.theme().row.idle.text;
+    let open = c.open != 0;
+    let mut row = ui.node_layout(&c.title);
+    (row.axis, row.align) = (Axis::Row, Align::Center);
+    ui.set_node_layout(&c.title, &row);
+    ui.within(&c.title, &mut |ui: &mut Ui| {
+        let sign = ui.node("sign", Node { w: Size::Px(16.0), h: Size::Px(16.0), look: Look { text, ..Look::NONE }, ..Node::DEFAULT });
+        ui.text(&sign, if open { "-" } else { "+" });
+        let label = ui.node("text", Node { h: Size::Px(16.0), look: Look { text, ..Look::NONE }, ..Node::DEFAULT });
+        ui.text(&label, c.text_of(&c.label));
+    });
+    if open { ui.slot(c.content); }
+}
+
 /// Registers the proof bodies; `THEME_LINES` selects them. Once, before the theme that names them is applied.
 pub fn register(ui: &mut Ui) -> Result<(), pxui::Error> {
     ui.register_toggle_body("checkbox", checkbox_toggle)?;
@@ -120,10 +150,13 @@ pub fn register(ui: &mut Ui) -> Result<(), pxui::Error> {
     ui.register_segmented_body("sliding", sliding_segment)?;
     ui.register_table_row_body("ruled", ruled_row)?;
     ui.register_search_field_body("boxed", boxed_search)?;
+    ui.register_section_index_body("pills", pill_index)?;
+    ui.register_inspector_section_body("signed", signed_section)?;
     Ok(())
 }
 
 const NAMES: [&str; 3] = ["Wi-Fi", "Bluetooth", "Hotspot"];
+const LETTERS: [&str; 6] = ["A", "B", "C", "D", "E", "F"];
 
 /// The page: the widgets the proof bodies replace, as plain calls.
 pub fn page(ui: &mut Ui, s: &mut BodiesPage) {
@@ -135,6 +168,9 @@ pub fn page(ui: &mut Ui, s: &mut BodiesPage) {
         s.volume = ui.slider("volume", "Volume", s.volume, 0.0..=1.0, &pxui::Slider::DEFAULT).value;
         s.align = ui.segmented("align", &[pxui::Segment::new("Left"), pxui::Segment::new("Centre"), pxui::Segment::new("Right")], Some(s.align), &pxui::Segmented::DEFAULT.name("Align")).chosen.unwrap_or(s.align);
         if let Some(v) = ui.search_field("find", &s.query, &SearchField::DEFAULT.icon("?").placeholder("Search").name("Find")).changed { s.query = v.to_owned(); }
+        let strip = ui.node("letters", Node { h: Size::Px(112.0), axis: Axis::Row, ..Node::DEFAULT });
+        ui.within(&strip, &mut |ui: &mut Ui| { s.letter = ui.section_index("index", &LETTERS, &pxui::SectionIndex::DEFAULT.name("Jump to")).chosen.unwrap_or(s.letter); });
+        s.more = ui.disclosure("more", "More", s.more, &pxui::Disclosure::DEFAULT, &mut |ui: &mut Ui| { ui.label("Shown while open", pxui::Label::DEFAULT); }).changed != s.more;
     });
     ui.panel("table", &Overlay::DEFAULT.at(pxui_types::geom::Point::new(332.0, 12.0)).w_px(296.0).window(), &mut |ui: &mut Ui| {
         let (widths, selected, flags) = (&mut s.widths, &mut s.selected, &mut s.flags);

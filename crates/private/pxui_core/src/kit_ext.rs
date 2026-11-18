@@ -672,7 +672,15 @@ impl Ui {
     /// A collapsible inspector section. Returns whether it is open (and `f` ran).
     pub fn inspector_section(&mut self, key: &str, expanded: bool, set_expanded: Option<bool>, label: &str, f: &mut dyn FnMut(&mut Ui)) -> bool {
         let at = self.section_place();
-        self.section_at(at, key, expanded, set_expanded, label, f)
+        self.section_at(at, key, expanded, set_expanded, label, f).0
+    }
+
+    /// A collapsible section: a header row showing `text` that a press (or Enter/Space while focused) toggles, built through the
+    /// `inspector_section` body, then `f` under it while open. The caller owns `open` and passes it back each frame; the response is the
+    /// header's, `clicked` when this frame's input toggled it (the new value is `!open`).
+    pub fn disclosure(&mut self, key: &str, text: &str, open: bool, f: &mut dyn FnMut(&mut Ui)) -> Response {
+        let at = self.section_place();
+        self.section_at(at, key, open, Some(open), text, f).1
     }
 
     /// Where a section starts: first in its parent, and right after a closed section.
@@ -693,7 +701,7 @@ impl Ui {
         let revision = key_of(key_of(revision as i64 ^ (flags as i64).rotate_left(48) ^ carrying as i64, label), "") as u64;
         let mut built = None;
         let view = self.view(key, revision, Size::Grow, Size::Fit, &mut |ui| {
-            built = Some(ui.section_at(at, key, expanded, set_expanded, label, f));
+            built = Some(ui.section_at(at, key, expanded, set_expanded, label, f).0);
         });
         let open = match built {
             Some(open) => {
@@ -708,7 +716,7 @@ impl Ui {
         open
     }
 
-    fn section_at(&mut self, at: (bool, bool), key: &str, expanded: bool, set_expanded: Option<bool>, label: &str, f: &mut dyn FnMut(&mut Ui)) -> bool {
+    fn section_at(&mut self, at: (bool, bool), key: &str, expanded: bool, set_expanded: Option<bool>, label: &str, f: &mut dyn FnMut(&mut Ui)) -> (bool, Response) {
         let rh = self.row_px() as f32;
         let title = self.box_(key, BoxOpts::default().flags(Flags::CLICKABLE | Flags::TAB_STOP).w(Size::Grow).h(Size::Px(rh)));
         let open = self.state(&title, if expanded { 1 } else { 0 }) != 0;
@@ -726,7 +734,7 @@ impl Ui {
         self.set_role(&title, Role::Heading, st::EXPANDABLE | if open { st::EXPANDED } else { 0 });
         let config = SectionConfig { title, open, gap };
         in_place!(self, title.box_key, inspector_section, default_section(&config, label, f));
-        open
+        (open, Response::of(&signal, self.focused(&title), title))
     }
 
     /// The retained state of an inspector section built in the current parent, by its key.

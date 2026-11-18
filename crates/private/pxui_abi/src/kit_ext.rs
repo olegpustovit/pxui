@@ -7,7 +7,7 @@ use crate::trusted;
 use crate::{PXUI_ERR_ARGUMENT, PxuiBox, PxuiSignal, Str};
 use core::{cell::Cell, ffi::c_void};
 use pxui_core::ui::{Along, Axis, Edges, HeadAction, Justify, LineStep, Rect, Size, State, States, Ui};
-use pxui_types::{geom::{Point, Rgba}, ffi::{PxuiButtonBuild, PxuiButtonDesc, PxuiIconButtonDesc, PxuiStateDesc, PxuiResponse, PxuiPickItem, PxuiSegmentedDesc, PxuiSegmentedResult, PxuiToggleDesc, PxuiHeadActionDesc, PxuiHeadOut, PxuiHeaderDesc, PxuiPopupDesc, Slice}};
+use pxui_types::{geom::{Point, Rgba}, ffi::{PxuiButtonBuild, PxuiButtonDesc, PxuiIconButtonDesc, PxuiStateDesc, PxuiResponse, PxuiPickItem, PxuiSegmentedDesc, PxuiSegmentedResult, PxuiToggleDesc, PxuiCheckboxDesc, PxuiHeadActionDesc, PxuiHeadOut, PxuiHeaderDesc, PxuiPopupDesc, Slice}};
 use std::rc::Rc;
 
 const MAX_ACTIONS: usize = 256;
@@ -186,6 +186,20 @@ export!(trusted pub unsafe fn pxui_ui_toggle_response(ui: *mut PxuiUi, desc: *co
         _ => match crate::ui::label_style(&d.style) { Some((label, false)) => Some(label), _ => return unsafe { fail(ui, "invalid toggle label style") } },
     };
     unsafe { trusted::toggle_with(ui, key, text, d.on != 0, track.as_ref(), knob.as_ref(), d.row_h, d.switch_w, d.switch_h, d.inset, d.press_row != 0, detail, label.as_ref(), d.enabled != 0, out) }
+});
+
+// ABI 1.85: the kit checkbox with its style (`PxuiCheckboxDesc`: size, looks, disabled, passive), reporting into one `PxuiResponse`; a
+// click flips `on`, which the caller keeps. Every field is checked before the build.
+export!(trusted pub unsafe fn pxui_ui_checkbox_response(ui: *mut PxuiUi, desc: *const PxuiCheckboxDesc, out: *mut PxuiResponse) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    if desc.is_null() { return unsafe { fail(ui, "null checkbox argument") }; }
+    let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short checkbox response") } };
+    let Some(d) = read_desc!(desc, PxuiCheckboxDesc) else { return unsafe { fail(ui, "invalid checkbox descriptor") }; };
+    if d.disabled > 1 || d.on > 1 || d.passive > 1 || d.reserved != 0 || !(0.0..=f32::MAX).contains(&d.box_size) { return unsafe { fail(ui, "invalid checkbox descriptor") }; }
+    let (Some(key), Some(text)) = (unsafe { crate::state::checked_key(d.key) }, unsafe { checked(d.text) }) else { return unsafe { fail(ui, "invalid checkbox text") } };
+    let Ok(look) = (unsafe { looks(d.look) }) else { return unsafe { fail(ui, "invalid checkbox looks") } };
+    let style = pxui_types::ui::Checkbox { variant: 0, size: (d.box_size > 0.0).then_some(d.box_size), look: look.as_ref(), disabled: d.disabled != 0, passive: d.passive != 0 };
+    unsafe { trusted::checkbox(ui, key, text, d.on != 0, &style, out) }
 });
 
 // ABI 1.51: the plain kit segmented control (`Segmented::DEFAULT`) keyed by `key`, named `name`; `chosen` receives the choice.

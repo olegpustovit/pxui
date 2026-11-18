@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 84
+minor 85
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -117,6 +117,7 @@ function pxui_ui_carry int32_t pxui_ui_carry ( PxuiUi * ui , uint8_t has_from , 
 function pxui_ui_carrying int32_t pxui_ui_carrying ( PxuiUi * ui , uint8_t * present , PxuiStr * kind , PxuiStr * value ) ;
 function pxui_ui_checkbox int32_t pxui_ui_checkbox ( PxuiUi * ui , PxuiStr label , uint8_t value , uint8_t * out ) ;
 function pxui_ui_checkbox_keyed int32_t pxui_ui_checkbox_keyed ( PxuiUi * ui , const PxuiKeyedDesc * keyed , uint8_t on , PxuiResponse * out ) ;
+function pxui_ui_checkbox_response int32_t pxui_ui_checkbox_response ( PxuiUi * ui , const PxuiCheckboxDesc * desc , PxuiResponse * out ) ;
 function pxui_ui_choice_keyed int32_t pxui_ui_choice_keyed ( PxuiUi * ui , const PxuiKeyedDesc * keyed , uint32_t kind , PxuiStrSpan options , size_t selected , PxuiResponse * out , size_t * chosen ) ;
 function pxui_ui_color PxuiColor pxui_ui_color ( PxuiUi * ui , uint16_t token ) ;
 function pxui_ui_content_rect int32_t pxui_ui_content_rect ( PxuiUi * ui , PxuiRect * out ) ;
@@ -129,6 +130,7 @@ function pxui_ui_destroy int32_t pxui_ui_destroy ( PxuiUi * ui ) ;
 function pxui_ui_dialog int32_t pxui_ui_dialog ( PxuiUi * ui , PxuiStr title , PxuiStrSpan buttons , PxuiBuild build , void * user , PxuiDialogOut * out ) ;
 function pxui_ui_dialog_response int32_t pxui_ui_dialog_response ( PxuiUi * ui , const PxuiDialogDesc * desc , PxuiBuild build , void * user , PxuiDialogResult * out ) ;
 function pxui_ui_disabled int32_t pxui_ui_disabled ( PxuiUi * ui , uint8_t disabled , PxuiBuild build , void * user ) ;
+function pxui_ui_disclosure int32_t pxui_ui_disclosure ( PxuiUi * ui , const PxuiKeyedDesc * keyed , uint8_t open , PxuiBuild build , void * user , PxuiResponse * out ) ;
 function pxui_ui_dismiss int32_t pxui_ui_dismiss ( PxuiUi * ui , const PxuiBox * box , const PxuiDismissIn * in , PxuiDismissOut * out ) ;
 function pxui_ui_dismiss_popup int32_t pxui_ui_dismiss_popup ( PxuiUi * ui ) ;
 function pxui_ui_draw int32_t pxui_ui_draw ( PxuiUi * ui , const PxuiBox * box , uint8_t over , PxuiPaintBuild build , void * user , PxuiPaintRelease release ) ;
@@ -236,6 +238,7 @@ function pxui_ui_scrub int32_t pxui_ui_scrub ( PxuiUi * ui , PxuiStr label , flo
 function pxui_ui_scrub_result int32_t pxui_ui_scrub_result ( PxuiUi * ui , PxuiStr label , float value , float min , float max , float step , PxuiResponse * response , PxuiScrubOut * out ) ;
 function pxui_ui_search_field int32_t pxui_ui_search_field ( PxuiUi * ui , PxuiStr label , PxuiStr icon , PxuiStr value , PxuiStr placeholder , uint8_t * changed , PxuiStr * out ) ;
 function pxui_ui_search_field_response int32_t pxui_ui_search_field_response ( PxuiUi * ui , PxuiStr label , PxuiStr icon , PxuiStr value , PxuiStr placeholder , PxuiStr name , uint8_t * changed , PxuiStr * out , PxuiResponse * response ) ;
+function pxui_ui_section_index_result int32_t pxui_ui_section_index_result ( PxuiUi * ui , const PxuiKeyedDesc * keyed , PxuiStrSpan letters , PxuiResponse * out , PxuiSegmentedResult * result ) ;
 function pxui_ui_section_list int32_t pxui_ui_section_list ( PxuiUi * ui , const PxuiSectionListDesc * desc , PxuiBox * out ) ;
 function pxui_ui_section_list_measured int32_t pxui_ui_section_list_measured ( PxuiUi * ui , const PxuiMeasuredSectionDesc * desc , PxuiBox * out ) ;
 function pxui_ui_segmented int32_t pxui_ui_segmented ( PxuiUi * ui , PxuiStr label , PxuiStrSpan options , size_t selected , size_t * out ) ;
@@ -362,7 +365,8 @@ layout PxuiBoxDesc 112 8 0 4 8 16 32 48 52 56 60 61 62 64 72 88 96 104
 layout PxuiButtonConfig 464 8 0 4 12 13 14 16 48 80 88 104 105 106 107 108 112 116 132 134 135 144 145 146 147 148 152 216 232 248 256 264 280 296 297 298 304 368 384 448
 layout PxuiButtonDesc 424 8 0 4 5 6 7 8 9 10 11 12 16 20 40 48 64 80 96 97 104 105 106 107 108 112 176 192 208 216 224 240 256 257 258 264 328 344 408
 layout PxuiCell 8 2 0 2 4 6
-layout PxuiCheckConfig 72 8 0 4 12 16 48 64
+layout PxuiCheckConfig 88 8 0 4 12 16 48 64 72 80 84 85
+layout PxuiCheckboxDesc 56 8 0 4 5 6 7 8 16 24 40
 layout PxuiColorSpan 24 8 0 8 16 20
 layout PxuiCompletion 80 8 0 8 16 32 48 64
 layout PxuiCurve 140 4 0 4
@@ -473,7 +477,7 @@ layout PxuiTargetDesc 32 4 0 4 8 9 12 16 20 24 28
 layout PxuiTextAreaDesc 200 8 0 4 8 12 16 20 24 32 40 56 72 88 104 120 136 152 168 184
 layout PxuiTextFieldConfig 88 8 0 4 16 48 64 80
 layout PxuiTextFieldDesc 56 8 0 4 5 6 7 8 24 40
-layout PxuiThemeSnapshot 56888 8 0 136 140 144 156 160 168 56808
+layout PxuiThemeSnapshot 56896 8 0 136 140 144 156 160 168 56808
 layout PxuiThemeTokens 136 8 0 4 8 12 16 20 24 28 32 33 36 52 64 72 80 88 96 124 125 128
 layout PxuiTipConfig 72 8 0 4 8 16 48 64
 layout PxuiToastConfig 72 8 0 4 16 48 64

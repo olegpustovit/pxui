@@ -97,7 +97,7 @@ arg!(sized: PxuiTextFieldDesc, Environment, Gpu, Keyboard, Pass, pxui_text::Text
     PxuiSaved, PxuiScrubOut, PxuiSectionListDesc, PxuiSignal, PxuiSplitDesc, PxuiStateDesc, PxuiSwipeIn, PxuiTableDesc, PxuiTableViewDesc,
     PxuiTableViewWithDesc, PxuiTreeViewDesc, PxuiTreeViewWithDesc, PxuiValueFieldDesc, ThemeSource, ThemeTokens, FrameIn, FrameOut, Image, Node, PxuiPanel,
     PxuiTargetDesc, PxuiUiDesc, TextMetrics, PxuiTextStyle, PxuiAnchorDesc, PxuiAreaCallbacks, PxuiDialogOut, PxuiLabelBox, PxuiMarkDesc, PxuiSegmentedDesc,
-    PxuiTextAreaDesc, PxuiTextInputOptions, PxuiToggleDesc, Span, TextGlyph);
+    PxuiTextAreaDesc, PxuiTextInputOptions, PxuiToggleDesc, PxuiCheckboxDesc, Span, TextGlyph);
 arg!(plain: u16, *mut PxuiRenderer, u8, u32, u64, i64, usize, f32, c_void, Str, geom::Rgba, geom::Rect, geom::Point, *const u32, *mut PxuiPreparedText, A11yTree, Slice<A11yAction>);
 arg!(null: PxuiRenderer, PxuiPaint, PxuiPreparedText, PxuiA11y, PxuiTextWorker);
 arg!(none: UiBuild, PxuiGridBuild, PxuiButtonBuild, PxuiBodyFn, crate::paint::PaintBuild, crate::paint::PaintRelease, crate::paint::SpanBuild,
@@ -235,7 +235,7 @@ fuzz!(
     pxui_ui_button_content/5, pxui_ui_button_plain/4, pxui_ui_button_response/5, pxui_ui_button_styled/8, pxui_ui_button_with/7, pxui_ui_bytes/3,
     pxui_ui_cached_label/5, pxui_ui_calls/1, pxui_ui_cancel_carry/1, pxui_ui_cap_width/3, pxui_ui_captured/1, pxui_ui_carry/5, pxui_ui_carrying/4, pxui_ui_checkbox/4, pxui_ui_checkbox_keyed/4, pxui_ui_choice_keyed/7, pxui_ui_slider_keyed/7, pxui_ui_progress_keyed/5, pxui_ui_spinner_keyed/3,
     pxui_ui_badge_keyed/4, pxui_ui_panel_keyed/5, pxui_ui_popup_keyed/6, pxui_ui_modal_keyed/7, pxui_ui_anchored_keyed/8, pxui_ui_scroll_view_keyed/7, pxui_ui_scroll_view_node/6, pxui_ui_view_keyed/6,
-    pxui_ui_toasts_keyed/6, pxui_ui_table_view_keyed/6, pxui_ui_table_view_rows/7, pxui_ui_picker_keyed/13,
+    pxui_ui_toasts_keyed/6, pxui_ui_table_view_keyed/6, pxui_ui_table_view_rows/7, pxui_ui_picker_keyed/13, pxui_ui_checkbox_response/3, pxui_ui_section_index_result/5, pxui_ui_disclosure/6,
     pxui_ui_color/2, pxui_ui_content_rect/2, pxui_ui_context_at/4, pxui_ui_context_menu/13, pxui_ui_density/1,
     pxui_ui_dialog/6, pxui_ui_dialog_response/5, pxui_ui_disabled/4, pxui_ui_dismiss/4, pxui_ui_dismiss_popup/1, pxui_ui_draw/6,
     pxui_ui_drop_target/5, pxui_ui_dropdown/5, pxui_ui_enter/3, pxui_ui_environment/2, pxui_ui_expanded/3, pxui_ui_field_drag/4, pxui_ui_focus_box/2,

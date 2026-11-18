@@ -338,6 +338,8 @@ pub unsafe fn checkbox(ui: *mut PxuiUi, key: &str, text: &str, on: bool, checkbo
     enter!(ui);
     let text = clip(text);
     if bad_key(key) { return unsafe { fail(ui, "invalid checkbox text") }; }
+    // finite and not negative: NaN and infinity fail the compare
+    if checkbox.size.is_some_and(|side| !(0.0..=f32::MAX).contains(&side)) { return unsafe { fail(ui, "invalid checkbox size") }; }
     let r = unsafe { engine(ui) }.checkbox(key, text, on, checkbox);
     respond(&r, out);
     0
@@ -416,6 +418,46 @@ pub unsafe fn slider_result(ui: *mut PxuiUi, key: &str, text: &str, value: f32, 
     respond(&r, out);
     *scrub = pxui_types::ffi::PxuiScrubOut { flags: u32::from(preview.is_some()) | u32::from(commit.is_some()) << 1 | u32::from(r.held) << 2, node: to_abi_box(r.handle),
         preview: preview.unwrap_or(v), commit: commit.unwrap_or_default(), ..Default::default() };
+    0
+}
+
+/// The kit section index keyed by `key`, named `name`, its `letters` sharing the strip's height; `chosen` is the letter chosen this frame
+/// (`None` when nothing moved it).
+#[inline]
+pub unsafe fn section_index(ui: *mut PxuiUi, key: &str, name: &str, letters: &[&str], out: &mut PxuiResponse, chosen: &mut Option<usize>) -> i32 {
+    enter!(ui);
+    let name = clip(name);
+    let mut spare = Vec::new();
+    let letters = clip_strs(letters, &mut spare);
+    if bad_key(key) || !options_ok(letters) { return unsafe { fail(ui, "invalid widget strings") }; }
+    unsafe { section_index_body(ui, key, name, letters, out, chosen) }
+}
+
+/// `section_index` for `pxui_ui_section_index_result`, which has checked the key, the name and every letter as C hands them over.
+#[inline]
+pub(crate) unsafe fn section_index_checked(ui: *mut PxuiUi, key: &str, name: &str, letters: &[&str], out: &mut PxuiResponse, chosen: &mut Option<usize>) -> i32 {
+    enter!(ui);
+    unsafe { section_index_body(ui, key, name, letters, out, chosen) }
+}
+
+#[inline(always)]
+unsafe fn section_index_body(ui: *mut PxuiUi, key: &str, name: &str, letters: &[&str], out: &mut PxuiResponse, chosen: &mut Option<usize>) -> i32 {
+    let (r, at) = unsafe { engine(ui) }.section_index(key, name, letters);
+    respond(&r, out);
+    *chosen = at;
+    0
+}
+
+/// The disclosure keyed by `key` showing `text`: `open` is the caller's value, `f` builds the content while open; `out` is the header's
+/// response (`changed` when this frame's input toggled it).
+#[inline]
+pub unsafe fn disclosure(ui: *mut PxuiUi, key: &str, text: &str, open: bool, f: Inner, out: &mut PxuiResponse) -> i32 {
+    enter!(ui);
+    let text = clip(text);
+    if bad_key(key) { return unsafe { fail(ui, "invalid disclosure text") }; }
+    let shared = unsafe { (*ui).shared };
+    let r = unsafe { engine(ui) }.disclosure(key, text, open, &mut |engine: &mut Ui| call_inner(shared, engine, f));
+    respond(&r, out);
     0
 }
 

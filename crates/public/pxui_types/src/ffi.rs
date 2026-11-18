@@ -1306,6 +1306,33 @@ pub struct PxuiToggleDesc {
     pub style: PxuiLabelStyle,
 }
 
+/// ABI 1.85: a kit checkbox with its style (`pxui_ui_checkbox_response`; all zero but `size`, `key` and `text` is the plain checkbox).
+/// `box_size` 0 is the kit's 12-point box; `look` null is the theme's checkbox, else six looks (idle, hover, pressed, focus, disabled,
+/// checked); `disabled` 1 shows the disabled look and blocks presses and focus; `passive` 1 makes a mark with no input of its own. A click
+/// is reported and the caller keeps `on`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct PxuiCheckboxDesc {
+    /// Size of this record in bytes.
+    pub size: u32,
+    /// 0 or 1: the checkbox takes no input.
+    pub disabled: u8,
+    /// 0 or 1: the value now.
+    pub on: u8,
+    /// 0 or 1: a passive mark (no hit area, focus or hover; with empty text the box alone).
+    pub passive: u8,
+    /// Zero.
+    pub reserved: u8,
+    /// The box's side in points (finite, not negative; 0 the kit's 12).
+    pub box_size: f32,
+    /// Null for the theme's checkbox, else six looks.
+    pub look: *const PxuiLookDesc,
+    /// The checkbox's key (identity only, as `PxuiKeyedDesc.key`).
+    pub key: Str,
+    /// The text beside the box and the accessible name.
+    pub text: Str,
+}
+
 /// A kit segmented control with options (`segmented_result`, `segmented_response`); the options go beside it as a slice of strings. `h` 0 is the theme's control
 /// height; `states` null is the theme's segment, else six looks (idle, hover, pressed, focus, disabled, checked).
 #[repr(C)]
@@ -1913,7 +1940,18 @@ configs! {
         press: *const crate::Curve,
     }
     /// A checkbox or a radio option.
-    PxuiCheckConfig { state: PxuiStateDesc, on: u8, row: PxuiBox, label: Str }
+    PxuiCheckConfig { state: PxuiStateDesc, on: u8, row: PxuiBox, label: Str } @variant {
+        /// ABI 1.85 (read when `size` covers it): the box's look per state (`pick(checked)`): the caller's (`Checkbox::look`) or the
+        /// theme's; valid for the call.
+        states: *const PxuiStates,
+        /// The box's side in points (`Checkbox::size`; 12 unless the caller asked for another).
+        box_size: f32,
+        /// 1 for a passive mark (`Checkbox::passive`): the row is a plain node that takes no input, and with empty text the body builds
+        /// no label.
+        passive: u8,
+        /// Zero.
+        reserved2: [u8; 3],
+    }
     PxuiSpinnerConfig { node: PxuiBox, label: Str }
     PxuiBadgeConfig { node: PxuiBox, label: Str, text: Str }
     /// The record grows at its end in ABI 1.45 by `style`, the label's style as the caller gave it (unset fields: the theme's);
@@ -2104,6 +2142,7 @@ pub(crate) mod layout {
         check("PxuiResponse", size_of::<PxuiResponse>(), align_of::<PxuiResponse>(), &[("size", core::mem::offset_of!(PxuiResponse, size)), ("flags", core::mem::offset_of!(PxuiResponse, flags)), ("node", core::mem::offset_of!(PxuiResponse, node))]);
         check("PxuiIconButtonDesc", size_of::<PxuiIconButtonDesc>(), align_of::<PxuiIconButtonDesc>(), &[("size", core::mem::offset_of!(PxuiIconButtonDesc, size)), ("enabled", core::mem::offset_of!(PxuiIconButtonDesc, enabled)), ("w_kind", core::mem::offset_of!(PxuiIconButtonDesc, w_kind)), ("h_kind", core::mem::offset_of!(PxuiIconButtonDesc, h_kind)), ("reserved", core::mem::offset_of!(PxuiIconButtonDesc, reserved)), ("w", core::mem::offset_of!(PxuiIconButtonDesc, w)), ("h", core::mem::offset_of!(PxuiIconButtonDesc, h)), ("press_scale", core::mem::offset_of!(PxuiIconButtonDesc, press_scale)), ("states", core::mem::offset_of!(PxuiIconButtonDesc, states)), ("key", core::mem::offset_of!(PxuiIconButtonDesc, key)), ("name", core::mem::offset_of!(PxuiIconButtonDesc, name)), ("icon", core::mem::offset_of!(PxuiIconButtonDesc, icon)), ("draw", core::mem::offset_of!(PxuiIconButtonDesc, draw)), ("draw_user", core::mem::offset_of!(PxuiIconButtonDesc, draw_user)), ("press", core::mem::offset_of!(PxuiIconButtonDesc, press)), ("checkable", core::mem::offset_of!(PxuiIconButtonDesc, checkable)), ("checked", core::mem::offset_of!(PxuiIconButtonDesc, checked)), ("reserved2", core::mem::offset_of!(PxuiIconButtonDesc, reserved2))]);
         check("PxuiTextFieldDesc", size_of::<PxuiTextFieldDesc>(), align_of::<PxuiTextFieldDesc>(), &[("size", core::mem::offset_of!(PxuiTextFieldDesc, size)), ("autocorrect", core::mem::offset_of!(PxuiTextFieldDesc, autocorrect)), ("capitalization", core::mem::offset_of!(PxuiTextFieldDesc, capitalization)), ("action", core::mem::offset_of!(PxuiTextFieldDesc, action)), ("reserved", core::mem::offset_of!(PxuiTextFieldDesc, reserved)), ("key", core::mem::offset_of!(PxuiTextFieldDesc, key)), ("name", core::mem::offset_of!(PxuiTextFieldDesc, name)), ("value", core::mem::offset_of!(PxuiTextFieldDesc, value))]);
+        check("PxuiCheckboxDesc", size_of::<PxuiCheckboxDesc>(), align_of::<PxuiCheckboxDesc>(), &[("size", core::mem::offset_of!(PxuiCheckboxDesc, size)), ("disabled", core::mem::offset_of!(PxuiCheckboxDesc, disabled)), ("on", core::mem::offset_of!(PxuiCheckboxDesc, on)), ("passive", core::mem::offset_of!(PxuiCheckboxDesc, passive)), ("reserved", core::mem::offset_of!(PxuiCheckboxDesc, reserved)), ("box_size", core::mem::offset_of!(PxuiCheckboxDesc, box_size)), ("look", core::mem::offset_of!(PxuiCheckboxDesc, look)), ("key", core::mem::offset_of!(PxuiCheckboxDesc, key)), ("text", core::mem::offset_of!(PxuiCheckboxDesc, text))]);
         check("PxuiToggleDesc", size_of::<PxuiToggleDesc>(), align_of::<PxuiToggleDesc>(), &[("size", core::mem::offset_of!(PxuiToggleDesc, size)), ("enabled", core::mem::offset_of!(PxuiToggleDesc, enabled)), ("on", core::mem::offset_of!(PxuiToggleDesc, on)), ("press_row", core::mem::offset_of!(PxuiToggleDesc, press_row)), ("reserved", core::mem::offset_of!(PxuiToggleDesc, reserved)), ("row_h", core::mem::offset_of!(PxuiToggleDesc, row_h)), ("switch_w", core::mem::offset_of!(PxuiToggleDesc, switch_w)), ("switch_h", core::mem::offset_of!(PxuiToggleDesc, switch_h)), ("inset", core::mem::offset_of!(PxuiToggleDesc, inset)), ("track", core::mem::offset_of!(PxuiToggleDesc, track)), ("knob", core::mem::offset_of!(PxuiToggleDesc, knob)), ("key", core::mem::offset_of!(PxuiToggleDesc, key)), ("text", core::mem::offset_of!(PxuiToggleDesc, text)), ("detail", core::mem::offset_of!(PxuiToggleDesc, detail)), ("has_style", core::mem::offset_of!(PxuiToggleDesc, has_style)), ("reserved2", core::mem::offset_of!(PxuiToggleDesc, reserved2)), ("style", core::mem::offset_of!(PxuiToggleDesc, style))]);
         check("PxuiSegmentedDesc", size_of::<PxuiSegmentedDesc>(), align_of::<PxuiSegmentedDesc>(), &[("size", core::mem::offset_of!(PxuiSegmentedDesc, size)), ("enabled", core::mem::offset_of!(PxuiSegmentedDesc, enabled)), ("grow", core::mem::offset_of!(PxuiSegmentedDesc, grow)), ("reserved", core::mem::offset_of!(PxuiSegmentedDesc, reserved)), ("h", core::mem::offset_of!(PxuiSegmentedDesc, h)), ("states", core::mem::offset_of!(PxuiSegmentedDesc, states)), ("key", core::mem::offset_of!(PxuiSegmentedDesc, key)), ("name", core::mem::offset_of!(PxuiSegmentedDesc, name)), ("selected", core::mem::offset_of!(PxuiSegmentedDesc, selected)), ("w", core::mem::offset_of!(PxuiSegmentedDesc, w)), ("padding", core::mem::offset_of!(PxuiSegmentedDesc, padding)), ("min_segment", core::mem::offset_of!(PxuiSegmentedDesc, min_segment)), ("reserved2", core::mem::offset_of!(PxuiSegmentedDesc, reserved2)), ("names", core::mem::offset_of!(PxuiSegmentedDesc, names)), ("has_selected", core::mem::offset_of!(PxuiSegmentedDesc, has_selected)), ("reserved3", core::mem::offset_of!(PxuiSegmentedDesc, reserved3)), ("focus_on_click", core::mem::offset_of!(PxuiSegmentedDesc, focus_on_click)), ("reserved4", core::mem::offset_of!(PxuiSegmentedDesc, reserved4))]);
         check("PxuiPickItem", size_of::<PxuiPickItem>(), align_of::<PxuiPickItem>(), &[("has_id", core::mem::offset_of!(PxuiPickItem, has_id)), ("reserved", core::mem::offset_of!(PxuiPickItem, reserved)), ("id", core::mem::offset_of!(PxuiPickItem, id)), ("text", core::mem::offset_of!(PxuiPickItem, text)), ("name", core::mem::offset_of!(PxuiPickItem, name)), ("detail", core::mem::offset_of!(PxuiPickItem, detail))]);

@@ -69,8 +69,7 @@ fn keyframe(target: Target, curve: Curve) -> KeyframeDesc {
 }
 
 /// The six looks of `states` (idle, hover, pressed, focus, disabled, checked) as the descriptors carry them.
-#[cfg(not(feature = "static"))]
-fn six(s: &pxui_types::theme::States) -> [pxui_types::ffi::PxuiLookDesc; 6] { [look(s.idle), look(s.hover), look(s.pressed), look(s.focus), look(s.disabled), look(s.checked)] }
+pub(crate) fn six(s: &pxui_types::theme::States) -> [pxui_types::ffi::PxuiLookDesc; 6] { [look(s.idle), look(s.hover), look(s.pressed), look(s.focus), look(s.disabled), look(s.checked)] }
 
 /// The wrapper's `Response` of a button call's record.
 // Inline: out of line, the button bodies cost the abi_bench Overlays page 0.9% more retired instructions (static release, U1c.1: 1.0189 inline, 1.0277 not).

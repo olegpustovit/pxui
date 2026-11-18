@@ -1,4 +1,5 @@
-use crate::state::{PxuiUi, checked, fail, get, strings};
+use crate::state::{Build, PxuiUi, checked, fail, get, strings};
+use core::ffi::c_void;
 use crate::{PXUI_ERR_ARGUMENT, PxuiBox, Str, trusted};
 use pxui_types::ffi::{PxuiKeyedDesc, PxuiResponse, Slice};
 use pxui_types::ui::{shown, Checkbox, Slider};
@@ -72,6 +73,12 @@ mod keyed_tests {
             assert_eq!(unsafe { pxui_ui_checkbox_keyed(ui, &PxuiKeyedDesc { size: 8, ..k("c", "Check") }, 1, &mut out) }, PXUI_ERR_ARGUMENT);
             assert_eq!(unsafe { pxui_ui_checkbox_keyed(ui, &PxuiKeyedDesc { reserved: 1, ..k("c", "Check") }, 1, &mut out) }, PXUI_ERR_ARGUMENT);
             assert_eq!(unsafe { pxui_ui_checkbox_keyed(ui, core::ptr::null(), 1, &mut out) }, PXUI_ERR_ARGUMENT);
+            let d = pxui_types::ffi::PxuiCheckboxDesc { size: core::mem::size_of::<pxui_types::ffi::PxuiCheckboxDesc>() as u32, disabled: 0, on: 0, passive: 0, reserved: 0, box_size: 0.0, look: core::ptr::null(), key: k("cx", "").key, text: s("Check") };
+            for bad in [pxui_types::ffi::PxuiCheckboxDesc { box_size: -1.0, ..d }, pxui_types::ffi::PxuiCheckboxDesc { box_size: f32::NAN, ..d }, pxui_types::ffi::PxuiCheckboxDesc { reserved: 1, ..d },
+                pxui_types::ffi::PxuiCheckboxDesc { passive: 2, ..d }, pxui_types::ffi::PxuiCheckboxDesc { on: 2, ..d }, pxui_types::ffi::PxuiCheckboxDesc { size: 8, ..d }] {
+                assert_eq!(unsafe { crate::kit_ext::pxui_ui_checkbox_response(ui, &bad, &mut out) }, PXUI_ERR_ARGUMENT);
+            }
+            assert_eq!(unsafe { crate::kit_ext::pxui_ui_checkbox_response(ui, &d, &mut out) }, 0);
             assert_eq!(unsafe { pxui_ui_slider_keyed(ui, &k("v", "Level"), 0.5, 1.0, 0.0, &mut out, &mut value) }, PXUI_ERR_ARGUMENT);
             for kind in [0, 1, 3] {
                 assert_eq!(unsafe { pxui_ui_choice_keyed(ui, &k(["r", "t", "", "d"][kind as usize], "Name"), kind, span, 1, &mut out, &mut chosen) }, 0);
@@ -193,6 +200,7 @@ export!(trusted pub unsafe fn pxui_ui_slider(ui: *mut PxuiUi, label: Str, value:
     unsafe { trusted::slider(ui, label, shown(label), value, min, max, &Slider::DEFAULT, &mut r, &mut *out) }
 });
 
+// Legacy (cut at 2.0): `pxui_ui_checkbox_response` (1.85) carries the checkbox's options and replaces it.
 // ABI 1.68: the kit checkbox keyed by `keyed.key`, showing and named `keyed.name`, reporting into one `PxuiResponse`; a click flips `on`.
 export!(trusted pub unsafe fn pxui_ui_checkbox_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, on: u8, out: *mut PxuiResponse) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
@@ -231,6 +239,34 @@ export!(trusted pub unsafe fn pxui_ui_slider_result(ui: *mut PxuiUi, keyed: *con
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short slider response") } };
     let Some((key, text)) = (unsafe { read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
     unsafe { trusted::slider_result(ui, key, text, value, min, max, &Slider::DEFAULT, out, result) }
+});
+
+// ABI 1.85: the kit section index keyed by `keyed.key`, named `keyed.name`, one strip child per string of `letters` (each checked once,
+// at most 4096), reporting into one `PxuiResponse` and a `PxuiSegmentedResult` (the letter chosen this frame, `has_chosen` 0 when nothing
+// moved it; never a secondary).
+export!(trusted pub unsafe fn pxui_ui_section_index_result(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, letters: Slice<Str>, out: *mut PxuiResponse, result: *mut pxui_types::ffi::PxuiSegmentedResult) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short section index response") } };
+    let Some(result) = sized_mut!(result) else { return unsafe { fail(ui, "null or short section index result") } };
+    let Some((key, name)) = (unsafe { read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
+    let mut list = state.shared().take_strs();
+    if !unsafe { strings(letters, MAX_OPTIONS, &mut list) } { state.shared().put_strs(list); return unsafe { fail(ui, "invalid widget strings") }; }
+    let mut at = None;
+    let rc = unsafe { trusted::section_index_checked(ui, key, name, &list, out, &mut at) };
+    state.shared().put_strs(list);
+    if rc == 0 { (result.has_chosen, result.chosen, result.has_secondary, result.secondary, result.reserved) = (at.is_some() as u8, at.unwrap_or(0) as u64, 0, 0, [0; 2]); }
+    rc
+});
+
+// ABI 1.85: a collapsible section keyed by `keyed.key`, its header showing and named `keyed.name`, built through the `inspector_section`
+// body: `open` (0 or 1) is the caller's value, `build(user, ui)` builds the content while open. `out` is the header's response; a click
+// (or Enter/Space while focused) is a toggle, and the caller keeps the value.
+export!(build pub unsafe fn pxui_ui_disclosure(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, open: u8, build: Build, user: *mut c_void, out: *mut PxuiResponse) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short disclosure response") } };
+    if open > 1 { return unsafe { fail(ui, "invalid disclosure arguments") }; }
+    let Some((key, text)) = (unsafe { read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
+    unsafe { trusted::disclosure(ui, key, text, open != 0, &mut |ui| if let Some(build) = build { build(user, ui.cast()) }, out) }
 });
 
 // Legacy (cut at 2.0): keyed by its label, shown up to a `##`; `pxui_ui_progress_keyed` keys apart.

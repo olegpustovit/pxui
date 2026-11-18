@@ -10,7 +10,7 @@
 //! Enter/Space activate, the arrows move within a group, Escape leaves. A warm frame allocates
 //! nothing. Progress and spinner animate through patches (`busy_step`) without rebuilding their view.
 use crate::a11y::state as st;
-use crate::bodies::{RowConfig, TableHeadConfig, TreeRowConfig, body_of, in_body, in_item, in_place, BadgeConfig, DropdownConfig, MenuItemConfig, SegmentConfig, TabConfig, CheckConfig, IconButtonConfig, ProgressConfig, ScrollConfig, SearchFieldConfig, SliderConfig, SpinnerConfig, ToastConfig};
+use crate::bodies::{RowConfig, TableHeadConfig, TreeRowConfig, body_of, in_body, in_item, in_place, BadgeConfig, DropdownConfig, MenuItemConfig, SegmentConfig, TabConfig, CheckConfig, SectionIndexConfig, IconButtonConfig, ProgressConfig, ScrollConfig, SearchFieldConfig, SliderConfig, SpinnerConfig, ToastConfig};
 use crate::draw::Fit;
 use crate::geom::Rgba;
 use crate::ui_core::*;
@@ -309,13 +309,25 @@ impl Ui {
         let variant = checkbox.variant;
         if variant != 0 { self.set_variant(BodyKind::checkbox as u32, variant); }
         let key = key_of(self.current_seed(), key);
-        let row = self.kit_line(key, STOP_FLAGS, Role::CheckBox);
-        let s = self.signal_owned(&row);
+        let enabled = !checkbox.disabled && !self.scope_disabled();
+        let row = if checkbox.passive {
+            self.node_keyed(key, Node { w: Size::Fit, axis: Axis::Row, align: Align::Center, gap: self.space(1), role: Role::CheckBox, ..Node::DEFAULT })
+        } else {
+            self.kit_line(key, if enabled { STOP_FLAGS } else { Flags::BLOCKING | Flags::TAB_ONLY }, Role::CheckBox)
+        };
+        let mut s = if checkbox.passive { Signal::default() } else { self.signal_owned(&row) };
+        // a disabled checkbox reports no click from any input (a press begun while it was enabled, an assistive technology's press)
+        s.clicked &= enabled;
         let value = value ^ s.clicked;
         self.set_role(&row, Role::CheckBox, st::CHECKABLE | if value { st::CHECKED } else { 0 });
         self.a11y_name(&row, text);
-        let config = CheckConfig { state: State { hovered: s.hovered, pressed: s.held, ..State::default() }, on: value, row };
+        let states = match checkbox.look { Some(look) => { let mut states = *look; self.resolve_states(&mut states); states } None => self.theme().checkbox };
+        let config = CheckConfig {
+            state: State { hovered: enabled && s.hovered, pressed: enabled && s.held, disabled: !enabled, ..State::default() }, on: value, row,
+            size: checkbox.size.filter(|side| *side > 0.0).unwrap_or(12.0), states, passive: checkbox.passive,
+        };
         in_body!(self, row.box_key, row, checkbox, default_checkbox(&config, text));
+        self.node_new(&row).state.disabled = !enabled;
         if variant != 0 { self.set_variant(BodyKind::checkbox as u32, 0); }
         Response::of(&s, self.focused(&row), row)
     }
@@ -349,7 +361,7 @@ impl Ui {
             let on = sel == Some(i);
             self.set_role(&row, Role::Radio, st::CHECKABLE | if on { st::CHECKED } else { 0 });
             self.a11y_name(&row, option.name.unwrap_or(option.text));
-            let config = CheckConfig { state: State { hovered: rs.hovered, pressed: rs.held, ..State::default() }, on, row };
+            let config = CheckConfig { state: State { hovered: rs.hovered, pressed: rs.held, ..State::default() }, on, row, size: 12.0, states: self.theme().radio, passive: false };
             in_body!(self, row.box_key, row, radio, default_radio(&config, option.text));
         }
         self.leave(saved);
@@ -433,6 +445,65 @@ impl Ui {
         if !result.held && result.commit.is_some() { result.preview = result.commit; }
         self.a11y_number(&node, result.preview.unwrap_or(value) as f64, lo as f64, hi as f64, step as f64);
         result
+    }
+
+    /// A vertical section index (the A-Z strip): `letters` share the strip's height, and a press or drag on it chooses the letter under the
+    /// pointer (the arrows, Home/End and an assistive technology's SetValue move the choice too). Returns the strip's response and the
+    /// letter chosen this frame (`Some` while the pointer holds the strip, on its release and for a key or an assistive action; `None` when
+    /// nothing moved it); an
+    /// empty `letters` is a disabled strip. Keyed by `key` (hashed under the parent's seed), named `name`.
+    pub fn section_index(&mut self, key: &str, name: &str, letters: &[&str]) -> (Response, Option<usize>) {
+        let n = letters.len();
+        let enabled = n > 0 && !self.scope_disabled();
+        let node = self.node_ref(key, &Node {
+            flags: Flags::CLIP | if enabled { Flags::CLICKABLE | Flags::FOCUSABLE | Flags::FOCUS_MARK } else { Flags::BLOCKING },
+            w: Size::Px(self.control_h()), h: Size::Grow, axis: Axis::Column, role: if enabled { Role::Slider } else { Role::Progress },
+            ..Node::DEFAULT
+        });
+        self.a11y_name(&node, name);
+        let last = n.saturating_sub(1);
+        let mut s = if enabled { self.signal(&node) } else { Signal::default() };
+        let rect = self.rect(&node);
+        let current = (self.state(&node, 0).max(0) as usize).min(last);
+        let mut chosen = None;
+        if enabled {
+            let at = |y: f32| if rect.h > 0.0 { (((y - rect.y) / rect.h * n as f32).floor().max(0.0) as usize).min(last) } else { 0 };
+            if s.button == Some(input::MouseButton::LeftButton) {
+                if s.held { chosen = Some(at(s.pointer.1)); }
+                if s.released { chosen = Some(at(s.release_point.1)); }
+            }
+            if let Some(v) = s.a11y_value.filter(|v| v.is_finite()) {
+                chosen = Some((v.max(0.0) as usize).min(last));
+                self.cancel_press(&node);
+            }
+            if self.focused(&node) {
+                let mut next = chosen.unwrap_or(current);
+                let mut moved = false;
+                for (event, modifiers) in self.key_events_ref(&node) {
+                    if modifiers.iter().any(|key| matches!(key, Key::Meta | Key::Ctrl | Key::Alt)) { continue; }
+                    if let Event::KeyPressed(key) = event {
+                        next = match key {
+                            Key::ArrowDown => (next + 1).min(last),
+                            Key::ArrowUp => next.saturating_sub(1),
+                            Key::Home => 0,
+                            Key::End => last,
+                            _ => continue,
+                        };
+                        moved = true;
+                    }
+                }
+                if moved { chosen = Some(next); self.cancel_press(&node); }
+            }
+        } else {
+            s.clicked = false;
+        }
+        if let Some(i) = chosen { self.set_state(&node, i as i64); }
+        let active = chosen.unwrap_or(current);
+        self.a11y_number(&node, active as f64, 0.0, last as f64, 1.0);
+        let focused = self.focused(&node);
+        let config = SectionIndexConfig { state: State { hovered: enabled && s.hovered, pressed: enabled && s.held, focused, disabled: !enabled, ..State::default() }, node, active: (n > 0).then_some(active) };
+        in_body!(self, node.box_key, node, section_index, default_section_index(&config, letters));
+        (Response::of(&s, focused, node), chosen)
     }
 
     /// A progress row: the label and a 4-point track, with a bar `value` (0 to 1) of the way or, with `None`, a third-wide bar that
@@ -1565,17 +1636,29 @@ pub(crate) fn default_radio(this: &mut Ui, c: &CheckConfig, text: &str) {
 fn check_parts(this: &mut Ui, c: &CheckConfig, text: &str, round: bool) {
     let (hovered, held, on) = (c.state.hovered, c.state.pressed, c.on);
     let t = this.theme();
-    let (states, inner, label) = (if round { t.radio } else { t.checkbox }, if round { t.notice.idle } else { t.mark.idle }, *t.toggle.pick(State { hovered, ..State::default() }));
-    this.set_look(&c.row, Look { text: Rgba::CLEAR, ..label }, State { hovered, ..State::default() });
+    let (inner, label) = (if round { t.notice.idle } else { t.mark.idle }, *t.toggle.pick(State { hovered, ..State::default() }));
+    this.set_look(&c.row, Look { text: Rgba::CLEAR, ..label }, State { hovered, disabled: c.state.disabled, ..State::default() });
     let rh = this.row_px() as f32;
-    let bx = this.node_keyed(int_key(c.row.box_key, 0), Node { w: Size::Px(12.0), h: Size::Px(12.0), padding: Edges::all(3.0), ..Node::DEFAULT });
-    this.style(&bx, &states, State { hovered, pressed: held, checked: on, ..State::default() });
+    let bx = this.node_keyed(int_key(c.row.box_key, 0), Node { w: Size::Px(c.size), h: Size::Px(c.size), padding: Edges::all(c.size / 4.0), ..Node::DEFAULT });
+    this.style(&bx, &c.states, State { hovered, pressed: held, checked: on, disabled: c.state.disabled, ..State::default() });
     if on {
         let inside = this.enter(&bx);
-        this.node_keyed(int_key(c.row.box_key, 1), Node { w: Size::Px(6.0), h: Size::Px(6.0), look: inner, ..Node::DEFAULT });
+        this.node_keyed(int_key(c.row.box_key, 1), Node { w: Size::Px(c.size / 2.0), h: Size::Px(c.size / 2.0), look: inner, ..Node::DEFAULT });
         this.leave(inside);
     }
-    this.text_leaf(int_key(c.row.box_key, 2), rh, label, text);
+    if !(c.passive && text.is_empty()) {
+        this.text_leaf(int_key(c.row.box_key, 2), rh, label, text);
+    }
+}
+
+/// The built-in section index: one letter per child sharing the strip's height, in the row ink, the chosen one in the accent (`mark`).
+pub(crate) fn default_section_index(this: &mut Ui, c: &SectionIndexConfig, letters: &[&str]) {
+    let (ink, accent) = (this.theme().row.idle, this.theme().mark.idle);
+    for (i, letter) in letters.iter().enumerate() {
+        let look = Look { text: if c.state.pressed && c.active == Some(i) { accent.fill } else { ink.text }, ..text_only(&ink) };
+        let n = this.node_keyed(int_key(c.node.box_key, i as i64), Node { w: Size::Grow, h: Size::Grow, look, ..Node::DEFAULT });
+        this.text(&n, letter);
+    }
 }
 
 /// The built-in progress row: the label, then a 4-point track holding the bar.

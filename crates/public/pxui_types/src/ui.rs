@@ -202,26 +202,80 @@ impl<'a> Toast<'a> {
 }
 
 /// How `Ui::checkbox` varies the kit's checkbox, as a `Copy` value built with `const fn` builders from `Checkbox::DEFAULT`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Checkbox {
-    /// The variant a registered checkbox body reads from its config (0: none).
+///
+/// The default is the plain checkbox: a row with the 12-point box in the theme's `checkbox` look and the text, taking presses and focus.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Checkbox<'a> {
+    /// What a registered checkbox body reads from its config (`variant`); 0 for none.
     pub variant: u16,
+    /// The box's side in points (`None`: 12); its inner mark is half of it.
+    pub size: Option<f32>,
+    /// The box's look per state (the `checked` look is on) in place of the theme's `checkbox`, borrowed.
+    pub look: Option<&'a States>,
+    /// The checkbox takes no input, shows the `disabled` look and reads as disabled.
+    pub disabled: bool,
+    /// A passive mark: no press, focus or hover of its own (the row it sits in owns them) and, with empty text, the box alone.
+    pub passive: bool,
 }
 
-impl Checkbox {
-    /// The plain kit checkbox: a row with the 12-point box and the text.
-    pub const DEFAULT: Checkbox = Checkbox { variant: 0 };
+impl<'a> Checkbox<'a> {
+    /// The plain kit checkbox.
+    pub const DEFAULT: Checkbox<'a> = Checkbox { variant: 0, size: None, look: None, disabled: false, passive: false };
 
-    /// Sets the variant a registered checkbox body reads from its config (`variant`, 0 by default): one body builds different
-    /// structures by it. The built-in body ignores it.
+    /// Sets the variant a registered body reads from its config (`variant`, 0 by default): one body builds different structures by it, so
+    /// the app picks per call without comparing text. The built-in body ignores it.
     /// Allocates: never.
     /// Panics: never.
     ///
     /// ```
-    /// const SETTING: pxui_types::ui::Checkbox = pxui_types::ui::Checkbox::DEFAULT.variant(1);
-    /// assert_eq!(SETTING.variant, 1);
+    /// const V: pxui_types::ui::Checkbox = pxui_types::ui::Checkbox::DEFAULT.variant(1);
+    /// assert_eq!(V.variant, 1);
     /// ```
-    pub const fn variant(mut self, variant: u16) -> Checkbox { self.variant = variant; self }
+    pub const fn variant(mut self, variant: u16) -> Checkbox<'a> { self.variant = variant; self }
+
+    /// Sets the box's side in points (12 by default, and for 0); the inner mark stays half of it.
+    /// Allocates: never.
+    /// Panics: never here; `Ui::checkbox` panics on a negative or non-finite side (a caller bug).
+    ///
+    /// ```
+    /// const BIG: pxui_types::ui::Checkbox = pxui_types::ui::Checkbox::DEFAULT.size(18.0);
+    /// assert_eq!(BIG.size, Some(18.0));
+    /// ```
+    pub const fn size(mut self, points: f32) -> Checkbox<'a> { self.size = Some(points); self }
+
+    /// Sets the box's look per state (idle, hover, pressed, focus, disabled; `checked` while on) in place of the theme's `checkbox`.
+    /// The looks are borrowed, not copied.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{theme::{Look, States}, ui::Checkbox};
+    /// const BOX: States = States::of(Look::NONE);
+    /// const CHIP: Checkbox = Checkbox::DEFAULT.look(&BOX);
+    /// assert!(CHIP.look.is_some());
+    /// ```
+    pub const fn look(mut self, looks: &'a States) -> Checkbox<'a> { self.look = Some(looks); self }
+
+    /// Sets whether the checkbox is disabled: it takes no press or focus, shows the `disabled` look and reads as disabled to
+    /// accessibility, and still blocks what is under it.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert!(pxui_types::ui::Checkbox::DEFAULT.disabled(true).disabled);
+    /// ```
+    pub const fn disabled(mut self, disabled: bool) -> Checkbox<'a> { self.disabled = disabled; self }
+
+    /// Sets whether the checkbox is a passive mark for a row that owns the press: it has no hit area, focus or hover, takes no input and
+    /// reports no click; it still shows `on` and tells assistive technology its checked state (read-only). With empty text it is the box
+    /// alone, as wide as the box.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert!(pxui_types::ui::Checkbox::DEFAULT.passive(true).passive);
+    /// ```
+    pub const fn passive(mut self, passive: bool) -> Checkbox<'a> { self.passive = passive; self }
 }
 
 /// How `Ui::dropdown` varies the kit's dropdown, as a `Copy` value built with `const fn` builders from `Dropdown::DEFAULT`.

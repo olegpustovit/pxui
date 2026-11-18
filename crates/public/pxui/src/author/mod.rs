@@ -15,6 +15,8 @@ mod results;
 mod state;
 mod text;
 mod toggle;
+#[cfg(test)]
+mod test_kit;
 mod view;
 pub use button::Button;
 pub use field_types::{AreaCallbacks, AreaNote, BracketsFn, CompleteFn, ColorizeFn, ContextAtFn, DescribeFn, IndentFn, Language, LineField, LineFieldResponse, NumberAtFn, Picker, Reveal, RewriteFn, ScrubFn, Scrubber, SearchField, SearchFieldResponse, SlideFn, Splice, TextArea, TextAreaResponse, TextField, TextFieldResponse, ValidFn, ValueCallbacks, ValueField, ValueFieldResponse};
@@ -23,7 +25,7 @@ pub use layout::Key;
 pub use press::{Pressable, Response};
 pub use pxui_types::ui::Segmented;
 pub use toggle::Toggle;
-pub use kit::{Badge, Progress, Radio, Spinner, Tabs};
+pub use kit::{Badge, Disclosure, Progress, Radio, SectionIndex, Spinner, Tabs};
 pub use collection::GridList;
 pub use results::{OverlayResponse, PickResponse, SliderResponse, SplitResponse};
 pub use view::hash_of;

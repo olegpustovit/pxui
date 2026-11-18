@@ -119,14 +119,31 @@ pub type IconButtonBody = fn(&mut Ui, &IconButtonConfig, &States, &str, &str);
 
 /// What a checkbox or radio body is given (the option's text beside it). It runs with the `row` entered, which takes the presses
 /// and carries the role, the checked state and the accessible name; the body sets the row's look and builds the box or ring and
-/// the label. `state` is hovered and pressed; `on` is the value. Behaviour reads no part.
+/// the label. `state` is hovered, pressed and disabled; `on` is the value. Behaviour reads no part. `size` is the box's side in
+/// points and `states` its look per state, the caller's (`Checkbox::size`, `Checkbox::look`) or the theme's; `passive` is a checkbox that
+/// takes no input (`Checkbox::passive`): the row is a plain node, and with empty text the body builds no label. Valid for the call.
 pub struct CheckConfig {
     pub state: State,
     pub on: bool,
     pub row: Handle,
+    pub size: f32,
+    pub states: pxui_types::theme::States,
+    pub passive: bool,
 }
 
 pub type CheckBody = fn(&mut Ui, &CheckConfig, &str);
+
+/// What a section index body is given (the letters beside it): the strip of letters of `Ui::section_index`. It runs with the strip's `node` entered, which takes
+/// the press and drag, carries the role, the value and the accessible name, and is a narrow column that grows to its parent's height; the
+/// body builds one child per letter (the letters are the second argument), each sharing the height. `state` is hovered, pressed, focused and
+/// disabled; `active` is the letter the pointer holds, or the last one chosen. Behaviour reads no part.
+pub struct SectionIndexConfig {
+    pub state: State,
+    pub node: Handle,
+    pub active: Option<usize>,
+}
+
+pub type SectionIndexBody = fn(&mut Ui, &SectionIndexConfig, &[&str]);
 
 /// What a spinner body is given (its label beside it). It runs with the spinner's `node` entered, which carries the role, the busy
 /// state and the accessible name; the body sizes it and builds the dots. `busy_step` turns the nodes built as `Part::dot(i)`, i from
@@ -669,6 +686,7 @@ macro_rules! builtin {
     (line_field) => { crate::kit_ext::default_line_field };
     (value_field) => { crate::kit_ext::default_value_field };
     (picker_field) => { crate::kit_ext::default_picker_field };
+    (section_index) => { crate::ui_widgets::default_section_index };
 }
 
 macro_rules! registry {

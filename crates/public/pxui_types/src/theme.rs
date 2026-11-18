@@ -349,6 +349,7 @@ macro_rules! body_kinds {
             line_field register_line_field_body LineFieldBody PxuiLineFieldConfig LineFieldConfig,
             value_field register_value_field_body ValueFieldBody PxuiValueFieldConfig ValueFieldConfig,
             picker_field register_picker_field_body PickerFieldBody PxuiPickerFieldConfig PickerFieldConfig,
+            section_index register_section_index_body SectionIndexBody PxuiSectionIndexConfig SectionIndexConfig,
         }
     };
 }

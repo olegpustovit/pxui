@@ -508,6 +508,55 @@ fn tabs_result_refuses_invalid_arguments_and_items() {
     assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
 }
 
+// ABI 1.85: the section index and the disclosure check every argument before building; a refused call writes no result and never runs
+// the disclosure's build.
+#[test]
+fn section_index_and_disclosure_refuse_invalid_arguments() {
+    use pxui_types::ffi::{PxuiKeyedDesc, PxuiResponse, PxuiSegmentedResult, Slice};
+    let s = |t: &'static [u8]| Str { ptr: t.as_ptr(), len: t.len() };
+    let letters = [s(b"A"), s(b"B")];
+    let ui = create();
+    let keyed = PxuiKeyedDesc::new("index", "Jump to");
+    let index = |letters: Slice<Str>, keyed: &PxuiKeyedDesc, result: &mut PxuiSegmentedResult| in_frame(ui, &mut |ui| {
+        let mut out = PxuiResponse::EMPTY;
+        unsafe { pxui_ui_section_index_result(ui, keyed, letters, &mut out, result) }
+    });
+    let mut result = PxuiSegmentedResult::EMPTY;
+    assert_eq!(index(Slice { ptr: letters.as_ptr(), len: 2 }, &keyed, &mut result), 0, "{}", error(ui));
+    assert_eq!(result.has_chosen, 0, "nothing moved it");
+    let refused = |letters: Slice<Str>, keyed: &PxuiKeyedDesc, why: &str| {
+        let mut result = PxuiSegmentedResult { has_chosen: 9, ..PxuiSegmentedResult::EMPTY };
+        assert_ne!(index(letters, keyed, &mut result), 0, "{why}");
+        assert_eq!(result.has_chosen, 9, "{why}: no result written");
+    };
+    let bad = [s(b"A"), s(b"\xff")];
+    refused(Slice { ptr: bad.as_ptr(), len: 2 }, &keyed, "a letter that is not UTF-8");
+    refused(Slice { ptr: core::ptr::null(), len: 2 }, &keyed, "a null span with a length");
+    refused(Slice { ptr: letters.as_ptr(), len: 5000 }, &keyed, "more than 4096 letters");
+    refused(Slice { ptr: letters.as_ptr(), len: 2 }, &PxuiKeyedDesc { size: 8, ..keyed }, "a short keyed record");
+    refused(Slice { ptr: letters.as_ptr(), len: 2 }, &PxuiKeyedDesc { reserved: 1, ..keyed }, "a reserved bit");
+    assert_ne!(in_frame(ui, &mut |ui| { let mut out = PxuiResponse::EMPTY; unsafe { pxui_ui_section_index_result(ui, &keyed, Slice { ptr: letters.as_ptr(), len: 2 }, &mut out, core::ptr::null_mut()) } }), 0, "a null result");
+
+    extern "C" fn ran(user: *mut c_void, _: *mut c_void) { unsafe { *user.cast::<u32>() += 1; } }
+    let mut built = 0u32;
+    let more = PxuiKeyedDesc::new("more", "More");
+    let disclosure = |keyed: &PxuiKeyedDesc, open: u8, built: &mut u32| in_frame(ui, &mut |ui| {
+        let mut out = PxuiResponse::EMPTY;
+        unsafe { pxui_ui_disclosure(ui, keyed, open, Some(ran), (built as *mut u32).cast(), &mut out) }
+    });
+    assert_eq!(disclosure(&more, 1, &mut built), 0, "{}", error(ui));
+    assert_eq!(built, 1, "an open disclosure builds its content");
+    assert_eq!(disclosure(&more, 0, &mut built), 0);
+    assert_eq!(built, 1, "a closed one does not");
+    assert_ne!(disclosure(&more, 2, &mut built), 0, "open not 0 or 1");
+    assert_ne!(disclosure(&PxuiKeyedDesc { size: 8, ..more }, 1, &mut built), 0, "a short keyed record");
+    assert_ne!(disclosure(&PxuiKeyedDesc { name: s(b"\xff"), ..more }, 1, &mut built), 0, "a name that is not UTF-8");
+    assert_eq!(built, 1, "a refused disclosure never builds");
+    assert_ne!(in_frame(ui, &mut |ui| unsafe { pxui_ui_disclosure(ui, &more, 1, Some(ran), (&mut built as *mut u32).cast(), core::ptr::null_mut()) }), 0, "a null response");
+    assert_eq!(built, 1);
+    assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
+}
+
 #[test]
 fn measured_section_descriptors_validate_before_callbacks_and_restore_the_owner() {
     use pxui_types::ffi::PxuiMeasuredSectionDesc;
