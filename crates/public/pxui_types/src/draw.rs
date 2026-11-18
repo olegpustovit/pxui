@@ -290,6 +290,16 @@ pub fn nine_slice(rect: [f32; 4], uv: [f32; 4], image: [f32; 2], inset: [f32; 4]
 /// assert_eq!(f16(1.0e9), 0x7c00);
 /// ```
 pub fn f16(x: f32) -> u16 {
+    // most values a drawing passes (radii, widths, zero) are exact halves: their bits move over with no rounding
+    let b = x.to_bits();
+    let (sign, exponent, mantissa) = ((b >> 16) & 0x8000, (b >> 23) & 0xff, b & 0x7f_ffff);
+    if (113..=142).contains(&exponent) && mantissa & 0x1fff == 0 { return (sign | (exponent - 112) << 10 | mantissa >> 13) as u16; }
+    if b << 1 == 0 { return sign as u16; }
+    f16_rounded(x)
+}
+
+/// `f16` of any value: the exact halves' shortcut aside, every case rounds here.
+fn f16_rounded(x: f32) -> u16 {
     let bits = (x as f64).to_bits();
     let sign = if bits >> 63 != 0 { 0x8000 } else { 0 };
     let exponent = ((bits >> 52) & 0x7ff) as i32;
@@ -606,6 +616,16 @@ impl Instance {
 #[cfg(test)]
 mod tests {
     use super::flags::{image, mask, rect, shadow, stroke};
+
+    /// The exact halves' shortcut gives the rounded conversion's bits for every value it takes (a sweep of f32 bit patterns,
+    /// both signs, the half range's ends and the values just past them).
+    #[test]
+    fn exact_halves_convert_as_the_rounded_path_does() {
+        for bits in (0..=u32::MAX).step_by(4099).chain([0x3880_0000, 0x477f_e000, 0x3880_2000, 0x477f_f000, 0x3800_0000, 0x4780_0000, 0, 0x8000_0000]) {
+            let x = f32::from_bits(bits);
+            assert_eq!(super::f16(x), super::f16_rounded(x), "{bits:#x}");
+        }
+    }
 
     /// Each kind's flags are distinct bits of its own, and the bits two kinds share are the ones the shaders read per kind.
     #[test]
