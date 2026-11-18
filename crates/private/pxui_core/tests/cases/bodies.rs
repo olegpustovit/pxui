@@ -141,7 +141,7 @@ pub fn slider_custom_thumb() {
     theme.body.slider = id;
     ui.set_theme(theme);
     let v = Cell::new(0.5f32);
-    let mut build = |ui: &mut Ui| { ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| v.set(ui.slider_legacy("Level", "Level", v.get(), 0.0..=1.0, &pxui_core::ui::Slider::DEFAULT).1)); };
+    let mut build = |ui: &mut Ui| { ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| v.set(ui.slider_result("Level", "Level", v.get(), 0.0..=1.0, &pxui_core::ui::Slider::DEFAULT).1)); };
     let mut t = 0.0;
     let mut step = |ui: &mut Ui, e: Vec<Event>| {
         t += 0.1;
@@ -725,7 +725,7 @@ pub fn checkbox_mark_body() {
 }
 
 pub fn radio_mark_body() {
-    let hits = |ui: &mut Ui, v: &Cell<i64>| v.set(ui.radio_legacy("Mode", &["A", "B", "C"], v.get() as usize, &pxui_core::ui::Choice::DEFAULT.name("Mode")).1 as i64);
+    let hits = |ui: &mut Ui, v: &Cell<i64>| v.set(ui.pick_radio("Mode", "Mode", 3, &|i| pxui_core::ui::Segment::new(["A", "B", "C"][i]), Some(v.get() as usize), 0).1.unwrap_or(0) as i64);
     // a click on "B" chooses 1; Tab then Down moves on to 2
     swap("radio", &|ui| pick(ui, &|t, id| t.body.radio = id, &|ui| ui.register_radio_body("mark", mark_check)), Role::Radio, "B", Key::ArrowDown, &hits);
 }
@@ -872,7 +872,8 @@ pub fn grip_wide_band_body() {
         let mut build = |ui: &mut Ui| {
             let host = ui.node("host".into(), Node { at: Some((0.0, 0.0)).into(), w: Size::Px(201.0), h: Size::Px(100.0), ..Node::DEFAULT });
             let saved = ui.enter(&host);
-            let got = ui.split_legacy("split", Axis::Row, ratio.get(), 20.0, 30.0, &mut |ui| { ui.node("a".into(), Node { h: Size::Grow, ..Node::DEFAULT }); }, &mut |ui| { ui.node("b".into(), Node { h: Size::Grow, ..Node::DEFAULT }); });
+            let (_, moved, held) = ui.split_result("split", Axis::Row, ratio.get(), 20.0, 30.0, &mut |ui| { ui.node("a".into(), Node { h: Size::Grow, ..Node::DEFAULT }); }, &mut |ui| { ui.node("b".into(), Node { h: Size::Grow, ..Node::DEFAULT }); });
+            let got = held.filter(|_| moved);
             if let Some(r) = got {
                 ratio.set(r);
             }
@@ -1035,7 +1036,7 @@ fn open_then_dismiss(ui: &Ui) -> Vec<Vec<Event>> {
 pub fn popup_banded_body() {
     let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.popup = id, &|ui| ui.register_popup_body("banded", banded_sheet));
     let got = swap_root("popup", &install, 1, false, &open_then_dismiss, &|ui, c| {
-        if !ui.popup("pop", &pxui_core::ui::Overlay::DEFAULT.at(pxui_types::geom::Point::new(10.0, 10.0)).w_px(200.0).h_px(100.0).dismiss_initial().name("pop"), &mut |ui| go_button(ui, c)).open {
+        if !ui.popup_root("pop", &pxui_core::ui::Overlay::DEFAULT.at(pxui_types::geom::Point::new(10.0, 10.0)).w_px(200.0).h_px(100.0).dismiss_initial().name("pop"), &mut |ui| go_button(ui, c)).is_some() {
             c.b.set(c.b.get() + 1);
         }
     });
@@ -1045,7 +1046,7 @@ pub fn popup_banded_body() {
 pub fn modal_banded_body() {
     let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.modal = id, &|ui| ui.register_modal_body("banded", banded_sheet));
     let got = swap_root("modal", &install, 1, false, &open_then_dismiss, &|ui, c| {
-        if !ui.modal("mod", &pxui_core::ui::Overlay::DEFAULT.name("mod"), &mut |ui| go_button(ui, c)).open {
+        if !ui.modal_root("mod", &pxui_core::ui::Overlay::DEFAULT.name("mod"), &mut |ui| go_button(ui, c)).is_some() {
             c.b.set(c.b.get() + 1);
         }
     });
@@ -1162,7 +1163,7 @@ pub fn split_spacer_body() {
             c.built();
             ui.node("x".into(), Node { h: Size::Grow, ..Node::DEFAULT });
         };
-        if let Some(r) = ui.split_legacy("split", Axis::Row, ratio as f32 / 1000.0, 20.0, 30.0, &mut |ui| pane(ui), &mut |ui| pane(ui)) {
+        if let (_, true, Some(r)) = ui.split_result("split", Axis::Row, ratio as f32 / 1000.0, 20.0, 30.0, &mut |ui| pane(ui), &mut |ui| pane(ui)) {
             c.b.set((r * 1000.0) as i64);
             c.a.set(c.a.get() + 1);
         }
@@ -1192,8 +1193,8 @@ pub fn split_gripless_body() {
         ui.frame(&frame(t, e), &mut |ui| {
             let host = ui.node("host".into(), Node { at: Some((0.0, 0.0)).into(), w: Size::Px(201.0), h: Size::Px(100.0), ..Node::DEFAULT });
             let saved = ui.enter(&host);
-            let r = ui.split("split", 0.5, &pxui_core::ui::Split::DEFAULT, &mut |ui| { ui.node("x".into(), Node { h: Size::Grow, ..Node::DEFAULT }); }, &mut |ui| { ui.node("y".into(), Node { h: Size::Grow, ..Node::DEFAULT }); });
-            if r.ratio.is_some() { ratios.set(ratios.get() + 1); }
+            let (_, _, ratio) = ui.split_result("split", Axis::Row, 0.5, 0.0, 0.0, &mut |ui| { ui.node("x".into(), Node { h: Size::Grow, ..Node::DEFAULT }); }, &mut |ui| { ui.node("y".into(), Node { h: Size::Grow, ..Node::DEFAULT }); });
+            if ratio.is_some() { ratios.set(ratios.get() + 1); }
             ui.leave(saved);
         });
     }
@@ -1234,7 +1235,7 @@ fn chip_toast(ui: &mut Ui, c: &ToastConfig, text: &str) {
 pub fn toast_chip_body() {
     let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.toasts = id, &|ui| ui.register_toasts_body("chip", chip_toast));
     let got = swap_root("toast", &install, 0, false, &|ui| click_on(ui, Role::StatusBar, "one"), &|ui, c| {
-        if let Some(i) = ui.toasts_index("t", &[pxui_core::ui::Toast::new(1, "one"), pxui_core::ui::Toast::new(2, "two")], 1000.0) {
+        if let Some(i) = ui.toasts("t", &[pxui_core::ui::Toast::new(1, "one"), pxui_core::ui::Toast::new(2, "two")], 1000.0).chosen {
             c.a.set(c.a.get() * 10 + i as i64 + 1);
         }
     });
@@ -1392,7 +1393,7 @@ fn pill_dropdown(ui: &mut Ui, c: &DropdownConfig, text: &str) {
 }
 
 fn dropdown_build(ui: &mut Ui, c: &Cells) {
-    let v = ui.dropdown_legacy("Pick", "Pick", &["A", "B", "C"], c.a.get() as usize, &pxui_core::ui::Dropdown::DEFAULT).1;
+    let v = ui.pick_dropdown("Pick", "Pick", 3, &|i| pxui_core::ui::Segment::new(["A", "B", "C"][i]), Some(c.a.get() as usize), 0).1.unwrap_or(0);
     c.a.set(v as i64);
 }
 
@@ -1431,7 +1432,8 @@ pub fn menu_bar_cell_body() {
     let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.menu_bar = id, &|ui| ui.register_menu_bar_body("cell", cell_title));
     // Tab, Down opens "File", Down moves to "Open", Enter picks (0, 1): reported as 0 * 10 + 1 + 1
     let got = swap_root("menu_bar", &install, 0, false, &|_| keys_then(&[Key::Tab, Key::ArrowDown, Key::ArrowDown, Key::Enter]), &|ui, c| {
-        if let Some((m, i)) = ui.menu_bar_legacy("Bar", &[("File", &["New", "Open"]), ("Edit", &["Cut"])]) {
+        const BAR: [(&str, &[&str]); 2] = [("File", &["New", "Open"]), ("Edit", &["Cut"])];
+        if let Some((m, i)) = ui.menu_bar_result("Bar", BAR.len(), &|m| (BAR[m].0, BAR[m].1.len()), &|m, i| BAR[m].1[i]).0 {
             c.a.set((m * 10 + i + 1) as i64);
         }
     });

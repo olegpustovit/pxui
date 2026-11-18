@@ -10,7 +10,7 @@ use crate::{PxuiBox, PxuiSignal, Str};
 use pxui_types::ffi::{PxuiResponse, PxuiTextStyle};
 use pxui_types::{text::LabelFields, TextGlyph, TextMetrics, TextSpans};
 use pxui_core::ui::{Segment, SegmentedOpts, ToggleOpts, Ui};
-use pxui_types::ui::{Checkbox, Choice, Dropdown, Overlay, SelectionList, Slider, TableResponse, TableView};
+use pxui_types::ui::{Checkbox, Choice, Overlay, SelectionList, Slider, TableResponse, TableView};
 use pxui_types::{Axis, FrameIn, FrameOut, Node, Size, ffi::Input, geom::Edges, layout::{Along, Justify}, theme::{State, States, ThemeSnapshot}};
 
 
@@ -327,10 +327,10 @@ pub unsafe fn choice(ui: *mut PxuiUi, kind: u32, key: &str, name: &str, options:
     if long_key(key) || !options_ok(options) { return unsafe { fail(ui, "invalid widget strings") }; }
     let engine = unsafe { engine(ui) };
     let (r, at) = match kind {
-        0 => engine.radio_legacy(key, options, selected, &Choice { name, variant }),
+        0 => { let (r, at, _) = engine.pick_radio(key, name, options.len(), &|i| Segment::new(options[i]), Some(selected), variant); (r, at.unwrap_or(0)) }
         1 => engine.tabs(key, options, selected, &Choice { name, variant }),
         2 => { let (r, at, _) = engine.segmented_options(key, name, options.len(), &|i| Segment::new(options[i]), Some(selected), &SegmentedOpts::DEFAULT); (r, at.unwrap_or(0)) }
-        3 => engine.dropdown_legacy(key, name, options, selected, &Dropdown { variant }),
+        3 => { let (r, at, _) = engine.pick_dropdown(key, name, options.len(), &|i| Segment::new(options[i]), Some(selected), variant); (r, at.unwrap_or(0)) }
         _ => return unsafe { fail(ui, "invalid choice kind") },
     };
     respond(&r, out);
@@ -381,7 +381,7 @@ pub unsafe fn slider(ui: *mut PxuiUi, key: &str, text: &str, value: f32, min: f3
     enter!(ui);
     let text = clip(text);
     if !value.is_finite() || !min.is_finite() || !max.is_finite() || min > max || long_key(key) { return unsafe { fail(ui, "invalid slider arguments") }; }
-    let (r, v) = unsafe { engine(ui) }.slider_legacy(key, text, value, min..=max, slider);
+    let (r, v, _, _) = unsafe { engine(ui) }.slider_result(key, text, value, min..=max, slider);
     respond(&r, out);
     *value_out = v;
     0
@@ -862,7 +862,7 @@ pub unsafe fn toasts(ui: *mut PxuiUi, key: &str, items: &[pxui_types::ui::Toast]
     if long_key(key) || items.len() > MAX_OPTIONS || !seconds.is_finite() || seconds < 0.0 { return unsafe { fail(ui, "invalid toasts") }; }
     let spare: Vec<pxui_types::ui::Toast>;
     let items = if items.iter().all(|t| !long(t.text)) { items } else { spare = items.iter().map(|t| pxui_types::ui::Toast::new(t.id, clip(t.text))).collect(); &spare };
-    *out = unsafe { engine(ui) }.toasts_index(key, items, seconds);
+    *out = unsafe { engine(ui) }.toasts(key, items, seconds).chosen;
     0
 }
 

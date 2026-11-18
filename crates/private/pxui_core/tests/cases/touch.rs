@@ -86,7 +86,7 @@ impl Scene {
             }
             ui.leave(saved);
             if modal {
-                modal_open = ui.modal("touch-blocker", &pxui_core::ui::Overlay::DEFAULT.w_px(80.0).name("touch-blocker"), &mut |ui| ui.label("modal", pxui_core::ui::Label::DEFAULT)).open;
+                modal_open = ui.modal_root("touch-blocker", &pxui_core::ui::Overlay::DEFAULT.w_px(80.0).name("touch-blocker"), &mut |ui| ui.label("modal", pxui_core::ui::Label::DEFAULT)).is_some();
             }
             out = Some((root, inner, signal));
         });

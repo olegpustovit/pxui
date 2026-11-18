@@ -9,7 +9,7 @@ pub mod pxui {
     pub mod collections { pub use pxui_core::ui_widgets::TreeNode; }
     pub use pxui_types::theme;
     pub use pxui_core::ui::Handle;
-    pub use super::shapes::{Badge, Button, GridList, Progress, Spinner, Toggle, Ui};
+    pub use super::shapes::{Badge, Button, GridList, MenuBar, MenuBarMenu, OverlayResponse, PickResponse, Progress, Radio, SliderResponse, Spinner, Split, SplitResponse, Toggle, Ui};
 }
 
 /// The wrapper's call shapes over the engine's own calls, for the page source: the engine keeps one call per job, and this tool's
@@ -17,10 +17,11 @@ pub mod pxui {
 /// Each adapter is a few moves around the engine call, so the direct side still measures the engine.
 pub mod shapes {
     use core::ops::{Deref, DerefMut};
-    use pxui_core::ui::{Handle, Node, Rect};
+    use core::ops::RangeInclusive;
+    use pxui_core::ui::{Axis, Handle, Node, Rect, Response, Segment, SegmentedOpts};
     use pxui_core::ui_widgets::TreeNode;
     use pxui_types::theme::BodyKind;
-    use pxui_types::ui::{Chosen, Dialog, DialogButton, ListResponse, Overlay, SelectionList, TableResponse, TableView, TreeResponse};
+    use pxui_types::ui::{Chosen, Dialog, DialogButton, Dropdown, ListResponse, MenuItem, Overlay, Segmented, SelectionList, Slider, TableResponse, TableView, TreeResponse};
 
     pub type Engine = pxui_core::ui::Ui;
 
@@ -45,6 +46,32 @@ pub mod shapes {
         pub const fn w_px(self, w: f32) -> GridList { GridList { w, ..self } }
         pub const fn h_px(self, h: f32) -> GridList { GridList { h, ..self } }
     }
+
+    /// The wrapper's result and style shapes the pages read (strings are 'static here).
+    #[derive(Clone, Copy, Debug)] pub struct PickResponse { pub response: Response, pub chosen: Option<usize>, pub chosen_id: Option<i64>, pub secondary: Option<usize> }
+    #[derive(Clone, Copy, Debug)] pub struct SliderResponse { pub response: Response, pub value: f32, pub preview: Option<f32>, pub commit: Option<f32> }
+    #[derive(Clone, Copy, Debug)] pub struct OverlayResponse { pub handle: Handle, pub open: bool }
+    #[derive(Clone, Copy, Debug)] pub struct SplitResponse { pub response: Response, pub ratio: Option<f32> }
+    #[derive(Clone, Copy, Debug)] pub struct Radio { name: &'static str, variant: u16 }
+    impl Radio {
+        pub const DEFAULT: Radio = Radio { name: "", variant: 0 };
+        pub const fn name(self, name: &'static str) -> Radio { Radio { name, ..self } }
+        pub const fn variant(self, variant: u16) -> Radio { Radio { variant, ..self } }
+    }
+    #[derive(Clone, Copy, Debug)] pub struct Split { axis: Axis, min_a: f32, min_b: f32 }
+    impl Split {
+        pub const DEFAULT: Split = Split { axis: Axis::Row, min_a: 0.0, min_b: 0.0 };
+        pub const fn axis(self, axis: Axis) -> Split { Split { axis, ..self } }
+        pub const fn min_a(self, points: f32) -> Split { Split { min_a: points, ..self } }
+        pub const fn min_b(self, points: f32) -> Split { Split { min_b: points, ..self } }
+    }
+    #[derive(Clone, Copy, Debug)] pub struct MenuBar { variant: u16 }
+    impl MenuBar {
+        pub const DEFAULT: MenuBar = MenuBar { variant: 0 };
+        pub const fn variant(self, variant: u16) -> MenuBar { MenuBar { variant } }
+    }
+    #[derive(Clone, Copy, Debug)] pub struct MenuBarMenu { title: &'static str, items: &'static [MenuItem<'static>] }
+    impl MenuBarMenu { pub const fn new(title: &'static str, items: &'static [MenuItem<'static>]) -> MenuBarMenu { MenuBarMenu { title, items } } }
 
     /// The wrapper's button and toggle styles as the pages use them (`DEFAULT` only).
     #[derive(Clone, Copy, Debug)] pub struct Button;
@@ -74,6 +101,32 @@ pub mod shapes {
         pub fn grid_list(&mut self, key: &str, count: usize, grid: &GridList, f: &mut dyn FnMut(&mut Ui, usize)) -> Handle {
             self.0.grid_list(key, count, grid.w, grid.h, &mut |e: &mut Engine, i| f(Ui::of(e), i))
         }
+        pub fn radio(&mut self, key: &str, items: &[Segment], selected: Option<usize>, radio: &Radio) -> PickResponse {
+            let (response, chosen, secondary) = self.0.pick_radio(key, radio.name, items.len(), &|i| items[i], selected, radio.variant);
+            PickResponse { response, chosen, chosen_id: chosen.and_then(|i| items[i].id), secondary }
+        }
+        pub fn dropdown(&mut self, key: &str, text: &str, items: &[Segment], selected: Option<usize>, dropdown: &Dropdown) -> PickResponse {
+            let (response, chosen, secondary) = self.0.pick_dropdown(key, text, items.len(), &|i| items[i], selected, dropdown.variant);
+            PickResponse { response, chosen, chosen_id: chosen.and_then(|i| items[i].id), secondary }
+        }
+        pub fn segmented(&mut self, key: &str, items: &[Segment], selected: Option<usize>, s: &Segmented) -> PickResponse {
+            let opts = SegmentedOpts { enabled: s.enabled, h: s.h, grow: s.grow, states: s.look.copied(), w: s.w, padding: s.padding, min_segment: s.min_segment, focus_on_click: s.focus_on_click };
+            let (response, chosen, secondary) = self.variant(BodyKind::segmented, s.variant, |e| e.segmented_opts(key, s.name.unwrap_or(""), items, selected, &opts));
+            PickResponse { response, chosen, chosen_id: chosen.and_then(|i| items[i].id), secondary }
+        }
+        pub fn slider(&mut self, key: &str, text: &str, value: f32, range: RangeInclusive<f32>, slider: &Slider) -> SliderResponse {
+            let (response, value, preview, commit) = self.0.slider_result(key, text, value, range, slider);
+            SliderResponse { response, value, preview, commit }
+        }
+        pub fn menu_bar(&mut self, key: &str, menus: &[MenuBarMenu], bar: &MenuBar) -> Chosen {
+            let (picked, dismissed) = self.variant(BodyKind::menu_bar, bar.variant, |e| e.menu_bar_result(key, menus.len(), &|m| (menus[m].title, menus[m].items.len()), &|m, i| menus[m].items[i].text));
+            let item = picked.and_then(|(m, i)| Some((menus.get(m)?.items.get(i)?, m, i)));
+            Chosen { chosen: item.map(|(_, m, i)| menus[..m].iter().map(|menu| menu.items.len()).sum::<usize>() + i), chosen_id: item.and_then(|(it, _, _)| it.id), dismissed }
+        }
+        pub fn popup(&mut self, key: &str, overlay: &Overlay, f: &mut dyn FnMut(&mut Ui)) -> OverlayResponse {
+            let root = self.0.popup_root(key, overlay, page!(f));
+            OverlayResponse { handle: root.unwrap_or_default(), open: root.is_some() }
+        }
         pub fn button(&mut self, key: &str, text: &str, _: &Button) -> pxui_core::ui::Response {
             self.0.button_opts(key, text, None, &pxui_core::ui_kit::ButtonOpts::DEFAULT, [""; 3], None, None)
         }
@@ -85,7 +138,10 @@ pub mod shapes {
         pub fn view_of(&mut self, key: &str, revision: &u64, f: &mut dyn FnMut(&mut Ui)) -> Handle { self.0.view_of(key, revision, page!(f)) }
         pub fn scroll_view(&mut self, key: &str, node: Node, f: &mut dyn FnMut(&mut Ui)) -> Handle { self.0.scroll_view(key, node, page!(f)) }
         pub fn panel(&mut self, key: &str, overlay: &Overlay, f: &mut dyn FnMut(&mut Ui)) { self.0.panel(key, overlay, page!(f)) }
-        pub fn modal(&mut self, key: &str, overlay: &Overlay, f: &mut dyn FnMut(&mut Ui)) -> pxui_core::ui_widgets::OverlayResponse { self.0.modal(key, overlay, page!(f)) }
+        pub fn modal(&mut self, key: &str, overlay: &Overlay, f: &mut dyn FnMut(&mut Ui)) -> OverlayResponse {
+            let root = self.0.modal_root(key, overlay, page!(f));
+            OverlayResponse { handle: root.unwrap_or_default(), open: root.is_some() }
+        }
         pub fn anchored(&mut self, key: &str, anchor: Rect, overlay: &Overlay, f: &mut dyn FnMut(&mut Ui)) -> Handle { self.0.anchored(key, anchor, overlay, page!(f)) }
         pub fn inspector_section(&mut self, key: &str, expanded: bool, set: Option<bool>, label: &str, f: &mut dyn FnMut(&mut Ui)) -> bool {
             self.0.inspector_section(key, expanded, set, label, page!(f))
@@ -93,8 +149,9 @@ pub mod shapes {
         pub fn dialog(&mut self, key: &str, title: &str, buttons: &[DialogButton], style: &Dialog, f: &mut dyn FnMut(&mut Ui)) -> Chosen {
             self.0.dialog(key, title, buttons, style, page!(f))
         }
-        pub fn split(&mut self, key: &str, ratio: f32, split: &pxui_core::ui_widgets::Split, a: &mut dyn FnMut(&mut Ui), b: &mut dyn FnMut(&mut Ui)) -> pxui_core::ui_widgets::SplitResponse {
-            self.0.split(key, ratio, split, page!(a), page!(b))
+        pub fn split(&mut self, key: &str, ratio: f32, split: &Split, a: &mut dyn FnMut(&mut Ui), b: &mut dyn FnMut(&mut Ui)) -> SplitResponse {
+            let (response, _, ratio) = self.0.split_result(key, split.axis, ratio, split.min_a, split.min_b, page!(a), page!(b));
+            SplitResponse { response, ratio }
         }
         pub fn selection_list(&mut self, key: &str, count: usize, selected: &mut [u8], list: &SelectionList, f: &mut dyn FnMut(&mut Ui, usize)) -> ListResponse {
             self.0.selection_list(key, count, selected, list, &mut |e: &mut Engine, i| f(Ui::of(e), i))

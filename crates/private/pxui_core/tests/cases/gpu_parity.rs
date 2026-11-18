@@ -90,7 +90,7 @@ fn new_panel(ui: &mut Ui) {
 
 /// The floating widgets: a modal with a picker, and a context menu.
 fn overlays(ui: &mut Ui) {
-    ui.modal("modal", &pxui_core::ui::Overlay::DEFAULT.w_px(220.0).name("modal"), &mut |ui| {
+    ui.modal_root("modal", &pxui_core::ui::Overlay::DEFAULT.w_px(220.0).name("modal"), &mut |ui| {
         ui.label("Presets", pxui_core::ui::Label::DEFAULT);
         let rows = |_: &str| {
             vec![

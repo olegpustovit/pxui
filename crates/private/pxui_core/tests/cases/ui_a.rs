@@ -900,7 +900,7 @@ pub fn window_pxui_tooltip_rest() {
     }
     let mut ready = false;
     ui.frame(&frame_at(vec![], 1.0, 1.5, vec![]), &mut |ui| {
-        ui.modal("hover-modal", &pxui_core::ui::Overlay::DEFAULT.name("hover-modal"), &mut |ui| ui.label("Modal", pxui_core::ui::Label::DEFAULT));
+        ui.modal_root("hover-modal", &pxui_core::ui::Overlay::DEFAULT.name("hover-modal"), &mut |ui| ui.label("Modal", pxui_core::ui::Label::DEFAULT));
         ready = ui.hover_delay("a");
     });
     if ready {
@@ -1052,7 +1052,7 @@ fn window_modal_input_and_fitted_labels_reuse_warm_storage() {
     let open = Cell::new(false);
     let background = Cell::new(false);
     let mut build = |ui: &mut Ui| {
-        open.set(ui.modal("warm-modal", &pxui_core::ui::Overlay::DEFAULT.w_px(300.0).name("warm-modal"), &mut |ui| {
+        open.set(ui.modal_root("warm-modal", &pxui_core::ui::Overlay::DEFAULT.w_px(300.0).name("warm-modal"), &mut |ui| {
             let body = ui.node("body".into(), Node { w: Size::Grow, h: Size::Px(140.0), flags: Flags::CLICKABLE | Flags::TAB_STOP | Flags::SCROLL, ..Node::DEFAULT });
             inside.set(Some(body));
             ui.within(&body, &mut |ui| {
@@ -1062,7 +1062,7 @@ fn window_modal_input_and_fitted_labels_reuse_warm_storage() {
                 }
             });
             let _ = ui.signal(&body);
-        }).open);
+        }).is_some());
         let behind = ui.node("background".into(), Node { w: Size::Grow, h: Size::Grow, flags: Flags::CLICKABLE | Flags::TAB_STOP, ..Node::DEFAULT });
         let signal = ui.signal(&behind);
         background.set(signal.clicked || signal.hovered);

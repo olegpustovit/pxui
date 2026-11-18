@@ -701,11 +701,6 @@ impl Default for PopupOpts {
     }
 }
 
-/// An overlay's root as the wrapper reports it: the empty box and closed when it was dismissed.
-fn overlay_response(root: Option<Handle>) -> crate::ui_widgets::OverlayResponse {
-    crate::ui_widgets::OverlayResponse { handle: root.unwrap_or_default(), open: root.is_some() }
-}
-
 impl Ui {
     /// A light panel at `(x, y)` (default `(12, 12)`, width 280). `height` fills a fixed pane;
     /// otherwise content sets the height. Rows beyond the height or `max_height` use the shared
@@ -856,23 +851,14 @@ impl Ui {
     }
 
     /// A popup keyed by `key` (hashed under the parent's seed), placed and dressed by `overlay` and named by its name (none without).
-    /// Returns whether it is open (and `f` ran).
-    pub fn popup(&mut self, key: &str, overlay: &Overlay, f: &mut dyn FnMut(&mut Ui)) -> crate::ui_widgets::OverlayResponse { overlay_response(self.popup_root(key, overlay, f)) }
-
-    /// `popup`, returning its root while open.
+    /// Returns its root while open (and `f` ran).
     pub fn popup_root(&mut self, key: &str, overlay: &Overlay, f: &mut dyn FnMut(&mut Ui)) -> Option<Handle> {
         let opts = PopupOpts { stroke: overlay.stroke, look: None, max_height: overlay.max_h, dismiss_initial: overlay.dismiss_initial, attached: overlay.attached, ..PopupOpts::default() };
         self.popup_with_related(opts, overlay.at, overlay.w.unwrap_or(0.0), overlay.h.unwrap_or(0.0), key, Some(overlay.name.unwrap_or("")), f)
     }
 
-    /// A kit panel centered in the frame, outlined in the accent colour. Build it before the body
-    /// it shields, at the root level; it paints on top. Escape, window focus loss, or a press
-    /// outside it dismisses it: the builder is skipped and `false` is returned, so the host drops
-    /// its open state.
-    /// Keyed by `key` (hashed under the parent's seed), `overlay`'s width (320 by default) and named by its name (none without).
-    pub fn modal(&mut self, key: &str, overlay: &Overlay, f: &mut dyn FnMut(&mut Ui)) -> crate::ui_widgets::OverlayResponse { overlay_response(self.modal_root(key, overlay, f)) }
-
-    /// `modal`, returning its root while open.
+    /// A modal keyed by `key`, `overlay`'s width (320 by default) and named by its name (none without); a press outside it dismisses
+    /// it. Returns its root while open (and `f` ran).
     pub fn modal_root(&mut self, key: &str, overlay: &Overlay, f: &mut dyn FnMut(&mut Ui)) -> Option<Handle> {
         self.modal_named(overlay.w, key, Some(overlay.name.unwrap_or("")), f)
     }
@@ -1103,22 +1089,9 @@ impl Ui {
         (b, signal)
     }
 
-    /// Two panes side by side (`Row`) or stacked (`Column`) filling the parent, `a` taking `ratio` of
-    /// the room the grip leaves and `b` the rest, neither below its minimum. Dragging the grip
-    /// returns the new ratio (the caller stores it); `None` otherwise.
-    /// The wrapper's `split`: `split_result` with the grip's response and its ratio while held and on release.
-    pub fn split(&mut self, key: &str, ratio: f32, split: &crate::ui_widgets::Split, a: &mut dyn FnMut(&mut Ui), b: &mut dyn FnMut(&mut Ui)) -> crate::ui_widgets::SplitResponse {
-        let (response, _, ratio) = self.split_result(key, split.axis, ratio, split.min_a, split.min_b, a, b);
-        crate::ui_widgets::SplitResponse { response, ratio }
-    }
-
-    pub fn split_legacy(&mut self, label: &str, axis: Axis, ratio: f32, min_a: f32, min_b: f32, a: &mut dyn FnMut(&mut Ui), b: &mut dyn FnMut(&mut Ui)) -> Option<f32> {
-        let (_, moved, held) = self.split_result(label, axis, ratio, min_a, min_b, a, b);
-        held.filter(|_| moved)
-    }
-
-    /// `split` reporting the grip's response (the empty one without a grip), whether the grip moved along the axis, and the ratio
-    /// under the pointer whenever the grip is held and on its release frame.
+    /// Two panes side by side (`Row`) or stacked (`Column`) filling the parent, `a` taking `ratio` of the room the grip leaves and `b`
+    /// the rest, neither below its minimum. Reports the grip's response (the empty one without a grip), whether the grip moved along
+    /// the axis, and the ratio under the pointer whenever the grip is held and on its release frame (the caller stores it).
     #[allow(clippy::too_many_arguments)]
     pub fn split_result(&mut self, label: &str, axis: Axis, ratio: f32, min_a: f32, min_b: f32, a: &mut dyn FnMut(&mut Ui), b: &mut dyn FnMut(&mut Ui)) -> (Response, bool, Option<f32>) {
         let row = axis == Axis::Row;

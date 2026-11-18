@@ -597,7 +597,8 @@ pub fn layout_split_drag() {
         let host = ui.node("host".into(), Node { at: Some((0.0, 0.0)).into(), ..px(201.0, 100.0) });
         let saved = ui.enter(&host);
         let (mut a, mut b) = (None, None);
-        let got = ui.split_legacy("split", Axis::Row, ratio.get(), 20.0, 30.0, &mut |ui| a = Some(ui.node("a".into(), Node { h: Size::Grow, ..Node::DEFAULT })), &mut |ui| b = Some(ui.node("b".into(), Node { h: Size::Grow, ..Node::DEFAULT })));
+        let (_, moved, held) = ui.split_result("split", Axis::Row, ratio.get(), 20.0, 30.0, &mut |ui| a = Some(ui.node("a".into(), Node { h: Size::Grow, ..Node::DEFAULT })), &mut |ui| b = Some(ui.node("b".into(), Node { h: Size::Grow, ..Node::DEFAULT })));
+        let got = held.filter(|_| moved);
         if let Some(r) = got {
             ratio.set(r);
         }

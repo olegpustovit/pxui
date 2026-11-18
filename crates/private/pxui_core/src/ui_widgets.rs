@@ -174,90 +174,6 @@ impl SegmentedOpts {
     pub const DEFAULT: SegmentedOpts = SegmentedOpts { enabled: true, h: None, grow: false, states: None, w: None, padding: 8.0, min_segment: 0.0, focus_on_click: false };
 }
 
-// The wrapper's U1b.1 result and style shapes, so the gallery pages compile against the engine too (abi_bench); strings are
-// 'static here (an engine record carries no lifetime).
-
-/// What `radio`, `dropdown` and `segmented` report: the response, the choice (`None`: none) and the item a secondary press began on.
-#[derive(Clone, Copy, Debug)]
-pub struct PickResponse {
-    pub response: Response,
-    pub chosen: Option<usize>,
-    pub secondary: Option<usize>,
-}
-
-/// What `slider` reports: the value shown, the held preview and the commit (with `preview` equal to it on that frame).
-#[derive(Clone, Copy, Debug)]
-pub struct SliderResponse {
-    pub response: Response,
-    pub value: f32,
-    pub preview: Option<f32>,
-    pub commit: Option<f32>,
-}
-
-/// What `popup` and `modal` report: the root (empty when dismissed) and whether the caller keeps it open.
-#[derive(Clone, Copy, Debug)]
-pub struct OverlayResponse {
-    pub handle: Handle,
-    pub open: bool,
-}
-
-/// What `split` reports: the grip's response and the ratio while it is held and on its release.
-#[derive(Clone, Copy, Debug)]
-pub struct SplitResponse {
-    pub response: Response,
-    pub ratio: Option<f32>,
-}
-
-/// A radio group's accessible name and body variant.
-#[derive(Clone, Copy, Debug)]
-pub struct Radio {
-    pub name: &'static str,
-    pub variant: u16,
-}
-
-impl Radio {
-    pub const DEFAULT: Radio = Radio { name: "", variant: 0 };
-    pub const fn name(mut self, name: &'static str) -> Radio { self.name = name; self }
-    pub const fn variant(mut self, variant: u16) -> Radio { self.variant = variant; self }
-}
-
-/// A split's axis and the panes' least lengths.
-#[derive(Clone, Copy, Debug)]
-pub struct Split {
-    pub axis: Axis,
-    pub min_a: f32,
-    pub min_b: f32,
-}
-
-impl Split {
-    pub const DEFAULT: Split = Split { axis: Axis::Row, min_a: 0.0, min_b: 0.0 };
-    pub const fn axis(mut self, axis: Axis) -> Split { self.axis = axis; self }
-    pub const fn min_a(mut self, points: f32) -> Split { self.min_a = points; self }
-    pub const fn min_b(mut self, points: f32) -> Split { self.min_b = points; self }
-}
-
-/// A menu bar's body variant.
-#[derive(Clone, Copy, Debug)]
-pub struct MenuBar {
-    pub variant: u16,
-}
-
-impl MenuBar {
-    pub const DEFAULT: MenuBar = MenuBar { variant: 0 };
-    pub const fn variant(mut self, variant: u16) -> MenuBar { self.variant = variant; self }
-}
-
-/// One menu of a bar: its title and items.
-#[derive(Clone, Copy, Debug)]
-pub struct MenuBarMenu {
-    pub title: &'static str,
-    pub items: &'static [pxui_types::ui::MenuItem<'static>],
-}
-
-impl MenuBarMenu {
-    pub const fn new(title: &'static str, items: &'static [pxui_types::ui::MenuItem<'static>]) -> MenuBarMenu { MenuBarMenu { title, items } }
-}
-
 /// The built-in segment: the text's width and twice `padding` (or its share of the strip with `grow`), at least `min_segment`, `padding`
 /// in, a point over the one before it.
 pub(crate) fn default_segment(this: &mut Ui, c: &SegmentConfig, states: Option<&States>, text: &str) {
@@ -391,42 +307,6 @@ impl Ui {
         Response::of(&s, self.focused(&row), row)
     }
 
-    /// The wrapper's `radio`: `pick_radio` over `items`.
-    pub fn radio(&mut self, key: &str, items: &[Segment], selected: Option<usize>, radio: &Radio) -> PickResponse {
-        let (response, chosen, secondary) = self.pick_radio(key, radio.name, items.len(), &|i| items[i], selected, radio.variant);
-        PickResponse { response, chosen, secondary }
-    }
-
-    /// The wrapper's `dropdown`: `pick_dropdown` over `items`.
-    pub fn dropdown(&mut self, key: &str, text: &str, items: &[Segment], selected: Option<usize>, dropdown: &Dropdown) -> PickResponse {
-        let (response, chosen, secondary) = self.pick_dropdown(key, text, items.len(), &|i| items[i], selected, dropdown.variant);
-        PickResponse { response, chosen, secondary }
-    }
-
-    /// The wrapper's `slider`: `slider_result` as one value.
-    pub fn slider(&mut self, key: &str, text: &str, value: f32, range: RangeInclusive<f32>, slider: &Slider) -> SliderResponse {
-        let (response, value, preview, commit) = self.slider_result(key, text, value, range, slider);
-        SliderResponse { response, value, preview, commit }
-    }
-
-    /// The wrapper's `menu_bar`: the pick as the flat item index and its id, and a dismissal.
-    pub fn menu_bar(&mut self, key: &str, menus: &[MenuBarMenu], bar: &MenuBar) -> Chosen {
-        if bar.variant != 0 { self.set_variant(BodyKind::menu_bar as u32, bar.variant); }
-        let (picked, dismissed) = self.menu_bar_result(key, menus.len(), &|m| (menus[m].title, menus[m].items.len()), &|m, i| menus[m].items[i].text);
-        if bar.variant != 0 { self.set_variant(BodyKind::menu_bar as u32, 0); }
-        let item = picked.and_then(|(m, i)| Some((menus.get(m)?.items.get(i)?, m, i)));
-        Chosen { chosen: item.map(|(_, m, i)| menus[..m].iter().map(|menu| menu.items.len()).sum::<usize>() + i), chosen_id: item.and_then(|(it, _, _)| it.id), dismissed }
-    }
-
-    /// A radio group: one row per option, `selected` the chosen one. One Tab stop; the arrows move
-    /// the choice. Returns the choice.
-    /// A radio group keyed by `key` (hashed under the parent's seed), named `choice.name`, its variant given to the rows' bodies;
-    /// reports the group's response and the choice.
-    pub fn radio_legacy(&mut self, key: &str, options: &[&str], selected: usize, choice: &Choice) -> (Response, usize) {
-        let (r, sel, _) = self.pick_radio(key, choice.name, options.len(), &|i| Segment::new(options[i]), Some(selected), choice.variant);
-        (r, sel.unwrap_or(0))
-    }
-
     /// The radio group over `count` items, item `i` being `item(i)`: an item with an id is keyed by it (its row, focus and a
     /// secondary press follow it through a reorder), one without by its place in a namespace ids never reach; `selected` none
     /// checks no row (an arrow then chooses the first or last). Reports the group's response, the choice and the row a secondary
@@ -464,16 +344,6 @@ impl Ui {
         let mut r = Response::of(&s, self.focused(&group), group);
         r.secondary |= secondary.is_some();
         (r, sel, secondary)
-    }
-
-    /// A horizontal slider row: the label, then a rail with the filled part and an 8 x 14 thumb.
-    /// Dragging, the arrows (a hundredth of the range; Page keys a tenth; Home and End the ends) and
-    /// an assistive technology's SetValue move it. Returns the value, held in `range`.
-    /// Keyed by `key` (hashed under the parent's seed), showing and named `text`, its variant given to the slider body; reports the
-    /// track's response and the value.
-    pub fn slider_legacy(&mut self, key: &str, text: &str, value: f32, range: RangeInclusive<f32>, slider: &Slider) -> (Response, f32) {
-        let (r, v, _, _) = self.slider_result(key, text, value, range, slider);
-        (r, v)
     }
 
     /// `slider` with the held preview and the commit (see `slider_body`).
@@ -676,17 +546,6 @@ impl Ui {
         self.segmented_options(key, name, options.len(), &|i| options[i], selected, opts)
     }
 
-    /// The wrapper's `segmented_with` shape over `segmented_opts`: `segmented` (a `Segmented` value) varies the strip and its variant
-    /// reaches the registered segment body; `response.changed` is not the engine's (the caller compares `chosen`).
-    pub fn segmented(&mut self, key: &str, options: &[Segment], selected: Option<usize>, segmented: &Segmented) -> PickResponse {
-        let opts = SegmentedOpts { enabled: segmented.enabled, h: segmented.h, grow: segmented.grow, states: segmented.look.copied(), w: segmented.w, padding: segmented.padding, min_segment: segmented.min_segment, focus_on_click: segmented.focus_on_click };
-        let kind = pxui_types::theme::BodyKind::segmented as u32;
-        if segmented.variant != 0 { self.set_variant(kind, segmented.variant); }
-        let (response, chosen, secondary) = self.segmented_opts(key, segmented.name.unwrap_or(""), options, selected, &opts);
-        if segmented.variant != 0 { self.set_variant(0, 0); }
-        PickResponse { response, chosen, secondary }
-    }
-
     /// The one body of `segmented_opts`: `count` options, option `i` being `option(i)` (the C ABI's texts without a copy).
     ///
     /// A radio group: each option is a Radio that assistive technology can focus (FOCUSABLE, with the Focus action); only the chosen
@@ -804,17 +663,6 @@ impl Ui {
         self.frame_events().iter().any(|e| matches!(e, Event::PointerPressed(_, p) if { let p = (p.0 as f32, p.1 as f32); !a.contains(p) && !b.contains(p) }))
     }
 
-    /// A dropdown row: the label, then a button showing the chosen option and a chevron. A click,
-    /// Enter, Space or Down opens its menu below (Up and Down move in it, Enter picks, Escape or a
-    /// press outside closes it). Returns the choice. While open its menu escapes a cached view, so
-    /// that view rebuilds each frame until it closes.
-    /// `dropdown` keyed by `key` (hashed under the parent's seed), showing and named `text`; reports the button's response and the
-    /// choice.
-    pub fn dropdown_legacy(&mut self, key: &str, text: &str, options: &[&str], selected: usize, dropdown: &Dropdown) -> (Response, usize) {
-        let (r, sel, _) = self.pick_dropdown(key, text, options.len(), &|i| Segment::new(options[i]), Some(selected), dropdown.variant);
-        (r, sel.unwrap_or(0))
-    }
-
     /// The dropdown over `count` items, item `i` being `item(i)` (its menu row keyed as `pick_radio` keys its row); `selected` none
     /// shows no option on the button (opening the menu then lights the first). Reports the button's response, the choice and the
     /// menu row a secondary press began on (none: the menu rows take primary presses only).
@@ -877,14 +725,6 @@ impl Ui {
         self.set_state(&button, lit);
         if variant != 0 { self.set_variant(BodyKind::dropdown as u32, 0); }
         (Response::of(&s, self.focused(&button), button), sel, None)
-    }
-
-    /// A menu bar: each `(title, items)` a top-level item that opens its menu below it. While one
-    /// is open, hovering another switches to it. Keys (Tab to the bar): Left and Right move between
-    /// menus, Down, Enter or Space open one, Up and Down move in it, Enter picks, Escape closes.
-    /// Returns `(menu, item)` on the frame an item is picked.
-    pub fn menu_bar_legacy(&mut self, label: &str, menus: &[(&str, &[&str])]) -> Option<(usize, usize)> {
-        self.menu_bar_result(label, menus.len(), &|m| (menus[m].0, menus[m].1.len()), &|m, i| menus[m].1[i]).0
     }
 
     /// `menu_bar`, also reporting a dismissal: a menu open when the frame began closed without a pick (Escape, a press outside, or
@@ -1272,12 +1112,12 @@ impl Ui {
     /// id and asks for the frame (`repaint_after`), so the host needs no timer. Returns a toast
     /// clicked away or expired (one a frame; the caller drops it).
     pub fn toasts(&mut self, key: &str, items: &[Toast], seconds: f64) -> Chosen {
-        let chosen = self.toasts_index(key, items, seconds);
+        let chosen = self.toast_stack(key, items, seconds);
         Chosen { chosen, chosen_id: chosen.and_then(|i| items.get(i).map(|t| t.id)), dismissed: false }
     }
 
     /// The toast clicked away or expired this frame (`toasts`' index).
-    pub fn toasts_index(&mut self, key: &str, items: &[Toast], seconds: f64) -> Option<usize> {
+    fn toast_stack(&mut self, key: &str, items: &[Toast], seconds: f64) -> Option<usize> {
         let label = key;
         if items.is_empty() {
             return None;

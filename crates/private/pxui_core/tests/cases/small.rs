@@ -178,7 +178,7 @@ pub fn window_pxui_keyboard() {
     ui.frame(&keyboard_frame(vec![], vec![Event::FocusLost]), &mut |_| {});
     let picked = std::cell::RefCell::new(None);
     let mut picker = |ui: &mut Ui| {
-        ui.modal("picker", &pxui_core::ui::Overlay::DEFAULT.name("picker"), &mut |ui| {
+        ui.modal_root("picker", &pxui_core::ui::Overlay::DEFAULT.name("picker"), &mut |ui| {
             let rows = |_: &str| vec![("One".to_owned(), String::new()), ("Two".to_owned(), String::new())];
             *picked.borrow_mut() = Some({ let r = ui.picker("Search", "Search", "", &pxui_core::ui::PickerOpts::default(), &mut |q: &str, out: &mut pxui_core::ui::PickRows| for (a, b) in rows(q) { out.push(&a, &b) }); (r.query.to_owned(), r.pick) });
         });
@@ -222,7 +222,7 @@ pub fn window_pxui_input() {
         let mut out = None;
         ui.frame(&f, &mut |ui| {
             if popup {
-                ui.modal("modal", &pxui_core::ui::Overlay::DEFAULT.name("modal"), &mut |ui| ui.label("Popup", pxui_core::ui::Label::DEFAULT));
+                ui.modal_root("modal", &pxui_core::ui::Overlay::DEFAULT.name("modal"), &mut |ui| ui.label("Popup", pxui_core::ui::Label::DEFAULT));
             }
             out = Some(body(ui));
         });
@@ -305,7 +305,7 @@ pub fn window_pxui_input() {
     let modal_y = |ui: &mut Ui, label: &str| -> f64 {
         let mut row = None;
         ui.frame(&plain(vec![]), &mut |ui| {
-            ui.modal(label, &pxui_core::ui::Overlay::DEFAULT.name(label), &mut |ui| row = Some(ui.box_("row", BoxOpts::default().h(Size::Px(24.0)))));
+            ui.modal_root(label, &pxui_core::ui::Overlay::DEFAULT.name(label), &mut |ui| row = Some(ui.box_("row", BoxOpts::default().h(Size::Px(24.0)))));
         });
         f64::from(ui.rect(&row.expect("modal open")).y)
     };
