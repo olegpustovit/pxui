@@ -42,6 +42,7 @@ use std::rc::Rc;
 mod string_pool;
 mod touch;
 pub mod gesture;
+mod reorder;
 use string_pool::{EmptyStrings, Field as StringField};
 
 impl StringField {
@@ -706,6 +707,8 @@ struct Slot {
     /// the frame in which the app asked this node about a carried payload (`Ui::drop_target_ref`): the node takes the pointer's hit
     /// that frame whatever its flags, so a drop reaches any node
     drop_zone: i64,
+    /// a reorderable list's row: assistive technology is offered Move up and Move down on it
+    movable: bool,
     rx: f32,
     ry: f32,
     rw: f32,
@@ -760,6 +763,7 @@ impl Slot {
             row_of: (0, 0),
             holds_rows: false,
             drop_zone: -1,
+            movable: false,
             rx: 0.0,
             ry: 0.0,
             rw: 0.0,
@@ -870,6 +874,8 @@ pub struct Accumulator {
     pub a11y_value: Option<f64>,
     /// a selection an assistive technology set (`A11yAction` Select): anchor and caret in chars
     pub a11y_select: Option<(u32, u32)>,
+    /// a row move an assistive technology asked for (`A11yAction` MoveUp -1, MoveDown 1)
+    pub a11y_move: i8,
     pub scroll_touch: bool,
     pub scroll_lift: bool,
     pub(crate) scroll_velocity: (f64, f64),
@@ -1113,6 +1119,14 @@ pub struct Ui {
     pub(crate) a11y_on: bool,
     /// where a carried payload would land in the last reorderable list built (its insertion index) and whether it was dropped there
     pub(crate) list_drop: Option<(usize, bool)>,
+    /// the row move the last reorderable list built reported (`ui_core::reorder`), the drag in progress and the rows animating
+    pub(crate) list_moved: Option<(usize, usize)>,
+    reorder: reorder::Reorder,
+    /// the handle (`Part::HANDLE`) the building reorderable row made, how many reorderable rows are building, and whether the next
+    /// section list's rows move (a selection list's)
+    row_handle: Option<Handle>,
+    movable_rows: u32,
+    pub(crate) row_moves: bool,
     /// sortable headings' composed accessible names (`ui_lists`), bounded
     pub(crate) sort_names: crate::ui_lists::SortNames,
     timing: bool,
@@ -1403,6 +1417,11 @@ impl Ui {
             a11y_written: 0,
             a11y_on: false,
             list_drop: None,
+            list_moved: None,
+            reorder: reorder::Reorder::default(),
+            row_handle: None,
+            movable_rows: 0,
+            row_moves: false,
             sort_names: crate::ui_lists::SortNames::default(),
             timing: false,
             a11y_seen: (0, None),
@@ -2002,6 +2021,7 @@ impl Ui {
                         self.accumulator(key).clicked = true;
                     }
                 }
+                A11yKind::MoveUp | A11yKind::MoveDown => self.accumulator(key).a11y_move = if a.action == A11yKind::MoveUp { -1 } else { 1 },
             }
             self.mark_key(key);
         }
@@ -2175,6 +2195,9 @@ impl Ui {
                 }
                 if n.a11y & a11y_state::EXPANDABLE != 0 {
                     acts |= a11y_actions::EXPAND | a11y_actions::COLLAPSE;
+                }
+                if s.movable {
+                    acts |= a11y_actions::MOVE_UP | a11y_actions::MOVE_DOWN;
                 }
                 let i = t.push(parent, crate::a11y::node_id(slot, s.generation), n.role, rect);
                 t.set_name(i, if s.a11y_name.is_empty() { &s.text } else { &s.a11y_name });
@@ -2547,6 +2570,7 @@ impl Ui {
                     scroll_drag_x: 0.0,
                     a11y_value: None,
                     a11y_select: None,
+                    a11y_move: 0,
                     scroll_touch: false,
                     scroll_lift: false,
                     scroll_velocity: (0.0, 0.0),
@@ -7585,7 +7609,7 @@ impl Ui {
     /// follows its item when the items reorder; without it, by its index. With `trailer`, the space after the last row is built too
     /// (`usize::MAX - 2`); without it (the 1.x C contract: every other index is a row) it stays empty.
     pub fn section_list(&mut self,label:&str,section:&pxui_types::ui::SectionList,row_key:Option<&dyn Fn(usize)->i64>,trailer:bool,f:&mut dyn FnMut(&mut Ui,usize,f32))->Handle {
-        self.list_drop=None;
+        (self.list_drop,self.list_moved)=(None,None);
         if section.measured { return self.section_rows_measured(label,section,row_key,trailer,f); }
         let y=|index:usize| match index { usize::MAX=>0.0, i if i==usize::MAX-1=>section.leading_height, i if i==usize::MAX-2=>section.leading_height+section.header_height+section.count as f32*section.row_height, i=>section.leading_height+section.header_height+i as f32*section.row_height };
         self.section_rows_fixed(label,section,row_key,trailer,&mut |ui,index| f(ui,index,y(index)))
@@ -7624,16 +7648,19 @@ impl Ui {
         self.slots[extent.box_slot].holds_rows = true;
         self.text_mut().list_window(body.box_key as u64,first,last);
         let (outer,mut line)=(self.ahead,None);
+        let mut moves=(section.reorder|core::mem::take(&mut self.row_moves)).then(|| self.rows_move_begin(&body,&extent,rows_h,section.count));
         for index in first..last {
             self.ahead_row(outer,&(top..bottom),index);
-            let node=Node {w:Size::Grow,h:Size::Px(section.row_height),at:Some((0.0,index as f32*section.row_height)).into(),role:Role::ListItem,..Node::DEFAULT};
+            let at=index as f32*section.row_height;
+            let node=Node {w:Size::Grow,h:Size::Px(section.row_height),at:Some((0.0,at)).into(),role:Role::ListItem,..Node::DEFAULT};
             let row=self.list_row(body.box_key,index,row_key,node);
             self.slots[row.box_slot].row_of = (body.box_key, index as u32);
-            let part=self.enter(&row); f(self,index); self.leave(part);
-            if section.reorder { line=line.or(self.row_insertion(&row,index,index as f32*section.row_height,section.row_height)); }
+            self.build_row_part(&row,moves.as_mut(),section.reorder,index,at,section.row_height,&mut |ui| f(ui,index));
+            if section.reorder { line=line.or(self.row_insertion(&row,index,at,section.row_height)); }
         }
         self.ahead=outer;
         if let Some(y)=line { self.insertion_line(&extent,y); }
+        if let Some(m)=moves.as_mut() { self.rows_move_end(m,&body); self.list_moved=m.moved; }
         self.leave(inner);
         if section.trailing_height>0.0 {
             let t=self.node("trailing".into(),Node {w:Size::Grow,h:Size::Px(section.trailing_height),..Node::DEFAULT});
@@ -7664,6 +7691,9 @@ impl Ui {
 
     /// The insertion index a carried payload was dropped at in the reorderable list built last (`section_list`), this frame.
     pub fn list_dropped(&self) -> Option<usize> { self.list_drop.filter(|d| d.1).map(|d| d.0) }
+
+    /// The row move `(from, to)` the reorderable list built last (`section_list`) reported this frame.
+    pub fn list_moved(&self) -> Option<(usize, usize)> { self.list_moved }
 
     /// The 2-point insertion line at `y` in the rows `extent`, in the theme's accent, drawn over the rows.
     fn insertion_line(&mut self, extent: &Handle, y: f32) {
@@ -7752,18 +7782,21 @@ impl Ui {
         self.slots[extent.box_slot].holds_rows = true;
         self.text_mut().list_window(body.box_key as u64,first,last);
         let (outer,mut line)=(self.ahead,None);
+        let mut moves=(section.reorder|core::mem::take(&mut self.row_moves)).then(|| self.rows_move_begin(&body,&extent,rows_h,section.count));
         for index in first..last {
             // measured rows: only rows below the viewport, whose heights do not move the rows in view
             self.ahead_row(outer,&(0..bottom),index);
-            let node=Node {w:Size::Grow,h:Size::Fit,at:Some((0.0,cache.tops[index])).into(),role:Role::ListItem,..Node::DEFAULT};
+            let at=cache.tops[index];
+            let node=Node {w:Size::Grow,h:Size::Fit,at:Some((0.0,at)).into(),role:Role::ListItem,..Node::DEFAULT};
             let row=self.list_row(body.box_key,index,row_key,node);
             self.slots[row.box_slot].row_of = (body.box_key, index as u32);
             self.list_rows.push((body.box_key,index,row.box_slot));
-            let part=self.enter(&row); f(self,index,before+cache.tops[index]); self.leave(part);
-            if section.reorder { line=line.or(self.row_insertion(&row,index,cache.tops[index],cache.heights[index])); }
+            self.build_row_part(&row,moves.as_mut(),section.reorder,index,at,cache.heights[index],&mut |ui| f(ui,index,before+at));
+            if section.reorder { line=line.or(self.row_insertion(&row,index,at,cache.heights[index])); }
         }
         self.ahead=outer;
         if let Some(y)=line { self.insertion_line(&extent,y); }
+        if let Some(m)=moves.as_mut() { self.rows_move_end(m,&body); self.list_moved=m.moved; }
         self.leave(inner);
         if section.trailing_height>0.0 {
             let t=self.node("trailing".into(),Node {w:Size::Grow,h:Size::Px(section.trailing_height),..Node::DEFAULT});

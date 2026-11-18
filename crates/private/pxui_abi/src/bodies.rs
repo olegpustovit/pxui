@@ -296,13 +296,18 @@ unsafe fn register_body(ui: *mut PxuiUi, kind: u32, name: Str, body: PxuiBodyFn,
 }
 
 // Builds a node as `part` of the widget whose body is running (the way `pxui_ui_node_keyed` does): behaviour finds it again by role.
-// A part is a number of `Part`; refused outside a body call or for a number that names no part.
+// A part is a number of `Part`; refused outside a body call (but for a reorderable list row's `Part::HANDLE`, built by the row's
+// content) or for a number that names no part.
 export!(build pub unsafe fn pxui_part(ui: *mut PxuiUi, part: u32, node: *const Node, out: *mut PxuiBox) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT };
-    if state.shared().bodies.depth == 0 { return unsafe { fail_code(ui, "a part is built inside a body", PXUI_ERR_STATE) } }
+    // a reorderable list row's content builds its handle outside any body
+    let handle = part == Part::HANDLE.0 && unsafe { (*state.engine).in_movable_row() };
+    if state.shared().bodies.depth == 0 && !handle { return unsafe { fail_code(ui, "a part is built inside a body", PXUI_ERR_STATE) } }
     if !Part::valid(part) { return unsafe { fail(ui, "invalid part number") } }
     let key = unsafe { (*state.engine).own_part_key(Part(part)) };
-    unsafe { crate::pxui_ui_node_keyed(ui, key, node, out) }
+    let rc = unsafe { crate::pxui_ui_node_keyed(ui, key, node, out) };
+    if rc == 0 { if let Some(b) = crate::state::core_box(unsafe { *out }) { unsafe { (*state.engine).note_part(Part(part), b) } } }
+    rc
 });
 
 // The box of `part` of the widget keyed `owner` as the last build left it: 0 and the box in `out`, 1 when it was not built.

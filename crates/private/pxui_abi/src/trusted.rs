@@ -1027,6 +1027,7 @@ fn write_list(r: &ListResult, anchor: Option<usize>, out: &mut PxuiListResult) {
     (out.reserved, out.handle, out.row) = (0, to_abi_box(r.handle), r.row.map_or(PxuiBox::default(), to_abi_box));
     (out.activated, out.selected, out.secondary, out.anchor) = (r.activated.unwrap_or(none), r.selected.unwrap_or(none), r.secondary.unwrap_or(none), anchor.unwrap_or(none));
     out.drop_at = r.drop_at.unwrap_or(none);
+    (out.moved_from, out.moved_to) = r.moved.unwrap_or((none, none));
 }
 
 /// The columns of `span` checked in one pass before any effect into `out`: each record's size, flags and reserved byte, its title
@@ -1076,8 +1077,8 @@ pub unsafe fn section_list(ui: *mut PxuiUi, key: &str, desc: &PxuiSectionListDes
         let _current = crate::state::Current::set(shared, &mut borrowed);
         f(&mut borrowed, index, y);
     });
-    let drop_at = unsafe { engine(ui) }.list_dropped();
-    write_list(&ListResult { handle: body, drop_at, ..ListResult::default() }, None, out);
+    let (drop_at, moved) = { let e = unsafe { engine(ui) }; (e.list_dropped(), e.list_moved()) };
+    write_list(&ListResult { handle: body, drop_at, moved, ..ListResult::default() }, None, out);
     0
 }
 

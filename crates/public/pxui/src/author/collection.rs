@@ -881,6 +881,196 @@ mod tests {
         assert!(mem_sys::take_reports().is_empty());
     }
 
+    /// A reorderable list of `n` 20-point rows filling a 200-point column at the window's top: each row is a line with a handle at its
+    /// right end (x 300..320), and its cell's box goes to `cells` by row. The app applies `moved` to `items`.
+    fn handle_list(ui: &mut Ui, items: &RefCell<Vec<i64>>, cells: &RefCell<Vec<(usize, crate::Handle)>>, moved: &Cell<Option<(usize, usize)>>) {
+        cells.borrow_mut().clear();
+        let r = ui.column(Node { h: Size::Px(200.0), ..Node::DEFAULT }, |ui| {
+            let n = items.borrow().len();
+            let r = ui.section_list("queue", &SectionList::new(n).row_h(20.0).reorder(true), &|i| items.borrow()[i], &mut |ui, part, _| if let SectionPart::Row(i) = part {
+                ui.row(Node { h: Size::Grow, ..Node::DEFAULT }, |ui| {
+                    let c = ui.node("cell", Node { w: Size::Grow, h: Size::Grow, ..Node::DEFAULT });
+                    cells.borrow_mut().push((i, c));
+                    ui.part(crate::Part::HANDLE, Node { w: Size::Px(20.0), h: Size::Grow, ..Node::DEFAULT });
+                });
+            });
+            if let Some((from, to)) = r.moved {
+                moved.set(r.moved);
+                let mut v = items.borrow_mut();
+                let item = v.remove(from);
+                v.insert(to, item);
+            }
+        });
+        let _ = r;
+    }
+    fn cell_y(cells: &RefCell<Vec<(usize, crate::Handle)>>, ui: &Ui, row: usize) -> f32 { cells.borrow().iter().find(|c| c.0 == row).map(|c| ui.rect(&c.1).y).expect("row built") }
+
+    /// U2b.3: a press on a row's `Part::HANDLE` lifts the row at once; the rows it passes make room, the release reports `moved` with
+    /// `to` the final index and the app's new order shows; the handle is a button named Reorder.
+    #[test]
+    fn a_row_moves_by_its_handle() {
+        let (items, cells, moved) = (RefCell::new((0..10).collect::<Vec<i64>>()), RefCell::new(Vec::new()), Cell::new(None));
+        let mut build = |ui: &mut Ui| handle_list(ui, &items, &cells, &moved);
+        let mut ui = crate::doc::frames(2, &mut build);
+        ui.set_a11y(true);
+        at(&mut ui, 0.5, &[], &mut build);
+        let handles: Vec<_> = self::items(&ui, Role::Button);
+        assert!(handles.len() >= 10 && handles.iter().all(|h| ui.a11y_name_of(h) == "Reorder"), "each row's handle is a Reorder button");
+        let p = |kind, y| [Event::pointer(kind, 0, 310.0, y)];
+        at(&mut ui, 1.0, &p(Event::POINTER_MOVED, 50.0), &mut build);
+        at(&mut ui, 1.1, &p(Event::POINTER_PRESSED, 50.0), &mut build);
+        // grabbed 10 points below its top: at 112 the lifted row's centre (112) has passed row 5's (110)
+        for (i, y) in [70.0, 90.0, 112.0].into_iter().enumerate() { at(&mut ui, 1.2 + i as f64 * 0.05, &p(Event::POINTER_MOVED, y), &mut build); }
+        assert_eq!(cell_y(&cells, &ui, 2), 102.0, "the lifted row follows the pointer");
+        assert_eq!((cell_y(&cells, &ui, 3), cell_y(&cells, &ui, 5), cell_y(&cells, &ui, 6)), (40.0, 80.0, 120.0), "rows 3 to 5 made room above, row 6 stayed");
+        at(&mut ui, 1.5, &p(Event::POINTER_RELEASED, 112.0), &mut build);
+        assert_eq!(moved.get(), Some((2, 5)), "the row at 2 now sits at 5");
+        assert_eq!(*items.borrow(), [0, 1, 3, 4, 5, 2, 6, 7, 8, 9]);
+        assert_eq!((cell_y(&cells, &ui, 2), cell_y(&cells, &ui, 5)), (40.0, 100.0), "the new order shows in the release frame");
+        moved.set(None);
+        // a press elsewhere on the row moves nothing
+        at(&mut ui, 2.0, &[Event::pointer(Event::POINTER_PRESSED, 0, 100.0, 50.0)], &mut build);
+        at(&mut ui, 2.1, &[Event::pointer(Event::POINTER_MOVED, 0, 100.0, 150.0)], &mut build);
+        at(&mut ui, 2.2, &[Event::pointer(Event::POINTER_RELEASED, 0, 100.0, 150.0)], &mut build);
+        assert_eq!(moved.get(), None);
+    }
+
+    /// U2b.3: with the theme's move animation on, the passed rows slide to their new places along `motion.slow` instead of jumping.
+    #[test]
+    fn passed_rows_slide_with_the_theme_motion() {
+        let (items, cells, moved) = (RefCell::new((0..10).collect::<Vec<i64>>()), RefCell::new(Vec::new()), Cell::new(None));
+        let mut build = |ui: &mut Ui| handle_list(ui, &items, &cells, &moved);
+        let mut ui = crate::doc::frames(1, &mut build);
+        ui.set_theme(&crate::ThemeHandle::parse("tokens.motion.slow = 0.2").unwrap()).unwrap();
+        at(&mut ui, 0.5, &[], &mut build);
+        let p = |kind, y| [Event::pointer(kind, 0, 310.0, y)];
+        at(&mut ui, 1.0, &p(Event::POINTER_PRESSED, 50.0), &mut build);
+        at(&mut ui, 1.02, &p(Event::POINTER_MOVED, 75.0), &mut build);
+        at(&mut ui, 1.04, &p(Event::POINTER_MOVED, 75.0), &mut build);
+        let mid = cell_y(&cells, &ui, 3);
+        assert!(mid < 60.0 && mid > 40.0, "row 3 is on its way up: {mid}");
+        at(&mut ui, 1.4, &[], &mut build);
+        at(&mut ui, 1.41, &[], &mut build);
+        assert_eq!(cell_y(&cells, &ui, 3), 40.0, "and arrived");
+        at(&mut ui, 1.5, &p(Event::POINTER_RELEASED, 75.0), &mut build);
+        assert_eq!(moved.get(), Some((2, 3)));
+    }
+
+    /// U2b.3: Alt with Up or Down moves the focused row, and assistive technology's Move up and Move down on a row (offered on
+    /// reorderable rows only) move it the same way; a selection list's flags, keyboard row and anchor travel with the row.
+    #[test]
+    fn rows_move_by_keyboard_and_accessibility() {
+        let (items, cells, moved) = (RefCell::new((0..10).collect::<Vec<i64>>()), RefCell::new(Vec::new()), Cell::new(None));
+        let field = Cell::new(None);
+        let mut build = |ui: &mut Ui| {
+            handle_list(ui, &items, &cells, &moved);
+            if field.get().is_none() { field.set(cells.borrow().iter().find(|c| c.0 == 4).map(|c| c.1)); }
+        };
+        let mut ui = crate::doc::frames(2, &mut build);
+        ui.set_a11y(true);
+        at(&mut ui, 0.5, &[], &mut build);
+        let rows: Vec<_> = self::items(&ui, Role::ListItem);
+        assert!(rows.iter().all(|r| r.actions & 384 == 384), "reorderable rows offer Move up and Move down");
+        // assistive technology: Move down on the row showing item 1 (row 1)
+        let id = rows.iter().find(|r| (r.rect.y - 20.0).abs() < 1.0).expect("row 1").id;
+        ui.inject_a11y(&[crate::A11yAction { id, action_code: 256, ..Default::default() }]);
+        at(&mut ui, 1.0, &[], &mut build);
+        assert_eq!((moved.get(), &items.borrow()[..3]), (Some((1, 2)), &[0, 2, 1][..]));
+        ui.inject_a11y(&[crate::A11yAction { id, action_code: 128, ..Default::default() }]);
+        at(&mut ui, 1.1, &[], &mut build);
+        assert_eq!((moved.get(), &items.borrow()[..3]), (Some((2, 1)), &[0, 1, 2][..]), "the row's node follows its item");
+
+        // the keyboard: a selection list moves its focused keyboard row, the selection with it
+        let (state, last, order) = (RefCell::new(ListState::new()), Cell::new(None), RefCell::new((0..6).collect::<Vec<i64>>()));
+        let mut build = |ui: &mut Ui| {
+            let n = order.borrow().len();
+            let r = ui.selection_list("lists", n, &|i| order.borrow()[i], &mut state.borrow_mut(), &SelectionList::DEFAULT.row_h(20.0).reorder(true), &mut |ui, part, _| if let SectionPart::Row(_) = part { ui.item_text("row"); });
+            if let Some((from, to)) = r.moved { last.set(r.moved); let mut v = order.borrow_mut(); let x = v.remove(from); v.insert(to, x); }
+        };
+        let mut ui = crate::doc::frames(2, &mut build);
+        ui.set_a11y(true);
+        click_at(&mut ui, 1.0, crate::geom::Rect::new(10.0, 41.0, 100.0, 20.0), &[], false, &mut build);
+        assert_eq!(on(&state.borrow()), [2]);
+        press(&mut ui, 2.0, KeyCode::ArrowDown, &[KeyCode::Alt], &mut build);
+        assert_eq!((last.get(), on(&state.borrow()), order.borrow()[3]), (Some((2, 3)), vec![3], 2), "the moved row keeps its selection");
+        press(&mut ui, 3.0, KeyCode::ArrowDown, &[], &mut build);
+        assert_eq!(on(&state.borrow()), [4], "the keyboard row followed the move");
+        press(&mut ui, 4.0, KeyCode::ArrowUp, &[KeyCode::Alt], &mut build);
+        assert_eq!((last.get(), order.borrow()[3]), (Some((4, 3)), 4));
+        let rows: Vec<_> = self::items(&ui, Role::ListItem);
+        assert!(rows.iter().all(|r| r.actions & 384 == 384), "selection list rows offer the Move actions");
+        let id = rows.iter().find(|r| (r.rect.y - 1.0).abs() < 1.0).expect("row 0").id;
+        ui.inject_a11y(&[crate::A11yAction { id, action_code: 256, ..Default::default() }]);
+        at(&mut ui, 5.0, &[], &mut build);
+        assert_eq!((last.get(), order.borrow()[1]), (Some((0, 1)), 0));
+    }
+
+    /// U2b.3: a registered selection list body builds the row's handle (`Ui::part`) and the row moves by it.
+    #[test]
+    fn a_row_body_builds_the_handle() {
+        fn handled(ui: &mut Ui, c: &SelectionListConfig) {
+            ui.row(Node { h: Size::Grow, ..Node::DEFAULT }, |ui| {
+                ui.node("content", Node { w: Size::Grow, h: Size::Grow, ..Node::DEFAULT });
+                ui.slot(c.content);
+                ui.part(crate::Part::HANDLE, Node { w: Size::Px(20.0), h: Size::Grow, ..Node::DEFAULT });
+            });
+        }
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
+        ui.register_selection_list_body("handled", handled).unwrap();
+        ui.set_theme(&crate::ThemeHandle::parse("selection_list.body = handled").unwrap()).unwrap();
+        let (state, last, order) = (RefCell::new(ListState::new()), Cell::new(None), RefCell::new((0..6).collect::<Vec<i64>>()));
+        let mut build = |ui: &mut Ui| {
+            let n = order.borrow().len();
+            let r = ui.selection_list("lists", n, &|i| order.borrow()[i], &mut state.borrow_mut(), &SelectionList::DEFAULT.row_h(20.0).reorder(true), &mut |_, _, _| {});
+            if let Some((from, to)) = r.moved { last.set(r.moved); let mut v = order.borrow_mut(); let x = v.remove(from); v.insert(to, x); }
+        };
+        for n in 0..2 { at(&mut ui, n as f64, &[], &mut build); }
+        let p = |kind, y| [Event::pointer(kind, 0, 305.0, y)];
+        at(&mut ui, 2.0, &p(Event::POINTER_PRESSED, 11.0), &mut build);
+        at(&mut ui, 2.1, &p(Event::POINTER_MOVED, 40.0), &mut build);
+        at(&mut ui, 2.2, &p(Event::POINTER_MOVED, 55.0), &mut build);
+        at(&mut ui, 2.3, &p(Event::POINTER_RELEASED, 55.0), &mut build);
+        assert_eq!((last.get(), order.borrow()[2]), (Some((0, 2)), 0), "the body's handle moved row 0 to 2");
+        assert!(on(&state.borrow()).is_empty(), "the handle press selected nothing");
+    }
+
+    /// U2b.3: dragging a row by its handle across 20 rows of a 1,000-row reorderable list, with the move animation on, allocates
+    /// nothing once warm (both link modes), the press, the release and the app's reorder included.
+    #[test]
+    fn a_warm_handle_drag_allocates_nothing() {
+        mem_sys::set_peer(crate::library_counter);
+        let (items, cells, moved) = (RefCell::new((0..1000).collect::<Vec<i64>>()), RefCell::new(Vec::with_capacity(64)), Cell::new(None));
+        let mut build = |ui: &mut Ui| handle_list(ui, &items, &cells, &moved);
+        let mut ui = crate::doc::frames(1, &mut build);
+        ui.set_theme(&crate::ThemeHandle::parse("tokens.motion.slow = 0.2").unwrap()).unwrap();
+        at(&mut ui, 0.5, &[], &mut build);
+        // the scrollbar takes the right edge: the handles span x 290..310
+        let p = |kind, y| [Event::pointer(kind, 0, 300.0, y)];
+        let mut drag = |ui: &mut Ui, t: f64, down: bool, measure: bool| {
+            let (from, to) = if down { (10.0, 190.0) } else { (190.0, 10.0) };
+            // the press, 24 moves, the release and 20 frames of the rows settling, made on the fly (no allocation in the test either)
+            for k in 0..46 {
+                let (time, events) = match k {
+                    0 => (t, p(Event::POINTER_PRESSED, from)),
+                    1..=24 => (t + k as f64 * 0.016, p(Event::POINTER_MOVED, from + (to - from) * k as f64 / 24.0)),
+                    25 => (t + 0.5, p(Event::POINTER_RELEASED, to)),
+                    _ => (t + 0.5 + (k - 25) as f64 * 0.016, p(Event::POINTER_MOVED, to)),
+                };
+                if measure { mem_sys::local_reset(); }
+                at(ui, time, &events, &mut build);
+                if measure { assert_eq!(mem_sys::local_alloc_count(), 0, "a warm handle drag frame at {time} allocated"); }
+            }
+        };
+        for round in 0..4 { drag(&mut ui, 1.0 + round as f64 * 2.0, round % 2 == 0, false); }
+        // up from row 9 to the top edge: the lifted centre stops on row 0's, short of passing it
+        assert_eq!(moved.get(), Some((9, 1)), "the last warm-up moved a row up 8 places");
+        let scope = mem_sys::warm_scope();
+        drag(&mut ui, 20.0, true, true);
+        drag(&mut ui, 22.0, false, true);
+        drop(scope);
+        assert!(mem_sys::take_reports().is_empty());
+    }
+
     /// One `section_list` serves fixed and measured rows: a fixed row's `y` is the lead-in, heading and rows above it, and a measured
     /// row takes the height it lays out to.
     #[test]

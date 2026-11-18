@@ -18,7 +18,7 @@
 //!   FOCUSED from `Ui::focused`, PRESSED from capture/held, VISIBLE when the resolved rect intersects its
 //!   clip, ENABLED unless the widget says disabled. Rect: the resolved slot rect (rx, ry, rw, rh) in window
 //!   points, moved by its view entry's offset. Actions: CLICKABLE -> PRESS, FOCUSABLE -> FOCUS, SCROLL ->
-//!   SCROLL, sliders SET_VALUE, sections EXPAND|COLLAPSE.
+//!   SCROLL, sliders SET_VALUE, sections EXPAND|COLLAPSE, reorderable rows MOVE_UP|MOVE_DOWN.
 //! - Output: `FrameOut.a11y: &A11yTree`; the host passes it to `Bridge::update` after every frame.
 //! - Actions back: the host collects `A11yAction`s from `Bridge::pump` and hands them to
 //!   `Ui::inject_a11y(&[A11yAction])` before the next frame. That resolves the id to a live slot (stale ids
@@ -27,6 +27,7 @@
 //!   Scroll -> scroll the node by `payload` points (positive down; 0 scrolls it into view), SetValue -> a pending value the widget
 //!   reads from its `Signal` (`a11y_value: Option<f64>`) and applies as one undo step like a scrub,
 //!   Expand/Collapse -> `clicked` on the disclosure when its EXPANDED state differs.
+//!   MoveUp/MoveDown -> a reorderable list row's move (`a11y_move`), offered on such rows only.
 
 use crate::geom::Rect;
 use pxui_text::Fast;
@@ -54,6 +55,9 @@ pub mod actions {
     pub const COLLAPSE: u32 = 1 << 5;
     /// sets an editable node's selection (or caret); requested on any text node, never advertised
     pub const SELECT: u32 = 1 << 6;
+    /// moves a reorderable list's row one place up or down
+    pub const MOVE_UP: u32 = 1 << 7;
+    pub const MOVE_DOWN: u32 = 1 << 8;
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -66,6 +70,8 @@ pub enum Action {
     Expand = actions::EXPAND,
     Collapse = actions::COLLAPSE,
     Select = actions::SELECT,
+    MoveUp = actions::MOVE_UP,
+    MoveDown = actions::MOVE_DOWN,
 }
 
 /// A request from an assistive technology, handed back to the UI as input: the target node, the action and

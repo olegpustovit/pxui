@@ -4819,6 +4819,8 @@ pxui_types::ffi::PxuiListResult::activated field usize @U2b.1
 pxui_types::ffi::PxuiListResult::anchor field usize @U2b.1
 pxui_types::ffi::PxuiListResult::drop_at field usize @U2b.2
 pxui_types::ffi::PxuiListResult::handle field PxuiBox @U2b.1
+pxui_types::ffi::PxuiListResult::moved_from field usize @U2b.3
+pxui_types::ffi::PxuiListResult::moved_to field usize @U2b.3
 pxui_types::ffi::PxuiListResult::reserved field u32 @U2b.1
 pxui_types::ffi::PxuiListResult::row field PxuiBox @U2b.1
 pxui_types::ffi::PxuiListResult::secondary field usize @U2b.1

@@ -171,7 +171,8 @@ impl Ui {
     }
 
     /// Builds a node as `part` of the widget whose body is running: behaviour finds it again by role (see the config's documentation
-    /// for the parts its widget reads). Only inside a body.
+    /// for the parts its widget reads). Only inside a body, or, for `Part::HANDLE`, inside a reorderable list's row (`SectionList::reorder`,
+    /// `SelectionList::reorder`).
     #[track_caller]
     pub fn part(&mut self, part: Part, node: Node) -> Handle {
         let mut out = Handle::default();

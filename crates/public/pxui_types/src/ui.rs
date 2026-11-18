@@ -134,7 +134,8 @@ pub struct SelectionList {
     pub overlay_scrollbar: bool,
     /// Rows take the heights they lay out to (`row_height` is their estimate until built).
     pub measured: bool,
-    /// Rows move as `SectionList::reorder` describes.
+    /// Rows move as `SectionList::reorder` describes, their flags in `ListState` moving with them; a fitted list (`fit`) moves rows by
+    /// the keyboard and accessibility only (its rows are not dragged).
     pub reorder: bool,
     /// The `selection_list` body variant the rows are built with (0: the theme's).
     pub variant: u16,

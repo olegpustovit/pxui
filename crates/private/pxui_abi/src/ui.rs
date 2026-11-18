@@ -245,11 +245,11 @@ export!(pub unsafe fn pxui_ui_inject_a11y(ui: *mut PxuiUi, actions: *const pxui_
     if count > 4096 || (count != 0 && actions.is_null()) { return unsafe { fail(ui, "invalid accessibility action span") }; }
     let actions = if count == 0 { &[] } else { unsafe { std::slice::from_raw_parts(actions, count) } };
     // Reject the whole batch before feeding any chunk to the retained engine queue.
-    if actions.iter().any(|a| !matches!(a.action_code,1|2|4|8|16|32|64)) {
+    if actions.iter().any(|a| !matches!(a.action_code,1|2|4|8|16|32|64|128|256)) {
         return unsafe { fail(ui, "invalid accessibility action code") };
     }
     use pxui_core::a11y::{Action, A11yAction};
-    const KINDS: [Action;7] = [Action::Press,Action::Focus,Action::SetValue,Action::Scroll,Action::Expand,Action::Collapse,Action::Select];
+    const KINDS: [Action;9] = [Action::Press,Action::Focus,Action::SetValue,Action::Scroll,Action::Expand,Action::Collapse,Action::Select,Action::MoveUp,Action::MoveDown];
     let mut translated = [A11yAction { id:0,action:Action::Press,payload:0.0,end:0.0 };32];
     for chunk in actions.chunks(translated.len()) {
         for (to,from) in translated.iter_mut().zip(chunk) {

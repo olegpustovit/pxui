@@ -135,6 +135,8 @@ pub struct A11yNode {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct A11yAction {
     pub id: u64,
+    /// One action bit: 1 press, 2 focus, 4 set value, 8 scroll, 16 expand, 32 collapse, 64 select, 128 move up and 256 move down
+    /// (ABI 1.89: a reorderable list row, offered in its node's `actions`).
     pub action_code: u32,
     pub reserved: u32,
     pub payload: f64,
@@ -1647,11 +1649,14 @@ pub struct PxuiListResult {
     pub anchor: usize,
     /// ABI 1.88: the insertion index a carried payload was dropped at (a reorderable list).
     pub drop_at: usize,
+    /// ABI 1.89: a row moved this frame (a reorderable list): the row at `moved_from` now sits at `moved_to` (its final index).
+    pub moved_from: usize,
+    pub moved_to: usize,
 }
 
 impl PxuiListResult {
     /// An empty record of this size, for a call to fill.
-    pub const EMPTY: PxuiListResult = PxuiListResult { size: core::mem::size_of::<PxuiListResult>() as u32, reserved: 0, handle: PxuiBox { index: 0, box_key: 0, box_slot: 0, generation: 0 }, row: PxuiBox { index: 0, box_key: 0, box_slot: 0, generation: 0 }, activated: usize::MAX, selected: usize::MAX, secondary: usize::MAX, anchor: usize::MAX, drop_at: usize::MAX };
+    pub const EMPTY: PxuiListResult = PxuiListResult { size: core::mem::size_of::<PxuiListResult>() as u32, reserved: 0, handle: PxuiBox { index: 0, box_key: 0, box_slot: 0, generation: 0 }, row: PxuiBox { index: 0, box_key: 0, box_slot: 0, generation: 0 }, activated: usize::MAX, selected: usize::MAX, secondary: usize::MAX, anchor: usize::MAX, drop_at: usize::MAX, moved_from: usize::MAX, moved_to: usize::MAX };
 }
 
 /// A selection list for `pxui_ui_selection_list` (ABI 1.87): the section geometry, the row flags (one byte a row: 1 selected,

@@ -134,6 +134,8 @@ pub const ACTIONS: &[(pxui_core::a11y::Action, &str, &str)] = &[
     (pxui_core::a11y::Action::Press, "click", "Activate"),
     (pxui_core::a11y::Action::Expand, "expand", "Expand"),
     (pxui_core::a11y::Action::Collapse, "collapse", "Collapse"),
+    (pxui_core::a11y::Action::MoveUp, "move-up", "Move up"),
+    (pxui_core::a11y::Action::MoveDown, "move-down", "Move down"),
 ];
 
 /// The node's `k`th Action-interface action, and how many it has.
@@ -146,7 +148,7 @@ pub fn node_action_count(node: &A11yNode) -> usize {
 }
 
 pub fn has_action_interface(node: &A11yNode) -> bool {
-    node.actions & (actions::PRESS | actions::EXPAND | actions::COLLAPSE) != 0
+    node.actions & (actions::PRESS | actions::EXPAND | actions::COLLAPSE | actions::MOVE_UP | actions::MOVE_DOWN) != 0
 }
 
 /// The edit that turns `before` into `after` as AT-SPI `TextChanged` wants it: (offset, deleted

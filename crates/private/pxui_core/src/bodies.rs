@@ -797,7 +797,9 @@ impl Ui {
     /// A node of the widget whose body is building, found again by its role: keyed from the widget and `part`, so behaviour
     /// reads its rectangle (`part_rect`) without a table. A body builds the parts its widget's config lists with this.
     pub fn part(&mut self, part: Part, node: Node) -> Handle {
-        self.node_keyed(part_key(self.part_owner, part), node)
+        let b = self.node_keyed(part_key(self.part_owner, part), node);
+        self.note_part(part, b);
+        b
     }
 
     /// The key `Ui::part` gives `part` of the widget whose body is building.

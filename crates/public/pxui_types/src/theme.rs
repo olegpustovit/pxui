@@ -467,7 +467,7 @@ impl Part {
     pub const fn dot(i: u8) -> Part {
         Part(16 + i as u32)
     }
-    /// Whether the number names a part (what `pxui_part` accepts): the named ones (1 to 9), the dots (16 to 271) and the dialog buttons (1024 to 1279).
+    /// Whether the number names a part (what `pxui_part` accepts): the named ones (1 to 10), the dots (16 to 271) and the dialog buttons (1024 to 1279).
     ///
     /// Allocates: never.
     /// Panics: never.

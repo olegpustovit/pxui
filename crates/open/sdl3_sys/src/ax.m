@@ -5,7 +5,7 @@
 #include <math.h>
 #include "ax.h"
 
-enum { ActPress = 1, ActFocus = 2, ActSet = 4, ActExpand = 16, ActCollapse = 32 };
+enum { ActPress = 1, ActFocus = 2, ActSet = 4, ActExpand = 16, ActCollapse = 32, ActMoveUp = 128, ActMoveDown = 256 };
 enum { StFocused = 1 << 1, StEnabled = 1 << 2, StChecked = 1 << 4, StMixed = 1 << 5, StCheckable = 1 << 3,
        StSelected = 1 << 7, StExpandable = 1 << 8, StExpanded = 1 << 9 };
 enum { None = UINT32_MAX, QueueCapacity = 32, RoleCount = 42 };
@@ -59,6 +59,25 @@ static BOOL isFlag(uint32_t value, uint32_t bit) { return (value & bit) != 0; }
     if (focused && isFlag(self.actions, ActFocus)) [self.host push:self.nodeId action:ActFocus payload:0];
 }
 - (void)storeValue:(id)value { [super setAccessibilityValue:value]; }
+// A reorderable list row's Move up and Move down, built when a client asks (never per frame).
+- (NSArray<NSAccessibilityCustomAction *> *)accessibilityCustomActions {
+    if (!isFlag(self.actions, ActMoveUp | ActMoveDown)) return nil;
+    NSMutableArray<NSAccessibilityCustomAction *> *list = [NSMutableArray arrayWithCapacity:2];
+    __weak PxuiAXElement *weakSelf = self;
+    uint32_t acts[2] = { ActMoveUp, ActMoveDown };
+    NSString *names[2] = { @"Move up", @"Move down" };
+    for (int k = 0; k < 2; k++) {
+        uint32_t act = acts[k];
+        if (!isFlag(self.actions, act)) continue;
+        [list addObject:[[NSAccessibilityCustomAction alloc] initWithName:names[k] handler:^BOOL {
+            PxuiAXElement *element = weakSelf;
+            if (!element) return NO;
+            [element.host push:element.nodeId action:act payload:0];
+            return YES;
+        }]];
+    }
+    return list;
+}
 @end
 
 @implementation PxuiAXActionElement
