@@ -26,14 +26,14 @@ unsafe fn engine<'a>(ui: *mut PxuiUi) -> &'a mut Ui { unsafe { &mut *(*ui).engin
 
 #[inline]
 pub unsafe fn pxui_ui_node(ui: *mut PxuiUi, label: Str, desc: &Node, out: *mut PxuiBox) -> i32 {
-    let Some(label) = (unsafe { utf8(label, MAX_KEY_BYTES) }) else { unsafe { note_call((*ui).shared) }; return unsafe { fail(ui, "invalid node label") } };
+    let Some(label) = (unsafe { utf8(label, MAX_KEY_BYTES) }).filter(|l| !crate::state::unusable(l)) else { unsafe { note_call((*ui).shared) }; return unsafe { fail(ui, "invalid node label") } };
     unsafe { node(ui, label, desc, out) }
 }
 
 /// `pxui_ui_node` of a Rust label (`Key::label`): UTF-8 by its type, so only its length is checked (the static wrapper's entry).
 #[inline(always)]
 pub unsafe fn node_str(ui: *mut PxuiUi, label: &str, desc: &Node, out: *mut PxuiBox) -> i32 {
-    if long_key(label) { unsafe { note_call((*ui).shared) }; return unsafe { fail(ui, "invalid node label") } }
+    if bad_key(label) { unsafe { note_call((*ui).shared) }; return unsafe { fail(ui, "invalid node label") } }
     unsafe { node(ui, label, desc, out) }
 }
 
@@ -118,7 +118,7 @@ pub unsafe fn pxui_toggle(ui: *mut PxuiUi, label: Str, on: u8, out: *mut u8) -> 
 pub unsafe fn toggle_plain(ui: *mut PxuiUi, key: &str, text: &str, on: bool, out: &mut PxuiResponse) -> i32 {
     enter!(ui);
     let text = clip(text);
-    if long_key(key) { return unsafe { fail(ui, "invalid toggle text") }; }
+    if bad_key(key) { return unsafe { fail(ui, "invalid toggle text") }; }
     let r = unsafe { engine(ui) }.toggle_opts(key, text, on, &ToggleOpts::DEFAULT);
     respond(&r, out);
     0
@@ -135,7 +135,7 @@ pub unsafe fn toggle_with(ui: *mut PxuiUi, key: &str, text: &str, on: bool, trac
     enter!(ui);
     let text = clip(text);
     let detail = clip(detail);
-    if long_key(key) { return unsafe { fail(ui, "invalid toggle text") }; }
+    if bad_key(key) { return unsafe { fail(ui, "invalid toggle text") }; }
     // finite and not negative: NaN and infinity fail one of the two compares
     if ![row_h, switch_w, switch_h, inset].iter().all(|v| (0.0..=f32::MAX).contains(v)) { return unsafe { fail(ui, "invalid toggle descriptor") }; }
     if label.is_some_and(|l| unsafe { engine(ui) }.resolve(l).is_none()) { return unsafe { fail(ui, "invalid toggle label style") }; }
@@ -173,7 +173,7 @@ pub unsafe fn segmented(ui: *mut PxuiUi, key: &str, name: &str, options: &[Segme
     let name = clip(name);
     let mut spare = Vec::new();
     let options = clip_segments(options, &mut spare);
-    if long_key(key) || !segments_ok(options) { return unsafe { fail(ui, "invalid widget strings") }; }
+    if bad_key(key) || !segments_ok(options) { return unsafe { fail(ui, "invalid widget strings") }; }
     if ![h, w, padding, min_segment].iter().all(|v| (0.0..=f32::MAX).contains(v)) { return unsafe { fail(ui, "invalid segmented descriptor") }; }
     let mut opts = SegmentedOpts { enabled, h: (h > 0.0).then_some(h), grow, states: None, w: (w > 0.0).then_some(w), padding, min_segment, focus_on_click };
     if let Some(states) = states { opts.states = Some(*states); }
@@ -214,7 +214,7 @@ pub unsafe fn within(ui: *mut PxuiUi, box_: *const PxuiBox, f: Inner) -> i32 {
 #[inline]
 pub unsafe fn scope(ui: *mut PxuiUi, label: &str, f: Inner) -> i32 {
     enter!(ui);
-    if long_key(label) { return unsafe { fail(ui, "invalid scope label") }; }
+    if bad_key(label) { return unsafe { fail(ui, "invalid scope label") }; }
     let shared = unsafe { (*ui).shared };
     unsafe { engine(ui) }.scope(label, &mut |engine: &mut Ui| call_inner(shared, engine, f));
     0
@@ -223,7 +223,7 @@ pub unsafe fn scope(ui: *mut PxuiUi, label: &str, f: Inner) -> i32 {
 #[inline]
 pub unsafe fn col(ui: *mut PxuiUi, padding: f32, label: &str, f: Inner) -> i32 {
     enter!(ui);
-    if long_key(label) || !padding.is_finite() { return unsafe { fail(ui, "invalid column arguments") }; }
+    if bad_key(label) || !padding.is_finite() { return unsafe { fail(ui, "invalid column arguments") }; }
     let shared = unsafe { (*ui).shared };
     unsafe { engine(ui) }.col(padding, label, &mut |engine: &mut Ui| call_inner(shared, engine, f));
     0
@@ -232,7 +232,7 @@ pub unsafe fn col(ui: *mut PxuiUi, padding: f32, label: &str, f: Inner) -> i32 {
 #[inline]
 pub unsafe fn view(ui: *mut PxuiUi, label: &str, revision: u64, width: Size, height: Size, flat: bool, f: Inner, out: *mut PxuiBox) -> i32 {
     enter!(ui);
-    if long_key(label) || !finite(width) || !finite(height) { return unsafe { fail(ui, "invalid view arguments") }; }
+    if bad_key(label) || !finite(width) || !finite(height) { return unsafe { fail(ui, "invalid view arguments") }; }
     let shared = unsafe { (*ui).shared };
     let engine = unsafe { engine(ui) };
     let mut build = |engine: &mut Ui| call_inner(shared, engine, f);
@@ -245,7 +245,7 @@ pub unsafe fn view(ui: *mut PxuiUi, label: &str, revision: u64, width: Size, hei
 #[inline]
 pub unsafe fn view_of(ui: *mut PxuiUi, key: &str, revision: u64, f: Inner, out: *mut PxuiBox) -> i32 {
     enter!(ui);
-    if long_key(key) { return unsafe { fail(ui, "invalid view arguments") }; }
+    if bad_key(key) { return unsafe { fail(ui, "invalid view arguments") }; }
     let shared = unsafe { (*ui).shared };
     let handle = unsafe { engine(ui) }.view_of(key, &revision, &mut |engine: &mut Ui| call_inner(shared, engine, f));
     unsafe { *out = to_abi_box(handle); }
@@ -285,9 +285,9 @@ fn clip_segments<'a>(list: &'a [Segment<'a>], spare: &'a mut Vec<Segment<'a>>) -
     spare.extend(list.iter().map(|o| Segment { text: clip(o.text), name: o.name.map(clip), detail: clip(o.detail), ..*o }));
     spare
 }
-/// Whether an identifier is past its cap (`MAX_KEY_BYTES`).
+/// Whether an identifier is refused: past its cap (`MAX_KEY_BYTES`), or a 0x01-led label that is not a usable resolved key.
 #[inline]
-fn long_key(value: &str) -> bool { value.len() > MAX_KEY_BYTES }
+fn bad_key(value: &str) -> bool { value.len() > MAX_KEY_BYTES || crate::state::unusable(value) }
 
 /// Whether `options` are within the engine's limits: at most `MAX_OPTIONS` of them, at most `MAX_TOTAL_TEXT_BYTES` in all.
 #[inline]
@@ -308,7 +308,7 @@ fn segments_ok(options: &[Segment]) -> bool {
 pub unsafe fn checkbox(ui: *mut PxuiUi, key: &str, text: &str, on: bool, checkbox: &Checkbox, out: &mut PxuiResponse) -> i32 {
     enter!(ui);
     let text = clip(text);
-    if long_key(key) { return unsafe { fail(ui, "invalid checkbox text") }; }
+    if bad_key(key) { return unsafe { fail(ui, "invalid checkbox text") }; }
     let r = unsafe { engine(ui) }.checkbox(key, text, on, checkbox);
     respond(&r, out);
     0
@@ -324,7 +324,7 @@ pub unsafe fn choice(ui: *mut PxuiUi, kind: u32, key: &str, name: &str, options:
     let name = clip(name);
     let mut spare = Vec::new();
     let options = clip_strs(options, &mut spare);
-    if long_key(key) || !options_ok(options) { return unsafe { fail(ui, "invalid widget strings") }; }
+    if bad_key(key) || !options_ok(options) { return unsafe { fail(ui, "invalid widget strings") }; }
     let engine = unsafe { engine(ui) };
     let (r, at) = match kind {
         0 => { let (r, at, _) = engine.pick_radio(key, name, options.len(), &|i| Segment::new(options[i]), Some(selected), variant); (r, at.unwrap_or(0)) }
@@ -348,7 +348,7 @@ pub unsafe fn pick(ui: *mut PxuiUi, kind: u32, key: &str, name: &str, items: &[S
     let name = clip(name);
     let mut spare = Vec::new();
     let items = clip_segments(items, &mut spare);
-    if long_key(key) || !segments_ok(items) { return unsafe { fail(ui, "invalid widget strings") }; }
+    if bad_key(key) || !segments_ok(items) { return unsafe { fail(ui, "invalid widget strings") }; }
     let engine = unsafe { engine(ui) };
     let (r, at, pressed) = match kind {
         0 => engine.pick_radio(key, name, items.len(), &|i| items[i], selected, 0),
@@ -366,7 +366,7 @@ pub unsafe fn pick(ui: *mut PxuiUi, kind: u32, key: &str, name: &str, items: &[S
 pub unsafe fn slider_result(ui: *mut PxuiUi, key: &str, text: &str, value: f32, min: f32, max: f32, slider: &Slider, out: &mut PxuiResponse, scrub: &mut pxui_types::ffi::PxuiScrubOut) -> i32 {
     enter!(ui);
     let text = clip(text);
-    if !value.is_finite() || !min.is_finite() || !max.is_finite() || min > max || long_key(key) { return unsafe { fail(ui, "invalid slider arguments") }; }
+    if !value.is_finite() || !min.is_finite() || !max.is_finite() || min > max || bad_key(key) { return unsafe { fail(ui, "invalid slider arguments") }; }
     let (r, v, preview, commit) = unsafe { engine(ui) }.slider_result(key, text, value, min..=max, slider);
     respond(&r, out);
     *scrub = pxui_types::ffi::PxuiScrubOut { flags: u32::from(preview.is_some()) | u32::from(commit.is_some()) << 1 | u32::from(r.held) << 2, node: to_abi_box(r.handle),
@@ -380,7 +380,7 @@ pub unsafe fn slider_result(ui: *mut PxuiUi, key: &str, text: &str, value: f32, 
 pub unsafe fn slider(ui: *mut PxuiUi, key: &str, text: &str, value: f32, min: f32, max: f32, slider: &Slider, out: &mut PxuiResponse, value_out: &mut f32) -> i32 {
     enter!(ui);
     let text = clip(text);
-    if !value.is_finite() || !min.is_finite() || !max.is_finite() || min > max || long_key(key) { return unsafe { fail(ui, "invalid slider arguments") }; }
+    if !value.is_finite() || !min.is_finite() || !max.is_finite() || min > max || bad_key(key) { return unsafe { fail(ui, "invalid slider arguments") }; }
     let (r, v, _, _) = unsafe { engine(ui) }.slider_result(key, text, value, min..=max, slider);
     respond(&r, out);
     *value_out = v;
@@ -392,7 +392,7 @@ pub unsafe fn slider(ui: *mut PxuiUi, key: &str, text: &str, value: f32, min: f3
 pub unsafe fn progress(ui: *mut PxuiUi, key: &str, text: &str, value: Option<f32>, out: &mut PxuiBox) -> i32 {
     enter!(ui);
     let text = clip(text);
-    if long_key(key) || value.is_some_and(|v| !v.is_finite()) { return unsafe { fail(ui, "invalid progress arguments") }; }
+    if bad_key(key) || value.is_some_and(|v| !v.is_finite()) { return unsafe { fail(ui, "invalid progress arguments") }; }
     *out = to_abi_box(unsafe { engine(ui) }.progress(key, text, value));
     0
 }
@@ -402,7 +402,7 @@ pub unsafe fn progress(ui: *mut PxuiUi, key: &str, text: &str, value: Option<f32
 pub unsafe fn spinner(ui: *mut PxuiUi, key: &str, name: &str, out: &mut PxuiBox) -> i32 {
     enter!(ui);
     let name = clip(name);
-    if long_key(key) { return unsafe { fail(ui, "invalid spinner text") }; }
+    if bad_key(key) { return unsafe { fail(ui, "invalid spinner text") }; }
     *out = to_abi_box(unsafe { engine(ui) }.spinner(key, name));
     0
 }
@@ -436,7 +436,7 @@ pub unsafe fn button_with(ui: *mut PxuiUi, key: &str, text: &str, name: Option<&
     let text = clip(text);
     let name = name.map(clip);
     let parts = [clip(lead), clip(detail), clip(accessory)];
-    if long_key(key) { return unsafe { fail(ui, "invalid button text") }; }
+    if bad_key(key) { return unsafe { fail(ui, "invalid button text") }; }
     if !button_size(w) || !button_size(h) || ![pad.l, pad.t, pad.r, pad.b, gap].iter().all(|v| (0.0..=f32::MAX).contains(v)) { return unsafe { fail(ui, "invalid button descriptor") }; }
     let (e, shared) = (unsafe { engine(ui) }, unsafe { (*ui).shared });
     if [label, detail_label, accessory_label].iter().any(|l| l.is_some_and(|l| e.resolve(l).is_none())) { return unsafe { fail(ui, "invalid button label") }; }
@@ -468,7 +468,7 @@ pub unsafe fn button_with(ui: *mut PxuiUi, key: &str, text: &str, name: Option<&
 pub unsafe fn button_plain(ui: *mut PxuiUi, key: &str, text: &str, out: &mut PxuiResponse) -> i32 {
     enter!(ui);
     let text = clip(text);
-    if long_key(key) { return unsafe { fail(ui, "invalid button text") }; }
+    if bad_key(key) { return unsafe { fail(ui, "invalid button text") }; }
     let r = unsafe { engine(ui) }.button_opts(key, text, None, &pxui_core::ui::ButtonOpts::DEFAULT, [""; 3], None, None);
     respond(&r, out);
     0
@@ -481,7 +481,7 @@ pub unsafe fn icon_button_plain(ui: *mut PxuiUi, key: &str, glyph: &str, name: &
     enter!(ui);
     let glyph = clip(glyph);
     let name = clip(name);
-    if long_key(key) { return unsafe { fail(ui, "invalid icon button text") }; }
+    if bad_key(key) { return unsafe { fail(ui, "invalid icon button text") }; }
     let r = unsafe { engine(ui) }.icon_button_text(key, glyph, None, name, &pxui_core::ui::IconButton::DEFAULT, None);
     respond(&r, out);
     0
@@ -498,7 +498,7 @@ pub unsafe fn icon_button_with(ui: *mut PxuiUi, key: &str, glyph: &str, draw: px
     enter!(ui);
     let glyph = clip(glyph);
     let name = clip(name);
-    if long_key(key) { return unsafe { fail(ui, "invalid icon button text") }; }
+    if bad_key(key) { return unsafe { fail(ui, "invalid icon button text") }; }
     if !button_size(w) || !button_size(h) || !press_scale.is_finite() || press_scale <= 0.0 { return unsafe { fail(ui, "invalid icon button descriptor") }; }
     let draw = draw.map(|f| (crate::paint::icon_bridge as pxui_core::ui::IconDraw, [f as usize, user as usize, unsafe { (*ui).shared } as usize, word as usize]));
     if press.is_some_and(|p| !p[0].valid() || !p[1].valid()) { return unsafe { fail(ui, "invalid icon button press curve") }; }
@@ -533,7 +533,7 @@ pub unsafe fn badge(ui: *mut PxuiUi, key: &str, name: &str, value: &str, out: &m
     enter!(ui);
     let name = clip(name);
     let value = clip(value);
-    if long_key(key) { return unsafe { fail(ui, "invalid badge text") }; }
+    if bad_key(key) { return unsafe { fail(ui, "invalid badge text") }; }
     *out = to_abi_box(unsafe { engine(ui) }.badge(key, name, value));
     0
 }
@@ -596,7 +596,7 @@ pub unsafe fn box_of_key(ui: *mut PxuiUi, key: i64, out: &mut PxuiBox) -> bool {
 pub unsafe fn inspector_toggle(ui: *mut PxuiUi, key: &str, label: &str, value: bool, out: &mut bool) -> i32 {
     enter!(ui);
     let label = clip(label);
-    if long_key(key) { return unsafe { fail(ui, "invalid inspector toggle text") }; }
+    if bad_key(key) { return unsafe { fail(ui, "invalid inspector toggle text") }; }
     *out = unsafe { engine(ui) }.inspector_toggle(key, label, value);
     0
 }
@@ -605,7 +605,7 @@ pub unsafe fn inspector_toggle(ui: *mut PxuiUi, key: &str, label: &str, value: b
 pub unsafe fn inspector_button(ui: *mut PxuiUi, key: &str, label: &str, out: &mut bool) -> i32 {
     enter!(ui);
     let label = clip(label);
-    if long_key(key) { return unsafe { fail(ui, "invalid inspector button text") }; }
+    if bad_key(key) { return unsafe { fail(ui, "invalid inspector button text") }; }
     *out = unsafe { engine(ui) }.inspector_button(key, label);
     0
 }
@@ -615,7 +615,7 @@ pub unsafe fn inspector_readout(ui: *mut PxuiUi, width: Option<f32>, key: &str, 
     enter!(ui);
     let label = clip(label);
     let value = clip(value);
-    if long_key(key) || width.is_some_and(|w| !w.is_finite() || w < 0.0) { return unsafe { fail(ui, "invalid inspector readout text") }; }
+    if bad_key(key) || width.is_some_and(|w| !w.is_finite() || w < 0.0) { return unsafe { fail(ui, "invalid inspector readout text") }; }
     unsafe { engine(ui) }.inspector_readout(width, key, label, value);
     0
 }
@@ -624,7 +624,7 @@ pub unsafe fn inspector_readout(ui: *mut PxuiUi, width: Option<f32>, key: &str, 
 pub unsafe fn inspector_message(ui: *mut PxuiUi, key: &str, message: &str) -> i32 {
     enter!(ui);
     let message = clip(message);
-    if long_key(key) { return unsafe { fail(ui, "invalid inspector message text") }; }
+    if bad_key(key) { return unsafe { fail(ui, "invalid inspector message text") }; }
     unsafe { engine(ui) }.inspector_message(key, message);
     0
 }
@@ -634,7 +634,7 @@ pub unsafe fn inspector_message(ui: *mut PxuiUi, key: &str, message: &str) -> i3
 pub unsafe fn inspector_row(ui: *mut PxuiUi, width: Option<f32>, pin: Option<bool>, key: &str, label: &str, out: &mut (PxuiBox, f32, f32, f32)) -> i32 {
     enter!(ui);
     let label = clip(label);
-    if long_key(key) || width.is_some_and(|w| !w.is_finite() || w < 0.0) { return unsafe { fail(ui, "invalid inspector row text") }; }
+    if bad_key(key) || width.is_some_and(|w| !w.is_finite() || w < 0.0) { return unsafe { fail(ui, "invalid inspector row text") }; }
     let (row, x, y, w) = unsafe { engine(ui) }.inspector_row(width, pin, key, label);
     *out = (to_abi_box(row), x, y, w);
     0
@@ -644,7 +644,7 @@ pub unsafe fn inspector_row(ui: *mut PxuiUi, width: Option<f32>, pin: Option<boo
 pub unsafe fn inspector_section(ui: *mut PxuiUi, key: &str, expanded: bool, set_expanded: Option<bool>, label: &str, f: Inner, out: &mut bool) -> i32 {
     enter!(ui);
     let label = clip(label);
-    if long_key(key) { return unsafe { fail(ui, "invalid inspector section text") }; }
+    if bad_key(key) { return unsafe { fail(ui, "invalid inspector section text") }; }
     let shared = unsafe { (*ui).shared };
     *out = unsafe { engine(ui) }.inspector_section(key, expanded, set_expanded, label, &mut |engine: &mut Ui| call_inner(shared, engine, f));
     0
@@ -674,7 +674,7 @@ fn overlay_ok(overlay: &Overlay) -> bool {
 pub unsafe fn panel(ui: *mut PxuiUi, key: &str, overlay: &Overlay, f: Inner, root: &mut PxuiBox) -> i32 {
     enter!(ui);
     let overlay = &Overlay { name: overlay.name.map(clip), ..*overlay };
-    if long_key(key) || !overlay_ok(overlay) { return unsafe { fail(ui, "invalid panel descriptor") }; }
+    if bad_key(key) || !overlay_ok(overlay) { return unsafe { fail(ui, "invalid panel descriptor") }; }
     let shared = unsafe { (*ui).shared };
     *root = to_abi_box(unsafe { engine(ui) }.panel_root(key, overlay, &mut |engine: &mut Ui| call_inner(shared, engine, f)));
     0
@@ -685,7 +685,7 @@ pub unsafe fn panel(ui: *mut PxuiUi, key: &str, overlay: &Overlay, f: Inner, roo
 pub unsafe fn popup(ui: *mut PxuiUi, key: &str, overlay: &Overlay, f: Inner, out: &mut bool, root: &mut PxuiBox) -> i32 {
     enter!(ui);
     let overlay = &Overlay { name: overlay.name.map(clip), ..*overlay };
-    if long_key(key) || !overlay_ok(overlay) { return unsafe { fail(ui, "invalid popup descriptor") }; }
+    if bad_key(key) || !overlay_ok(overlay) { return unsafe { fail(ui, "invalid popup descriptor") }; }
     let shared = unsafe { (*ui).shared };
     let open = unsafe { engine(ui) }.popup_root(key, overlay, &mut |engine: &mut Ui| call_inner(shared, engine, f));
     (*out, *root) = (open.is_some(), open.map_or_else(PxuiBox::default, to_abi_box));
@@ -698,7 +698,7 @@ pub unsafe fn scroll_view(ui: *mut PxuiUi, key: &str, name: &str, node: &Node, f
     enter!(ui);
     let name = clip(name);
     let bad_curve = matches!(&node.transition, pxui_types::node::OptTransition::Some(curve) if !curve.valid());
-    if long_key(key) || !finite(node.w) || !finite(node.h) || node.grid.is_some() || bad_curve { return unsafe { fail(ui, "invalid scroll view arguments") }; }
+    if bad_key(key) || !finite(node.w) || !finite(node.h) || node.grid.is_some() || bad_curve { return unsafe { fail(ui, "invalid scroll view arguments") }; }
     let shared = unsafe { (*ui).shared };
     let engine = unsafe { engine(ui) };
     let b = engine.scroll_view(key, *node, &mut |engine: &mut Ui| call_inner(shared, engine, f));
@@ -726,7 +726,7 @@ fn bounded(put: &mut dyn FnMut(&str), bad: &core::cell::Cell<bool>, total: &core
 #[inline]
 pub unsafe fn list_view_text(ui: *mut PxuiUi, label: &str, count: usize, multi: bool, selected: &mut [u8], text: &mut dyn FnMut(usize, &mut dyn FnMut(&str)), out: &mut Option<usize>) -> i32 {
     enter!(ui);
-    if long_key(label) || count > MAX_ITEMS || selected.len() != count { return unsafe { fail(ui, "invalid list view descriptor") }; }
+    if bad_key(label) || count > MAX_ITEMS || selected.len() != count { return unsafe { fail(ui, "invalid list view descriptor") }; }
     let (bad, total, text) = (core::cell::Cell::new(false), core::cell::Cell::new(0), core::cell::RefCell::new(text));
     *out = unsafe { engine(ui) }.selection_list(label, count, selected, &SelectionList { multi }, &mut |ui, row| (text.borrow_mut())(row, &mut |value| bounded(&mut |t| { ui.row_text(t); }, &bad, &total, value))).activated;
     if bad.get() { return unsafe { fail(ui, "invalid collection callback text") }; }
@@ -737,7 +737,7 @@ pub unsafe fn list_view_text(ui: *mut PxuiUi, label: &str, count: usize, multi: 
 #[inline]
 pub unsafe fn tree_text(ui: *mut PxuiUi, label: &str, nodes: &[pxui_types::ffi::PxuiTreeNode], open: &mut [u8], selected: &mut Option<usize>, visible: &mut [u32], text: &mut dyn FnMut(usize, &mut dyn FnMut(&str)), out: &mut (Option<usize>, usize)) -> i32 {
     enter!(ui);
-    if long_key(label) || nodes.len() > MAX_ITEMS || open.len() != nodes.len() || visible.len() < nodes.len() { return unsafe { fail(ui, "invalid tree descriptor") }; }
+    if bad_key(label) || nodes.len() > MAX_ITEMS || open.len() != nodes.len() || visible.len() < nodes.len() { return unsafe { fail(ui, "invalid tree descriptor") }; }
     // the engine's node and the C node share a layout (asserted where the exports are), so the caller's array is the engine's slice
     let nodes = unsafe { core::slice::from_raw_parts(nodes.as_ptr().cast::<pxui_core::ui_widgets::TreeNode>(), nodes.len()) };
     let (bad, total, text) = (core::cell::Cell::new(false), core::cell::Cell::new(0), core::cell::RefCell::new(text));
@@ -753,7 +753,7 @@ pub unsafe fn table_view_text(ui: *mut PxuiUi, label: &str, titles: &[&str], wid
     enter!(ui);
     let mut spare = Vec::new();
     let titles = clip_strs(titles, &mut spare);
-    if long_key(label) || rows > MAX_ITEMS || titles.len() > 4096 || widths.len() != titles.len() || !options_ok(titles) { return unsafe { fail(ui, "invalid table descriptor") }; }
+    if bad_key(label) || rows > MAX_ITEMS || titles.len() > 4096 || widths.len() != titles.len() || !options_ok(titles) { return unsafe { fail(ui, "invalid table descriptor") }; }
     if widths.iter().any(|w| !w.is_finite() || *w < 0.0) || sort.is_some_and(|(column, _)| column >= titles.len()) { return unsafe { fail(ui, "invalid table widths or sort column") }; }
     let (bad, total, cell) = (core::cell::Cell::new(false), core::cell::Cell::new(0), core::cell::RefCell::new(cell));
     let engine = unsafe { engine(ui) };
@@ -771,7 +771,7 @@ pub unsafe fn table_view_text(ui: *mut PxuiUi, label: &str, titles: &[&str], wid
 pub unsafe fn list_measured(ui:*mut PxuiUi,label:&str,count:usize,estimate_h:f32,f:&mut dyn FnMut(*mut PxuiUi,usize),out:&mut PxuiBox)->i32 {
     enter!(ui);
     if !unsafe { (*(*ui).shared).in_frame } { return crate::PXUI_ERR_STATE; }
-    if long_key(label) || count>MAX_ITEMS || !estimate_h.is_finite() || estimate_h<=0.0 || !(count as f32*estimate_h).is_finite() { return unsafe { fail(ui,"invalid measured list arguments") }; }
+    if bad_key(label) || count>MAX_ITEMS || !estimate_h.is_finite() || estimate_h<=0.0 || !(count as f32*estimate_h).is_finite() { return unsafe { fail(ui,"invalid measured list arguments") }; }
     let shared=unsafe { (*ui).shared };
     *out=to_abi_box(unsafe { engine(ui) }.list_measured(label,count,estimate_h,&mut |engine:&mut Ui,index| {
         let mut borrowed=PxuiUi::borrowed(engine,shared);
@@ -788,7 +788,7 @@ pub unsafe fn section_list(ui:*mut PxuiUi,key:&str,section:&pxui_types::ui::Sect
     enter!(ui);
     if !unsafe { (*(*ui).shared).in_frame } {return crate::PXUI_ERR_STATE;}
     let total=section.leading_height+section.header_height+section.count as f32*section.row_height+section.trailing_height;
-    if long_key(key) || section.count>MAX_ITEMS || !section.row_height.is_finite() || section.row_height<=0.0
+    if bad_key(key) || section.count>MAX_ITEMS || !section.row_height.is_finite() || section.row_height<=0.0
         || !total.is_finite() || [section.leading_height,section.header_height,section.trailing_height].iter().any(|v|!v.is_finite() || *v<0.0) {return unsafe {fail(ui,"invalid section list geometry")};}
     let shared=unsafe {(*ui).shared};
     *out=to_abi_box(unsafe {engine(ui)}.section_list(key,section,id,&mut |engine:&mut Ui,index,y| {
@@ -811,7 +811,7 @@ pub unsafe fn grid_list(ui: *mut PxuiUi, label: &str, count: usize, cell_w: f32,
 #[inline(always)]
 pub(crate) unsafe fn grid_cells(ui: *mut PxuiUi, label: &str, count: usize, cell_w: f32, cell_h: f32, cell: &mut dyn FnMut(&mut Ui, usize), out: &mut PxuiBox) -> i32 {
     enter!(ui);
-    if long_key(label) || count > MAX_ITEMS || !cell_w.is_finite() || !cell_h.is_finite() || cell_w <= 0.0 || cell_h <= 0.0 { return unsafe { fail(ui, "invalid grid list descriptor") }; }
+    if bad_key(label) || count > MAX_ITEMS || !cell_w.is_finite() || !cell_h.is_finite() || cell_w <= 0.0 || cell_h <= 0.0 { return unsafe { fail(ui, "invalid grid list descriptor") }; }
     *out = to_abi_box(unsafe { engine(ui) }.grid_list(label, count, cell_w, cell_h, cell));
     0
 }
@@ -822,7 +822,7 @@ pub(crate) unsafe fn grid_cells(ui: *mut PxuiUi, label: &str, count: usize, cell
 #[inline]
 pub unsafe fn split(ui: *mut PxuiUi, label: &str, axis: pxui_types::Axis, ratio: f32, min_a: f32, min_b: f32, a: Inner, b: Inner, response: &mut PxuiResponse, moved: &mut bool, out: &mut Option<f32>) -> i32 {
     enter!(ui);
-    if long_key(label) || ![ratio, min_a, min_b].iter().all(|v| v.is_finite()) || min_a < 0.0 || min_b < 0.0 || axis == pxui_types::Axis::Stack { return unsafe { fail(ui, "invalid split descriptor") }; }
+    if bad_key(label) || ![ratio, min_a, min_b].iter().all(|v| v.is_finite()) || min_a < 0.0 || min_b < 0.0 || axis == pxui_types::Axis::Stack { return unsafe { fail(ui, "invalid split descriptor") }; }
     let shared = unsafe { (*ui).shared };
     let (r, m, at) = unsafe { engine(ui) }.split_result(label, axis, ratio, min_a, min_b, &mut |engine: &mut Ui| call_inner(shared, engine, a), &mut |engine: &mut Ui| call_inner(shared, engine, b));
     respond(&r, response);
@@ -836,7 +836,7 @@ pub unsafe fn anchored(ui: *mut PxuiUi, key: &str, anchor: pxui_types::geom::Rec
     enter!(ui);
     let overlay = &Overlay { name: overlay.name.map(clip), ..*overlay };
     let placement = overlay.place;
-    if long_key(key) || !overlay_ok(overlay) || anchor.w < 0.0 || anchor.h < 0.0 || placement.margin < 0.0
+    if bad_key(key) || !overlay_ok(overlay) || anchor.w < 0.0 || anchor.h < 0.0 || placement.margin < 0.0
         || ![anchor.x, anchor.y, anchor.w, anchor.h, placement.gap, placement.margin].iter().all(|v| v.is_finite()) { return unsafe { fail(ui, "invalid anchored arguments") }; }
     let shared = unsafe { (*ui).shared };
     *out = to_abi_box(unsafe { engine(ui) }.anchored(key, anchor, overlay, &mut |engine: &mut Ui| call_inner(shared, engine, f)));
@@ -848,7 +848,7 @@ pub unsafe fn anchored(ui: *mut PxuiUi, key: &str, anchor: pxui_types::geom::Rec
 pub unsafe fn modal(ui: *mut PxuiUi, key: &str, overlay: &Overlay, f: Inner, out: &mut bool, root: &mut PxuiBox) -> i32 {
     enter!(ui);
     let overlay = &Overlay { name: overlay.name.map(clip), ..*overlay };
-    if long_key(key) || !overlay_ok(overlay) { return unsafe { fail(ui, "invalid modal arguments") }; }
+    if bad_key(key) || !overlay_ok(overlay) { return unsafe { fail(ui, "invalid modal arguments") }; }
     let shared = unsafe { (*ui).shared };
     let open = unsafe { engine(ui) }.modal_root(key, overlay, &mut |engine: &mut Ui| call_inner(shared, engine, f));
     (*out, *root) = (open.is_some(), open.map_or_else(PxuiBox::default, to_abi_box));
@@ -859,7 +859,7 @@ pub unsafe fn modal(ui: *mut PxuiUi, key: &str, overlay: &Overlay, f: Inner, out
 #[inline]
 pub unsafe fn toasts(ui: *mut PxuiUi, key: &str, items: &[pxui_types::ui::Toast], seconds: f64, out: &mut Option<usize>) -> i32 {
     enter!(ui);
-    if long_key(key) || items.len() > MAX_OPTIONS || !seconds.is_finite() || seconds < 0.0 { return unsafe { fail(ui, "invalid toasts") }; }
+    if bad_key(key) || items.len() > MAX_OPTIONS || !seconds.is_finite() || seconds < 0.0 { return unsafe { fail(ui, "invalid toasts") }; }
     let spare: Vec<pxui_types::ui::Toast>;
     let items = if items.iter().all(|t| !long(t.text)) { items } else { spare = items.iter().map(|t| pxui_types::ui::Toast::new(t.id, clip(t.text))).collect(); &spare };
     *out = unsafe { engine(ui) }.toasts(key, items, seconds).chosen;
@@ -873,7 +873,7 @@ pub unsafe fn dialog(ui: *mut PxuiUi, key: &str, title: &str, buttons: &[pxui_ty
     let title = clip(title);
     let mut spare = Vec::new();
     let buttons = if buttons.iter().all(|b| !long(b.text) && !long(b.detail)) { buttons } else { spare.extend(buttons.iter().map(|b| pxui_types::ui::DialogButton { text: clip(b.text), detail: clip(b.detail), ..*b })); &spare[..] };
-    if long_key(key) || buttons.len() > 64 || !style.w.is_finite() || style.w < 0.0 { return unsafe { fail(ui, "invalid dialog arguments") }; }
+    if bad_key(key) || buttons.len() > 64 || !style.w.is_finite() || style.w < 0.0 { return unsafe { fail(ui, "invalid dialog arguments") }; }
     let shared = unsafe { (*ui).shared };
     *out = unsafe { engine(ui) }.dialog(key, title, buttons, style, &mut |engine: &mut Ui| call_inner(shared, engine, f));
     0
@@ -887,7 +887,7 @@ pub unsafe fn table(ui: *mut PxuiUi, at: (f32, f32), width: f32, height: f32, he
     enter!(ui);
     let mut spare = Vec::new();
     let headers = clip_strs(headers, &mut spare);
-    if long_key(label) || headers.len() > 256 || rows < 0 || rows as usize > MAX_ITEMS || !width.is_finite() || !height.is_finite() || width < 0.0 || height < 0.0 || !at.0.is_finite() || !at.1.is_finite() || !options_ok(headers) {
+    if bad_key(label) || headers.len() > 256 || rows < 0 || rows as usize > MAX_ITEMS || !width.is_finite() || !height.is_finite() || width < 0.0 || height < 0.0 || !at.0.is_finite() || !at.1.is_finite() || !options_ok(headers) {
         return unsafe { fail(ui, "invalid table descriptor") };
     }
     let (bad, total) = (core::cell::Cell::new(false), core::cell::Cell::new(0));
@@ -915,7 +915,7 @@ pub unsafe fn pxui_slot(ui: *mut PxuiUi, slot: pxui_types::ffi::PxuiSlot, out: *
 #[inline]
 pub unsafe fn list_view(ui: *mut PxuiUi, key: &str, count: usize, multi: bool, selected: &mut [u8], cell: &mut dyn FnMut(*mut PxuiUi, usize, usize), out: &mut Option<usize>) -> i32 {
     enter!(ui);
-    if long_key(key) || count > MAX_ITEMS || selected.len() != count { return unsafe { fail(ui, "invalid list view descriptor") }; }
+    if bad_key(key) || count > MAX_ITEMS || selected.len() != count { return unsafe { fail(ui, "invalid list view descriptor") }; }
     let shared = unsafe { (*ui).shared };
     *out = unsafe { engine(ui) }.selection_list(key, count, selected, &SelectionList { multi }, &mut |engine, row| { let mut borrowed = PxuiUi::borrowed(engine, shared); let _current = crate::state::Current::set(shared, &mut borrowed); cell(&mut borrowed, row, 0) }).activated;
     0
@@ -926,7 +926,7 @@ pub unsafe fn list_view(ui: *mut PxuiUi, key: &str, count: usize, multi: bool, s
 #[inline]
 pub unsafe fn tree(ui: *mut PxuiUi, key: &str, nodes: &[pxui_types::ffi::PxuiTreeNode], open: &mut [u8], selected: &mut Option<usize>, visible: &mut [u32], cell: &mut dyn FnMut(*mut PxuiUi, usize, usize), out: &mut (Option<usize>, usize)) -> i32 {
     enter!(ui);
-    if long_key(key) || nodes.len() > MAX_ITEMS || open.len() != nodes.len() || visible.len() < nodes.len() { return unsafe { fail(ui, "invalid tree descriptor") }; }
+    if bad_key(key) || nodes.len() > MAX_ITEMS || open.len() != nodes.len() || visible.len() < nodes.len() { return unsafe { fail(ui, "invalid tree descriptor") }; }
     let nodes = unsafe { core::slice::from_raw_parts(nodes.as_ptr().cast::<pxui_core::ui_widgets::TreeNode>(), nodes.len()) };
     let shared = unsafe { (*ui).shared };
     let r = unsafe { engine(ui) }.tree(key, nodes, open, selected, visible, &mut |engine, node| { let mut borrowed = PxuiUi::borrowed(engine, shared); let _current = crate::state::Current::set(shared, &mut borrowed); cell(&mut borrowed, node, 0) });
@@ -943,7 +943,7 @@ pub unsafe fn table_view(ui: *mut PxuiUi, key: &str, name: &str, titles: &[&str]
     let name = clip(name);
     let mut spare = Vec::new();
     let titles = clip_strs(titles, &mut spare);
-    if long_key(key) || rows > MAX_ITEMS || titles.len() > 4096 || !options_ok(titles) { return unsafe { fail(ui, "invalid table descriptor") }; }
+    if bad_key(key) || rows > MAX_ITEMS || titles.len() > 4096 || !options_ok(titles) { return unsafe { fail(ui, "invalid table descriptor") }; }
     match table.text {
         Some(r) => if titles.len() > 256 || ![r.x, r.y, r.w, r.h].iter().all(|v| v.is_finite()) || r.w < 0.0 || r.h < 0.0 { return unsafe { fail(ui, "invalid text table rectangle") }; },
         None => if widths.len() != titles.len() || widths.iter().any(|w| !w.is_finite() || *w < 0.0) || table.sort.is_some_and(|(column, _)| column >= titles.len()) { return unsafe { fail(ui, "invalid table widths or sort column") }; },

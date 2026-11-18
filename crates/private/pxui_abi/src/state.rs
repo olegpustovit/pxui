@@ -359,8 +359,12 @@ pub(crate) fn clip(text: &str) -> &str {
 #[inline(always)]
 pub(crate) unsafe fn checked_key(value: Str) -> Option<&'static str> {
     let key = if value.len <= 16 { unsafe { text(value) } } else if value.len > MAX_KEY_BYTES { None } else { unsafe { text(value) } }?;
-    if key.as_bytes().first() == Some(&1) && !usable_resolved(key) { None } else { Some(key) }
+    if unusable(key) { None } else { Some(key) }
 }
+
+/// Whether `key` begins with the 0x01 byte of a resolved key but is not a usable one (see `usable_resolved`).
+#[inline(always)]
+pub(crate) fn unusable(key: &str) -> bool { key.as_bytes().first() == Some(&1) && !usable_resolved(key) }
 
 /// Whether a 0x01-led label is a resolved key the engine may take as it is: 16 lowercase hex digits after the byte, carrying neither 0
 /// nor 1 (the key tables' empty and tombstone marks).

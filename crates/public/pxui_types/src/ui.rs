@@ -1635,7 +1635,8 @@ pub enum Key {
     /// An item id, hashed as the label of a NUL byte and its 16 lowercase hex digits under the parent's seed.
     Id(i64),
     /// An already resolved key such as Handle::box_key: used as it is, never hashed again, in lookups, hit queries and creation calls.
-    /// 0 and 1 are never a box key: a lookup of them finds nothing, and a creation call takes them as `Id(0)` and `Id(1)`.
+    /// 0 and 1 are never a box key: a key lookup of them finds nothing, and a call that takes the key as a label refuses them (as it
+    /// refuses any invalid key), so they never alias an item id.
     Resolved(i64),
 }
 impl From<&'static str> for Key { #[inline] fn from(label: &'static str) -> Key { Key::Label(label) } }
@@ -1646,8 +1647,8 @@ impl Key {
     /// The label form this key crosses the C ABI in: a `Label` itself; an `Id` written into `buf` as a NUL byte and its 16 lowercase
     /// hex digits (so an id never collides with a printable label); a `Resolved` key written as a 0x01 byte and its 16 lowercase hex
     /// digits, which the engine takes as the already hashed key itself (no seed, no rehash), so a resolved key is a valid identity in
-    /// creation calls and lookups alike; the reserved `Resolved(0)` and `Resolved(1)` cross as `Id(0)` and `Id(1)`, since a call refuses
-    /// a resolved label carrying 0 or 1. Authored labels that begin with a byte below 0x20 are reserved for these forms and the engine's
+    /// creation calls and lookups alike; the reserved `Resolved(0)` and `Resolved(1)` cross in the same form, which a call refuses as
+    /// an invalid key. Authored labels that begin with a byte below 0x20 are reserved for these forms and the engine's
     /// own positional keys; a call refuses them.
     ///
     /// Allocates: never.
@@ -1659,14 +1660,14 @@ impl Key {
     /// assert_eq!(Key::Label("row").label(&mut buf), "row");
     /// assert_eq!(Key::Id(255).label(&mut buf), "\u{0}00000000000000ff");
     /// assert_eq!(Key::Resolved(255).label(&mut buf), "\u{1}00000000000000ff");
-    /// assert_eq!(Key::Resolved(1).label(&mut buf), "\u{0}0000000000000001");
+    /// assert_eq!(Key::Resolved(1).label(&mut buf), "\u{1}0000000000000001");
     /// ```
     #[inline]
     pub fn label<'b>(&self, buf: &'b mut [u8; 17]) -> &'b str {
         match *self {
             Key::Label(label) => label,
             Key::Id(id) => id_text(0, id, buf),
-            Key::Resolved(key) => id_text((key as u64 > 1) as u8, key, buf),
+            Key::Resolved(key) => id_text(1, key, buf),
         }
     }
 }
