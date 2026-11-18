@@ -1153,6 +1153,9 @@ pub struct Ui {
     /// the frame a theme swap transitions in (`set_theme`)
     swap_frame: i64,
     frame_number: i64,
+    /// the last frame that made any node a drop zone (`drop_target_ref` while a payload is carried): the hit pass reads a node's
+    /// slot for its zone only in such a frame
+    drop_zones: i64,
     density: i64,
     kit_row_height: i64,
     /// The kit row exactly (`kit_row_height` is it rounded): the theme's row in a frame, `font_points + 11` (at least 24) between.
@@ -1433,6 +1436,7 @@ impl Ui {
             ahead: false,
             swap_frame: -1,
             frame_number: 0,
+            drop_zones: -1,
             density: 1,
             kit_row_height: 24,
             row_points: 24.0,
@@ -4161,7 +4165,7 @@ impl Ui {
     /// Asking makes `b` a drop zone for this frame's hit tree, so a plain node (no input flags) takes the drop too.
     pub fn drop_target_ref(&mut self, b: &UiBox) -> Option<(bool, &Payload)> {
         if self.dropped.is_none() && self.payload.is_none() { return None; }
-        if self.live(b) { self.slots[b.box_slot].drop_zone = self.frame_number; }
+        if self.live(b) { (self.slots[b.box_slot].drop_zone, self.drop_zones) = (self.frame_number, self.frame_number); }
         let hot = self.dropped.as_ref().map_or(self.hot, |(_, hot)| *hot);
         if hot == 0 || !self.hit_within(hot, b.box_key) { return None; }
         if let Some((payload, _)) = &self.dropped { Some((true, payload)) }
@@ -6076,7 +6080,7 @@ impl Ui {
         let Rect { x, y, w, h } = rect;
         // a drop zone that is no input node holds the pointer's hit as a plain blocking area, so a drop reaches it
         let flags = self.nd(index).flags;
-        let zone = self.slots[self.boxes[index].slot].drop_zone == self.frame_number && !flags.any(HIT_FLAGS);
+        let zone = self.drop_zones == self.frame_number && self.slots[self.boxes[index].slot].drop_zone == self.frame_number && !flags.any(HIT_FLAGS);
         let rec = HitRec { key: self.boxes[index].key, parent, flags: if zone { flags.or(Flags::BLOCKING) } else { flags }, x, y, w, h, view: self.paint_xf };
         self.push_hit(rec);
     }
@@ -6211,7 +6215,7 @@ impl Ui {
         let visible = visible || (view != NO_VIEW && w > 0.0 && h > 0.0);
         let flags = self.nd(index).flags;
         // a gesture node is findable by touch arbitration without being interactive itself
-        let has_hit = (flags.any(HIT_FLAGS) || self.gestures[slot].kinds != 0 || self.slots[slot].drop_zone == self.frame_number) && hw > 0.0 && hh > 0.0;
+        let has_hit = (flags.any(HIT_FLAGS) || self.gestures[slot].kinds != 0 || (self.drop_zones == self.frame_number && self.slots[slot].drop_zone == self.frame_number)) && hw > 0.0 && hh > 0.0;
         if has_hit {
             self.record_hit(index, parent_hit, clipped_hit);
         }

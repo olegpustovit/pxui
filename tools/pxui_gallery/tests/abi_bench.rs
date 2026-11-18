@@ -343,7 +343,9 @@ fn abi_bench_bodies() {
     // recovered by 1.39) -> 362.9k at 1516f2d (inline text spans) -> 371.0k after the CoreText raster 9bb6df1, light text 85305c7 and
     // 549c079 -> 369.0k with 1.39 (370.8k after rebasing onto the 1.38 gestures). What remains is those text features' cost, accepted. Layout fell from 974,424 with the engine's
     // own work (its base is the measured count too, so a later regression there is gated at 1%). docs/abi.md 1.39.
-    const BEFORE_B1: [f64; 5] = [370_767.0, 293_038.0, 1_652_127.0, 67_433.0, 891_351.0];
+    // Kit re-measured (orchestrator, U2b.10) the same way, the default-body count at the commit that changed the page: U2b.1
+    // (29bd1fcb) replaced the 1,000-row text table with the column `table`; Kit there retired 554,596 (370,767 before, its old page).
+    const BEFORE_B1: [f64; 5] = [554_596.0, 293_038.0, 1_652_127.0, 67_433.0, 891_351.0];
     const PLAN_DEFAULT_VS_BEFORE: f64 = 1.01;
     const PLAN_OVERRIDDEN_RATIO: f64 = 1.02;
     // Measured overridden/default instruction ratio per page (rounded up to 0.001) where the plan's value is missed; else the plan's.

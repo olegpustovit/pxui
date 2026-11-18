@@ -1982,14 +1982,39 @@ impl Key {
 }
 
 /// `id` as a label: the `tag` byte (0 an item id, 1 a resolved key) and its 16 lowercase hex digits, written into `out`. Out of line:
-/// label keys inline without it.
-#[cold]
+/// label keys inline without it. The digits are made eight at a time in a word (a list keys every row this way).
 #[inline(never)]
 fn id_text(tag: u8, id: i64, out: &mut [u8; 17]) -> &str {
     out[0] = tag;
-    for (at, digit) in out[1..].iter_mut().enumerate() { *digit = b"0123456789abcdef"[(id as u64 >> (60 - 4 * at)) as usize & 15]; }
+    out[1..9].copy_from_slice(&hex8((id as u64 >> 32) as u32));
+    out[9..].copy_from_slice(&hex8(id as u32));
     // a control byte and ASCII hex digits: always UTF-8
     core::str::from_utf8(out).unwrap_or_default()
+}
+
+/// `x`'s 8 lowercase hex digits, the most significant first.
+#[inline]
+fn hex8(x: u32) -> [u8; 8] {
+    // one nibble a byte, the most significant nibble in the lowest byte
+    let mut v = (x as u64).swap_bytes() >> 32;
+    v = (v | v << 16) & 0x0000_ffff_0000_ffff;
+    v = (v | v << 8) & 0x00ff_00ff_00ff_00ff;
+    v = (v >> 4 & 0x000f_000f_000f_000f) | (v & 0x000f_000f_000f_000f) << 8;
+    // '0' + n, and 'a' - '0' - 10 more where n > 9
+    let letters = ((v + 0x0606_0606_0606_0606) >> 4) & 0x0101_0101_0101_0101;
+    (v + 0x3030_3030_3030_3030 + letters * 0x27).to_le_bytes()
+}
+
+#[test]
+fn id_text_writes_the_id_in_hex() {
+    let mut x = 0x0123_4567_89ab_cdefu64;
+    for id in [0i64, 1, -1, i64::MIN, i64::MAX, 0x0123_4567_89ab_cdef, 0xa, 0x9f].into_iter().chain((0..2000).map(|_| { x = x.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407); x as i64 })) {
+        let mut out = [0u8; 17];
+        let text = id_text(1, id, &mut out).to_owned();
+        let mut expected = String::from("\u{1}");
+        expected.push_str(&format!("{:016x}", id as u64));
+        assert_eq!(text, expected, "{id:#x}");
+    }
 }
 
 /// The key a `Key::Resolved` label carries (a 0x01 byte and 16 lowercase hex digits), or `None` for any other label and for the
