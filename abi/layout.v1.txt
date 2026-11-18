@@ -121,7 +121,7 @@ PxuiBadgeConfig 80 8 0 8 40 56 72
 PxuiLabelConfig 144 8 0 4 8 40 56 120 124
 PxuiFooterConfig 88 8 0 8 40 48 64 80
 PxuiGripConfig 56 8 0 4 12 13 16 48
-PxuiPanelConfig 72 8 0 8 40 56 64
+PxuiPanelConfig 80 8 0 8 40 56 64 72
 PxuiDialogConfig 104 8 0 8 24 40 48 56 64 72 80 88
 PxuiSectionConfig 80 8 0 4 8 16 48 64 72
 PxuiSplitConfig 80 8 0 4 8 12 16 24 56 64 72
@@ -181,3 +181,6 @@ PxuiKeyedDesc 40 8 0 4 8 24
 PxuiPickItem 64 8 0 1 8 16 32 48
 PxuiSectionIndexConfig 80 8 0 4 12 16 24 56 72
 PxuiCheckboxDesc 56 8 0 4 5 6 7 8 16 24 40
+PxuiSheetDesc 20 4 0 4 5 6 8 12 16
+PxuiPickRow 64 8 0 4 5 8 16 32 48
+PxuiSectionIndexConfig 80 8 0 4 12 16 24 56 72

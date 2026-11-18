@@ -97,7 +97,7 @@ arg!(sized: PxuiTextFieldDesc, Environment, Gpu, Keyboard, Pass, pxui_text::Text
     PxuiSaved, PxuiScrubOut, PxuiSectionListDesc, PxuiSignal, PxuiSplitDesc, PxuiStateDesc, PxuiSwipeIn, PxuiTableDesc, PxuiTableViewDesc,
     PxuiTableViewWithDesc, PxuiTreeViewDesc, PxuiTreeViewWithDesc, PxuiValueFieldDesc, ThemeSource, ThemeTokens, FrameIn, FrameOut, Image, Node, PxuiPanel,
     PxuiTargetDesc, PxuiUiDesc, TextMetrics, PxuiTextStyle, PxuiAnchorDesc, PxuiAreaCallbacks, PxuiDialogOut, PxuiLabelBox, PxuiMarkDesc, PxuiSegmentedDesc,
-    PxuiTextAreaDesc, PxuiTextInputOptions, PxuiToggleDesc, PxuiCheckboxDesc, Span, TextGlyph);
+    PxuiTextAreaDesc, PxuiTextInputOptions, PxuiToggleDesc, PxuiCheckboxDesc, PxuiSheetDesc, Span, TextGlyph);
 arg!(plain: u16, *mut PxuiRenderer, u8, u32, u64, i64, usize, f32, c_void, Str, geom::Rgba, geom::Rect, geom::Point, *const u32, *mut PxuiPreparedText, A11yTree, Slice<A11yAction>);
 arg!(null: PxuiRenderer, PxuiPaint, PxuiPreparedText, PxuiA11y, PxuiTextWorker);
 arg!(none: UiBuild, PxuiGridBuild, PxuiButtonBuild, PxuiBodyFn, crate::paint::PaintBuild, crate::paint::PaintRelease, crate::paint::SpanBuild,
@@ -218,7 +218,7 @@ macro_rules! fuzz {
 fuzz!(
     pxui_ui_inspector_bar/3, pxui_ui_inspector_body/3, pxui_ui_inspector_button/4, pxui_ui_inspector_header/5, pxui_ui_inspector_label_x/1,
     pxui_ui_inspector_message/2, pxui_ui_inspector_readout/2, pxui_ui_inspector_row/2, pxui_ui_inspector_section/2, pxui_ui_inspector_section_view/10,
-    pxui_ui_inspector_toggle/5, pxui_ui_inspector_toggle_value/6, pxui_ui_inspector_width/1, pxui_ui_layout_node/3, pxui_ui_line_field/11, pxui_ui_line_field_response/13, pxui_ui_menu_bar_result/4, pxui_ui_modal_root/8, pxui_ui_panel_root/6, pxui_ui_pick/8, pxui_ui_tabs_result/8, pxui_ui_picker/13, pxui_ui_popup_root/7, pxui_ui_scrub_result/8, pxui_ui_slider_result/7, pxui_ui_split_result/5, pxui_ui_value_field/9, pxui_ui_value_field_response/11,
+    pxui_ui_inspector_toggle/5, pxui_ui_inspector_toggle_value/6, pxui_ui_inspector_width/1, pxui_ui_layout_node/3, pxui_ui_line_field/11, pxui_ui_line_field_response/13, pxui_ui_menu_bar_result/4, pxui_ui_modal_root/8, pxui_ui_modal_sheet/7, pxui_ui_panel_root/6, pxui_ui_pick/8, pxui_ui_tabs_result/8, pxui_ui_picker/13, pxui_ui_popup_root/7, pxui_ui_scrub_result/8, pxui_ui_slider_result/7, pxui_ui_split_result/5, pxui_ui_value_field/9, pxui_ui_value_field_response/11,
     pxui_a11y_fd/1, pxui_a11y_pump/2, pxui_a11y_update/2, pxui_abi_version/0, pxui_body_register/5, pxui_body_register_checked/6, pxui_button/3, pxui_col/5,
     pxui_counter/1, pxui_default_font/0, pxui_frame/5, pxui_label/2, pxui_last_error/1, pxui_paint_cap/6, pxui_paint_cap_width/2, pxui_paint_caret_x/5,
     pxui_paint_color/2, pxui_paint_icon/7, pxui_paint_icon_word/1, pxui_paint_image/8, pxui_paint_image_checked/8, pxui_paint_input_region/6, pxui_paint_label/6, pxui_paint_label_chars/5, pxui_paint_label_measure/6, pxui_paint_label_spans/8,

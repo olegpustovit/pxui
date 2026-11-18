@@ -322,18 +322,93 @@ impl Slider {
     pub const fn variant(mut self, variant: u16) -> Slider { self.variant = variant; self }
 }
 
-/// The rows a `Ui::picker` fill writes: `(label, detail)` text pairs pushed in order, kept between frames so a settled picker's row
-/// strings are reused, not allocated again.
+/// The artwork or icon slot of a picker row (`PickRow::art`): what the row's body draws at the row's start.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PickArt {
+    /// A character of the icon font, which the built-in row body draws.
+    Glyph(char),
+    /// An image by its `Images` id (the id `Images::store` returns and `Images::get` takes): the built-in row body leaves the slot empty
+    /// and a registered picker body draws the image.
+    Image(usize),
+}
+
+/// One row of a `Ui::picker` fill, a `Copy` value built with `const fn` builders from `PickRow::new` and given to `PickRows::push`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PickRow<'a> {
+    /// The row's text.
+    pub label: &'a str,
+    /// The row's secondary text ("": none).
+    pub detail: &'a str,
+    /// The artwork or icon at the row's start (`None`: none).
+    pub art: Option<PickArt>,
+    /// The heading of the group this row starts ("": the row falls under the heading before it, or none).
+    pub heading: &'a str,
+}
+
+impl<'a> PickRow<'a> {
+    /// A row showing `label`, with no detail, artwork or heading.
+    /// Allocates: never.
+    /// Identity: none; a picker keys its rows by their index, never the label.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const SONG: pxui_types::ui::PickRow = pxui_types::ui::PickRow::new("Song");
+    /// assert_eq!((SONG.label, SONG.detail), ("Song", ""));
+    /// ```
+    pub const fn new(label: &'a str) -> PickRow<'a> { PickRow { label, detail: "", art: None, heading: "" } }
+
+    /// Sets the row's secondary text, shown beside the label.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let row = pxui_types::ui::PickRow::new("Song").detail("Artist");
+    /// assert_eq!(row.detail, "Artist");
+    /// ```
+    pub const fn detail(mut self, detail: &'a str) -> PickRow<'a> { self.detail = detail; self }
+
+    /// Sets the artwork or icon drawn at the row's start; when any row of a fill has one, every row keeps the slot's room so labels align.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::ui::{PickArt, PickRow};
+    /// const ROW: PickRow = PickRow::new("Song").art(PickArt::Image(7));
+    /// assert_eq!(ROW.art, Some(PickArt::Image(7)));
+    /// ```
+    pub const fn art(mut self, art: PickArt) -> PickRow<'a> { self.art = Some(art); self }
+
+    /// Makes this row start a group headed `heading`: the picker draws the heading above it, and this row and the rows after it up to the
+    /// next heading fall under it. A heading is not a row: the keyboard skips it and `Pick` indices count only rows.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let row = pxui_types::ui::PickRow::new("Song").heading("Songs");
+    /// assert_eq!(row.heading, "Songs");
+    /// ```
+    pub const fn heading(mut self, heading: &'a str) -> PickRow<'a> { self.heading = heading; self }
+}
+
+#[derive(Debug, Default)]
+struct RowText {
+    label: String,
+    detail: String,
+    heading: String,
+    art: Option<PickArt>,
+}
+
+/// The rows a `Ui::picker` fill writes: `PickRow`s pushed in order, kept between frames so a settled picker's row strings are reused,
+/// not allocated again.
 #[derive(Debug, Default)]
 pub struct PickRows {
-    rows: Vec<(String, String)>,
+    rows: Vec<RowText>,
     len: usize,
 }
 
 impl PickRows {
-    /// No rows, nothing allocated.
-    ///
-    /// Allocates: never.
+    /// No rows.
+    /// Allocates: never (the first rows allocate their strings).
     /// Panics: never.
     ///
     /// ```
@@ -341,44 +416,46 @@ impl PickRows {
     /// ```
     pub const fn new() -> PickRows { PickRows { rows: Vec::new(), len: 0 } }
 
-    /// Appends the row `label` with `detail` beside it.
-    /// Allocates: only past the longest rows and the most rows kept so far (their strings are reused).
-    /// Identity: none; rows are keyed by their index in the picker.
+    /// Appends `row`: its label, detail, artwork and the heading of the group it starts.
+    /// Allocates: only past the most rows or the longest texts so far (the row strings are reused).
+    /// Identity: none; rows are keyed by their index in the picker (headings are not rows).
     /// Panics: never.
     ///
     /// ```
-    /// let mut rows = pxui_types::ui::PickRows::new();
-    /// rows.push("Song", "Artist");
-    /// assert_eq!(rows.get(0), Some(("Song", "Artist")));
+    /// use pxui_types::ui::{PickRow, PickRows};
+    /// let mut rows = PickRows::new();
+    /// rows.push(PickRow::new("Song").detail("Artist").heading("Songs"));
+    /// assert_eq!(rows.get(0), Some(PickRow::new("Song").detail("Artist").heading("Songs")));
     /// ```
-    pub fn push(&mut self, label: &str, detail: &str) {
-        if self.len == self.rows.len() { self.rows.push((String::new(), String::new())); }
-        let row = &mut self.rows[self.len];
-        row.0.clear();
-        row.0.push_str(label);
-        row.1.clear();
-        row.1.push_str(detail);
+    pub fn push(&mut self, row: PickRow<'_>) {
+        if self.len == self.rows.len() { self.rows.push(RowText::default()); }
+        let at = &mut self.rows[self.len];
+        for (to, from) in [(&mut at.label, row.label), (&mut at.detail, row.detail), (&mut at.heading, row.heading)] {
+            to.clear();
+            to.push_str(from);
+        }
+        at.art = row.art;
         self.len += 1;
     }
 
-    /// Forgets the rows, keeping their storage.
+    /// Forgets the rows, keeping their strings for the next fill.
     /// Allocates: never.
     /// Panics: never.
     ///
     /// ```
     /// let mut rows = pxui_types::ui::PickRows::new();
-    /// rows.push("a", "");
+    /// rows.push(pxui_types::ui::PickRow::new("a"));
     /// rows.clear();
-    /// assert_eq!(rows.len(), 0);
+    /// assert!(rows.is_empty());
     /// ```
     pub fn clear(&mut self) { self.len = 0; }
 
-    /// How many rows there are.
+    /// The number of rows.
     /// Allocates: never.
     /// Panics: never.
     ///
     /// ```
-    /// assert!(pxui_types::ui::PickRows::new().is_empty());
+    /// assert_eq!(pxui_types::ui::PickRows::new().len(), 0);
     /// ```
     pub fn len(&self) -> usize { self.len }
 
@@ -391,14 +468,17 @@ impl PickRows {
     /// ```
     pub fn is_empty(&self) -> bool { self.len == 0 }
 
-    /// Row `i`'s label and detail, or none past the rows.
+    /// Row `i` as it was pushed, borrowed from the rows; `None` past them.
     /// Allocates: never.
     /// Panics: never.
     ///
     /// ```
     /// assert_eq!(pxui_types::ui::PickRows::new().get(0), None);
     /// ```
-    pub fn get(&self, i: usize) -> Option<(&str, &str)> { (i < self.len).then(|| (self.rows[i].0.as_str(), self.rows[i].1.as_str())) }
+    pub fn get(&self, i: usize) -> Option<PickRow<'_>> {
+        let r = self.rows.get(i).filter(|_| i < self.len)?;
+        Some(PickRow { label: &r.label, detail: &r.detail, art: r.art, heading: &r.heading })
+    }
 }
 
 /// The part of a `SectionList` a build callback is asked to fill.
@@ -443,13 +523,62 @@ pub struct Overlay<'a> {
     pub name: Option<&'a str>,
     /// Where an anchored sheet sits by its anchor (anchored).
     pub place: crate::layout::Placement,
+    /// How a modal is presented: centred, as a bottom sheet or full screen (modal).
+    pub present: Presentation,
+    /// The drag-to-dismiss thresholds of a bottom or full-screen modal (modal).
+    pub dismiss: DismissOpts,
+}
+
+/// How `Ui::modal` presents its sheet, one of the `Overlay::present` values.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Presentation {
+    /// Centred in the content area, `Overlay::w` wide (the default).
+    Centered,
+    /// A sheet on the content area's bottom edge, `Overlay::w` wide (the area's whole width by default) and as tall as its content (to
+    /// `Overlay::max_h`, else the area less 32 points). A downward drag dismisses it with the thresholds of `Overlay::dismiss`.
+    Bottom,
+    /// A sheet filling the content area. A downward drag dismisses it with the thresholds of `Overlay::dismiss`.
+    Full,
+}
+
+/// Drag-to-dismiss thresholds; a threshold left unset takes the UIKit sheet's (a quarter of the node height, 600 points/s).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DismissOpts {
+    /// The fraction of the node height a release past commits (`None`: a quarter).
+    pub fraction: Option<f32>,
+    /// The downward release speed in points per second that commits (`None`: 600).
+    pub velocity: Option<f32>,
+}
+
+impl DismissOpts {
+    /// The UIKit sheet's thresholds.
+    pub const DEFAULT: DismissOpts = DismissOpts { fraction: None, velocity: None };
+    /// The fraction of the node height a release past commits.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let _ = pxui_types::ui::DismissOpts::DEFAULT.fraction(0.25);
+    /// ```
+    pub const fn fraction(self, fraction: f32) -> DismissOpts { DismissOpts { fraction: Some(fraction), ..self } }
+    /// The downward release speed in points per second that commits.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let _ = pxui_types::ui::DismissOpts::DEFAULT.velocity(600.0);
+    /// ```
+    pub const fn velocity(self, velocity: f32) -> DismissOpts { DismissOpts { velocity: Some(velocity), ..self } }
+}
+impl Default for DismissOpts {
+    fn default() -> DismissOpts { DismissOpts::DEFAULT }
 }
 
 impl<'a> Overlay<'a> {
     /// The plain sheet of each call.
     pub const DEFAULT: Overlay<'a> = Overlay {
         at: (12.0, 12.0), w: None, h: None, max_h: None, stroke: None, look: None, padding: 0.0, window: false, dismiss_initial: false, attached: false,
-        name: None, place: crate::layout::Placement::BELOW,
+        name: None, place: crate::layout::Placement::BELOW, present: Presentation::Centered, dismiss: DismissOpts::DEFAULT,
     };
 
     /// Places the sheet's top-left at (`x`, `y`) window points (panel, popup).
@@ -578,6 +707,29 @@ impl<'a> Overlay<'a> {
     /// assert_eq!(ABOVE.place.side, Side::Above);
     /// ```
     pub const fn place(mut self, place: crate::layout::Placement) -> Overlay<'a> { self.place = place; self }
+
+    /// Sets how a modal is presented: centred (the default), as a bottom sheet or full screen (modal). A bottom or full-screen sheet is
+    /// dismissed by a downward drag that the sheet takes through the engine's drag-to-dismiss, with the thresholds of `Overlay::dismiss`.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::ui::{Overlay, Presentation};
+    /// const QUEUE: Overlay = Overlay::DEFAULT.present(Presentation::Bottom);
+    /// assert_eq!(QUEUE.present, Presentation::Bottom);
+    /// ```
+    pub const fn present(mut self, presentation: Presentation) -> Overlay<'a> { self.present = presentation; self }
+
+    /// Sets the drag-to-dismiss thresholds of a bottom or full-screen modal (a quarter of the sheet's height or 600 points/s by default).
+    /// Allocates: never.
+    /// Panics: never (a threshold that is not finite is refused by the call).
+    ///
+    /// ```
+    /// use pxui_types::ui::{DismissOpts, Overlay, Presentation};
+    /// const PLAYER: Overlay = Overlay::DEFAULT.present(Presentation::Full).dismiss(DismissOpts::DEFAULT.fraction(0.4));
+    /// assert_eq!(PLAYER.dismiss.fraction, Some(0.4));
+    /// ```
+    pub const fn dismiss(mut self, dismiss: DismissOpts) -> Overlay<'a> { self.dismiss = dismiss; self }
 }
 
 /// What `Ui::picker` reports: the query as it stands after this frame's edits, borrowed from the `Ui` until its next call, and what

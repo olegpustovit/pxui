@@ -1177,7 +1177,7 @@ impl Ui {
     pub fn dialog(&mut self, key: &str, title: &str, buttons: &[DialogButton], style: &Dialog, body: &mut dyn FnMut(&mut Ui)) -> Chosen {
         let mut chosen = None;
         let enter = self.key_pressed(Key::Enter, None);
-        let shown_now = self.modal_named(Some(style.w), key, None, &mut |ui| {
+        let shown_now = self.modal_named(&Overlay::DEFAULT.w_px(style.w), key, None, &mut |ui| {
             let owner = ui.current_seed();
             in_place!(ui, owner, dialog, default_dialog(title, buttons, body));
             // the heading and the buttons are the body's nodes: their presses are read here, and a role or a name only where the body

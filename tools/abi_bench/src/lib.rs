@@ -5,7 +5,7 @@ pub mod pxui {
     pub use pxui_core::text;
     pub use pxui_core::ui::*;
     pub use pxui_core::ui_widgets::TreeNode;
-    pub use pxui_types::ui::{Dialog, DialogButton, Chosen, Menu, MenuItem, Pick};
+    pub use pxui_types::ui::{Dialog, DialogButton, Chosen, Menu, MenuItem, Pick, PickRow};
     pub mod collections { pub use pxui_core::ui_widgets::TreeNode; }
     pub use pxui_types::theme;
     pub use pxui_core::ui::Handle;

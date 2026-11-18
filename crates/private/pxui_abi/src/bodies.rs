@@ -108,6 +108,11 @@ macro_rules! tramp_span {
     };
 }
 
+/// `PxuiPanelConfig.present`: 0 centred, 1 bottom, 2 full.
+fn present(p: pxui_types::ui::Presentation) -> u64 {
+    match p { pxui_types::ui::Presentation::Centered => 0, pxui_types::ui::Presentation::Bottom => 1, pxui_types::ui::Presentation::Full => 2 }
+}
+
 /// A button size as the descriptor writes it: kind 0 the kit's, 1 points, 2 fill.
 fn size_kind(size: pxui_core::ui::Size) -> (u8, f32) {
     match size { pxui_core::ui::Size::Px(v) => (1, v), pxui_core::ui::Size::Grow => (2, 0.0), _ => (0, 0.0) }
@@ -160,10 +165,10 @@ mod tramps {
         span.extend(hints.iter().map(|(k, v)| PxuiHintDesc { size: core::mem::size_of::<PxuiHintDesc>() as u32, reserved: 0, key: pair(k), value: pair(v) }));
     }, PxuiFooterConfig { row: bx(c.row), has_right: right.is_some() as u8, right: opt(right), hints: Slice { ptr: span.as_ptr(), len: span.len() } });
     tramp!(grip, |ui, sh, c: &GripConfig| PxuiGripConfig { state: st(c.state), vertical: c.vertical as u8, floating: c.floating as u8, grip: bx(c.grip) });
-    tramp!(panel, |ui, sh, c: &PanelConfig, label: &str, body: &mut dyn FnMut(&mut Ui)| PxuiPanelConfig { node: bx(c.node), label: pair(label), content: content(sh, body) });
-    tramp!(window, |ui, sh, c: &PanelConfig, label: &str, body: &mut dyn FnMut(&mut Ui)| PxuiPanelConfig { node: bx(c.node), label: pair(label), content: content(sh, body) });
-    tramp!(popup, |ui, sh, c: &PanelConfig, label: &str, body: &mut dyn FnMut(&mut Ui)| PxuiPanelConfig { node: bx(c.node), label: pair(label), content: content(sh, body) });
-    tramp!(modal, |ui, sh, c: &PanelConfig, label: &str, body: &mut dyn FnMut(&mut Ui)| PxuiPanelConfig { node: bx(c.node), label: pair(label), content: content(sh, body) });
+    tramp!(panel, |ui, sh, c: &PanelConfig, label: &str, body: &mut dyn FnMut(&mut Ui)| PxuiPanelConfig { node: bx(c.node), label: pair(label), content: content(sh, body), present: present(c.present) });
+    tramp!(window, |ui, sh, c: &PanelConfig, label: &str, body: &mut dyn FnMut(&mut Ui)| PxuiPanelConfig { node: bx(c.node), label: pair(label), content: content(sh, body), present: present(c.present) });
+    tramp!(popup, |ui, sh, c: &PanelConfig, label: &str, body: &mut dyn FnMut(&mut Ui)| PxuiPanelConfig { node: bx(c.node), label: pair(label), content: content(sh, body), present: present(c.present) });
+    tramp!(modal, |ui, sh, c: &PanelConfig, label: &str, body: &mut dyn FnMut(&mut Ui)| PxuiPanelConfig { node: bx(c.node), label: pair(label), content: content(sh, body), present: present(c.present) });
     // a dialog has no engine config: its title, buttons (their flags as masks, their details after their labels in the span) and content
     // are the whole record
     tramp_span!(dialog, strs, |ui, sh, span, title: &str, buttons: &[pxui_types::ui::DialogButton], body: &mut dyn FnMut(&mut Ui)| {
@@ -215,7 +220,9 @@ mod tramps {
     });
     tramp!(picker, |ui, sh, c: &PickerRowConfig, label: &str, detail: &str, query: &str| PxuiPickerRowConfig {
         state: st(c.state), current: c.current as u8, doomed: c.doomed as u8, unavailable: c.unavailable as u8, marked: c.marked as u8, has_swatch: c.swatch.is_some() as u8,
-        swatch: c.swatch.unwrap_or_default(), index: c.index, row: bx(c.row), label: pair(label), detail: pair(detail), query: pair(query)
+        swatch: c.swatch.unwrap_or_default(), index: c.index, row: bx(c.row), label: pair(label), detail: pair(detail), query: pair(query),
+        art_kind: match c.art { None => 0, Some(pxui_types::ui::PickArt::Glyph(_)) => 1, Some(pxui_types::ui::PickArt::Image(_)) => 2 }, reserved3: [0; 7],
+        art: match c.art { None => 0, Some(pxui_types::ui::PickArt::Glyph(c)) => c as u64, Some(pxui_types::ui::PickArt::Image(id)) => id as u64 }
     });
     tramp!(search_field, |ui, sh, c: &SearchFieldConfig, icon: &str, body: &mut dyn FnMut(&mut Ui) -> bool| PxuiSearchFieldConfig {
         state: st(c.state), key: c.key, well: bx(c.well), icon: pair(icon), editor: editor(sh, body)

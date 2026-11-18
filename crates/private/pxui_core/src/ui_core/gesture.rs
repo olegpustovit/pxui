@@ -276,6 +276,12 @@ impl Ui {
         !caught && self.table.find(scroll).is_none_or(|slot| self.scroll_y[slot] + self.glides[0][slot].visual as f32 <= 0.5)
     }
 
+    /// Whether the dismiss of the node in `slot` committed this frame (its release verdict).
+    pub(crate) fn dismiss_committed(&self, slot: usize) -> bool {
+        let s = &self.gestures[slot];
+        s.pulse_frame == self.frame_number && s.pulses & DISMISS_COMMIT != 0
+    }
+
     /// The dismiss offset a drag continues from (a settling spring is caught where it is).
     pub(super) fn dismiss_begin(&mut self, key: i64) -> f64 {
         let Some(slot) = self.table.find(key) else { return 0.0 };

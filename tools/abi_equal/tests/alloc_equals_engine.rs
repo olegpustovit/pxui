@@ -9,7 +9,7 @@ use pxui::FrameIn;
 use std::rc::Rc;
 
 fn fill(_: &str, rows: &mut PickRows) {
-    for (label, detail) in [("one", "1"), ("two", "2")] { rows.push(label, detail); }
+    for (label, detail) in [("one", "1"), ("two", "2")] { rows.push(pxui::PickRow::new(label).detail(detail)); }
 }
 
 fn engine_allocations() -> u64 {

@@ -8,7 +8,7 @@ use crate::bodies::{body_of, in_body, in_item, TableCellConfig, ButtonConfig, Fo
 pub use pxui_types::ui::{Head, HeadAction, PanelOpts};
 pub use pxui_types::Label;
 use pxui_text::{Align as TextAlign, Ellipsis, Style, Wrap};
-use pxui_types::{ffi::PxuiTextStyle as TextStyle, text::LabelFields};
+use pxui_types::{ffi::PxuiTextStyle as TextStyle, text::LabelFields, ui::{DismissOpts, Presentation}};
 use crate::a11y::state as st;
 use input::{Event, Key};
 use crate::geom::Rgba;
@@ -693,11 +693,14 @@ pub struct PopupOpts {
     pub related: Vec<i64>,
     /// what the sheet is to a screen reader (a window by default; a menu, a dialog)
     pub role: Role,
+    /// How a modal is presented; a bottom or full-screen sheet takes the drag-to-dismiss with `dismiss`'s thresholds
+    pub present: Presentation,
+    pub dismiss: DismissOpts,
 }
 
 impl Default for PopupOpts {
     fn default() -> PopupOpts {
-        PopupOpts { stroke: None, look: None, max_height: None, dismiss_initial: true, attached: false, keep: Vec::new(), related: Vec::new(), role: Role::Window }
+        PopupOpts { stroke: None, look: None, max_height: None, dismiss_initial: true, attached: false, keep: Vec::new(), related: Vec::new(), role: Role::Window, present: Presentation::Centered, dismiss: DismissOpts::DEFAULT }
     }
 }
 
@@ -712,16 +715,24 @@ impl Ui {
     /// `panel`, returning the panel's root.
     pub fn panel_root(&mut self, key: &str, overlay: &Overlay, f: &mut dyn FnMut(&mut Ui)) -> Handle {
         let opts = panel_opts(overlay, 280.0);
-        self.sheet(&opts, if opts.window { Sheet::Window } else { Sheet::Panel }, key, Some(overlay.name.unwrap_or("")), None, f)
+        self.sheet(&opts, if opts.window { Sheet::Window } else { Sheet::Panel }, key, Some(overlay.name.unwrap_or("")), None, (Presentation::Centered, DismissOpts::DEFAULT), f)
     }
 
     /// A sheet of `kind`: its node (named `name`, the label when `None`; given `role` and its states before the body runs, so a
     /// registered body may set another), then the body of that kind around the caller's content.
-    fn sheet(&mut self, opts: &PanelOpts, kind: Sheet, label: &str, name: Option<&str>, role: Option<(Role, u32)>, f: &mut dyn FnMut(&mut Ui)) -> UiBox {
+    /// A bottom or full-screen `present` takes the drag-to-dismiss with `dismiss`'s thresholds and is moved down by the drag.
+    #[allow(clippy::too_many_arguments)]
+    fn sheet(&mut self, opts: &PanelOpts, kind: Sheet, label: &str, name: Option<&str>, role: Option<(Role, u32)>, style: (Presentation, DismissOpts), f: &mut dyn FnMut(&mut Ui)) -> UiBox {
+        let (present, dismiss) = style;
         let (node, previous) = self.panel_enter(opts, label);
         if let Some(name) = name { self.a11y_name(&node, name); }
         if let Some((role, states)) = role { self.set_role(&node, role, states); }
-        let c = PanelConfig { node };
+        if present != Presentation::Centered {
+            // the engine's drag-to-dismiss on the sheet's node; its offset moves the sheet down (the commit closes it at the next build)
+            let drag = self.dismiss(&node, dismiss.fraction.unwrap_or(0.0), dismiss.velocity.unwrap_or(0.0));
+            self.node_mut(&node).at = Some((opts.x, opts.y + drag.offset)).into();
+        }
+        let c = PanelConfig { node, present };
         // a body is given the sheet's name, never its key (a label's part after `##`)
         let text = name.unwrap_or(shown(label));
         match kind {
@@ -824,6 +835,8 @@ impl Ui {
                 _ => {}
             }
         }
+        // a bottom or full-screen sheet closes on the frame its drag-to-dismiss commits, as on Escape
+        dismissed |= opts.present != Presentation::Centered && slot.is_some_and(|slot| self.dismiss_committed(slot));
         if dismissed && !opts.attached {
             return None;
         }
@@ -839,7 +852,8 @@ impl Ui {
         popts.padding = if opts.stroke.is_none() && opts.look.is_none() { 0.0 } else { 1.0 };
         // the sheet's role (a menu, a dialog) is set before its body runs: a registered body's own role stays
         let modal = if opts.role == Role::Dialog { st::MODAL } else { 0 };
-        let root = self.sheet(&popts, if opts.role == Role::Dialog { Sheet::Modal } else { Sheet::Popup }, label, name, Some((opts.role, modal)), f);
+        if opts.present == Presentation::Full { popts.height = Some(self.content_rect().h); }
+        let root = self.sheet(&popts, if opts.role == Role::Dialog { Sheet::Modal } else { Sheet::Popup }, label, name, Some((opts.role, modal)), (opts.present, opts.dismiss), f);
         self.leave(saved);
         self.push_overlay(index, if opts.role == Role::Dialog { LayerRole::Modal } else { LayerRole::Popup });
         if opts.attached {
@@ -860,12 +874,13 @@ impl Ui {
     /// A modal keyed by `key`, `overlay`'s width (320 by default) and named by its name (none without); a press outside it dismisses
     /// it. Returns its root while open (and `f` ran).
     pub fn modal_root(&mut self, key: &str, overlay: &Overlay, f: &mut dyn FnMut(&mut Ui)) -> Option<Handle> {
-        self.modal_named(overlay.w, key, Some(overlay.name.unwrap_or("")), f)
+        self.modal_named(overlay, key, Some(overlay.name.unwrap_or("")), f)
     }
 
-    /// The one body of `modal` (and of `dialog`): the sheet named `name` (`None`: the label).
-    pub(crate) fn modal_named(&mut self, width: Option<f32>, label: &str, name: Option<&str>, f: &mut dyn FnMut(&mut Ui)) -> Option<UiBox> {
-        let width = width.unwrap_or(320.0);
+    /// The one body of `modal` (and of `dialog`): the sheet named `name` (`None`: the label), presented as `overlay.present` says (centred
+    /// by default; at the content area's bottom edge; filling it), `overlay.w` wide (320 centred, the area's width otherwise).
+    pub(crate) fn modal_named(&mut self, overlay: &Overlay, label: &str, name: Option<&str>, f: &mut dyn FnMut(&mut Ui)) -> Option<UiBox> {
+        let present = overlay.present;
         let key = key_of(self.current_seed(), label);
         let slot = self.slot_for(key);
         if let Some(slot) = slot {
@@ -874,10 +889,17 @@ impl Ui {
         let height = self.modal_height(key);
         let content = self.content_rect();
         let (view_w, view_h) = (content.w, content.h);
+        let width = overlay.w.unwrap_or(if present == Presentation::Centered { 320.0 } else { view_w });
         let x = content.x + (0.0f32.max((view_w - width) / 2.0)).round();
-        let y = content.y + (0.0f32.max((view_h - height) / 2.0)).round();
+        let y = content.y + match present {
+            Presentation::Centered => (0.0f32.max((view_h - height) / 2.0)).round(),
+            Presentation::Bottom => (0.0f32.max(view_h - height)).round(),
+            Presentation::Full => 0.0,
+        };
         let look = self.theme().modal.idle;
-        let opts = PopupOpts { look: Some(look), max_height: Some(48.0f32.max(view_h - 32.0)), dismiss_initial: false, role: Role::Dialog, ..PopupOpts::default() };
+        let cap = 48.0f32.max(view_h - 32.0);
+        let max_height = match present { Presentation::Centered => Some(cap), Presentation::Bottom => Some(overlay.max_h.unwrap_or(cap)), Presentation::Full => None };
+        let opts = PopupOpts { look: Some(look), max_height, dismiss_initial: false, role: Role::Dialog, present, dismiss: overlay.dismiss, ..PopupOpts::default() };
         self.popup_with_related(opts, (x, y), width, height, label, name, f)
     }
 

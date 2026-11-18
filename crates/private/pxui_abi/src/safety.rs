@@ -210,6 +210,84 @@ fn text_with_nul_crosses_as_ordinary_text() {
     unsafe { pxui_ui_destroy(ui); }
 }
 
+// ABI 1.86: picker fills hand back `PxuiPickRow`s. The first row's size is read before the span is taken as rows, so a caller built
+// before 1.86 (16-byte `PxuiStr`s, twice as many) is refused without a pointer of it being read; every row is checked before any is used.
+#[test]
+fn picker_rows_are_checked_and_old_str_fills_are_refused_unread() {
+    use pxui_types::ffi::{PxuiPickRow, Slice};
+    // the rows the callback hands back: (pointer, length, calls)
+    type Fill = (*const c_void, usize, u32);
+    extern "C" fn rows(user: *mut c_void, _query: Str, out: *mut Slice<PxuiPickRow>) {
+        let fill = unsafe { &mut *user.cast::<Fill>() };
+        fill.2 += 1;
+        unsafe { *out = Slice { ptr: fill.0.cast(), len: fill.1 }; }
+    }
+    let ui = create();
+    let pick = |fill: &mut Fill| in_frame(ui, &mut |ui| {
+        let (mut query, mut tag, mut index) = (Str::default(), 0u32, 0i64);
+        let keyed = pxui_types::ffi::PxuiKeyedDesc::new("pick", "Search");
+        unsafe { pxui_ui_picker_keyed(ui, &keyed, 5, 0, 1, Str { ptr: b"s".as_ptr(), len: 1 }, Some(rows), None, None, (fill as *mut Fill).cast(), &mut query, &mut tag, &mut index) }
+    });
+    let row = PxuiPickRow { art_kind: 1, art: 0x266B, heading: Str { ptr: b"S".as_ptr(), len: 1 }, ..PxuiPickRow::new("Song", "Artist") };
+    let good = [row, PxuiPickRow { art_kind: 2, art: 7, ..PxuiPickRow::new("Album", "") }];
+    let mut fill: Fill = (good.as_ptr().cast(), 2, 0);
+    assert_eq!(pick(&mut fill), 0, "{}", error(ui));
+    assert!(fill.2 > 0, "the fill ran");
+    // a pre-1.86 fill: two `PxuiStr`s (one label and detail pair) whose pointers would fault if read
+    let poison = [Str { ptr: 0xdead_0001usize as *const u8, len: 4 }, Str { ptr: 0xdead_1001usize as *const u8, len: 6 }];
+    let refused = |ptr: *const c_void, len: usize, why: &str| {
+        let mut fill: Fill = (ptr, len, 0);
+        assert_ne!(pick(&mut fill), 0, "{why}");
+        assert!(fill.2 > 0, "{why}: the fill ran");
+    };
+    refused(poison.as_ptr().cast(), 2, "a pre-1.86 PxuiStr fill");
+    let bad = |r: PxuiPickRow| [good[0], r];
+    refused(bad(PxuiPickRow { size: 48, ..good[1] }).as_ptr().cast(), 2, "a later row of another size");
+    refused(bad(PxuiPickRow { art_kind: 3, ..good[1] }).as_ptr().cast(), 2, "an unknown art kind");
+    refused(bad(PxuiPickRow { art_kind: 1, art: 0xD800, ..good[1] }).as_ptr().cast(), 2, "a glyph that is not a Unicode scalar value");
+    refused(bad(PxuiPickRow { art_kind: 0, art: 5, ..good[1] }).as_ptr().cast(), 2, "art with no kind");
+    refused(bad(PxuiPickRow { reserved: [0, 1, 0], ..good[1] }).as_ptr().cast(), 2, "a non-zero reserved byte");
+    refused(bad(PxuiPickRow { heading: Str { ptr: b"\xff".as_ptr(), len: 1 }, ..good[1] }).as_ptr().cast(), 2, "a heading that is not UTF-8");
+    refused(core::ptr::null(), 2, "a null span with a length");
+    assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
+}
+
+// ABI 1.86: every field of a sheet is checked before its build runs; a refused sheet writes nothing and builds nothing.
+#[test]
+fn modal_sheet_checks_every_field_before_the_build() {
+    use pxui_types::ffi::{PxuiKeyedDesc, PxuiSheetDesc};
+    extern "C" fn ran(user: *mut c_void, _: *mut c_void) { unsafe { *user.cast::<u32>() += 1; } }
+    let ui = create();
+    let keyed = PxuiKeyedDesc::new("sheet", "Queue");
+    let good = PxuiSheetDesc { size: core::mem::size_of::<PxuiSheetDesc>() as u32, has_width: 0, present: 1, reserved: [0; 2], width: 0.0, dismiss_fraction: 0.0, dismiss_velocity: 0.0 };
+    let sheet = |desc: &PxuiSheetDesc, built: &mut u32, open: &mut u8, root: &mut PxuiBox| in_frame(ui, &mut |ui| unsafe {
+        pxui_ui_modal_sheet(ui, &keyed, desc, Some(ran), (built as *mut u32).cast(), open, root)
+    });
+    let (mut built, mut open, mut root) = (0u32, 0u8, PxuiBox::default());
+    assert_eq!(sheet(&good, &mut built, &mut open, &mut root), 0, "{}", error(ui));
+    assert_eq!((built, open), (1, 1), "a bottom sheet builds and is open");
+    assert_ne!(root.box_key, 0, "its root");
+    let full = PxuiSheetDesc { present: 2, has_width: 1, width: 300.0, dismiss_fraction: 0.5, dismiss_velocity: 900.0, ..good };
+    assert_eq!(sheet(&full, &mut built, &mut open, &mut root), 0, "{}", error(ui));
+    for (bad, why) in [
+        (PxuiSheetDesc { size: 8, ..good }, "a short record"),
+        (PxuiSheetDesc { has_width: 2, ..good }, "has_width not 0 or 1"),
+        (PxuiSheetDesc { present: 3, ..good }, "an unknown presentation"),
+        (PxuiSheetDesc { reserved: [0, 1], ..good }, "a non-zero reserved byte"),
+        (PxuiSheetDesc { has_width: 1, width: -1.0, ..good }, "a negative width"),
+        (PxuiSheetDesc { dismiss_fraction: f32::NAN, ..good }, "a fraction that is not a number"),
+        (PxuiSheetDesc { dismiss_velocity: f32::INFINITY, ..good }, "an infinite velocity"),
+    ] {
+        let (mut built, mut open, mut root) = (0u32, 9u8, PxuiBox::default());
+        assert_ne!(sheet(&bad, &mut built, &mut open, &mut root), 0, "{why}");
+        assert_eq!((built, open), (0, 9), "{why}: no build, no output");
+    }
+    let mut root = PxuiBox::default();
+    assert_ne!(in_frame(ui, &mut |ui| unsafe { pxui_ui_modal_sheet(ui, &keyed, core::ptr::null(), Some(ran), core::ptr::null_mut(), &mut 0, &mut root) }), 0, "a null sheet");
+    assert_ne!(in_frame(ui, &mut |ui| unsafe { pxui_ui_modal_sheet(ui, &keyed, &good, Some(ran), core::ptr::null_mut(), core::ptr::null_mut(), &mut root) }), 0, "a null output");
+    assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
+}
+
 #[test]
 fn theme_tokens_that_cannot_be_a_theme_make_none() {
     use pxui_types::ffi::ThemeTokens;

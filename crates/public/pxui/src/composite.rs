@@ -74,9 +74,13 @@ impl Ui {
         #[cfg(not(feature = "static"))]
         {
             let keyed = PxuiKeyedDesc::new(key, crate::clip(overlay.name.unwrap_or("")));
-            let width = overlay.w;
+            let present = match overlay.present { crate::Presentation::Centered => 0, crate::Presentation::Bottom => 1, crate::Presentation::Full => 2 };
+            let sheet = pxui_types::ffi::PxuiSheetDesc {
+                size: core::mem::size_of::<pxui_types::ffi::PxuiSheetDesc>() as u32, has_width: overlay.w.is_some() as u8, present, reserved: [0; 2],
+                width: overlay.w.unwrap_or_default(), dismiss_fraction: overlay.dismiss.fraction.unwrap_or_default(), dismiss_velocity: overlay.dismiss.velocity.unwrap_or_default(),
+            };
             let mut out = 0;
-            check(self, unsafe { keyed_sys::pxui_ui_modal_root(self.0.as_ptr(), &keyed, width.is_some() as u8, width.unwrap_or_default(), Some(call), &mut build as *mut _ as *mut c_void, &mut out, &mut handle) });
+            check(self, unsafe { keyed_sys::pxui_ui_modal_sheet(self.0.as_ptr(), &keyed, &sheet, Some(call), &mut build as *mut _ as *mut c_void, &mut out, &mut handle) });
             OverlayResponse { handle, open: out != 0 }
         }
     }
@@ -165,7 +169,7 @@ mod keyed_sys {
     use crate::sys::PxuiUi;
     #[link(name = "pxui")]
     unsafe extern "C" {
-        pub(super) fn pxui_ui_modal_root(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, has_width: u8, width: f32, build: UiBuild, user: *mut c_void, out: *mut u8, root: *mut PxuiBox) -> i32;
+        pub(super) fn pxui_ui_modal_sheet(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, sheet: *const pxui_types::ffi::PxuiSheetDesc, build: UiBuild, user: *mut c_void, out: *mut u8, root: *mut PxuiBox) -> i32;
         pub(super) fn pxui_ui_panel_root(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, panel: *const PxuiPanel, build: UiBuild, user: *mut c_void, root: *mut PxuiBox) -> i32;
         pub(super) fn pxui_ui_view_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, revision: u64, build: UiBuild, user: *mut c_void, out: *mut PxuiBox) -> i32;
         pub(super) fn pxui_ui_scroll_view_node(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, node: *const pxui_types::Node, build: UiBuild, user: *mut c_void, out: *mut PxuiBox) -> i32;

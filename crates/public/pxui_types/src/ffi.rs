@@ -1135,6 +1135,69 @@ impl PxuiKeyedDesc {
     }
 }
 
+/// How a modal is presented, apart from its key and name (ABI 1.86, `pxui_ui_modal_sheet`): the width, the presentation and the
+/// drag-to-dismiss thresholds. The caller sets `size`; a shorter record and a non-zero `reserved` are refused.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct PxuiSheetDesc {
+    /// `size_of::<PxuiSheetDesc>()`.
+    pub size: u32,
+    /// 1 when `width` is set, 0 for the presentation's own.
+    pub has_width: u8,
+    /// `PXUI_PRESENT_CENTERED` 0, `PXUI_PRESENT_BOTTOM` 1 or `PXUI_PRESENT_FULL` 2.
+    pub present: u8,
+    /// Zero.
+    pub reserved: [u8; 2],
+    /// The width in points (finite, not negative).
+    pub width: f32,
+    /// The fraction of the sheet's height a downward release past commits (finite, not negative; 0: a quarter).
+    pub dismiss_fraction: f32,
+    /// The downward release speed in points per second that commits (finite, not negative; 0: 600).
+    pub dismiss_velocity: f32,
+}
+
+/// One row of a picker's fill (ABI 1.86, the rows the `PxuiPickerRows` callback of `pxui_ui_picker_keyed` hands back): the label and
+/// detail, the optional artwork or icon and the heading of the group the row starts (empty: none). The caller sets `size`; a different
+/// size, an unknown `art_kind`, a non-zero `reserved`, a glyph that is not a Unicode scalar value or text that is not UTF-8 is refused.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct PxuiPickRow {
+    /// `size_of::<PxuiPickRow>()`.
+    pub size: u32,
+    /// `PXUI_PICK_ART_NONE` 0, `PXUI_PICK_ART_GLYPH` 1 (`art` is a Unicode scalar value) or `PXUI_PICK_ART_IMAGE` 2 (`art` is an
+    /// `Images` id).
+    pub art_kind: u8,
+    /// Zero.
+    pub reserved: [u8; 3],
+    /// The code point or the image id, by `art_kind`.
+    pub art: u64,
+    /// The row's text.
+    pub label: Str,
+    /// The row's secondary text (empty: none).
+    pub detail: Str,
+    /// The heading of the group this row starts (empty: none).
+    pub heading: Str,
+}
+
+impl PxuiPickRow {
+    /// A row of `label` and `detail`, no artwork or heading.
+    ///
+    /// Allocates: never.
+    /// Identity: none; a picker keys its rows by their index.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const ROW: pxui_types::ffi::PxuiPickRow = pxui_types::ffi::PxuiPickRow::new("Song", "Artist");
+    /// assert_eq!(ROW.size as usize, core::mem::size_of::<pxui_types::ffi::PxuiPickRow>());
+    /// ```
+    pub const fn new(label: &str, detail: &str) -> PxuiPickRow {
+        PxuiPickRow {
+            size: core::mem::size_of::<PxuiPickRow>() as u32, art_kind: 0, reserved: [0; 3], art: 0,
+            label: Str { ptr: label.as_ptr(), len: label.len() }, detail: Str { ptr: detail.as_ptr(), len: detail.len() }, heading: Str { ptr: core::ptr::null(), len: 0 },
+        }
+    }
+}
+
 /// What happened to a kit button or icon button this frame, in one record (ABI 1.48, `pxui_ui_button_plain`,
 /// `pxui_ui_button_response`, `pxui_ui_icon_button_plain`, `pxui_ui_icon_button_response`): the `CLICKED`, `HOVERED`, `HELD`,
 /// `FOCUSED` and `ACTIVATED` bits and the button's box. The caller sets `size`; a shorter record is refused.
@@ -1963,7 +2026,12 @@ configs! {
     PxuiFooterConfig { row: PxuiBox, has_right: u8, right: Str, hints: Slice<PxuiHintDesc> }
     PxuiGripConfig { state: PxuiStateDesc, vertical: u8, floating: u8, grip: PxuiBox }
     /// A panel, window, popup or modal sheet.
-    PxuiPanelConfig { node: PxuiBox, label: Str, content: PxuiSlot }
+    PxuiPanelConfig { node: PxuiBox, label: Str, content: PxuiSlot } @variant {
+        /// ABI 1.86 (read when `size` covers it): how the sheet is presented (`Overlay::present`): 0 centred (every sheet but a modal's),
+        /// 1 on the content area's bottom edge, 2 filling it. A body may dress the sheet by it; its place and drag-to-dismiss stay with
+        /// behaviour. Eight bytes so the field starts past the record's 1.52 size.
+        present: u64,
+    }
     /// The record grows at its end in ABI 1.53 by the buttons' flags (the first 64 buttons): `default_at` and `cancel_at` are the index
     /// of the button Return and Escape choose (-1 for none), bit `i` of `danger` marks button `i` as a destructive choice (its label in the
     /// theme's invalid colour) and bit `i` of `disabled` as one that takes no press; a body reads them only when `size` covers them.
@@ -2034,6 +2102,14 @@ configs! {
     PxuiPickerRowConfig {
         state: PxuiStateDesc, current: u8, doomed: u8, unavailable: u8, marked: u8, has_swatch: u8, swatch: Rgba, index: i64,
         row: PxuiBox, label: Str, detail: Str, query: Str
+    } @variant {
+        /// ABI 1.86 (extension set; read when `size` covers it): the row's artwork or icon slot, `PXUI_PICK_ART_NONE` 0, `_GLYPH` 1 (`art`
+        /// is the icon font character's code point, which the built-in body draws) or `_IMAGE` 2 (`art` is an `Images` id, drawn by a
+        /// registered body).
+        art_kind: u8,
+        /// Zero.
+        reserved3: [u8; 7],
+        art: u64,
     }
     /// `editor` is a slot that builds the editing surface and returns whether the query is not empty (`pxui_slot`'s `out`). Behaviour
     /// reads `Part::CLEAR`.
@@ -2139,6 +2215,8 @@ pub(crate) mod layout {
         check("PxuiDialogResult", size_of::<PxuiDialogResult>(), align_of::<PxuiDialogResult>(), &[("size", core::mem::offset_of!(PxuiDialogResult, size)), ("has_chosen", core::mem::offset_of!(PxuiDialogResult, has_chosen)), ("dismissed", core::mem::offset_of!(PxuiDialogResult, dismissed)), ("reserved", core::mem::offset_of!(PxuiDialogResult, reserved)), ("chosen", core::mem::offset_of!(PxuiDialogResult, chosen))]);
         check("PxuiSegmentedResult", size_of::<PxuiSegmentedResult>(), align_of::<PxuiSegmentedResult>(), &[("size", core::mem::offset_of!(PxuiSegmentedResult, size)), ("has_chosen", core::mem::offset_of!(PxuiSegmentedResult, has_chosen)), ("has_secondary", core::mem::offset_of!(PxuiSegmentedResult, has_secondary)), ("reserved", core::mem::offset_of!(PxuiSegmentedResult, reserved)), ("chosen", core::mem::offset_of!(PxuiSegmentedResult, chosen)), ("secondary", core::mem::offset_of!(PxuiSegmentedResult, secondary))]);
         check("PxuiKeyedDesc", size_of::<PxuiKeyedDesc>(), align_of::<PxuiKeyedDesc>(), &[("size", core::mem::offset_of!(PxuiKeyedDesc, size)), ("reserved", core::mem::offset_of!(PxuiKeyedDesc, reserved)), ("key", core::mem::offset_of!(PxuiKeyedDesc, key)), ("name", core::mem::offset_of!(PxuiKeyedDesc, name))]);
+        check("PxuiSheetDesc", size_of::<PxuiSheetDesc>(), align_of::<PxuiSheetDesc>(), &[("size", core::mem::offset_of!(PxuiSheetDesc, size)), ("has_width", core::mem::offset_of!(PxuiSheetDesc, has_width)), ("present", core::mem::offset_of!(PxuiSheetDesc, present)), ("reserved", core::mem::offset_of!(PxuiSheetDesc, reserved)), ("width", core::mem::offset_of!(PxuiSheetDesc, width)), ("dismiss_fraction", core::mem::offset_of!(PxuiSheetDesc, dismiss_fraction)), ("dismiss_velocity", core::mem::offset_of!(PxuiSheetDesc, dismiss_velocity))]);
+        check("PxuiPickRow", size_of::<PxuiPickRow>(), align_of::<PxuiPickRow>(), &[("size", core::mem::offset_of!(PxuiPickRow, size)), ("art_kind", core::mem::offset_of!(PxuiPickRow, art_kind)), ("reserved", core::mem::offset_of!(PxuiPickRow, reserved)), ("art", core::mem::offset_of!(PxuiPickRow, art)), ("label", core::mem::offset_of!(PxuiPickRow, label)), ("detail", core::mem::offset_of!(PxuiPickRow, detail)), ("heading", core::mem::offset_of!(PxuiPickRow, heading))]);
         check("PxuiResponse", size_of::<PxuiResponse>(), align_of::<PxuiResponse>(), &[("size", core::mem::offset_of!(PxuiResponse, size)), ("flags", core::mem::offset_of!(PxuiResponse, flags)), ("node", core::mem::offset_of!(PxuiResponse, node))]);
         check("PxuiIconButtonDesc", size_of::<PxuiIconButtonDesc>(), align_of::<PxuiIconButtonDesc>(), &[("size", core::mem::offset_of!(PxuiIconButtonDesc, size)), ("enabled", core::mem::offset_of!(PxuiIconButtonDesc, enabled)), ("w_kind", core::mem::offset_of!(PxuiIconButtonDesc, w_kind)), ("h_kind", core::mem::offset_of!(PxuiIconButtonDesc, h_kind)), ("reserved", core::mem::offset_of!(PxuiIconButtonDesc, reserved)), ("w", core::mem::offset_of!(PxuiIconButtonDesc, w)), ("h", core::mem::offset_of!(PxuiIconButtonDesc, h)), ("press_scale", core::mem::offset_of!(PxuiIconButtonDesc, press_scale)), ("states", core::mem::offset_of!(PxuiIconButtonDesc, states)), ("key", core::mem::offset_of!(PxuiIconButtonDesc, key)), ("name", core::mem::offset_of!(PxuiIconButtonDesc, name)), ("icon", core::mem::offset_of!(PxuiIconButtonDesc, icon)), ("draw", core::mem::offset_of!(PxuiIconButtonDesc, draw)), ("draw_user", core::mem::offset_of!(PxuiIconButtonDesc, draw_user)), ("press", core::mem::offset_of!(PxuiIconButtonDesc, press)), ("checkable", core::mem::offset_of!(PxuiIconButtonDesc, checkable)), ("checked", core::mem::offset_of!(PxuiIconButtonDesc, checked)), ("reserved2", core::mem::offset_of!(PxuiIconButtonDesc, reserved2))]);
         check("PxuiTextFieldDesc", size_of::<PxuiTextFieldDesc>(), align_of::<PxuiTextFieldDesc>(), &[("size", core::mem::offset_of!(PxuiTextFieldDesc, size)), ("autocorrect", core::mem::offset_of!(PxuiTextFieldDesc, autocorrect)), ("capitalization", core::mem::offset_of!(PxuiTextFieldDesc, capitalization)), ("action", core::mem::offset_of!(PxuiTextFieldDesc, action)), ("reserved", core::mem::offset_of!(PxuiTextFieldDesc, reserved)), ("key", core::mem::offset_of!(PxuiTextFieldDesc, key)), ("name", core::mem::offset_of!(PxuiTextFieldDesc, name)), ("value", core::mem::offset_of!(PxuiTextFieldDesc, value))]);

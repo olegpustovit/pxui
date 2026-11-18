@@ -201,6 +201,17 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, label: &str, placeholder: &str, qu
     let body = body_of!(this, picker);
     for visible in 0..length {
         let index = start + visible;
+        let pick = rows.get(index as usize).unwrap_or(pxui_types::ui::PickRow::new(""));
+        if !pick.heading.is_empty() {
+            // the heading of the group this row starts: a caption above it, not a row (no press, focus or index)
+            let head = this.box_keyed(int_key(list.box_key, -1 - visible), BoxOpts::default().w(Size::Grow).h(Size::Px(row_height as f32)));
+            let look = this.theme().hint.idle;
+            this.set_look(&head, look, State::default());
+            this.node_mut(&head).inset = Edges { l: this.space(2), ..Edges::default() };
+            this.text(&head, pick.heading);
+            this.set_role(&head, Role::Heading, 0);
+            this.a11y_name(&head, pick.heading);
+        }
         // a row that cannot be picked leaves the keyboard with the search field
         let row = this.box_keyed(
             int_key(list.box_key, visible),
@@ -216,13 +227,13 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, label: &str, placeholder: &str, qu
         let current = index == cursor;
         let doomed = index == armed;
         let unavailable = off(index);
-        let (text, detail) = rows.get(index as usize).unwrap_or_default();
+        let (text, detail) = (pick.label, pick.detail);
         let swatch = o.mark.as_ref().and_then(|m| m(index)).map(|c| this.resolve_color(c));
         // the keyboard cursor is the control fill; a row armed for deletion reads in the error colour
         let state = State { hovered: row_signal.hovered, checked: current, ..State::default() };
         this.set_role(&row, Role::ListItem, if current { crate::a11y::state::SELECTED } else { 0 });
         this.a11y_name(&row, text);
-        let config = PickerRowConfig { state, index, current, doomed, unavailable, marked: o.mark.is_some(), swatch, row };
+        let config = PickerRowConfig { state, index, current, doomed, unavailable, marked: o.mark.is_some(), swatch, art: pick.art, row };
         in_item!(this, body, row.box_key, row, default_picker_row(&config, text, detail, &query));
     }
     this.leave(saved);
@@ -248,8 +259,9 @@ pub(crate) fn default_picker_field(this: &mut Ui, c: &PickerFieldConfig, placeho
     }
 }
 
-/// The built-in picker row: the list look for its state (the error one when `doomed`), the swatch, the label cut to leave room for the
-/// detail with the query's letters in the accent, the detail, and the Enter hint on the keyboard's row.
+/// The built-in picker row: the list look for its state (the error one when `doomed`), the swatch, the art slot (a row-high square: a
+/// glyph drawn in it, an image id's left for a registered body), the label cut to leave room for the detail with the query's letters in
+/// the accent, the detail, and the Enter hint on the keyboard's row.
 pub(crate) fn default_picker_row(this: &mut Ui, c: &PickerRowConfig, text: &str, detail: &str, query: &str) {
     let (row, current, doomed, unavailable, swatch, state) = (c.row, c.current, c.doomed, c.unavailable, c.swatch, c.state);
     let (font_size, row_height) = (this.font_px(), this.row_px());
@@ -262,7 +274,8 @@ pub(crate) fn default_picker_row(this: &mut Ui, c: &PickerRowConfig, text: &str,
     let width = this.width_of(&row);
     let rk = |n: i64| int_key(row.box_key, n);
     let rh = row_height as f32;
-    let text_x = if !c.marked { this.space(2) } else { this.space(2) + 16.0 };
+    let art_x = if !c.marked { this.space(2) } else { this.space(2) + 16.0 };
+    let text_x = if c.art.is_some() { art_x + rh } else { art_x };
     // a label that would run into the detail is cut with an ellipsis
     let key_size = crate::ui_core::font_px(&key_look.font, font_size);
     let key_text = "\u{21b5}";
@@ -274,6 +287,10 @@ pub(crate) fn default_picker_row(this: &mut Ui, c: &PickerRowConfig, text: &str,
     if let Some(color) = swatch {
         let fill = if unavailable { ink3 } else { color };
         this.placed(rk(0), (this.space(2), ((row_height - 8) / 2) as f32), Size::Px(8.0), 8.0, Look { fill, ..Look::NONE }, Edges::default(), "");
+    }
+    if let Some(pxui_types::ui::PickArt::Glyph(glyph)) = c.art {
+        let mut buf = [0u8; 4];
+        this.placed(rk(3), (art_x, 0.0), Size::Px(rh), rh, Look { text: ink, ..Look::NONE }, Edges::default(), glyph.encode_utf8(&mut buf));
     }
     // the query's letters, matched in order, in the accent
     let q = query.to_ascii_lowercase();

@@ -1,17 +1,18 @@
-//! The Bodies page: seven widget bodies written against the public wrapper (`Ui::register_*_body`, `Ui::part`, `Ui::slot`) and picked by
+//! The Bodies page: eight widget bodies written against the public wrapper (`Ui::register_*_body`, `Ui::part`, `Ui::slot`) and picked by
 //! a theme text (`THEME_LINES`: `toggle.body = checkbox`, ...). A checkbox-style toggle, a slider with a round thumb, a segmented control
 //! whose marker slides, a table whose rows are ruled and whose cells hold widgets, a search field with an icon and a clear button, and a
-//! section index whose letters are pills, the active one filled, and a disclosure whose header is its text after a + or - sign.
+//! section index whose letters are pills, the active one filled, a disclosure whose header is its text after a + or - sign, and a modal sheet with a grab handle when it is a bottom or full sheet.
+//! It also shows a picker whose rows have group headings and glyph art.
 //! The page itself is plain widget calls: with the bodies not selected it draws the built-in widgets, with them the proof bodies.
 //! Not in `PAGES`: it needs the wrapper (the pages there also compile against the engine for the A7 bench).
-use pxui::bodies::{BodyConfig, InspectorSectionConfig, SearchFieldConfig, SectionIndexConfig, SegmentedConfig, SliderConfig, ToggleConfig, TableRowConfig};
+use pxui::bodies::{BodyConfig, InspectorSectionConfig, ModalConfig, SearchFieldConfig, SectionIndexConfig, SegmentedConfig, SliderConfig, ToggleConfig, TableRowConfig};
 use pxui::theme::{Look, State};
 use pxui::{Overlay, Part, SearchField, Ui};
 use pxui_types::Flags;
 use pxui_types::{ffi::PxuiStateDesc, geom::Edges, layout::Align, Axis, Node, Size};
 
 /// The theme lines that select the proof bodies, on top of any base theme text.
-pub const THEME_LINES: &str = "toggle.body = checkbox\nslider.body = round\nsegmented.body = sliding\ntable_row.body = ruled\nsearch_field.body = boxed\nsection_index.body = pills\ninspector_section.body = signed\n";
+pub const THEME_LINES: &str = "toggle.body = checkbox\nslider.body = round\nsegmented.body = sliding\ntable_row.body = ruled\nsearch_field.body = boxed\nsection_index.body = pills\ninspector_section.body = signed\nmodal.body = handle\n";
 
 /// The page's state.
 pub struct BodiesPage {
@@ -28,11 +29,13 @@ pub struct BodiesPage {
     pub flags: [bool; 3],
     pub letter: usize,
     pub more: bool,
+    /// the bottom sheet is open
+    pub sheet: bool,
 }
 
 impl BodiesPage {
     pub fn new(custom: bool) -> BodiesPage {
-        BodiesPage { custom, dirty: false, wifi: true, volume: 0.6, align: 1, query: String::new(), widths: [120.0, 120.0], selected: Some(1), flags: [true, false, true], letter: 0, more: true }
+        BodiesPage { custom, dirty: false, wifi: true, volume: 0.6, align: 1, query: String::new(), widths: [120.0, 120.0], selected: Some(1), flags: [true, false, true], letter: 0, more: true, sheet: true }
     }
 
     /// The theme text the host applies (`Ui::set_theme`): `base` (a theme file's text, or none), then the body lines when `custom`.
@@ -143,6 +146,16 @@ fn signed_section(ui: &mut Ui, c: &InspectorSectionConfig) {
     if open { ui.slot(c.content); }
 }
 
+/// A modal sheet whose bottom or full presentation (`present` 1 or 2) starts with a 36 by 4 point grab handle; the content follows.
+fn handle_sheet(ui: &mut Ui, c: &ModalConfig) {
+    if c.present != 0 {
+        let ink = ui.theme().hint.idle.text;
+        let row = ui.node("grab", Node { h: Size::Px(12.0), axis: Axis::Row, justify: pxui_types::layout::Justify::Center, align: Align::Center, ..Node::DEFAULT });
+        ui.within(&row, &mut |ui: &mut Ui| { ui.node("handle", Node { w: Size::Px(36.0), h: Size::Px(4.0), look: Look { fill: ink, radius: [2.0; 4], ..Look::NONE }, ..Node::DEFAULT }); });
+    }
+    ui.slot(c.content);
+}
+
 /// Registers the proof bodies; `THEME_LINES` selects them. Once, before the theme that names them is applied.
 pub fn register(ui: &mut Ui) -> Result<(), pxui::Error> {
     ui.register_toggle_body("checkbox", checkbox_toggle)?;
@@ -152,11 +165,18 @@ pub fn register(ui: &mut Ui) -> Result<(), pxui::Error> {
     ui.register_search_field_body("boxed", boxed_search)?;
     ui.register_section_index_body("pills", pill_index)?;
     ui.register_inspector_section_body("signed", signed_section)?;
+    ui.register_modal_body("handle", handle_sheet)?;
     Ok(())
 }
 
 const NAMES: [&str; 3] = ["Wi-Fi", "Bluetooth", "Hotspot"];
 const LETTERS: [&str; 6] = ["A", "B", "C", "D", "E", "F"];
+const PICKS: [pxui::PickRow; 4] = [
+    pxui::PickRow::new("Rays").detail("09-24").art(pxui::PickArt::Glyph('\u{266b}')).heading("Songs"),
+    pxui::PickRow::new("Dusk").detail("03-11").art(pxui::PickArt::Glyph('\u{266b}')),
+    pxui::PickRow::new("Tides").art(pxui::PickArt::Glyph('\u{25a3}')).heading("Albums"),
+    pxui::PickRow::new("Coast").art(pxui::PickArt::Glyph('\u{25a3}')),
+];
 
 /// The page: the widgets the proof bodies replace, as plain calls.
 pub fn page(ui: &mut Ui, s: &mut BodiesPage) {
@@ -170,8 +190,15 @@ pub fn page(ui: &mut Ui, s: &mut BodiesPage) {
         if let Some(v) = ui.search_field("find", &s.query, &SearchField::DEFAULT.icon("?").placeholder("Search").name("Find")).changed { s.query = v.to_owned(); }
         let strip = ui.node("letters", Node { h: Size::Px(112.0), axis: Axis::Row, ..Node::DEFAULT });
         ui.within(&strip, &mut |ui: &mut Ui| { s.letter = ui.section_index("index", &LETTERS, &pxui::SectionIndex::DEFAULT.name("Jump to")).chosen.unwrap_or(s.letter); });
+        s.sheet = ui.toggle("sheet", "Queue sheet", s.sheet, &pxui::Toggle::DEFAULT).changed != s.sheet;
         s.more = ui.disclosure("more", "More", s.more, &pxui::Disclosure::DEFAULT, &mut |ui: &mut Ui| { ui.label("Shown while open", pxui::Label::DEFAULT); }).changed != s.more;
     });
+    ui.panel("pick", &Overlay::DEFAULT.at(pxui_types::geom::Point::new(332.0, 172.0)).w_px(296.0).window(), &mut |ui: &mut Ui| {
+        ui.picker("find", "Search", "", &pxui::Picker::DEFAULT, &mut |_, rows: &mut pxui::PickRows| for row in PICKS { rows.push(row); });
+    });
+    if s.sheet && !ui.modal("queue", &Overlay::DEFAULT.name("Queue").present(pxui::Presentation::Bottom), &mut |ui: &mut Ui| { ui.label("Up next", pxui::Label::DEFAULT); }).open {
+        s.sheet = false;
+    }
     ui.panel("table", &Overlay::DEFAULT.at(pxui_types::geom::Point::new(332.0, 12.0)).w_px(296.0).window(), &mut |ui: &mut Ui| {
         let (widths, selected, flags) = (&mut s.widths, &mut s.selected, &mut s.flags);
         // the table fills its parent: give it a height

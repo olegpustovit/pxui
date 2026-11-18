@@ -9,7 +9,7 @@ use pxui_types::ffi::{PxuiMenuExtra, Slice};
 
 const MAX_ROWS: usize = 4096;
 
-pub type PickerRows = Option<extern "C" fn(*mut c_void, Str, *mut Slice<Str>)>;
+pub type PickerRows = Option<extern "C" fn(*mut c_void, Str, *mut Slice<pxui_types::ffi::PxuiPickRow>)>;
 pub type PickerMark = Option<extern "C" fn(*mut c_void, i64, *mut pxui_types::geom::Rgba) -> u8>;
 pub type PickerOff = Option<extern "C" fn(*mut c_void, i64) -> u8>;
 
@@ -218,17 +218,30 @@ unsafe fn picker(
     let mut fill = |query: &str, rows: &mut PickRows| {
         let mut span = Slice { ptr: core::ptr::null(), len: 0 };
         if let Some(callback) = rows_cb { callback(user, Str { ptr: query.as_ptr(), len: query.len() }, &mut span); }
-        if span.len > MAX_ROWS * 2 || span.len % 2 != 0 || (span.len != 0 && span.ptr.is_null()) { invalid.set(true); return; }
+        const ROW: usize = core::mem::size_of::<pxui_types::ffi::PxuiPickRow>();
+        if span.len > MAX_ROWS || (span.len != 0 && span.ptr.is_null()) { invalid.set(true); return; }
+        // the first row's leading size before the span is taken as rows: a caller built before 1.86 fills 16-byte `PxuiStr`s (twice
+        // as many), whose buffer is shorter than `len` rows and whose pointers must never be read as rows
+        if span.len != 0 && unsafe { span.ptr.cast::<u32>().read_unaligned() } as usize != ROW { invalid.set(true); return; }
         let values = if span.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(span.ptr, span.len) } };
         let mut total = 0usize;
-        for pair in values.chunks_exact(2) {
-            total = total.saturating_add(pair[0].len).saturating_add(pair[1].len);
-            let texts = (unsafe { checked(pair[0]) }, unsafe { checked(pair[1]) });
-            let (Some(label), Some(detail)) = texts else { invalid.set(true); return rows.clear(); };
+        // every row checked once before it is pushed: its size and reserved bytes first, then its art kind and value and texts
+        for row in values {
+            if row.size as usize != ROW || row.reserved != [0; 3] { invalid.set(true); return rows.clear(); }
+            total = total.saturating_add(row.label.len).saturating_add(row.detail.len).saturating_add(row.heading.len);
+            let art = match (row.art_kind, row.art) {
+                (0, 0) => Some(None),
+                (1, code) => u32::try_from(code).ok().and_then(char::from_u32).map(|c| Some(pxui_types::ui::PickArt::Glyph(c))),
+                (2, id) => usize::try_from(id).ok().map(|id| Some(pxui_types::ui::PickArt::Image(id))),
+                _ => None,
+            };
+            let texts = (unsafe { checked(row.label) }, unsafe { checked(row.detail) }, unsafe { checked(row.heading) });
+            let (Some(art), Some(label), Some(detail), Some(heading)) = (art, texts.0, texts.1, texts.2) else { invalid.set(true); return rows.clear(); };
             if total > MAX_TOTAL_TEXT_BYTES { invalid.set(true); return rows.clear(); }
-            rows.push(label, detail);
+            rows.push(pxui_types::ui::PickRow { label, detail, art, heading });
         }
     };
+
     // the closures run only during this call, so they may hold `user`
     let user_addr = user as usize;
     let mark = mark_cb.map(|cb| Rc::new(move |row: i64| { let mut c = pxui_types::geom::Rgba::default(); (cb(user_addr as *mut c_void, row, &mut c) != 0).then_some(c) }) as Rc<dyn Fn(i64) -> Option<pxui_types::geom::Rgba>>);

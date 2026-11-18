@@ -1,4 +1,5 @@
 //! Boxes and what hangs off them, with the engine's names and shapes (see `ui_state` for how failures surface).
+use pxui_types::ui::DismissOpts;
 use crate::Handle;
 use crate::node::{look, mark};
 use crate::{as_str, as_text, check, Ui};
@@ -193,39 +194,6 @@ impl GestureOpts {
 }
 impl Default for GestureOpts {
     fn default() -> GestureOpts { GestureOpts::DEFAULT }
-}
-
-/// Drag-to-dismiss thresholds; a threshold left unset takes the UIKit sheet's (a quarter of the node height, 600 points/s).
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct DismissOpts {
-    fraction: Option<f32>,
-    velocity: Option<f32>,
-}
-
-impl DismissOpts {
-    /// The UIKit sheet's thresholds.
-    pub const DEFAULT: DismissOpts = DismissOpts { fraction: None, velocity: None };
-    /// The fraction of the node height a release past commits.
-    /// Allocates: never.
-    /// Panics: never.
-    ///
-    /// ```
-    /// use pxui::{DismissOpts, GestureOpts, SwipeActions};
-    /// let _ = DismissOpts::DEFAULT.fraction(0.25);
-    /// ```
-    pub const fn fraction(self, fraction: f32) -> DismissOpts { DismissOpts { fraction: Some(fraction), ..self } }
-    /// The downward release speed in points per second that commits.
-    /// Allocates: never.
-    /// Panics: never.
-    ///
-    /// ```
-    /// use pxui::{DismissOpts, GestureOpts, SwipeActions};
-    /// let _ = DismissOpts::DEFAULT.velocity(600.0);
-    /// ```
-    pub const fn velocity(self, velocity: f32) -> DismissOpts { DismissOpts { velocity: Some(velocity), ..self } }
-}
-impl Default for DismissOpts {
-    fn default() -> DismissOpts { DismissOpts::DEFAULT }
 }
 
 /// Row-swipe actions in points; a side left unset has no actions, and leading and trailing follow the layout direction.

@@ -753,7 +753,8 @@ pub unsafe fn footer(ui: *mut PxuiUi, right: Option<&str>, hints: &[(&str, &str)
 /// Whether every number of `overlay` is finite (and its width, height and padding not negative).
 fn overlay_ok(overlay: &Overlay) -> bool {
     [overlay.at.0, overlay.at.1, overlay.max_h.unwrap_or_default()].iter().all(|v| v.is_finite())
-        && [overlay.w.unwrap_or_default(), overlay.h.unwrap_or_default(), overlay.padding].iter().all(|v| (0.0..=f32::MAX).contains(v))
+        && [overlay.w.unwrap_or_default(), overlay.h.unwrap_or_default(), overlay.padding, overlay.dismiss.fraction.unwrap_or_default(), overlay.dismiss.velocity.unwrap_or_default()]
+            .iter().all(|v| (0.0..=f32::MAX).contains(v))
 }
 
 /// A panel keyed by `key`, placed, dressed and named by `overlay`.

@@ -45,7 +45,7 @@ pub fn window_pxui_picker() {
                 };
                 let o = pxui_core::ui::PickerOpts { off: Some(off), ..pxui_core::ui::PickerOpts::default() };
                 let q = query.borrow().clone();
-                let (edited, result) = { let r = ui.picker("Search", "Search", &q, &o, &mut |q: &str, out: &mut pxui_core::ui::PickRows| for (a, b) in rows(q) { out.push(&a, &b) }); (r.query.to_owned(), r.pick) };
+                let (edited, result) = { let r = ui.picker("Search", "Search", &q, &o, &mut |q: &str, out: &mut pxui_core::ui::PickRows| for (a, b) in rows(q) { out.push(pxui_types::ui::PickRow::new(&a).detail(&b)) }); (r.query.to_owned(), r.pick) };
                 *query.borrow_mut() = edited;
                 last.set(result);
             });

@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 85
+minor 86
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -193,6 +193,7 @@ function pxui_ui_menu_bar_result int32_t pxui_ui_menu_bar_result ( PxuiUi * ui ,
 function pxui_ui_modal int32_t pxui_ui_modal ( PxuiUi * ui , PxuiStr label , uint8_t has_width , float width , PxuiBuild build , void * user , uint8_t * out ) ;
 function pxui_ui_modal_keyed int32_t pxui_ui_modal_keyed ( PxuiUi * ui , const PxuiKeyedDesc * keyed , uint8_t has_width , float width , PxuiBuild build , void * user , uint8_t * out ) ;
 function pxui_ui_modal_root int32_t pxui_ui_modal_root ( PxuiUi * ui , const PxuiKeyedDesc * keyed , uint8_t has_width , float width , PxuiBuild build , void * user , uint8_t * out , PxuiBox * root ) ;
+function pxui_ui_modal_sheet int32_t pxui_ui_modal_sheet ( PxuiUi * ui , const PxuiKeyedDesc * keyed , const PxuiSheetDesc * sheet , PxuiBuild build , void * user , uint8_t * out , PxuiBox * root ) ;
 function pxui_ui_node int32_t pxui_ui_node ( PxuiUi * ui , PxuiStr label , const PxuiNode * node , PxuiBox * out ) ;
 function pxui_ui_node_fields int32_t pxui_ui_node_fields ( PxuiUi * ui , const PxuiBox * box , PxuiNodeFields * out ) ;
 function pxui_ui_node_keyed int32_t pxui_ui_node_keyed ( PxuiUi * ui , int64_t key , const PxuiNode * node , PxuiBox * out ) ;
@@ -428,8 +429,9 @@ layout PxuiOptPoint 12 4
 layout PxuiOptTransition 28 4
 layout PxuiPaintInfo 192 8 0 4 5 8 16 24 32 48 56
 layout PxuiPanel 200 8 0 4 8 12 16 24 32 33 34 35 36 37 40 44 48
-layout PxuiPanelConfig 72 8 0 8 40 56 64
+layout PxuiPanelConfig 80 8 0 8 40 56 64 72
 layout PxuiPickItem 64 8 0 1 8 16 32 48
+layout PxuiPickRow 64 8 0 4 5 8 16 32 48
 layout PxuiPlacement 16 4 0 1 4 8 12
 layout PxuiPoint 8 4 0 4
 layout PxuiPopupDesc 48 8 0 4 5 6 7 8 12 16 20 24 28 32
@@ -452,6 +454,7 @@ layout PxuiSegmentedDesc 112 8 0 4 5 6 8 16 24 40 56 64 68 72 76 80 96 97 104 10
 layout PxuiSegmentedResult 24 8 0 4 5 6 8 16
 layout PxuiShadow 24 4 0 4 12 16 20
 layout PxuiShadowDesc 24 4 0 4 12 16 20 21
+layout PxuiSheetDesc 20 4 0 4 5 6 8 12 16
 layout PxuiSignal 112 8 0 4 8 9 10 11 12 16 24 32 40 48 56 64 72 80 88 96
 layout PxuiSize 16 8
 layout PxuiSizeDesc 16 8 0 4 8

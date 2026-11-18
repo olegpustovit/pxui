@@ -295,7 +295,7 @@ pub fn overlays_page(ui: &mut Ui, s: &mut Gallery) {
         let mut close = false;
         let _ = ui.modal("presets", &Overlay::DEFAULT.w_px(240.0).name("Presets"), &mut |ui: &mut Ui| {
             ui.label("Presets", pxui::Label::DEFAULT);
-            let mut rows = |_: &str, rows: &mut pxui::PickRows| for n in &NAMES[..5] { rows.push(n, "09-24"); };
+            let mut rows = |_: &str, rows: &mut pxui::PickRows| for n in &NAMES[..5] { rows.push(pxui::PickRow::new(n).detail("09-24")); };
             let pick = inputs::presets(ui, &mut rows);
             close = !matches!(pick, Pick::None);
         });

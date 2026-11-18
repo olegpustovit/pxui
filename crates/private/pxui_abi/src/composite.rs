@@ -3,7 +3,7 @@ use crate::state::{Build, PxuiUi, checked, fail, get, strings};
 use crate::{PXUI_ERR_ARGUMENT, PxuiBox, PxuiDialogOut, Str};
 use core::ffi::c_void;
 use pxui_types::ffi::{PxuiAnchorDesc, PxuiDialogDesc, PxuiDialogResult, PxuiSizeDesc, Slice};
-use pxui_types::ui::{shown, Dialog, DialogButton, Chosen, Overlay};
+use pxui_types::ui::{shown, Dialog, DialogButton, DismissOpts, Chosen, Overlay, Presentation};
 use pxui_types::ffi::PxuiKeyedDesc;
 use pxui_types::Node;
 
@@ -45,6 +45,29 @@ export!(trusted pub unsafe fn pxui_ui_modal_keyed(ui: *mut PxuiUi, keyed: *const
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     let Some((key, name)) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
     unsafe { modal(ui, key, name, has_width, width, callback, user, out, None) }
+});
+
+// ABI 1.86: the one modal route with a presentation: a modal keyed by `keyed.key`, named `keyed.name`, presented as `sheet` says
+// (centred, a bottom sheet or full screen; a bottom or full-screen sheet takes a downward drag-to-dismiss with `sheet`'s thresholds) and
+// `sheet.width` wide when `has_width` is 1. Every field of `sheet` is checked before the build: a short record, `has_width` or `present`
+// out of range, a non-zero `reserved`, or a width or threshold that is negative or not finite is refused. Writes `out` (1 while open)
+// and the modal's root to `root` (the empty box when it is dismissed).
+export!(trusted pub unsafe fn pxui_ui_modal_sheet(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, sheet: *const pxui_types::ffi::PxuiSheetDesc, callback: Build, user: *mut c_void, out: *mut u8, root: *mut PxuiBox) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    if out.is_null() || root.is_null() { return unsafe { fail(ui, "null modal output") }; }
+    let Some((key, name)) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
+    let Some(sheet) = sized!(sheet) else { return unsafe { fail(ui, "invalid sheet descriptor") } };
+    let finite = |v: f32| (0.0..=f32::MAX).contains(&v);
+    if sheet.has_width > 1 || sheet.present > 2 || sheet.reserved != [0; 2] || !finite(sheet.width) || !finite(sheet.dismiss_fraction) || !finite(sheet.dismiss_velocity) {
+        return unsafe { fail(ui, "invalid sheet descriptor") };
+    }
+    let present = [Presentation::Centered, Presentation::Bottom, Presentation::Full][sheet.present as usize];
+    let dismiss = DismissOpts { fraction: (sheet.dismiss_fraction > 0.0).then_some(sheet.dismiss_fraction), velocity: (sheet.dismiss_velocity > 0.0).then_some(sheet.dismiss_velocity) };
+    let overlay = Overlay { w: (sheet.has_width != 0).then_some(sheet.width), name: Some(name), present, dismiss, ..Overlay::DEFAULT };
+    let mut open = false;
+    let rc = unsafe { crate::trusted::modal(ui, key, &overlay, &mut |ui| if let Some(callback) = callback { callback(user, ui.cast()) }, &mut open, &mut *root) };
+    unsafe { *out = open as u8; }
+    rc
 });
 
 // ABI 1.76: `pxui_ui_modal_keyed` that also writes the modal's root to `root` (the empty box when it is dismissed).

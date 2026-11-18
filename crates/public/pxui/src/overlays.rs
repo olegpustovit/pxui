@@ -21,7 +21,7 @@ mod raw {
     use core::ffi::c_void;
     use pxui_types::{PxuiBox, Str, ffi::{PxuiKeyedDesc, PxuiMenuExtra, Slice}};
     use crate::sys::PxuiUi;
-    pub type PickerRows = Option<extern "C" fn(*mut c_void, Str, *mut Slice<Str>)>;
+    pub type PickerRows = Option<extern "C" fn(*mut c_void, Str, *mut Slice<pxui_types::ffi::PxuiPickRow>)>;
     pub type PickerMark = Option<extern "C" fn(*mut c_void, i64, *mut pxui_types::geom::Rgba) -> u8>;
     pub type PickerOff = Option<extern "C" fn(*mut c_void, i64) -> u8>;
     #[link(name = "pxui")]
@@ -70,7 +70,7 @@ mod raw {
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     ui.picker("find", "Search", "", &pxui::Picker::DEFAULT, &mut |_query, rows| rows.push("Song", "Artist"));
+    ///     ui.picker("find", "Search", "", &pxui::Picker::DEFAULT, &mut |_query, rows| rows.push(pxui::PickRow::new("Song").detail("Artist")));
     /// });
     /// ```
     pub fn pxui_ui_picker_keyed(ui:*mut PxuiUi,keyed:*const PxuiKeyedDesc,limit:i64,slash:u8,at_rest:u8,query:Str,rows:PickerRows,mark:PickerMark,off:PickerOff,user:*mut c_void,out_query:*mut Str,out_tag:*mut u32,out_index:*mut i64)->i32;
@@ -84,7 +84,7 @@ fn as_str(value: &str) -> Str { crate::as_str(value) }
 // settled picker allocates nothing here. Taken for the call and put back, so a picker built inside a picker's callback finds them empty.
 // Bounded by the library's row cap (4096 rows and 16 MiB of text a call): a fill past it is refused, and the refusal's
 // panic drops the taken rows instead of putting them back.
-thread_local! { static ROWS: Cell<(PickRows, Vec<Str>)> = const { Cell::new((PickRows::new(), Vec::new())) }; }
+thread_local! { static ROWS: Cell<(PickRows, Vec<pxui_types::ffi::PxuiPickRow>)> = const { Cell::new((PickRows::new(), Vec::new())) }; }
 
 /// The most rows a menu takes: the library's row cap (it refuses more); `Ui::menu` refuses a longer one before copying a row.
 pub(crate) const MENU_ROWS: usize = 4096;
@@ -99,7 +99,7 @@ thread_local! { static MENU_COLUMNS: Cell<MenuColumns> = const { Cell::new((Vec:
 struct Rows<'a, 'f> {
     fill: &'a mut (dyn FnMut(&str, &mut PickRows) + 'f),
     owned: PickRows,
-    raw: Vec<Str>,
+    raw: Vec<pxui_types::ffi::PxuiPickRow>,
     options: &'a Picker<'a>,
 }
 extern "C" fn mark(user: *mut c_void, row: i64, out: *mut pxui_types::geom::Rgba) -> u8 {
@@ -118,7 +118,7 @@ extern "C" fn off(user: *mut c_void, row: i64) -> u8 {
     let Some(off) = ctx.options.off else { return 0 };
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| off(row.max(0) as usize))) { Ok(v) => v as u8, Err(panic) => { defer_callback_panic(panic); 0 } }
 }
-extern "C" fn rows(user: *mut c_void, query: Str, out: *mut Slice<Str>) {
+extern "C" fn rows(user: *mut c_void, query: Str, out: *mut Slice<pxui_types::ffi::PxuiPickRow>) {
     if user.is_null() || out.is_null() || deferred() { return; }
     let ctx = unsafe { &mut *user.cast::<Rows>() };
     let query_bytes = if query.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(query.ptr, query.len) } };
@@ -127,7 +127,10 @@ extern "C" fn rows(user: *mut c_void, query: Str, out: *mut Slice<Str>) {
     owned.clear();
     if let Err(panic) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| fill(query, owned))) { defer_callback_panic(panic); owned.clear(); }
     ctx.raw.clear();
-    for i in 0..ctx.owned.len() { let (label, detail) = ctx.owned.get(i).unwrap_or_default(); ctx.raw.push(as_str(label)); ctx.raw.push(as_str(detail)); }
+    for row in (0..ctx.owned.len()).filter_map(|i| ctx.owned.get(i)) {
+        let (art_kind, art) = match row.art { None => (0, 0), Some(crate::PickArt::Glyph(c)) => (1, c as u64), Some(crate::PickArt::Image(id)) => (2, id as u64) };
+        ctx.raw.push(pxui_types::ffi::PxuiPickRow { art_kind, art, heading: as_str(row.heading), ..pxui_types::ffi::PxuiPickRow::new(row.label, row.detail) });
+    }
     unsafe { *out = Slice { ptr: ctx.raw.as_ptr(), len: ctx.raw.len() }; }
 }
 

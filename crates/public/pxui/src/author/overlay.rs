@@ -130,7 +130,7 @@ impl Ui {
     /// ```
     /// use pxui::ui::Pick;
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let r = ui.picker("find", "Search", "", &pxui::Picker::DEFAULT, &mut |_query, rows| rows.push("Song", "Artist"));
+    ///     let r = ui.picker("find", "Search", "", &pxui::Picker::DEFAULT, &mut |_query, rows| rows.push(pxui::PickRow::new("Song").detail("Artist")));
     ///     assert_eq!((r.query, r.pick), ("", Pick::None));
     /// });
     /// ```
@@ -214,5 +214,124 @@ mod tests {
         assert!(testing::find(&ui, Role::Panel, "plain").is_none(), "the key is never the name");
         testing::frame(&mut ui, &[], &mut build);
         assert_eq!(at.get(), Rect::new(40.0, 50.0, 50.0, 20.0), "below its anchor, start-aligned, the overlay's size");
+    }
+
+    const ROWS: [crate::PickRow; 3] = [
+        crate::PickRow::new("Song").detail("Artist").art(crate::ui::PickArt::Glyph('\u{266b}')).heading("Songs"),
+        crate::PickRow::new("Other"),
+        crate::PickRow::new("Album").art(crate::ui::PickArt::Image(7)).heading("Albums"),
+    ];
+    fn fill(_: &str, rows: &mut crate::PickRows) { for row in ROWS { rows.push(row); } }
+
+    thread_local! { static ARTS: RefCell<Vec<Option<crate::ui::PickArt>>> = const { RefCell::new(Vec::new()) }; }
+    fn picker_row(ui: &mut Ui, c: &crate::bodies::PickerConfig) {
+        let art = match c.art_kind { 1 => char::from_u32(c.art as u32).map(crate::ui::PickArt::Glyph), 2 => Some(crate::ui::PickArt::Image(c.art as usize)), _ => None };
+        ARTS.with(|a| a.borrow_mut().push(art));
+        marker(ui, "picker row");
+    }
+
+    /// A row's heading is a Heading caption above the row that starts its group (not a row: rows stay the picks), the built-in row draws
+    /// a glyph in the art slot before its label, and a registered row body is given each row's art.
+    #[test]
+    fn picker_rows_draw_headings_and_give_their_art_to_the_body() {
+        let mut build = |ui: &mut Ui| { ui.picker("find", "Search", "", &Picker::DEFAULT, &mut fill); };
+        let ui = crate::doc::frames(2, &mut build);
+        for heading in ["Songs", "Albums"] { assert!(testing::find(&ui, Role::Heading, heading).is_some(), "{heading}"); }
+        let rows = ui.a11y_nodes().iter().filter(|n| n.is_role(Role::ListItem)).count();
+        assert_eq!(rows, 3, "headings are not rows");
+        let (songs, song) = (testing::find(&ui, Role::Heading, "Songs").unwrap(), testing::find(&ui, Role::ListItem, "Song").unwrap());
+        assert!(songs.y + songs.h <= song.y, "the heading sits above its row");
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
+        ui.register_picker_body("c", picker_row).unwrap();
+        ui.set_theme(&crate::ThemeHandle::parse("picker.body = c").unwrap()).unwrap();
+        ARTS.with(|a| a.borrow_mut().clear());
+        ui.frame(&FrameIn::new(400.0, 400.0), &mut build).unwrap();
+        assert_eq!(ARTS.with(|a| a.borrow().clone()), [ROWS[0].art, None, ROWS[2].art]);
+    }
+
+    /// Warm picker frames with headings and art allocate nothing.
+    #[test]
+    fn warm_picker_rows_with_headings_and_art_allocate_nothing() {
+        let mut build = |ui: &mut Ui| { ui.picker("find", "Search", "", &Picker::DEFAULT, &mut fill); };
+        let mut ui = crate::doc::frames(3, &mut build);
+        for round in 0..6 {
+            mem_sys::local_reset();
+            testing::frame(&mut ui, &[], &mut build);
+            if round > 1 { assert_eq!(mem_sys::local_alloc_count(), 0, "round {round}"); }
+        }
+    }
+
+    /// A bottom sheet sits on the content area's bottom edge at the overlay's width, a full sheet fills the content area, and a centred
+    /// modal stays centred; each is a modal dialog to a screen reader.
+    #[test]
+    fn sheets_are_placed_by_their_presentation() {
+        use crate::Presentation;
+        let rects = RefCell::new([Rect::default(); 3]);
+        let present = std::cell::Cell::new(Presentation::Centered);
+        let mut build = |ui: &mut Ui| {
+            let r = ui.modal("sheet", &Overlay::DEFAULT.name("Sheet").w_px(200.0).h_px(100.0).present(present.get()), |_| {});
+            rects.borrow_mut()[present.get() as usize] = ui.rect(&r.handle);
+        };
+        let mut ui = crate::doc::frames(2, &mut build);
+        for p in [Presentation::Bottom, Presentation::Full] { present.set(p); for _ in 0..2 { testing::frame(&mut ui, &[], &mut build); } }
+        let view = ui.content_rect();
+        let [centred, bottom, full] = *rects.borrow();
+        assert_eq!((centred.x, centred.w), (view.x + (view.w - 200.0) / 2.0, 200.0), "centred");
+        assert!(centred.y > view.y && centred.y + centred.h < view.y + view.h, "centred vertically");
+        assert_eq!((bottom.y + bottom.h, bottom.w), (view.y + view.h, 200.0), "on the bottom edge");
+        assert_eq!((full.y, full.h), (view.y, view.h), "the full height");
+        let dialog = ui.a11y_nodes().iter().find(|n| n.is_role(Role::Dialog) && ui.a11y_name_of(n) == "Sheet").expect("a dialog");
+        assert!(dialog.states & pxui_types::a11y::state::MODAL != 0, "modal");
+    }
+
+    /// A downward drag on a bottom sheet past its fraction dismisses it (the response closes) and a short one springs back; warm bottom
+    /// and full sheet frames, dragged or at rest, allocate nothing.
+    #[test]
+    fn a_bottom_sheet_drags_to_dismiss_and_warm_sheets_allocate_nothing() {
+        use crate::{DismissOpts, Event, Presentation};
+        let (open, present) = (std::cell::Cell::new(true), std::cell::Cell::new(Presentation::Bottom));
+        let sheet = std::cell::Cell::new(Rect::default());
+        let mut build = |ui: &mut Ui| {
+            if !open.get() { return; }
+            // a sheet of 160 points of content: a quarter of its height is 40 points of drag
+            let r = ui.modal("sheet", &Overlay::DEFAULT.w_px(200.0).present(present.get()).dismiss(DismissOpts::DEFAULT.fraction(0.25)), |ui| { ui.node("queue", Node::DEFAULT.h_px(160.0)); });
+            if !r.open { open.set(false); }
+            sheet.set(ui.rect(&r.handle));
+        };
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
+        for n in 0..3 { ui.frame(&FrameIn::new(400.0, 400.0).time(f64::from(n)), &mut build).unwrap(); }
+        // a finger: began, moved in four steps, lifted half a second later (slowly: the distance decides), then the sheet settles
+        let time = std::cell::Cell::new(10.0);
+        let touch = |ui: &mut Ui, build: &mut dyn FnMut(&mut Ui), phase: u32, x: f64, y: f64| {
+            time.set(time.get() + 0.016 + if phase == 2 { 0.5 } else { 0.0 });
+            let packet = crate::Touch { device: 1, finger: 7, x, y, phase, time: time.get(), pressure: 1.0 };
+            let event = Event { kind: Event::TOUCH, text: crate::Str { ptr: (&packet as *const crate::Touch).cast(), len: core::mem::size_of::<crate::Touch>() }, ..Default::default() };
+            let mut frame = FrameIn::new(400.0, 400.0).time(time.get());
+            frame.wire.events = &event;
+            frame.wire.event_count = 1;
+            ui.frame(&frame, build).unwrap();
+        };
+        let drag = |ui: &mut Ui, build: &mut dyn FnMut(&mut Ui), to: f32| {
+            let (x, y) = (f64::from(sheet.get().x + 20.0), f64::from(sheet.get().y + 10.0));
+            touch(ui, build, 0, x, y);
+            for step in 1..=4 { touch(ui, build, 1, x, y + f64::from(to) * f64::from(step) / 4.0); }
+            touch(ui, build, 2, x, y + f64::from(to));
+            for _ in 0..30 { time.set(time.get() + 0.1); ui.frame(&FrameIn::new(400.0, 400.0).time(time.get()), build).unwrap(); }
+        };
+        drag(&mut ui, &mut build, 10.0);
+        assert!(open.get(), "a short drag springs back");
+        for p in [Presentation::Bottom, Presentation::Full] {
+            present.set(p);
+            for round in 0..5 {
+                mem_sys::local_reset();
+                time.set(time.get() + 0.1);
+                ui.frame(&FrameIn::new(400.0, 400.0).time(time.get()), &mut build).unwrap();
+                if round > 2 { assert_eq!(mem_sys::local_alloc_count(), 0, "{p:?} round {round}"); }
+            }
+        }
+        present.set(Presentation::Bottom);
+        for _ in 0..3 { time.set(time.get() + 0.1); ui.frame(&FrameIn::new(400.0, 400.0).time(time.get()), &mut build).unwrap(); }
+        drag(&mut ui, &mut build, 80.0);
+        assert!(!open.get(), "a drag past a quarter of its height dismisses it");
     }
 }

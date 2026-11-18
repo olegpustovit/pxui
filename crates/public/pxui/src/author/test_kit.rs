@@ -1,9 +1,9 @@
 //! Tests of the checkbox style, the disclosure and the section index.
 use pxui_types::theme::{Look, States};
 use pxui_types::ui::Checkbox;
-use crate::bodies::{BodyConfig, CheckboxConfig, InspectorSectionConfig, SectionIndexConfig};
+use crate::bodies::{BodyConfig, CheckboxConfig, InspectorSectionConfig, ModalConfig, SectionIndexConfig, TabsConfig};
 use crate::ui::{Node, Role, Size};
-use crate::{testing, Disclosure, Event, FrameIn, SectionIndex, Ui};
+use crate::{testing, Disclosure, Event, FrameIn, Overlay, Presentation, SectionIndex, Segment, Tabs, Ui};
 use std::cell::{Cell, RefCell};
 
 thread_local! { static SEEN: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) }; }
@@ -15,31 +15,38 @@ fn check(ui: &mut Ui, c: &CheckboxConfig) {
     marker(ui, "custom checkbox");
 }
 fn section(ui: &mut Ui, c: &InspectorSectionConfig) { seen(format!("disclosure {}", c.variant)); marker(ui, "custom section"); }
+fn tab(ui: &mut Ui, c: &TabsConfig) { seen(format!("tab {} {}", c.text_of(&c.text), c.text_of(&c.detail))); marker(ui, "custom tab"); }
+fn modal(ui: &mut Ui, c: &ModalConfig) { seen(format!("modal {}", c.present)); marker(ui, "custom modal"); }
 fn index(ui: &mut Ui, c: &SectionIndexConfig) {
     seen(format!("index {} {}{} {}", c.letters.len, c.text_at(&c.letters, 0), c.text_at(&c.letters, 2), c.variant));
     marker(ui, "custom index");
 }
 
-/// A styled checkbox, a disclosure and a section index are built through their registered bodies (the checkbox's,
-/// `inspector_section`'s and `section_index`'s), each given what the built-in body honours: the checkbox's variant, box side, passive
-/// mark and looks, the disclosure's variant and the index's letters and variant.
+/// A styled checkbox, a disclosure, tabs, a bottom sheet and a section index are built through their registered bodies (the checkbox's,
+/// `inspector_section`'s, `tabs`', `modal`'s and `section_index`'s), each given what the built-in body honours: the checkbox's variant,
+/// box side, passive mark and looks, the disclosure's variant, a tab's detail, the sheet's presentation and the index's letters and
+/// variant.
 #[test]
 fn the_new_widgets_are_built_through_their_registered_bodies() {
     let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
     ui.set_a11y(true);
     ui.register_checkbox_body("c", check).unwrap();
     ui.register_inspector_section_body("c", section).unwrap();
+    ui.register_tabs_body("c", tab).unwrap();
+    ui.register_modal_body("c", modal).unwrap();
     ui.register_section_index_body("c", index).unwrap();
-    ui.set_theme(&crate::ThemeHandle::parse("checkbox.body = c\ninspector_section.body = c\nsection_index.body = c").unwrap()).unwrap();
+    ui.set_theme(&crate::ThemeHandle::parse("checkbox.body = c\ninspector_section.body = c\ntabs.body = c\nmodal.body = c\nsection_index.body = c").unwrap()).unwrap();
     SEEN.with(|v| v.borrow_mut().clear());
     let mut build = |ui: &mut Ui| {
         ui.checkbox("box", "Box", true, &Checkbox::DEFAULT.size(18.0).look(&LOOK).passive(true).variant(3));
         ui.disclosure("more", "More", true, &Disclosure::DEFAULT.variant(4), &mut |_| {});
+        ui.tabs("tabs", &[Segment::new("Songs").detail("12")], Some(0), &Tabs::DEFAULT);
         ui.section_index("index", &["A", "B", "C"], &SectionIndex::DEFAULT.variant(5));
+        ui.modal("sheet", &Overlay::DEFAULT.present(Presentation::Bottom), |_| {});
     };
     ui.frame(&FrameIn::new(320.0, 240.0), &mut build).unwrap();
-    assert_eq!(SEEN.with(|v| v.borrow().clone()), ["checkbox 3 18 1 true", "disclosure 4", "index 3 AC 5"]);
-    for name in ["custom checkbox", "custom section", "custom index"] { assert!(testing::find(&ui, Role::Image, name).is_some(), "{name}"); }
+    assert_eq!(SEEN.with(|v| v.borrow().clone()), ["checkbox 3 18 1 true", "disclosure 4", "tab Songs 12", "index 3 AC 5", "modal 1"]);
+    for name in ["custom checkbox", "custom section", "custom tab", "custom index", "custom modal"] { assert!(testing::find(&ui, Role::Image, name).is_some(), "{name}"); }
 }
 
 /// A passive checkbox takes no press (the row under it does); a disabled one reports no click; an enabled one flips.

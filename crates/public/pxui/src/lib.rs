@@ -68,7 +68,7 @@ pub mod ui {
     pub use pxui_types::text_edit::{scrubbed, fuzzy_match, fuzzy_score, line_end, line_start};
     pub use pxui_types::ui::{
         Checkbox, Chosen, CodeContext, Completion, Cursor, Dropdown, Head, HeadAction, Key, Keyframe, Keyframes,
-        LineStep, ListResponse, Menu, MenuItem, Overlay, PanelOpts, Pick, PickRows, PickerResponse, Repeat, SectionList,
+        LineStep, ListResponse, Menu, MenuItem, Overlay, PanelOpts, Pick, PickArt, PickRow, PickRows, PickerResponse, Presentation, Repeat, SectionList,
         SectionPart, Segmented, SelectionList, Slider, TableResponse, TableView, Target, TextEdit, Toast, TreeResponse,
         UndoKind, DRAG_THRESHOLD, ROOT_KEY, int_key, key_of,
     };
@@ -85,13 +85,13 @@ pub type Handle = pxui_types::PxuiBox;
 mod text;
 pub use text::{pragmasevka, PreparedText, RetiredText, Text, TextStyle, TextWorker, UiText};
 pub use pxui_types::text::{Ellipsis, TextAlign, Wrap};
-pub use box_ops::{NodeFields, PayloadRef, DropRef, GestureOpts, GestureState, Scroll, SwipeActions, DismissOpts, ViewTransform};
+pub use box_ops::{NodeFields, PayloadRef, DropRef, GestureOpts, GestureState, Scroll, SwipeActions, ViewTransform};
 mod paint;
 pub use paint::{Fill, Paint, Stroke};
 mod widgets;
 mod composite;
 mod overlays;
-pub use pxui_types::ui::{Checkbox, Dropdown, ListResponse, Menu, MenuItem, Chosen, Overlay, Pick, PickRows, PickerResponse, SelectionList, Slider, TableResponse, TableView, Toast, TreeResponse};
+pub use pxui_types::ui::{Checkbox, DismissOpts, Dropdown, ListResponse, Menu, MenuItem, Chosen, Overlay, Pick, PickArt, PickRow, PickRows, PickerResponse, Presentation, SelectionList, Slider, TableResponse, TableView, Toast, TreeResponse};
 mod collections;
 pub mod bodies;
 pub use collections::TreeNode;

@@ -204,6 +204,9 @@ pub type GripBody = fn(&mut Ui, &GripConfig);
 /// `PanelOpts::window`), the `modal` kind is the sheet a modal or dialog opens, the `popup` kind any other popup.
 pub struct PanelConfig {
     pub node: Handle,
+    /// How the sheet is presented (`Overlay::present`; centred for every sheet but a modal's): a body may dress a bottom or full-screen
+    /// sheet differently. The sheet's place and drag-to-dismiss stay with behaviour.
+    pub present: pxui_types::ui::Presentation,
 }
 
 pub type PanelBody = fn(&mut Ui, &PanelConfig, &str, &mut dyn FnMut(&mut Ui));
@@ -444,6 +447,9 @@ pub struct PickerRowConfig {
     pub unavailable: bool,
     pub marked: bool,
     pub swatch: Option<crate::geom::Rgba>,
+    /// The row's artwork or icon slot (`PickRow::art`): the built-in body draws a glyph in a row-high square before the label and leaves an
+    /// image id's square empty; a registered body draws either. A row without art has no slot.
+    pub art: Option<pxui_types::ui::PickArt>,
     pub row: Handle,
 }
 
