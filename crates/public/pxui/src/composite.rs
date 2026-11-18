@@ -74,10 +74,11 @@ impl Ui {
         #[cfg(not(feature = "static"))]
         {
             let keyed = PxuiKeyedDesc::new(key, crate::clip(overlay.name.unwrap_or("")));
-            let present = match overlay.present { crate::Presentation::Centered => 0, crate::Presentation::Bottom => 1, crate::Presentation::Full => 2 };
+            let present = match overlay.present { crate::Presentation::Centered => 0, crate::Presentation::Bottom => 1, crate::Presentation::Full => 2, crate::Presentation::Top => 3 };
             let sheet = pxui_types::ffi::PxuiSheetDesc {
                 size: core::mem::size_of::<pxui_types::ffi::PxuiSheetDesc>() as u32, has_width: overlay.w.is_some() as u8, present, reserved: [0; 2],
                 width: overlay.w.unwrap_or_default(), dismiss_fraction: overlay.dismiss.fraction.unwrap_or_default(), dismiss_velocity: overlay.dismiss.velocity.unwrap_or_default(),
+                top: overlay.at.1, max_h: overlay.max_h.unwrap_or_default(),
             };
             let mut out = 0;
             check(self, unsafe { keyed_sys::pxui_ui_modal_sheet(self.0.as_ptr(), &keyed, &sheet, Some(call), &mut build as *mut _ as *mut c_void, &mut out, &mut handle) });

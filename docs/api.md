@@ -5329,9 +5329,11 @@ pxui_types::ffi::PxuiSheetDesc struct @U2a.4
 pxui_types::ffi::PxuiSheetDesc::dismiss_fraction field f32 @U2a.4
 pxui_types::ffi::PxuiSheetDesc::dismiss_velocity field f32 @U2a.4
 pxui_types::ffi::PxuiSheetDesc::has_width field u8 @U2a.4
+pxui_types::ffi::PxuiSheetDesc::max_h field f32 @U2b.5
 pxui_types::ffi::PxuiSheetDesc::present field u8 @U2a.4
 pxui_types::ffi::PxuiSheetDesc::reserved field [u8; 2] @U2a.4
 pxui_types::ffi::PxuiSheetDesc::size field u32 @U2a.4
+pxui_types::ffi::PxuiSheetDesc::top field f32 @U2b.5
 pxui_types::ffi::PxuiSheetDesc::width field f32 @U2a.4
 pxui_types::ffi::PxuiSignal impl Clone @HEAD
 pxui_types::ffi::PxuiSignal impl Copy @HEAD

@@ -284,6 +284,37 @@ mod tests {
         assert!(dialog.states & pxui_types::a11y::state::MODAL != 0, "modal");
     }
 
+    /// U2b.5: a top-anchored modal is centred across the content area with its top edge at the overlay's y and its height capped by
+    /// `max_h` (through the sheet record in the dynamic link); a registered modal body is told `present` 3.
+    #[test]
+    fn a_top_modal_sits_at_its_y() {
+        use crate::Presentation;
+        thread_local! { static PRESENT: std::cell::Cell<u64> = const { std::cell::Cell::new(9) }; }
+        fn modal(ui: &mut Ui, c: &ModalConfig) { PRESENT.with(|p| p.set(c.present)); ui.slot(c.content); }
+        let rect = std::cell::Cell::new(Rect::default());
+        let mut build = |ui: &mut Ui| {
+            let r = ui.modal("palette", &Overlay::DEFAULT.name("Palette").w_px(200.0).at(crate::geom::Point::new(0.0, 30.0)).max_h_px(120.0).present(Presentation::Top), |ui| { ui.node("results", Node::DEFAULT.h_px(300.0)); });
+            rect.set(ui.rect(&r.handle));
+        };
+        let mut ui = crate::doc::frames(3, &mut build);
+        let view = ui.content_rect();
+        let r = rect.get();
+        assert_eq!((r.x, r.y, r.w, r.h), (view.x + ((view.w - 200.0) / 2.0).round(), view.y + 30.0, 200.0, 120.0), "top-anchored, centred across, capped");
+        ui.register_modal_body("dressed", modal).unwrap();
+        ui.set_theme(&crate::ThemeHandle::parse("modal.body = dressed").unwrap()).unwrap();
+        for _ in 0..2 { testing::frame(&mut ui, &[], &mut build); }
+        assert_eq!(PRESENT.with(|p| p.get()), 3, "the body is told it is top-anchored");
+        mem_sys::set_peer(crate::library_counter);
+        let scope = mem_sys::warm_scope();
+        for round in 0..4 {
+            mem_sys::local_reset();
+            testing::frame(&mut ui, &[], &mut build);
+            assert_eq!(mem_sys::local_alloc_count(), 0, "a warm top modal frame allocated (round {round})");
+        }
+        drop(scope);
+        assert!(mem_sys::take_reports().is_empty());
+    }
+
     /// A downward drag on a bottom sheet past its fraction dismisses it (the response closes) and a short one springs back; warm bottom
     /// and full sheet frames, dragged or at rest, allocate nothing.
     #[test]

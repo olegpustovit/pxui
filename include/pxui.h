@@ -18,7 +18,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 89u)
+#define PXUI_ABI_BUILT ((1u << 16) | 90u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 typedef struct { uint32_t autocorrect, capitalization, action; } PxuiTextInputOptions;
@@ -375,9 +375,9 @@ typedef struct { const PxuiPickItem *ptr; size_t len; } PxuiPickItemSpan;
 enum { PXUI_PICK_ART_NONE = 0, PXUI_PICK_ART_GLYPH = 1, PXUI_PICK_ART_IMAGE = 2 };
 typedef struct { uint32_t size; uint8_t art_kind, reserved[3]; uint64_t art; PxuiStr label, detail, heading; } PxuiPickRow;
 typedef struct { const PxuiPickRow *ptr; size_t len; } PxuiPickRowSpan;
-/* ABI 1.86: how pxui_ui_modal_sheet presents a modal: present PXUI_PRESENT_CENTERED 0, _BOTTOM 1 (on the content area's bottom edge) or _FULL 2 (filling it); width read when has_width is 1 (finite, not negative); a bottom or full sheet takes a downward drag-to-dismiss committing past dismiss_fraction of its height or dismiss_velocity points/s (finite, not negative; 0: a quarter, 600). reserved zero. */
-enum { PXUI_PRESENT_CENTERED = 0, PXUI_PRESENT_BOTTOM = 1, PXUI_PRESENT_FULL = 2 };
-typedef struct { uint32_t size; uint8_t has_width, present, reserved[2]; float width, dismiss_fraction, dismiss_velocity; } PxuiSheetDesc;
+/* ABI 1.86: how pxui_ui_modal_sheet presents a modal: present PXUI_PRESENT_CENTERED 0, _BOTTOM 1 (on the content area's bottom edge), _FULL 2 (filling it) or _TOP 3 (1.90: centred across, its top edge top points below the content area's top); width read when has_width is 1 (finite, not negative); a bottom or full sheet takes a downward drag-to-dismiss committing past dismiss_fraction of its height or dismiss_velocity points/s (finite, not negative; 0: a quarter, 600). reserved zero. */
+enum { PXUI_PRESENT_CENTERED = 0, PXUI_PRESENT_BOTTOM = 1, PXUI_PRESENT_FULL = 2, PXUI_PRESENT_TOP = 3 };
+typedef struct { uint32_t size; uint8_t has_width, present, reserved[2]; float width, dismiss_fraction, dismiss_velocity, top /* 1.90 */, max_h /* 1.90: bottom/top height cap, 0 none */; } PxuiSheetDesc;
 typedef struct { uint32_t size; uint8_t enabled,grow,reserved[2]; float h; const PxuiLookDesc *states; PxuiStr key,name; size_t selected; float w, padding, min_segment; uint32_t reserved2; PxuiStrSpan names;
                  /* ABI 1.67 */ uint8_t has_selected, reserved3[7];
                  /* ABI 1.69 (a shorter record reads 0): 1 for a press on an option to focus it (it is then the Tab stop), 0 for a press that chooses without focusing; reserved4 zero. */
@@ -731,7 +731,7 @@ typedef struct { uint32_t size; uint8_t first; PxuiBox node; PxuiStr text; PxuiL
 typedef struct { uint32_t size; PxuiBox row; uint8_t has_right; PxuiStr right; PxuiHintSpan hints; uint16_t variant; } PxuiFooterConfig;
 typedef struct { uint32_t size; PxuiStateDesc state; uint8_t vertical; uint8_t floating; PxuiBox grip; uint16_t variant; } PxuiGripConfig;
 typedef struct { uint32_t size; PxuiBox node; PxuiStr label; PxuiSlot content; uint16_t variant;
-                 /* ABI 1.86 (read when size covers it): 0 centred, 1 bottom sheet, 2 full sheet (pxui_ui_modal_sheet's present) */ uint64_t present; } PxuiPanelConfig;
+                 /* ABI 1.86 (read when size covers it): 0 centred, 1 bottom sheet, 2 full sheet, 3 top-anchored (1.90; draw an unknown value as 0) (pxui_ui_modal_sheet's present) */ uint64_t present; } PxuiPanelConfig;
 /* ABI 1.53 appends default_at, cancel_at (a button index or -1) and bitmasks danger, disabled (bit i: button i), before variant */
 /* ABI 1.71 (read when size covers it): details, each button's line under its label (empty: none), as many as buttons. */
 typedef struct { uint32_t size; PxuiStr title; PxuiStrSpan buttons; PxuiSlot content; int64_t default_at, cancel_at; uint64_t danger, disabled; uint16_t variant; PxuiStrSpan details; } PxuiDialogConfig;
@@ -1372,7 +1372,7 @@ _Static_assert(sizeof(PxuiKeyedDesc) == 40 && offsetof(PxuiKeyedDesc, size) == 0
 _Static_assert(sizeof(PxuiPickItem) == 64 && offsetof(PxuiPickItem, has_id) == 0 && offsetof(PxuiPickItem, reserved) == 1 && offsetof(PxuiPickItem, id) == 8 && offsetof(PxuiPickItem, text) == 16 && offsetof(PxuiPickItem, name) == 32 && offsetof(PxuiPickItem, detail) == 48, "PxuiPickItem layout");
 _Static_assert(sizeof(PxuiSectionIndexConfig) == 80 && offsetof(PxuiSectionIndexConfig, size) == 0 && offsetof(PxuiSectionIndexConfig, state) == 4 && offsetof(PxuiSectionIndexConfig, has_active) == 12 && offsetof(PxuiSectionIndexConfig, active) == 16 && offsetof(PxuiSectionIndexConfig, node) == 24 && offsetof(PxuiSectionIndexConfig, letters) == 56 && offsetof(PxuiSectionIndexConfig, variant) == 72, "PxuiSectionIndexConfig layout");
 _Static_assert(sizeof(PxuiCheckboxDesc) == 56 && offsetof(PxuiCheckboxDesc, size) == 0 && offsetof(PxuiCheckboxDesc, disabled) == 4 && offsetof(PxuiCheckboxDesc, on) == 5 && offsetof(PxuiCheckboxDesc, passive) == 6 && offsetof(PxuiCheckboxDesc, reserved) == 7 && offsetof(PxuiCheckboxDesc, box_size) == 8 && offsetof(PxuiCheckboxDesc, look) == 16 && offsetof(PxuiCheckboxDesc, key) == 24 && offsetof(PxuiCheckboxDesc, text) == 40, "PxuiCheckboxDesc layout");
-_Static_assert(sizeof(PxuiSheetDesc) == 20 && offsetof(PxuiSheetDesc, size) == 0 && offsetof(PxuiSheetDesc, has_width) == 4 && offsetof(PxuiSheetDesc, present) == 5 && offsetof(PxuiSheetDesc, reserved) == 6 && offsetof(PxuiSheetDesc, width) == 8 && offsetof(PxuiSheetDesc, dismiss_fraction) == 12 && offsetof(PxuiSheetDesc, dismiss_velocity) == 16, "PxuiSheetDesc layout");
+_Static_assert(sizeof(PxuiSheetDesc) == 28 && offsetof(PxuiSheetDesc, size) == 0 && offsetof(PxuiSheetDesc, has_width) == 4 && offsetof(PxuiSheetDesc, present) == 5 && offsetof(PxuiSheetDesc, reserved) == 6 && offsetof(PxuiSheetDesc, width) == 8 && offsetof(PxuiSheetDesc, dismiss_fraction) == 12 && offsetof(PxuiSheetDesc, dismiss_velocity) == 16, "PxuiSheetDesc layout");
 _Static_assert(sizeof(PxuiPickRow) == 64 && offsetof(PxuiPickRow, size) == 0 && offsetof(PxuiPickRow, art_kind) == 4 && offsetof(PxuiPickRow, reserved) == 5 && offsetof(PxuiPickRow, art) == 8 && offsetof(PxuiPickRow, label) == 16 && offsetof(PxuiPickRow, detail) == 32 && offsetof(PxuiPickRow, heading) == 48, "PxuiPickRow layout");
 _Static_assert(sizeof(PxuiCellState) == 48 && offsetof(PxuiCellState, size) == 0 && offsetof(PxuiCellState, selected) == 4 && offsetof(PxuiCellState, enabled) == 5 && offsetof(PxuiCellState, focused) == 6 && offsetof(PxuiCellState, held) == 7 && offsetof(PxuiCellState, handle) == 8 && offsetof(PxuiCellState, y) == 40 && offsetof(PxuiCellState, reserved) == 44, "PxuiCellState layout");
 _Static_assert(sizeof(PxuiListResult) == 128 && offsetof(PxuiListResult, size) == 0 && offsetof(PxuiListResult, reserved) == 4 && offsetof(PxuiListResult, handle) == 8 && offsetof(PxuiListResult, row) == 40 && offsetof(PxuiListResult, activated) == 72 && offsetof(PxuiListResult, selected) == 80 && offsetof(PxuiListResult, secondary) == 88 && offsetof(PxuiListResult, anchor) == 96, "PxuiListResult layout");

@@ -877,16 +877,17 @@ impl Ui {
         let height = self.modal_height(key);
         let content = self.content_rect();
         let (view_w, view_h) = (content.w, content.h);
-        let width = overlay.w.unwrap_or(if present == Presentation::Centered { 320.0 } else { view_w });
+        let width = overlay.w.unwrap_or(if matches!(present, Presentation::Centered | Presentation::Top) { 320.0 } else { view_w });
         let x = content.x + (0.0f32.max((view_w - width) / 2.0)).round();
         let y = content.y + match present {
             Presentation::Centered => (0.0f32.max((view_h - height) / 2.0)).round(),
             Presentation::Bottom => (0.0f32.max(view_h - height)).round(),
             Presentation::Full => 0.0,
+            Presentation::Top => overlay.at.1.max(0.0).round(),
         };
         let look = self.theme().modal.idle;
         let cap = 48.0f32.max(view_h - 32.0);
-        let max_height = match present { Presentation::Centered => Some(cap), Presentation::Bottom => Some(overlay.max_h.unwrap_or(cap)), Presentation::Full => None };
+        let max_height = match present { Presentation::Centered => Some(cap), Presentation::Bottom => Some(overlay.max_h.unwrap_or(cap)), Presentation::Full => None, Presentation::Top => Some(overlay.max_h.unwrap_or(cap).min(48.0f32.max(view_h - (y - content.y) - 16.0))) };
         let opts = PopupOpts { look: Some(look), max_height, dismiss_initial: false, role: Role::Dialog, present, dismiss: overlay.dismiss, ..PopupOpts::default() };
         self.popup_with_related(opts, (x, y), width, height, label, name, f)
     }

@@ -48,7 +48,7 @@ export!(trusted pub unsafe fn pxui_ui_modal_keyed(ui: *mut PxuiUi, keyed: *const
 });
 
 // ABI 1.86: the one modal route with a presentation: a modal keyed by `keyed.key`, named `keyed.name`, presented as `sheet` says
-// (centred, a bottom sheet or full screen; a bottom or full-screen sheet takes a downward drag-to-dismiss with `sheet`'s thresholds) and
+// (centred, a bottom sheet, full screen or top-anchored at `sheet.top`; a bottom or full-screen sheet takes a downward drag-to-dismiss with `sheet`'s thresholds) and
 // `sheet.width` wide when `has_width` is 1. Every field of `sheet` is checked before the build: a short record, `has_width` or `present`
 // out of range, a non-zero `reserved`, or a width or threshold that is negative or not finite is refused. Writes `out` (1 while open)
 // and the modal's root to `root` (the empty box when it is dismissed).
@@ -58,12 +58,12 @@ export!(trusted pub unsafe fn pxui_ui_modal_sheet(ui: *mut PxuiUi, keyed: *const
     let Some((key, name)) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
     let Some(sheet) = sized!(sheet) else { return unsafe { fail(ui, "invalid sheet descriptor") } };
     let finite = |v: f32| (0.0..=f32::MAX).contains(&v);
-    if sheet.has_width > 1 || sheet.present > 2 || sheet.reserved != [0; 2] || !finite(sheet.width) || !finite(sheet.dismiss_fraction) || !finite(sheet.dismiss_velocity) {
+    if sheet.has_width > 1 || sheet.present > 3 || sheet.reserved != [0; 2] || ![sheet.width, sheet.dismiss_fraction, sheet.dismiss_velocity, sheet.top, sheet.max_h].into_iter().all(finite) {
         return unsafe { fail(ui, "invalid sheet descriptor") };
     }
-    let present = [Presentation::Centered, Presentation::Bottom, Presentation::Full][sheet.present as usize];
+    let present = [Presentation::Centered, Presentation::Bottom, Presentation::Full, Presentation::Top][sheet.present as usize];
     let dismiss = DismissOpts { fraction: (sheet.dismiss_fraction > 0.0).then_some(sheet.dismiss_fraction), velocity: (sheet.dismiss_velocity > 0.0).then_some(sheet.dismiss_velocity) };
-    let overlay = Overlay { w: (sheet.has_width != 0).then_some(sheet.width), name: Some(name), present, dismiss, ..Overlay::DEFAULT };
+    let overlay = Overlay { w: (sheet.has_width != 0).then_some(sheet.width), at: (0.0, sheet.top), max_h: (sheet.max_h > 0.0).then_some(sheet.max_h), name: Some(name), present, dismiss, ..Overlay::DEFAULT };
     let mut open = false;
     let rc = unsafe { crate::trusted::modal(ui, key, &overlay, &mut |ui| if let Some(callback) = callback { callback(user, ui.cast()) }, &mut open, &mut *root) };
     unsafe { *out = open as u8; }

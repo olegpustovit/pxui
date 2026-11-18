@@ -673,6 +673,10 @@ pub enum Presentation {
     Bottom,
     /// A sheet filling the content area. A downward drag dismisses it with the thresholds of `Overlay::dismiss`.
     Full,
+    /// Centred across the content area, `Overlay::w` wide (320 points by default), its top edge at `Overlay::at`'s y below the content
+    /// area's top (a command palette placed at a share of the window height computes that y itself); as tall as its content, to
+    /// `Overlay::max_h` and never past 16 points above the content area's bottom.
+    Top,
 }
 
 /// Drag-to-dismiss thresholds; a threshold left unset takes the UIKit sheet's (a quarter of the node height, 600 points/s).

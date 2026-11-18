@@ -108,9 +108,10 @@ macro_rules! tramp_span {
     };
 }
 
-/// `PxuiPanelConfig.present`: 0 centred, 1 bottom, 2 full.
+/// `PxuiPanelConfig.present`: 0 centred, 1 bottom, 2 full, 3 top. 3 exists only for a modal asked to be `Top` through the grown
+/// sheet record, which an app built before that minor cannot send (minimum-library rule); a body draws a value it does not know as 0.
 fn present(p: pxui_types::ui::Presentation) -> u64 {
-    match p { pxui_types::ui::Presentation::Centered => 0, pxui_types::ui::Presentation::Bottom => 1, pxui_types::ui::Presentation::Full => 2 }
+    match p { pxui_types::ui::Presentation::Centered => 0, pxui_types::ui::Presentation::Bottom => 1, pxui_types::ui::Presentation::Full => 2, pxui_types::ui::Presentation::Top => 3 }
 }
 
 /// A button size as the descriptor writes it: kind 0 the kit's, 1 points, 2 fill.

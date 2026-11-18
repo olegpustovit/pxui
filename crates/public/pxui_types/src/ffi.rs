@@ -1146,7 +1146,7 @@ pub struct PxuiSheetDesc {
     pub size: u32,
     /// 1 when `width` is set, 0 for the presentation's own.
     pub has_width: u8,
-    /// `PXUI_PRESENT_CENTERED` 0, `PXUI_PRESENT_BOTTOM` 1 or `PXUI_PRESENT_FULL` 2.
+    /// `PXUI_PRESENT_CENTERED` 0, `PXUI_PRESENT_BOTTOM` 1, `PXUI_PRESENT_FULL` 2 or `PXUI_PRESENT_TOP` 3 (ABI 1.90).
     pub present: u8,
     /// Zero.
     pub reserved: [u8; 2],
@@ -1156,6 +1156,10 @@ pub struct PxuiSheetDesc {
     pub dismiss_fraction: f32,
     /// The downward release speed in points per second that commits (finite, not negative; 0: 600).
     pub dismiss_velocity: f32,
+    /// ABI 1.90: a top-anchored modal's top edge in points below the content area's top (finite, not negative; read for present 3).
+    pub top: f32,
+    /// ABI 1.90: the height cap in points of a bottom sheet or a top-anchored modal (finite, not negative; 0: the presentation's own).
+    pub max_h: f32,
 }
 
 /// One row of a picker's fill (ABI 1.86, the rows the `PxuiPickerRows` callback of `pxui_ui_picker_keyed` hands back): the label and
@@ -2205,7 +2209,8 @@ configs! {
     /// A panel, window, popup or modal sheet.
     PxuiPanelConfig { node: PxuiBox, label: Str, content: PxuiSlot } @variant {
         /// ABI 1.86 (read when `size` covers it): how the sheet is presented (`Overlay::present`): 0 centred (every sheet but a modal's),
-        /// 1 on the content area's bottom edge, 2 filling it. A body may dress the sheet by it; its place and drag-to-dismiss stay with
+        /// 1 on the content area's bottom edge, 2 filling it, 3 anchored at its top (ABI 1.90, a modal asked to be `Top`; a body draws a
+        /// value it does not know as 0). A body may dress the sheet by it; its place and drag-to-dismiss stay with
         /// behaviour. Eight bytes so the field starts past the record's 1.52 size.
         present: u64,
     }

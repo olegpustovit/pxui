@@ -259,7 +259,7 @@ fn modal_sheet_checks_every_field_before_the_build() {
     extern "C" fn ran(user: *mut c_void, _: *mut c_void) { unsafe { *user.cast::<u32>() += 1; } }
     let ui = create();
     let keyed = PxuiKeyedDesc::new("sheet", "Queue");
-    let good = PxuiSheetDesc { size: core::mem::size_of::<PxuiSheetDesc>() as u32, has_width: 0, present: 1, reserved: [0; 2], width: 0.0, dismiss_fraction: 0.0, dismiss_velocity: 0.0 };
+    let good = PxuiSheetDesc { size: core::mem::size_of::<PxuiSheetDesc>() as u32, has_width: 0, present: 1, reserved: [0; 2], width: 0.0, dismiss_fraction: 0.0, dismiss_velocity: 0.0, top: 0.0, max_h: 0.0 };
     let sheet = |desc: &PxuiSheetDesc, built: &mut u32, open: &mut u8, root: &mut PxuiBox| in_frame(ui, &mut |ui| unsafe {
         pxui_ui_modal_sheet(ui, &keyed, desc, Some(ran), (built as *mut u32).cast(), open, root)
     });
@@ -272,7 +272,9 @@ fn modal_sheet_checks_every_field_before_the_build() {
     for (bad, why) in [
         (PxuiSheetDesc { size: 8, ..good }, "a short record"),
         (PxuiSheetDesc { has_width: 2, ..good }, "has_width not 0 or 1"),
-        (PxuiSheetDesc { present: 3, ..good }, "an unknown presentation"),
+        (PxuiSheetDesc { present: 4, ..good }, "an unknown presentation"),
+        (PxuiSheetDesc { present: 3, top: f32::NAN, ..good }, "a top that is not finite"),
+        (PxuiSheetDesc { max_h: -1.0, ..good }, "a negative height cap"),
         (PxuiSheetDesc { reserved: [0, 1], ..good }, "a non-zero reserved byte"),
         (PxuiSheetDesc { has_width: 1, width: -1.0, ..good }, "a negative width"),
         (PxuiSheetDesc { dismiss_fraction: f32::NAN, ..good }, "a fraction that is not a number"),
