@@ -322,7 +322,7 @@ export!(trusted pub unsafe fn pxui_ui_pick(ui: *mut PxuiUi, keyed: *const pxui_t
         return unsafe { fail(ui, "invalid pick items") };
     }
     let (mut at, mut secondary) = (None, None);
-    let rc = unsafe { trusted::pick(ui, kind, key, name, &segments, (has_selected == 1).then_some(selected), out, &mut at, &mut secondary) };
+    let rc = unsafe { trusted::pick_checked(ui, kind, key, name, &segments, (has_selected == 1).then_some(selected), out, &mut at, &mut secondary) };
     state.shared().put_segments(segments);
     if rc == 0 {
         (result.has_chosen, result.chosen, result.has_secondary, result.secondary) = (at.is_some() as u8, at.unwrap_or(0) as u64, secondary.is_some() as u8, secondary.unwrap_or(0) as u64);

@@ -889,9 +889,10 @@ impl Drop for Ui {
 }
 
 /// A `&[&str]` as a span of `Str` for one call: up to 32 strings live on the stack, more on the heap.
-/// Pick-one items as the C items column, on the stack up to 32.
+/// Pick-one items as the C items column, on the stack up to 32. Only the slots the call fills are written (and only they cross): zeroing
+/// all 32 (2 KiB) cost a radio more than its checks (U1c.5).
 pub(crate) struct PickItems {
-    stack:[pxui_types::ffi::PxuiPickItem;32],
+    stack:[core::mem::MaybeUninit<pxui_types::ffi::PxuiPickItem>;32],
     heap:Vec<pxui_types::ffi::PxuiPickItem>,
     len:usize,
 }
@@ -899,19 +900,20 @@ pub(crate) struct PickItems {
 impl PickItems {
     pub(crate) fn new(items:&[Segment])->Self {
         let item=|s:&Segment| pxui_types::ffi::PxuiPickItem { has_id:s.id.is_some() as u8, id:s.id.unwrap_or(0), text:as_str(s.text), name:as_str(s.name.unwrap_or("")), detail:as_str(s.detail), ..Default::default() };
-        let mut list=Self { stack:[pxui_types::ffi::PxuiPickItem::default();32], heap:Vec::new(), len:items.len() };
-        if items.len()<=32 { for (out,s) in list.stack.iter_mut().zip(items) { *out=item(s); } }
+        let mut list=Self { stack:[const { core::mem::MaybeUninit::uninit() };32], heap:Vec::new(), len:items.len() };
+        if items.len()<=32 { for (out,s) in list.stack.iter_mut().zip(items) { out.write(item(s)); } }
         else { list.heap=items.iter().map(item).collect(); }
         list
     }
     pub(crate) fn span(&self)->pxui_types::ffi::Slice<pxui_types::ffi::PxuiPickItem> {
-        let ptr=if self.len<=32 { self.stack.as_ptr() } else { self.heap.as_ptr() };
+        // the first `len` stack slots are written when `len` is at most 32
+        let ptr=if self.len<=32 { self.stack.as_ptr().cast() } else { self.heap.as_ptr() };
         pxui_types::ffi::Slice { ptr, len:self.len }
     }
 }
 
 pub(crate) struct Strs {
-    stack:[Str;32],
+    stack:[core::mem::MaybeUninit<Str>;32],
     heap:Vec<Str>,
     len:usize,
 }
@@ -919,22 +921,23 @@ pub(crate) struct Strs {
 impl Strs {
     #[inline]
     pub(crate) fn new(values:&[&str])->Self {
-        let mut strs=Self { stack:[Str::default();32], heap:Vec::new(), len:values.len() };
-        if values.len()<=32 { for (out,v) in strs.stack.iter_mut().zip(values) { *out=as_str(v); } }
+        let mut strs=Self { stack:[const { core::mem::MaybeUninit::uninit() };32], heap:Vec::new(), len:values.len() };
+        if values.len()<=32 { for (out,v) in strs.stack.iter_mut().zip(values) { out.write(as_str(v)); } }
         else { strs.heap=values.iter().map(|v|as_str(v)).collect(); }
         strs
     }
     /// `len` strings, the `i`-th `value(i)`, as `new` keeps them.
     #[inline]
     pub(crate) fn each<'a>(len:usize, value:&dyn Fn(usize)->&'a str)->Self {
-        let mut strs=Self { stack:[Str::default();32], heap:Vec::new(), len };
-        if len<=32 { for (i,out) in strs.stack[..len].iter_mut().enumerate() { *out=as_str(value(i)); } }
+        let mut strs=Self { stack:[const { core::mem::MaybeUninit::uninit() };32], heap:Vec::new(), len };
+        if len<=32 { for (i,out) in strs.stack[..len].iter_mut().enumerate() { out.write(as_str(value(i))); } }
         else { strs.heap=(0..len).map(|i|as_str(value(i))).collect(); }
         strs
     }
     #[inline]
     pub(crate) fn span(&self)->pxui_types::ffi::Slice<Str> {
-        let ptr=if self.len<=32 { self.stack.as_ptr() } else { self.heap.as_ptr() };
+        // the first `len` stack slots are written when `len` is at most 32
+        let ptr=if self.len<=32 { self.stack.as_ptr().cast() } else { self.heap.as_ptr() };
         pxui_types::ffi::Slice { ptr, len:self.len }
     }
 }

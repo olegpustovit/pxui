@@ -371,6 +371,21 @@ pub unsafe fn pick(ui: *mut PxuiUi, kind: u32, key: &str, name: &str, items: &[S
     let mut spare = Vec::new();
     let items = clip_segments(items, &mut spare);
     if bad_key(key) || !segments_ok(items) { return unsafe { fail(ui, "invalid widget strings") }; }
+    unsafe { pick_body(ui, kind, key, name, items, selected, out, chosen, secondary) }
+}
+
+/// `pick` for `pxui_ui_pick`, which has checked the key, the name and every item as C hands them over (`checked_key`, `checked`,
+/// `pick_items`): only the handle is checked here, so nothing is checked twice.
+#[allow(clippy::too_many_arguments)]
+#[inline]
+pub(crate) unsafe fn pick_checked(ui: *mut PxuiUi, kind: u32, key: &str, name: &str, items: &[Segment], selected: Option<usize>, out: &mut PxuiResponse, chosen: &mut Option<usize>, secondary: &mut Option<usize>) -> i32 {
+    enter!(ui);
+    unsafe { pick_body(ui, kind, key, name, items, selected, out, chosen, secondary) }
+}
+
+#[allow(clippy::too_many_arguments)]
+#[inline(always)]
+unsafe fn pick_body(ui: *mut PxuiUi, kind: u32, key: &str, name: &str, items: &[Segment], selected: Option<usize>, out: &mut PxuiResponse, chosen: &mut Option<usize>, secondary: &mut Option<usize>) -> i32 {
     let engine = unsafe { engine(ui) };
     let (r, at, pressed) = match kind {
         0 => engine.pick_radio(key, name, items.len(), &|i| items[i], selected, 0),

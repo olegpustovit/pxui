@@ -806,8 +806,9 @@ export!(build pub unsafe fn pxui_ui_text_field_keyed(ui: *mut PxuiUi, desc: *con
 });
 
 // ABI 1.82: `pxui_ui_text_field_keyed` that also reports what happened to the field's box in `response`, the result a caller would otherwise
-// read with `pxui_ui_input_box`, `pxui_ui_signal` and `pxui_ui_focused`. The descriptor and outputs are checked as that export checks them.
-export!(build pub unsafe fn pxui_ui_text_field_response(ui: *mut PxuiUi, desc: *const pxui_types::ffi::PxuiTextFieldDesc, changed: *mut Str, out_changed: *mut u8, response: *mut pxui_types::ffi::PxuiResponse) -> i32 {
+// read with `pxui_ui_input_box`, `pxui_ui_signal` and `pxui_ui_focused`. The descriptor and outputs are checked as that export checks them; the
+// trusted entry checks the handle (once: the export does not count the call itself).
+export!(trusted pub unsafe fn pxui_ui_text_field_response(ui: *mut PxuiUi, desc: *const pxui_types::ffi::PxuiTextFieldDesc, changed: *mut Str, out_changed: *mut u8, response: *mut pxui_types::ffi::PxuiResponse) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if desc.is_null() || changed.is_null() || out_changed.is_null() { return unsafe { fail(ui, "null text field descriptor or output") }; }
     let Some(response) = sized_mut!(response) else { return unsafe { fail(ui, "null or short text field response") } };
