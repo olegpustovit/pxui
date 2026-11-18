@@ -1855,7 +1855,7 @@ fn topped_value(ui: &mut Ui, c: &ValueFieldConfig, o: &ValueFieldOpts, shown: &s
 fn value_build(ui: &mut Ui, c: &Cells) {
     let now = text_of(c);
     let o = ValueFieldOpts { fraction: Some(0.5), ..ValueFieldOpts::default() };
-    let (text, _) = ui.value_field((10.0, 10.0), 120.0, 20.0, &o, &|_| true, "Amount", &now);
+    let (text, _) = ui.value_field((10.0, 10.0), 120.0, 20.0, &o, &|_| true, None, None, "Amount", &now);
     keep_text(c, text.unwrap_or(&now));
 }
 

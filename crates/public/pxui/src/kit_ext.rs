@@ -9,7 +9,7 @@ use crate::node::look;
 use crate::{as_str, check, Signal, Ui};
 use core::ffi::c_void;
 use pxui_types::{geom::{Point, Rect, Rgba}, ffi::{PxuiButtonDesc, PxuiDialogDesc, PxuiDialogResult, PxuiIconButtonDesc, PxuiResponse, PxuiHeadActionDesc, PxuiHeadOut, PxuiHeaderDesc, PxuiSignal, Slice}, theme::{Curve, Look, State}, Axis, PxuiBox, Str};
-use pxui_types::{layout::Justify, Size};
+use pxui_types::Size;
 use crate::Response;
 use pxui_types::ui::{Dialog, DialogButton, Chosen, Head, HeadAction, Target};
 use std::{fmt::Arguments, rc::Rc};
@@ -147,10 +147,7 @@ impl Ui {
     #[inline]
     pub(crate) fn button_keyed(&mut self, key: &str, text: &str, button: &Button<'_>, content: Option<&mut dyn FnMut(&mut Ui, State)>) -> Response {
         let mut out = PxuiResponse::EMPTY;
-        let plain = content.is_none() && button.look.is_none() && matches!((button.w, button.h), (Size::Fit, Size::Fit)) && button.enabled && !button.selected
-            && !button.danger && button.name.is_none() && button.align == Justify::Start && button.pad == pxui_types::geom::Edges::ZERO && !button.centered
-            && button.label.is_none() && button.axis.is_none() && button.gap == 0.0 && button.content_align.is_none() && !button.focus_on_click
-            && button.icon.is_none() && button.icon_size == 0.0 && button.detail.is_empty() && button.accessory.is_empty() && button.detail_label.is_none() && button.accessory_label.is_none();
+        let plain = content.is_none() && button.plain;
         // the leading icon as the icon button passes it: a glyph's text, or the app's function as the drawing's user pointer and its word
         let mut glyph = [0u8; 4];
         let (lead, lead_draw, lead_user, lead_word) = match button.icon {
@@ -183,7 +180,7 @@ impl Ui {
             let p = button.pad;
             let desc = PxuiButtonDesc {
                 size: core::mem::size_of::<PxuiButtonDesc>() as u32, enabled: button.enabled as u8, selected: button.selected as u8, danger: button.danger as u8,
-                justify: match button.align { Justify::Center => 1, Justify::End => 2, _ => 0 }, w_kind, h_kind, has_name: button.name.is_some() as u8, reserved: 0,
+                justify: match button.align { pxui_types::layout::Justify::Center => 1, pxui_types::layout::Justify::End => 2, _ => 0 }, w_kind, h_kind, has_name: button.name.is_some() as u8, reserved: 0,
                 w, h, padding: [p.l, p.t, p.r, p.b], states: looks.as_ref().map_or(core::ptr::null(), |l| l.as_ptr()),
                 key: as_str(key), text: as_str(text), name: as_str(button.name.unwrap_or("")), centered: button.centered as u8, reserved2: [0; 7],
                 has_label: button.label.is_some() as u8, axis: button.axis.map_or(0, |a| a as u8 + 1),

@@ -255,7 +255,7 @@ pub mod inputs {
         if let Some(v) = ui.text_field("Caption", caption) { *caption = v; }
     }
     pub fn scale(ui: &mut Ui, (x, y, w): (f32, f32, f32), scale: &mut String) {
-        if let (Some(v), _) = ui.value_field((x, y), w, 20.0, &ValueFieldOpts::default(), &|t: &str| t.parse::<f64>().is_ok(), "scale-value", scale) { *scale = v.to_owned(); }
+        if let (Some(v), _) = ui.value_field((x, y), w, 20.0, &ValueFieldOpts::default(), &|t: &str| t.parse::<f64>().is_ok(), None, None, "scale-value", scale) { *scale = v.to_owned(); }
     }
     pub fn notes(ui: &mut Ui, notes: &mut String) {
         if let (Some(text), _) = ui.text_area_submit(pxui_types::Node::DEFAULT.at(12.0, 4.0).w_px(270.0).h_px(56.0), &TextAreaOpts::default(), "notes-area", notes) { *notes = text.to_owned(); }

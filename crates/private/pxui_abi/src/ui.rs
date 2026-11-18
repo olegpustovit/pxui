@@ -103,7 +103,7 @@ unsafe fn create_ui(desc: PxuiUiDesc, fonts: &[&[u8]]) -> *mut PxuiUi {
     let ui = Ui::create(platform, font_size, text);
     let engine = Box::into_raw(Box::new(ui));
     let shared = Box::into_raw(Box::new(Shared::new()));
-    let owner = Box::into_raw(Box::new(PxuiUi { engine, shared, owner: true }));
+    let owner = Box::into_raw(Box::new(PxuiUi { theme: core::ptr::null(), engine, shared, owner: true }));
     unsafe { (*shared).current = owner; }
     owner
 }

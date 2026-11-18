@@ -694,10 +694,9 @@ pub fn window_pxui_two_widgets() {
         clock.set(clock.get() + dt);
         ui.frame(&frame_at(keys, 1.0, clock.get(), events), &mut |ui| {
             let w = words.borrow().clone();
-            if let Some(text) = ui.value_field((20.0, 20.0), 100.0, 21.0, &ValueFieldOpts::default(), &|_| true, "words", &w).0 { *words.borrow_mut() = text.to_owned(); }
+            if let Some(text) = ui.value_field((20.0, 20.0), 100.0, 21.0, &ValueFieldOpts::default(), &|_| true, None, None, "words", &w).0 { *words.borrow_mut() = text.to_owned(); }
             let n = number.borrow().clone();
-            let o = ValueFieldOpts { scrub: Some(Rc::new(|origin, _, _| origin.to_owned())), ..ValueFieldOpts::default() };
-            if let Some(text) = ui.value_field((20.0, 60.0), 100.0, 21.0, &o, &|text| text.parse::<i64>().is_ok(), "number", &n).0 {
+            if let Some(text) = ui.value_field((20.0, 60.0), 100.0, 21.0, &ValueFieldOpts::default(), &|text| text.parse::<i64>().is_ok(), None, Some(&|origin: &str, _, _| origin.to_owned()), "number", &n).0 {
                 *number.borrow_mut() = text.to_owned();
             }
         });

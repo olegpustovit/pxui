@@ -3344,6 +3344,37 @@ fn colour_tokens_follow_a_light_dark_theme_swap_without_app_rebuild_or_warm_allo
     assert_eq!(ui.color(ColorToken(65)), Rgba::default(), "past the table and the accent reads transparent");
 }
 
+/// A handle's theme record (`PxuiUi.theme`, read by `Ui::theme` after the handle's first read) is the theme in effect for it: each
+/// `themed` scope's handle sees its own, the outer handle reads its own again after scopes nested deeper than any before (the engine's
+/// stack grew under it), and the owner's follows a theme swap between frames.
+#[test]
+fn a_handles_theme_record_is_its_scope_theme_through_deeper_scopes_and_swaps() {
+    use crate::{Rgba, ThemeHandle};
+    let fill = |n: u8| ThemeHandle::parse(&format!("button.idle.fill = #{n:02x}0000ff")).unwrap();
+    let scopes: Vec<ThemeHandle> = (1..=12).map(fill).collect();
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+    ui.set_theme(&fill(0x80)).unwrap();
+    assert_eq!(ui.theme().button.idle.fill, Rgba::rgb(0x80, 0, 0));
+    fn nest(ui: &mut Ui, scopes: &[ThemeHandle], depth: usize) {
+        if depth == scopes.len() { return; }
+        ui.themed(&scopes[depth], &mut |ui| {
+            let want = Rgba::rgb(depth as u8 + 1, 0, 0);
+            assert_eq!(ui.theme().button.idle.fill, want);
+            nest(ui, scopes, depth + 1);
+            assert_eq!(ui.theme().button.idle.fill, want, "scope {depth} after deeper scopes");
+        });
+    }
+    for depth in [2, scopes.len()] {
+        ui.frame(&input(), &mut |ui| {
+            let outer = ui.theme().button.idle.fill;
+            nest(ui, &scopes[..depth], 0);
+            assert_eq!(ui.theme().button.idle.fill, outer);
+        }).unwrap();
+    }
+    ui.set_theme(&fill(0x40)).unwrap();
+    assert_eq!(ui.theme().button.idle.fill, Rgba::rgb(0x40, 0, 0));
+}
+
 #[test]
 fn authored_scope_palettes_inherit_and_invalidate_retained_views_without_warm_allocations() {
     use crate::{Rgba, ThemeHandle, theme::ColorToken};

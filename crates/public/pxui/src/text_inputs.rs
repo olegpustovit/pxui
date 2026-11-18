@@ -269,8 +269,18 @@ impl Ui {
             context_at: lang.map(|_| context_at as extern "C" fn(*mut c_void, Str, i64) -> u32),
             rewrite: lang.and_then(|l| l.rewrite).map(|_| rewrite as extern "C" fn(*mut c_void, Str, i64, *mut PxuiRewrite)),
         };
+        // linked statically, the library's trusted entry takes the descriptor as Rust values
+        #[cfg(feature = "static")]
+        {
+            let (mut changed, mut submitted, mut response) = (None, false, PxuiResponse::EMPTY);
+            check(self, unsafe { pxui_abi_link::trusted::text_area(self.0.as_ptr(), &desc, &node, &cbs, o.name, &mut changed, &mut submitted, &mut response) });
+            return TextAreaResponse { response: input_response(&response, changed.is_some()), changed: changed.map(lent_str), submitted };
+        }
+        #[cfg(not(feature = "static"))]
         let (mut out, mut changed, mut submitted, mut response) = (Str::default(), 0, 0, PxuiResponse::EMPTY);
+        #[cfg(not(feature = "static"))]
         check(self, unsafe { lib::pxui_ui_text_area_response(self.0.as_ptr(), &desc, &node, &cbs, as_str(o.name), &mut out, &mut changed, &mut submitted, &mut response) });
+        #[cfg(not(feature = "static"))]
         TextAreaResponse { response: input_response(&response, changed != 0), changed: (changed != 0).then(|| lent_str(out)), submitted: submitted != 0 }
     }
 
@@ -281,9 +291,21 @@ impl Ui {
         let label = key.label(&mut id_label);
         let desc = value_desc(rect, o, label, value);
         let accept = |_: &str| true;
+        // linked statically, the library's trusted entry calls the closures directly
+        #[cfg(feature = "static")]
+        {
+            let (mut changed, mut editing, mut response) = (None, false, PxuiResponse::EMPTY);
+            let (slide, scrub) = (cb.slide.map(|f| f as &dyn Fn(f32) -> String), cb.scrub.map(|f| f as &dyn Fn(&str, f32, bool) -> String));
+            check(self, unsafe { pxui_abi_link::trusted::value_field(self.0.as_ptr(), &desc, cb.valid.unwrap_or(&accept), slide, scrub, o.name, &mut changed, &mut editing, &mut response) });
+            return ValueFieldResponse { response: input_response(&response, changed.is_some()), changed: changed.map(lent_str), editing };
+        }
+        #[cfg(not(feature = "static"))]
         let mut field = Field { valid: cb.valid.unwrap_or(&accept), slide: cb.slide, scrub: cb.scrub, produced: String::new() };
+        #[cfg(not(feature = "static"))]
         let (mut out, mut changed, mut editing, mut response) = (Str::default(), 0, 0, PxuiResponse::EMPTY);
+        #[cfg(not(feature = "static"))]
         check(self, unsafe { lib::pxui_ui_value_field_response(self.0.as_ptr(), &desc, Some(valid_call), cb.slide.map(|_| slide_call as extern "C" fn(*mut c_void, f32, *mut Str)), cb.scrub.map(|_| scrub_call as extern "C" fn(*mut c_void, Str, f32, u8, *mut Str)), &mut field as *mut Field as *mut c_void, as_str(o.name), &mut out, &mut changed, &mut editing, &mut response) });
+        #[cfg(not(feature = "static"))]
         ValueFieldResponse { response: input_response(&response, changed != 0), changed: (changed != 0).then(|| lent_str(out)), editing: editing != 0 }
     }
 

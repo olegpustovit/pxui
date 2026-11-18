@@ -18,7 +18,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 91u)
+#define PXUI_ABI_BUILT ((1u << 16) | 92u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 typedef struct { uint32_t autocorrect, capitalization, action; } PxuiTextInputOptions;
@@ -129,6 +129,11 @@ typedef struct { PxuiLook idle,hover,pressed,focus,disabled,checked; } PxuiState
 /* The body each widget kind builds with: 0 the built-in, n the nth body registered for the kind. */
 typedef struct { uint16_t toggle,slider,progress,button,icon_button,checkbox,radio,spinner,badge,label,footer,grip,panel,window,popup,modal,dialog,inspector_section,inspector_row,split,scroll_view,toast,tip,tab,segment,dropdown,menu_bar,menu_item,context_menu,list_view,tree,table_view,table_head,picker,search_field,text_field,line_field,value_field,picker_field,section_index; } PxuiBodies;
 typedef struct { PxuiTokens tokens; float row_h,control_h; PxuiRing ring; float scrollbar_w,scrollbar_gap; PxuiStates parts[PXUI_THEME_PARTS]; PxuiBodies bodies; } PxuiThemeSnapshot;
+/* ABI 1.92: a handle's public head. theme is the theme in effect for this handle as pxui_ui_theme_exact lends it, NULL until a theme
+   read on the handle fills it; then read the field in place of the call. It stays valid while the handle does and cannot change while
+   the handle is usable (a theme swap is refused in a frame; a themed scope builds through a handle of its own). The rest of the
+   record is private: never allocate, copy or size a PxuiUi. */
+struct PxuiUi { const PxuiThemeSnapshot *theme; };
 #if defined(__LP64__) || defined(_WIN64)
 #endif
 enum PxuiSizeKind { PXUI_SIZE_PX=0, PXUI_SIZE_PCT=1, PXUI_SIZE_REL=2, PXUI_SIZE_GROW=3, PXUI_SIZE_FIT=4 };
@@ -536,7 +541,8 @@ const PxuiOutput *pxui_ui_output(PxuiUi *ui); /* borrowed from the Ui until its 
    (a poisoned Ui, a handle that is not the current one): see pxui_last_error. */
 const PxuiThemeSnapshot *pxui_ui_theme(PxuiUi *ui);
 /* ABI 1.78: the theme as the engine keeps it: each PxuiTokens text size is a float in the low half of its int64_t slot (the other
-   half 0), fonts carry a fractional size in PxuiFont's tail padding. pxui_ui_theme lends the integer projection of it. */
+   half 0), fonts carry a fractional size in PxuiFont's tail padding. pxui_ui_theme lends the integer projection of it. ABI 1.92: it
+   also records the theme in the handle's head (PxuiUi.theme). */
 const PxuiThemeSnapshot *pxui_ui_theme_exact(PxuiUi *ui);
 /* Measured virtual rows: count <= 1,000,000, finite positive estimate and finite estimated total.
    Called inside a frame; build may repeat while measured heights settle. The returned box scrolls the list. */

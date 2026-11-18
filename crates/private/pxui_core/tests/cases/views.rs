@@ -1006,13 +1006,11 @@ pub fn window_pxui_view_fit() {
 /// unit) beside it.
 pub fn window_pxui_field_kept_drag() {
     use std::cell::RefCell;
-    use std::rc::Rc;
     let mut ui = new_ui(None);
     let value = RefCell::new("0.25".to_owned());
     let (builds, key) = (Cell::new(0), Cell::new(0));
     let opts = |current: &str| ValueFieldOpts {
         fraction: current.parse::<f32>().ok(),
-        slide: Some(Rc::new(|f: f32| cfmt::g(f64::from(f), 3))),
         kept_drag: true,
         trail: Some(("mm".to_owned(), pxui_core::geom::Rgba::WHITE)),
         ..ValueFieldOpts::default()
@@ -1023,7 +1021,7 @@ pub fn window_pxui_field_kept_drag() {
             builds.set(builds.get() + 1);
             let wrap = ui.box_("wrap", BoxOpts::default().w(Size::Px(200.0)).h(Size::Px(40.0)));
             key.set(pxui_core::ui_core::key_of(wrap.box_key, "field"));
-            ui.within(&wrap, &mut |ui| if let Some(text) = ui.value_field((20.0, 10.0), 100.0, 20.0, &opts(&current), &|_| true, "field", &current).0 { *value.borrow_mut() = text.to_owned(); });
+            ui.within(&wrap, &mut |ui| if let Some(text) = ui.value_field((20.0, 10.0), 100.0, 20.0, &opts(&current), &|_| true, Some(&|f: f32| cfmt::g(f64::from(f), 3)), None, "field", &current).0 { *value.borrow_mut() = text.to_owned(); });
         });
     };
     let at = |x: i64| ((x, 20), (x as f64, 20.0));

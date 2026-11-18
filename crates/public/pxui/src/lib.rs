@@ -144,7 +144,8 @@ mod sys {
     use core::ffi::c_void;
     use pxui_types::{FrameIn, FrameOut, Str};
     use pxui_types::ffi::{A11yAction, Input};
-    #[repr(C)] pub struct PxuiUi { _private: [u8; 0] }
+    /// The handle's public head (`include/pxui.h`): the theme in effect for it, null until a theme read fills it.
+    #[repr(C)] pub struct PxuiUi { pub theme: *const pxui_types::theme::ThemeSnapshot, _private: [u8; 0] }
     pub use pxui_types::{PxuiBox, PxuiTargetDesc, PxuiUiDesc};
     #[repr(C)] pub struct PxuiRenderer { _private:[u8;0] }
     #[repr(C)] pub struct PxuiTheme { _private:[u8;0] }
@@ -755,14 +756,25 @@ impl Ui {
     #[inline] pub fn tokens(&self) -> pxui_types::theme::Tokens { self.theme().tokens }
     /// The theme in effect, whole: the library's own fractional snapshot, lent (no copy). Text sizes and fonts keep fractional
     /// points. Anything that could change it takes `&mut self`, so the borrow cannot outlive it.
-    /// Panics with the library's message when the call is refused (a `Ui` an earlier panic poisoned): the library returns null.
+    /// Panics with the library's message when the first read of a handle is refused (a `Ui` an earlier panic poisoned): the library
+    /// returns null. A later read is the handle's own record of it (one load, no call), which stays valid while the handle does.
     #[inline]
     #[track_caller]
     pub fn theme(&self) -> &pxui_types::theme::Theme {
+        let cached = unsafe { (*self.0.as_ptr()).theme };
+        let theme = if cached.is_null() { self.theme_read() } else { cached };
+        unsafe { &*theme }
+    }
+
+    /// The first theme read of a handle: the library lends the theme and records it in the handle.
+    #[cold]
+    #[inline(never)]
+    #[track_caller]
+    fn theme_read(&self) -> *const pxui_types::theme::Theme {
         // the 1.x `pxui_ui_theme` lends the legacy integer layout, which this type no longer matches
         let theme = unsafe { sys::pxui_ui_theme_exact(self.0.as_ptr()) };
         if theme.is_null() { refused(self, pxui_types::PXUI_ERR_PANIC) }
-        unsafe { &*theme }
+        theme
     }
 
     #[inline] pub fn draw_revision(&self) -> u64 { self.output().draw_revision }

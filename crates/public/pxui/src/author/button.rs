@@ -47,12 +47,15 @@ pub struct Button<'a> {
     pub(crate) accessory: &'a str,
     pub(crate) detail_label: Option<Label>,
     pub(crate) accessory_label: Option<Label>,
+    /// Every field but `variant` is `DEFAULT`'s: what each builder that sets another clears, so a call tells the plain kit button by
+    /// one flag rather than a compare of every field.
+    pub(crate) plain: bool,
 }
 
 impl<'a> Button<'a> {
     /// The plain kit button.
     pub const DEFAULT: Button<'a> = Button { w: Size::Fit, h: Size::Fit, look: None, enabled: true, selected: false, danger: false, name: None, align: Justify::Start, pad: Edges::ZERO, variant: 0, centered: false,
-        label: None, axis: None, gap: 0.0, content_align: None, focus_on_click: false, icon: None, icon_size: 0.0, detail: "", accessory: "", detail_label: None, accessory_label: None };
+        label: None, axis: None, gap: 0.0, content_align: None, focus_on_click: false, icon: None, icon_size: 0.0, detail: "", accessory: "", detail_label: None, accessory_label: None, plain: true };
 
     /// A button exactly `w` by `h` points with its text centred in it: exactly `Button::DEFAULT.size(Size::Px(w), Size::Px(h)).centered()`.
     /// Allocates: never.
@@ -75,7 +78,7 @@ impl<'a> Button<'a> {
     /// const TAB: Button = Button::DEFAULT.size(Size::Grow, Size::Px(44.0)).centered();
     /// let _ = TAB;
     /// ```
-    pub const fn centered(mut self) -> Button<'a> { self.centered = true; self }
+    pub const fn centered(mut self) -> Button<'a> { self.centered = true; self.plain = false; self }
 
     /// Sets the box's width and height: `Size::Px` points, `Size::Grow` to fill its line, `Size::Fit` the kit's (text plus 14 wide, 20 high).
     /// `Pct` and `Rel` are refused when the button is declared. It leaves `centered` as it is.
@@ -87,7 +90,7 @@ impl<'a> Button<'a> {
     /// const WIDE: Button = Button::DEFAULT.size(Size::Grow, Size::Px(44.0));
     /// let _ = WIDE;
     /// ```
-    pub const fn size(mut self, w: Size, h: Size) -> Button<'a> { self.w = w; self.h = h; self }
+    pub const fn size(mut self, w: Size, h: Size) -> Button<'a> { self.w = w; self.h = h; self.plain = false; self }
 
     /// Sets the look per state (idle, hover, pressed, focus, disabled, checked) in place of the theme's button. Its font draws the
     /// kit's text; to style the text (size, weight, line box) use `label`, which then takes only the look's text colour. The looks are
@@ -101,7 +104,7 @@ impl<'a> Button<'a> {
     /// const B: Button = Button::DEFAULT.look(&PLATE);
     /// let _ = B;
     /// ```
-    pub const fn look(mut self, look: &'a States) -> Button<'a> { self.look = Some(look); self }
+    pub const fn look(mut self, look: &'a States) -> Button<'a> { self.look = Some(look); self.plain = false; self }
 
     /// Sets whether the button takes input: disabled takes no press or focus, shows the `disabled` look and reads as disabled to
     /// accessibility (its node lacks the ENABLED and FOCUSABLE states), and still blocks what is under it. A disabled button never
@@ -113,7 +116,7 @@ impl<'a> Button<'a> {
     /// let b = pxui::Button::DEFAULT.disabled(true);
     /// let _ = b;
     /// ```
-    pub const fn disabled(mut self, disabled: bool) -> Button<'a> { self.enabled = !disabled; self }
+    pub const fn disabled(mut self, disabled: bool) -> Button<'a> { self.enabled = !disabled; self.plain = false; self }
 
     /// Marks the button as the current one of a group: the `checked` look and the accessible SELECTED state.
     /// Allocates: never.
@@ -123,7 +126,7 @@ impl<'a> Button<'a> {
     /// let b = pxui::Button::DEFAULT.selected(true);
     /// let _ = b;
     /// ```
-    pub const fn selected(mut self, selected: bool) -> Button<'a> { self.selected = selected; self }
+    pub const fn selected(mut self, selected: bool) -> Button<'a> { self.selected = selected; self.plain = false; self }
 
     /// Inks the text in the theme's invalid colour in every state but disabled.
     /// Allocates: never.
@@ -133,7 +136,7 @@ impl<'a> Button<'a> {
     /// const DELETE: pxui::Button = pxui::Button::DEFAULT.danger();
     /// let _ = DELETE;
     /// ```
-    pub const fn danger(mut self) -> Button<'a> { self.danger = true; self }
+    pub const fn danger(mut self) -> Button<'a> { self.danger = true; self.plain = false; self }
 
     /// Sets the accessible name; the text is the name without it. The name is borrowed for the button's life: a name made at run time
     /// (a song's title) needs no copy.
@@ -146,7 +149,7 @@ impl<'a> Button<'a> {
     /// let row = pxui::Button::DEFAULT.name(&title);
     /// let _ = (B, row);
     /// ```
-    pub const fn name(mut self, name: &'a str) -> Button<'a> { self.name = Some(name); self }
+    pub const fn name(mut self, name: &'a str) -> Button<'a> { self.name = Some(name); self.plain = false; self }
 
     /// Sets where the box sits in its line: `Start` (5 points in), `Center` or `End` (8 points from the end).
     /// Allocates: never.
@@ -157,7 +160,7 @@ impl<'a> Button<'a> {
     /// const B: Button = Button::DEFAULT.align(Justify::End);
     /// let _ = B;
     /// ```
-    pub const fn align(mut self, align: Justify) -> Button<'a> { self.align = align; self }
+    pub const fn align(mut self, align: Justify) -> Button<'a> { self.align = align; self.plain = false; self }
 
     /// Adds padding inside the box (left, top, right, bottom); with a `Fit` width it widens the box by left and right. It insets the
     /// box's contents; a `label`'s own `pad` and width are the text node's, inside that padding.
@@ -169,7 +172,7 @@ impl<'a> Button<'a> {
     /// const B: Button = Button::DEFAULT.pad(Edges { l: 4.0, t: 0.0, r: 4.0, b: 0.0 });
     /// let _ = B;
     /// ```
-    pub const fn pad(mut self, pad: Edges) -> Button<'a> { self.pad = pad; self }
+    pub const fn pad(mut self, pad: Edges) -> Button<'a> { self.pad = pad; self.plain = false; self }
 
     /// Sets the variant a registered body reads from its config (`variant`, 0 by default): one body builds different structures by it, so the app
     /// picks per call without comparing text. The built-in body ignores it.
@@ -197,7 +200,7 @@ impl<'a> Button<'a> {
     /// const ROW: Button = Button::sized(200.0, 32.0).label(Label::BODY.size(14.0).h_px(19.6)).content_align(pxui::ui::Along::Start);
     /// let _ = ROW;
     /// ```
-    pub const fn label(mut self, style: Label) -> Button<'a> { self.label = Some(style); self }
+    pub const fn label(mut self, style: Label) -> Button<'a> { self.label = Some(style); self.plain = false; self }
 
     /// Sets the axis the box lays its contents along (the text, or what `Ui::button_content` builds): `Row` side by side, `Column`
     /// one under the other, `Stack` on top of each other. Unset, the kit's: the text alone, the contents in a column.
@@ -209,7 +212,7 @@ impl<'a> Button<'a> {
     /// const TILE: Button = Button::sized(64.0, 64.0).axis(Axis::Column).gap(4.0);
     /// let _ = TILE;
     /// ```
-    pub const fn axis(mut self, axis: Axis) -> Button<'a> { self.axis = Some(axis); self }
+    pub const fn axis(mut self, axis: Axis) -> Button<'a> { self.axis = Some(axis); self.plain = false; self }
 
     /// Sets the space between the box's contents in points (0 by default).
     /// Allocates: never.
@@ -219,7 +222,7 @@ impl<'a> Button<'a> {
     /// const PILL: pxui::Button = pxui::Button::sized(90.0, 30.0).gap(6.0);
     /// let _ = PILL;
     /// ```
-    pub const fn gap(mut self, gap: f32) -> Button<'a> { self.gap = gap; self }
+    pub const fn gap(mut self, gap: f32) -> Button<'a> { self.gap = gap; self.plain = false; self }
 
     /// Sets where the contents sit across the box: `Start`, `Center` or `End` (along a row, across a column); down the box they are
     /// centred. Unset, the kit's: centred in a `centered` button, at the start otherwise. `align` places the box itself in its line.
@@ -231,7 +234,7 @@ impl<'a> Button<'a> {
     /// const ACTION: Button = Button::sized(200.0, 28.0).content_align(Along::Start);
     /// let _ = ACTION;
     /// ```
-    pub const fn content_align(mut self, align: Along) -> Button<'a> { self.content_align = Some(align); self }
+    pub const fn content_align(mut self, align: Along) -> Button<'a> { self.content_align = Some(align); self.plain = false; self }
 
     /// Sets whether a press focuses the button (`false` by default: only Tab focuses it, so a click leaves the focus where it was).
     /// Allocates: never.
@@ -241,7 +244,7 @@ impl<'a> Button<'a> {
     /// const FILE: pxui::Button = pxui::Button::sized(120.0, 36.0).focus_on_click(true);
     /// let _ = FILE;
     /// ```
-    pub const fn focus_on_click(mut self, focus: bool) -> Button<'a> { self.focus_on_click = focus; self }
+    pub const fn focus_on_click(mut self, focus: bool) -> Button<'a> { self.focus_on_click = focus; self.plain = false; self }
 
     /// Draws `icon` before the text, in a 20-point (control-high) square inked in the look's text colour for the button's state: an
     /// icon font glyph or the app's drawing, as `Ui::icon_button` draws it. The box lays the icon, the text and any detail and accessory
@@ -254,7 +257,7 @@ impl<'a> Button<'a> {
     /// const SHUFFLE: pxui::Button = pxui::Button::sized(120.0, 36.0).icon(pxui::Icon::glyph('~'));
     /// let _ = SHUFFLE;
     /// ```
-    pub const fn icon(mut self, icon: Icon) -> Button<'a> { self.icon = Some(icon); self }
+    pub const fn icon(mut self, icon: Icon) -> Button<'a> { self.icon = Some(icon); self.plain = false; self }
 
     /// Draws the icon in a `points` square instead of the control-high one (0, the default). With `axis(Axis::Column)` the icon stacks
     /// above the text, centred (a deck key, a 52-point offline key).
@@ -266,7 +269,7 @@ impl<'a> Button<'a> {
     /// const DECK: Button = Button::sized(64.0, 52.0).icon(Icon::glyph('+')).icon_size(24.0).axis(Axis::Column);
     /// let _ = DECK;
     /// ```
-    pub const fn icon_size(mut self, points: f32) -> Button<'a> { self.icon_size = points; self }
+    pub const fn icon_size(mut self, points: f32) -> Button<'a> { self.icon_size = points; self.plain = false; self }
 
     /// Draws `detail` as a second line under the text, which it borrows (a literal or a runtime string): in `detail_label`'s style, or
     /// the theme's label style. A button of the kit's height grows to fit both lines. Empty is none. The detail is a text node inside the
@@ -279,7 +282,7 @@ impl<'a> Button<'a> {
     /// const RESCAN: pxui::Button = pxui::Button::DEFAULT.detail("Look for new and changed files in every source");
     /// let _ = RESCAN;
     /// ```
-    pub const fn detail(mut self, detail: &'a str) -> Button<'a> { self.detail = detail; self }
+    pub const fn detail(mut self, detail: &'a str) -> Button<'a> { self.detail = detail; self.plain = false; self }
 
     /// Draws `accessory` at the end of the box, after the text: a keyboard shortcut ("⌘K"), a count or a disclosure mark, which it borrows.
     /// In `accessory_label`'s style, or the theme's label style; a box wider than its contents keeps it at its end. Empty is none. A
@@ -291,7 +294,7 @@ impl<'a> Button<'a> {
     /// const SEARCH: pxui::Button = pxui::Button::sized(200.0, 28.0).accessory("⌘K");
     /// let _ = SEARCH;
     /// ```
-    pub const fn accessory(mut self, accessory: &'a str) -> Button<'a> { self.accessory = accessory; self }
+    pub const fn accessory(mut self, accessory: &'a str) -> Button<'a> { self.accessory = accessory; self.plain = false; self }
 
     /// Draws the `detail` line through the label line box in `style` in place of the theme's label style (an unset width is the
     /// text's, an unset pad none, an unset colour the theme label's).
@@ -303,7 +306,7 @@ impl<'a> Button<'a> {
     /// const ROW: Button = Button::DEFAULT.detail("Every source").detail_label(Label::BODY.size(12.0));
     /// let _ = ROW;
     /// ```
-    pub const fn detail_label(mut self, style: Label) -> Button<'a> { self.detail_label = Some(style); self }
+    pub const fn detail_label(mut self, style: Label) -> Button<'a> { self.detail_label = Some(style); self.plain = false; self }
 
     /// Draws the `accessory` through the label line box in `style` in place of the theme's label style (unset fields as `detail_label`).
     /// Allocates: never.
@@ -314,7 +317,7 @@ impl<'a> Button<'a> {
     /// const SEARCH: Button = Button::sized(200.0, 28.0).accessory("⌘K").accessory_label(Label::MONO.size(11.0));
     /// let _ = SEARCH;
     /// ```
-    pub const fn accessory_label(mut self, style: Label) -> Button<'a> { self.accessory_label = Some(style); self }
+    pub const fn accessory_label(mut self, style: Label) -> Button<'a> { self.accessory_label = Some(style); self.plain = false; self }
 }
 
 impl Ui {

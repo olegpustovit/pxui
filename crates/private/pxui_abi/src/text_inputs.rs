@@ -17,7 +17,7 @@ unsafe fn span_of<'a, T>(values: pxui_types::ffi::Slice<T>, max: usize) -> Optio
 
 /// The `TextAreaOpts` a text area descriptor and its callbacks describe, or None when a span or text is invalid. The closures
 /// hold `user` and run only during the widget's call.
-unsafe fn area_opts(d: &PxuiTextAreaDesc, cb: Option<&PxuiAreaCallbacks>, o: &mut TextAreaOpts, ad: &mut AreaAdapters) -> Option<()> {
+pub(crate) unsafe fn area_opts(d: &PxuiTextAreaDesc, cb: Option<&PxuiAreaCallbacks>, o: &mut TextAreaOpts, ad: &mut AreaAdapters) -> Option<()> {
     const MAX: usize = 1 << 16;
     let has = |flag: u32| d.flags & flag != 0;
     // byte offsets and lines are never negative
@@ -213,43 +213,21 @@ unsafe fn text_area(
     0
 }
 
-/// What the callbacks of a value field reach: the caller's `user` and functions of the call in progress (they run only during it).
-pub(crate) struct FieldCtx { user: Cell<*mut c_void>, slide: Cell<SlideText>, scrub: Cell<ScrubText>, invalid: Cell<bool> }
-pub(crate) type FieldCallbacks = (Rc<FieldCtx>, Rc<dyn Fn(f32) -> String>, Rc<dyn Fn(&str, f32, bool) -> String>);
-
 /// Text a callback wrote, copied into the engine's `String` (refused, and the call fails, when it is not UTF-8 or too long).
-fn produced(ctx: &FieldCtx, out: Str) -> String {
-    match unsafe { checked(out) } { Some(text) => text.to_owned(), None => { ctx.invalid.set(true); String::new() } }
-}
-
-fn field_callbacks() -> FieldCallbacks {
-    let ctx = Rc::new(FieldCtx { user: Cell::new(core::ptr::null_mut()), slide: Cell::new(None), scrub: Cell::new(None), invalid: Cell::new(false) });
-    let slide = { let ctx = Rc::clone(&ctx); Rc::new(move |fraction: f32| {
-        let Some(slide) = ctx.slide.get() else { return String::new() };
-        let mut out = Str::default();
-        slide(ctx.user.get(), fraction, &mut out);
-        produced(&ctx, out)
-    }) as Rc<dyn Fn(f32) -> String> };
-    let scrub = { let ctx = Rc::clone(&ctx); Rc::new(move |origin: &str, dx: f32, coarse: bool| {
-        let Some(scrub) = ctx.scrub.get() else { return String::new() };
-        let mut out = Str::default();
-        scrub(ctx.user.get(), Str { ptr: origin.as_ptr(), len: origin.len() }, dx, coarse as u8, &mut out);
-        produced(&ctx, out)
-    }) as Rc<dyn Fn(&str, f32, bool) -> String> };
-    (ctx, slide, scrub)
+fn produced(invalid: &Cell<bool>, out: Str) -> String {
+    match unsafe { checked(out) } { Some(text) => text.to_owned(), None => { invalid.set(true); String::new() } }
 }
 
 pub type SlideText = Option<extern "C" fn(*mut c_void, f32, *mut Str)>;
 pub type ScrubText = Option<extern "C" fn(*mut c_void, Str, f32, u8, *mut Str)>;
 
-/// The options a value field descriptor names, without its callbacks.
-fn field_opts(d: &PxuiValueFieldDesc, display: &str, placeholder: &str, lead: &str, trail: &str) -> ValueFieldOpts {
+/// The options a value field descriptor names (its callbacks are the call's arguments).
+pub(crate) fn field_opts(d: &PxuiValueFieldDesc, display: &str, placeholder: &str, lead: &str, trail: &str) -> ValueFieldOpts {
     let has = |flag: u32| d.flags & flag != 0;
     ValueFieldOpts {
         size: has(PxuiValueFieldDesc::HAS_SIZE).then_some(d.font_size),
         display: has(PxuiValueFieldDesc::HAS_DISPLAY).then(|| display.to_owned()),
         fraction: has(PxuiValueFieldDesc::HAS_FRACTION).then_some(d.fraction),
-        slide: None, scrub: None,
         left: has(PxuiValueFieldDesc::LEFT), edit: has(PxuiValueFieldDesc::EDIT),
         lead: has(PxuiValueFieldDesc::HAS_LEAD).then(|| (lead.to_owned(), d.lead_color)),
         trail: has(PxuiValueFieldDesc::HAS_TRAIL).then(|| (trail.to_owned(), d.trail_color)),
@@ -310,22 +288,23 @@ unsafe fn value_field(
     }
     let (d, [display, placeholder, lead, trail, label, value]) = match unsafe { field_desc(ui, desc) } { Ok(v) => v, Err(code) => return code };
     unsafe { *out_text = Str::default(); *out_changed = 0; *out_editing = 0; }
-    let (ctx, slide_cb, scrub_cb) = state.shared().field.get_or_insert_with(field_callbacks).clone();
-    ctx.invalid.set(false);
-    ctx.user.set(user);
-    let slide_cb = slide.map(|slide| { ctx.slide.set(Some(slide)); slide_cb });
-    let scrub_cb = scrub.map(|scrub| { ctx.scrub.set(Some(scrub)); scrub_cb });
-    let mut opts = field_opts(&d, display, placeholder, lead, trail);
-    opts.slide = slide_cb;
-    opts.scrub = scrub_cb;
+    // the caller's functions, run only during this call
+    let invalid = Cell::new(false);
+    let slide_cb = |fraction: f32| { let mut out = Str::default(); if let Some(slide) = slide { slide(user, fraction, &mut out); } produced(&invalid, out) };
+    let scrub_cb = |origin: &str, dx: f32, coarse: bool| {
+        let mut out = Str::default();
+        if let Some(scrub) = scrub { scrub(user, Str { ptr: origin.as_ptr(), len: origin.len() }, dx, coarse as u8, &mut out); }
+        produced(&invalid, out)
+    };
+    let opts = field_opts(&d, display, placeholder, lead, trail);
     let accept = |text: &str| {
         let Some(valid) = valid else { return true; };
         let result = valid(user, Str { ptr: text.as_ptr(), len: text.len() });
-        if result > 1 { ctx.invalid.set(true); }
+        if result > 1 { invalid.set(true); }
         result == 1
     };
-    let (text, editing) = unsafe { (&mut *state.engine).value_field((d.x, d.y), d.width, d.height, &opts, &accept, label, value) };
-    if ctx.invalid.get() { return unsafe { fail(ui, "invalid value field callback result") }; }
+    let (text, editing) = unsafe { (&mut *state.engine).value_field((d.x, d.y), d.width, d.height, &opts, &accept, slide.map(|_| &slide_cb as &dyn Fn(f32) -> String), scrub.map(|_| &scrub_cb as &dyn Fn(&str, f32, bool) -> String), label, value) };
+    if invalid.get() { return unsafe { fail(ui, "invalid value field callback result") }; }
     unsafe { *out_changed = text.is_some() as u8; *out_editing = editing as u8; }
     // the field's text, changed or not, kept by the library until the next frame
     let Ok(text) = state.lend(text.unwrap_or(value)) else { return crate::PXUI_ERR_STATE };

@@ -215,6 +215,57 @@ pub unsafe fn text_field(ui: *mut PxuiUi, key: &str, name: &str, value: &str, tr
     unsafe { input_response(ui, None, out) }
 }
 
+/// A Rust `&str` the static wrapper lent as a `Str` (UTF-8 by its type).
+unsafe fn lent<'a>(value: Str) -> &'a str {
+    if value.len == 0 { "" } else { unsafe { core::str::from_utf8_unchecked(core::slice::from_raw_parts(value.ptr, value.len)) } }
+}
+
+/// `pxui_ui_value_field_response` for the static wrapper: the descriptor's strings are Rust `&str`s (UTF-8 by their type, display text
+/// clipped by the wrapper) and the callbacks Rust closures the engine calls directly. `changed` takes the new text (the engine's, borrowed
+/// until the next call on the `Ui`), `editing` whether a text editor is open, `out` what happened to the field's box.
+#[allow(clippy::too_many_arguments)]
+#[inline]
+pub unsafe fn value_field(ui: *mut PxuiUi, d: &pxui_types::ffi::PxuiValueFieldDesc, valid: &dyn Fn(&str) -> bool, slide: Option<&dyn Fn(f32) -> String>, scrub: Option<&dyn Fn(&str, f32, bool) -> String>,
+    name: &str, changed: &mut Option<Str>, editing: &mut bool, out: &mut PxuiResponse) -> i32 {
+    enter!(ui);
+    let (label, value) = unsafe { (lent(d.label), lent(d.value)) };
+    if bad_label(label) || value.len() > MAX_TEXT_BYTES || !crate::state::finite(&[d.x, d.y, d.width, d.height, d.fraction, d.tracking]) || d.width < 0.0 || d.height < 0.0 || d.font_size < 0 {
+        return unsafe { fail(ui, "invalid value field arguments") };
+    }
+    let opts = unsafe { crate::text_inputs::field_opts(d, lent(d.display), lent(d.placeholder), lent(d.lead), lent(d.trail)) };
+    let (text, open) = unsafe { engine(ui) }.value_field((d.x, d.y), d.width, d.height, &opts, valid, slide, scrub, label, value);
+    *changed = text.map(|t| Str { ptr: t.as_ptr(), len: t.len() });
+    *editing = open;
+    unsafe { input_response(ui, Some(clip(name)), out) }
+}
+
+/// Whether a text input's label (its identity, display-text sized: `checked_label`) is refused.
+fn bad_label(label: &str) -> bool { label.len() > MAX_LABEL_BYTES || crate::state::unusable(label) }
+
+/// `pxui_ui_text_area_response` for the static wrapper: the descriptor's strings are Rust `&str`s and its spans Rust slices (UTF-8 and in
+/// bounds by their types; their contents are checked as the export checks them), `node` a Rust value. `changed` takes the new text (the
+/// engine's, borrowed until the next call on the `Ui`), `submitted` whether it was submitted, `out` what happened to the area's box.
+#[allow(clippy::too_many_arguments)]
+#[inline]
+pub unsafe fn text_area(ui: *mut PxuiUi, d: &pxui_types::ffi::PxuiTextAreaDesc, node: &Node, cbs: &pxui_types::ffi::PxuiAreaCallbacks, name: &str,
+    changed: &mut Option<Str>, submitted: &mut bool, out: &mut PxuiResponse) -> i32 {
+    enter!(ui);
+    let (label, value) = unsafe { (lent(d.label), lent(d.value)) };
+    let bad_curve = matches!(&node.transition, pxui_types::node::OptTransition::Some(curve) if !curve.valid());
+    if bad_label(label) || value.len() > MAX_TEXT_BYTES || node.grid.is_some() || bad_curve || d.flags & !pxui_types::ffi::PxuiTextAreaDesc::KNOWN != 0 {
+        return unsafe { fail(ui, "invalid text area arguments") };
+    }
+    let shared = unsafe { (*ui).shared() };
+    let (opts, ad) = (&mut shared.area, shared.area_ad.get_or_insert_with(crate::text_inputs::area_adapters));
+    if unsafe { crate::text_inputs::area_opts(d, Some(cbs), opts, ad) }.is_none() { return unsafe { fail(ui, "invalid text area options") }; }
+    let (text, done) = unsafe { engine(ui) }.text_area_submit(*node, opts, label, value);
+    *changed = text.map(|t| Str { ptr: t.as_ptr(), len: t.len() });
+    *submitted = done;
+    // the language goes back to its adapters for the next call
+    if let Some(lang) = opts.language.take() { ad.language = Some(lang); }
+    unsafe { input_response(ui, Some(clip(name)), out) }
+}
+
 /// What happened to the text input the widget call just built (`Ui::input_response`), the box named `name` when given: what a text
 /// input's `_response` export reports. `PXUI_ERR_STATE` when the call built none.
 #[inline]
@@ -226,7 +277,10 @@ pub(crate) unsafe fn input_response(ui: *mut PxuiUi, name: Option<&str>, out: &m
 #[inline]
 pub unsafe fn pxui_ui_theme(ui: *mut PxuiUi) -> *const ThemeSnapshot {
     enter!(any ui, core::ptr::null());
-    (unsafe { engine(ui) }.theme() as *const pxui_core::Theme).cast()
+    let theme = (unsafe { engine(ui) }.theme() as *const pxui_core::Theme).cast();
+    // cached in the handle: the theme a usable handle sees cannot change (see `PxuiUi`)
+    unsafe { (*ui).theme = theme; }
+    theme
 }
 
 // ---- containers: their children run through `Inner`

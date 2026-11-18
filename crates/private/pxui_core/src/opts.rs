@@ -75,14 +75,12 @@ impl BoxOpts {
     }
 }
 
-/// Options of `value_field` beyond its place and key.
-#[derive(Clone)]
+/// Options of `value_field` beyond its place and key. Its `slide` and `scrub` callbacks are the call's arguments (borrowed for it).
+#[derive(Clone, Default)]
 pub struct ValueFieldOpts {
     pub size: Option<i64>,
     pub display: Option<String>,
     pub fraction: Option<f32>,
-    pub slide: Option<Rc<dyn Fn(f32) -> String>>,
-    pub scrub: Option<Rc<dyn Fn(&str, f32, bool) -> String>>,
     pub left: bool,
     pub edit: bool,
     pub lead: Option<(String, Rgba)>,
@@ -94,27 +92,6 @@ pub struct ValueFieldOpts {
     /// the owner follows a drag of the slider between builds (`field_drag`, `patch_field`): the
     /// drag dirties no view (`DRAG_FREE`)
     pub kept_drag: bool,
-}
-
-impl Default for ValueFieldOpts {
-    fn default() -> ValueFieldOpts {
-        ValueFieldOpts {
-            size: None,
-            display: None,
-            fraction: None,
-            slide: None,
-            scrub: None,
-            left: false,
-            edit: false,
-            lead: None,
-            trail: None,
-            line: None,
-            bare: false,
-            placeholder: None,
-            tracking: None,
-            kept_drag: false,
-        }
-    }
 }
 
 /// What a code editor knows about its text. A host supplies one (the editor's Lisp); the text area

@@ -353,8 +353,10 @@ pub(crate) fn default_picker_row(this: &mut Ui, c: &PickerRowConfig, text: &str,
 }
 
 /// Whether the text changed (the new one is in `returned`) and whether a text editor is open.
-fn value_field_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &ValueFieldOpts, valid: &dyn Fn(&str) -> bool, label: &str, value: &str) -> (bool, bool) {
-    let slider = o.slide.is_some() || o.scrub.is_some();
+#[allow(clippy::too_many_arguments)]
+fn value_field_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &ValueFieldOpts, valid: &dyn Fn(&str) -> bool, slide: Option<&dyn Fn(f32) -> String>,
+    scrub: Option<&dyn Fn(&str, f32, bool) -> String>, label: &str, value: &str) -> (bool, bool) {
+    let slider = slide.is_some() || scrub.is_some();
     let drag = if slider && o.kept_drag { Flags::DRAG_FREE } else { Flags::NONE };
     let bx = this.box_(
         label,
@@ -399,7 +401,7 @@ fn value_field_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &ValueFiel
             && !press_keys.contains(&Key::Alt) =>
         {
             let pointer = if signal.released { signal.release_point } else { signal.pointer };
-            match (&o.slide, &o.scrub) {
+            match (slide, scrub) {
                 (Some(slide), _) => std::borrow::Cow::Owned(slide(fraction_at(bounds, pointer.0))),
                 (None, Some(scrub)) => {
                     let origin = match &this.scrub_origin {
@@ -558,6 +560,8 @@ fn inspector_header_body(this: &mut Ui, key: &str, kind: Option<&str>, badge: Op
                 title_h,
                 &o,
                 &**valid,
+                None,
+                None,
                 &format!("{}-name", key),
                 title,
             );
@@ -899,8 +903,9 @@ impl Ui {
     /// frames it differs from `value` (borrowed until the next call on the Ui) and whether a text
     /// editor is open.
     #[allow(clippy::too_many_arguments)]
-    pub fn value_field(&mut self, at: (f32, f32), w: f32, h: f32, o: &ValueFieldOpts, valid: &dyn Fn(&str) -> bool, label: &str, value: &str) -> (Option<&str>, bool) {
-        let (changed, editing) = value_field_body(self, at, w, h, o, valid, label, value);
+    pub fn value_field(&mut self, at: (f32, f32), w: f32, h: f32, o: &ValueFieldOpts, valid: &dyn Fn(&str) -> bool, slide: Option<&dyn Fn(f32) -> String>,
+        scrub: Option<&dyn Fn(&str, f32, bool) -> String>, label: &str, value: &str) -> (Option<&str>, bool) {
+        let (changed, editing) = value_field_body(self, at, w, h, o, valid, slide, scrub, label, value);
         (changed.then_some(self.returned.as_str()), editing)
     }
 

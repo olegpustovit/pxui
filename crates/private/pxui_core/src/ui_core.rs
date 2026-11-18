@@ -1040,7 +1040,9 @@ type Palette = [Rgba; pxui_types::theme::ColorToken::LIMIT];
 pub struct Ui {
     /// `themed` overrides in effect (`themes[..theme_depth]`, storage kept), the distinct themes views
     /// were built under (an id is an index) and the id in effect
-    themes: Vec<(Theme, Option<Palette>)>,
+    // boxed: an entry stays where it is while deeper ones are pushed, so a pointer to the theme in effect (`theme`) stays valid
+    // for as long as its scope lasts (the library's handles cache it)
+    themes: Vec<Box<(Theme, Option<Palette>)>>,
     theme_depth: usize,
     theme_ids: Vec<(Theme, Option<Palette>)>,
     /// the root theme as `set_theme` was given it, kept only when its looks name colour tokens (`theme` holds them resolved), so a
@@ -1587,7 +1589,7 @@ impl Ui {
     /// The theme in effect: the UI's own, or the innermost `themed` override while building in one.
     pub fn theme(&self) -> &Theme {
         // depth 0 wraps to no index: the UI's own (no bounds panic, so a library call that only reads the theme cannot unwind)
-        self.themes.get(self.theme_depth.wrapping_sub(1)).map_or(&self.theme, |(theme, _)| theme)
+        self.themes.get(self.theme_depth.wrapping_sub(1)).map_or(&self.theme, |entry| &entry.0)
     }
 
     /// Names the theme `theme()` returns, process-wide: it differs between `Ui`s and changes whenever the theme might (a swap, a
@@ -1696,7 +1698,7 @@ impl Ui {
 
     #[inline] fn theme_palette(&self) -> Option<&Palette> {
         self.themes.get(self.theme_depth.wrapping_sub(1))
-            .and_then(|(_, palette)| palette.as_ref())
+            .and_then(|entry| entry.1.as_ref())
             .or(self.theme_colors.as_ref())
     }
 
@@ -1804,12 +1806,12 @@ impl Ui {
         };
         self.motion |= theme.tokens.moves();
         if self.theme_depth == self.themes.len() {
-            self.themes.push((*theme, palette));
+            self.themes.push(Box::new((*theme, palette)));
         } else {
-            self.themes[self.theme_depth] = (*theme, palette);
+            *self.themes[self.theme_depth] = (*theme, palette);
         }
         if theme.names_color_tokens() {
-            let (resolved, palette) = &mut self.themes[self.theme_depth];
+            let (resolved, palette) = &mut *self.themes[self.theme_depth];
             resolve_theme(resolved, palette.as_ref().unwrap_or(&self.colors[theme.tokens.is_dark() as usize]));
         }
         self.theme_depth += 1;

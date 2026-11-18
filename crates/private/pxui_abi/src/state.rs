@@ -103,8 +103,6 @@ pub(crate) struct Shared {
     pub actions: Vec<pxui_core::ui::HeadAction>,
     /// the name validator of an inspector head: one closure over a cell the call fills, so a settled head allocates none
     pub rename: Option<(Rc<core::cell::Cell<(crate::text_inputs::TextValid, usize)>>, Rc<dyn Fn(&str) -> bool>)>,
-    /// the value field's callback context and the two closures over it, made once: a field call fills the context instead of allocating closures
-    pub field: Option<crate::text_inputs::FieldCallbacks>,
     pub strs: Vec<Vec<&'static str>>,
     /// a segmented control's options borrowed from the caller for one call: a pool, as `strs`
     pub segments: Vec<Vec<pxui_types::ui::Segment<'static>>>,
@@ -133,22 +131,29 @@ impl Shared {
             error: String::new(), poisoned: false, calls: 0, paint_error: false, icon_word: 0, in_frame: false, current: core::ptr::null_mut(), frame_ended: false, draw_acknowledged: false, renderers: 0, returned: Vec::new(), area: Default::default(), area_ad: None, lent: Vec::new(), lent_used: 0, returned_bytes: 0,
             grid_tracks: HashMap::new(), grid_shared: HashMap::new(), grid_retired: Vec::new(), output: Output::default(), nodes: Vec::new(),
             layers: Vec::new(), dirty: Vec::new(), last_children: Vec::new(), chunks: Vec::new(), chunks_used: 0, spare_input: None, wants: Vec::new(), key_codes: Vec::new(), menu: Vec::new(), menu_sub: Vec::new(), routed: None, routed_events: Vec::new(), routed_text: Vec::new(),routed_touches:Vec::new(), routed_keys: Vec::new(), routed_buttons: Vec::new(),
-            hints: Vec::new(), hits: Vec::new(), actions: Vec::new(), rename: None, field: None, strs: Vec::new(), segments: Vec::new(), raster_glyphs: Vec::new(), menus: Vec::new(), bodies: Default::default(), images: crate::image::Handles::new(), legacy_theme: None,
+            hints: Vec::new(), hits: Vec::new(), actions: Vec::new(), rename: None, strs: Vec::new(), segments: Vec::new(), raster_glyphs: Vec::new(), menus: Vec::new(), bodies: Default::default(), images: crate::image::Handles::new(), legacy_theme: None,
         }
     }
 }
 
-/// The opaque `PxuiUi`: the engine plus the shared state. A borrowed handle (`owner == false`) is what a
-/// frame callback receives: its engine is the live `&mut Ui` of the frame being built.
+/// The `PxuiUi`: the engine plus the shared state. A borrowed handle (`owner == false`) is what a
+/// frame callback receives: its engine is the live `&mut Ui` of the frame being built. Its first field is public (`include/pxui.h`):
+/// the theme in effect for the handle, null until a theme read (`pxui_ui_theme_exact`) fills it, so a caller reads the theme by one
+/// load. The theme a handle sees cannot change while it is usable (a swap is refused in a frame, a `themed` scope builds through
+/// a handle of its own) and the engine keeps each scope's theme in place, so the pointer stays valid for the handle's life.
 #[repr(C)]
 pub struct PxuiUi {
+    pub theme: *const pxui_types::theme::ThemeSnapshot,
     pub(crate) engine: *mut Ui,
     pub(crate) shared: *mut Shared,
     pub(crate) owner: bool,
 }
 
+// the public head `include/pxui.h` declares: the theme pointer first
+const _: () = assert!(core::mem::offset_of!(PxuiUi, theme) == 0);
+
 impl PxuiUi {
-    pub(crate) fn borrowed(engine: &mut Ui, shared: *mut Shared) -> Self { Self { engine: engine as *mut Ui, shared, owner: false } }
+    pub(crate) fn borrowed(engine: &mut Ui, shared: *mut Shared) -> Self { Self { theme: core::ptr::null(), engine: engine as *mut Ui, shared, owner: false } }
     pub(crate) fn shared<'a>(&self) -> &'a mut Shared { unsafe { &mut *self.shared } }
     /// A copy of `value` valid until the next frame, in a buffer reused after it; refused (`PXUI_ERR_STATE`, recorded) past
     /// `MAX_RETURNED` strings or `MAX_RETURNED_BYTES` since the frame began.
