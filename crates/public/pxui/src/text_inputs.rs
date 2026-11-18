@@ -5,7 +5,7 @@ use crate::Handle;
 use crate::composite::{defer_callback_panic, deferred};
 use crate::{as_str, as_text, check, lent_str, lent_string, live, AreaCallbacks, Key, LineField, LineFieldResponse, Response, TextArea, TextAreaResponse, TextField, TextFieldResponse, Ui, ValueCallbacks, ValueField, ValueFieldResponse};
 use core::ffi::c_void;
-use pxui_types::{geom::Rect, ffi::{AreaNotify, PxuiAreaCallbacks, PxuiColorSpan, PxuiCompletion, PxuiDescription, PxuiMaybeRange, PxuiNote, PxuiRange, PxuiRewrite, PxuiSplice, PxuiTextAreaDesc, PxuiTextFieldDesc, PxuiValueFieldDesc, Slice}, ui::{CodeContext, LineStep, TextEdit}, PxuiBox, Str};
+use pxui_types::{geom::Rect, ffi::{AreaNotify, PxuiAreaCallbacks, PxuiResponse, PxuiColorSpan, PxuiCompletion, PxuiDescription, PxuiMaybeRange, PxuiNote, PxuiRange, PxuiRewrite, PxuiSplice, PxuiTextAreaDesc, PxuiTextFieldDesc, PxuiValueFieldDesc, Slice}, ui::{CodeContext, LineStep, TextEdit}, PxuiBox, Str};
 
 pub use pxui_types::ui::ScrubPhase;
 
@@ -13,12 +13,11 @@ pub use pxui_types::ui::ScrubPhase;
 pub const AREA_DATA: usize = 64;
 
 library!(lib {
-    fn pxui_ui_text_area_node(ui: *mut PxuiUi, desc: *const PxuiTextAreaDesc, node: *const pxui_types::Node, cbs: *const PxuiAreaCallbacks, out_text: *mut Str, out_changed: *mut u8, out_submitted: *mut u8) -> i32;
-    fn pxui_ui_value_field(ui: *mut PxuiUi, desc: *const PxuiValueFieldDesc, valid: Option<extern "C" fn(*mut c_void, Str) -> u8>, slide: Option<extern "C" fn(*mut c_void, f32, *mut Str)>, scrub: Option<extern "C" fn(*mut c_void, Str, f32, u8, *mut Str)>, user: *mut c_void, out_text: *mut Str, out_changed: *mut u8, out_editing: *mut u8) -> i32;
+    fn pxui_ui_text_area_response(ui: *mut PxuiUi, desc: *const PxuiTextAreaDesc, node: *const pxui_types::Node, cbs: *const PxuiAreaCallbacks, name: Str, out_text: *mut Str, out_changed: *mut u8, out_submitted: *mut u8, response: *mut PxuiResponse) -> i32;
+    fn pxui_ui_value_field_response(ui: *mut PxuiUi, desc: *const PxuiValueFieldDesc, valid: Option<extern "C" fn(*mut c_void, Str) -> u8>, slide: Option<extern "C" fn(*mut c_void, f32, *mut Str)>, scrub: Option<extern "C" fn(*mut c_void, Str, f32, u8, *mut Str)>, user: *mut c_void, name: Str, out_text: *mut Str, out_changed: *mut u8, out_editing: *mut u8, response: *mut PxuiResponse) -> i32;
     fn pxui_ui_patch_field(ui: *mut PxuiUi, box_: *const PxuiBox, desc: *const PxuiValueFieldDesc, text: Str, out: *mut u8) -> i32;
-    fn pxui_ui_line_field(ui: *mut PxuiUi, x: f32, y: f32, w: f32, h: f32, grab: u8, placeholder: Str, label: Str, value: Str, text: *mut Str, step: *mut u32) -> i32;
-    fn pxui_ui_text_field_keyed(ui: *mut PxuiUi, desc: *const PxuiTextFieldDesc, changed: *mut Str, out_changed: *mut u8) -> i32;
-    fn pxui_ui_input_box(ui: *mut PxuiUi, out: *mut PxuiBox) -> i32;
+    fn pxui_ui_line_field_response(ui: *mut PxuiUi, x: f32, y: f32, w: f32, h: f32, grab: u8, placeholder: Str, label: Str, value: Str, name: Str, text: *mut Str, step: *mut u32, response: *mut PxuiResponse) -> i32;
+    fn pxui_ui_text_field_response(ui: *mut PxuiUi, desc: *const PxuiTextFieldDesc, changed: *mut Str, out_changed: *mut u8, response: *mut PxuiResponse) -> i32;
     fn pxui_ui_load_text_edit(ui: *mut PxuiUi, key: i64, text: Str, out_text: *mut Str, caret: *mut u64, anchor: *mut u64) -> i32;
     fn pxui_ui_remember_key(ui: *mut PxuiUi, key: i64, text: Str, caret: u64, anchor: u64, typing: u8) -> i32;
 });
@@ -171,36 +170,34 @@ extern "C" fn rewrite(user: *mut c_void, value: Str, caret: i64, out: *mut PxuiR
     unsafe { *out = PxuiRewrite { text: lend(&a.produced), caret }; }
 }
 
-impl Ui {
-    /// What happened to the text input the last widget call built, read from its box: hover, press, focus; `changed` as given. The box is
-    /// named `name` for a screen reader when one is given (a field without a name is unnamed).
-    #[track_caller]
-    pub(crate) fn input_response(&mut self, changed: bool, name: Option<&str>) -> Response {
-        let mut raw = Handle::default();
-        check(self, unsafe { lib::pxui_ui_input_box(self.0.as_ptr(), &mut raw) });
-        if let Some(name) = name { self.a11y_name(&raw, name); }
-        let signal = self.signal(&raw);
-        let focused = self.focused(&raw);
-        Response { clicked: signal.clicked, hovered: signal.hovered, held: signal.held, focused, activated: signal.clicked && !signal.released, changed, secondary: signal.pressed && signal.button == Some(crate::Signal::BUTTON_SECONDARY), handle: raw }
-    }
+/// A text input's response as its `_response` call reported it, `changed` as the call's text said.
+pub(crate) fn input_response(out: &PxuiResponse, changed: bool) -> Response { Response { changed, ..crate::kit_ext::response(out) } }
 
+impl Ui {
     /// The one body of `text_field`: the key's label, the body variant around the engine call.
     #[track_caller]
     pub(crate) fn text_field_key(&mut self, key: Key, value: &str, field: &TextField<'_>) -> TextFieldResponse<'_> {
         let mut id_label = [0u8; 17];
         let label = key.label(&mut id_label);
-        let (mut changed, mut did_change) = (Str::default(), 0);
+        let mut out = PxuiResponse::EMPTY;
         let variant = field.body_variant();
         let traits = field.traits();
-        let desc = PxuiTextFieldDesc {
-            size: core::mem::size_of::<PxuiTextFieldDesc>() as u32, autocorrect: traits.autocorrects() as u8, capitalization: traits.capitalizes() as u8, action: traits.return_key() as u8, reserved: 0,
-            key: as_text(label), name: as_str(field.accessible_name()), value: as_text(value),
-        };
         if variant != 0 { self.set_variant(pxui_types::theme::BodyKind::text_field, variant); }
-        check(self, unsafe { lib::pxui_ui_text_field_keyed(self.0.as_ptr(), &desc, &mut changed, &mut did_change) });
+        // static: a Rust key and value are UTF-8 by their types, so the trusted entry checks only their lengths
+        #[cfg(feature = "static")]
+        let changed = { let mut changed = None; check(self, unsafe { pxui_abi_link::trusted::text_field(self.0.as_ptr(), label, field.accessible_name(), value, traits, &mut changed, &mut out) }); changed };
+        #[cfg(not(feature = "static"))]
+        let changed = {
+            let (mut changed, mut did_change) = (Str::default(), 0);
+            let desc = PxuiTextFieldDesc {
+                size: core::mem::size_of::<PxuiTextFieldDesc>() as u32, autocorrect: traits.autocorrects() as u8, capitalization: traits.capitalizes() as u8, action: traits.return_key() as u8, reserved: 0,
+                key: as_text(label), name: as_str(field.accessible_name()), value: as_text(value),
+            };
+            check(self, unsafe { lib::pxui_ui_text_field_response(self.0.as_ptr(), &desc, &mut changed, &mut did_change, &mut out) });
+            (did_change != 0).then_some(changed)
+        };
         if variant != 0 { self.set_variant(pxui_types::theme::BodyKind::text_field, 0); }
-        let response = self.input_response(did_change != 0, None);
-        TextFieldResponse { response, changed: (did_change != 0).then(|| lent_str(changed)) }
+        TextFieldResponse { response: input_response(&out, changed.is_some()), changed: changed.map(lent_str) }
     }
 
     /// The one body of `line_field`.
@@ -208,12 +205,11 @@ impl Ui {
     pub(crate) fn line_field_key(&mut self, key: Key, value: &str, rect: Rect, field: &LineField<'_>) -> LineFieldResponse<'_> {
         let mut id_label = [0u8; 17];
         let label = key.label(&mut id_label);
-        let (mut text, mut step) = (Str::default(), 0);
-        check(self, unsafe { lib::pxui_ui_line_field(self.0.as_ptr(), rect.x, rect.y, rect.w, rect.h, field.grab as u8, as_str(field.placeholder), as_str(label), as_text(value), &mut text, &mut step) });
+        let (mut text, mut step, mut out) = (Str::default(), 0, PxuiResponse::EMPTY);
+        check(self, unsafe { lib::pxui_ui_line_field_response(self.0.as_ptr(), rect.x, rect.y, rect.w, rect.h, field.grab as u8, as_str(field.placeholder), as_str(label), as_text(value), as_str(field.name), &mut text, &mut step, &mut out) });
         let edited = lent_str(text);
         let changed = (edited != value).then_some(edited);
-        let response = self.input_response(changed.is_some(), Some(field.name));
-        LineFieldResponse { response, changed, step: match step { 1 => LineStep::Next, 2 => LineStep::Previous, 3 => LineStep::Close, _ => LineStep::None } }
+        LineFieldResponse { response: input_response(&out, changed.is_some()), changed, step: match step { 1 => LineStep::Next, 2 => LineStep::Previous, 3 => LineStep::Close, _ => LineStep::None } }
     }
 
     /// The one body of `text_area`.
@@ -273,10 +269,9 @@ impl Ui {
             context_at: lang.map(|_| context_at as extern "C" fn(*mut c_void, Str, i64) -> u32),
             rewrite: lang.and_then(|l| l.rewrite).map(|_| rewrite as extern "C" fn(*mut c_void, Str, i64, *mut PxuiRewrite)),
         };
-        let (mut out, mut changed, mut submitted) = (Str::default(), 0, 0);
-        check(self, unsafe { lib::pxui_ui_text_area_node(self.0.as_ptr(), &desc, &node, &cbs, &mut out, &mut changed, &mut submitted) });
-        let response = self.input_response(changed != 0, Some(o.name));
-        TextAreaResponse { response, changed: (changed != 0).then(|| lent_str(out)), submitted: submitted != 0 }
+        let (mut out, mut changed, mut submitted, mut response) = (Str::default(), 0, 0, PxuiResponse::EMPTY);
+        check(self, unsafe { lib::pxui_ui_text_area_response(self.0.as_ptr(), &desc, &node, &cbs, as_str(o.name), &mut out, &mut changed, &mut submitted, &mut response) });
+        TextAreaResponse { response: input_response(&response, changed != 0), changed: (changed != 0).then(|| lent_str(out)), submitted: submitted != 0 }
     }
 
     /// The one body of `value_field`.
@@ -287,10 +282,9 @@ impl Ui {
         let desc = value_desc(rect, o, label, value);
         let accept = |_: &str| true;
         let mut field = Field { valid: cb.valid.unwrap_or(&accept), slide: cb.slide, scrub: cb.scrub, produced: String::new() };
-        let (mut out, mut changed, mut editing) = (Str::default(), 0, 0);
-        check(self, unsafe { lib::pxui_ui_value_field(self.0.as_ptr(), &desc, Some(valid_call), cb.slide.map(|_| slide_call as extern "C" fn(*mut c_void, f32, *mut Str)), cb.scrub.map(|_| scrub_call as extern "C" fn(*mut c_void, Str, f32, u8, *mut Str)), &mut field as *mut Field as *mut c_void, &mut out, &mut changed, &mut editing) });
-        let response = self.input_response(changed != 0, Some(o.name));
-        ValueFieldResponse { response, changed: (changed != 0).then(|| lent_str(out)), editing: editing != 0 }
+        let (mut out, mut changed, mut editing, mut response) = (Str::default(), 0, 0, PxuiResponse::EMPTY);
+        check(self, unsafe { lib::pxui_ui_value_field_response(self.0.as_ptr(), &desc, Some(valid_call), cb.slide.map(|_| slide_call as extern "C" fn(*mut c_void, f32, *mut Str)), cb.scrub.map(|_| scrub_call as extern "C" fn(*mut c_void, Str, f32, u8, *mut Str)), &mut field as *mut Field as *mut c_void, as_str(o.name), &mut out, &mut changed, &mut editing, &mut response) });
+        ValueFieldResponse { response: input_response(&response, changed != 0), changed: (changed != 0).then(|| lent_str(out)), editing: editing != 0 }
     }
 
     /// Between builds, rewrites the value text and the soft-range line of the value field `field` to `value_text`, as its build lays them out without a lead; true when the patch shows it.

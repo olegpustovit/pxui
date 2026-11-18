@@ -300,7 +300,23 @@ export!(trusted pub unsafe fn pxui_ui_search_field(ui: *mut PxuiUi, label: Str, 
         unsafe { crate::state::checked_label(label) }, unsafe { checked(icon) }, unsafe { crate::state::checked_text(value) }, unsafe { checked(placeholder) },
     ) else { return unsafe { fail(ui, "invalid search field text") }; };
     let mut found = None;
-    let rc = unsafe { trusted::search_field(ui, label, icon, value, placeholder, &mut found) };
+    let rc = unsafe { trusted::search_field(ui, label, icon, value, placeholder, &mut found, None) };
+    if let Some(value) = found { unsafe { *changed = 1; *out = value; } }
+    rc
+});
+
+// ABI 1.82: `pxui_ui_search_field` that also names the field `name` to a screen reader and reports what happened to its box in `response`,
+// the result a caller would otherwise read with `pxui_ui_input_box`, `pxui_ui_a11y_name_checked`, `pxui_ui_signal` and `pxui_ui_focused`.
+export!(trusted pub unsafe fn pxui_ui_search_field_response(ui: *mut PxuiUi, label: Str, icon: Str, value: Str, placeholder: Str, name: Str, changed: *mut u8, out: *mut Str, response: *mut PxuiResponse) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    if changed.is_null() || out.is_null() { return unsafe { fail(ui, "null search field output") }; }
+    let Some(response) = sized_mut!(response) else { return unsafe { fail(ui, "null or short search field response") } };
+    unsafe { *changed = 0; *out = Str::default(); }
+    let (Some(label), Some(icon), Some(value), Some(placeholder), Some(name)) = (
+        unsafe { crate::state::checked_label(label) }, unsafe { checked(icon) }, unsafe { crate::state::checked_text(value) }, unsafe { checked(placeholder) }, unsafe { checked(name) },
+    ) else { return unsafe { fail(ui, "invalid search field text") }; };
+    let mut found = None;
+    let rc = unsafe { trusted::search_field(ui, label, icon, value, placeholder, &mut found, Some((name, response))) };
     if let Some(value) = found { unsafe { *changed = 1; *out = value; } }
     rc
 });

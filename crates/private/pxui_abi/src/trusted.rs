@@ -193,6 +193,28 @@ pub unsafe fn pxui_text_field(ui: *mut PxuiUi, label: Str, value: Str, changed: 
     0
 }
 
+/// A text field keyed by `key`, named `name` (unnamed when empty), `traits` its keyboard: `changed` takes the new text (borrowed until the
+/// next frame) when the user changed it; `out` what happened to its box. `pxui_ui_text_field_response`'s body; the key is the caller's checked one.
+#[inline]
+pub unsafe fn text_field(ui: *mut PxuiUi, key: &str, name: &str, value: &str, traits: pxui_types::TextTraits, changed: &mut Option<Str>, out: &mut PxuiResponse) -> i32 {
+    enter!(ui);
+    let name = clip(name);
+    if bad_key(key) || value.len() > MAX_TEXT_BYTES { return unsafe { fail(ui, "invalid text field text") }; }
+    *changed = None;
+    if let Some(text) = unsafe { engine(ui) }.text_field_keyed(key, name, value, traits) {
+        let Ok(text) = (unsafe { &*ui }).give(text) else { return crate::PXUI_ERR_STATE };
+        *changed = Some(text);
+    }
+    unsafe { input_response(ui, None, out) }
+}
+
+/// What happened to the text input the widget call just built (`Ui::input_response`), the box named `name` when given: what a text
+/// input's `_response` export reports. `PXUI_ERR_STATE` when the call built none.
+#[inline]
+pub(crate) unsafe fn input_response(ui: *mut PxuiUi, name: Option<&str>, out: &mut PxuiResponse) -> i32 {
+    match unsafe { engine(ui) }.input_response(name) { Some(r) => { respond(&r, out); 0 } None => crate::PXUI_ERR_STATE }
+}
+
 /// The theme in effect, lent.
 #[inline]
 pub unsafe fn pxui_ui_theme(ui: *mut PxuiUi) -> *const ThemeSnapshot {
@@ -540,7 +562,7 @@ pub unsafe fn badge(ui: *mut PxuiUi, key: &str, name: &str, value: &str, out: &m
 
 /// The text a search field changed to, or none; kept by the library until the next frame.
 #[inline]
-pub unsafe fn search_field(ui: *mut PxuiUi, label: &str, icon: &str, value: &str, placeholder: &str, out: &mut Option<Str>) -> i32 {
+pub unsafe fn search_field(ui: *mut PxuiUi, label: &str, icon: &str, value: &str, placeholder: &str, out: &mut Option<Str>, response: Option<(&str, &mut PxuiResponse)>) -> i32 {
     enter!(ui);
     let label = clip(label);
     let icon = clip(icon);
@@ -548,7 +570,7 @@ pub unsafe fn search_field(ui: *mut PxuiUi, label: &str, icon: &str, value: &str
     if value.len() > MAX_TEXT_BYTES { return unsafe { fail(ui, "invalid search field text") }; }
     let found = unsafe { engine(ui) }.search_field(label, icon, value, placeholder);
     *out = match found { None => None, Some(text) => match unsafe { get(ui) } { Some(state) => match state.lend(text) { Ok(text) => Some(text), Err(code) => return code }, None => Some(Str::default()) } };
-    0
+    match response { Some((name, out)) => unsafe { input_response(ui, Some(clip(name)), out) }, None => 0 }
 }
 
 /// `Ui::menu` of Rust rows: the position and the widths are finite by the checks below, the rows and the key are Rust values. The

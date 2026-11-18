@@ -1711,6 +1711,14 @@ impl Ui {
     #[inline] pub fn keyboard_ref(&self) -> &pxui_types::Keyboard { &self.keyboard }
     /// The box of the text input widget built last (`text_field`, `line_field`, `search_field`, `text_area`, `value_field`), or none before one.
     pub fn input_box(&self) -> Option<Handle> { self.input_box }
+    /// What happened to that input this frame (its signal and focus), the box named `name` for a screen reader first when one is
+    /// given; none before a text input was built or once its box has gone. One call where a caller would read the box, name it,
+    /// and read its signal and focus.
+    pub fn input_response(&mut self, name: Option<&str>) -> Option<crate::ui_kit::Response> {
+        let b = self.input_box.filter(|b| self.live(b))?;
+        if let Some(name) = name { self.a11y_name(&b, name); }
+        Some(crate::ui_kit::Response::of(&self.signal(&b), self.focused(&b), b))
+    }
     pub fn text_input_options(&self) -> pxui_types::TextTraits {
         if self.text_input_focused() {self.text_input_options} else {pxui_types::TextTraits::default()}
     }

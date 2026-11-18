@@ -1,7 +1,7 @@
 use crate::state::{MAX_TOTAL_TEXT_BYTES, PxuiUi, boxed, checked, checked_text, fail, finite, get};
 use crate::{PXUI_ERR_ARGUMENT, PxuiBox, Str};
 use core::{cell::Cell, ffi::c_void};
-use pxui_types::ffi::{PxuiAreaCallbacks, PxuiDescription, PxuiMaybeRange, PxuiRewrite, PxuiTextAreaDesc, PxuiValueFieldDesc, Slice};
+use pxui_types::ffi::{PxuiAreaCallbacks, PxuiResponse, PxuiDescription, PxuiMaybeRange, PxuiRewrite, PxuiTextAreaDesc, PxuiValueFieldDesc, Slice};
 use std::rc::Rc;
 use pxui_types::{Node, Size};
 use pxui_core::ui::Drop;
@@ -161,6 +161,23 @@ export!(build pub unsafe fn pxui_ui_text_area_node(
     unsafe { text_area(ui, desc, Some(*node), cbs, out_text, out_changed, out_submitted) }
 });
 
+// ABI 1.82: `pxui_ui_text_area_node` that also names the area `name` to a screen reader and reports what happened to its box in `response`,
+// the result a caller would otherwise read with `pxui_ui_input_box`, `pxui_ui_a11y_name_checked`, `pxui_ui_signal` and `pxui_ui_focused`.
+export!(build pub unsafe fn pxui_ui_text_area_response(
+    ui: *mut PxuiUi, desc: *const PxuiTextAreaDesc, node: *const Node, cbs: *const PxuiAreaCallbacks, name: Str,
+    out_text: *mut Str, out_changed: *mut u8, out_submitted: *mut u8, response: *mut PxuiResponse,
+) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    let Some(response) = sized_mut!(response) else { return unsafe { fail(ui, "null or short text area response") } };
+    let Some(name) = (unsafe { checked(name) }) else { return unsafe { fail(ui, "invalid text area strings") }; };
+    let Some(node) = (unsafe { crate::node::checked_node(node) }) else { return unsafe { fail(ui, "invalid text area node") } };
+    let bad_curve = matches!(&node.transition, pxui_types::node::OptTransition::Some(curve) if !curve.valid());
+    if node.grid.is_some() || bad_curve { return unsafe { fail(ui, "invalid text area node") }; }
+    let rc = unsafe { text_area(ui, desc, Some(*node), cbs, out_text, out_changed, out_submitted) };
+    if rc != 0 { return rc; }
+    unsafe { crate::trusted::input_response(ui, Some(name), response) }
+});
+
 /// The body of both text area exports: `place` (checked by the caller) or the descriptor's rectangle lays the area out.
 unsafe fn text_area(
     ui: *mut PxuiUi, desc: *const PxuiTextAreaDesc, place: Option<Node>, cbs: *const PxuiAreaCallbacks,
@@ -266,6 +283,27 @@ export!(build pub unsafe fn pxui_ui_value_field(
     ui: *mut PxuiUi, desc: *const PxuiValueFieldDesc, valid: TextValid, slide: SlideText, scrub: ScrubText, user: *mut c_void,
     out_text: *mut Str, out_changed: *mut u8, out_editing: *mut u8,
 ) -> i32 {
+    unsafe { value_field(ui, desc, valid, slide, scrub, user, out_text, out_changed, out_editing, None) }
+});
+
+// ABI 1.82: `pxui_ui_value_field` that also names the field `name` to a screen reader and reports what happened to its box in `response`,
+// the result a caller would otherwise read with `pxui_ui_input_box`, `pxui_ui_a11y_name_checked`, `pxui_ui_signal` and `pxui_ui_focused`.
+export!(build pub unsafe fn pxui_ui_value_field_response(
+    ui: *mut PxuiUi, desc: *const PxuiValueFieldDesc, valid: TextValid, slide: SlideText, scrub: ScrubText, user: *mut c_void, name: Str,
+    out_text: *mut Str, out_changed: *mut u8, out_editing: *mut u8, response: *mut PxuiResponse,
+) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    let Some(response) = sized_mut!(response) else { return unsafe { fail(ui, "null or short value field response") } };
+    let Some(name) = (unsafe { checked(name) }) else { return unsafe { fail(ui, "invalid value field strings") }; };
+    unsafe { value_field(ui, desc, valid, slide, scrub, user, out_text, out_changed, out_editing, Some((name, response))) }
+});
+
+/// Both value field exports: `response`, when given, names the field and takes what happened to its box.
+#[allow(clippy::too_many_arguments)]
+unsafe fn value_field(
+    ui: *mut PxuiUi, desc: *const PxuiValueFieldDesc, valid: TextValid, slide: SlideText, scrub: ScrubText, user: *mut c_void,
+    out_text: *mut Str, out_changed: *mut u8, out_editing: *mut u8, response: Option<(&str, &mut PxuiResponse)>,
+) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if out_text.is_null() || out_changed.is_null() || out_editing.is_null() {
         return unsafe { fail(ui, "invalid value field arguments") };
@@ -292,8 +330,8 @@ export!(build pub unsafe fn pxui_ui_value_field(
     // the field's text, changed or not, kept by the library until the next frame
     let Ok(text) = state.lend(text.unwrap_or(value)) else { return crate::PXUI_ERR_STATE };
     unsafe { *out_text = text; }
-    0
-});
+    match response { Some((name, out)) => unsafe { crate::trusted::input_response(ui, Some(name), out) }, None => 0 }
+}
 
 // A value field's value (`text`) and soft-range line written by patches, as the field's build lays them out (the engine's
 // `patch_field`): `out` says whether the patch could show it; false (a lead, a value too wide beside its trail, a line

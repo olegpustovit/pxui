@@ -22,7 +22,7 @@ mod sys {
     use crate::sys::PxuiUi;
     #[link(name = "pxui")]
     unsafe extern "C" {
-    pub fn pxui_ui_search_field(ui: *mut PxuiUi, label: Str, icon: Str, value: Str, placeholder: Str, changed: *mut u8, out: *mut Str) -> i32;
+    pub fn pxui_ui_search_field_response(ui: *mut PxuiUi, label: Str, icon: Str, value: Str, placeholder: Str, name: Str, changed: *mut u8, out: *mut Str, response: *mut pxui_types::ffi::PxuiResponse) -> i32;
     }
 }
 
@@ -203,16 +203,16 @@ impl Ui {
     pub(crate) fn search_field_key(&mut self, key: Key, value: &str, field: &SearchField<'_>) -> SearchFieldResponse<'_> {
         let mut id_label = [0u8; 17];
         let label = key.label(&mut id_label);
+        let mut response = pxui_types::ffi::PxuiResponse::EMPTY;
         #[cfg(feature = "static")]
-        let changed = { let mut out = None; check(self, unsafe { pxui_abi_link::trusted::search_field(self.0.as_ptr(), label, field.icon, value, field.placeholder, &mut out) }); out };
+        let changed = { let mut out = None; check(self, unsafe { pxui_abi_link::trusted::search_field(self.0.as_ptr(), label, field.icon, value, field.placeholder, &mut out, Some((field.name, &mut response))) }); out };
         #[cfg(not(feature = "static"))]
         let changed = {
             let mut changed = 0;
             let mut out = Str::default();
-            check(self, unsafe { sys::pxui_ui_search_field(self.0.as_ptr(), as_str(label), as_str(field.icon), as_str(value), as_str(field.placeholder), &mut changed, &mut out) });
+            check(self, unsafe { sys::pxui_ui_search_field_response(self.0.as_ptr(), as_str(label), as_str(field.icon), as_str(value), as_str(field.placeholder), as_str(field.name), &mut changed, &mut out, &mut response) });
             (changed != 0).then_some(out)
         };
-        let response = self.input_response(changed.is_some(), Some(field.name));
-        SearchFieldResponse { response, changed: changed.map(crate::lent_str) }
+        SearchFieldResponse { response: crate::text_inputs::input_response(&response, changed.is_some()), changed: changed.map(crate::lent_str) }
     }
 }

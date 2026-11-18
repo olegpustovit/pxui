@@ -18,7 +18,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 81u)
+#define PXUI_ABI_BUILT ((1u << 16) | 82u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 typedef struct { uint32_t autocorrect, capitalization, action; } PxuiTextInputOptions;
@@ -608,6 +608,13 @@ int32_t pxui_ui_text_field_keyed(PxuiUi *ui, const PxuiTextFieldDesc *desc, Pxui
 /* ABI 1.64: the box of the text input (text field, line field, search field, text area or value field) the last such call built; PXUI_ERR_STATE
    before the first call. Read its signal and focus for what happened to it. */
 int32_t pxui_ui_input_box(PxuiUi *ui, PxuiBox *out);
+/* ABI 1.82: each text input with what happened to its box in one call: `response` (size set by the caller; a shorter record is refused) takes
+   the box, hover, press, focus and click a caller would otherwise read with pxui_ui_input_box, pxui_ui_signal and pxui_ui_focused. The other
+   arguments are those of the call named before `_response`; `name` (search, line and value fields, text area) names the box to a screen reader. The value field
+   and text area forms follow pxui_ui_value_field. */
+int32_t pxui_ui_text_field_response(PxuiUi *ui, const PxuiTextFieldDesc *desc, PxuiStr *changed, uint8_t *out_changed, PxuiResponse *response);
+int32_t pxui_ui_search_field_response(PxuiUi *ui, PxuiStr label, PxuiStr icon, PxuiStr value, PxuiStr placeholder, PxuiStr name, uint8_t *changed, PxuiStr *out, PxuiResponse *response);
+int32_t pxui_ui_line_field_response(PxuiUi *ui, float x, float y, float w, float h, uint8_t grab, PxuiStr placeholder, PxuiStr label, PxuiStr value, PxuiStr name, PxuiStr *text, uint32_t *step, PxuiResponse *response);
 /* Legacy, cut at 2.0: pxui_ui_checkbox, _radio, _tabs, _dropdown, _slider, _progress, _spinner, _badge, pxui_panel, pxui_ui_popup, _modal,
    _anchored, _scroll_view, _toasts, _table, _table_view_with and _picker key by a label that is also their text (`##`/`###` rules);
    superseded by the pxui_ui_*_keyed calls (ABI 1.68), kept for the append-only ABI. */
@@ -623,8 +630,8 @@ int32_t pxui_ui_progress(PxuiUi *ui, PxuiStr label, uint8_t has_value, float val
 int32_t pxui_ui_spinner(PxuiUi *ui, PxuiStr label, PxuiBox *out);
 int32_t pxui_ui_icon_button(PxuiUi *ui, PxuiStr label, PxuiStr icon, uint8_t *out);
 int32_t pxui_ui_badge(PxuiUi *ui, PxuiStr label, PxuiStr value, PxuiBox *out);
-/* Legacy (cut at 2.0): pxui_ui_search_field and pxui_ui_text_area_submit stay as they are; the Rust wrapper reads the box they built through
-   pxui_ui_input_box and names it itself. */
+/* Legacy (cut at 2.0): pxui_ui_search_field and pxui_ui_text_area_submit stay as they are; pxui_ui_search_field_response (ABI 1.82) also
+   names the field and reports its box. */
 int32_t pxui_ui_search_field(PxuiUi *ui, PxuiStr label, PxuiStr icon, PxuiStr value, PxuiStr placeholder, uint8_t *changed, PxuiStr *out);
 /* Legacy, cut at 2.0: keys and names the image by one label (`##`/`###` rules); superseded by pxui_ui_image_node (ABI 1.70). */
 int32_t pxui_ui_image(PxuiUi *ui, PxuiStr label, const PxuiImage *image, uint32_t fit, PxuiSizeDesc width, PxuiSizeDesc height, PxuiBox *out);
@@ -778,6 +785,9 @@ int32_t pxui_ui_text_area_submit(PxuiUi *ui, const PxuiTextAreaDesc *desc, const
 int32_t pxui_ui_text_area_node(PxuiUi *ui, const PxuiTextAreaDesc *desc, const PxuiNode *node, const PxuiAreaCallbacks *callbacks, PxuiStr *out_text, uint8_t *out_changed, uint8_t *out_submitted);
 int32_t pxui_ui_patch_field(PxuiUi *ui, const PxuiBox *field, const PxuiValueFieldDesc *desc, PxuiStr text, uint8_t *out); /* the field's value and soft-range line written by patches, as its build lays them out; out is 0 when a patch cannot show it (a lead, a value too wide beside its trail): build the field's view */
 int32_t pxui_ui_value_field(PxuiUi *ui, const PxuiValueFieldDesc *desc, PxuiTextValid valid, PxuiSlideText slide, PxuiScrubText scrub, void *user, PxuiStr *out_text, uint8_t *out_changed, uint8_t *out_editing); /* the callbacks run only during the call; slide and scrub write their text, borrowed until their next callback */
+/* ABI 1.82: pxui_ui_value_field and pxui_ui_text_area_node with `name` and `response` (see pxui_ui_text_field_response). */
+int32_t pxui_ui_value_field_response(PxuiUi *ui, const PxuiValueFieldDesc *desc, PxuiTextValid valid, PxuiSlideText slide, PxuiScrubText scrub, void *user, PxuiStr name, PxuiStr *out_text, uint8_t *out_changed, uint8_t *out_editing, PxuiResponse *response);
+int32_t pxui_ui_text_area_response(PxuiUi *ui, const PxuiTextAreaDesc *desc, const PxuiNode *node, const PxuiAreaCallbacks *cbs, PxuiStr name, PxuiStr *out_text, uint8_t *out_changed, uint8_t *out_submitted, PxuiResponse *response);
 int32_t pxui_ui_load_text_edit(PxuiUi *ui, int64_t key, PxuiStr text, PxuiStr *out_text, uint64_t *caret, uint64_t *anchor);
 int32_t pxui_ui_remember(PxuiUi *ui, PxuiStr text, uint64_t caret, uint64_t anchor, uint8_t typing);
 /* ABI 1.77: pxui_ui_remember into the history of the field keyed `key` (a box key); the active editor never changes. */
