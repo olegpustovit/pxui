@@ -1,18 +1,21 @@
-//! The Bodies page: eight widget bodies written against the public wrapper (`Ui::register_*_body`, `Ui::part`, `Ui::slot`) and picked by
+//! The Bodies page: eleven widget bodies written against the public wrapper (`Ui::register_*_body`, `Ui::part`, `Ui::slot`) and picked by
 //! a theme text (`THEME_LINES`: `toggle.body = checkbox`, ...). A checkbox-style toggle, a slider with a round thumb, a segmented control
 //! whose marker slides, a table whose rows are ruled and whose cells hold widgets, a search field with an icon and a clear button, and a
 //! section index whose letters are pills, the active one filled, a disclosure whose header is its text after a + or - sign, and a modal sheet with a grab handle when it is a bottom or full sheet.
-//! It also shows a picker whose rows have group headings and glyph art.
+//! It also shows tabs whose detail (a count) is a pill, checkboxes (plain, sized with the caller's look, passive and disabled) whose box
+//! marks on with a dot, and a picker whose rows have group headings and glyph or image art drawn by a cover body (`PickArt::Image`: the
+//! image the host gives `BodiesPage::art`, an accent tile until it does).
 //! The page itself is plain widget calls: with the bodies not selected it draws the built-in widgets, with them the proof bodies.
 //! Not in `PAGES`: it needs the wrapper (the pages there also compile against the engine for the A7 bench).
-use pxui::bodies::{BodyConfig, InspectorSectionConfig, ModalConfig, SearchFieldConfig, SectionIndexConfig, SegmentedConfig, SliderConfig, ToggleConfig, TableRowConfig};
+use pxui::bodies::{BodyConfig, CheckboxConfig, InspectorSectionConfig, ModalConfig, PickerConfig, SearchFieldConfig, SectionIndexConfig, SegmentedConfig, SliderConfig, TabsConfig, ToggleConfig, TableRowConfig};
 use pxui::theme::{Look, State};
-use pxui::{Overlay, Part, SearchField, Ui};
+use pxui::{Image, ImageStyle, Overlay, Part, SearchField, Ui};
+use std::cell::Cell;
 use pxui_types::Flags;
 use pxui_types::{ffi::PxuiStateDesc, geom::Edges, layout::Align, Axis, Node, Size};
 
 /// The theme lines that select the proof bodies, on top of any base theme text.
-pub const THEME_LINES: &str = "toggle.body = checkbox\nslider.body = round\nsegmented.body = sliding\ntable_row.body = ruled\nsearch_field.body = boxed\nsection_index.body = pills\ninspector_section.body = signed\nmodal.body = handle\n";
+pub const THEME_LINES: &str = "toggle.body = checkbox\nslider.body = round\nsegmented.body = sliding\ntable_row.body = ruled\nsearch_field.body = boxed\nsection_index.body = pills\ninspector_section.body = signed\nmodal.body = handle\ntabs.body = counted\ncheckbox.body = dotted\npicker.body = covers\n";
 
 /// The page's state.
 pub struct BodiesPage {
@@ -31,11 +34,16 @@ pub struct BodiesPage {
     pub more: bool,
     /// the bottom sheet is open
     pub sheet: bool,
+    pub tab: usize,
+    pub sync: bool,
+    pub big: bool,
+    /// the image the cover body draws for a `PickArt::Image` row (the host's; an accent tile while `None`)
+    pub art: Option<Image>,
 }
 
 impl BodiesPage {
     pub fn new(custom: bool) -> BodiesPage {
-        BodiesPage { custom, dirty: false, wifi: true, volume: 0.6, align: 1, query: String::new(), widths: [120.0, 120.0], selected: Some(1), flags: [true, false, true], letter: 0, more: true, sheet: true }
+        BodiesPage { custom, dirty: false, wifi: true, volume: 0.6, align: 1, query: String::new(), widths: [120.0, 120.0], selected: Some(1), flags: [true, false, true], letter: 0, more: true, sheet: true, tab: 0, sync: true, big: false, art: None }
     }
 
     /// The theme text the host applies (`Ui::set_theme`): `base` (a theme file's text, or none), then the body lines when `custom`.
@@ -156,6 +164,80 @@ fn handle_sheet(ui: &mut Ui, c: &ModalConfig) {
     ui.slot(c.content);
 }
 
+/// A tab whose detail (a count) follows its text in an accent pill.
+fn counted_tab(ui: &mut Ui, c: &TabsConfig) {
+    let state = state_of(&c.state);
+    let (look, accent, panel) = { let t = ui.theme(); (*t.tab.pick(state), t.tokens.accent, t.tokens.panel) };
+    let mut node = ui.node_layout(&c.node);
+    (node.w, node.axis, node.align, node.gap) = (Size::Fit, Axis::Row, Align::Center, 4.0);
+    ui.set_node_layout(&c.node, &node);
+    ui.style(&c.node, &pxui::theme::States::of(look), state);
+    ui.within(&c.node, &mut |ui: &mut Ui| {
+        let text = ui.node("text", Node { w: Size::Fit, h: Size::Px(16.0), look: Look { text: look.text, font: look.font, ..Look::NONE }, ..Node::DEFAULT });
+        ui.text(&text, c.text_of(&c.text));
+        let detail = c.text_of(&c.detail);
+        if !detail.is_empty() {
+            let pill = ui.node("detail", Node { w: Size::Fit, h: Size::Px(14.0), padding: Edges { l: 4.0, r: 4.0, ..Edges::ZERO }, look: Look { fill: accent, text: panel, radius: [4.0; 4], ..Look::NONE }, ..Node::DEFAULT });
+            ui.text(&pill, detail);
+        }
+    });
+}
+
+/// A checkbox whose box (the caller's side and looks, or the theme's) marks on with a round dot; a passive one with no text is the box alone.
+fn dotted_checkbox(ui: &mut Ui, c: &CheckboxConfig) {
+    let state = state_of(&c.state);
+    let (themed, text, accent) = { let t = ui.theme(); (t.checkbox, t.toggle.pick(state).text, t.tokens.accent) };
+    let states = c.states_of(&c.states).copied().unwrap_or(themed);
+    let side = c.box_size;
+    let b = ui.node("box", Node { w: Size::Px(side), h: Size::Px(side), axis: Axis::Row, justify: pxui_types::layout::Justify::Center, align: Align::Center, ..Node::DEFAULT });
+    ui.style(&b, &states, State { checked: c.on != 0, ..state });
+    if c.on != 0 {
+        let dot = Node { w: Size::Px(side / 2.0), h: Size::Px(side / 2.0), look: Look { fill: accent, radius: [side / 4.0; 4], ..Look::NONE }, ..Node::DEFAULT };
+        ui.within(&b, &mut |ui: &mut Ui| { ui.node("dot", dot); });
+    }
+    let label = c.text_of(&c.label);
+    if !(c.passive != 0 && label.is_empty()) {
+        let n = ui.node("label", Node { w: Size::Fit, h: Size::Px(16.0), look: Look { text, ..Look::NONE }, ..Node::DEFAULT });
+        ui.text(&n, label);
+    }
+}
+
+thread_local! {
+    /// The image `page` was given (`BodiesPage::art`), which the cover body draws for an image row: a body is a plain `fn`, so the app's
+    /// image cache is where it looks its art up.
+    static COVER: Cell<Option<Image>> = const { Cell::new(None) };
+}
+
+/// A picker row whose art is a 20-point cover (`PickArt::Image`: the app's image for the id, an accent tile until there is one) or its
+/// glyph, then its label and, at the end, its detail; the engine draws the group headings above it.
+fn cover_row(ui: &mut Ui, c: &PickerConfig) {
+    let state = state_of(&c.state);
+    let (look, hint, accent) = { let t = ui.theme(); (*t.list.pick(state), t.hint.idle.text, t.tokens.accent) };
+    ui.style(&c.row, &pxui::theme::States::of(look), state);
+    let mut row = ui.node_layout(&c.row);
+    (row.axis, row.align, row.gap, row.padding) = (Axis::Row, Align::Center, 6.0, Edges { l: 8.0, r: 8.0, ..Edges::ZERO });
+    ui.set_node_layout(&c.row, &row);
+    const COVER_STYLE: ImageStyle = ImageStyle::DEFAULT.w_px(20.0).h_px(20.0).fit(pxui::draw::Fit::Cover);
+    let tile = Node { w: Size::Px(20.0), h: Size::Px(20.0), look: Look { fill: accent, radius: [3.0; 4], ..Look::NONE }, ..Node::DEFAULT };
+    match (c.art_kind, COVER.with(Cell::get)) {
+        (2, Some(image)) => { let _ = ui.image("art", c.text_of(&c.label), &image, &COVER_STYLE); }
+        (2, None) => { ui.node("art", tile); }
+        (1, _) => {
+            let mut buf = [0u8; 4];
+            let glyph = ui.node("art", Node { w: Size::Px(20.0), h: Size::Px(20.0), look: Look { text: look.text, ..Look::NONE }, ..Node::DEFAULT });
+            ui.text(&glyph, char::from_u32(c.art as u32).unwrap_or(' ').encode_utf8(&mut buf));
+        }
+        _ => (),
+    }
+    let label = ui.node("label", Node { w: Size::Fit, h: Size::Px(16.0), grow: 1.0, look: Look { text: look.text, font: look.font, ..Look::NONE }, ..Node::DEFAULT });
+    ui.text(&label, c.text_of(&c.label));
+    let detail = c.text_of(&c.detail);
+    if !detail.is_empty() {
+        let n = ui.node("detail", Node { w: Size::Fit, h: Size::Px(16.0), look: Look { text: hint, ..Look::NONE }, ..Node::DEFAULT });
+        ui.text(&n, detail);
+    }
+}
+
 /// Registers the proof bodies; `THEME_LINES` selects them. Once, before the theme that names them is applied.
 pub fn register(ui: &mut Ui) -> Result<(), pxui::Error> {
     ui.register_toggle_body("checkbox", checkbox_toggle)?;
@@ -166,20 +248,28 @@ pub fn register(ui: &mut Ui) -> Result<(), pxui::Error> {
     ui.register_section_index_body("pills", pill_index)?;
     ui.register_inspector_section_body("signed", signed_section)?;
     ui.register_modal_body("handle", handle_sheet)?;
+    ui.register_tabs_body("counted", counted_tab)?;
+    ui.register_checkbox_body("dotted", dotted_checkbox)?;
+    ui.register_picker_body("covers", cover_row)?;
     Ok(())
 }
 
 const NAMES: [&str; 3] = ["Wi-Fi", "Bluetooth", "Hotspot"];
 const LETTERS: [&str; 6] = ["A", "B", "C", "D", "E", "F"];
-const PICKS: [pxui::PickRow; 4] = [
+const TABS: [pxui::Segment; 3] = [pxui::Segment::new("Songs").detail("12"), pxui::Segment::new("Albums").detail("3"), pxui::Segment::new("Mixes")];
+/// The checkbox's own look (`Checkbox::look`): an accent outline in every state.
+const BOX_LOOK: pxui::theme::States = pxui::theme::States::of(Look { border: pxui_types::geom::Rgba::rgba(0x4a, 0x90, 0xd9, 255), border_w: 1.0, radius: [3.0; 4], ..Look::NONE });
+const PICKS: [pxui::PickRow; 5] = [
     pxui::PickRow::new("Rays").detail("09-24").art(pxui::PickArt::Glyph('\u{266b}')).heading("Songs"),
     pxui::PickRow::new("Dusk").detail("03-11").art(pxui::PickArt::Glyph('\u{266b}')),
     pxui::PickRow::new("Tides").art(pxui::PickArt::Glyph('\u{25a3}')).heading("Albums"),
     pxui::PickRow::new("Coast").art(pxui::PickArt::Glyph('\u{25a3}')),
+    pxui::PickRow::new("Shore").detail("cover").art(pxui::PickArt::Image(1)),
 ];
 
 /// The page: the widgets the proof bodies replace, as plain calls.
 pub fn page(ui: &mut Ui, s: &mut BodiesPage) {
+    COVER.with(|cover| cover.set(s.art));
     ui.panel("bodies", &Overlay::DEFAULT.w_px(296.0), &mut |ui: &mut Ui| {
         ui.label("Bodies", pxui::Label::DEFAULT);
         let custom = ui.toggle("custom", "Custom bodies", s.custom, &pxui::Toggle::DEFAULT).changed != s.custom;
@@ -187,6 +277,14 @@ pub fn page(ui: &mut Ui, s: &mut BodiesPage) {
         s.wifi = ui.toggle("wifi", "Wi-Fi", s.wifi, &pxui::Toggle::DEFAULT).changed != s.wifi;
         s.volume = ui.slider("volume", "Volume", s.volume, 0.0..=1.0, &pxui::Slider::DEFAULT).value;
         s.align = ui.segmented("align", &[pxui::Segment::new("Left"), pxui::Segment::new("Centre"), pxui::Segment::new("Right")], Some(s.align), &pxui::Segmented::DEFAULT.name("Align")).chosen.unwrap_or(s.align);
+        s.tab = ui.tabs("views", &TABS, Some(s.tab), &pxui::Tabs::DEFAULT.name("Views")).chosen.unwrap_or(s.tab);
+        let boxes = ui.node("boxes", Node { h: Size::Fit, axis: Axis::Row, gap: 4.0, ..Node::DEFAULT });
+        ui.within(&boxes, &mut |ui: &mut Ui| {
+            s.sync = s.sync != ui.checkbox("sync", "Sync", s.sync, &pxui::Checkbox::DEFAULT).clicked;
+            s.big = s.big != ui.checkbox("big", "Big", s.big, &pxui::Checkbox::DEFAULT.size(16.0).look(&BOX_LOOK)).clicked;
+            ui.checkbox("seen", "", true, &pxui::Checkbox::DEFAULT.passive(true));
+            ui.checkbox("locked", "Locked", true, &pxui::Checkbox::DEFAULT.disabled(true));
+        });
         if let Some(v) = ui.search_field("find", &s.query, &SearchField::DEFAULT.icon("?").placeholder("Search").name("Find")).changed { s.query = v.to_owned(); }
         let strip = ui.node("letters", Node { h: Size::Px(112.0), axis: Axis::Row, ..Node::DEFAULT });
         ui.within(&strip, &mut |ui: &mut Ui| { s.letter = ui.section_index("index", &LETTERS, &pxui::SectionIndex::DEFAULT.name("Jump to")).chosen.unwrap_or(s.letter); });

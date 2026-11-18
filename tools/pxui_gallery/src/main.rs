@@ -182,6 +182,7 @@ fn main() {
     }
     let mut renderer = gpu.renderer(&ui).unwrap_or_else(|e| { eprintln!("pxui_gallery: {e}"); std::process::exit(1) });
     s.image = Some(gpu.image(100, 60, &gpu::test_card(100, 60)));
+    bodies.art = s.image;
     let mut extent = win.extent();
     let mut target = gpu.target(extent.drawable.0 as u32, extent.drawable.1 as u32);
     let mut a11y = host::a11y(&mut win);
@@ -349,7 +350,7 @@ fn main() {
     }
     if let Some(at) = calls_at_settle { calls_idle = ui.library_calls() - at; }
     if count { println!("pxui_gallery: frames {frames} draws {draws} settled {settled} idle_calls {calls_idle}"); }
-    s.image = None;
+    (s.image, bodies.art) = (None, None);
     drop(renderer);
     be::destroy_texture(&target).unwrap_or_else(|e| fail(e));
     if let Some(surface) = surface { be::destroy_surface(&surface).unwrap_or_else(|e| fail(e)); }

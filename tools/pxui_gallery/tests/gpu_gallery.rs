@@ -133,9 +133,11 @@ fn gpu_gallery_pages() {
 fn gpu_gallery_bodies() {
     let mut gpu = Gpu::open().expect("a GPU backend");
     let register = &mut |ui: &mut Ui| bodies_page::register(ui).expect("the proof bodies register");
+    // the cover the picker's image row draws through the cover body
+    let art = Some(gpu.image(40, 40, &gpu::test_card(40, 40)));
     for (name, base) in [("rays", ""), ("dusk", DUSK)] {
         for density in [1, 2] {
-            let mut page = BodiesPage::new(true);
+            let mut page = BodiesPage { art, ..BodiesPage::new(true) };
             let text = page.theme_text(base);
             let pixels = shoot_setup(&mut gpu, &theme(&text), false, (PAGE_W, PAGE_H), density, None, register, true, &mut |ui: &mut Ui| bodies_page::page(ui, &mut page));
             let path = format!("{}/fixtures/gallery_bodies_{name}_{density}x.png", env!("CARGO_MANIFEST_DIR"));
@@ -143,7 +145,7 @@ fn gpu_gallery_bodies() {
             println!("PXUI gallery bodies {name} {density}x: max channel difference {worst}");
             assert!(worst <= 2, "the Bodies page under {name} at {density}x drifted: largest channel difference {worst}");
             if density == 1 {
-                let mut plain = BodiesPage::new(false);
+                let mut plain = BodiesPage { art, ..BodiesPage::new(false) };
                 let text = plain.theme_text(base);
                 let other = shoot_setup(&mut gpu, &theme(&text), false, (PAGE_W, PAGE_H), density, None, register, true, &mut |ui: &mut Ui| bodies_page::page(ui, &mut plain));
                 assert!(compare(&path, (PAGE_W, PAGE_H), density, &other, false) > 2, "the Bodies page under {name} draws the same with the bodies not selected");
@@ -159,7 +161,9 @@ fn bodies_page_settled() {
     let events = [pointer_event()];
     let mut built = Vec::new();
     for custom in [false, true] {
-        let mut page = BodiesPage::new(custom);
+        // an image the cover body draws (never rendered here)
+        let art = pxui::Image { mtl_texture: std::ptr::dangling_mut(), width: 8, height: 8, format: pxui::Image::FORMAT_RGBA8, ..Default::default() };
+        let mut page = BodiesPage { art: Some(art), ..BodiesPage::new(custom) };
         let mut ui = Ui::new(&pxui::UiDesc::new(pxui::Platform::Apple).fonts(&[pxui::FontData(DEPARTURE_MONO)])).expect("pxui Ui");
         bodies_page::register(&mut ui).expect("the proof bodies register");
         let text = page.theme_text("");
