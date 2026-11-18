@@ -121,17 +121,18 @@ impl Ui {
     /// Declares `node` laid out as a row under the current parent and runs `f` to build its children inside it.
     ///
     /// `node` is used as given with `axis` set to `Axis::Row`; the returned handle is the row's, valid this frame (style it,
-    /// read its signal). Same as `node` then `within`.
-    /// Allocates: as `node` and `within` (never on a warm frame).
-    /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); an id never collides with a
-    /// printable label.
-    /// Panics: when the library refuses the node (outside a frame, an invalid transition curve), or when `f` panics. A key or identity label over 256 bytes panics (a programmer error).
+    /// read its signal). Same as a node and its children.
+    /// Allocates: never on a warm frame (a new identity takes a slot the first time).
+    /// Identity: no key: the n-th layout container of its scope, keyed by the library in a namespace no label or id reaches, so
+    /// labels, images and keyed siblings coming and going leave it alone. A container under `if`, `match` or a loop, or one that
+    /// animates, goes inside `ui.id(key, ..)` so its identity survives siblings appearing before it.
+    /// Panics: when the library refuses the node (outside a frame, an invalid transition curve), or when `f` panics.
     ///
     /// ```
     /// use pxui::ui::{Node, Size};
     /// let (mut a, mut b) = (None, None);
     /// let ui = pxui::doc::frames(2, &mut |ui| {
-    ///     ui.row("toolbar", Node { h: Size::Px(24.0), ..Node::DEFAULT }, |ui| {
+    ///     ui.row(Node::row().h_px(24.0), |ui| {
     ///         a = Some(ui.node("a", Node { w: Size::Px(10.0), ..Node::DEFAULT }));
     ///         b = Some(ui.node("b", Node { w: Size::Px(10.0), ..Node::DEFAULT }));
     ///     });
@@ -140,16 +141,15 @@ impl Ui {
     /// ```
     #[inline]
     #[track_caller]
-    pub fn row<K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, node: Node, mut f: F) -> Handle { self.container(key.into(), Axis::Row, node, &mut f) }
+    pub fn row<F: FnMut(&mut Ui)>(&mut self, node: Node, mut f: F) -> Handle { self.container(Axis::Row, node, &mut f) }
 
     /// Declares `node` laid out as a column under the current parent and runs `f` to build its children inside it.
     ///
     /// `node` is used as given with `axis` set to `Axis::Column`; the returned handle is the column's, valid this frame. Same as
-    /// `node` then `within`.
-    /// Allocates: as `node` and `within` (never on a warm frame).
-    /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); an id never collides with a
-    /// printable label.
-    /// Panics: when the library refuses the node (outside a frame, an invalid transition curve), or when `f` panics. A key or identity label over 256 bytes panics (a programmer error).
+    /// a node and its children.
+    /// Allocates: never on a warm frame (a new identity takes a slot the first time).
+    /// Identity: no key, as `row`: the n-th layout container of its scope; wrap conditional or animated containers in `ui.id`.
+    /// Panics: when the library refuses the node (outside a frame, an invalid transition curve), or when `f` panics.
     ///
     /// ```
     /// use pxui::ui::{Node, Size};
@@ -157,30 +157,29 @@ impl Ui {
     /// let mut rows = Vec::new();
     /// let ui = pxui::doc::frames(2, &mut |ui| {
     ///     rows.clear();
-    ///     ui.column("songs", Node::DEFAULT, |ui| {
-    ///         for id in songs { rows.push(ui.row(id, Node { h: Size::Px(24.0), ..Node::DEFAULT }, |_| {})); }
+    ///     ui.column(Node::DEFAULT, |ui| {
+    ///         for id in songs { ui.id(id, |ui| rows.push(ui.row(Node { h: Size::Px(24.0), ..Node::DEFAULT }, |_| {}))); }
     ///     });
     /// });
     /// assert_eq!(ui.rect(&rows[1]).y, ui.rect(&rows[0]).y + 24.0);
     /// ```
     #[inline]
     #[track_caller]
-    pub fn column<K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, node: Node, mut f: F) -> Handle { self.container(key.into(), Axis::Column, node, &mut f) }
+    pub fn column<F: FnMut(&mut Ui)>(&mut self, node: Node, mut f: F) -> Handle { self.container(Axis::Column, node, &mut f) }
 
     /// Declares `node` as a stack under the current parent and runs `f` to build its children inside it, overlapping.
     ///
     /// `node` is used as given with `axis` set to `Axis::Stack`: children sit at the padding origin in `z` order (equal `z`: build
-    /// order). The returned handle is the stack's, valid this frame. Same as `node` then `within`.
-    /// Allocates: as `node` and `within` (never on a warm frame).
-    /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); an id never collides with a
-    /// printable label.
-    /// Panics: when the library refuses the node (outside a frame, an invalid transition curve), or when `f` panics. A key or identity label over 256 bytes panics (a programmer error).
+    /// order). The returned handle is the stack's, valid this frame. Same as a node and its children.
+    /// Allocates: never on a warm frame (a new identity takes a slot the first time).
+    /// Identity: no key, as `row`: the n-th layout container of its scope; wrap conditional or animated containers in `ui.id`.
+    /// Panics: when the library refuses the node (outside a frame, an invalid transition curve), or when `f` panics.
     ///
     /// ```
     /// use pxui::ui::{Node, Size};
     /// let (mut a, mut b) = (None, None);
     /// let ui = pxui::doc::frames(2, &mut |ui| {
-    ///     ui.stack("badge", Node::DEFAULT, |ui| {
+    ///     ui.stack(Node::DEFAULT, |ui| {
     ///         a = Some(ui.node("art", Node { w: Size::Px(40.0), h: Size::Px(40.0), ..Node::DEFAULT }));
     ///         b = Some(ui.node("dot", Node { w: Size::Px(8.0), h: Size::Px(8.0), ..Node::DEFAULT }));
     ///     });
@@ -189,7 +188,26 @@ impl Ui {
     /// ```
     #[inline]
     #[track_caller]
-    pub fn stack<K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, node: Node, mut f: F) -> Handle { self.container(key.into(), Axis::Stack, node, &mut f) }
+    pub fn stack<F: FnMut(&mut Ui)>(&mut self, node: Node, mut f: F) -> Handle { self.container(Axis::Stack, node, &mut f) }
+
+    /// Runs `f` with every key built inside it scoped by `key`, adding no layout node.
+    ///
+    /// The identity scope for content that comes and goes (a conditional, a loop, an animated container): keys and positions inside
+    /// resolve under `key` instead of the parent's scope, so they survive siblings appearing or disappearing beside it. It returns
+    /// nothing; capture a child's handle inside `f`. Layout is unchanged: the children are the current parent's.
+    /// Allocates: never.
+    /// Identity: `key` resolves under the parent's seed as a node key does (see `Key`); `Key::Resolved` is used as it is.
+    /// Panics: outside a frame, or when `f` panics. A key or identity label over 256 bytes panics (a programmer error).
+    ///
+    /// ```
+    /// use pxui::ui::Node;
+    /// let mut row = None;
+    /// pxui::doc::frames(1, &mut |ui| ui.id("details", |ui| row = Some(ui.row(Node::DEFAULT, |_| {}))));
+    /// assert!(row.is_some());
+    /// ```
+    #[inline]
+    #[track_caller]
+    pub fn id<K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, mut f: F) { self.id_scope(key.into(), &mut f) }
 
     /// Declares a virtual list of `count` rows `row_h` points high that fills its parent; `f(ui, i)` builds row `i` inside its row box,
     /// which is keyed by the item id `row_key(i)`.
@@ -225,14 +243,15 @@ impl Ui {
         self.section_list_key(key, &SectionList::new(count).row_h(row_h), row_key, &mut |ui, part, _| if let SectionPart::Row(i) = part { f(ui, i) })
     }
 
-    /// The one body of `row`, `column` and `stack`: `node` with `axis` set, declared by `key`, then `f` inside it.
+    /// The one body of `row`, `column` and `stack`: `node` with `axis`, keyed by the library as the n-th layout container of the
+    /// current scope, then `f` inside it.
     // Inline: an out-of-line body retires about 110 instructions more per container than `node` + `within` (2.2% on the abi_bench
     // Author page, over its 1% limit), because the node checks and the frame-entry loads no longer fold at the call site.
     #[inline]
     #[track_caller]
-    fn container(&mut self, key: Key, axis: Axis, mut node: Node, f: &mut dyn FnMut(&mut Ui)) -> Handle {
+    fn container(&mut self, axis: Axis, mut node: Node, f: &mut dyn FnMut(&mut Ui)) -> Handle {
         node.axis = axis;
-        let b = self.node_key(key, node);
+        let b = self.layout_node(&node);
         self.within(&b, f);
         b
     }
@@ -243,14 +262,14 @@ mod tests {
     use super::Key;
     use crate::ui::{Node, Size};
 
-    /// An id key is scoped by its parent like a label: the same id under two parents names two nodes, and id 7 and label "7" differ.
+    /// An id scope is scoped by its parent like a label: the same id under two parents names two nodes, and id 7 and label "7" differ.
     #[test]
     fn container_keys_are_scoped_by_parent() {
         let mut handles = Vec::new();
         crate::doc::frames(1, &mut |ui| {
             handles.clear();
-            for parent in ["a", "b"] { ui.column(parent, Node::DEFAULT, |ui| { handles.push(ui.row(7i64, Node { h: Size::Px(4.0), ..Node::DEFAULT }, |_| {})); }); }
-            ui.column("c", Node::DEFAULT, |ui| { handles.push(ui.row(7u64, Node::DEFAULT, |_| {})); handles.push(ui.row("7", Node::DEFAULT, |_| {})); });
+            for parent in ["a", "b"] { ui.id(parent, |ui| { ui.column(Node::DEFAULT, |ui| { ui.id(7i64, |ui| handles.push(ui.row(Node { h: Size::Px(4.0), ..Node::DEFAULT }, |_| {}))); }); }); }
+            ui.column(Node::DEFAULT, |ui| { ui.id(7u64, |ui| handles.push(ui.row(Node::DEFAULT, |_| {}))); ui.id("7", |ui| handles.push(ui.row(Node::DEFAULT, |_| {}))); });
         });
         assert_ne!(handles[0].box_key, handles[1].box_key);
         assert_ne!(handles[2].box_key, handles[3].box_key);
@@ -311,12 +330,52 @@ mod tests {
         assert_ne!(before[0].1, before[1].1);
     }
 
-    /// The label path keys a container exactly as `node` does, so moving a site from `node` + `within` to `row` keeps its state.
+    /// Identity survives a conditional sibling coming and going before a keyed (`ui.id`) and an unkeyed animated container: their
+    /// keys and box state stay, and their animations run to the same frame as a run without the sibling (a new identity would restart
+    /// them). The sibling follows the rule: a conditional container inside `ui.id`, beside a conditional label.
     #[test]
-    fn container_label_matches_node() {
-        let (mut by_node, mut by_row) = (None, None);
-        crate::doc::frames(1, &mut |ui| { by_node = Some(ui.node("x", Node::DEFAULT)); });
-        crate::doc::frames(1, &mut |ui| { by_row = Some(ui.row("x", Node::DEFAULT, |_| {})); });
-        assert_eq!(by_node.unwrap().box_key, by_row.unwrap().box_key);
+    fn a_conditional_sibling_leaves_keyed_and_unkeyed_animated_containers_alone() {
+        use crate::ui::{Curve, Target};
+        use std::cell::Cell;
+        const FADE: Curve = Curve::Bezier { duration: 0.5, points: [0.25, 0.1, 0.25, 1.0] };
+        mem_sys::set_peer(crate::library_counter);
+        let run = |toggle: bool| {
+            let mut ui = crate::Ui::new(&crate::UiDesc::DEFAULT).expect("library");
+            let (keys, moving, kept) = (Cell::new((0, 0)), Cell::new((0u32, 0u32)), Cell::new((0, 0)));
+            let mut seen = Vec::with_capacity(60);
+            for frame in 0..60 {
+                let sibling = toggle && (5..12).contains(&frame);
+                mem_sys::local_reset();
+                ui.frame(&crate::FrameIn::new(200.0, 200.0).time(frame as f64 / 60.0), &mut |ui| {
+                    ui.column(Node::DEFAULT, |ui| {
+                        if sibling {
+                            ui.label("New", crate::Label::DEFAULT);
+                            ui.id("extra", |ui| { ui.row(Node::DEFAULT.h_px(10.0), |_| {}); });
+                        }
+                        let mut keyed = None;
+                        ui.id("keyed", |ui| keyed = Some(ui.row(Node::DEFAULT.h_px(10.0), |_| {})));
+                        let unkeyed = ui.row(Node::DEFAULT.h_px(10.0), |_| {});
+                        let keyed = keyed.unwrap();
+                        let (a, b) = (ui.animate(&keyed, Target::Opacity(0.0), FADE), ui.animate(&unkeyed, Target::Opacity(0.0), FADE));
+                        let m = moving.get();
+                        moving.set((m.0 + a as u32, m.1 + b as u32));
+                        if frame == 0 { ui.set_state(&keyed, 41); ui.set_state(&unkeyed, 42); }
+                        kept.set((ui.state(&keyed, 0), ui.state(&unkeyed, 0)));
+                        keys.set((keyed.box_key, unkeyed.box_key));
+                    });
+                }).unwrap();
+                // keyless containers and id scopes allocate nothing once warm (`seen` grows after the count is read)
+                if frame >= 20 { assert_eq!(mem_sys::local_alloc_count(), 0, "frame {frame}: warm containers and id scopes"); }
+                seen.push(keys.get());
+                assert_eq!(kept.get(), (41, 42), "frame {frame}: the containers kept their state");
+            }
+            (seen, moving.get())
+        };
+        let (with, moved_with) = run(true);
+        let (without, moved_without) = run(false);
+        assert!(with.iter().all(|k| *k == with[0]), "the keys never changed: {with:?}");
+        assert_eq!(with[0], without[0]);
+        assert_eq!(moved_with, moved_without, "the animations ran their course once, unrestarted");
+        assert!(moved_with.0 > 10, "the fade ran over several frames");
     }
 }

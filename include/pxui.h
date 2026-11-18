@@ -18,7 +18,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 80u)
+#define PXUI_ABI_BUILT ((1u << 16) | 81u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 typedef struct { uint32_t autocorrect, capitalization, action; } PxuiTextInputOptions;
@@ -565,6 +565,9 @@ int32_t pxui_ui_patch_text(PxuiUi *ui, const PxuiBox *box, PxuiStr value, uint8_
 int32_t pxui_ui_busy_step(PxuiUi *ui, const PxuiBox *box, double now, uint8_t *out);
 int32_t pxui_ui_request_frame(PxuiUi *ui);
 int32_t pxui_ui_node(PxuiUi *ui, PxuiStr label, const PxuiNode *node, PxuiBox *out); /* node->size = sizeof(PxuiNode); copied in the call */
+/* ABI 1.81: a keyless layout container: the n-th of the current scope, keyed by the library in a positional namespace no label
+   or id reaches (labels and images are keyed the same way, each kind counted apart). No caller text crosses. */
+int32_t pxui_ui_layout_node(PxuiUi *ui, const PxuiNode *node, PxuiBox *out);
 int32_t pxui_ui_node_keyed(PxuiUi *ui, int64_t key, const PxuiNode *node, PxuiBox *out); /* keys 0 and 1 are reserved */
 int32_t pxui_ui_rect(PxuiUi *ui, const PxuiBox *box, PxuiRect *out);
 uint8_t pxui_ui_box_of_key(PxuiUi *ui, int64_t key, PxuiBox *out);

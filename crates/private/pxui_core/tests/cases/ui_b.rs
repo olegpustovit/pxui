@@ -148,7 +148,7 @@ pub fn window_pxui_context_menu() {
     // Context menu: rows commit on release inside, disabled rows are inert, a press outside
     // dismisses; the host keeps it open on Open.
     let mut ui = field_ui();
-    const ITEMS: [MenuItem; 3] = [MenuItem::new("One"), MenuItem::new("Two").enabled(false), MenuItem::new("Three")];
+    const ITEMS: [MenuItem; 3] = [MenuItem::new("One"), MenuItem::new("Two").disabled(true), MenuItem::new("Three")];
     let result = Cell::new(Chosen::default());
     let menu = |ui: &mut Ui, events: Vec<Event>| {
         ui.frame(&frame_at(vec![], 1.0, 0.0, events), &mut |ui| {

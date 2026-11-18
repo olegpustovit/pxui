@@ -57,7 +57,7 @@ impl Ui {
         let chosen = (result.has_chosen != 0).then_some(result.chosen as usize);
         let mut response = crate::kit_ext::response(&out);
         response.changed = chosen != selected.filter(|_| !items.is_empty()).map(|i| i.min(items.len() - 1));
-        PickResponse { response, chosen, secondary: (result.has_secondary != 0).then_some(result.secondary as usize) }
+        PickResponse { response, chosen, chosen_id: chosen.and_then(|i| items.get(i)?.id), secondary: (result.has_secondary != 0).then_some(result.secondary as usize) }
     }
 
     /// The one body of `scrub`.

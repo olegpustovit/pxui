@@ -15,9 +15,9 @@ the function you call (what it does, `Allocates:`, `Identity:`, `Panics:`, examp
   `DialogButton`, `Segment`, `Node`) are `Copy` values with a `DEFAULT` (labels also `BODY`, `CAPTION`, `TITLE`, `MONO`)
   and `const fn` builders that take `self` by value. Declare them as `const` items; never write a struct literal with
   `..Default::default()` at a call site, and never build a style per frame from data.
-- One function per job. `label`, `label_fmt`, `label_digits`; `button_with` (text) and `button_content` (your own
-  contents); `icon_button`; `toggle_with`; `segmented`; `menu`; `dialog`; `pressable`; `list`; `view_of`;
-  `row`, `column`, `stack`. The short `button(text)` and `toggle(text, on)` exist for prototypes and key by position.
+- One function per job. `label`, `label_fmt`, `label_digits`; `button` (text) and `button_content` (your own
+  contents); `icon_button`; `toggle`; `segmented`; `menu`; `dialog`; `pressable`; `list`; `view_of`;
+  `row`, `column`, `stack`; `id` scopes keys. Interactive calls take a key first; there are no keyless short forms.
 - Labels are leaves: no key, identity by position among siblings, no state. Everything interactive takes a key first.
 
 ## Keys
@@ -81,7 +81,7 @@ pxui::doc::frames(2, &mut |ui| {
 
 ## Buttons
 
-`button_with(key, text, &Button)` for text; `button_content(key, &Button, |ui, state| ..)` when you draw the
+`button(key, text, &Button)` for text; `button_content(key, &Button, |ui, state| ..)` when you draw the
 contents. `state` is a by-value snapshot (`hovered`, `pressed`, `focused`, `disabled`, `checked`) read before the closure
 runs. Give a content button a size and a `name` (its accessible name). `icon_button(key, Icon, name, &IconButton)`
 is the glyph or drawn-icon button; `name` is the accessible name. `Ui::disabled(flag, |ui| ..)` disables every
@@ -94,8 +94,8 @@ const DELETE: Button = Button::sized(120.0, 30.0).danger();
 const KEY: IconButton = IconButton::sized(36.0, 36.0).press_scale(0.96);
 let mut play = false;
 pxui::doc::frames(2, &mut |ui| {
-    ui.button_with("save", "Save", &SAVE);
-    ui.disabled(!play, |ui| { ui.button_with("clear", "Clear offline cache", &DELETE); });
+    ui.button("save", "Save", &SAVE);
+    ui.disabled(!play, |ui| { ui.button("clear", "Clear offline cache", &DELETE); });
     if ui.icon_button("play", Icon::Glyph('>'), "Play", &KEY).clicked { play = true; }
     let pill = Button::sized(90.0, 30.0).name("Shuffle");
     ui.button_content("shuffle", &pill, |ui, state| {
@@ -107,7 +107,7 @@ pxui::doc::frames(2, &mut |ui| {
 
 ## Toggles and segmented controls
 
-`toggle_with(key, text, on, &Toggle)` returns a `Response`: the new value is `on != response.changed`; the app owns
+`toggle(key, text, on, &Toggle)` returns a `Response`: the new value is `on != response.changed`; the app owns
 the value. `segmented(key, &[Segment], selected, &Segmented)` takes the choice as `Option<usize>` (`None`: none
 chosen) and returns a `PickResponse`: `response` (`changed` when the choice moved), `chosen`, and `secondary`, the
 option a right/two-finger press began on (a context-menu request, never a choice). The strip is one Tab stop, the
@@ -121,7 +121,7 @@ const LOOKS: Segmented = Segmented::DEFAULT.h_px(28.0).name("Appearance");
 const OPTIONS: [Segment; 3] = [Segment::new("System"), Segment::new("Light"), Segment::new("Dark")];
 let (mut offline, mut look) = (false, Some(0));
 pxui::doc::frames(2, &mut |ui| {
-    if ui.toggle_with("offline", "Offline mode", offline, &SETTING).changed { offline = !offline; }
+    if ui.toggle("offline", "Offline mode", offline, &SETTING).changed { offline = !offline; }
     let strip = ui.segmented("appearance", &OPTIONS, look, &LOOKS);
     if strip.response.changed { look = strip.chosen; }
 });
@@ -153,17 +153,18 @@ assert!(chosen.is_none() && confirmed.is_none());
 `ui.list(key, count, row_h, &|i| id, |ui, i| ..)` virtualizes: only the rows in view are built, so a
 100,000-song library costs what a screen costs. The `id` closure gives each row its model id (the key; unique among
 rows). `view_of(key, &inputs, |ui| ..)` rebuilds its subtree only when `inputs` (anything `Hash`) changes: list in
-`inputs` everything the closure reads, or it goes stale. `row`, `column` and `stack` take a key, a `const` `Node` and
-the children closure.
+`inputs` everything the closure reads, or it goes stale. `row`, `column` and `stack` take a `Node` and the children
+closure and no key: each is the n-th container of its scope. Put a container under `if`, `match` or a loop, or one that
+animates, inside `ui.id(key, |ui| ..)` so its identity survives siblings coming and going.
 
 ```rust
 use pxui::{ui::{Node, Size}, Label};
 const BAR: Node = Node::row().h(Size::Px(44.0));
 let titles = ["Blue in Green", "So What", "Flamenco Sketches"];
 pxui::doc::frames(2, &mut |ui| {
-    ui.column("screen", Node::column(), |ui| {
+    ui.column(Node::column(), |ui| {
         ui.view_of("header", &titles.len(), |ui| {
-            ui.row("bar", BAR, |ui| { ui.label_fmt(format_args!("{} songs", titles.len()), Label::TITLE); });
+            ui.row(BAR, |ui| { ui.label_fmt(format_args!("{} songs", titles.len()), Label::TITLE); });
         });
         ui.list("songs", titles.len(), 44.0, &|i| i as i64, |ui, i| { ui.label(titles[i], Label::BODY); });
     });

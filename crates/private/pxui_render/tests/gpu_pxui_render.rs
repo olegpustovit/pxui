@@ -938,10 +938,10 @@ fn shared_frame_ui(ui: &mut pxui::Ui, caption: &str) {
     let input = pxui::FrameIn::new(320.0, 300.0).scale(2.0).time(1.0 / 60.0);
     ui.frame(&input, &mut |ui: &mut pxui::Ui| { ui.panel("panel", &pxui::Overlay::DEFAULT, &mut |ui: &mut pxui::Ui| {
         ui.label("PXUI", pxui_core::ui::Label::DEFAULT);
-        ui.toggle("Animate", true);
-        ui.toggle("Wire", false);
+        ui.toggle("toggle", "Animate", true, &pxui::Toggle::DEFAULT);
+        ui.toggle("toggle", "Wire", false, &pxui::Toggle::DEFAULT);
         ui.text_field("caption", caption, &pxui::TextField::DEFAULT.name("Caption"));
-        ui.button("Quit");
+        ui.button("button", "Quit", &pxui::Button::DEFAULT).clicked;
     }); }).expect("build shared-device panel");
 }
 
@@ -1100,11 +1100,11 @@ fn shared_system_preferences_change_native_pixels_without_warm_allocations() {
         mem_sys::local_reset();
         ui.set_theme(if is_dark { &dark } else { &light }).unwrap();
         ui.frame(&pxui::FrameIn::new(320.0, 300.0).scale(2.0).time(frame as f64/60.0).reduced_motion(true).appearance(appearance),&mut |ui| {
-            ui.column("appearance", pxui::Node::column().w_px(100.0).h_px(40.0), |ui| { ui.view_of("appearance", &1, |ui| {
+            ui.id("appearance", |ui| { ui.column(pxui::Node::column().w_px(100.0).h_px(40.0), |ui| { ui.view_of("appearance", &1, |ui| {
                 assert_eq!(ui.system_appearance(),appearance);
                 assert!(ui.tokens().reduced_motion);
                 ui.node("block",pxui::Node { w:pxui::ui::Size::Px(80.0),h:pxui::ui::Size::Px(24.0),look:pxui::ui::Look { fill:ui.tokens().foreground,..pxui::ui::Look::NONE },..pxui::Node::DEFAULT });
-            }); });
+            }); }); });
         }).unwrap();
         if frame>=4 { assert_eq!(mem_sys::local_alloc_count(),0,"warm parsed theme selection and frame preferences allocate nothing"); }
         assert!(ui.repaint_at().is_none());
@@ -1688,7 +1688,7 @@ fn rows_ui(ui: &mut pxui::Ui, rows: usize, caption: &str) {
     let input = pxui::FrameIn::new(320.0, 300.0).scale(2.0).time(1.0 / 60.0);
     ui.frame(&input, &mut |ui: &mut pxui::Ui| { ui.panel("panel", &pxui::Overlay::DEFAULT, &mut |ui: &mut pxui::Ui| {
         for row in 0..rows { ui.label(&format!("row {row} {caption}"), pxui_core::ui::Label::DEFAULT); }
-        ui.button("Quit");
+        ui.button("button", "Quit", &pxui::Button::DEFAULT).clicked;
     }); }).expect("build a frame of rows");
 }
 
@@ -1698,7 +1698,7 @@ fn views_ui(ui: &mut pxui::Ui, views: usize, rows: usize, revision: u64) {
     ui.frame(&input, &mut |ui: &mut pxui::Ui| {
         for v in 0..views {
             let name = format!("view {v}");
-            ui.column(v as i64, pxui::Node::column().w_px(300.0).h_px(20.0 * rows as f32), |ui| { ui.view_of(v as i64, &(revision + v as u64 % 2), |ui: &mut pxui::Ui| for row in 0..rows { ui.label(&format!("row {row} of {name}"), pxui_core::ui::Label::DEFAULT); }); });
+            ui.id(v as i64, |ui| { ui.column(pxui::Node::column().w_px(300.0).h_px(20.0 * rows as f32), |ui| { ui.view_of(v as i64, &(revision + v as u64 % 2), |ui: &mut pxui::Ui| for row in 0..rows { ui.label(&format!("row {row} of {name}"), pxui_core::ui::Label::DEFAULT); }); }); });
         }
     }).expect("build a frame of views");
 }

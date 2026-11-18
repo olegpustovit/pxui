@@ -115,10 +115,10 @@ mod tests {
         let mut ui = crate::Ui::new(&crate::UiDesc::DEFAULT).expect("library");
         let input = FrameIn::new(320.0, 240.0);
         let mut build = |ui: &mut crate::Ui| {
-            ui.column("fixed", Node { w: Size::Px(120.0), h: Size::Px(40.0), ..Node::DEFAULT }, |ui| {
+            ui.column(Node { w: Size::Px(120.0), h: Size::Px(40.0), ..Node::DEFAULT }, |ui| {
                 fixed.set(Some(ui.view_of("v", &1u8, |ui| { ui.node("a", Node { h: Size::Px(10.0), ..Node::DEFAULT }); })));
             });
-            ui.column("fit", Node { w: Size::Px(80.0), ..Node::DEFAULT }, |ui| {
+            ui.column(Node { w: Size::Px(80.0), ..Node::DEFAULT }, |ui| {
                 fitted.set(Some(ui.view_of("v", &1u8, |ui| { ui.node("a", Node { h: Size::Px(17.0), ..Node::DEFAULT }); })));
             });
         };

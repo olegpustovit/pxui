@@ -135,10 +135,10 @@ fn column(ui: &mut Ui, label: &'static str, at: (f32, f32), w: f32, h: Size, f: 
 pub fn kit_page(ui: &mut Ui, s: &mut Gallery) {
     ui.panel("panel", &Overlay::DEFAULT, &mut |ui: &mut Ui| {
         ui.label("PXUI", pxui::Label::DEFAULT);
-        s.animate = ui.toggle("Animate", s.animate);
-        s.wire = ui.toggle("Wire", s.wire);
+        s.animate = ui.toggle("animate", "Animate", s.animate, &pxui::Toggle::DEFAULT).changed != s.animate;
+        s.wire = ui.toggle("wire", "Wire", s.wire, &pxui::Toggle::DEFAULT).changed != s.wire;
         inputs::caption(ui, &mut s.caption);
-        if ui.button("Quit") {
+        if ui.button("button", "Quit", &pxui::Button::DEFAULT).clicked {
             s.quit = true;
         }
     });
@@ -253,16 +253,16 @@ pub fn collections_page(ui: &mut Ui, s: &mut Gallery) {
 pub fn overlays_page(ui: &mut Ui, s: &mut Gallery) {
     ui.panel("overlays", &Overlay::DEFAULT.w_px(296.0), &mut |ui: &mut Ui| {
         ui.label("Overlays", pxui::Label::DEFAULT);
-        if ui.button("Open dialog") {
+        if ui.button("button", "Open dialog", &pxui::Button::DEFAULT).clicked {
             s.dialog = true;
         }
-        if ui.button("Context menu") {
+        if ui.button("button", "Context menu", &pxui::Button::DEFAULT).clicked {
             s.menu_at = Some(pxui_types::geom::Point::new(140.0, 120.0));
         }
-        if ui.button("Pick a preset") {
+        if ui.button("button", "Pick a preset", &pxui::Button::DEFAULT).clicked {
             s.picker = true;
         }
-        if ui.button("Show a toast") {
+        if ui.button("button", "Show a toast", &pxui::Button::DEFAULT).clicked {
             s.toast("Saved to disk");
         }
         let row = node(ui, "tip-row", Node { h: Size::Px(28.0), axis: Axis::Row, align: Align::Center, padding: Edges { l: 12.0, ..Edges::ZERO }, ..Node::DEFAULT });
@@ -432,7 +432,7 @@ pub fn layout_page(ui: &mut Ui, s: &mut Gallery) {
     });
     let mut anchor = None;
     demo(ui, "Anchored popup, keyframes", (x(2), 244.0), (col_w, 104.0), Node { gap: 6.0, ..Node::DEFAULT }, &mut |ui: &mut Ui| {
-        if ui.button("Bounce") {
+        if ui.button("button", "Bounce", &pxui::Button::DEFAULT).clicked {
             s.bounce = true;
         }
         let a = chip(ui, "anchor".into(), 2, px(60.0, 16.0));

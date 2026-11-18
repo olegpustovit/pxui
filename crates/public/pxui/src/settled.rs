@@ -27,8 +27,8 @@ struct State {
 fn panel(ui: &mut Ui, s: &mut State) {
     ui.panel("settings", &crate::Overlay::DEFAULT, &mut |ui: &mut Ui| {
         ui.label("Display", crate::Label::DEFAULT);
-        if ui.button("Apply") { s.clicks += 1; }
-        s.night = ui.toggle("Night light", s.night);
+        if ui.button("button", "Apply", &crate::Button::DEFAULT).clicked { s.clicks += 1; }
+        s.night = ui.toggle("night", "Night light", s.night, &crate::Toggle::DEFAULT).changed != s.night;
         s.check = s.check != ui.checkbox("check", "Check", s.check, &crate::Checkbox::DEFAULT).changed;
         s.volume = ui.slider("volume", "Volume", s.volume, 0.0..=1.0, &crate::Slider::DEFAULT).value;
         s.mode = ui.radio("mode", &[crate::Segment::new("Auto"), crate::Segment::new("Light"), crate::Segment::new("Dark")], Some(s.mode), &crate::Radio::DEFAULT.name("Mode")).chosen.unwrap_or(s.mode);

@@ -798,7 +798,7 @@ impl Ui {
     /// use pxui::ui::ViewTransform;
     /// pxui::doc::frames(1, &mut |ui| {
     ///     let mut v = None;
-    ///     ui.column("frame", pxui::Node::column().w_px(40.0).h_px(40.0), |ui| v = Some(ui.view_of("v", &1, |_| {})));
+    ///     ui.column(pxui::Node::column().w_px(40.0).h_px(40.0), |ui| v = Some(ui.view_of("v", &1, |_| {})));
     ///     let v = v.unwrap();
     ///     ui.set_view(&v, &ViewTransform::DEFAULT.offset(4.0, 0.0).opacity(0.5).about(1.5, [1.0, 0.0, 0.0, 1.0], (20.0, 20.0)));
     /// });

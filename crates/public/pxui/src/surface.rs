@@ -158,7 +158,7 @@ fn reveal_uses_fixed_measured_section_and_grid_geometry_without_warm_allocations
         let keys:Vec<Cell<i64>>=(0..10_000).map(|_| Cell::new(0)).collect();
         let row_key=|index:usize| keys[index].get();
         let mut build=|ui:&mut Ui| {
-            ui.column("reveal-page", Node::column().w_px(size.get()).h_px(size.get()), |ui| { ui.view_of("reveal-page", &(count.get() as u64), |ui| {
+            ui.id("reveal-page", |ui| { ui.column(Node::column().w_px(size.get()).h_px(size.get()), |ui| { ui.view_of("reveal-page", &(count.get() as u64), |ui| {
                 let mut row=|ui:&mut Ui,index:usize| {
                     calls.set(calls.get()+1);
                     let h=if kind==1 || kind==2 {10.0+(index%3) as f32*20.0} else {20.0};
@@ -175,7 +175,7 @@ fn reveal_uses_fixed_measured_section_and_grid_geometry_without_warm_allocations
                 ui.set_node_layout(&list,&Node::DEFAULT.w(Size::Grow).h(Size::Grow).padding(crate::geom::Edges::all(6.0)));
                 body.set(Some(list));
                 if let Some(index)=requested.take() {ui.reveal(&list,index);}
-            }); });
+            }); }); });
         };
         ui.frame(&input(),&mut build).unwrap();
         ui.frame(&input(),&mut build).unwrap();
@@ -868,12 +868,12 @@ fn rendering_density_matches_paint_updates_cached_views_and_allocates_nothing() 
         for scale in [1.0,2.0,3.0,3.0] {
             ui.frame(&input().scale(scale),&mut |ui| {
                 assert_eq!(ui.density(),scale as i64 as f32);
-                ui.column("density", Node::column().w_px(40.0).h_px(40.0), |ui| { ui.view_of("density", &0, |ui| {
+                ui.id("density", |ui| { ui.column(Node::column().w_px(40.0).h_px(40.0), |ui| { ui.view_of("density", &0, |ui| {
                     builds.set(builds.get()+1);
                     let density=ui.density();
                     let node=ui.node("paint",crate::Node::DEFAULT.w_px(40.0).h_px(40.0));
                     ui.canvas(&node,move |paint,_| {assert_eq!(paint.density(),density);});
-                }); });
+                }); }); });
             }).unwrap();
             assert_eq!(ui.density(),scale as i64 as f32,"owner keeps the last frame's density");
         }
@@ -1260,7 +1260,7 @@ fn sampled_and_stepped_animations_keep_overshoot_and_allocate_nothing_when_warm(
     let builds = Cell::new(0);
     let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
     let mut build = |ui: &mut Ui| {
-        ui.column("animation", Node::column().w_px(250.0).h_px(50.0), |ui| { ui.view_of("animation", &1, |ui| {
+        ui.column(Node::column().w_px(250.0).h_px(50.0), |ui| { ui.view_of("animation", &1, |ui| {
             builds.set(builds.get() + 1);
             chip.set(Some(ui.node("chip", Node::DEFAULT.w_px(40.0).h_px(20.0).look(Look::NONE.fill(pxui_types::geom::Rgba::rgb(200, 40, 40))))));
         }); });
@@ -1370,7 +1370,7 @@ fn kit_extras_build_and_report_through_the_engine_shapes() {
     for round in 0..3 {
         ui.frame(&input(), &mut |ui: &mut Ui| {
             ui.panel("extras", &crate::Overlay::DEFAULT, &mut |ui: &mut Ui| {
-                assert!(!ui.button_with("styled", "Styled", &crate::Button::DEFAULT.danger().align(pxui_types::layout::Justify::End)).clicked);
+                assert!(!ui.button("styled", "Styled", &crate::Button::DEFAULT.danger().align(pxui_types::layout::Justify::End)).clicked);
                 let head = ui.inspector_head_for_test(&actions);
                 assert_eq!(head.renamed, "Title");
                 ui.inspector_body(&mut |ui: &mut Ui| {
@@ -2557,9 +2557,9 @@ fn output_partitions_reuse_the_engine_dirty_capacity_after_unchanged_frames() {
                 let phase=if frame<3 {frame.min(1)} else {frame-1};
                 let changed=index%2==0 && phase%2==1;
                 let revision=if index%2==0 {phase as u64} else {0};
-                ui.column(*name, Node::column().w_px(20.0).h_px(4.0), |ui| { ui.view_of(*name, &revision, |ui| {
+                ui.id(*name, |ui| { ui.column(Node::column().w_px(20.0).h_px(4.0), |ui| { ui.view_of(*name, &revision, |ui| {
                     ui.node("quad",Node::DEFAULT.w_px(20.0).h_px(4.0).look(Look::NONE.fill(if changed {pxui_types::geom::Rgba::rgb(0, 0, 255)} else {pxui_types::geom::Rgba::WHITE})));
-                }); });
+                }); }); });
             }
         }).unwrap();
         if frame<2 { ui.drawn(0); continue; }
@@ -2652,12 +2652,12 @@ fn reopening_nested_view_kinds_reuses_their_node_and_hit_capacities() {
         if shown.get() {
             ui.view_of("panel", &1, |ui| {
                 for (label,count) in [("header",2),("information",10),("clock",1),("queue",24)] {
-                    ui.column(label, Node::column().h_px(40.0), |ui| { ui.view_of(label, &1, |ui| {
+                    ui.id(label, |ui| { ui.column(Node::column().h_px(40.0), |ui| { ui.view_of(label, &1, |ui| {
                         for _index in 0..count {
                             let b=ui.node("item",Node::DEFAULT.flags(pxui_types::Flags::CLICKABLE).w_px(10.0).h_px(1.0).role(Role::Button));
                             ui.a11y_name(&b,"item");
                         }
-                    }); });
+                    }); }); });
                 }
             });
         }
@@ -2714,11 +2714,11 @@ fn line_box_text_fits_wraps_and_resizes_in_one_frame_without_warm_allocations() 
         for (index,width) in [80.0,200.0].into_iter().enumerate() {
             for empty in [false,true] {
                 ui.frame(&input().time(round as f64),&mut |ui| {
-                    ui.column("wrapper", Node::column().w_px(width), |ui| { ui.view_of("wrapper", &((width as u64)*2+u64::from(empty)), |ui| {
+                    ui.id("wrapper", |ui| { ui.column(Node::column().w_px(width), |ui| { ui.view_of("wrapper", &((width as u64)*2+u64::from(empty)), |ui| {
                         let node=ui.node("line",Node::DEFAULT.role(Role::Label).w(Size::Grow).h(Size::Fit));
                         ui.text_line_box(&node,if empty {""} else {value},style,&[]).unwrap();
                         handle.set(Some(node));
-                    }); });
+                    }); }); });
                 }).unwrap();
                 let rect=ui.rect(&handle.get().unwrap());
                 assert!((rect.w-width).abs()<0.001);
@@ -3307,7 +3307,7 @@ fn colour_tokens_follow_a_light_dark_theme_swap_without_app_rebuild_or_warm_allo
     // what the app reads while building (inside a retained view whose revision never changes), painting and in a scope
     let (built, painted, scoped) = (Cell::new(Rgba::default()), Rc::new(Cell::new(Rgba::default())), Cell::new(Rgba::default()));
     let mut build = |ui: &mut Ui| {
-        ui.column("tokens", Node::column().w_px(100.0).h_px(60.0), |ui| { ui.view_of("tokens", &1, |ui| {
+        ui.column(Node::column().w_px(100.0).h_px(60.0), |ui| { ui.view_of("tokens", &1, |ui| {
             built.set(ui.color(ColorToken(1)));
             let b = ui.node("canvas", crate::Node::DEFAULT.w_px(20.0).h_px(10.0));
             let painted = painted.clone();
@@ -3400,13 +3400,13 @@ fn const_looks_naming_colour_tokens_resolve_for_the_theme_in_effect_without_app_
     let (node, pressed, button) = (Cell::new(Look::NONE), Cell::new(Look::NONE), Cell::new(Look::NONE));
     // a retained view whose revision never changes: the engine rebuilds it at the swap, the app changes nothing
     let mut build = |ui: &mut Ui| {
-        ui.column("tokens", Node::column().w_px(200.0).h_px(100.0), |ui| { ui.view_of("tokens", &1, |ui| {
+        ui.column(Node::column().w_px(200.0).h_px(100.0), |ui| { ui.view_of("tokens", &1, |ui| {
             let b = ui.node("plain", crate::Node::DEFAULT.w_px(20.0).h_px(10.0).look(ROW));
             node.set(ui.node_mut(&b, |f| f.look));
             let p = ui.pressable("row", crate::Node::DEFAULT.w_px(20.0).h_px(10.0), &crate::Pressable::DEFAULT.look(&PLATE), |_, _| {});
             pressed.set(ui.node_mut(&p.handle, |f| f.look));
             ui.icon_button("key", crate::Icon::glyph('>'), "Key", &KEY);
-            let b = ui.button_with("button", "Button", &crate::Button::DEFAULT.look(&PLATE));
+            let b = ui.button("button", "Button", &crate::Button::DEFAULT.look(&PLATE));
             button.set(ui.node_mut(&b.handle, |f| f.look));
         }); });
     };

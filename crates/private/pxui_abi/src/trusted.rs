@@ -46,6 +46,15 @@ pub(crate) unsafe fn node(ui: *mut PxuiUi, label: &str, desc: &Node, out: *mut P
     0
 }
 
+/// `pxui_ui_layout_node` of a checked node: a keyless layout container (see `Ui::layout_node`).
+#[inline]
+pub unsafe fn layout_node(ui: *mut PxuiUi, desc: &Node, out: *mut PxuiBox) -> i32 {
+    enter!(ui);
+    if let pxui_types::node::OptTransition::Some(curve) = &desc.transition { if !curve.valid() { return unsafe { fail(ui, "invalid transition curve") }; } }
+    declare(unsafe { engine(ui) }, None, 0, desc, unsafe { &mut *out });
+    0
+}
+
 #[inline]
 pub unsafe fn pxui_ui_node_keyed(ui: *mut PxuiUi, key: i64, desc: &Node, out: *mut PxuiBox) -> i32 {
     enter!(ui);

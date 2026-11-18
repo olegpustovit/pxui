@@ -213,7 +213,7 @@ fn voiceover_bridge_maps_nodes_round_trips_actions_and_stays_quiet_when_unchange
     let (seek, shuffle, pressed, hidden) = (Cell::new(25.0f32), Cell::new(false), Cell::new(0), Cell::new(false));
     let mut build = |ui: &mut Ui| {
         ui.label("Now playing", pxui::Label::DEFAULT);
-        if ui.button("Play") { pressed.set(pressed.get() + 1); }
+        if ui.button("play", "Play", &pxui::Button::DEFAULT).clicked { pressed.set(pressed.get() + 1); }
         seek.set(ui.slider("seek", "Seek", seek.get(), 0.0..=100.0, &pxui::Slider::DEFAULT).value);
         if !hidden.get() { shuffle.set(shuffle.get() != ui.checkbox("shuffle", "Shuffle", shuffle.get(), &pxui::Checkbox::DEFAULT).clicked); }
     };

@@ -138,7 +138,7 @@ impl Ui {
         check(self, rc);
         response(&out)
     }
-    /// The one body of `button`, `button_with` and `button_content`: linked statically, the library's trusted entry with the options as
+    /// The one body of `button` and `button_content`: linked statically, the library's trusted entry with the options as
     /// they are; else the plain call for `Button::DEFAULT` without contents, or the options as a descriptor and the contents as a callback
     /// given the button's state. One `PxuiResponse` comes back either way.
     #[inline(always)]
@@ -200,7 +200,7 @@ impl Ui {
         check(self, rc);
         response(&out)
     }
-    /// The one body of `toggle` and `toggle_with`; a click is the flip of `on`. Linked statically, the library's trusted entry with the options
+    /// The one body of `toggle`; a click is the flip of `on`. Linked statically, the library's trusted entry with the options
     /// as they are; else the plain call for `Toggle::DEFAULT`, or the options as a descriptor. One `PxuiResponse` comes back either way.
     #[inline(always)]
     #[track_caller]
@@ -264,7 +264,7 @@ impl Ui {
         check(self, rc);
         let mut response = response(&out);
         response.changed = chosen != selected.filter(|_| !options.is_empty()).map(|i| i.min(options.len() - 1));
-        PickResponse { response, chosen, secondary }
+        PickResponse { response, chosen, chosen_id: chosen.and_then(|i| options.get(i)?.id), secondary }
     }
     /// The one body of `disabled`: `f` runs under the library's scope.
     #[track_caller]

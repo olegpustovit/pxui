@@ -129,7 +129,8 @@ unsafe fn tracks(ptr: *const Track, len: usize, out: &mut [Track]) -> Option<usi
 /// goes to `out` as its bytes (two vector moves) where the engine's handle has the same layout, else field by field.
 #[inline(always)]
 pub(crate) fn declare(engine: &mut Ui, label: Option<&str>, key: i64, desc: &Node, out: &mut PxuiBox) {
-    let b = match label { Some(label) => engine.node_ref(label, desc), None => engine.node_keyed_ref(key, desc) };
+    // no label and key 0 (a key no keyed call accepts): a keyless layout container, keyed by the engine by position
+    let b = match label { Some(label) => engine.node_ref(label, desc), None if key == 0 => engine.layout_node(desc), None => engine.node_keyed_ref(key, desc) };
     if SAME_BOX { unsafe { core::ptr::copy_nonoverlapping((&b as *const UiBox).cast::<u8>(), (out as *mut PxuiBox).cast::<u8>(), size_of::<PxuiBox>()) } }
     else { (out.index, out.box_key, out.box_slot, out.generation) = (b.index as u64, b.box_key, b.box_slot as u64, b.generation); }
 }
@@ -159,7 +160,11 @@ unsafe fn grid_node(ui: *mut PxuiUi, label: Option<&str>, key: i64, desc: &Node,
     // the engine's Grid borrows 'static tracks: these live in `shared` until the box is gone (see `finish_frame`)
     let all: &'static [Track] = unsafe { core::mem::transmute::<&[Track], &'static [Track]>(&stored[..]) };
     let node = Node { grid: OptGrid::Some(Grid::new(&all[..split], &all[split..])), ..*desc };
-    let rc = match label { Some(label) => unsafe { crate::trusted::node(ui, label, &node, out) }, None => unsafe { crate::trusted::pxui_ui_node_keyed(ui, key, &node, out) } };
+    let rc = match label {
+        Some(label) => unsafe { crate::trusted::node(ui, label, &node, out) },
+        None if key == 0 => unsafe { crate::trusted::layout_node(ui, &node, out) },
+        None => unsafe { crate::trusted::pxui_ui_node_keyed(ui, key, &node, out) },
+    };
     if rc != 0 { return rc; }
     let shared = unsafe { (*ui).shared() };
     let key = unsafe { (*out).box_key };
@@ -200,6 +205,7 @@ unsafe fn place_node(ui: *mut PxuiUi, label: Option<&str>, key: i64, desc: &Node
     if desc.grid.is_some() { return unsafe { grid_node(ui, label, key, desc, out) }; }
     match label {
         Some(label) => unsafe { crate::trusted::node(ui, label, desc, out) },
+        None if key == 0 => unsafe { crate::trusted::layout_node(ui, desc, out) },
         None => unsafe { crate::trusted::pxui_ui_node_keyed(ui, key, desc, out) },
     }
 }
@@ -220,6 +226,15 @@ export!(trusted pub unsafe fn pxui_ui_node(ui:*mut PxuiUi,label:pxui_types::Str,
     let Some(label)=(unsafe{crate::state::checked_key(label)}) else{return unsafe{fail(ui,"invalid node label")};};
     let Some(node) = (unsafe { checked_node(desc) }) else { return unsafe { place_legacy_node(ui, Some(label), 0, desc, out) }; };
     unsafe { place_node(ui, Some(label), 0, node, out) }
+});
+
+// ABI 1.81: a keyless layout container (the Rust `row`/`column`/`stack`): the n-th of the current scope, keyed by the library in a
+// positional namespace no label or id reaches, so it keeps its key while siblings of other kinds come and go. No caller text crosses.
+export!(trusted pub unsafe fn pxui_ui_layout_node(ui:*mut PxuiUi,desc:*const Node,out:*mut PxuiBox)->i32 {
+    if unsafe{get(ui)}.is_none() {return crate::PXUI_ERR_ARGUMENT};
+    if out.is_null(){return unsafe{fail(ui,"null layout node argument")};}
+    let Some(node) = (unsafe { checked_node(desc) }) else { return unsafe { invalid_node(ui) } };
+    unsafe { place_node(ui, None, 0, node, out) }
 });
 
 export!(trusted pub unsafe fn pxui_ui_node_keyed(ui:*mut PxuiUi,key:i64,desc:*const Node,out:*mut PxuiBox)->i32 {

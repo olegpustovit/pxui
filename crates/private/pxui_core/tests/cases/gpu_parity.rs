@@ -102,7 +102,7 @@ fn overlays(ui: &mut Ui) {
         };
         { let r = ui.picker("Search presets", "Search presets", "", &pxui_core::ui::PickerOpts { limit: 3, ..pxui_core::ui::PickerOpts::default() }, &mut |q: &str, out: &mut pxui_core::ui::PickRows| for (a, b) in rows(q) { out.push(&a, &b) }); (r.query.to_owned(), r.pick) };
     });
-    const ITEMS: [MenuItem; 3] = [MenuItem::new("View"), MenuItem::new("Set active camera").enabled(false), MenuItem::new("Delete")];
+    const ITEMS: [MenuItem; 3] = [MenuItem::new("View"), MenuItem::new("Set active camera").disabled(true), MenuItem::new("Delete")];
     ui.menu("context".into(), pxui_types::geom::Point::new(12.0, 200.0), &ITEMS, &Menu::DEFAULT);
 }
 

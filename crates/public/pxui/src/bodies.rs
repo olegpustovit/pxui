@@ -264,10 +264,10 @@ mod tests {
         assert_eq!(ui.register_toggle_body("probe", probe).expect("again"), id, "a name again keeps its id");
         let scoped = crate::ThemeHandle::parse("toggle.body = probe").expect("scoped theme");
         // outside the scope the built-in body builds
-        for n in 0..2 { ui.frame(&input(n as f64), &mut |ui: &mut Ui| { ui.toggle("plain", true); }).expect("frame"); }
+        for n in 0..2 { ui.frame(&input(n as f64), &mut |ui: &mut Ui| { ui.toggle("toggle", "plain", true, &crate::Toggle::DEFAULT); }).expect("frame"); }
         assert!(TOGGLES.with(|t| t.borrow().is_empty()), "the body ran with no theme naming it");
         for n in 2..4 {
-            ui.frame(&input(n as f64), &mut |ui: &mut Ui| { ui.toggle("outside", false); ui.themed(&scoped, &mut |ui: &mut Ui| { ui.toggle("Wi-Fi", true); }); }).expect("frame");
+            ui.frame(&input(n as f64), &mut |ui: &mut Ui| { ui.toggle("toggle", "outside", false, &crate::Toggle::DEFAULT); ui.themed(&scoped, &mut |ui: &mut Ui| { ui.toggle("toggle", "Wi-Fi", true, &crate::Toggle::DEFAULT); }); }).expect("frame");
         }
         let seen = TOGGLES.with(|t| t.borrow().clone());
         assert!(!seen.is_empty() && seen.iter().all(|s| *s == ("Wi-Fi".to_owned(), true, false)), "only the scoped toggle ran the body: {seen:?}");
@@ -278,7 +278,7 @@ mod tests {
         TOGGLES.with(|t| t.borrow_mut().clear());
         ui.set_theme(&source("toggle.body = probe")).expect("theme text");
         assert_eq!(ui.theme().body.toggle, id);
-        ui.frame(&input(5.0), &mut |ui: &mut Ui| { ui.toggle("Own", false); }).expect("frame");
+        ui.frame(&input(5.0), &mut |ui: &mut Ui| { ui.toggle("toggle", "Own", false, &crate::Toggle::DEFAULT); }).expect("frame");
         assert_eq!(TOGGLES.with(|t| t.borrow().clone()), vec![("Own".to_owned(), false, false)]);
     }
 
@@ -317,7 +317,7 @@ mod tests {
         assert_eq!(unregistered.set_theme(&theme), Err(crate::Error::InvalidInput));
         unregistered.frame(&input(0.0), &mut |ui| ui.themed(&theme, &mut |ui| {
             assert_eq!(ui.theme().body.toggle, BodyId::DEFAULT);
-            ui.toggle("Builtin", false);
+            ui.toggle("toggle", "Builtin", false, &crate::Toggle::DEFAULT);
         })).unwrap();
 
         let mut registered = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
@@ -341,12 +341,12 @@ mod tests {
         ui.register_toggle_body("boom", boom).expect("registered");
         ui.set_theme(&source("toggle.body = boom")).expect("theme");
         let result = catch_unwind(AssertUnwindSafe(|| {
-            let _ = ui.frame(&input(0.0), &mut |ui: &mut Ui| { ui.toggle("first", false); ui.toggle("second", true); });
+            let _ = ui.frame(&input(0.0), &mut |ui: &mut Ui| { ui.toggle("toggle", "first", false, &crate::Toggle::DEFAULT); ui.toggle("toggle", "second", true, &crate::Toggle::DEFAULT); });
         }));
         assert_eq!(result.expect_err("the panic surfaces at frame()").downcast_ref::<&str>(), Some(&"boom"));
         assert_eq!(TOGGLES.with(|t| t.borrow().len()), 1, "the second body ran on a half-built tree");
         BOOM.with(|b| b.set(false));
-        ui.frame(&input(1.0), &mut |ui: &mut Ui| { ui.toggle("first", false); ui.toggle("second", true); }).expect("the next frame renders");
+        ui.frame(&input(1.0), &mut |ui: &mut Ui| { ui.toggle("toggle", "first", false, &crate::Toggle::DEFAULT); ui.toggle("toggle", "second", true, &crate::Toggle::DEFAULT); }).expect("the next frame renders");
         assert_eq!(TOGGLES.with(|t| t.borrow().len()), 3);
     }
 
@@ -362,7 +362,7 @@ mod tests {
         let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
         ui.register_toggle_body("forger", forger).expect("registered");
         ui.set_theme(&source("toggle.body = forger")).expect("theme");
-        ui.frame(&input(0.0), &mut |ui: &mut Ui| { ui.toggle("Real", true); }).expect("frame");
+        ui.frame(&input(0.0), &mut |ui: &mut Ui| { ui.toggle("toggle", "Real", true, &crate::Toggle::DEFAULT); }).expect("frame");
         assert_eq!(FORGED.with(Cell::get), (true, true));
     }
 
@@ -500,7 +500,7 @@ mod tests {
             ui.themed(&scoped, &mut |ui: &mut Ui| {
                 ui.label("plain", plain);
                 ui.label("wide", wide);
-                handles.set((Some(ui.button_with("narrow", "Narrow", &Button::DEFAULT).handle), Some(ui.button_with("wide", "Wide", &Button::DEFAULT.variant(1)).handle)));
+                handles.set((Some(ui.button("narrow", "Narrow", &Button::DEFAULT).handle), Some(ui.button("wide", "Wide", &Button::DEFAULT.variant(1)).handle)));
                 ui.icon_button("icon", Icon::Glyph('x'), "Icon", &IconButton::DEFAULT.variant(7));
                 ui.icon_button("icon2", Icon::Glyph('x'), "Icon", &IconButton::DEFAULT);
                 ui.text_field("Find", "", &crate::TextField::SEARCH.variant(3));
@@ -545,8 +545,8 @@ mod tests {
             // the built-in button body runs the contents; the registered label inside is given no variant
             ui.button_content("pill", &Button::DEFAULT.variant(1).size(Size::Px(60.0), Size::Px(30.0)).name("Pill"), |ui, _| { ui.label("inside", Label::DEFAULT); });
             ui.label("after", Label::DEFAULT.variant(5));
-            ui.toggle_with("t", "T", true, &crate::Toggle::DEFAULT.variant(4));
-            ui.toggle_with("t0", "T", true, &crate::Toggle::DEFAULT);
+            ui.toggle("t", "T", true, &crate::Toggle::DEFAULT.variant(4));
+            ui.toggle("t0", "T", true, &crate::Toggle::DEFAULT);
             ui.segmented("s", &[crate::Segment::new("a"), crate::Segment::new("b")], Some(0), &crate::Segmented::DEFAULT.variant(6));
         });
         for n in 0..3 { VARIANTS.with(|v| v.borrow_mut().clear()); ui.frame(&input(n as f64), &mut build).expect("frame"); }

@@ -4,6 +4,7 @@ use crate::{check, Ui};
 
 library!(sys {
     #[trusted] fn pxui_ui_node(ui:*mut PxuiUi,label:Str,node:&Node,out:*mut PxuiBox)->i32;
+    fn pxui_ui_layout_node(ui:*mut PxuiUi,node:*const Node,out:*mut PxuiBox)->i32;
 });
 
 pub(crate) fn size(s:Size)->PxuiSizeDesc { match s {Size::Px(value)=>PxuiSizeDesc{kind:0,value,relative:None},Size::Pct(value)=>PxuiSizeDesc{kind:1,value,relative:None},Size::Rel(relative)=>PxuiSizeDesc{kind:2,value:0.0,relative:Some(relative)},Size::Grow=>PxuiSizeDesc{kind:3,value:0.0,relative:None},Size::Fit=>PxuiSizeDesc{kind:4,value:0.0,relative:None}} }
@@ -24,6 +25,21 @@ impl Ui {
             key=>{ let mut id_label=[0u8;17]; self.node_call(key.label(&mut id_label),&node,out.as_mut_ptr()) }
         };
         check(self,rc);
+        unsafe { out.assume_init() }
+    }
+
+    /// A layout container's node, keyed by the library as the n-th container of the current scope (a positional namespace no
+    /// label or id reaches). No text crosses.
+    #[inline]
+    #[track_caller]
+    pub(crate) fn layout_node(&mut self,node:&Node)->Handle {
+        let mut out=core::mem::MaybeUninit::<Handle>::uninit();
+        #[cfg(feature="static")]
+        let rc=unsafe{pxui_abi_link::trusted::layout_node(self.0.as_ptr(),node,out.as_mut_ptr())};
+        #[cfg(not(feature="static"))]
+        let rc=unsafe{sys::pxui_ui_layout_node(self.0.as_ptr(),node,out.as_mut_ptr())};
+        check(self,rc);
+        // written by the library whenever it returns 0; `check` does not return otherwise
         unsafe { out.assume_init() }
     }
 

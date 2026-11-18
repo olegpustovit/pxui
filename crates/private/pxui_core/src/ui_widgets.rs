@@ -1359,10 +1359,10 @@ impl Ui {
     }
 
     /// An image `w` x `h` placed by `fit` (CSS `object-fit`) in the image look's frame, named `name` for accessibility. No key: every
-    /// image is the n-th "\0image" among its siblings, as labels are "\0label".
+    /// image is the n-th positional image of its scope, as labels are the n-th positional label.
     pub fn image(&mut self, name: &str, image: &Image, fit: Fit, w: Size, h: Size) -> Handle {
         self.require_building();
-        let unique = self.unique_key_repeated(key_of(self.current_seed(), "\0image"));
+        let unique = self.unique_key_repeated(positional_key(self.current_seed(), Positional::Image));
         self.image_at(unique, name, image, fit, w, h)
     }
 

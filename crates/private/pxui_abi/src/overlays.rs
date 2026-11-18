@@ -84,7 +84,7 @@ export!(trusted pub unsafe fn pxui_ui_context_menu(
     }
     // the rows borrow the caller's strings for this call, in vectors reused between frames
     let (mut menu, mut subs) = { let shared = state.shared(); (core::mem::take(&mut shared.menu), core::mem::take(&mut shared.menu_sub)) };
-    menu.extend(list.iter().zip(enabled).map(|(text, enabled)| MenuItem::new(text).enabled(*enabled != 0)));
+    menu.extend(list.iter().zip(enabled).map(|(text, enabled)| MenuItem::new(text).disabled(*enabled == 0)));
     let mut options = Menu::DEFAULT;
     if has_width != 0 { options = options.w_px(width); }
     let mut marks = false;
@@ -189,7 +189,7 @@ unsafe fn decode_extra(extra: &PxuiMenuExtra, size: usize, menu: &mut [MenuItem<
         let start = subs.len();
         for (i, text) in rows.iter().enumerate() {
             let (Some(text), Some(shortcut)) = (unsafe { checked(*text) }, keys.get(i).map_or(Some(""), |key| unsafe { checked(*key) })) else { return false };
-            let mut item = MenuItem::new(text).enabled(enabled[i] != 0).shortcut(shortcut);
+            let mut item = MenuItem::new(text).disabled(enabled[i] == 0).shortcut(shortcut);
             if sub.has_current != 0 { item = item.checked(i as i64 == sub.current); }
             subs.push(item);
         }

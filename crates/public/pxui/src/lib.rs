@@ -167,6 +167,7 @@ mod sys {
         pub fn pxui_last_error(ui: *const PxuiUi) -> Str;
         pub fn pxui_frame(ui:*mut PxuiUi,input:*const FrameIn,build:pxui_types::ffi::UiBuild,user:*mut c_void,out:*mut FrameOut)->i32;
         pub fn pxui_within(ui:*mut PxuiUi,box_:*const PxuiBox,build:pxui_types::ffi::UiBuild,user:*mut c_void)->i32;
+        pub fn pxui_scope(ui:*mut PxuiUi,label:Str,build:pxui_types::ffi::UiBuild,user:*mut c_void)->i32;
         pub fn pxui_renderer_prepare(renderer:*mut PxuiRenderer,commands:*const pxui_types::Commands,frame:u64,completed:u64)->i32;
         pub fn pxui_renderer_resize(renderer:*mut PxuiRenderer,width:u32,height:u32)->i32;
         pub fn pxui_renderer_draw(renderer:*mut PxuiRenderer,pass:*const pxui_types::Pass)->i32;
@@ -561,10 +562,10 @@ impl Ui {
     /// static link only, valid while the `Ui` lives.
     #[cfg(feature = "static")]
     #[doc(hidden)]
-    pub fn engine_ptr(&self) -> *const c_void { pxui_abi_link::engine_of(self.id()).cast() }
+    pub fn engine_ptr(&self) -> *const c_void { pxui_abi_link::engine_of(self.instance_id()).cast() }
 
     /// The library's handle of this `Ui`: stable while it lives, so an app can key its own per-`Ui` state by it.
-    #[inline] pub fn id(&self) -> usize { self.0.as_ptr() as usize }
+    #[inline] pub fn instance_id(&self) -> usize { self.0.as_ptr() as usize }
 
     /// Routes the frame's input and builds its draw and platform output.
     ///
@@ -845,21 +846,20 @@ impl Ui {
         check(self, rc)
     }
 
-    /// A kit button with the theme's look: `true` on the frame a press and release both land inside it.
-    ///
-    /// It is `button_with("button", text, &Button::DEFAULT).clicked`; use `button_with` for any option or a fixed key.
-    /// Allocates: never on a warm frame.
-    /// Identity: position among siblings (every `button(..)` shares one key and takes order-stable duplicate keys); use `button_with(key, ..)` when the order can change.
-    /// Panics: when the library refuses the call (outside a frame). Display text past 64 KiB is clipped at a character boundary, never refused.
-    ///
-    /// ```
-    /// let mut clicked = false;
-    /// let mut build = |ui: &mut pxui::Ui| { clicked |= ui.button("Save"); };
-    /// let mut ui = pxui::doc::frames(1, &mut build);
-    /// pxui::testing::click(&mut ui, 20.0, 12.0, &mut build);
-    /// assert!(clicked);
-    /// ```
-    #[inline] #[track_caller] pub fn button(&mut self, text:&str) -> bool { self.button_with("button", text, &Button::DEFAULT).clicked }
+    /// The one body of `id`: `f` under the scope of `key`'s label (a resolved label is the seed as it is), with no node.
+    #[track_caller]
+    pub(crate) fn id_scope(&mut self, key: Key, mut f: &mut dyn FnMut(&mut Ui)) {
+        if let Key::Label(label) = key { authored(label); }
+        let mut id_label = [0u8; 17];
+        let label = key.label(&mut id_label);
+        #[cfg(feature = "static")]
+        let rc = unsafe { pxui_abi_link::trusted::scope(self.0.as_ptr(), label, inner!(|ui: &mut Ui| f(ui))) };
+        #[cfg(not(feature = "static"))]
+        let rc = unsafe { sys::pxui_scope(self.0.as_ptr(), as_text(label), Some(composite::call::<&mut dyn FnMut(&mut Ui)>), &mut f as *mut _ as *mut c_void) };
+        check(self, rc)
+    }
+
+
 }
 
 

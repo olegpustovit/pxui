@@ -284,7 +284,7 @@ fn abi_bench_author() {
             let mut children = |ui: &mut pxui::Ui| for l in &leaves { ui.node(*l, leaf); };
             match kind {
                 0 => { let b = ui.node(*label, row); ui.within(&b, &mut children); }
-                1 => { ui.row(*label, row, children); }
+                1 => { ui.id(*label, |ui| { ui.row(row, children); }); }
                 _ => shim.rebuilding(ui, label, row, children),
             }
         }).expect("frame");

@@ -79,7 +79,7 @@ mod tests {
     use std::cell::{Cell, RefCell};
     use crate::bodies::BodyConfig;
 
-    const ITEMS: [MenuItem; 4] = [MenuItem::new("Play next"), MenuItem::new("Add to playlist").enabled(false), MenuItem::new("Delete").danger(), MenuItem::new("Size").checked(true).shortcut("Ctrl S")];
+    const ITEMS: [MenuItem; 4] = [MenuItem::new("Play next"), MenuItem::new("Add to playlist").disabled(true), MenuItem::new("Delete").danger(), MenuItem::new("Size").checked(true).shortcut("Ctrl S")];
     const TAB: crate::KeyCode = crate::KeyCode::Tab;
     const ENTER: crate::KeyCode = crate::KeyCode::Enter;
     const ESCAPE: crate::KeyCode = crate::KeyCode::Escape;

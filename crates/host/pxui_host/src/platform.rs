@@ -79,7 +79,7 @@ impl Platform {
         window.set_text_input_with_options(ime,pxui_sdl::TextInputOptions {
             autocorrect:options.autocorrects() as u32,capitalization:options.capitalizes() as u32,action:options.return_key() as u32,
         }).map_err(|_| Error::Host("could not set native text input"))?;
-        let frame = (ui.id(), ui.frame_index());
+        let frame = (ui.instance_id(), ui.frame_index());
         if self.applied == Some(frame) {
             return Ok(());
         }

@@ -857,10 +857,10 @@ impl<'a> MenuItem<'a> {
     /// Panics: never.
     ///
     /// ```
-    /// let off = pxui_types::ui::MenuItem::new("Paste").enabled(false);
+    /// let off = pxui_types::ui::MenuItem::new("Paste").disabled(true);
     /// assert!(!off.enabled);
     /// ```
-    pub const fn enabled(mut self, enabled: bool) -> MenuItem<'a> { self.enabled = enabled; self }
+    pub const fn disabled(mut self, disabled: bool) -> MenuItem<'a> { self.enabled = !disabled; self }
 
     /// Inks the row in the theme's error colour.
     /// Allocates: never.
@@ -1184,10 +1184,10 @@ impl<'a> Segmented<'a> {
     /// Panics: never.
     ///
     /// ```
-    /// let s = pxui_types::ui::Segmented::DEFAULT.enabled(false);
+    /// let s = pxui_types::ui::Segmented::DEFAULT.disabled(true);
     /// let _ = s;
     /// ```
-    pub const fn enabled(mut self, enabled: bool) -> Segmented<'a> { self.enabled = enabled; self }
+    pub const fn disabled(mut self, disabled: bool) -> Segmented<'a> { self.enabled = !disabled; self }
 
     /// Sets the variant a registered body reads from its config (`variant`, 0 by default): one body builds different structures by it, so the app
     /// picks per call without comparing text. The built-in body ignores it.
@@ -1375,10 +1375,10 @@ impl<'a> DialogButton<'a> {
     /// Panics: never.
     ///
     /// ```
-    /// let b = pxui_types::ui::DialogButton::new("Save").enabled(false);
+    /// let b = pxui_types::ui::DialogButton::new("Save").disabled(true);
     /// assert!(!b.enabled);
     /// ```
-    pub const fn enabled(mut self, enabled: bool) -> DialogButton<'a> { self.enabled = enabled; self }
+    pub const fn disabled(mut self, disabled: bool) -> DialogButton<'a> { self.enabled = !disabled; self }
 
     /// Sets a secondary line under the label, which it borrows (a literal or a runtime string): a choice that needs a sentence of
     /// explanation. The built-in dialog body draws it in the theme's label style under the label, a text node inside the button that

@@ -7,6 +7,9 @@ pub struct PickResponse {
     pub response: Response,
     /// The selected item index after the frame's input, or none for no selection.
     pub chosen: Option<usize>,
+    /// The chosen item's `Segment::id`, so an app maps the choice straight to its own value; none without a choice or when that
+    /// item has no id.
+    pub chosen_id: Option<i64>,
     /// The current index of the item where a secondary press (right button or touch long-press) began. It follows the item's id
     /// through a reorder and is never a primary choice.
     pub secondary: Option<usize>,

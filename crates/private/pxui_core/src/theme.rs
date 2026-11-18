@@ -301,7 +301,7 @@ const LEN: Kind = Kind::Num(0.0, 4096.0);
 const OFFSET: Kind = Kind::Num(-4096.0, 4096.0);
 const UNIT: Kind = Kind::Num(0.0, 1.0);
 const SECONDS: Kind = Kind::Num(0.0, 10.0);
-const SIZE: Kind = Kind::Int(1, 512);
+const SIZE: Kind = Kind::Num(1.0, 512.0);
 const REL_SIZE: Kind = Kind::Int(-64, 512);
 const TRACKING: Kind = Kind::Num(-1.0, 1.0);
 

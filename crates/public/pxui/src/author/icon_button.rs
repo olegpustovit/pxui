@@ -140,10 +140,10 @@ impl<'a> IconButton<'a> {
     /// Panics: never.
     ///
     /// ```
-    /// let b = pxui::IconButton::DEFAULT.enabled(false);
+    /// let b = pxui::IconButton::DEFAULT.disabled(true);
     /// let _ = b;
     /// ```
-    pub const fn enabled(mut self, enabled: bool) -> IconButton<'a> { self.enabled = enabled; self }
+    pub const fn disabled(mut self, disabled: bool) -> IconButton<'a> { self.enabled = !disabled; self }
 
     /// Sets the variant a registered body reads from its config (`variant`, 0 by default): one body builds different structures by it, so the app
     /// picks per call without comparing text. The built-in body ignores it.
@@ -243,7 +243,7 @@ mod tests {
     fn disabled_blocks_input_and_default_is_the_kit_square() {
         let hits = Cell::new(0);
         let mut build = |ui: &mut Ui| {
-            if ui.icon_button(7i64, PLAY, "Off", &KEY.enabled(false)).clicked { hits.set(hits.get() + 1); }
+            if ui.icon_button(7i64, PLAY, "Off", &KEY.disabled(true)).clicked { hits.set(hits.get() + 1); }
             ui.icon_button("on", Icon::Glyph('?'), "Help", &IconButton::DEFAULT);
         };
         let mut ui = crate::doc::frames(3, &mut build);
@@ -260,7 +260,7 @@ mod tests {
     fn size_fills_its_line() {
         use crate::ui::{Node, Size};
         let mut build = |ui: &mut Ui| {
-            ui.row("bar", Node { w: Size::Px(200.0), ..Node::DEFAULT }, |ui| { ui.icon_button("wide", PLAY, "Wide", &IconButton::DEFAULT.size(Size::Grow, Size::Px(44.0))); });
+            ui.row(Node { w: Size::Px(200.0), ..Node::DEFAULT }, |ui| { ui.icon_button("wide", PLAY, "Wide", &IconButton::DEFAULT.size(Size::Grow, Size::Px(44.0))); });
             ui.icon_button("key", PLAY, "Key", &IconButton::DEFAULT.size(Size::Px(36.0), Size::Px(36.0)));
         };
         let ui = crate::doc::frames(2, &mut build);
@@ -394,7 +394,7 @@ mod tests {
         let mut build = |ui: &mut Ui| {
             ui.icon_button("a", PLAY, "Play", &KEY.look(&looks));
             ui.icon_button(2i64, Icon::Glyph('x'), "Close", &IconButton::DEFAULT);
-            ui.icon_button("off", PLAY, "Off", &KEY.enabled(false));
+            ui.icon_button("off", PLAY, "Off", &KEY.disabled(true));
             ui.icon_button("eased", PLAY, "Eased", &KEY.press_curves(&EASED));
             ui.icon_button("on", PLAY, "Shuffle", &KEY.selected(true));
             ui.icon_button("off-key", PLAY, "Repeat", &KEY.selected(false).look(&looks));

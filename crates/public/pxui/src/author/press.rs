@@ -74,10 +74,10 @@ impl<'a> Pressable<'a> {
     /// Panics: never.
     ///
     /// ```
-    /// let p = pxui::Pressable::DEFAULT.enabled(false);
+    /// let p = pxui::Pressable::DEFAULT.disabled(true);
     /// let _ = p;
     /// ```
-    pub const fn enabled(mut self, enabled: bool) -> Pressable<'a> { self.enabled = enabled; self }
+    pub const fn disabled(mut self, disabled: bool) -> Pressable<'a> { self.enabled = !disabled; self }
 
     /// Sets whether Tab moves keyboard focus to the node. A drop target or a gesture's root takes the pointer but is no tab stop; it
     /// then takes no keyboard focus at all (no keyboard activation either).
@@ -147,7 +147,7 @@ impl Ui {
 
     /// Builds `f` with every interactive node it declares disabled when `disabled`: no press, no focus, and the accessible disabled state.
     ///
-    /// It covers whatever `f` declares (`button_with`, `toggle_with`, `segmented`, `pressable`, any node with `CLICKABLE` or
+    /// It covers whatever `f` declares (`button`, `toggle`, `segmented`, `pressable`, any node with `CLICKABLE` or
     /// `FOCUSABLE`); the kit widgets also show their `disabled` look (a `pressable` shows the look of its own `enabled`). Scopes nest: a
     /// node is disabled when any scope around it is. A node still blocks what is under it. A view cached inside rebuilds when the flag
     /// flips. `f` runs even when `disabled` is false.
@@ -158,7 +158,7 @@ impl Ui {
     /// use pxui::Button;
     /// let mut clicked = false;
     /// let mut build = |ui: &mut pxui::Ui| {
-    ///     ui.disabled(true, |ui| { clicked |= ui.button_with("clear", "Clear cache", &Button::DEFAULT.danger()).clicked; });
+    ///     ui.disabled(true, |ui| { clicked |= ui.button("clear", "Clear cache", &Button::DEFAULT.danger()).clicked; });
     /// };
     /// let mut ui = pxui::doc::frames(1, &mut build);
     /// pxui::testing::click(&mut ui, 30.0, 12.0, &mut build);
@@ -246,7 +246,7 @@ mod tests {
         let button = Cell::new(None);
         let mut build = |ui: &mut Ui| {
             ui.pressable("p", node(), &P, |_, _| {});
-            button.set(Some(ui.button_with("b", "Button", &crate::Button::DEFAULT)));
+            button.set(Some(ui.button("b", "Button", &crate::Button::DEFAULT)));
         };
         let mut ui = crate::doc::frames(2, &mut build);
         let right = |kind: u32, x: f64, y: f64| Event { kind, code: 1, x, y, ..Default::default() };
@@ -271,7 +271,7 @@ mod tests {
         let looks = States { idle: fill(10), hover: fill(20), pressed: fill(30), focus: fill(40), disabled: fill(50), checked: fill(60) };
         let (selected, enabled, seen) = (Cell::new(false), Cell::new(true), Cell::new(State::default()));
         let mut build = |ui: &mut Ui| {
-            let p = Pressable::DEFAULT.look(&looks).selected(selected.get()).enabled(enabled.get());
+            let p = Pressable::DEFAULT.look(&looks).selected(selected.get()).disabled(!enabled.get());
             ui.pressable("p", node(), &p, |_, state| seen.set(state));
         };
         let shown = |ui: &Ui| ui.layers().flat_map(|l| l.instances.iter()).find(|i| i.color[1..] == [0, 0, 255] && i.color[0] % 10 == 0).map(|i| i.color[0]);
@@ -301,7 +301,7 @@ mod tests {
         let mut build = |ui: &mut Ui| {
             let b = ui.node("under", Node { at: Some((0.0, 0.0)).into(), flags: Flags::CLICKABLE, role: Role::Unknown, ..node() });
             under.set(under.get() | ui.signal(&b).clicked);
-            let p = P.enabled(enabled.get()).tab_stop(tab_stop.get());
+            let p = P.disabled(!enabled.get()).tab_stop(tab_stop.get());
             last.set(Some(ui.pressable("p", Node { at: Some((0.0, 0.0)).into(), ..node() }, &p, |_, _| {})));
         };
         let mut ui = crate::doc::frames(2, &mut build);
@@ -397,7 +397,7 @@ mod tests {
         let looks = States::of(Look::NONE);
         let mut build = |ui: &mut Ui| {
             ui.pressable("p", node(), &P.look(&looks).selected(true), |ui, _| { ui.node("c", node()); });
-            let r = ui.pressable(7i64, node(), &P.enabled(false), |_, _| {});
+            let r = ui.pressable(7i64, node(), &P.disabled(true), |_, _| {});
             ui.gesture(&r.handle, &GestureOpts::DEFAULT.long_press());
         };
         for round in 0..20 {

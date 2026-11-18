@@ -4,7 +4,7 @@ use crate::{Segment, Ui};
 use pxui_types::ui::Segmented;
 use pxui_types::{theme::States, Label};
 
-/// How `Ui::toggle_with` varies the kit's toggle, as a `Copy` value built with `const fn` builders from `Toggle::DEFAULT`.
+/// How `Ui::toggle` varies the kit's toggle, as a `Copy` value built with `const fn` builders from `Toggle::DEFAULT`.
 ///
 /// The default is the plain `Ui::toggle`: the theme's row height, the label at its start, a 28 x 14 switch at its end that takes the press.
 /// `'a` is the borrow of `detail` and of the looks given to `track` and `knob` (`'static` for a const).
@@ -76,10 +76,10 @@ impl<'a> Toggle<'a> {
     /// Panics: never.
     ///
     /// ```
-    /// let t = pxui::Toggle::DEFAULT.enabled(false);
+    /// let t = pxui::Toggle::DEFAULT.disabled(true);
     /// let _ = t;
     /// ```
-    pub const fn enabled(mut self, enabled: bool) -> Toggle<'a> { self.enabled = enabled; self }
+    pub const fn disabled(mut self, disabled: bool) -> Toggle<'a> { self.enabled = !disabled; self }
 
     /// Adds a secondary line under the text, in the theme's label look, wrapped to the room the switch leaves: the row grows past its
     /// height to fit both. The detail is its own Label node to accessibility; the row's accessible name stays the text. `detail` is
@@ -131,7 +131,7 @@ impl<'a> Toggle<'a> {
     /// lines 1.2 times the size unless it sets a line height. The default draws the title in the theme's toggle font.
     /// Allocates: never.
     /// Identity: none; `label` is a text style, never a key.
-    /// Panics: never (a style that does not resolve, such as a negative size, panics at the `toggle_with` call).
+    /// Panics: never (a style that does not resolve, such as a negative size, panics at the `toggle` call).
     ///
     /// ```
     /// const SETTING: pxui::Toggle = pxui::Toggle::DEFAULT.row_h(52.0).label(pxui::Label::BODY.size(15.0));
@@ -156,7 +156,7 @@ impl Ui {
     /// let mut on = false;
     /// let mut build = |ui: &mut pxui::Ui| {
     ///     const SETTING: Toggle = Toggle::DEFAULT.row_h(52.0);
-    ///     if ui.toggle_with("offline", "Offline mode", on, &SETTING).changed { on = !on; }
+    ///     if ui.toggle("offline", "Offline mode", on, &SETTING).changed { on = !on; }
     /// };
     /// let mut ui = pxui::doc::frames(1, &mut build);
     /// pxui::testing::click(&mut ui, 300.0, 26.0, &mut build); // on the switch, 12 from the row's end
@@ -164,26 +164,7 @@ impl Ui {
     /// ```
     #[inline]
     #[track_caller]
-    pub fn toggle_with<K: Into<Key>>(&mut self, key: K, text: &str, on: bool, toggle: &Toggle<'_>) -> Response { self.toggle_key(key.into(), text, on, toggle) }
-
-    /// Declares a kit toggle as `toggle_with` does with `Toggle::DEFAULT` and returns the new value.
-    ///
-    /// It is `toggle_with("toggle", text, on, &Toggle::DEFAULT)`: its identity is its place among its siblings, not `text`; use
-    /// `toggle_with` for any option or a fixed key.
-    /// Allocates: never on a warm frame.
-    /// Identity: by position among the parent's children (the key `"toggle"`, made unique in order).
-    /// Panics: when the library refuses the call (outside a frame, text too long). Display text past 64 KiB is clipped at a character boundary, never refused.
-    ///
-    /// ```
-    /// let mut on = false;
-    /// let mut build = |ui: &mut pxui::Ui| { on = ui.toggle("Night light", on); };
-    /// let mut ui = pxui::doc::frames(1, &mut build);
-    /// pxui::testing::click(&mut ui, 300.0, 12.0, &mut build);
-    /// assert!(on);
-    /// ```
-    #[inline]
-    #[track_caller]
-    pub fn toggle(&mut self, text: &str, on: bool) -> bool { on != self.toggle_keyed("toggle", text, on, &Toggle::DEFAULT).changed }
+    pub fn toggle<K: Into<Key>>(&mut self, key: K, text: &str, on: bool, toggle: &Toggle<'_>) -> Response { self.toggle_key(key.into(), text, on, toggle) }
 
     /// Declares a kit segmented control (`options` side by side in one strip, the choice filled) under the current parent and reports the
     /// strip's response, the choice and the option a secondary press began on.
@@ -276,7 +257,7 @@ mod tests {
         let on = Cell::new(false);
         let last: Cell<Option<Response>> = Cell::new(None);
         let mut build = |ui: &mut Ui| {
-            let r = ui.toggle_with("offline", "Offline mode", on.get(), &SETTING);
+            let r = ui.toggle("offline", "Offline mode", on.get(), &SETTING);
             if r.changed { on.set(!on.get()); }
             last.set(Some(r));
         };
@@ -296,13 +277,13 @@ mod tests {
         assert!(!last.get().unwrap().changed, "changed is the frame of the click");
     }
 
-    /// `toggle(text, on)` is `toggle_with("toggle", text, on, DEFAULT)`: the kit's row height and switch, identity by position (two of them are
-    /// two nodes, each flipping its own value).
+    /// `toggle(key, text, on, &Toggle::DEFAULT)`: the kit's row height and switch; one key twice is two nodes in order (each flipping
+    /// its own value).
     #[test]
-    fn toggle_forwards_to_toggle_with_and_keys_by_position() {
+    fn default_toggles_take_order_stable_duplicate_keys() {
         let values = Cell::new((false, false));
-        let mut one = |ui: &mut Ui| { let (a, b) = values.get(); values.set((ui.toggle("First", a), ui.toggle("Second", b))); };
-        let mut two = |ui: &mut Ui| { ui.toggle_with("toggle", "First", false, &Toggle::DEFAULT); };
+        let mut one = |ui: &mut Ui| { let (a, b) = values.get(); values.set((ui.toggle("toggle", "First", a, &crate::Toggle::DEFAULT).changed != a, ui.toggle("toggle", "Second", b, &crate::Toggle::DEFAULT).changed != b)); };
+        let mut two = |ui: &mut Ui| { ui.toggle("toggle", "First", false, &Toggle::DEFAULT); };
         let mut ui_one = crate::doc::frames(3, &mut one);
         let ui_two = crate::doc::frames(3, &mut two);
         let (first, second) = (node(&ui_one, Role::Toggle, "First"), node(&ui_one, Role::Toggle, "Second"));
@@ -317,7 +298,7 @@ mod tests {
     #[test]
     fn disabled_toggle_blocks_input() {
         let (on, enabled) = (Cell::new(false), Cell::new(false));
-        let mut build = |ui: &mut Ui| { if ui.toggle_with("t", "Wi-Fi", on.get(), &Toggle::DEFAULT.enabled(enabled.get())).changed { on.set(!on.get()); } };
+        let mut build = |ui: &mut Ui| { if ui.toggle("t", "Wi-Fi", on.get(), &Toggle::DEFAULT.disabled(!enabled.get())).changed { on.set(!on.get()); } };
         let mut ui = crate::doc::frames(3, &mut build);
         let (states, rect) = node(&ui, Role::Toggle, "Wi-Fi");
         assert!(states & state::ENABLED == 0 && states & state::FOCUSABLE == 0, "{states:#x}");
@@ -377,7 +358,7 @@ mod tests {
         click_centre(&mut ui, right, &mut plain);
         assert_eq!(chosen.get(), 1);
         chosen.set(0);
-        let mut off = |ui: &mut Ui| { chosen.set(ui.segmented("seg", &[Segment::new("Left"), Segment::new("Right")], Some(chosen.get()), &Segmented::DEFAULT.enabled(enabled.get()).name("Align")).chosen.unwrap()); };
+        let mut off = |ui: &mut Ui| { chosen.set(ui.segmented("seg", &[Segment::new("Left"), Segment::new("Right")], Some(chosen.get()), &Segmented::DEFAULT.disabled(!enabled.get()).name("Align")).chosen.unwrap()); };
         let mut ui = crate::doc::frames(3, &mut off);
         let (states, _) = node(&ui, Role::Group, "Align");
         let (radio, right) = node(&ui, Role::Radio, "Right");
@@ -436,11 +417,11 @@ mod tests {
     fn arrows_move_the_focus_with_the_choice() {
         let (chosen, last) = (Cell::new(Some(0)), Cell::new(None));
         let mut build = |ui: &mut Ui| {
-            ui.button_with("before", "Before", &crate::Button::DEFAULT);
+            ui.button("before", "Before", &crate::Button::DEFAULT);
             let r = ui.segmented("s", &THREE, chosen.get(), &Segmented::DEFAULT);
             if r.response.changed { chosen.set(r.chosen); }
             last.set(Some(r));
-            ui.button_with("after", "After", &crate::Button::DEFAULT);
+            ui.button("after", "After", &crate::Button::DEFAULT);
         };
         let mut ui = crate::doc::frames(3, &mut build);
         let focused = |ui: &Ui| radios(ui).map(|s| s & state::FOCUSED != 0);
@@ -664,12 +645,12 @@ mod tests {
         let mut build = |ui: &mut Ui| {
             let bump = |at: usize, hit: bool| { let mut h = hits.get(); h[at] += hit as u32; hits.set(h); };
             ui.disabled(flag_outer.get(), |ui| {
-                bump(0, ui.button_with("b", "Button", &crate::Button::DEFAULT).clicked);
+                bump(0, ui.button("b", "Button", &crate::Button::DEFAULT).clicked);
                 let node = Node { w: Size::Px(60.0), h: Size::Px(20.0), role: Role::Button, ..Node::DEFAULT };
                 bump(1, ui.pressable("p", node, &crate::Pressable::DEFAULT, |ui, _| { ui.label("Pressable", crate::Label::DEFAULT); }).clicked);
-                ui.disabled(flag_inner.get(), |ui| { bump(2, ui.toggle_with("t", "Toggle", false, &Toggle::DEFAULT).changed); });
+                ui.disabled(flag_inner.get(), |ui| { bump(2, ui.toggle("t", "Toggle", false, &Toggle::DEFAULT).changed); });
             });
-            bump(3, ui.button_with("after", "After", &crate::Button::DEFAULT).clicked);
+            bump(3, ui.button("after", "After", &crate::Button::DEFAULT).clicked);
         };
         let mut ui = crate::doc::frames(3, &mut build);
         let flags = |ui: &Ui, role: Role, name: &str| { let (s, r) = node(ui, role, name); (s & state::ENABLED != 0, s & state::FOCUSABLE != 0, r) };
@@ -711,7 +692,7 @@ mod tests {
         const ENTER: crate::KeyCode = crate::KeyCode::Enter;
         for toggle in [Toggle::DEFAULT, Toggle::DEFAULT.press_row(true), SETTING.detail("More").press_row(true), SETTING] {
             let on = Cell::new(false);
-            let mut build = |ui: &mut Ui| { if ui.toggle_with("t", "Wi-Fi", on.get(), &toggle).changed { on.set(!on.get()); } };
+            let mut build = |ui: &mut Ui| { if ui.toggle("t", "Wi-Fi", on.get(), &toggle).changed { on.set(!on.get()); } };
             let mut ui = crate::doc::frames(3, &mut build);
             testing::key(&mut ui, TAB, &mut build);
             assert!(node(&ui, Role::Toggle, "Wi-Fi").0 & state::FOCUSED != 0, "Tab focuses the row");
@@ -735,8 +716,8 @@ mod tests {
     fn press_row_toggles_from_anywhere_on_the_row() {
         let (plain, whole) = (Cell::new(false), Cell::new(false));
         let mut build = |ui: &mut Ui| {
-            if ui.toggle_with("a", "Plain", plain.get(), &Toggle::DEFAULT).changed { plain.set(!plain.get()); }
-            if ui.toggle_with("b", "Whole", whole.get(), &Toggle::DEFAULT.press_row(true)).changed { whole.set(!whole.get()); }
+            if ui.toggle("a", "Plain", plain.get(), &Toggle::DEFAULT).changed { plain.set(!plain.get()); }
+            if ui.toggle("b", "Whole", whole.get(), &Toggle::DEFAULT.press_row(true)).changed { whole.set(!whole.get()); }
         };
         let mut ui = crate::doc::frames(3, &mut build);
         for name in ["Plain", "Whole"] {
@@ -751,8 +732,8 @@ mod tests {
     fn inset_moves_the_switch_from_the_rows_end() {
         let owner = Cell::new((0, 0));
         let mut build = |ui: &mut Ui| {
-            let a = ui.toggle_with("a", "Default", false, &Toggle::DEFAULT).handle.box_key;
-            let b = ui.toggle_with("b", "Inset", false, &Toggle::DEFAULT.inset(16.0)).handle.box_key;
+            let a = ui.toggle("a", "Default", false, &Toggle::DEFAULT).handle.box_key;
+            let b = ui.toggle("b", "Inset", false, &Toggle::DEFAULT.inset(16.0)).handle.box_key;
             owner.set((a, b));
         };
         let ui = crate::doc::frames(3, &mut build);
@@ -765,7 +746,7 @@ mod tests {
     fn detail_line_keeps_the_name_and_centres_the_switch() {
         const SETTING: Toggle = Toggle::DEFAULT.row_h(60.0).switch(48.0, 28.0).detail("Fetch the next two cloud songs").inset(16.0);
         let owner = Cell::new(0);
-        let mut build = |ui: &mut Ui| { owner.set(ui.toggle_with("d", "Download ahead", false, &SETTING).handle.box_key); };
+        let mut build = |ui: &mut Ui| { owner.set(ui.toggle("d", "Download ahead", false, &SETTING).handle.box_key); };
         let ui = crate::doc::frames(3, &mut build);
         let (states, row) = node(&ui, Role::Toggle, "Download ahead");
         assert!(states & state::CHECKABLE != 0 && row.h == 60.0);
@@ -778,7 +759,7 @@ mod tests {
     #[test]
     fn a_cached_view_follows_the_scope() {
         let off = Cell::new(true);
-        let mut build = |ui: &mut Ui| { ui.disabled(off.get(), |ui| { ui.view_of("v", &0u8, |ui| { ui.button_with("b", "Cached", &crate::Button::DEFAULT); }); }); };
+        let mut build = |ui: &mut Ui| { ui.disabled(off.get(), |ui| { ui.view_of("v", &0u8, |ui| { ui.button("b", "Cached", &crate::Button::DEFAULT); }); }); };
         let mut ui = crate::doc::frames(3, &mut build);
         assert_eq!(node(&ui, Role::Button, "Cached").0 & state::ENABLED, 0);
         off.set(false);
@@ -808,7 +789,7 @@ mod tests {
         ui.node("custom", Node { w: Size::Px(33.0), h: Size::Grow, ..Node::DEFAULT });
     }
 
-    /// `toggle_with` and `segmented` are built through their registered bodies, which get the caller's options in their records.
+    /// `toggle` and `segmented` are built through their registered bodies, which get the caller's options in their records.
     #[test]
     fn registered_bodies_build_the_widgets_and_see_the_options() {
         let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
@@ -819,7 +800,7 @@ mod tests {
         ui.set_theme(&crate::ThemeHandle::parse(&source).unwrap()).expect("theme");
         let owner = Cell::new(0);
         let mut build = |ui: &mut Ui| {
-            owner.set(ui.toggle_with("t", "Offline", true, &SETTING.inset(16.0).press_row(true).detail("More").label(crate::Label::BODY.size(15.0))).handle.box_key);
+            owner.set(ui.toggle("t", "Offline", true, &SETTING.inset(16.0).press_row(true).detail("More").label(crate::Label::BODY.size(15.0))).handle.box_key);
             ui.segmented("s", &[Segment::new("A"), Segment::new("B").name("Use B")], Some(0), &Segmented::DEFAULT.w_px(200.0).padding(10.0).min_segment(40.0));
         };
         for n in 0..3 { ui.frame(&crate::FrameIn::new(320.0, 240.0).time(n as f64), &mut build).expect("frame"); }
@@ -873,7 +854,7 @@ mod tests {
         // the app applies the flip a frame late: the body sees the stored value until it does
         let (on, owner) = (Cell::new(false), Cell::new(0));
         let mut build = |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| {
-            let r = ui.toggle_with("t", "Offline", on.get(), &SETTING);
+            let r = ui.toggle("t", "Offline", on.get(), &SETTING);
             owner.set(r.handle.box_key);
             ui.segmented("s", &[Segment::new("A"), Segment::new("B")], Some(0), &Segmented::DEFAULT);
         });
@@ -896,9 +877,9 @@ mod tests {
     fn a_long_detail_wraps_and_grows_the_row() {
         const LONG: &str = "Fetch the next two cloud songs in the queue so they play without a connection, on any network";
         let mut build = |ui: &mut Ui| {
-            ui.toggle_with("a", "Download ahead", false, &SETTING.detail(LONG));
-            ui.toggle_with("b", "Short", false, &SETTING.detail("One line"));
-            ui.toggle_with("c", "Styled", false, &SETTING.label(crate::Label::BODY.size(15.0)));
+            ui.toggle("a", "Download ahead", false, &SETTING.detail(LONG));
+            ui.toggle("b", "Short", false, &SETTING.detail("One line"));
+            ui.toggle("c", "Styled", false, &SETTING.label(crate::Label::BODY.size(15.0)));
         };
         let ui = crate::doc::frames(3, &mut build);
         let (_, row) = node(&ui, Role::Toggle, "Download ahead");
@@ -939,12 +920,12 @@ mod tests {
         let mut ui = crate::doc::frames(1, &mut |_| {});
         let mut build = |ui: &mut Ui| {
             ui.segmented("none", &THREE, None, &Segmented::DEFAULT);
-            ui.toggle("Plain", true);
-            ui.toggle_with(3i64, "Big", false, &SETTING.track(&looks).knob(&looks).enabled(false));
+            ui.toggle("toggle", "Plain", true, &crate::Toggle::DEFAULT);
+            ui.toggle(3i64, "Big", false, &SETTING.track(&looks).knob(&looks).disabled(true));
             ui.segmented("align", &[Segment::new("Left"), Segment::new("Centre"), Segment::new("Right")], Some(1), &Segmented::DEFAULT.name("Align"));
-            ui.segmented("chips", &[Segment::new("5 GB"), Segment::new("10 GB")], Some(0), &Segmented::DEFAULT.h_px(28.0).grow().look(&looks).name("Cache").enabled(false));
-            ui.disabled(true, |ui| { ui.toggle("Inside", false); ui.disabled(false, |ui| { ui.segmented("inner", &[Segment::new("A"), Segment::new("B")], Some(0), &Segmented::DEFAULT.name("Inner")); }); });
-            ui.toggle_with("detail", "Download ahead", true, &SETTING.detail("Fetch the next two cloud songs in the queue before they play").label(crate::Label::BODY.size(15.0)).press_row(true));
+            ui.segmented("chips", &[Segment::new("5 GB"), Segment::new("10 GB")], Some(0), &Segmented::DEFAULT.h_px(28.0).grow().look(&looks).name("Cache").disabled(true));
+            ui.disabled(true, |ui| { ui.toggle("toggle", "Inside", false, &crate::Toggle::DEFAULT); ui.disabled(false, |ui| { ui.segmented("inner", &[Segment::new("A"), Segment::new("B")], Some(0), &Segmented::DEFAULT.name("Inner")); }); });
+            ui.toggle("detail", "Download ahead", true, &SETTING.detail("Fetch the next two cloud songs in the queue before they play").label(crate::Label::BODY.size(15.0)).press_row(true));
             ui.segmented("named", &[Segment::new("4 GB").name("Use 4 GB"), Segment::new("8 GB").name("Use 8 GB")], Some(1), &Segmented::DEFAULT.w_px(200.0).padding(10.0).min_segment(40.0));
         };
         for round in 0..20 {

@@ -12,8 +12,8 @@ fn a_callback_panic_resumes_at_frame_skips_later_siblings_and_leaves_the_ui_usab
     let mut second_ran = false;
     let result = catch_unwind(AssertUnwindSafe(|| {
         let _ = ui.frame(&input(), &mut |ui: &mut Ui| {
-            ui.column("first", Node::DEFAULT, |_: &mut Ui| panic!("first callback"));
-            ui.column("second", Node::DEFAULT, |_: &mut Ui| second_ran = true);
+            ui.column(Node::DEFAULT, |_: &mut Ui| panic!("first callback"));
+            ui.column(Node::DEFAULT, |_: &mut Ui| second_ran = true);
         });
     }));
     let payload = result.expect_err("the panic surfaces at frame()");
@@ -62,7 +62,7 @@ fn a_builder_outside_a_frame_panics_with_the_library_message_and_leaves_the_ui_u
 #[cfg(feature = "static")]
 fn poisoned() -> Ui {
     let ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
-    pxui_abi_link::poison_of(ui.id());
+    pxui_abi_link::poison_of(ui.instance_id());
     ui
 }
 

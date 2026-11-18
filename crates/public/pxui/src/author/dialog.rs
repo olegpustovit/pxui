@@ -74,7 +74,7 @@ mod tests {
 
     /// Delete layer: Cancel (Escape), Save (Return, off while `save` is false), Delete in the danger ink.
     fn build_with(ui: &mut Ui) {
-        let buttons = [DialogButton::new("Cancel").cancel(), DialogButton::new("Save").primary().enabled(SAVE.get()), DialogButton::new("Delete").danger()];
+        let buttons = [DialogButton::new("Cancel").cancel(), DialogButton::new("Save").primary().disabled(!SAVE.get()), DialogButton::new("Delete").danger()];
         let r = ui.dialog("layer", "Delete layer", &buttons, &Dialog::DEFAULT, &mut |ui: &mut Ui| { BUILT.set(BUILT.get() + 1); ui.label("This cannot be undone.", crate::Label::DEFAULT); });
         if r.chosen.is_some() || r.dismissed { LAST.set(r); }
     }

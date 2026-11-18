@@ -9,7 +9,7 @@ pub mod pxui {
     pub mod collections { pub use pxui_core::ui_widgets::TreeNode; }
     pub use pxui_types::theme;
     pub use pxui_core::ui::Handle;
-    pub use super::shapes::{Badge, GridList, Progress, Spinner, Ui};
+    pub use super::shapes::{Badge, Button, GridList, Progress, Spinner, Toggle, Ui};
 }
 
 /// The wrapper's call shapes over the engine's own calls, for the page source: the engine keeps one call per job, and this tool's
@@ -46,6 +46,14 @@ pub mod shapes {
         pub const fn h_px(self, h: f32) -> GridList { GridList { h, ..self } }
     }
 
+    /// The wrapper's button and toggle styles as the pages use them (`DEFAULT` only).
+    #[derive(Clone, Copy, Debug)] pub struct Button;
+    impl Button { pub const DEFAULT: Button = Button; }
+    #[derive(Clone, Copy, Debug)] pub struct Toggle;
+    impl Toggle { pub const DEFAULT: Toggle = Toggle; }
+    /// What the pages read of a toggle's response.
+    #[derive(Clone, Copy, Debug)] pub struct Toggled { pub changed: bool, pub handle: Handle }
+
     impl Ui {
         /// The engine's `Ui` under the page shapes.
         pub fn of(engine: &mut Engine) -> &mut Ui {
@@ -65,6 +73,13 @@ pub mod shapes {
         pub fn badge(&mut self, key: &str, name: &str, text: &str, b: &Badge) -> Handle { self.variant(BodyKind::badge, b.variant, |e| e.badge(key, name, text)) }
         pub fn grid_list(&mut self, key: &str, count: usize, grid: &GridList, f: &mut dyn FnMut(&mut Ui, usize)) -> Handle {
             self.0.grid_list(key, count, grid.w, grid.h, &mut |e: &mut Engine, i| f(Ui::of(e), i))
+        }
+        pub fn button(&mut self, key: &str, text: &str, _: &Button) -> pxui_core::ui::Response {
+            self.0.button_opts(key, text, None, &pxui_core::ui_kit::ButtonOpts::DEFAULT, [""; 3], None, None)
+        }
+        pub fn toggle(&mut self, key: &str, text: &str, on: bool, _: &Toggle) -> Toggled {
+            let r = self.0.toggle_opts(key, text, on, &pxui_core::ui::ToggleOpts::DEFAULT);
+            Toggled { changed: r.clicked, handle: r.handle }
         }
         pub fn within(&mut self, b: &Handle, f: &mut dyn FnMut(&mut Ui)) { self.0.within(b, page!(f)) }
         pub fn view_of(&mut self, key: &str, revision: &u64, f: &mut dyn FnMut(&mut Ui)) -> Handle { self.0.view_of(key, revision, page!(f)) }

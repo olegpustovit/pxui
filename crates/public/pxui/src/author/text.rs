@@ -42,11 +42,12 @@ impl Ui {
     /// times the line height, 1.2 times the size); wrapping, line limit, ellipsis and alignment apply inside that width.
     /// `Label::DEFAULT` is the theme's kit label.
     ///
-    /// Returns the label's node, valid for this frame, for the rare tweak a style does not cover: a fill (`Ui::set_look`), an accessible
+    /// Returns the label's node, valid for this frame, for the rare tweak a style does not cover: a fill (`Ui::style` with `States::of`), an accessible
     /// state or value (`Ui::set_role`, `Ui::a11y_value`), or other text laid into the same node (`Ui::text_line_box`). Most callers
     /// drop it. A registered label body builds inside this node.
     /// Allocates: never on a warm frame.
-    /// Identity: no key; every label is the n-th `"\0label"` among its siblings. Labels hold no state, so moving one costs nothing.
+    /// Identity: no key; a label is the n-th label among its siblings, keyed in the engine's internal positional namespace that no
+    /// authored key can reach. Labels hold no state, so moving one costs nothing.
     /// Panics: when the library refuses the label (outside a frame, a style with a non-finite or non-positive size, an unloaded font). Display text past 64 KiB is clipped at a character boundary, never refused.
     ///
     /// ```
@@ -65,10 +66,10 @@ impl Ui {
     /// ui.set_a11y(true);
     /// for _ in 0..2 {
     ///     ui.frame(&pxui::FrameIn::new(320.0, 240.0), &mut |ui| {
-    ///         ui.row("song", ROW, |ui| {
+    ///         ui.id("song", |ui| { ui.row(ROW, |ui| {
     ///             ui.label(&title, TITLE.grow());
     ///             ui.label(&duration_text, DIM);
-    ///         });
+    ///         }); });
     ///         ui.label_fmt(format_args!("{} of {}", index + 1, total), DIM);
     ///         ui.label_digits(format_args!("{m}:{s:02}"), CLOCK);
     ///         ui.label("Section", Label::DEFAULT);
@@ -195,7 +196,9 @@ mod tests {
 
     /// `label` inside a column (`Fit` tall, `w` wide), returning the column's handle: its rectangle is the label's.
     fn boxed(ui: &mut crate::Ui, key: &'static str, w: Size, text: &str, style: Label) -> crate::Handle {
-        ui.column(key, Node { w, ..Node::DEFAULT }, |ui| { ui.label(text, style); })
+        let mut column = None;
+        ui.id(key, |ui| column = Some(ui.column(Node { w, ..Node::DEFAULT }, |ui| { ui.label(text, style); })));
+        column.unwrap()
     }
 
     /// `kit::text`: one line, end ellipsis, height one line, however long the text; `settings::paragraph`: word wrap with
@@ -274,9 +277,9 @@ mod tests {
     fn label_width_and_colour_options_apply() {
         let (mut fit, mut fixed, mut grown) = (None, None, None);
         let ui = settle(&mut |ui| {
-            fit = Some(ui.row("fit", Node { w: Size::Fit, ..Node::DEFAULT }, |ui| { ui.label("hi", Label::BODY.color(ColorToken(0))); }));
-            fixed = Some(ui.row("fixed", Node { w: Size::Fit, ..Node::DEFAULT }, |ui| { ui.label("hi", Label::BODY.w(Size::Px(50.0))); }));
-            grown = Some(ui.row("grown", Node::DEFAULT, |ui| { ui.label("hi", Label::BODY.grow()); }));
+            fit = Some(ui.row(Node { w: Size::Fit, ..Node::DEFAULT }, |ui| { ui.label("hi", Label::BODY.color(ColorToken(0))); }));
+            fixed = Some(ui.row(Node { w: Size::Fit, ..Node::DEFAULT }, |ui| { ui.label("hi", Label::BODY.w(Size::Px(50.0))); }));
+            grown = Some(ui.row(Node::DEFAULT, |ui| { ui.label("hi", Label::BODY.grow()); }));
         });
         let (fit, fixed, grown) = (ui.rect(&fit.unwrap()), ui.rect(&fixed.unwrap()), ui.rect(&grown.unwrap()));
         assert!(fit.w > 0.0 && fit.w < 40.0, "{fit:?}");
@@ -328,7 +331,7 @@ mod tests {
     fn digits_take_one_width_whatever_the_digits() {
         let width = |value: u32| {
             let mut b = None;
-            let ui = settle(&mut |ui| b = Some(ui.row("clock", Node { w: Size::Fit, ..Node::DEFAULT }, |ui| { ui.label_digits(format_args!("{}:{}", value, value * 11), Label::BODY); })));
+            let ui = settle(&mut |ui| b = Some(ui.row(Node { w: Size::Fit, ..Node::DEFAULT }, |ui| { ui.label_digits(format_args!("{}:{}", value, value * 11), Label::BODY); })));
             ui.rect(&b.unwrap()).w
         };
         assert!(width(1) > 0.0);
@@ -364,10 +367,10 @@ mod tests {
             SEEN.with(|s| s.borrow_mut().clear());
             GROWN.with(|g| g.borrow_mut().clear());
             ui.frame(&FrameIn::new(160.0, 240.0), &mut |ui| {
-                kit = Some(ui.column("kit", Node::DEFAULT, |ui| { ui.label("Kit", Label::DEFAULT); }));
-                styled = Some(ui.column("styled", Node::DEFAULT, |ui| { ui.label("Styled", Label::TITLE.color(ColorToken(0))); }));
-                digits = Some(ui.column("digits", Node::DEFAULT, |ui| { ui.label_digits(format_args!("{}:{:02}", 1, 5), Label::MONO); }));
-                boxed = Some(ui.column("boxed", Node::DEFAULT, |ui| { ui.label("Boxed", Label::BODY.h_px(44.0).whole_pixels().role(crate::ui::Role::Paragraph)); }));
+                kit = Some(ui.column(Node::DEFAULT, |ui| { ui.label("Kit", Label::DEFAULT); }));
+                styled = Some(ui.column(Node::DEFAULT, |ui| { ui.label("Styled", Label::TITLE.color(ColorToken(0))); }));
+                digits = Some(ui.column(Node::DEFAULT, |ui| { ui.label_digits(format_args!("{}:{:02}", 1, 5), Label::MONO); }));
+                boxed = Some(ui.column(Node::DEFAULT, |ui| { ui.label("Boxed", Label::BODY.h_px(44.0).whole_pixels().role(crate::ui::Role::Paragraph)); }));
             }).unwrap();
         }
         let seen = SEEN.with(|s| s.borrow().clone());
@@ -390,7 +393,7 @@ mod tests {
         let ui = settle(&mut |ui| {
             rows.clear();
             for (key, style) in [("plain", Label::DEFAULT), ("bold", Label::DEFAULT.bold()), ("again", Label::DEFAULT)] {
-                rows.push(ui.column(key, Node::DEFAULT, |ui| { ui.node("before", Node::DEFAULT); ui.label("Same", style); }));
+                ui.id(key, |ui| rows.push(ui.column(Node::DEFAULT, |ui| { ui.node("before", Node::DEFAULT); ui.label("Same", style); })));
             }
         });
         let rects: Vec<_> = rows.iter().map(|b| ui.rect(b)).collect();
@@ -408,7 +411,7 @@ mod tests {
         const HEADING: Label = Label::BODY.size(13.0).line_height(18.2).lines(1).ellipsis();
         let (mut boxed, mut plain, mut lined, mut hidden) = (None, None, None, None);
         let ui = settle(&mut |ui| {
-            boxed = Some(ui.row("boxed", Node { w: Size::Fit, ..Node::DEFAULT }, |ui| { ui.label("Heading", HEADING.h_px(30.0).whole_pixels().role(Role::Paragraph)); }));
+            boxed = Some(ui.row(Node { w: Size::Fit, ..Node::DEFAULT }, |ui| { ui.label("Heading", HEADING.h_px(30.0).whole_pixels().role(Role::Paragraph)); }));
             plain = Some(ui.label("Heading", HEADING));
             lined = Some(ui.label("Heading", HEADING.line_height(30.0)));
             hidden = Some(ui.label("Caption", HEADING.role(Role::Unknown)));

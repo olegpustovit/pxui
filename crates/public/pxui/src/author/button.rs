@@ -1,9 +1,9 @@
-//! The kit button with options: `ui.button_with(key, text, &Button)` reports a `Response`; `ui.button(text)` is `Button::DEFAULT`.
+//! The kit button: `ui.button(key, text, &Button)` reports a `Response`; pass `&Button::DEFAULT` for the theme's plain button.
 use super::{Icon, Key, Response};
 use crate::Ui;
 use pxui_types::{geom::Edges, layout::{Along, Justify}, theme::{BodyKind, State, States}, Axis, Label, Size};
 
-/// How `Ui::button_with` varies the kit's button, as a `Copy` value built with `const fn` builders from `Button::DEFAULT`.
+/// How `Ui::button` varies the kit's button, as a `Copy` value built with `const fn` builders from `Button::DEFAULT`.
 ///
 /// The default is the plain `Ui::button`: the theme's look, 20 points high, as wide as its text plus 14, 5 points in from the start of its line.
 /// `'a` is the borrow of a `name`, `detail` or `accessory` given at run time and of the looks given to `look` (`'static` for a const
@@ -109,10 +109,10 @@ impl<'a> Button<'a> {
     /// Panics: never.
     ///
     /// ```
-    /// let b = pxui::Button::DEFAULT.enabled(false);
+    /// let b = pxui::Button::DEFAULT.disabled(true);
     /// let _ = b;
     /// ```
-    pub const fn enabled(mut self, enabled: bool) -> Button<'a> { self.enabled = enabled; self }
+    pub const fn disabled(mut self, disabled: bool) -> Button<'a> { self.enabled = !disabled; self }
 
     /// Marks the button as the current one of a group: the `checked` look and the accessible SELECTED state.
     /// Allocates: never.
@@ -319,7 +319,7 @@ impl Ui {
     /// let (clicked, node) = (Cell::new(false), Cell::new(None));
     /// let mut build = |ui: &mut pxui::Ui| {
     ///     let save = Button::DEFAULT.size(Size::Px(90.0), Size::Px(30.0)).align(Justify::Center).selected(true);
-    ///     let response = ui.button_with("save", "Save", &save);
+    ///     let response = ui.button("save", "Save", &save);
     ///     clicked.set(clicked.get() | response.clicked);
     ///     node.set(Some(response.handle));
     /// };
@@ -329,11 +329,11 @@ impl Ui {
     /// ```
     #[inline]
     #[track_caller]
-    pub fn button_with<K: Into<Key>>(&mut self, key: K, text: &str, button: &Button<'_>) -> Response {
+    pub fn button<K: Into<Key>>(&mut self, key: K, text: &str, button: &Button<'_>) -> Response {
         self.button_key(key.into(), text, button, None)
     }
 
-    /// Declares a kit button as `button_with` does, with `f` building its contents instead of a text.
+    /// Declares a kit button as `button` does, with `f` building its contents instead of a text.
     ///
     /// `f` runs inside the box, laid out by `Button::axis`, `gap` and `content_align`, and is given the button's interaction state
     /// this frame by value (hovered, pressed, focused, disabled, checked): a snapshot of what input did to it, read before `f` runs,
@@ -342,7 +342,7 @@ impl Ui {
     /// accessible name (`Button::name`): without one the node has none.
     /// Allocates: never on a warm frame.
     /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); never the display text.
-    /// Panics: as `button_with`, or when `f` panics. A key or identity label over 256 bytes panics (a programmer error).
+    /// Panics: as `button`, or when `f` panics. A key or identity label over 256 bytes panics (a programmer error).
     ///
     /// ```
     /// use pxui::{ui::{Node, Size}, Button};
@@ -361,7 +361,7 @@ impl Ui {
         self.button_key(key.into(), "", button, Some(&mut f))
     }
 
-    /// The one body of `button_with` and `button_content`: the key's label, then the engine call (`text` is empty for contents).
+    /// The one body of `button` and `button_content`: the key's label, then the engine call (`text` is empty for contents).
     #[inline(always)]
     #[track_caller]
     fn button_key(&mut self, key: Key, text: &str, button: &Button<'_>, content: Option<&mut dyn FnMut(&mut Ui, State)>) -> Response {
@@ -403,7 +403,7 @@ mod tests {
         let last: Cell<Option<Response>> = Cell::new(None);
         let mut build = |ui: &mut Ui| {
             let b = Button::DEFAULT.size(Size::Grow, Size::Px(44.0)).selected(true).name("Songs tab");
-            let r = ui.button_with("songs", "Songs", &b);
+            let r = ui.button("songs", "Songs", &b);
             if r.clicked { hits.set(hits.get() + 1); }
             last.set(Some(r));
         };
@@ -425,8 +425,8 @@ mod tests {
         let hits = Cell::new(0);
         let last: Cell<Option<Response>> = Cell::new(None);
         let mut build = |ui: &mut Ui| {
-            let b = Button::DEFAULT.size(Size::Px(120.0), Size::Px(36.0)).enabled(enabled.get()).align(Justify::Center);
-            let r = ui.button_with(7i64, "Choose", &b);
+            let b = Button::DEFAULT.size(Size::Px(120.0), Size::Px(36.0)).disabled(!enabled.get()).align(Justify::Center);
+            let r = ui.button(7i64, "Choose", &b);
             if r.clicked { hits.set(hits.get() + 1); }
             last.set(Some(r));
         };
@@ -463,13 +463,13 @@ mod tests {
         assert!(icon.x >= outer.x && icon.x + icon.w <= outer.x + outer.w && icon.w == 16.0, "the icon is inside the box: {outer:?} {icon:?}");
     }
 
-    /// `button(text)` is `button_with("button", text, &Button::DEFAULT)` and takes its identity from its position: two of them are
-    /// two nodes, and each reports its own click.
+    /// A button takes its identity from its key, never its text: two keys are two nodes, each reporting its own click, and one key
+    /// is one node whatever else is built.
     #[test]
-    fn button_forwards_to_button_with_and_keys_by_position() {
+    fn buttons_are_keyed_and_report_their_own_clicks() {
         let hits = Cell::new((false, false));
-        let mut one = |ui: &mut Ui| { let a = ui.button("First"); let b = ui.button("Second"); hits.set((hits.get().0 | a, hits.get().1 | b)); };
-        let mut two = |ui: &mut Ui| { ui.button_with("button", "First", &Button::DEFAULT); };
+        let mut one = |ui: &mut Ui| { let a = ui.button("a", "First", &crate::Button::DEFAULT).clicked; let b = ui.button("b", "Second", &crate::Button::DEFAULT).clicked; hits.set((hits.get().0 | a, hits.get().1 | b)); };
+        let mut two = |ui: &mut Ui| { ui.button("a", "First", &Button::DEFAULT); };
         let mut ui_one = crate::doc::frames(3, &mut one);
         let ui_two = crate::doc::frames(3, &mut two);
         let first = *ui_one.a11y_nodes().iter().find(|n| ui_one.a11y_name_of(n) == "First").unwrap();
@@ -493,8 +493,8 @@ mod tests {
         let (action, tab) = (Button::sized(120.0, 44.0).look(&plate), Button::DEFAULT.size(Size::Grow, Size::Px(44.0)).centered().look(&plate));
         let last: Cell<Option<Response>> = Cell::new(None);
         let mut build = |ui: &mut Ui| {
-            last.set(Some(ui.button_with("action", "Save", &action)));
-            ui.row("bar", Node { w: Size::Px(200.0), ..Node::DEFAULT }, |ui| { ui.button_with("tab", "Songs", &tab); });
+            last.set(Some(ui.button("action", "Save", &action)));
+            ui.row(Node { w: Size::Px(200.0), ..Node::DEFAULT }, |ui| { ui.button("tab", "Songs", &tab); });
         };
         let ui = crate::doc::frames(3, &mut build);
         let (_, _, w, h) = node(&ui, "Save");
@@ -526,7 +526,7 @@ mod tests {
         ui.set_theme(&crate::ThemeHandle::parse(&text).unwrap()).unwrap();
         assert_eq!(ui.theme().body.button, id);
         for (button, seen) in [(Button::sized(120.0, 44.0), (1, 1, 120.0, 44.0)), (Button::DEFAULT.size(Size::Px(120.0), Size::Px(44.0)), (0, 1, 120.0, 44.0))] {
-            testing::frame(&mut ui, &[], &mut |ui| { ui.button_with("b", "Go", &button); });
+            testing::frame(&mut ui, &[], &mut |ui| { ui.button("b", "Go", &button); });
             assert_eq!(SIZED.with(|s| s.get()), seen);
         }
     }
@@ -553,12 +553,12 @@ mod tests {
         let hits = Cell::new([0u32; 4]);
         let mut build = |ui: &mut Ui| {
             let (on, mut h) = (enabled.get(), hits.get());
-            let b = ui.button_with("go", "Go", &Button::sized(80.0, 30.0).enabled(on));
+            let b = ui.button("go", "Go", &Button::sized(80.0, 30.0).disabled(!on));
             h[0] += (b.clicked || b.activated) as u32;
-            let i = ui.icon_button("x", Icon::Glyph('x'), "Close", &IconButton::sized(30.0, 30.0).enabled(on));
+            let i = ui.icon_button("x", Icon::Glyph('x'), "Close", &IconButton::sized(30.0, 30.0).disabled(!on));
             h[1] += (i.clicked || i.activated) as u32;
-            h[2] += ui.toggle_with("t", "Wifi", false, &Toggle::DEFAULT.enabled(on)).changed as u32;
-            h[3] += (ui.segmented("s", &[crate::Segment::new("A"), crate::Segment::new("B")], Some(0), &Segmented::DEFAULT.enabled(on)).chosen != Some(0)) as u32;
+            h[2] += ui.toggle("t", "Wifi", false, &Toggle::DEFAULT.disabled(!on)).changed as u32;
+            h[3] += (ui.segmented("s", &[crate::Segment::new("A"), crate::Segment::new("B")], Some(0), &Segmented::DEFAULT.disabled(!on)).chosen != Some(0)) as u32;
             hits.set(h);
         };
         let all = [(Role::Button, "Go"), (Role::Button, "Close"), (Role::Toggle, "Wifi"), (Role::Radio, "B")];
@@ -623,7 +623,7 @@ mod tests {
         let last: Cell<Option<Response>> = Cell::new(None);
         let mut build = |ui: &mut Ui| {
             let b = if centered.get() { Button::sized(200.0, 32.0) } else { Button::DEFAULT.size(Size::Px(200.0), Size::Px(32.0)) };
-            last.set(Some(ui.button_with("save", "Save", &b.look(&plate).label(Label::BODY.size(14.0).h_px(20.0)).content_align(align.get()))));
+            last.set(Some(ui.button("save", "Save", &b.look(&plate).label(Label::BODY.size(14.0).h_px(20.0)).content_align(align.get()))));
         };
         let mut ui = crate::doc::frames(2, &mut build);
         let text = a11y(&ui, Role::Label, "Save");
@@ -662,7 +662,7 @@ mod tests {
         let (selected, enabled) = (Cell::new(false), Cell::new(true));
         let nodes: Cell<Option<(crate::Handle, crate::Handle, Response)>> = Cell::new(None);
         let mut build = |ui: &mut Ui| {
-            let tile = Button::sized(100.0, 60.0).axis(Axis::Column).gap(4.0).name("Tile").selected(selected.get()).enabled(enabled.get());
+            let tile = Button::sized(100.0, 60.0).axis(Axis::Column).gap(4.0).name("Tile").selected(selected.get()).disabled(!enabled.get());
             let mut inner = None;
             let r = ui.button_content("tile", &tile, |ui, state| {
                 seen.set(state);
@@ -697,7 +697,7 @@ mod tests {
     fn focus_on_click_focuses_the_clicked_button() {
         for (focus, want) in [(false, 0), (true, state::FOCUSED)] {
             let last: Cell<Option<Response>> = Cell::new(None);
-            let mut build = |ui: &mut Ui| { last.set(Some(ui.button_with("open", "Open", &Button::sized(80.0, 30.0).focus_on_click(focus)))); };
+            let mut build = |ui: &mut Ui| { last.set(Some(ui.button("open", "Open", &Button::sized(80.0, 30.0).focus_on_click(focus)))); };
             let mut ui = crate::doc::frames(2, &mut build);
             let r = ui.rect(&last.get().unwrap().handle);
             click_centre(&mut ui, r, &mut build);
@@ -710,7 +710,7 @@ mod tests {
     #[test]
     fn a_run_time_name_is_borrowed() {
         let title = format!("Play {}", "Blue in Green");
-        let mut build = |ui: &mut Ui| { ui.button_with("play", "Play", &Button::DEFAULT.name(&title)); };
+        let mut build = |ui: &mut Ui| { ui.button("play", "Play", &Button::DEFAULT.name(&title)); };
         let ui = crate::doc::frames(1, &mut build);
         assert!(a11y(&ui, Role::Button, "Play Blue in Green").is_role(Role::Button));
     }
@@ -738,8 +738,8 @@ mod tests {
         assert_eq!(ui.theme().body.button, id);
         let styled = Button::sized(120.0, 44.0).label(crate::Label::BODY.size(14.0).h_px(20.0)).axis(Axis::Column).gap(6.0).content_align(Along::End);
         for (button, seen) in [(styled, (1, 2, 3, 6.0, 14.0, 1)), (Button::sized(120.0, 44.0), (0, 0, 0, 0.0, 0.0, 0))] {
-            testing::frame(&mut ui, &[], &mut |ui| { ui.button_with("b", "Go", &button); });
-            testing::frame(&mut ui, &[], &mut |ui| { ui.button_with("b", "Go", &button); });
+            testing::frame(&mut ui, &[], &mut |ui| { ui.button("b", "Go", &button); });
+            testing::frame(&mut ui, &[], &mut |ui| { ui.button("b", "Go", &button); });
             assert_eq!(LAID.with(|s| s.get()), seen);
             let n = a11y(&ui, Role::Button, "Go");
             assert_eq!((n.rect.w, n.rect.h), (33.0, 33.0), "the registered body's structure");
@@ -756,10 +756,10 @@ mod tests {
         use crate::{Icon, Label};
         let handles: Cell<[Option<Response>; 4]> = Cell::new([None; 4]);
         let mut build = |ui: &mut Ui| {
-            let plain = ui.button_with("plain", "Search", &Button::DEFAULT);
-            let icon = ui.button_with("icon", "Search", &Button::DEFAULT.icon(Icon::glyph('?')));
-            let search = ui.button_with("search", "Search", &Button::DEFAULT.size(Size::Px(200.0), Size::Px(28.0)).icon(Icon::draw(dot, 3)).accessory("Cmd K").accessory_label(Label::BODY.size(11.0)));
-            let rescan = ui.button_with("rescan", "Rescan", &Button::DEFAULT.detail("Every source"));
+            let plain = ui.button("plain", "Search", &Button::DEFAULT);
+            let icon = ui.button("icon", "Search", &Button::DEFAULT.icon(Icon::glyph('?')));
+            let search = ui.button("search", "Search", &Button::DEFAULT.size(Size::Px(200.0), Size::Px(28.0)).icon(Icon::draw(dot, 3)).accessory("Cmd K").accessory_label(Label::BODY.size(11.0)));
+            let rescan = ui.button("rescan", "Rescan", &Button::DEFAULT.detail("Every source"));
             handles.set([Some(plain), Some(icon), Some(search), Some(rescan)]);
         };
         let ui = crate::doc::frames(3, &mut build);
@@ -801,7 +801,7 @@ mod tests {
         let full = Button::DEFAULT.icon(Icon::glyph('?')).detail("Every source").accessory("Cmd K").detail_label(Label::BODY.size(12.0)).accessory_label(Label::MONO);
         let drawn = Button::DEFAULT.icon(Icon::draw(dot, 1));
         for (button, seen) in [(full, (1, false, 12, 5, 1, 1, 12.0)), (drawn, (0, true, 0, 0, 0, 0, 0.0)), (Button::DEFAULT.name("Go"), (0, false, 0, 0, 0, 0, 0.0))] {
-            testing::frame(&mut ui, &[], &mut |ui| { ui.button_with("b", "Go", &button); });
+            testing::frame(&mut ui, &[], &mut |ui| { ui.button("b", "Go", &button); });
             assert_eq!(PARTS.with(|s| s.get()), seen);
             let n = a11y(&ui, Role::Button, "Go");
             assert_eq!((n.rect.w, n.rect.h), (33.0, 33.0), "the registered body's structure");
@@ -819,15 +819,15 @@ mod tests {
         let name = String::from("Row button");
         let name = name.as_str();
         let mut build = |ui: &mut Ui| {
-            ui.button("Go");
+            ui.button("button", "Go", &crate::Button::DEFAULT).clicked;
             ui.button_content(1i64, &Button::DEFAULT.size(Size::Px(90.0), Size::Px(30.0)).look(&states).danger(), &content);
-            ui.button_with("off", "Off", &Button::DEFAULT.enabled(false).selected(true).name("Off button").align(Justify::End));
-            ui.button_with("tab", "Songs", &Button::DEFAULT.size(Size::Grow, Size::Px(44.0)).centered().selected(true));
-            ui.button_with("label", "Label", &Button::sized(90.0, 30.0).label(crate::Label::BODY.size(14.0).h_px(20.0)).content_align(crate::ui::Along::Start).focus_on_click(true));
-            ui.button_with("row", "Row", &Button::DEFAULT.size(Size::Px(90.0), Size::Px(30.0)).gap(4.0).content_align(crate::ui::Along::End).name(name));
-            ui.button_with("search", "Search", &Button::sized(200.0, 28.0).icon(crate::Icon::glyph('?')).accessory("Cmd K").accessory_label(crate::Label::MONO));
-            ui.button_with("drawn", "Drawn", &Button::DEFAULT.icon(crate::Icon::draw(dot, 2)).detail(name).detail_label(crate::Label::BODY.size(12.0)));
-            ui.button_with("rescan", "Rescan", &Button::DEFAULT.size(Size::Grow, Size::Fit).detail("Every source").accessory(">"));
+            ui.button("off", "Off", &Button::DEFAULT.disabled(true).selected(true).name("Off button").align(Justify::End));
+            ui.button("tab", "Songs", &Button::DEFAULT.size(Size::Grow, Size::Px(44.0)).centered().selected(true));
+            ui.button("label", "Label", &Button::sized(90.0, 30.0).label(crate::Label::BODY.size(14.0).h_px(20.0)).content_align(crate::ui::Along::Start).focus_on_click(true));
+            ui.button("row", "Row", &Button::DEFAULT.size(Size::Px(90.0), Size::Px(30.0)).gap(4.0).content_align(crate::ui::Along::End).name(name));
+            ui.button("search", "Search", &Button::sized(200.0, 28.0).icon(crate::Icon::glyph('?')).accessory("Cmd K").accessory_label(crate::Label::MONO));
+            ui.button("drawn", "Drawn", &Button::DEFAULT.icon(crate::Icon::draw(dot, 2)).detail(name).detail_label(crate::Label::BODY.size(12.0)));
+            ui.button("rescan", "Rescan", &Button::DEFAULT.size(Size::Grow, Size::Fit).detail("Every source").accessory(">"));
             ui.button_content("state", &Button::sized(90.0, 30.0).axis(crate::ui::Axis::Column), |ui, state| {
                 let w = if state.hovered { 6.0 } else { 8.0 };
                 ui.node("i", Node { w: Size::Px(w), h: Size::Px(8.0), ..Node::DEFAULT });

@@ -896,7 +896,7 @@ impl Ui {
     }
 
     /// A label: `text` in `style` through the label body, identity by its place among its siblings (every label has the one key
-    /// "\0label", so the n-th takes its n-th `#dup`), role `Label`. `Label::DEFAULT` is the theme's label: a window's title or a
+    /// the n-th positional label of its scope), role `Label`. `Label::DEFAULT` is the theme's label: a window's title or a
     /// panel's caption, ink-2 capitals 12 points from the left, 4 points above it when it is the first thing of its parent.
     pub fn label(&mut self, text: &str, style: Label) {
         let style = *style.fields();
@@ -933,9 +933,9 @@ impl Ui {
             Some(resolved)
         };
         let first = self.last_child_of_parent() == NONE;
-        // every label is "\0label": siblings in a row resolve their duplicates without looking the key up again
+        // every label is the n-th positional label of its scope: siblings in a row resolve their duplicates without looking the key up again
         self.require_building();
-        let unique = self.unique_key_repeated(key_of(self.current_seed(), "\0label"));
+        let unique = self.unique_key_repeated(positional_key(self.current_seed(), Positional::Label));
         let node = self.node_unique(unique, &Node { role: style.role, ..Node::DEFAULT });
         if digits { self.a11y_value(&node, shown(text), (0, 0)); }
         let config = LabelConfig { node, first, style: *style, digits };

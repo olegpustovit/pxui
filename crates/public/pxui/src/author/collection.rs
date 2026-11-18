@@ -195,11 +195,11 @@ mod tests {
         for _ in 0..2 {
             ui.frame(&FrameIn::new(400.0, 600.0), &mut |ui: &mut Ui| {
                 for (key, kind) in [("lists", 0), ("trees", 1), ("tables", 2)] {
-                    ui.column(key, Node { h: Size::Px(80.0), ..Node::DEFAULT }, |ui| match kind {
+                    ui.id(key, |ui| { ui.column(Node { h: Size::Px(80.0), ..Node::DEFAULT }, |ui| match kind {
                         0 => { ui.selection_list("list", 1, &mut list, &SelectionList::DEFAULT, &mut |ui, _| ui.item_text("list row")); }
                         1 => { ui.tree("tree", &nodes, &mut open, &mut selected, &mut visible, &mut |ui, _| ui.item_text("tree row")); }
                         _ => { ui.table_view("table", &["Name"], &mut widths, 1, &mut table_sel, &TableView::DEFAULT, &mut |ui, _, _| ui.item_text("table cell")); }
-                    });
+                    }); });
                 }
                 ui.table_view("text", &["A"], &mut [], 2, &mut None, &TableView::text(Rect::new(0.0, 300.0, 200.0, 100.0)), &mut |ui, row, _| ui.item_text(["r0", "r1"][row]));
             }).unwrap();
@@ -221,12 +221,12 @@ mod tests {
         let tall = Cell::new(None);
         let mut build = |ui: &mut Ui| {
             ys.borrow_mut().clear();
-            ui.column("a", Node { h: Size::Px(200.0), ..Node::DEFAULT }, |ui| {
+            ui.column(Node { h: Size::Px(200.0), ..Node::DEFAULT }, |ui| {
                 ui.section_list("fixed", &SectionList::new(3).row_h(20.0).lead(30.0).header(10.0), &|i| i as i64, &mut |ui, part, y| {
                     if let SectionPart::Row(i) = part { ys.borrow_mut().push((i, y)); ui.node("r", Node { h: Size::Grow, ..Node::DEFAULT }); }
                 });
             });
-            ui.column("b", Node { h: Size::Px(200.0), ..Node::DEFAULT }, |ui| {
+            ui.column(Node { h: Size::Px(200.0), ..Node::DEFAULT }, |ui| {
                 ui.section_list("measured", &SectionList::new(1).row_h(20.0).measured(), &|i| i as i64, &mut |ui, part, _| {
                     if let SectionPart::Row(_) = part { tall.set(Some(ui.node("tall", Node { h: Size::Px(50.0), ..Node::DEFAULT }))); }
                 });

@@ -129,9 +129,9 @@ const NAMES: [&str; 3] = ["Wi-Fi", "Bluetooth", "Hotspot"];
 pub fn page(ui: &mut Ui, s: &mut BodiesPage) {
     ui.panel("bodies", &Overlay::DEFAULT.w_px(296.0), &mut |ui: &mut Ui| {
         ui.label("Bodies", pxui::Label::DEFAULT);
-        let custom = ui.toggle("Custom bodies", s.custom);
+        let custom = ui.toggle("custom", "Custom bodies", s.custom, &pxui::Toggle::DEFAULT).changed != s.custom;
         if custom != s.custom { (s.custom, s.dirty) = (custom, true); }
-        s.wifi = ui.toggle("Wi-Fi", s.wifi);
+        s.wifi = ui.toggle("wifi", "Wi-Fi", s.wifi, &pxui::Toggle::DEFAULT).changed != s.wifi;
         s.volume = ui.slider("volume", "Volume", s.volume, 0.0..=1.0, &pxui::Slider::DEFAULT).value;
         s.align = ui.segmented("align", &[pxui::Segment::new("Left"), pxui::Segment::new("Centre"), pxui::Segment::new("Right")], Some(s.align), &pxui::Segmented::DEFAULT.name("Align")).chosen.unwrap_or(s.align);
         if let Some(v) = ui.search_field("find", &s.query, &SearchField::DEFAULT.icon("?").placeholder("Search").name("Find")).changed { s.query = v.to_owned(); }
@@ -142,7 +142,7 @@ pub fn page(ui: &mut Ui, s: &mut BodiesPage) {
         let frame = ui.node("frame", Node { h: Size::Px(140.0), ..Node::DEFAULT });
         ui.within(&frame, &mut |ui: &mut Ui| {
             let _ = ui.table_view("settings", &["Name", "On"], widths, 3, selected, &pxui::TableView::DEFAULT, &mut |ui: &mut Ui, row, column| {
-                if column == 0 { ui.label(NAMES[row], pxui::Label::DEFAULT); } else { flags[row] = ui.toggle(NAMES[row], flags[row]); }
+                if column == 0 { ui.label(NAMES[row], pxui::Label::DEFAULT); } else { flags[row] = ui.toggle("toggle", NAMES[row], flags[row], &pxui::Toggle::DEFAULT).changed != flags[row]; }
             });
         });
     });

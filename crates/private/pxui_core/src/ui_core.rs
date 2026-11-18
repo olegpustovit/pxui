@@ -3418,6 +3418,22 @@ pub struct Signal {
     pub a11y_select: Option<(u32, u32)>,
 }
 
+/// The kinds of node keyed by their place among their scope's nodes of the same kind (D25).
+#[derive(Clone, Copy)]
+pub(crate) enum Positional { Container = 1, Label = 2, Image = 3 }
+
+/// The first key of the n-th `kind` node under `seed`, in a hash domain of its own: authored labels and ids hash their bytes from
+/// the seed (`key_of`) and a resolved label is an existing box key, while this mixes the seed and the kind (a splitmix64 finaliser
+/// over a domain constant), so no authored key is derived through it. Repeats take `#dup` keys as any repeated key does.
+#[inline]
+pub(crate) fn positional_key(seed: i64, kind: Positional) -> i64 {
+    let mut z = (seed as u64) ^ 0x7078_7569_706f_7300 ^ (kind as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    let key = (z ^ (z >> 31)) as i64;
+    if key == 0 || key == 1 { key + 2 } else { key }
+}
+
 impl Ui {
     pub(crate) fn require_building(&self) {
         if !self.building {
@@ -3447,7 +3463,7 @@ impl Ui {
         self.unique_key_from(first, first, None)
     }
 
-    /// `unique_key` for a widget whose siblings repeat its key (`button(text)` keys by position, every label is "\0label"): when
+    /// `unique_key` for a widget whose siblings repeat its key (layout containers, labels and images key by position): when
     /// `first` is the key duplicated last this frame, the next duplicate is hashed on from the one taken, with no lookup of `first`.
     pub(crate) fn unique_key_repeated(&mut self, first: i64) -> (i64, Option<usize>) {
         let last = self.last_dup;
@@ -3561,6 +3577,14 @@ impl Ui {
     pub fn node_keyed_ref(&mut self, key: i64, node: &Node) -> Handle {
         self.require_building();
         let unique = self.unique_key(key);
+        self.node_unique(unique, node)
+    }
+
+    /// A keyless layout container (`row`/`column`/`stack`): the n-th container of the current scope, keyed in the engine's positional
+    /// namespace (`positional_key`), so containers keep their keys while labels, images or keyed siblings come and go.
+    pub fn layout_node(&mut self, node: &Node) -> Handle {
+        self.require_building();
+        let unique = self.unique_key_repeated(positional_key(self.current_seed(), Positional::Container));
         self.node_unique(unique, node)
     }
 

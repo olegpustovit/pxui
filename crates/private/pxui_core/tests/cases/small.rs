@@ -165,7 +165,7 @@ pub fn window_pxui_keyboard() {
     step(&mut ui, &mut model, vec![], vec![key_down(Key::Tab)]);
     step(&mut ui, &mut model, vec![], vec![Event::FocusLost, key_down(Key::Enter)]);
     check(model.clicks == 2 && !ui.text_input_focused(), "focus loss did not cancel keyboard activation");
-    const ITEMS: [MenuItem; 2] = [MenuItem::new("Disabled").enabled(false), MenuItem::new("Enabled")];
+    const ITEMS: [MenuItem; 2] = [MenuItem::new("Disabled").disabled(true), MenuItem::new("Enabled")];
     let mut menu = Chosen::default();
     let mut background = false;
     let mut popup = |ui: &mut Ui| {
