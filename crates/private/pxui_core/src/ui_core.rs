@@ -645,15 +645,14 @@ pub fn key(b: &UiBox) -> i64 {
     b.box_key
 }
 
-struct NodeText { style:Style, spans:TextSpans, active:bool, line_box:bool }
+struct NodeText { style:Style, spans:Option<Box<TextSpans>>, line_box:bool }
 impl NodeText {
-    /// Where the text's first line starts as `Paint::text_laid` takes it: the top of the em box, the baseline `ascent * size` below.
-    /// A line box puts that baseline at its line's rounded ascent plus the floored half-leading, the lines centred in `h`.
-    fn top(&self,y:f32,h:f32,metrics:Metrics,text:&Text)->f32 {
-        if self.line_box {
-            let ascent=text.font_metrics(self.style.font).expect("validated line-box font").0*self.style.size;
-            return self.line_box_baseline(y,h,metrics)-ascent;
-        }
+    fn spans(&self) -> &[TextSpan] {
+        self.spans.as_deref().map_or(&[][..], |spans| spans.as_slice().expect("validated span count"))
+    }
+
+    /// The top of the em box when the text does not use CSS line boxes.
+    fn top(&self,y:f32,h:f32,metrics:Metrics)->f32 {
         let line=if self.style.line_height>0.0 { self.style.line_height } else { self.style.size*1.2 };
         let block=self.style.size+metrics.lines.saturating_sub(1) as f32*line;
         y+((h-block)/2.0).floor()
@@ -686,7 +685,7 @@ struct Slot {
     text: String,
     /// Last layout key and text fingerprint survive builds and virtual-slot recycling.
     text_layout: std::cell::Cell<Option<(u64, u64)>>,
-    rich: Option<Box<NodeText>>,
+    rich: Option<NodeText>,
     /// where the node's look was painted: the layer's key, the instance range, the clip, and the
     /// frame
     range_layer: i64,
@@ -696,6 +695,7 @@ struct Slot {
     clip: Rect,
     clip_radius: f32,
     painted: i64,
+    look_needs_snapshot: bool,
     /// the view that declares the node, and the view the node holds (`NO_VIEW`)
     owner: u32,
     view: u32,
@@ -751,6 +751,7 @@ impl Slot {
             clip: Rect::new(0.0, 0.0, 0.0, 0.0),
             clip_radius: 0.0,
             painted: -1,
+            look_needs_snapshot: false,
             owner: 0,
             view: NO_VIEW,
             row_of: (0, 0),
@@ -814,6 +815,26 @@ impl Glide {
     fn moving(&self) -> bool {
         self.mode != 0 || (self.visual != 0.0 && self.event_time != f64::INFINITY)
     }
+}
+
+struct ExpectedSize {
+    slot: usize,
+    w: f32,
+    h: f32,
+    grid: Option<GridFit>,
+}
+
+struct GridFit {
+    extent: f32,
+    across: f32,
+    per: usize,
+    padding: Edges,
+    sideways: bool,
+}
+
+fn grid_space(w: f32, h: f32, padding: Edges, sideways: bool) -> (f32, f32) {
+    let (w, h) = (w - padding.l - padding.r, h - padding.t - padding.b);
+    if sideways { (w, h) } else { (h, w) }
 }
 
 /// What a press, a drag, a scroll or a key did to a box this frame.
@@ -1023,6 +1044,7 @@ pub struct Ui {
     table: SlotTable,
     slots: Vec<Slot>,
     empty_strings: EmptyStrings,
+    free_spans: Vec<Box<TextSpans>>,
     free: Vec<usize>,
     /// slots whose scroll may be in motion (`apply_scroll` adds, `prune` drops the settled), and
     /// `prune`'s scratch
@@ -1232,7 +1254,10 @@ pub struct Ui {
     list_rows: Vec<(i64, usize, usize)>,
     /// sizes a build read before layout (slot, width, height; NaN: not read): layout disagreeing
     /// settles the frame
-    expected: std::cell::Cell<Vec<(usize, f32, f32)>>,
+    expected: std::cell::Cell<Vec<ExpectedSize>>,
+    /// Recent Bezier samples (parameters, seconds, progress): retargeting alternates the old and new
+    /// times, so both samples stay available to the other nodes in the change.
+    curve_memo: std::cell::Cell<[([u32; 6], f32); 2]>,
     /// `grow_line`'s pass stamp (`BoxRec::frozen`)
     grow_pass: u32,
     /// the text atlas's retirements and misses seen
@@ -1308,6 +1333,7 @@ impl Ui {
             table: SlotTable::create(),
             slots: Vec::new(),
             empty_strings: EmptyStrings::default(),
+            free_spans: Vec::new(),
             free: Vec::new(),
             moving: Vec::new(),
             gone: Vec::new(),
@@ -1465,6 +1491,7 @@ impl Ui {
             list_heights: HashMap::new(),
             list_rows: Vec::new(),
             expected: std::cell::Cell::new(Vec::new()),
+            curve_memo: std::cell::Cell::new([([0; 6], 1.0); 2]), // zero-duration curve at time zero
             a11y_copied: false,
             grid_rows: std::cell::Cell::new(Vec::new()),
             shifts: 0,
@@ -1519,25 +1546,48 @@ impl Ui {
     /// look it showed to the new one over the new theme's `motion.normal`, through the patch path
     /// (no further rebuild); a theme that does not move (`reduced_motion`, or no durations) snaps.
     /// Between frames, or inside one for what is built after it.
-    pub fn set_theme(&mut self, mut theme: Theme) {
-        // a theme whose looks name colour tokens is kept as given and installed resolved
-        self.theme_raw = theme_names_token(&theme).then(|| Box::new(theme));
-        resolve_theme(&mut theme, &self.colors);
-        self.theme_reduced_motion=theme.tokens.reduced_motion;
-        theme.tokens.reduced_motion|=self.system_reduced_motion;
-        if theme != self.theme {
+    pub fn set_theme(&mut self, theme: Theme) {
+        let names_tokens = theme.names_color_tokens();
+        self.set_theme_with_token_colors(&theme, names_tokens);
+    }
+
+    /// Install a theme whose named colours were checked during parsing.
+    #[doc(hidden)]
+    pub fn set_theme_with_token_colors(&mut self, theme: &Theme, names_tokens: bool) {
+        debug_assert_eq!(names_tokens, theme.names_color_tokens());
+        self.theme_reduced_motion = theme.tokens.reduced_motion;
+        if names_tokens || (self.system_reduced_motion && !theme.tokens.reduced_motion) {
+            self.install_theme_with_overrides(theme, names_tokens);
+        } else {
+            self.theme_raw = None;
+            self.install_theme(theme);
+        }
+    }
+
+    #[inline(never)]
+    fn install_theme_with_overrides(&mut self, theme: &Theme, names_tokens: bool) {
+        let mut theme = *theme;
+        self.theme_raw = names_tokens.then(|| Box::new(theme));
+        if names_tokens { resolve_theme(&mut theme, &self.colors); }
+        theme.tokens.reduced_motion |= self.system_reduced_motion;
+        self.install_theme(&theme);
+    }
+
+    fn install_theme(&mut self, theme: &Theme) {
+        if *theme != self.theme {
             self.epoch += 1;
             if theme.tokens.reduced_motion && !self.theme.tokens.reduced_motion { self.snap_motion(); }
-            // what each node shows now is where its move starts (one pass over the slots per swap)
+            // Paint already saved the declared look unless the node changed again or motion was off.
             if theme.tokens.moves() {
                 self.swap_frame = self.frame_number + if self.building { 0 } else { 1 };
                 for s in &mut self.slots {
-                    if s.key != 0 {
+                    if s.key != 0 && (s.touched > s.painted || s.look_needs_snapshot) {
                         s.seen = s.node.look;
+                        s.look_needs_snapshot = false;
                     }
                 }
             }
-            self.theme = theme;
+            self.theme = *theme;
         }
     }
 
@@ -1660,7 +1710,7 @@ impl Ui {
         } else {
             self.themes[self.theme_depth] = *theme;
         }
-        resolve_theme(&mut self.themes[self.theme_depth], &self.colors);
+        if theme.names_color_tokens() { resolve_theme(&mut self.themes[self.theme_depth], &self.colors); }
         self.theme_depth += 1;
         f(self);
         self.theme_depth -= 1;
@@ -2245,8 +2295,6 @@ impl Ui {
         let s = &mut self.slots[slot];
         // Virtual rows reuse text and accessibility storage after their old identity is retired.
         let generation = s.generation;
-        let mut rich=s.rich.take();
-        if let Some(rich)=&mut rich { rich.active=false; }
         let mut text = std::mem::take(&mut s.text);
         let mut a11y_name = std::mem::take(&mut s.a11y_name);
         let mut a11y_value = std::mem::take(&mut s.a11y_value);
@@ -2256,7 +2304,6 @@ impl Ui {
         *s = Slot::fresh();
         s.generation = generation;
         s.text = text;
-        s.rich=rich;
         s.a11y_name = a11y_name;
         s.a11y_value = a11y_value;
         s.key = key;
@@ -2328,10 +2375,10 @@ impl Ui {
     fn free_slot(&mut self, slot: usize) {
         let key = self.slots[slot].key;
         self.table.remove(key);
+        self.clear_rich(slot);
         let s = &mut self.slots[slot];
         s.key = 0;
         s.generation = s.generation.wrapping_add(1);
-        if let Some(rich)=&mut s.rich { rich.active=false; }
         s.text_value = None;
         s.labels.clear();
         // Freed slots can donate their retained strings before their next identity is assigned.
@@ -3370,7 +3417,7 @@ impl Ui {
     /// Declare build box `index`: its node record takes `node`, and its text, hit shape and canvases
     /// start empty. A patch made since the node's last build ends here.
     fn set_box(&mut self, index: usize, node: &Node) {
-        let look = self.resolve_look(&node.look);
+        let palette = names_token(&node.look).then(|| self.theme().tokens.is_dark() as usize);
         let b = &mut self.boxes[index];
         let slot=b.slot;
         b.hit = None;
@@ -3380,13 +3427,13 @@ impl Ui {
         b.over = arena::EMPTY;
         let s = &mut self.slots[b.slot];
         s.node = *node;
-        if let Some(look) = look { s.node.look = look; }
+        if let Some(palette) = palette { resolve_with(&mut s.node.look, &self.colors[palette]); }
         s.text.clear();
-        if let Some(rich)=&mut s.rich { rich.active=false; }
         s.a11y_name.clear();
         s.a11y_value.clear();
         s.a11y_selection = (0, 0);
         s.a11y_number = None;
+        self.clear_rich(slot);
         self.cleared_strings(slot);
     }
 
@@ -3472,9 +3519,11 @@ impl Ui {
 
     /// Give a node declared this frame the look `look`, picked for `state` (what `node` takes, set once
     /// its signal is known).
-    pub fn set_look(&mut self, b: &Handle, look: Look, state: State) {
+    pub fn set_look(&mut self, b: &Handle, mut look: Look, state: State) {
         if self.live(b) {
-            let look = self.resolve_look(&look).unwrap_or(look);
+            if names_token(&look) {
+                resolve_with(&mut look, &self.colors[self.theme().tokens.is_dark() as usize]);
+            }
             let s = &self.slots[b.box_slot];
             // a node shown last frame in another state moves to this look over the theme's transition
             let transition = if self.motion && s.seen_state != state && self.range_valid(b.box_slot) {
@@ -3482,20 +3531,25 @@ impl Ui {
             } else {
                 None
             };
-            let n = &mut self.slots[b.box_slot].node;
-            (n.look, n.state, n.transition) = (look, state, transition.into());
+            let s = &mut self.slots[b.box_slot];
+            if s.touched <= s.painted { s.look_needs_snapshot = true; }
+            (s.node.look, s.node.state, s.node.transition) = (look, state, transition.into());
         }
     }
 
     /// The record of a node declared this frame, to finish declaring it once its signal is known.
     pub fn node_mut(&mut self, b: &Handle) -> &mut Node {
         assert!(self.live(b), "Ui.node_mut: a stale handle");
-        &mut self.slots[b.box_slot].node
+        let s = &mut self.slots[b.box_slot];
+        if s.touched <= s.painted { s.look_needs_snapshot = true; }
+        &mut s.node
     }
 
     /// `node_mut` of a handle this frame's build has just made, as a default body holds it: no liveness check.
     pub(crate) fn node_new(&mut self, b: &Handle) -> &mut Node {
-        &mut self.slots[b.box_slot].node
+        let s = &mut self.slots[b.box_slot];
+        debug_assert!(s.touched > s.painted);
+        &mut s.node
     }
 
     /// `set_look` with the look `states` picks for `state`.
@@ -3528,38 +3582,57 @@ impl Ui {
     /// Set the node's text (painted in its look's text colour and font).
     pub fn text(&mut self, b: &Handle, text: &str) {
         if self.live(b) {
-            self.reuse_empty_string(b.box_slot, text.len(), StringField::Text);
-            if let Some(rich)=&mut self.slots[b.box_slot].rich { rich.active=false; }
-            let s = &mut self.slots[b.box_slot].text;
-            if s != text {
-                s.clear();
-                s.push_str(text);
-            }
+            self.write_text(b.box_slot, text);
+            self.clear_rich(b.box_slot);
+        }
+    }
+
+    fn clear_rich(&mut self, slot: usize) {
+        if let Some(spans) = self.slots[slot].rich.take().and_then(|rich| rich.spans) {
+            self.free_spans.push(spans);
+        }
+    }
+
+    fn write_text(&mut self, slot: usize, text: &str) {
+        self.reuse_empty_string(slot, text.len(), StringField::Text);
+        let stored = &mut self.slots[slot].text;
+        if stored != text {
+            stored.clear();
+            stored.push_str(text);
         }
     }
 
     /// Explicit styled text on a node; its accessible name remains the original text.
     pub fn text_spans(&mut self,b:&Handle,text:&str,style:&Style,spans:&[TextSpan])->bool {
+        self.write_styled_text(b, text, style, spans, false)
+    }
+
+    fn write_styled_text(&mut self, b: &Handle, text: &str, style: &Style, spans: &[TextSpan], line_box: bool) -> bool {
         if !self.live(b) || !pxui_text::valid_spans(text,spans) { return false; }
-        self.text(b,text);
-        if self.slots[b.box_slot].rich.is_none() {
-            let donor=self.slots.iter().enumerate().find_map(|(i,s)| (i!=b.box_slot && s.rich.as_ref().is_some_and(|r|!r.active)).then_some(i));
-            if let Some(i)=donor { self.slots[b.box_slot].rich=self.slots[i].rich.take(); }
-        }
-        let rich=self.slots[b.box_slot].rich.get_or_insert_with(||Box::new(NodeText { style:*style,spans:TextSpans::default(),active:false,line_box:false }));
-        rich.style=*style;
-        rich.line_box=false;
-        rich.spans=TextSpans::new(spans).expect("validated span count");
-        rich.active=true;
+        let slot = b.box_slot;
+        self.write_text(slot, text);
+        let previous = self.slots[slot].rich.as_mut().and_then(|rich| rich.spans.take());
+        let spans = if spans.is_empty() {
+            if let Some(previous) = previous { self.free_spans.push(previous); }
+            None
+        } else {
+            let mut storage = previous.or_else(|| self.free_spans.pop()).unwrap_or_else(|| {
+                    // Each existing record belongs to one slot, so all can retire without growing this pool.
+                    self.free_spans.reserve(self.slots.capacity());
+                    Box::new(TextSpans::default())
+                });
+            storage.count = spans.len() as u32;
+            storage.spans[..spans.len()].copy_from_slice(spans);
+            Some(storage)
+        };
+        self.slots[slot].rich = Some(NodeText { style: *style, spans, line_box });
         true
     }
 
     /// Explicit CSS line boxes: primary-face rounded metrics set the first baseline.
     pub fn text_line_box(&mut self,b:&Handle,text:&str,style:&Style,spans:&[TextSpan])->bool {
         if !style.line_height.is_finite() || style.line_height<=0.0 || self.text.as_ref().and_then(|t|t.font_metrics(style.font)).is_none() { return false; }
-        if !self.text_spans(b,text,style,spans) { return false; }
-        self.slots[b.box_slot].rich.as_mut().unwrap().line_box=true;
-        true
+        self.write_styled_text(b, text, style, spans, true)
     }
 
     /// `text_line_box` with no spans, of `text` in capitals when `caps` (through the reused label buffer: no allocation once grown).
@@ -3637,8 +3710,12 @@ impl Ui {
     /// The build read slot `slot`'s size as `w` x `h` (NaN: that side not read) before layout: if
     /// layout lays it out otherwise, `Ui::frame` builds again.
     pub(crate) fn expect(&self, slot: usize, w: f32, h: f32) {
+        self.record_size(ExpectedSize { slot, w, h, grid: None });
+    }
+
+    fn record_size(&self, size: ExpectedSize) {
         let mut e = self.expected.take();
-        e.push((slot, w, h));
+        e.push(size);
         self.expected.set(e);
     }
 
@@ -4115,7 +4192,7 @@ impl Ui {
             let slot=self.boxes[index].slot;
             // measured without its text (`BoxRec::ahead`): the view holding it builds again rather than keep the size
             let mut unmeasured=false;
-            let rich=self.slots[slot].rich.as_deref().filter(|r|r.active);
+            let rich=self.slots[slot].rich.as_ref();
             let line_box=rich.is_some_and(|r|r.line_box);
             let pixel=n.flags.any(Flags::FIT_TEXT_PIXEL);
             // a Fit width is the text's: any text, not only pixel-fitted or line-box text (else it collapsed to 0)
@@ -4129,7 +4206,7 @@ impl Ui {
                     self.label.as_str()
                 } else {stored.text.as_str()};
                 let text=self.text.as_mut().expect("Ui: the text engine is lent out");
-                let spans=rich.and_then(|r|r.spans.as_slice()).unwrap_or(&[]);
+                let spans=rich.map_or(&[][..], NodeText::spans);
                 let ahead=self.boxes[index].ahead;
                 let deferred=text.queue_counts().0;
                 let mut natural=if matches!(n.w,Size::Fit) {
@@ -4684,7 +4761,7 @@ impl Ui {
     fn baseline(&mut self, c: usize) -> f32 {
         let slot = self.boxes[c].slot;
         let h = self.l_h[c];
-        if self.slots[slot].text.is_empty() && !self.slots[slot].rich.as_ref().is_some_and(|r|r.active && r.line_box) {
+        if self.slots[slot].text.is_empty() && !self.slots[slot].rich.as_ref().is_some_and(|r|r.line_box) {
             let n = *self.nd(c);
             let f = self.next_flow(self.boxes[c].first);
             if f == NONE || n.grid.is_some() || n.flags.any(Flags::SCROLL | Flags::SCROLL_X) {
@@ -4703,17 +4780,17 @@ impl Ui {
         let stored=&self.slots[slot];
         let flags=stored.node.flags;
         let pixel=flags.any(Flags::FIT_TEXT_PIXEL);
-        let rich=stored.rich.as_deref().filter(|r|r.active);
+        let rich=stored.rich.as_ref();
         let style=if pixel {plain_style(&look,size,flags)} else {Style {font:look.font.family,size:size as f32,weight:look.font.weight,tracking:look.font.tracking*size as f32,..Style::default()}};
         let value=if pixel && rich.is_none() && look.font.caps {
             self.label.clear();self.label.extend(stored.text.chars().map(|c|c.to_ascii_uppercase()));self.label.as_str()
         } else {stored.text.as_str()};
         let text=self.text.as_mut().expect("Ui: the text engine is lent out");
         let ahead=self.boxes[c].ahead;
-        let m=if let Some(rich)=rich {lay_out_node(text,&stored.text_layout,flags,&rich.style(&stored.node,self.dir==Direction::Rtl),self.l_w[c]-inset.l-inset.r,value,rich.spans.as_slice().unwrap(),ahead).unwrap().1}
+        let m=if let Some(rich)=rich {lay_out_node(text,&stored.text_layout,flags,&rich.style(&stored.node,self.dir==Direction::Rtl),self.l_w[c]-inset.l-inset.r,value,rich.spans(),ahead).unwrap().1}
             else {lay_out_node(text,&stored.text_layout,flags,&style,0.0,value,&[],ahead).unwrap().1};
         if let Some(rich)=rich.filter(|r|r.line_box) { return rich.line_box_baseline(inset.t,h-inset.t-inset.b,m); }
-        let top=rich.map_or_else(||text_top_for(self.font_size,Some(size),inset.t,h-inset.t-inset.b),|r|r.top(inset.t,h-inset.t-inset.b,m,text));
+        let top=rich.map_or_else(||text_top_for(self.font_size,Some(size),inset.t,h-inset.t-inset.b),|r|r.top(inset.t,h-inset.t-inset.b,m));
         top+m.baseline
     }
 
@@ -5170,6 +5247,8 @@ pub struct Paint {
     /// the root theme's label look, which a `Label`'s unset fields resolve from (`Paint::label`)
     pub label_look: Look,
     pub text: Text,
+    // Two recent ppem/density pairs share the Apple shader's packed half values.
+    glyph_light_memo: [([u32; 2], [u32; 2]); 2],
     /// the focused text's input area and caret offset
     pub ime: Option<((i64, i64, i64, i64), i64)>,
     label: String,
@@ -5269,7 +5348,7 @@ impl Paint {
     fn defer_text(&mut self, w: f32, node: &Node, text: &str, rich: Option<&NodeText>, memo: &std::cell::Cell<Option<(u64, u64)>>) {
         if let Some(rich) = rich {
             let style = rich.style(node, self.rtl);
-            let spans = rich.spans.as_slice().unwrap();
+            let spans = rich.spans();
             let width = w - node.inset.l - node.inset.r;
             // not placed yet (its natural width is still on its way): nothing to request at this width
             if width <= 0.0 {
@@ -5298,8 +5377,13 @@ impl Paint {
     /// A node's look, text and mark in `r` (its ring too when `focused`): what the engine paints for it
     /// with no closure. Square, solid looks paint as hard rectangles on the pixel grid; rounded,
     /// gradient and shadowed ones as distance fields. `steady` (a running transition) emits the same
-    /// instances whatever the colours, so each step rewrites the node's range in place.
-    fn look(&mut self, r: Rect, node: &Node, look: &Look, text: &str, rich:Option<&NodeText>, memo:&std::cell::Cell<Option<(u64,u64)>>, focused: bool, steady: bool) {
+    /// instances whatever the colours, keeping only shadows that can show during the run.
+    fn look(&mut self, r: Rect, node: &Node, look: &Look, text: &str, rich:Option<&NodeText>, memo:&std::cell::Cell<Option<(u64,u64)>>, focused: bool, steady: Option<[bool; 2]>) {
+        let background = steady.is_some() || node.flags.any(Flags::KEEP_ROOM) || look.gradient.is_some()
+            || (look.fill.a | look.border.a | look.shadows[0].color.a | look.shadows[1].color.a) != 0;
+        if !background && text.is_empty() && rich.is_none() && matches!(node.mark, Mark::None) && (!focused || look.ring.color.a == 0) {
+            return;
+        }
         let placed = r;
         let Rect { x, y, w, h } = placed;
         let o = look.opacity.clamp(0.0, 1.0);
@@ -5307,17 +5391,18 @@ impl Paint {
         let corners = [x, y, x + w, y + h];
         let radii = look.radius;
         let area = w > 0.0 && h > 0.0;
-        let shown = |c: Rgba| c.a > 0 || steady;
-        let round = steady || look.gradient.is_some() || radii.iter().any(|r| *r > 0.0) || look.shadows.iter().any(|s| shown(s.color));
+        let shown = |c: Rgba| c.a > 0 || steady.is_some();
+        let shadow_shown = |i: usize, s: &Shadow| s.color.a > 0 || steady.is_some_and(|shadows| shadows[i]);
+        let round = steady.is_some() || look.gradient.is_some() || radii.iter().any(|r| *r > 0.0) || look.shadows.iter().any(|s| shown(s.color));
         let shadow = |s: &Shadow| Instance::shadow(corners, radii, rgba(fade(s.color)), s.offset, s.blur / 2.0, s.spread, s.inner);
-        let bordered = steady || (look.border_w > 0.0 && look.border.a > 0);
-        if area {
-            for s in &look.shadows {
-                if !s.inner && shown(s.color) {
+        let bordered = steady.is_some() || (look.border_w > 0.0 && look.border.a > 0);
+        if area && background {
+            for (i, s) in look.shadows.iter().enumerate() {
+                if !s.inner && shadow_shown(i, s) {
                     self.push(shadow(s));
                 }
             }
-            let inner = look.shadows.iter().any(|s| s.inner && shown(s.color));
+            let inner = look.shadows.iter().enumerate().any(|(i, s)| s.inner && shadow_shown(i, s));
             if round {
                 let mut shape = Instance::rect(corners, rgba(fade(look.fill))).radii(radii);
                 if let Some(to) = look.gradient.get() {
@@ -5331,8 +5416,8 @@ impl Paint {
                 if shown(look.fill) || look.gradient.is_some() || (bordered && !inner) {
                     self.push(shape);
                 }
-                for s in &look.shadows {
-                    if s.inner && shown(s.color) {
+                for (i, s) in look.shadows.iter().enumerate() {
+                    if s.inner && shadow_shown(i, s) {
                         self.push(shadow(s));
                     }
                 }
@@ -5354,10 +5439,15 @@ impl Paint {
         if let Some(rich)=rich {
             let width=w-node.inset.l-node.inset.r;
             let style=rich.style(node,self.rtl);
-            if let Some((key,metrics))=lay_out_node(&mut self.text,memo,node.flags,&style,width,text,rich.spans.as_slice().unwrap(),self.ahead) {
-                let at=(x+if self.rtl { node.inset.r } else { node.inset.l },rich.top(y+node.inset.t,h-node.inset.t-node.inset.b,metrics,&self.text));
+            let spans=rich.spans();
+            // Explicit line boxes with a fixed width also reuse their last painted layout.
+            let memo_flags=if rich.line_box && spans.is_empty() && matches!(node.w,Size::Px(_)) { node.flags | Flags::FIT_TEXT_PIXEL } else { node.flags };
+            if let Some((key,metrics))=lay_out_node(&mut self.text,memo,memo_flags,&style,width,text,spans,self.ahead) {
                 let below=self.text.ascent(style.font)*style.size;
-                self.text_laid(at,below,&style,Some(look.text),key,metrics,o,true);
+                let (top,height)=(y+node.inset.t,h-node.inset.t-node.inset.b);
+                let top=if rich.line_box { rich.line_box_baseline(top,height,metrics)-below } else { rich.top(top,height,metrics) };
+                let at=(x+if self.rtl { node.inset.r } else { node.inset.l },top);
+                self.text_laid(at,below,&style,Some(look.text),key,metrics,o,!spans.is_empty());
             }
         } else if !text.is_empty() && node.flags.any(Flags::FIT_TEXT_PIXEL) {
             let size=look.font.points(self.font_size);
@@ -5431,7 +5521,7 @@ impl Paint {
             Mark::None => {}
         }
         let ring = look.ring;
-        if focused && area && (steady || (ring.width > 0.0 && ring.color.a > 0)) {
+        if focused && area && (steady.is_some() || (ring.width > 0.0 && ring.color.a > 0)) {
             if round {
                 self.push(Instance::rect(corners, [0; 4]).radii(radii).border(ring.width, rgba(fade(ring.color))).sides(ring.sides));
             } else {
@@ -5568,45 +5658,59 @@ impl Paint {
     /// `text_styled` with styled byte ranges; `None` when the spans are invalid.
     pub fn text_spans(&mut self,at:(f32,f32),style:&Style,width:f32,color:Option<Rgba>,text:&str,spans:&[TextSpan])->Option<Metrics> {
         let (key,metrics)=lay_out_spans(&mut self.text,style,width,text,spans)?;
-        Some(self.text_laid(at,metrics.baseline,style,color,key,metrics,1.0,true))
+        Some(self.text_laid(at,metrics.baseline,style,color,key,metrics,1.0,!spans.is_empty()))
     }
 
     /// Draws a layout already made (`lay_out`'s key and metrics) with its first baseline `below` points under `at.1`, on a device pixel:
     /// the font's ascent for text placed by its em box (`text_em`, node text), `Metrics::baseline` for text placed by its layout top.
     fn text_laid(&mut self, at: (f32, f32), below: f32, style: &Style, color: Option<Rgba>, key: u64, m: Metrics, opacity:f32, decorated:bool) -> Metrics {
         let d = self.density as f32;
+        // Binary densities have an exact reciprocal.
+        let inverse = (self.density as u64).is_power_of_two().then(|| d.recip());
         let snap = |v: f32| (v * d).round() / d;
         let baseline = snap(at.1 + below);
         let origin = (snap(at.0), baseline - self.text.glyph_baseline(key));
-        let color = rgba(color.unwrap_or(self.theme.foreground));
         let (clip, view) = (clip_of(self.clip_rect), self.view);
-        let Paint { text: t, layers, layer, .. } = self;
+        let Paint { text: t, layers, layer, glyph_light_memo, .. } = self;
         let layer = &mut layers[*layer];
-        let fade=|mut c:[u8;4]| { if opacity<1.0 { c[3]=(c[3] as f32*opacity).round() as u8; } c };
+        let fade=move |mut c:[u8;4]| { if opacity<1.0 { c[3]=(c[3] as f32*opacity).round() as u8; } c };
+        let color = fade(rgba(color.unwrap_or(self.theme.foreground)));
         let decoration=|deco:pxui_text::Decoration,layer:&mut Layer| {
             let r=deco.rect;
             layer.instances.push(Instance { clip,view,..Instance::rect([origin.0+r.x,origin.1+r.y,origin.0+r.x+r.w,origin.1+r.y+r.h],fade(deco.color)) });
         };
         if decorated { t.decorations(key,false,&mut |deco|decoration(deco,layer)); }
-        let apple = t.apple_raster();
-        let light = Instance::light_extra(style.size * d, d);
-        t.glyphs(key, origin, d, &mut |g| {
-            let color=fade(g.color.unwrap_or(color));
-            let r = [g.rect.x / d, g.rect.y / d, (g.rect.x + g.rect.w) / d, (g.rect.y + g.rect.h) / d];
-            let uv = [g.uv.x, g.uv.y, g.uv.x + g.uv.w, g.uv.y + g.uv.h];
-            let instance = match g.atlas {
-                pxui_text::AtlasKind::Mask|pxui_text::AtlasKind::Mask2 if apple => Instance::mask(r, uv, color).light(light),
-                pxui_text::AtlasKind::Mask|pxui_text::AtlasKind::Mask2 => Instance::mask(r, uv, color),
-                pxui_text::AtlasKind::Color|pxui_text::AtlasKind::Color2 => {
-                    // image instances after an image's break sample that image: break back to the atlas
-                    if layer.breaks.last().is_some_and(|b| b.image != crate::draw::ATLAS) {
-                        layer.breaks.push(Break { at_instance: layer.instances.len() as u32, image: crate::draw::ATLAS });
-                    }
-                    Instance::image(r, uv, [255, 255, 255, color[3]])
-                }
+        let (mask_flags, light) = if t.apple_raster() {
+            let ppem = style.size * d;
+            let key = [ppem.to_bits(), d.to_bits()];
+            let [older, recent] = *glyph_light_memo;
+            let extra = if recent.0 == key { recent.1 } else if older.0 == key { older.1 } else {
+                let extra = Instance::light_extra(ppem, d);
+                *glyph_light_memo = [recent, (key, extra)];
+                extra
             };
-            let flags=instance.flags|if matches!(g.atlas,pxui_text::AtlasKind::Mask2|pxui_text::AtlasKind::Color2) { crate::draw::flags::mask::GLYPH_PAGE_2 } else { 0 };
-            layer.instances.push(Instance { clip, view,flags, ..instance });
+            (crate::draw::flags::mask::LIGHT, extra)
+        } else { (0, [0; 2]) };
+        let output = &mut *layer;
+        t.glyphs(key, origin, d, &mut move |g| {
+            let color=g.color.map_or(color,fade);
+            let pixels = [g.rect.x, g.rect.y, g.rect.x + g.rect.w, g.rect.y + g.rect.h];
+            let r = match inverse {
+                Some(inv) => pixels.map(|p| p * inv),
+                None => pixels.map(|p| p / d),
+            };
+            let uv = [g.uv.x, g.uv.y, g.uv.x + g.uv.w, g.uv.y + g.uv.h];
+            let (kind, color, flags, extra) = if g.atlas.is_mask() {
+                (crate::draw::kind::MASK, color, mask_flags, light)
+            } else {
+                // image instances after an image's break sample that image: break back to the atlas
+                if output.breaks.last().is_some_and(|b| b.image != crate::draw::ATLAS) {
+                    output.breaks.push(Break { at_instance: output.instances.len() as u32, image: crate::draw::ATLAS });
+                }
+                (crate::draw::kind::IMAGE, [255, 255, 255, color[3]], 0, [0; 2])
+            };
+            let flags=flags|if matches!(g.atlas,pxui_text::AtlasKind::Mask2|pxui_text::AtlasKind::Color2) { crate::draw::flags::mask::GLYPH_PAGE_2 } else { 0 };
+            output.instances.push(Instance { clip, view, kind, flags, extra, ..Instance::mask(r,uv,color) });
         });
         if decorated { t.decorations(key,true,&mut |deco|decoration(deco,layer)); }
         m
@@ -5801,26 +5905,34 @@ impl Ui {
             let look = self.slots[slot].node.look;
             self.tweens[t].to.look = look;
         }
-        let at = self.verify_time(slot);
-        let (pose, steady) = self.pose_at(slot, at);
+        let animated = self.tween_of(slot).map(|_| self.pose_at(slot, self.verify_time(slot)));
         let focused = self.marks_focus(slot);
         let r = self.screen(index);
         let s = &self.slots[slot];
-        let v = s.view;
-        let pose = if v != NO_VIEW && self.views[v as usize].index != 0 {
-            Pose { dx: 0.0, dy: 0.0, opacity: 1.0, ..pose }
-        } else { pose };
-        let look = Look { opacity: pose.look.opacity * pose.opacity, ..pose.look };
+        let (look, dx, dy, opacity, steady) = match &animated {
+            Some((p, steady)) => (&p.look, p.dx, p.dy, p.opacity, *steady),
+            None => (&s.node.look, s.pose.0, s.pose.1, s.pose.2, None),
+        };
+        let (dx, dy, opacity) = if s.view != NO_VIEW && self.views[s.view as usize].index != 0 {
+            (0.0, 0.0, 1.0)
+        } else { (dx, dy, opacity) };
+        let faded;
+        let look = if opacity == 1.0 { look } else {
+            faded = Look { opacity: look.opacity * opacity, ..*look };
+            &faded
+        };
         // an ahead row's node out of view (a view row paints wherever it is) leaves unseen text to the prepare queue
         paint.ahead = self.boxes[index].ahead && { let seen = r.intersect(clip_rect); seen.w <= 0.0 || seen.h <= 0.0 };
         let deferred = paint.ahead.then(|| paint.text.queue_counts().0);
-        paint.look(Rect::new(r.x + pose.dx, r.y + pose.dy, r.w, r.h), &s.node, &look, &s.text, s.rich.as_deref().filter(|r|r.active), &s.text_layout, focused, steady);
+        paint.look(Rect::new(r.x + dx, r.y + dy, r.w, r.h), &s.node, look, &s.text, s.rich.as_ref(), &s.text_layout, focused, steady);
         // its kept output would lack that text: the view builds again
         if deferred.is_some_and(|before| paint.text.queue_counts().0 != before) { self.mark_view(self.slots[slot].owner); }
         paint.ahead = false;
         let s = &mut self.slots[slot];
         if self.motion {
             (s.seen, s.seen_state) = (s.node.look, s.node.state);
+        } else {
+            s.look_needs_snapshot = true;
         }
         // scratch positions until `settle` places them
         s.range = (start, paint.layers[paint.layer].instances.len() as u32);
@@ -5962,7 +6074,7 @@ impl Ui {
         let slot = self.boxes[index].slot;
         let before = paint.text.queue_counts().0;
         let s = &self.slots[slot];
-        paint.defer_text(s.rw, &s.node, &s.text, s.rich.as_deref().filter(|r| r.active), &s.text_layout);
+        paint.defer_text(s.rw, &s.node, &s.text, s.rich.as_ref(), &s.text_layout);
         if paint.text.queue_counts().0 != before {
             self.mark_view(self.slots[slot].owner);
         }
@@ -6056,6 +6168,7 @@ impl Ui {
             colors: self.colors[self.theme.tokens.is_dark() as usize],
             label_look: self.theme.label.idle,
             text: self.text.take().expect("Ui: painting re-entered"),
+            glyph_light_memo: [([0; 2], [0; 2]); 2],
             ime: None,
             label: std::mem::take(&mut self.label),
             edit_text: std::mem::take(&mut self.edit_work),
@@ -6107,12 +6220,22 @@ impl Ui {
             // not on screen: the record holds the patch
             return true;
         }
+        let scratch = std::mem::take(&mut self.patch_layers);
+        let mut paint = self.paint_begin(scratch, self.slots[slot].clip);
+        let changed = self.repaint_with(slot, &mut paint);
+        self.patch_layers = self.paint_end(paint);
+        changed
+    }
+
+    /// Repaint a node with a valid instance range through an animation step's shared scratch painter.
+    fn repaint_with(&mut self, slot: usize, paint: &mut Paint) -> bool {
         let (key, (start, end)) = (self.slots[slot].range_layer, self.slots[slot].range);
         let Some(layer) = self.draw[..self.draw_len].iter().position(|l| l.key == key) else { return true };
         let (start, end) = (start as usize, end as usize);
         let owner = self.slots[slot].owner;
-        let scratch = std::mem::take(&mut self.patch_layers);
-        let mut paint = self.paint_begin(scratch, self.slots[slot].clip);
+        paint.layer = usize::MAX;
+        paint.next_layer(0, LayerRole::Base, Rect::default());
+        paint.clip_rect = self.slots[slot].clip;
         paint.clip_radius = self.slots[slot].clip_radius;
         paint.view = self.views[self.views[owner as usize].xf as usize].index;
         let (pose, steady) = self.pose(slot);
@@ -6123,24 +6246,28 @@ impl Ui {
             Pose { dx: 0.0, dy: 0.0, opacity: 1.0, ..pose }
         } else { pose };
         let look = Look { opacity: pose.look.opacity * pose.opacity, ..pose.look };
-        let outer = paint.text.marks();
-        paint.text.set_marks([0; 8]);
-        paint.look(Rect::new(s.rx + pose.dx, s.ry + pose.dy, s.rw, s.rh), &s.node, &look, &s.text, s.rich.as_deref().filter(|r|r.active), &s.text_layout, focused, steady);
-        let shelves = paint.text.marks();
-        paint.text.set_marks(outer);
-        let scratch = self.paint_end(paint);
-        // the patched instances sit in the runs of its view and the views around it
-        let mut v = owner;
-        while v != 0 {
-            let r = &mut self.views[v as usize];
-            r.shelves = std::array::from_fn(|k| r.shelves[k] | shelves[k]);
-            v = r.parent;
+        let outer = (!s.text.is_empty() || s.rich.is_some()).then(|| {
+            let outer = paint.text.marks();
+            paint.text.set_marks([0; 8]);
+            outer
+        });
+        paint.look(Rect::new(s.rx + pose.dx, s.ry + pose.dy, s.rw, s.rh), &s.node, &look, &s.text, s.rich.as_ref(), &s.text_layout, focused, steady);
+        if let Some(outer) = outer {
+            let shelves = paint.text.marks();
+            paint.text.set_marks(outer);
+            // the patched instances sit in the runs of its view and the views around it
+            let mut v = owner;
+            while v != 0 {
+                let r = &mut self.views[v as usize];
+                r.shelves = std::array::from_fn(|k| r.shelves[k] | shelves[k]);
+                v = r.parent;
+            }
         }
-        let fresh = &scratch[0].instances;
+        let fresh = &paint.layers[0].instances;
         // a colour glyph or an image in the patch, or a break inside the node: the layer's breaks are
         // rewritten around the node now (`patch_breaks`)
         let rebreak = fresh.iter().any(|i| i.kind == crate::draw::kind::IMAGE)
-            || !scratch[0].breaks.is_empty()
+            || !paint.layers[0].breaks.is_empty()
             || self.draw[layer].breaks.iter().any(|b| start <= b.at_instance as usize && (b.at_instance as usize) < end);
         let mut target = std::mem::take(&mut self.draw[layer]);
         let room = self.slots[slot].room as usize;
@@ -6161,8 +6288,7 @@ impl Ui {
                 let new = fresh.get(k - start).copied().unwrap_or(EMPTY);
                 if target.instances[k] != new {
                     let old = target.instances[k];
-                    self.damage_instance(&old);
-                    self.damage_instance(&new);
+                    self.damage_change(&old, &new);
                     target.instances[k] = new;
                     add_range(&mut target.dirty, k as u32, k as u32 + 1);
                 }
@@ -6207,7 +6333,7 @@ impl Ui {
         }
         if rebreak {
             let delta = target.instances.len() as i64 - old_len as i64;
-            patch_breaks(&mut target, &old_breaks, &scratch[0], start, old_end, start + fresh.len(), delta);
+            patch_breaks(&mut target, &old_breaks, &paint.layers[0], start, old_end, start + fresh.len(), delta);
             if owner != 0 {
                 // its kept record of its breaks is stale: it rebuilds next frame (this one is right)
                 self.views[owner as usize].dirty = true;
@@ -6216,7 +6342,6 @@ impl Ui {
         }
         self.temp_breaks = old_breaks;
         self.draw[layer] = target;
-        self.patch_layers = scratch;
         self.views[owner as usize].patched = true;
         self.invalidate_a11y_view(owner);
         self.draw_revision += 1;
@@ -6246,7 +6371,10 @@ impl Ui {
         if !self.live(b) {
             return false;
         }
-        self.slots[b.box_slot].node.look = self.resolve_look(look).unwrap_or(*look);
+        let look = self.resolve_look(look).unwrap_or(*look);
+        let s = &mut self.slots[b.box_slot];
+        s.node.look = look;
+        s.look_needs_snapshot = true;
         self.repaint_node(b.box_slot)
     }
 
@@ -6510,9 +6638,19 @@ impl Ui {
         self.paint_all(frame);
         // a size the build read before layout (last frame's) that layout changed: build again
         let mut expected = self.expected.take();
-        for &(slot, w, h) in &expected {
+        for ExpectedSize { slot, w, h, grid } in &expected {
+            let (slot, w, h) = (*slot, *w, *h);
             let s = &self.slots[slot];
             if s.key != 0 && ((!w.is_nan() && (s.rw - w).abs() > 0.01) || (!h.is_nan() && (s.rh - h).abs() > 0.01)) {
+                if let Some(grid) = grid {
+                    let (room, across) = grid_space(s.rw, s.rh, grid.padding, grid.sideways);
+                    let offset = if grid.sideways { self.scroll_xs[slot] } else { self.scroll_y[slot] };
+                    let glide = &self.glides[usize::from(grid.sideways)][slot];
+                    if s.node.padding == grid.padding && offset == 0.0 && glide.visual == 0.0 && !glide.moving()
+                        && room >= grid.extent && ((across / grid.across).floor() as usize).max(1) == grid.per {
+                        continue;
+                    }
+                }
                 self.mark_view(s.owner);
                 self.settle = true;
             }
@@ -6726,34 +6864,51 @@ impl Ui {
         Pose { look: s.node.look, dx: s.pose.0, dy: s.pose.1, opacity: s.pose.2, scale: [x, y], anchor: [ax, ay] }
     }
 
-    /// What the node shows now, and whether a transition is running (its instances stay steady).
-    fn pose(&self, slot: usize) -> (Pose, bool) {
+    /// What the node shows now, and a running transition's shadows that need steady instance room.
+    fn pose(&self, slot: usize) -> (Pose, Option<[bool; 2]>) {
         self.pose_at(slot, self.now)
     }
 
     /// `pose` at time `at`.
-    fn pose_at(&self, slot: usize, at: f64) -> (Pose, bool) {
+    fn pose_at(&self, slot: usize, at: f64) -> (Pose, Option<[bool; 2]>) {
         match self.tween_of(slot) {
-            None => (self.rest(slot), false),
+            None => (self.rest(slot), None),
             Some(i) => {
                 let t = &self.tweens[i];
                 let elapsed = at - t.start;
                 let (from, to, p) = match self.keyframes.get(t.keys as usize) {
-                    None => (&t.from, &t.to, t.curve.at(elapsed as f32)),
+                    None => (&t.from, &t.to, self.curve_at(&t.curve, elapsed as f32)),
                     Some(k) => {
                         let elapsed = k.time(elapsed);
                         // the segment the run is in: from the stop before (the start for the first)
                         let j = k.t[..k.n].iter().position(|&end| elapsed < end).unwrap_or(k.n - 1);
                         let (from, t0) = if j == 0 { (&t.from, 0.0) } else { (&k.pose[j - 1], k.t[j - 1]) };
                         let curve = k.curve[j].with_duration(k.t[j] - t0);
-                        (from, &k.pose[j], curve.at(elapsed - t0))
+                        (from, &k.pose[j], self.curve_at(&curve, elapsed - t0))
                     }
                 };
                 let f = |a: f32, b: f32| a + (b - a) * p;
                 let pose = Pose { look: from.look.lerp(&to.look, p), dx: f(from.dx, to.dx), dy: f(from.dy, to.dy), opacity: f(from.opacity, to.opacity), scale: [f(from.scale[0], to.scale[0]), f(from.scale[1], to.scale[1])], anchor: to.anchor };
-                (pose, !t.view_only)
+                // Invisible endpoint shadows stay invisible; keyframes retain room for every stop.
+                let shadows = std::array::from_fn(|i| t.keys != NO_KEYS || t.from.look.shadows[i].color.a > 0 || t.to.look.shadows[i].color.a > 0);
+                let body = |look: &Look| look.fill != Rgba::CLEAR || look.gradient.is_some() || look.border != Rgba::CLEAR || look.ring.color != Rgba::CLEAR || look.shadows.iter().any(|s| s.color.a > 0);
+                let steady = !t.view_only && (t.keys != NO_KEYS || body(&t.from.look) || body(&t.to.look));
+                (pose, steady.then_some(shadows))
             }
         }
+    }
+
+    /// Share a Bezier bisection between poses at the same time on the same curve.
+    fn curve_at(&self, curve: &Curve, t: f32) -> f32 {
+        let Curve::Bezier { duration, points: [x1, y1, x2, y2] } = *curve else { return curve.at(t) };
+        let key = [duration, x1, y1, x2, y2, t].map(f32::to_bits);
+        let memo = self.curve_memo.get();
+        for (last, p) in memo {
+            if last == key { return p; }
+        }
+        let p = curve.at(t);
+        self.curve_memo.set([memo[1], (key, p)]);
+        p
     }
 
     fn start_tween(&mut self, slot: usize, curve: Curve, from: Pose, to: Pose) {
@@ -6791,35 +6946,47 @@ impl Ui {
     /// view) are rewritten in place through the patch path, so a transition never rebuilds a view.
     fn step_tweens(&mut self) {
         let damage = self.damage;
+        let mut paint = None;
         let mut i = 0;
         while i < self.tweens.len() {
-            let t = self.tweens[i];
-            let s = &self.slots[t.slot];
+            // the fields it reads, not the whole tween (two poses and a curve) per tween per frame
+            let t = &self.tweens[i];
+            let (slot, view_only) = (t.slot, t.view_only);
+            let s = &self.slots[slot];
             if s.key == 0 || s.generation != t.generation || s.tween != i as u32 {
                 self.drop_tween(i);
                 continue;
             }
             let done = self.keyframes.get(t.keys as usize).map_or_else(|| t.curve.finished((self.now - t.start) as f32), |k| k.finished(self.now - t.start));
             if done {
-                let s = &mut self.slots[t.slot];
-                (s.node.look, s.pose) = (t.to.look, (t.to.dx, t.to.dy, t.to.opacity));
-                if s.view != NO_VIEW { self.views[s.view as usize].scale_pose = [t.to.scale[0], t.to.scale[1], t.to.anchor[0], t.to.anchor[1]]; }
+                let to = &self.tweens[i].to;
+                let s = &mut self.slots[slot];
+                (s.node.look, s.pose) = (to.look, (to.dx, to.dy, to.opacity));
+                s.look_needs_snapshot = true;
+                if s.view != NO_VIEW { self.views[s.view as usize].scale_pose = [to.scale[0], to.scale[1], to.anchor[0], to.anchor[1]]; }
                 self.drop_tween(i);
             } else {
                 i += 1;
             }
             // a node of a view verified this frame was painted as of the kept build (`verify_time`):
             // it shows now what a fresh paint would, which is no patch for the next check to skip
-            let owner = self.slots[t.slot].owner as usize;
+            let owner = self.slots[slot].owner as usize;
             let verified = owner != 0 && self.views[owner].verify && self.views[owner].built == self.frame_number;
-            if !t.view_only && (done || verified || self.slots[t.slot].painted != self.frame_number) {
+            if !view_only && (done || verified || self.slots[slot].painted != self.frame_number) {
                 let patched = self.views[owner].patched;
-                self.repaint_node(t.slot);
+                if self.range_valid(slot) {
+                    let paint = paint.get_or_insert_with(|| {
+                        let scratch = std::mem::take(&mut self.patch_layers);
+                        self.paint_begin(scratch, self.slots[slot].clip)
+                    });
+                    self.repaint_with(slot, paint);
+                }
                 if verified {
                     self.views[owner].patched = patched;
                 }
             }
         }
+        if let Some(paint) = paint { self.patch_layers = self.paint_end(paint); }
         self.damage = match (damage, self.damage) {
             (Some(a), b) => Some(union(b, a)),
             (None, b) => b,
@@ -7087,8 +7254,12 @@ impl Ui {
                 let matching = self.free_views.iter().rposition(|&v| self.views[v as usize].name == label);
                 // No label match: take the smallest record, so a newcomer does not strip a named view's big
                 // warmed buffers that its own label (a layout flipped away and back) reopens later.
-                let smallest = (0..self.free_views.len()).min_by_key(|&i| { let r = &self.views[self.free_views[i] as usize]; r.nodes.capacity() + r.prev.capacity() });
-                let reused = matching.or(smallest).map(|i| self.free_views.swap_remove(i));
+                let reused = matching.or_else(|| {
+                    (0..self.free_views.len()).min_by_key(|&i| {
+                        let r = &self.views[self.free_views[i] as usize];
+                        r.nodes.capacity() + r.prev.capacity()
+                    })
+                }).map(|i| self.free_views.swap_remove(i));
                 let v = reused.unwrap_or_else(|| {
                     // Recycled records change labels as adaptive subtrees enter and leave.
                     self.views.push(ViewRec { name: String::with_capacity(label.len().max(32)), ..ViewRec::new() });
@@ -7443,8 +7614,7 @@ impl Ui {
         let body = self.node_ref(label, &Node { flags, w: Size::Grow, h: Size::Grow, scroll_step: along, role: Role::List, ..Node::DEFAULT });
         let seen = (self.slots[body.box_slot].rw, self.slots[body.box_slot].rh);
         let (w, h) = (if seen.0 > 0.0 { seen.0 } else { self.view_w }, if seen.1 > 0.0 { seen.1 } else { self.view_h });
-        self.expect(body.box_slot, w, h);
-        let (room, room_across) = if sideways { (w - padding.l - padding.r, h - padding.t - padding.b) } else { (h - padding.t - padding.b, w - padding.l - padding.r) };
+        let (room, room_across) = grid_space(w, h, padding, sideways);
         let per = ((room_across / across).floor() as usize).max(1);
         let lines = count.div_ceil(per);
         let extent = lines as f32 * along;
@@ -7467,6 +7637,11 @@ impl Ui {
             (None, true) => self.scroll_offset_x(&body),
             (None, false) => self.scroll_offset(&body),
         };
+        // When every cell fits at rest, only wrapping or newly scrollable content needs a new build.
+        let glide = &self.glides[usize::from(sideways)][body.box_slot];
+        let grid = (offset == 0.0 && glide.visual == 0.0 && !glide.moving() && room >= extent)
+            .then_some(GridFit { extent, across, per, padding, sideways });
+        self.record_size(ExpectedSize { slot: body.box_slot, w, h, grid });
         let top = (offset / along).floor().max(0.0) as usize;
         let first = top.saturating_sub(OVERSCAN).min(lines);
         let last = (top + (room / along).ceil() as usize + 1 + OVERSCAN).min(lines);
@@ -7793,6 +7968,15 @@ impl Ui {
         changed
     }
 
+    /// Colour/UV changes cover the same geometry: add those bounds only once.
+    fn damage_change(&mut self, old: &Instance, new: &Instance) {
+        self.damage_instance(old);
+        if old.rect != new.rect || old.clip != new.clip || old.kind != new.kind || old.view != new.view
+            || old.width != new.width || old.extra != new.extra {
+            self.damage_instance(new);
+        }
+    }
+
     /// Add an instance's cover to the damage, moved and clipped as its view shows it.
     fn damage_instance(&mut self, i: &Instance) {
         let v = &self.views[self.index_owner[i.view as usize] as usize];
@@ -8083,10 +8267,8 @@ impl Ui {
                 for x in 0..len as usize {
                     let (i, new) = (w as usize + x, &s.instances[p.a as usize + x]);
                     if i >= old_len || d.instances[i] != *new {
-                        if i < old_len {
-                            self.damage_instance(&d.instances[i]);
-                        }
-                        self.damage_instance(new);
+                        if i < old_len { self.damage_change(&d.instances[i], new); }
+                        else { self.damage_instance(new); }
                         d.instances[i] = *new;
                         add_range(&mut d.dirty, i as u32, i as u32 + 1);
                         changed = true;
@@ -8164,13 +8346,13 @@ impl Ui {
         for i in 0..out.len().max(old_len) {
             let (old, new) = (d.instances.get(i), out.get(i));
             if old != new {
-                if let Some(old) = old {
-                    self.damage_instance(old);
+                match (old, new) {
+                    (Some(old), Some(new)) => self.damage_change(old, new),
+                    (Some(old), None) => self.damage_instance(old),
+                    (None, Some(new)) => self.damage_instance(new),
+                    (None, None) => {}
                 }
-                if let Some(new) = new {
-                    self.damage_instance(new);
-                    add_range(&mut d.dirty, i as u32, i as u32 + 1);
-                }
+                if new.is_some() { add_range(&mut d.dirty, i as u32, i as u32 + 1); }
             }
         }
         std::mem::swap(&mut d.instances, &mut out);
@@ -8302,18 +8484,16 @@ impl Ui {
                     }
                 };
                 let key = scratch[li].key;
-                let d = self.draw[..self.draw_len].iter().find(|l| l.key == key).expect("placed layer");
-                let mut tex0 = None;
+                let d = &self.draw[li];
+                debug_assert_eq!(d.key, key);
+                let first_break = d.breaks.partition_point(|b| b.at_instance <= start);
+                let texture = |b: &Break| (b.image != crate::draw::ATLAS).then(|| d.images[b.image as usize].clone());
+                let tex0 = d.breaks[..first_break].last().and_then(texture);
                 let mut breaks = std::mem::take(&mut self.views[v].breaks);
                 breaks.clear();
-                for b in &d.breaks {
-                    let tex = if b.image == crate::draw::ATLAS { None } else { Some(d.images[b.image as usize].clone()) };
-                    if b.at_instance <= start {
-                        tex0 = tex;
-                    } else if b.at_instance < stop {
-                        // a break back to the atlas (`None`) is replayed too
-                        breaks.push((b.at_instance - start, tex));
-                    }
+                for b in d.breaks[first_break..].iter().take_while(|b| b.at_instance < stop) {
+                    // a break back to the atlas (`None`) is replayed too
+                    breaks.push((b.at_instance - start, texture(b)));
                 }
                 let r = &mut self.views[v];
                 // the layer moves with the run: until now `verify_runs` reads the kept run where it was
@@ -8323,14 +8503,20 @@ impl Ui {
                 self.views[v].valid = false;
             }
         }
-        for k in 0..self.painted_nodes.len() {
-            let (slot, li) = self.painted_nodes[k];
+        let mut layer = NONE;
+        let mut piece = 0;
+        for &(slot, li) in &self.painted_nodes {
+            if li != layer {
+                layer = li;
+                piece = 0;
+            }
             let pieces = &scratch[li].pieces;
-            let (a, b) = self.slots[slot].range;
-            // pieces are in scratch order (a kept piece is empty at its place): the first that ends
-            // past the node's start holds it
-            let p = pieces[pieces.partition_point(|p| p.b <= a).min(pieces.len() - 1)];
             let s = &mut self.slots[slot];
+            let (a, b) = s.range;
+            // Painted nodes and pieces both follow scratch instance order.
+            debug_assert!(piece == 0 || pieces[piece - 1].b <= a);
+            while piece + 1 < pieces.len() && pieces[piece].b <= a { piece += 1; }
+            let p = pieces[piece];
             s.range = (p.at + a - p.a, p.at + b - p.a);
             s.range_layer = scratch[li].key;
         }
@@ -8472,17 +8658,19 @@ fn resolve_with(look: &mut Look, table: &[Rgba; pxui_types::theme::ColorToken::L
     if let pxui_types::node::OptColor::Some(c) = &mut look.gradient { ink(c); }
 }
 
-/// Whether any look of `theme` (its parts' states and its focus ring) names a colour token.
-fn theme_names_token(theme: &Theme) -> bool {
-    let mut any = theme.ring.color.as_token().is_some();
-    theme.each_states(&mut |s| any |= [&s.idle, &s.hover, &s.pressed, &s.focus, &s.disabled, &s.checked].into_iter().any(names_token));
-    any
+impl Theme {
+    /// Whether a part's look or the focus ring names a colour token.
+    #[doc(hidden)]
+    pub fn names_color_tokens(&self) -> bool {
+        let mut any = self.ring.color.as_token().is_some();
+        self.each_states(&mut |s| any |= [&s.idle, &s.hover, &s.pressed, &s.focus, &s.disabled, &s.checked].into_iter().any(names_token));
+        any
+    }
 }
 
 /// Resolves every token look of `theme` (its parts' states and its focus ring) against its own side of `colors` (light or dark by its
-/// tokens); a theme naming none is left as it is after one scan.
+/// tokens).
 fn resolve_theme(theme: &mut Theme, colors: &[[Rgba; pxui_types::theme::ColorToken::LIMIT]; 2]) {
-    if !theme_names_token(theme) { return; }
     let table = &colors[theme.tokens.is_dark() as usize];
     if let Some(token) = theme.ring.color.as_token() { theme.ring.color = table.get(token.0 as usize).copied().unwrap_or_default(); }
     theme.each_states_mut(&mut |s| for look in [&mut s.idle, &mut s.hover, &mut s.pressed, &mut s.focus, &mut s.disabled, &mut s.checked] { resolve_with(look, table); });

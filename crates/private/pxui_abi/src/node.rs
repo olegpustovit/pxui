@@ -190,33 +190,43 @@ unsafe fn checked_node<'a>(desc: *const Node) -> Option<&'a Node> {
     if desc.is_null() || !unsafe { node_ok(desc) } { None } else { Some(unsafe { &*desc }) }
 }
 
-/// The refusals of a node that fails `node_ok`, out of line with their messages: the check's branches then share one target and
-/// nothing is set up for it on the way through.
 #[cold]
 #[inline(never)]
 unsafe fn invalid_node(ui: *mut PxuiUi) -> i32 { unsafe { fail(ui, "invalid node") } }
+
+#[inline(always)]
+unsafe fn place_node(ui: *mut PxuiUi, label: Option<&str>, key: i64, desc: &Node, out: *mut PxuiBox) -> i32 {
+    if desc.grid.is_some() { return unsafe { grid_node(ui, label, key, desc, out) }; }
+    match label {
+        Some(label) => unsafe { crate::trusted::node(ui, label, desc, out) },
+        None => unsafe { crate::trusted::pxui_ui_node_keyed(ui, key, desc, out) },
+    }
+}
+
+/// Keep the corrected copy in the legacy path's call frame.
 #[cold]
 #[inline(never)]
-unsafe fn invalid_keyed(ui: *mut PxuiUi) -> i32 { unsafe { fail(ui, "invalid keyed node") } }
+unsafe fn place_legacy_node(ui: *mut PxuiUi, label: Option<&str>, key: i64, desc: *const Node, out: *mut PxuiBox) -> i32 {
+    let Some(desc) = (unsafe { legacy_anchor_align(desc) }) else {
+        return unsafe { fail(ui, if label.is_some() { "invalid node" } else { "invalid keyed node" }) };
+    };
+    unsafe { place_node(ui, label, key, &desc, out) }
+}
 
 export!(trusted pub unsafe fn pxui_ui_node(ui:*mut PxuiUi,label:pxui_types::Str,desc:*const Node,out:*mut PxuiBox)->i32 {
     if unsafe{get(ui)}.is_none() {return crate::PXUI_ERR_ARGUMENT};
     if out.is_null(){return unsafe{fail(ui,"null node argument")};}
     let Some(label)=(unsafe{crate::state::checked_key(label)}) else{return unsafe{fail(ui,"invalid node label")};};
-    let legacy;
-    let desc = match unsafe{checked_node(desc)} { Some(desc) => desc, None => match unsafe{legacy_anchor_align(desc)} { Some(node) => { legacy = node; &legacy }, None => return unsafe{invalid_node(ui)} } };
-    if desc.grid.is_some() { return unsafe{grid_node(ui,Some(label),0,desc,out)}; }
-    unsafe{crate::trusted::node(ui,label,desc,out)}
+    let Some(node) = (unsafe { checked_node(desc) }) else { return unsafe { place_legacy_node(ui, Some(label), 0, desc, out) }; };
+    unsafe { place_node(ui, Some(label), 0, node, out) }
 });
 
 export!(trusted pub unsafe fn pxui_ui_node_keyed(ui:*mut PxuiUi,key:i64,desc:*const Node,out:*mut PxuiBox)->i32 {
     if unsafe{get(ui)}.is_none() {return crate::PXUI_ERR_ARGUMENT};
     if key == 0 || key == 1 { return unsafe { fail(ui, "reserved node key; derive integer keys with int_key") }; }
     if out.is_null(){return unsafe{fail(ui,"null keyed node argument")};}
-    let legacy;
-    let desc = match unsafe{checked_node(desc)} { Some(desc) => desc, None => match unsafe{legacy_anchor_align(desc)} { Some(node) => { legacy = node; &legacy }, None => return unsafe{invalid_keyed(ui)} } };
-    if desc.grid.is_some() { return unsafe{grid_node(ui,None,key,desc,out)}; }
-    unsafe{crate::trusted::pxui_ui_node_keyed(ui,key,desc,out)}
+    let Some(node) = (unsafe { checked_node(desc) }) else { return unsafe { place_legacy_node(ui, None, key, desc, out) }; };
+    unsafe { place_node(ui, None, key, node, out) }
 });
 
 // The node a widget declared this frame as the engine holds it, so a body can change what it needs of its layout and set it back

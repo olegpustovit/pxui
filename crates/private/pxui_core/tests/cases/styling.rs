@@ -220,6 +220,38 @@ pub fn styling_theme_swap_transition() {
     ui.destroy();
 }
 
+fn styling_theme_swap_uses_the_look_at_the_swap() {
+    let mut ui = new_ui(None);
+    let mut theme = Theme::default();
+    theme.tokens.motion.normal = 0.2;
+    let (red, green, blue) = (Rgba::rgb(200, 20, 20), Rgba::rgb(20, 200, 20), Rgba::rgb(20, 20, 200));
+    let look = |fill| Look { fill, ..Look::NONE };
+    let swatch = |ui: &mut Ui, fill| ui.node("swatch".into(), Node {
+        w: Size::Px(40.0), h: Size::Px(20.0), look: look(fill), ..Node::DEFAULT
+    });
+    let shows = |ui: &Ui, c: Rgba| ui.output().draw.iter().flat_map(|l| &l.instances).any(|i| i.color == [c.r, c.g, c.b, c.a]);
+    let handle = Cell::new(None);
+    ui.frame(&at(0.0, vec![]), &mut |ui| handle.set(Some(swatch(ui, red))));
+    let handle = handle.get().expect("swatch");
+    check(ui.patch_fill(&handle, green), "patch before swap");
+    ui.set_theme(theme);
+    check(ui.patch_fill(&handle, red), "patch after swap");
+    let mut build = |ui: &mut Ui| { swatch(ui, blue); };
+    ui.frame(&at(1.0, vec![]), &mut build);
+    check(shows(&ui, green), "the transition uses the look present when the theme was set");
+    ui.frame(&at(1.3, vec![]), &mut build);
+    check(shows(&ui, blue) && ui.transitions() == 0, "the swatch reached the declared look");
+
+    theme.tokens.accent = red;
+    ui.frame(&at(2.0, vec![]), &mut |ui| {
+        let handle = swatch(ui, red);
+        ui.set_theme(theme);
+        ui.set_look(&handle, look(blue), State::default());
+    });
+    check(shows(&ui, red), "a mid-build swap captures a redeclared look before paint");
+    ui.destroy();
+}
+
 /// `reduced_motion` zeroes the durations: a hover snaps.
 pub fn styling_reduced_motion() {
     let mut ui = new_ui(None);
@@ -318,6 +350,138 @@ pub fn styling_animate_spring() {
     check(xs.windows(2).all(|w| w[0] <= w[1]) && xs[0] > 0.0, &format!("a critically damped spring overshot or stood: {xs:?}"));
     check(ui.transitions() == 0 && *xs.last().unwrap() == 30.0, &format!("the spring did not settle on 30: {xs:?}"));
     check(!ui.wants_frame(&[], 5.0), "the gate did not idle after the spring");
+    ui.destroy();
+}
+
+/// Shared and interleaved curves keep each tween's exact progress as time advances.
+pub fn styling_interleaved_curves() {
+    let mut ui = new_ui(None);
+    let handles = Cell::new([None; 4]);
+    let x_for = |ui: &Ui, i: usize| ui.output().draw[0].instances.iter().find(|v| v.color[0] == 10 + i as u8).unwrap().rect[0];
+    let curves = [
+        Curve::Bezier { duration: 1.0, points: [0.25, 0.1, 0.25, 1.0] },
+        Curve::Bezier { duration: 1.0, points: [0.25, 0.1, 0.25, 1.0] },
+        Curve::Bezier { duration: 1.0, points: [0.42, 0.0, 1.0, 1.0] },
+        Curve::Spring { omega: 10.0 },
+    ];
+    let mut build = |ui: &mut Ui| {
+        ui.view("v", 1, Size::Px(200.0), Size::Px(100.0), &mut |ui| {
+            let mut nodes = [None; 4];
+            for i in 0..4 {
+                nodes[i] = Some(ui.node_keyed(int_key(123, i as i64), Node::DEFAULT.w_px(10.0).h_px(10.0).look(Look::NONE.fill(Rgba::rgb(10 + i as u8, 20, 30)))));
+            }
+            handles.set(nodes);
+        });
+    };
+    ui.frame(&at(0.0, vec![]), &mut build);
+    ui.frame(&at(0.1, vec![]), &mut build);
+    for (h, curve) in handles.get().iter().zip(curves) {
+        check(ui.animate(&h.unwrap(), Target::Offset(40.0, 0.0), curve), "animate refused");
+    }
+    for t in [0.2, 0.3, 0.6, 0.9] {
+        ui.frame(&at(t, vec![]), &mut build);
+        for (i, curve) in curves.iter().enumerate() {
+            let x = x_for(&ui, i);
+            check((x - 40.0 * curve.at((t - 0.1) as f32)).abs() < 0.001, "curve memo reused another curve or time");
+        }
+    }
+    // A shared curve retargets from the currently displayed pose, even before the old run ends.
+    for step in 0..6 {
+        let t = 1.0 + step as f64 * 0.05;
+        ui.frame(&at(t, vec![]), &mut build);
+        let from: [f32; 4] = std::array::from_fn(|i| x_for(&ui, i));
+        let target = if step % 2 == 0 { 10.0 } else { 60.0 };
+        mem_sys::local_reset();
+        for h in handles.get() { check(ui.animate(&h.unwrap(), Target::Offset(target, 0.0), curves[0]), "retarget refused"); }
+        let next = t + 0.01;
+        ui.frame(&at(next, vec![]), &mut build);
+        if step > 0 { assert_eq!(mem_sys::local_alloc_count(), 0, "warm retarget allocated"); }
+        let p = curves[0].at((next - t) as f32);
+        for (i, from) in from.into_iter().enumerate() {
+            let x = x_for(&ui, i);
+            check((x - (from + (target - from) * p)).abs() < 0.001, "retarget reused an old progress sample");
+        }
+    }
+    // Zero durations with opposite signs give different progress before the start time.
+    ui.frame(&at(3.0, vec![]), &mut build);
+    let from = [x_for(&ui, 0), x_for(&ui, 1)];
+    let instant = [0.0, -0.0].map(|duration| curves[0].with_duration(duration));
+    for (i, curve) in instant.into_iter().enumerate() {
+        check(ui.animate(&handles.get()[i].unwrap(), Target::Offset(20.0, 0.0), curve), "animate refused");
+    }
+    ui.frame(&at(2.9, vec![]), &mut build);
+    for (i, curve) in instant.into_iter().enumerate() {
+        let expected = from[i] + (20.0 - from[i]) * curve.at(-0.1);
+        check((x_for(&ui, i) - expected).abs() < 0.001, "curve memo merged signed durations");
+    }
+    ui.destroy();
+}
+
+/// Colour-only transitions leave unused shadow slots empty while appearing shadows retain room.
+pub fn styling_transitions_keep_only_used_shadows() {
+    let mut ui = new_ui(None);
+    let handles = Cell::new([None; 3]);
+    let mut build = |ui: &mut Ui| {
+        ui.view("shadows", 1, Size::Px(300.0), Size::Px(80.0), &mut |ui| {
+            handles.set(std::array::from_fn(|i| Some(ui.node_keyed(int_key(456, i as i64), Node::DEFAULT.w_px(30.0).h_px(20.0).at(i as f32 * 80.0, 0.0).look(Look::NONE.fill(Rgba::rgb(200, 40, 40)))))));
+        });
+    };
+    ui.frame(&at(0.0, vec![]), &mut build);
+    ui.frame(&at(0.1, vec![]), &mut build);
+    let curve = Curve::Bezier { duration: 0.5, points: [0.25, 0.1, 0.25, 1.0] };
+    for (i, h) in handles.get().into_iter().enumerate() {
+        let mut look = Look::NONE.fill(Rgba::rgb(40, 40, 200));
+        if i > 0 { look.shadows[0] = Shadow { color: Rgba::BLACK, blur: 4.0, inner: i == 2, ..Shadow::NONE }; }
+        assert!(ui.animate(&h.unwrap(), Target::Look(look), curve));
+    }
+    for tick in 0..12 {
+        mem_sys::local_reset();
+        ui.frame(&at(0.1 + tick as f64 * 0.03, vec![]), &mut build);
+        if tick > 0 { assert_eq!(mem_sys::local_alloc_count(), 0); }
+        let shadows = ui.output().draw[0].instances.iter().filter(|i| i.kind == pxui_core::draw::kind::SHADOW).count();
+        assert_eq!(shadows, 2, "unused shadows must stay absent; appearing shadows need room even at zero alpha");
+    }
+    ui.frame(&at(0.7, vec![]), &mut build);
+    assert_eq!(ui.transitions(), 0);
+    for h in handles.get() { assert!(ui.animate(&h.unwrap(), Target::Look(Look::NONE.fill(Rgba::rgb(200, 40, 40))), curve)); }
+    for tick in 0..12 {
+        mem_sys::local_reset();
+        ui.frame(&at(0.7 + tick as f64 * 0.03, vec![]), &mut build);
+        assert_eq!(mem_sys::local_alloc_count(), 0);
+        assert_eq!(ui.output().draw[0].instances.iter().filter(|i| i.kind == pxui_core::draw::kind::SHADOW).count(), 2, "disappearing shadows need room until the transition ends");
+    }
+    ui.frame(&at(1.3, vec![]), &mut build);
+    assert_eq!(ui.transitions(), 0);
+    assert!(!ui.output().draw[0].instances.iter().any(|i| i.kind == pxui_core::draw::kind::SHADOW));
+    ui.destroy();
+}
+
+/// Text-only transitions change glyph ink without adding invisible background or shadow instances.
+pub fn styling_text_transition_keeps_only_glyphs() {
+    let mut ui = new_ui(None);
+    let handle = Cell::new(None);
+    let mut build = |ui: &mut Ui| {
+        ui.view("text", 1, Size::Px(100.0), Size::Px(40.0), &mut |ui| {
+            let h = ui.node("label".into(), Node::DEFAULT.w_px(80.0).h_px(20.0).look(Look::NONE.text(Rgba::rgb(200, 40, 40))));
+            ui.text(&h, "AB");
+            handle.set(Some(h));
+        });
+    };
+    ui.frame(&at(0.0, vec![]), &mut build);
+    ui.frame(&at(0.1, vec![]), &mut build);
+    let look = Look::NONE.text(Rgba::rgb(40, 40, 200));
+    assert!(ui.animate(&handle.get().unwrap(), Target::Look(look), Curve::Bezier { duration: 0.5, points: [0.25, 0.1, 0.25, 1.0] }));
+    for tick in 0..12 {
+        mem_sys::local_reset();
+        ui.frame(&at(0.1 + tick as f64 * 0.03, vec![]), &mut build);
+        if tick > 0 { assert_eq!(mem_sys::local_alloc_count(), 0); }
+        let instances = &ui.output().draw[0].instances;
+        assert_eq!(instances.len(), 2);
+        assert!(instances.iter().all(|i| i.kind == pxui_core::draw::kind::MASK));
+    }
+    ui.frame(&at(0.7, vec![]), &mut build);
+    assert_eq!(ui.transitions(), 0);
+    assert!(ui.output().draw[0].instances.iter().all(|i| i.color == [40, 40, 200, 255]));
     ui.destroy();
 }
 
@@ -598,6 +762,9 @@ fn styling_theme_watch() {
 }
 
 pub const CASES: &[(&str, fn())] = &[
+    ("styling_interleaved_curves", styling_interleaved_curves),
+    ("styling_text_transition_keeps_only_glyphs", styling_text_transition_keeps_only_glyphs),
+    ("styling_transitions_keep_only_used_shadows", styling_transitions_keep_only_used_shadows),
     ("styling_animate_scale", styling_animate_scale),
     ("styling_theme_watch", styling_theme_watch),
     ("styling_view_transform_hits", styling_view_transform_hits),
@@ -610,6 +777,7 @@ pub const CASES: &[(&str, fn())] = &[
     ("styling_transition_without_rebuild", styling_transition_without_rebuild),
     ("styling_reduced_motion", styling_reduced_motion),
     ("styling_theme_swap_transition", styling_theme_swap_transition),
+    ("styling_theme_swap_uses_the_look_at_the_swap", styling_theme_swap_uses_the_look_at_the_swap),
     ("styling_animate_spring", styling_animate_spring),
     ("styling_colour_token_looks", styling_colour_token_looks),
     ("styling_animate_keys", styling_animate_keys),

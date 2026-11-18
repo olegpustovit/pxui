@@ -11,6 +11,23 @@ use crate::{as_str, as_text, Error, Ui};
 use core::ptr::NonNull;
 use pxui_types::{ffi::{PxuiLabelStyle, PxuiTextStyle}, Label, Str, TextGlyph, TextMetrics, TextSpan, TextSpans};
 
+const EMPTY_SPANS: TextSpans = TextSpans {
+    size: core::mem::size_of::<TextSpans>() as u32,
+    count: 0,
+    spans: [TextSpan {
+        start: 0, end: 0, weight: 0, flags: 0,
+        color: pxui_types::geom::Rgba::CLEAR,
+        background: pxui_types::geom::Rgba::CLEAR,
+        underline: pxui_types::geom::Rgba::CLEAR,
+    }; TextSpans::MAX],
+};
+
+#[inline]
+fn packed_spans<'a>(spans: &[TextSpan], storage: &'a mut Option<TextSpans>) -> Result<&'a TextSpans, Error> {
+    if spans.is_empty() { return Ok(&EMPTY_SPANS); }
+    Ok(storage.insert(TextSpans::new(spans).ok_or(Error::InvalidInput)?))
+}
+
 library!(lib {
     fn pxui_text_fork(ui:*mut PxuiUi)->*mut PxuiShaper;
     fn pxui_shaper_prepare(shaper:*mut PxuiShaper,value:Str,style:*const PxuiTextStyle,max_width:f32,spans:*const TextSpans,out:*mut *mut PxuiPreparedText,out_metrics:*mut TextMetrics)->i32;
@@ -370,12 +387,13 @@ impl Ui {
     ///
     /// Errors: InvalidInput for more than eight or overlapping spans or a style that does not resolve; Stale for a gone box.
     pub fn text_spans(&mut self,box_:&crate::Handle,text:&str,style:&Label,spans:&[TextSpan])->Result<(),Error> {
-        let spans=TextSpans::new(spans).ok_or(Error::InvalidInput)?;
+        let mut storage=None;
+        let spans=packed_spans(spans,&mut storage)?;
         let rc={
             #[cfg(feature = "static")]
-            let rc = unsafe { pxui_abi_link::trusted::label_text_spans(self.0.as_ptr(), box_, as_text(text), style.fields(), &spans) };
+            let rc = unsafe { pxui_abi_link::trusted::label_text_spans(self.0.as_ptr(), box_, as_text(text), style.fields(), spans) };
             #[cfg(not(feature = "static"))]
-            let rc = unsafe { lib::pxui_ui_label_text_spans(self.0.as_ptr(), box_, as_text(text), &PxuiLabelStyle::from(style), &spans) };
+            let rc = unsafe { lib::pxui_ui_label_text_spans(self.0.as_ptr(), box_, as_text(text), &PxuiLabelStyle::from(style), spans) };
             rc
         };
         if rc==0 { Ok(()) } else { Err(Error::from_code(rc)) }
@@ -396,12 +414,13 @@ impl Ui {
     ///
     /// Errors: InvalidInput for a non-positive line height, bad spans or a style that does not resolve; Stale for a gone box.
     pub fn text_line_box(&mut self,box_:&crate::Handle,text:&str,style:&Label,spans:&[TextSpan])->Result<(),Error> {
-        let spans=TextSpans::new(spans).ok_or(Error::InvalidInput)?;
+        let mut storage=None;
+        let spans=packed_spans(spans,&mut storage)?;
         let rc={
             #[cfg(feature = "static")]
-            let rc = unsafe { pxui_abi_link::trusted::label_text_line_box(self.0.as_ptr(), box_, as_text(text), style.fields(), &spans) };
+            let rc = unsafe { pxui_abi_link::trusted::label_text_line_box(self.0.as_ptr(), box_, as_text(text), style.fields(), spans) };
             #[cfg(not(feature = "static"))]
-            let rc = unsafe { lib::pxui_ui_label_text_line_box(self.0.as_ptr(), box_, as_text(text), &PxuiLabelStyle::from(style), &spans) };
+            let rc = unsafe { lib::pxui_ui_label_text_line_box(self.0.as_ptr(), box_, as_text(text), &PxuiLabelStyle::from(style), spans) };
             rc
         };
         if rc==0 {Ok(())} else {Err(Error::from_code(rc))}

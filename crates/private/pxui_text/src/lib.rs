@@ -1291,6 +1291,7 @@ impl Text {
                 g.marks[k] |= e.shelves[k];
             }
             let (ox, start) = (origin.0 * scale, g.evictions);
+            let mut last_shelf = None;
             for c in &e.glyphs {
                 let px = c.x.mul_add(scale, ox);
                 let (x, bin) = if g.apple { apple_x(f32::from_bits(c.key.font_size_bits), px) } else { subpixel_bin(px) };
@@ -1299,8 +1300,12 @@ impl Text {
                 let y = if g.apple { py.round() } else { py.trunc() } as i32;
                 if bin == c.key.x_bin && g.evictions == start {
                     if c.slot.w > 0 && c.slot.h > 0 {
-                        g.atlases[idx(c.slot.kind)].shelves[c.slot.shelf as usize].used = g.frame;
                         let s = &c.slot;
+                        let shelf = (s.kind, s.shelf);
+                        if last_shelf != Some(shelf) {
+                            g.atlases[idx(s.kind)].shelves[s.shelf as usize].used = g.frame;
+                            last_shelf = Some(shelf);
+                        }
                         let glyph=Glyph { rect: Rect { x: (x + s.left) as f32, y: (y - s.top) as f32, w: s.w as f32, h: s.h as f32 }, uv: c.uv, atlas: s.kind, color:c.color };
                         if c.clip==UNCLIPPED { f(glyph); } else { emit_clipped(glyph,c.clip.map(|v|v.mul_add(scale,ox)),f); }
                     }

@@ -483,6 +483,44 @@ pub fn layout_grid_list_resize_settles() {
     ui.destroy();
 }
 
+fn layout_grid_keeps_fitting_cells_on_resize() {
+    for sideways in [false, true] {
+        let mut ui = new_ui(None);
+        let size = std::cell::Cell::new(if sideways { (120.0, 50.0) } else { (70.0, 90.0) });
+        let builds = std::cell::Cell::new(0);
+        let third = std::cell::Cell::new(None);
+        let mut build = |ui: &mut Ui| {
+            let (w, h) = size.get();
+            let bounds = ui.node("bounds".into(), Node::DEFAULT.w_px(w).h_px(h));
+            ui.within(&bounds, &mut |ui| {
+                let mut cell = |ui: &mut Ui, i| {
+                    builds.set(builds.get() + 1);
+                    let node = ui.node("cell".into(), Node::DEFAULT.w(Size::Grow).h(Size::Grow));
+                    if i == 2 { third.set(Some(node)); }
+                };
+                if sideways { ui.grid_list_x("grid", 6, 30.0, 20.0, &mut cell); }
+                else { ui.grid_list("grid", 6, 30.0, 20.0, &mut cell); }
+            });
+            vec![]
+        };
+        lay(&mut ui, 0.0, vec![], &mut build);
+        let before = builds.get();
+        let original = ui.rect(&third.get().unwrap());
+        size.set(if sideways { (125.0, 50.0) } else { (70.0, 95.0) });
+        mem_sys::local_reset();
+        lay(&mut ui, 0.1, vec![], &mut build);
+        assert_eq!(mem_sys::local_alloc_count(), 0);
+        assert_eq!(builds.get() - before, 6, "all cells still fit in the same lines");
+        assert_eq!(ui.rect(&third.get().unwrap()), original);
+
+        size.set(if sideways { (125.0, 25.0) } else { (40.0, 95.0) });
+        lay(&mut ui, 0.2, vec![], &mut build);
+        let new = ui.rect(&third.get().unwrap());
+        assert_eq!((new.x, new.y), if sideways { (60.0, 0.0) } else { (0.0, 40.0) });
+        ui.destroy();
+    }
+}
+
 /// A virtual grid of 100,000 cells builds only the lines in view and the overscan, wrapping either
 /// way, mirrored right to left, and allocates nothing while it scrolls once warm.
 pub fn layout_grid_list() {
@@ -1024,6 +1062,7 @@ pub const CASES: &[(&str, fn())] = &[
     ("layout_fit_hugs_wrapped_row", layout_fit_hugs_wrapped_row),
     ("layout_list_measured", layout_list_measured),
     ("layout_grid_list_resize_settles", layout_grid_list_resize_settles),
+    ("layout_grid_keeps_fitting_cells_on_resize", layout_grid_keeps_fitting_cells_on_resize),
     ("layout_grid_many_rows", layout_grid_many_rows),
     ("layout_grow_many_frozen", layout_grow_many_frozen),
     ("layout_stress_zero_alloc", layout_stress_zero_alloc),

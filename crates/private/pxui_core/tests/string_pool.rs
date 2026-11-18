@@ -166,4 +166,33 @@ mod text_identity_cases {
         assert_ne!(own,key);
         assert_eq!(text.layout_count(),layouts+1,"a narrower draw lays out its own");
     }
+
+    #[test]
+    fn retained_node_layout_validates_text_style_and_width() {
+        let mut text=Text::new(&[pxui_text::PRAGMASEVKA]);
+        let mut reference=Text::new(&[pxui_text::PRAGMASEVKA]);
+        let memo=std::cell::Cell::new(None);
+        let plain=Style::default();
+        for (value,style,width) in [
+            ("Alpha beta gamma",plain,200.0),
+            ("Alpha beta gamma",plain,200.0),
+            ("Alpha beta gamma",plain,35.0),
+            ("Alpha beta gamma",plain,100.0),
+            ("Changed text",plain,100.0),
+            ("Changed text",Style { size:22.0,..plain },100.0),
+            ("Changed text",Style { align:pxui_text::Align::Right,..plain },150.0),
+            ("Changed text",plain,0.0),
+        ] {
+            let (_,got)=lay_out_node(&mut text,&memo,Flags::FIT_TEXT_PIXEL,&style,width,value,&[],false).unwrap();
+            let key=pxui_text::layout_key(&style,width,pxui_text::text_hash(value),&[]);
+            let want=reference.layout_spans(key,value,&style,width,&[]).unwrap();
+            assert_eq!((got.w,got.h,got.baseline,got.lines),(want.w,want.h,want.baseline,want.lines));
+        }
+        let shaped=text.layout_count();
+        mem_sys::local_reset();
+        for _ in 0..8 { lay_out_node(&mut text,&memo,Flags::FIT_TEXT_PIXEL,&plain,200.0,"Changed text",&[],false).unwrap(); }
+        assert_eq!(text.layout_count(),shaped);
+        assert_eq!(mem_sys::local_alloc_count(),0);
+    }
+
 }

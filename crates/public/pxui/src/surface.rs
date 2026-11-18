@@ -2458,13 +2458,18 @@ fn line_box_text_fits_wraps_and_resizes_in_one_frame_without_warm_allocations() 
     }
     ui.frame(&input(),&mut |ui| {
         let node=ui.node("checked".into(),Node::DEFAULT.role(Role::Label).w_px(200.0).h_px(20.0));
-        ui.text_line_box(&node,value,&style,&[]).unwrap();
-        for invalid in [style.line_height(0.0),style.line_height(f32::NAN),style.font(u16::MAX)] {
+        let ink = crate::TextSpan { start: 0, end: 3, color: crate::geom::Rgba::rgb(17, 59, 137), flags: crate::TextSpan::COLOR, ..Default::default() };
+        ui.text_line_box(&node,value,&style,&[ink]).unwrap();
+        for invalid in [
+            style.line_height(0.0), style.line_height(f32::NAN), style.font(u16::MAX),
+            style.size(f32::MAX).tracking(f32::MAX),
+        ] {
             assert!(ui.text_line_box(&node,"wrong",&invalid,&[]).is_err());
         }
         assert!(ui.text_line_box(&node,"é",&style,&[crate::TextSpan {start:1,end:2,..Default::default()}]).is_err());
     }).unwrap();
     assert!(ui.a11y_nodes().iter().any(|node|ui.a11y_name_of(node)==value));
+    assert!(ui.layers().flat_map(|layer| layer.instances.iter()).any(|quad| quad.color == [17, 59, 137, 255]));
 }
 
 #[test]

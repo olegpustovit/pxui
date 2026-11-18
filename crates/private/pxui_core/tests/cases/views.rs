@@ -253,6 +253,14 @@ pub fn window_pxui_view_damage() {
     let n = node.get().unwrap();
     check(ui.patch_fill(&n, BLUE) && ui.output().damage == Some(Rect::new(0.0, 20.0, 40.0, 20.0)), "patch damage");
     check(ui.patch_offset(&n, 5.0, 0.0) && ui.output().damage == Some(Rect::new(0.0, 20.0, 45.0, 20.0)), &format!("move damage {:?}", ui.output().damage));
+    let mut shadow=Look { fill:BLUE,shadows:[Shadow { color:Rgba::BLACK,blur:4.0,spread:2.0,offset:[3.0,1.0],..Shadow::NONE },Shadow::NONE],..Look::NONE };
+    ui.drawn(0);
+    assert!(ui.patch_look(&n,&shadow));
+    assert_eq!(ui.output().damage,Some(Rect::new(0.0,12.0,56.0,37.0)));
+    ui.drawn(0);
+    shadow.shadows[0].blur=8.0;
+    assert!(ui.patch_look(&n,&shadow));
+    assert_eq!(ui.output().damage,Some(Rect::new(0.0,6.0,62.0,49.0)),"changed shadow parameters must damage the larger new cover");
     ui.destroy();
 }
 

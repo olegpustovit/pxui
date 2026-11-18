@@ -530,6 +530,8 @@ pub const CASES: &[(&str, fn())] = &[
     ("menu_padding_name_and_the_current_choice", menu_padding_name_and_the_current_choice),
     ("line_box_glyphs_keep_their_half_leading", line_box_glyphs_keep_their_half_leading),
     ("paint_text_at_is_the_layout_top_and_measure_baseline_the_first_baseline", paint_text_at_is_the_layout_top_and_measure_baseline_the_first_baseline),
+    ("paint_glyph_light_uses_each_text_size_and_density", paint_glyph_light_uses_each_text_size_and_density),
+    ("line_box_fades_inherited_and_inline_colors", line_box_fades_inherited_and_inline_colors),
     ("window_pxui_keyboard_signal_reuses_routing_storage", window_pxui_keyboard_signal_reuses_routing_storage),
     ("window_pxui_focused_text_field_warm_ime", window_pxui_focused_text_field_warm_ime),
     ("text_rows_lru", text_rows_lru),
@@ -559,6 +561,9 @@ fn line_box_glyphs_keep_their_half_leading() {
     };
     let (_, natural) = glyphs(&mut ui, 30.0, Size::Px(30.0));
     check(natural.len() == 3, "three glyphs");
+    let layouts = ui.text_layout_count();
+    let (_, repeated) = glyphs(&mut ui, 30.0, Size::Px(30.0));
+    check(repeated == natural && ui.text_layout_count() == layouts, "reusing the fixed line box changed its glyphs or reshaped it");
     // whole-point half-leadings land exactly; 16.8 floors 1.4 points of it, so it may sit up to a point higher
     for line_height in [12.0, 14.0, 20.0, 24.0, 16.8] {
         let (_, at) = glyphs(&mut ui, line_height, Size::Px(30.0));
@@ -616,6 +621,66 @@ fn paint_text_at_is_the_layout_top_and_measure_baseline_the_first_baseline() {
         }
         check(painted[0].len() == 3 && painted[0] == painted[1] && painted[0] == painted[2], &format!("line height {line_height}: line box {:?}, text_spans {:?}, text_styled {:?}", painted[0], painted[1], painted[2]));
     }
+    ui.destroy();
+}
+
+fn paint_glyph_light_uses_each_text_size_and_density() {
+    use pxui_types::draw::{flags, kind, Instance};
+    let mut ui = Ui::create(input::Platform::Apple, None, crate::support::golden_text());
+    let sizes = [14.0, 12.0, 14.0, 22.0, 12.0];
+    for density in [1.0_f32, 2.0, 3.0] {
+        ui.frame(&frame_at(vec![], f64::from(density), 0.0, vec![]), &mut |ui| {
+            let b = ui.box_("ink", BoxOpts::default().w(Size::Px(200.0)).h(Size::Px(60.0)));
+            ui.draw(&b, move |paint, _| {
+                for (i, size) in sizes.into_iter().enumerate() {
+                    let style = pxui_text::Style { size, ..Default::default() };
+                    paint.text_styled((i as f32 * 30.0, 0.0), &style, 0.0, None, "H");
+                }
+            });
+        });
+        let extras = ui.output().draw[0].instances.iter().filter(|i| i.kind == kind::MASK && i.flags & flags::mask::LIGHT != 0).map(|i| i.extra);
+        assert!(extras.eq(sizes.map(|size| Instance::light_extra(size * density, density))));
+    }
+    ui.destroy();
+}
+
+fn line_box_fades_inherited_and_inline_colors() {
+    use pxui_core::geom::Rgba;
+    use pxui_text::TextSpan;
+    use pxui_types::draw::kind;
+    let mut ui = new_ui(None);
+    let style = pxui_text::Style { size: 14.0, line_height: 20.0, ..Default::default() };
+    let span = TextSpan {
+        start: 1,
+        end: 2,
+        flags: TextSpan::COLOR | TextSpan::BACKGROUND | TextSpan::UNDERLINE,
+        color: Rgba::rgba(5, 6, 7, 201),
+        background: Rgba::rgba(10, 20, 30, 100),
+        underline: Rgba::rgba(50, 60, 70, 90),
+        ..Default::default()
+    };
+    let mut build = |ui: &mut Ui| {
+        let handle = ui.node_ref("line", &Node {
+            w: Size::Px(100.0), h: Size::Px(20.0),
+            look: Look { text: Rgba::rgb(200, 10, 20), opacity: 0.5, ..Look::NONE },
+            ..Node::DEFAULT
+        });
+        assert!(ui.text_line_box(&handle, "AB", &style, &[span]));
+    };
+    let frame = frame_at(vec![], 2.0, 0.0, vec![]);
+    ui.frame(&frame, &mut build);
+    ui.frame(&frame, &mut build);
+    mem_sys::local_reset();
+    ui.frame(&frame, &mut build);
+    assert_eq!(mem_sys::local_alloc_count(), 0);
+    let drawn: Vec<_> = ui.output().draw[0].instances.iter()
+        .map(|i| (i.kind, i.color)).collect();
+    assert_eq!(drawn, [
+        (kind::RECT, [10, 20, 30, 50]),
+        (kind::MASK, [200, 10, 20, 128]),
+        (kind::MASK, [5, 6, 7, 101]),
+        (kind::RECT, [50, 60, 70, 45]),
+    ]);
     ui.destroy();
 }
 

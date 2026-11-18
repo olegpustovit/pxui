@@ -54,6 +54,9 @@ pub fn window_pxui_node_handles() {
 pub fn window_pxui_retired_rich_text_donates_before_slot_reassignment() {
     let mut ui = new_ui(None);
     let style = pxui_core::text::Style::default();
+    let ink = Rgba::rgb(240, 16, 32);
+    let replacement = Rgba::rgb(12, 42, 255);
+    let span = pxui_text::TextSpan { start:0, end:1, flags:pxui_text::TextSpan::COLOR, color:ink, ..Default::default() };
     let mut retired = None;
     for phase in 0..3 {
         frame(&mut ui, phase as f64, &mut |ui| {
@@ -62,15 +65,17 @@ pub fn window_pxui_retired_rich_text_donates_before_slot_reassignment() {
             check(ui.text_spans(&live, "keep", &style, &[]), "live rich text");
             if phase == 0 {
                 let donor = chip(ui, "donor", "label", Rgba::WHITE);
-                check(ui.text_spans(&donor, "label", &style, &[]), "donor rich text");
+                check(ui.text_spans(&donor, "label", &style, &[span, pxui_text::TextSpan {start:1,end:5,..span}]), "donor rich text");
                 retired = Some(donor);
             } else if phase == 2 {
                 check(!ui.live(&retired.unwrap()), "donor identity must already be retired");
                 mem_sys::local_reset();
-                check(ui.text_spans(&target, "label", &style, &[]), "target rich text");
+                check(ui.text_spans(&target, "label", &style, &[pxui_text::TextSpan {color:replacement,..span}]), "target rich text");
                 check(mem_sys::local_alloc_count() == 0, "retired rich storage must donate before its slot is reassigned");
             }
         });
+        assert_eq!(has_color(&ui, ink), phase == 0, "the reused record must forget the old span");
+        assert_eq!(has_color(&ui, replacement), phase == 2);
     }
     ui.destroy();
 }
@@ -111,6 +116,28 @@ pub fn window_pxui_node_patch() {
     // the owner rebuilds the node: the build's value wins over the patch
     frame(&mut ui, 0.2, &mut build);
     check(has_color(&ui, red) && !has_color(&ui, blue) && ui.output().draw[0].instances.len() == count, "the patch outlived the node's next build");
+    ui.destroy();
+}
+
+fn window_pxui_empty_look_keeps_reserved_room_and_focus_ink() {
+    let mut ui = new_ui(None);
+    let base = Node::DEFAULT.w_px(30.0).h_px(20.0);
+    let ink = Rgba::rgb(18, 48, 120);
+    let mut layout = None;
+    frame(&mut ui, 0.0, &mut |ui| {
+        layout = Some(ui.node("layout".into(), base));
+        ui.node("reserve".into(), base.flags(Flags::KEEP_ROOM));
+        let focused = ui.node("focused".into(), base.flags(Flags::FOCUSABLE | Flags::FOCUS_MARK).look(Look {
+            ring: Ring { color:ink, width:1.0, sides:0 }, ..Look::NONE
+        }));
+        ui.focus_box(&focused);
+    });
+    let instances = &ui.output().draw[0].instances;
+    let room = instances.iter().filter(|i| i.color[3] == 0 && i.color2[3] == 0 && i.rect[2] > i.rect[0] && i.rect[3] > i.rect[1]).count();
+    assert_eq!(room, 1, "only the reserved rectangle takes room");
+    assert!(instances.iter().any(|i| i.color2 == [ink.r, ink.g, ink.b, ink.a]), "the focus ring still paints");
+    let fill = Rgba::rgb(140, 24, 16);
+    assert!(ui.patch_fill(&layout.unwrap(), fill) && has_color(&ui, fill));
     ui.destroy();
 }
 
@@ -372,6 +399,7 @@ pub const CASES: &[(&str, fn())] = &[
     ("window_pxui_node_duplicate_keys", window_pxui_node_duplicate_keys),
     ("window_pxui_node_handles", window_pxui_node_handles),
     ("window_pxui_node_patch", window_pxui_node_patch),
+    ("window_pxui_empty_look_keeps_reserved_room_and_focus_ink", window_pxui_empty_look_keeps_reserved_room_and_focus_ink),
     ("window_pxui_node_patch_damage_accumulates", window_pxui_node_patch_damage_accumulates),
     ("window_pxui_node_patch_nested_kept", window_pxui_node_patch_nested_kept),
     ("window_pxui_arena_closures", window_pxui_arena_closures),

@@ -365,7 +365,7 @@ pub(crate) struct LabelText {
 /// is not positive and finite, a non-finite tracking or line height, or a feature bit no style has.
 pub(crate) fn resolve_label(label: &LabelFields, look: &Look, font_size: i64, row_height: f32, token: Option<Rgba>) -> Option<LabelText> {
     use pxui_types::text as T;
-    let size = label.size.unwrap_or(look.font.points(font_size) as f32);
+    let size = label.size.unwrap_or_else(|| look.font.points(font_size) as f32);
     let tracking = label.tracking.unwrap_or(look.font.tracking);
     let line_height = label.line_height.unwrap_or(row_height);
     if !size.is_finite() || size <= 0.0 || !tracking.is_finite() || !line_height.is_finite() || line_height < 0.0 || label.features & !TextStyle::FEATURE_TABULAR_NUMBERS != 0 { return None; }
@@ -396,14 +396,18 @@ fn kit_label(label: &LabelFields) -> bool {
 /// lines centred in it), or with `digits` one cached character layout at a time, as wide as the characters with digits on the
 /// advance of `0`. `whole_pixels` rounds a fitted width up to whole pixels.
 pub(crate) fn default_label(this: &mut Ui, c: &LabelConfig, text: &str) {
+    build_label(this, c, text, None);
+}
+
+fn build_label(this: &mut Ui, c: &LabelConfig, text: &str, resolved: Option<LabelText>) {
     let label = &c.style;
-    let look = this.theme().label.idle;
+    let look = &this.theme().label.idle;
     let token = label.color.map(|t| this.color(t.0));
     let gap = if c.first && label.pad.is_none() { 4.0 } else { 0.0 };
-    let inset = Edges { l: label.pad.unwrap_or(this.space(2)), t: gap, r: 0.0, b: 0.0 };
+    let inset = Edges { l: label.pad.unwrap_or_else(|| this.space(2)), t: gap, r: 0.0, b: 0.0 };
     let text = shown(text);
     if !c.digits && kit_label(label) {
-        let mut look = look;
+        let mut look = *look;
         if let Some(token) = token { look.text = token; }
         if let Some(family) = label.font { look.font.family = family; }
         if let Some(size) = label.size { look.font.size = size as i64; }
@@ -416,8 +420,8 @@ pub(crate) fn default_label(this: &mut Ui, c: &LabelConfig, text: &str) {
         this.text(&c.node, text);
         return;
     }
-    // `label_styled` resolved it before building the node
-    let Some(resolved) = resolve_label(label, &look, this.font_size(), this.row_height() as f32, token) else { return };
+    let Some(mut resolved) = resolved.or_else(|| resolve_label(label, look, this.font_size(), this.row_height() as f32, None)) else { return };
+    if let Some(token) = token { resolved.color = token; }
     let mut style = resolved.style;
     if style.line_height <= 0.0 { style.line_height = style.size * 1.2; }
     if !c.digits {
@@ -887,8 +891,7 @@ impl Ui {
     /// The text style `label` shapes with, resolved against this `Ui`'s theme label as `label` resolves it (unset fields are the
     /// theme label's; tracking becomes points): what `label` would shape. `None` for a style that does not resolve.
     pub fn resolve(&self, label: &LabelFields) -> Option<TextStyle> {
-        let look = self.theme().label.idle;
-        let s = resolve_label(label, &look, self.font_size(), self.row_height() as f32, None)?.style;
+        let s = resolve_label(label, &self.theme().label.idle, self.font_size(), self.row_height() as f32, None)?.style;
         use pxui_types::text as T;
         Some(TextStyle {
             size: core::mem::size_of::<TextStyle>() as u32, font: s.font, weight: s.weight, size_points: s.size, line_height: s.line_height,
@@ -904,22 +907,29 @@ impl Ui {
     /// nothing built, when the style does not resolve (`resolve_label`), its padding or width is not finite, or its font is not loaded.
     pub fn label_styled(&mut self, text: &str, style: &LabelFields, digits: bool) -> Option<Handle> {
         // kit text needs only a finite tracking and padding and a loaded font when it names one; anything else resolves in full
-        if kit_label(style) && !digits {
+        let resolved = if kit_label(style) && !digits {
             if !style.tracking.is_none_or(f32::is_finite) || !style.pad.is_none_or(f32::is_finite) || style.font.is_some_and(|font| self.text_mut().font_metrics(font).is_none()) { return None; }
+            None
         } else {
             let width = match style.width { Some(Size::Px(v) | Size::Pct(v)) => v.is_finite(), _ => true };
             if !width || !style.pad.is_none_or(f32::is_finite) || !style.height.is_none_or(|h| h.is_finite() && h >= 0.0) { return None; }
-            let look = self.theme().label.idle;
-            let Some(resolved) = resolve_label(style, &look, self.font_size(), self.row_height() as f32, None) else { return None };
+            let resolved = resolve_label(style, &self.theme().label.idle, self.font_size(), self.row_height() as f32, None)?;
             if self.text_mut().font_metrics(resolved.style.font).is_none() { return None; }
-        }
+            Some(resolved)
+        };
         let first = self.last_child_of_parent() == NONE;
         // every label is "\0label": siblings in a row resolve their duplicates without looking the key up again
         self.require_building();
         let unique = self.unique_key_repeated(key_of(self.current_seed(), "\0label"));
         let node = self.node_unique(unique, &Node { role: style.role, ..Node::DEFAULT });
         if digits { self.a11y_value(&node, shown(text), (0, 0)); }
-        in_body!(flat; self, node.box_key, node, label, default_label(&LabelConfig { node, first, style: *style, digits }, text));
+        let config = LabelConfig { node, first, style: *style, digits };
+        let body = body_of!(self, label);
+        if body.is_none() {
+            build_label(self, &config, text, resolved);
+        } else {
+            in_item!(flat; self, body, node.box_key, node, default_label(&config, text));
+        }
         Some(node)
     }
 

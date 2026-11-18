@@ -167,7 +167,7 @@ export!(pub unsafe fn pxui_paint_span(p: *mut PxuiPaint, at_least: usize, span: 
 export!(pub unsafe fn pxui_paint_text_spans(p:*mut PxuiPaint,x:f32,y:f32,style_:*const TextStyle,width:f32,has_color:u8,color:Rgba,text:Str,spans:*const pxui_types::TextSpans,out:*mut TextMetrics)->i32 {
     if !finite(&[x,y,width]) || has_color>1 || style_.is_null() || out.is_null() { return crate::PXUI_ERR_ARGUMENT; }
     let (Some(p),Some(text),Some(style),Some(spans))=(unsafe { value(p) },unsafe { string(text) },unsafe { read_style(style_) },unsafe { crate::text::span_packet(spans) }) else { return crate::PXUI_ERR_ARGUMENT };
-    let Some(value)=p.text_spans((x,y),&style,width,(has_color!=0).then_some(color),text,spans.as_slice().unwrap()) else { return crate::PXUI_ERR_ARGUMENT };
+    let Some(value)=p.text_spans((x,y),&style,width,(has_color!=0).then_some(color),text,spans.as_slice()) else { return crate::PXUI_ERR_ARGUMENT };
     unsafe { out.write(metrics(value)); }
     0
 });

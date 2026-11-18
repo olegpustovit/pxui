@@ -1281,15 +1281,15 @@ impl Look {
     /// assert_eq!(a.lerp(&b, 0.5).fill, Rgba::rgb(128, 128, 128));
     /// ```
     pub fn lerp(&self, to: &Look, t: f32) -> Look {
+        // Near the start, every 8-bit channel moves less than a quarter step.
+        let keeps_start_color = t.abs() <= 1.0 / 1024.0;
         let c = |a: Rgba, b: Rgba| {
+            if keeps_start_color { return a; }
+            let from = [a.r, a.g, a.b, a.a].map(f32::from);
+            let to = [b.r, b.g, b.b, b.a].map(f32::from);
             // an overshooting curve saturates at the channel's ends
-            let m = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round() as u8;
-            Rgba {
-                r: m(a.r, b.r),
-                g: m(a.g, b.g),
-                b: m(a.b, b.b),
-                a: m(a.a, b.a),
-            }
+            let [r, g, b, a] = std::array::from_fn(|i| (from[i] + (to[i] - from[i]) * t).round() as u8);
+            Rgba { r, g, b, a }
         };
         let f = |a: f32, b: f32| a + (b - a) * t;
         let gradient = match (self.gradient.get(), to.gradient.get()) {
@@ -1694,6 +1694,35 @@ impl States {
             &self.focus
         } else {
             &self.idle
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Look, Rgba};
+
+    #[test]
+    fn look_colors_keep_their_rounded_values_near_the_start() {
+        let from = Look::NONE.fill(Rgba::rgb(0, 255, 64)).text(Rgba::rgb(255, 0, 32));
+        let to = Look::NONE.fill(Rgba::rgb(255, 0, 64)).text(Rgba::rgb(0, 255, 32));
+        for progress in [-1.0 / 1024.0, 0.0, 1.0 / 1024.0] {
+            let blended = from.lerp(&to, progress);
+            assert_eq!((blended.fill, blended.text), (from.fill, from.text));
+        }
+        assert_eq!(from.lerp(&to, 0.25).fill, Rgba::rgb(64, 191, 64));
+        assert_eq!(from.lerp(&to, f32::NAN).fill, Rgba::CLEAR);
+    }
+
+    #[test]
+    fn look_color_channels_keep_scalar_rounding() {
+        let from = Look::NONE.fill(Rgba { r: 0, g: 255, b: 127, a: 63 });
+        let to = Look::NONE.fill(Rgba { r: 255, g: 0, b: 127, a: 128 });
+        for t in [-2.0, -0.5, 0.125, 0.5, 1.0, 1.5, f32::INFINITY, f32::NAN] {
+            let channel = |a: f32, b: f32| (a + (b - a) * t).round() as u8;
+            assert_eq!(from.lerp(&to, t).fill, Rgba {
+                r: channel(0.0, 255.0), g: channel(255.0, 0.0), b: channel(127.0, 127.0), a: channel(63.0, 128.0),
+            });
         }
     }
 }
