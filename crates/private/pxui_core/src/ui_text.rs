@@ -299,7 +299,7 @@ impl Ui {
         self.load_text_edit_into(key, text, String::new())
     }
 
-    fn load_text_edit_into(&mut self, key: i64, text: &str, mut buffer: String) -> TextEdit {
+    pub(crate) fn load_text_edit_into(&mut self, key: i64, text: &str, mut buffer: String) -> TextEdit {
         if self.edit_owner != key || self.edit_value != text {
             let back = self.edit_shelf.iter().position(|(k, v, _, _)| *k == key && v == text)
                 .map(|index| self.edit_shelf.remove(index));
@@ -610,7 +610,7 @@ pub fn paint_text_edit(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn paint_text_edit_ref(paint:&mut Paint,size:Option<i64>,right:bool,inset:f32,marks:Option<(Rgba,Rgba)>,control:IRect,y:i64,composition:&str,text:&str,caret:usize,anchor:usize) {
+pub(crate) fn paint_text_edit_ref(paint:&mut Paint,size:Option<i64>,right:bool,inset:f32,marks:Option<(Rgba,Rgba)>,control:IRect,y:i64,composition:&str,text:&str,caret:usize,anchor:usize) {
     let (cx, cy, cw, ch) = control;
     // the selection and caret colours (the field look's); `None` hides the caret
     let (tint, caret_color) = match marks {

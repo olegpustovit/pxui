@@ -123,7 +123,14 @@ impl Ui {
     /// rows, `Delete` on a second Delete over the same armed row, `Back` on Backspace or Left with an empty query, `Cancel` on Escape.
     /// `placeholder` shows while the query is empty and names the field. The query is lent until the next call on `ui`. Build it inside
     /// a panel or `modal`.
-    /// Allocates: never once the rows have settled (the row strings and their span are kept on the thread); a first fill allocates them.
+    ///
+    /// Fill contract: `fill` runs every frame the picker is built and copies rows the app already has; it does no search, sort,
+    /// formatting or I/O. An app whose matches come from a worker sends the query as an intent when `query` changes, keeps the worker's
+    /// last result (labels, details, art ids, headings as owned strings prepared on the worker) and pushes those borrowed strings,
+    /// in order, every frame; until the result for the new query arrives it pushes the previous one. The built-in row highlights the
+    /// query's letters in place (ASCII case folded, byte by byte), allocating nothing.
+    /// Allocates: never once the rows have settled (the row strings and their span are kept on the thread, reused while no row is
+    /// longer and there are no more rows than before); a first fill, or one with more or longer rows, allocates them.
     /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); never the placeholder.
     /// Panics: when the library refuses the call (outside a frame), or when `fill` panics. A key over 256 bytes panics (a programmer error). Display text past 64 KiB is clipped at a character boundary, never refused.
     ///
@@ -247,6 +254,28 @@ mod tests {
         ARTS.with(|a| a.borrow_mut().clear());
         ui.frame(&FrameIn::new(400.0, 400.0), &mut build).unwrap();
         assert_eq!(ARTS.with(|a| a.borrow().clone()), [ROWS[0].art, None, ROWS[2].art]);
+    }
+
+    /// U2b.6 fill contract (#82): a picker with a typed query, filled every frame from a worker's last result (owned strings the app
+    /// keeps, pushed borrowed), allocates nothing once warm; the built-in row highlights the query case folded byte by byte (it used to
+    /// lower the query into a new string on every row of every frame). Both link modes.
+    #[test]
+    fn a_picker_filled_from_a_kept_result_with_a_query_allocates_nothing() {
+        mem_sys::set_peer(crate::library_counter);
+        // what the worker sent for the query: prepared off the frame, kept until the next result
+        let result: Vec<(String, String)> = (0..40).map(|i| (format!("Song {i}"), format!("Artist {i}"))).collect();
+        let mut build = |ui: &mut Ui| {
+            ui.picker("find", "Search", "SO", &Picker::DEFAULT, &mut |_, rows| for (label, detail) in &result { rows.push(crate::PickRow::new(label).detail(detail)); });
+        };
+        let mut ui = crate::doc::frames(3, &mut build);
+        let scope = mem_sys::warm_scope();
+        for round in 0..4 {
+            mem_sys::local_reset();
+            testing::frame(&mut ui, &[], &mut build);
+            assert_eq!(mem_sys::local_alloc_count(), 0, "a warm picker frame with a query allocated (round {round})");
+        }
+        drop(scope);
+        assert!(mem_sys::take_reports().is_empty());
     }
 
     /// Warm picker frames with headings and art allocate nothing.

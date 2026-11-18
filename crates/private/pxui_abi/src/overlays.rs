@@ -249,9 +249,9 @@ unsafe fn picker(
     let opts = PickerOpts { limit, slash: slash != 0, at_rest: at_rest != 0, mark, off };
     let r = unsafe { (&mut *state.engine).picker(key, placeholder, query, &opts, &mut fill) };
     let (tag, index) = match r.pick { Pick::None => (0, -1), Pick::Pick(index) => (1, index), Pick::Delete(index) => (2, index), Pick::Submit => (3, -1), Pick::Back => (4, -1), Pick::Cancel => (5, -1) };
-    let query = r.query.to_owned();
     if invalid.get() { return unsafe { fail(ui, "invalid picker rows") }; }
-    let Ok(query) = state.give(query) else { return crate::PXUI_ERR_STATE };
+    // lent from a buffer reused next frame: no per-frame copy of the query (#82)
+    let Ok(query) = state.lend(r.query) else { return crate::PXUI_ERR_STATE };
     unsafe { *out_query = query; }
     unsafe { *out_tag = tag; *out_index = index; }
     0

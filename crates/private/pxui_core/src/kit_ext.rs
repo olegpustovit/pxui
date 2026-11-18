@@ -117,9 +117,13 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, label: &str, placeholder: &str, qu
     let clamp = |cursor: i64, count: usize| if count == 0 { 0 } else { 0.max((count as i64 - 1).min(cursor)) };
     let mut cursor = clamp(this.state(&search, 0), rows.len());
     let mut armed = this.state(&list, -1);
-    let mut query = query.to_owned();
+    // the query and the edit live in kept buffers (the last call's lent query, the frame's edit text): no per-frame copy (#82)
+    let mut kept = core::mem::take(&mut this.returned);
+    if kept.as_ptr() != query.as_ptr() || kept.len() != query.len() { kept.clear(); kept.push_str(query); }
+    let mut query = kept;
     let mut result = Pick::None;
-    let mut edit = this.load_text_edit(search.box_key, &query);
+    let buffer = core::mem::take(&mut this.edit_work);
+    let mut edit = this.load_text_edit_into(search.box_key, &query, buffer);
     let (sx, _, sw, _) = ints(this.rect(&search));
     let prefix: i64 = if o.slash { 13 } else { 0 };
     // the slash is 6.5 wide and 6 of gap: the query starts 14.5 in from the field's edge
@@ -159,7 +163,7 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, label: &str, placeholder: &str, qu
                 event => {
                     this.edit_text_event(false, &mut edit, &|_| true, &modifiers, event);
                     if edit.text != query {
-                        query = edit.text.clone();
+                        query.clone_from(&edit.text);
                         rows.clear();
                         fill(&query, &mut rows);
                         cursor = 0;
@@ -173,7 +177,6 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, label: &str, placeholder: &str, qu
     let count = rows.len() as i64;
     let length = o.limit.min(count);
     let start = if length == count { 0 } else { 0.max((count - length).min(cursor - length / 2)) };
-    let composition = this.composition().to_owned();
     let font_size = this.font_px();
     let (slash, at_rest) = (o.slash, o.at_rest);
     let t = this.theme();
@@ -188,13 +191,25 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, label: &str, placeholder: &str, qu
     let config = PickerFieldConfig { state, empty: edit.text.is_empty(), slash, prefix: prefix as f32, inset, search };
     in_body!(this, search.box_key, search, picker_field, default_picker_field(&config, placeholder));
     {
-        let edit = edit.clone();
         let marks = if edit.text.is_empty() { None } else { Some((field.selection, field.caret)) };
+        let (caret, anchor) = (edit.caret, edit.anchor);
+        // the focused search's edit text and composition travel in the painter (`paint_begin`), as a text field's do: no copy. An
+        // unfocused search (another node took the focus) paints a copy of its own.
+        let own = (!this.focused(&search)).then(|| (edit.text.clone(), this.composition().to_owned()));
         this.canvas_over(&search, move |paint, rect| {
             let (cx, cy, cw, ch) = ints(rect);
             let control = (cx + prefix, cy, 1.max(cw - prefix), ch);
-            paint_text_edit(paint, None, false, inset, marks, control, label_y(font_size, cy, ch), &composition, &edit);
+            let y = label_y(font_size, cy, ch);
+            match &own {
+                Some((text, composition)) => paint_text_edit_ref(paint, None, false, inset, marks, control, y, composition, text, caret, anchor),
+                None => {
+                    let (text, composition) = (std::mem::take(&mut paint.edit_text), std::mem::take(&mut paint.composition));
+                    paint_text_edit_ref(paint, None, false, inset, marks, control, y, &composition, &text, caret, anchor);
+                    (paint.edit_text, paint.composition) = (text, composition);
+                }
+            }
         });
+        this.edit_work = edit.text;
     }
     let saved = this.enter(&list);
     let row_height = this.row_px();
@@ -293,12 +308,13 @@ pub(crate) fn default_picker_row(this: &mut Ui, c: &PickerRowConfig, text: &str,
         this.placed(rk(3), (art_x, 0.0), Size::Px(rh), rh, Look { text: ink, ..Look::NONE }, Edges::default(), glyph.encode_utf8(&mut buf));
     }
     // the query's letters, matched in order, in the accent
-    let q = query.to_ascii_lowercase();
+    // compared byte by byte, case folded in place: lowering the query into a String allocated on every row of every frame
+    let q = query.as_bytes();
     let mut next = 0usize;
     let mut pen = text_x;
     let mut start = 0usize;
     let is_matched = |at: usize, next: &mut usize| {
-        let hit = *next < q.len() && text.len() > at && text.as_bytes()[at].to_ascii_lowercase() == q.as_bytes()[*next];
+        let hit = *next < q.len() && text.len() > at && text.as_bytes()[at].to_ascii_lowercase() == q[*next].to_ascii_lowercase();
         if hit {
             *next += 1;
         }
