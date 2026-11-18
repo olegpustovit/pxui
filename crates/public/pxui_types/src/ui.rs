@@ -142,8 +142,8 @@ pub struct SelectionList {
     pub fit: bool,
     /// A single pointer or touch click (without Command or Shift) also activates the row (`open_on_click`).
     pub open_on_click: bool,
-    /// The look a row shows in place of its state look while a carried payload hovers that row's drop target
-    /// (`Ui::drop_target(&cell.handle)`); `None`: the row keeps its state look.
+    /// The look a row shows in place of its state look while a carried payload is over it (in a reorderable list, the insertion
+    /// line's); `None`: the row keeps its state look.
     pub drop_look: Option<Look>,
 }
 
@@ -258,9 +258,10 @@ impl SelectionList {
     /// ```
     pub const fn open_on_click(mut self, on: bool) -> SelectionList { self.open_on_click = on; self }
 
-    /// Shows `look` on a row in place of its state look while a carried payload hovers the row's drop target (the cell made it one
-    /// with `Ui::drop_target(&cell.handle)`): a sidebar list a song is dragged onto. The look is the list style's, so no per-row style
-    /// call and no per-frame look swap; the row body is told the same through its config.
+    /// Shows `look` on a row in place of its state look while a carried payload is over the row (a sidebar list a song is dragged
+    /// onto; the app takes the drop with `Ui::drop_target(&cell.handle)`). The look is the list style's, so no per-row style call and
+    /// no per-frame look swap; the row body is told the same through its config (`drop` 3). In a reorderable list the payload lands
+    /// between rows instead, and this look draws the insertion line.
     /// Allocates: never.
     /// Panics: never.
     ///

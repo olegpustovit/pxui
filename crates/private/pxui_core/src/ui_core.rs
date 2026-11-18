@@ -703,6 +703,9 @@ struct Slot {
     row_of: (i64, u32),
     /// whether this node's children are a virtual list's rows (`row_of`): only its paint scopes the text cache per child
     holds_rows: bool,
+    /// the frame in which the app asked this node about a carried payload (`Ui::drop_target_ref`): the node takes the pointer's hit
+    /// that frame whatever its flags, so a drop reaches any node
+    drop_zone: i64,
     rx: f32,
     ry: f32,
     rw: f32,
@@ -756,6 +759,7 @@ impl Slot {
             view: NO_VIEW,
             row_of: (0, 0),
             holds_rows: false,
+            drop_zone: -1,
             rx: 0.0,
             ry: 0.0,
             rw: 0.0,
@@ -1107,6 +1111,8 @@ pub struct Ui {
     a11y_full: bool,
     a11y_written: usize,
     pub(crate) a11y_on: bool,
+    /// where a carried payload would land in the last reorderable list built (its insertion index) and whether it was dropped there
+    pub(crate) list_drop: Option<(usize, bool)>,
     /// sortable headings' composed accessible names (`ui_lists`), bounded
     pub(crate) sort_names: crate::ui_lists::SortNames,
     timing: bool,
@@ -1396,6 +1402,7 @@ impl Ui {
             a11y_full: true,
             a11y_written: 0,
             a11y_on: false,
+            list_drop: None,
             sort_names: crate::ui_lists::SortNames::default(),
             timing: false,
             a11y_seen: (0, None),
@@ -4127,8 +4134,10 @@ impl Ui {
     }
 
     /// A drop remains readable by the target and its ancestors throughout this frame.
+    /// Asking makes `b` a drop zone for this frame's hit tree, so a plain node (no input flags) takes the drop too.
     pub fn drop_target_ref(&mut self, b: &UiBox) -> Option<(bool, &Payload)> {
         if self.dropped.is_none() && self.payload.is_none() { return None; }
+        if self.live(b) { self.slots[b.box_slot].drop_zone = self.frame_number; }
         let hot = self.dropped.as_ref().map_or(self.hot, |(_, hot)| *hot);
         if hot == 0 || !self.hit_within(hot, b.box_key) { return None; }
         if let Some((payload, _)) = &self.dropped { Some((true, payload)) }
@@ -6037,7 +6046,10 @@ impl Shapes for Paint {
 impl Ui {
     fn record_hit(&mut self, index: usize, parent: i64, rect: Rect) {
         let Rect { x, y, w, h } = rect;
-        let rec = HitRec { key: self.boxes[index].key, parent, flags: self.nd(index).flags, x, y, w, h, view: self.paint_xf };
+        // a drop zone that is no input node holds the pointer's hit as a plain blocking area, so a drop reaches it
+        let flags = self.nd(index).flags;
+        let zone = self.slots[self.boxes[index].slot].drop_zone == self.frame_number && !flags.any(HIT_FLAGS);
+        let rec = HitRec { key: self.boxes[index].key, parent, flags: if zone { flags.or(Flags::BLOCKING) } else { flags }, x, y, w, h, view: self.paint_xf };
         self.push_hit(rec);
     }
 
@@ -6171,7 +6183,7 @@ impl Ui {
         let visible = visible || (view != NO_VIEW && w > 0.0 && h > 0.0);
         let flags = self.nd(index).flags;
         // a gesture node is findable by touch arbitration without being interactive itself
-        let has_hit = (flags.any(HIT_FLAGS) || self.gestures[slot].kinds != 0) && hw > 0.0 && hh > 0.0;
+        let has_hit = (flags.any(HIT_FLAGS) || self.gestures[slot].kinds != 0 || self.slots[slot].drop_zone == self.frame_number) && hw > 0.0 && hh > 0.0;
         if has_hit {
             self.record_hit(index, parent_hit, clipped_hit);
         }
@@ -7573,6 +7585,7 @@ impl Ui {
     /// follows its item when the items reorder; without it, by its index. With `trailer`, the space after the last row is built too
     /// (`usize::MAX - 2`); without it (the 1.x C contract: every other index is a row) it stays empty.
     pub fn section_list(&mut self,label:&str,section:&pxui_types::ui::SectionList,row_key:Option<&dyn Fn(usize)->i64>,trailer:bool,f:&mut dyn FnMut(&mut Ui,usize,f32))->Handle {
+        self.list_drop=None;
         if section.measured { return self.section_rows_measured(label,section,row_key,trailer,f); }
         let y=|index:usize| match index { usize::MAX=>0.0, i if i==usize::MAX-1=>section.leading_height, i if i==usize::MAX-2=>section.leading_height+section.header_height+section.count as f32*section.row_height, i=>section.leading_height+section.header_height+i as f32*section.row_height };
         self.section_rows_fixed(label,section,row_key,trailer,&mut |ui,index| f(ui,index,y(index)))
@@ -7610,15 +7623,17 @@ impl Ui {
         let inner=self.enter(&extent);
         self.slots[extent.box_slot].holds_rows = true;
         self.text_mut().list_window(body.box_key as u64,first,last);
-        let outer=self.ahead;
+        let (outer,mut line)=(self.ahead,None);
         for index in first..last {
             self.ahead_row(outer,&(top..bottom),index);
             let node=Node {w:Size::Grow,h:Size::Px(section.row_height),at:Some((0.0,index as f32*section.row_height)).into(),role:Role::ListItem,..Node::DEFAULT};
             let row=self.list_row(body.box_key,index,row_key,node);
             self.slots[row.box_slot].row_of = (body.box_key, index as u32);
             let part=self.enter(&row); f(self,index); self.leave(part);
+            if section.reorder { line=line.or(self.row_insertion(&row,index,index as f32*section.row_height,section.row_height)); }
         }
         self.ahead=outer;
+        if let Some(y)=line { self.insertion_line(&extent,y); }
         self.leave(inner);
         if section.trailing_height>0.0 {
             let t=self.node("trailing".into(),Node {w:Size::Grow,h:Size::Px(section.trailing_height),..Node::DEFAULT});
@@ -7627,6 +7642,33 @@ impl Ui {
         self.leave(saved);
         self.remember_list(&body,ListGeometry::rows(&body,section.count,section.row_height,before,section.header_height,section.trailing_height,padding));
         body
+    }
+
+    /// Where a payload carried over the reorderable list row `row` (index `index`, `top` and `h` its place in the rows) would land: the
+    /// insertion index before it (pointer in its upper half) or after it, kept in `list_drop` with whether it was dropped; the
+    /// insertion line's Y in the rows while it is only carried. Allocates: never.
+    pub(crate) fn row_insertion(&mut self, row: &Handle, index: usize, top: f32, h: f32) -> Option<f32> {
+        let (after, dropped) = self.drop_side(row, index)?;
+        (!dropped).then_some(if after { top + h } else { top })
+    }
+
+    /// A payload carried over the list row `row` (index `index`): whether it would land after the row (the pointer in its lower half)
+    /// and whether it was dropped; the insertion index goes to `list_drop`.
+    pub(crate) fn drop_side(&mut self, row: &Handle, index: usize) -> Option<(bool, bool)> {
+        let dropped = self.drop_target_ref(row)?.0;
+        let r = self.rect(row);
+        let after = self.pointer.1 >= r.y + r.h / 2.0;
+        self.list_drop = Some((index + usize::from(after), dropped));
+        Some((after, dropped))
+    }
+
+    /// The insertion index a carried payload was dropped at in the reorderable list built last (`section_list`), this frame.
+    pub fn list_dropped(&self) -> Option<usize> { self.list_drop.filter(|d| d.1).map(|d| d.0) }
+
+    /// The 2-point insertion line at `y` in the rows `extent`, in the theme's accent, drawn over the rows.
+    fn insertion_line(&mut self, extent: &Handle, y: f32) {
+        let look = Look { fill: self.theme().tokens.accent, ..Look::NONE };
+        self.node_keyed(int_key(extent.box_key, -2), Node { w: Size::Grow, h: Size::Px(2.0), at: Some((0.0, (y - 1.0).max(0.0))).into(), look, ..Node::DEFAULT });
     }
 
     /// Row (or grid line) `index` of a virtual list builds past the viewport rows `shown` while the prepare queue runs (or
@@ -7709,7 +7751,7 @@ impl Ui {
         let inner=self.enter(&extent);
         self.slots[extent.box_slot].holds_rows = true;
         self.text_mut().list_window(body.box_key as u64,first,last);
-        let outer=self.ahead;
+        let (outer,mut line)=(self.ahead,None);
         for index in first..last {
             // measured rows: only rows below the viewport, whose heights do not move the rows in view
             self.ahead_row(outer,&(0..bottom),index);
@@ -7718,8 +7760,10 @@ impl Ui {
             self.slots[row.box_slot].row_of = (body.box_key, index as u32);
             self.list_rows.push((body.box_key,index,row.box_slot));
             let part=self.enter(&row); f(self,index,before+cache.tops[index]); self.leave(part);
+            if section.reorder { line=line.or(self.row_insertion(&row,index,cache.tops[index],cache.heights[index])); }
         }
         self.ahead=outer;
+        if let Some(y)=line { self.insertion_line(&extent,y); }
         self.leave(inner);
         if section.trailing_height>0.0 {
             let t=self.node("trailing".into(),Node {w:Size::Grow,h:Size::Px(section.trailing_height),..Node::DEFAULT});

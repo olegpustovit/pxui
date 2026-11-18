@@ -454,13 +454,13 @@ fn section_list_validates_before_callbacks_and_builds_every_part() {
     extern "C" fn build(user: *mut c_void, raw: *mut c_void) {
         let ui = raw.cast::<PxuiUi>();
         let keyed = PxuiKeyedDesc::new("section", "");
-        let valid = PxuiSectionListDesc { size: core::mem::size_of::<PxuiSectionListDesc>() as u32, overlay_scrollbar: 1, measured: 0, reserved: [0; 2], count: 3,
+        let valid = PxuiSectionListDesc { size: core::mem::size_of::<PxuiSectionListDesc>() as u32, overlay_scrollbar: 1, measured: 0, reorder: 0, reserved: 0, count: 3,
             row_height: 20.0, leading_height: 30.0, header_height: 20.0, trailing_height: 40.0 };
         let mut out = PxuiListResult { selected: 7, ..PxuiListResult::EMPTY };
-        let mut bad = [valid; 11];
-        bad[0].size -= 1; bad[1].overlay_scrollbar = 2; bad[2].reserved[1] = 1; bad[3].measured = 2; bad[4].count = 1_000_001;
+        let mut bad = [valid; 12];
+        bad[0].size -= 1; bad[1].overlay_scrollbar = 2; bad[2].reserved = 1; bad[3].measured = 2; bad[4].count = 1_000_001;
         bad[5].row_height = 0.0; bad[6].leading_height = -1.0; bad[7].header_height = f32::NAN; bad[8].trailing_height = f32::INFINITY;
-        bad[9].row_height = f32::MAX; bad[10].row_height = -20.0;
+        bad[9].row_height = f32::MAX; bad[10].row_height = -20.0; bad[11].reorder = 2;
         let before = unsafe { (*user.cast::<Seen>()).0 };
         for desc in &bad {
             assert_eq!(unsafe { pxui_ui_section_list(ui, &keyed, desc, None, Some(part), user, &mut out) }, PXUI_ERR_ARGUMENT);
@@ -505,7 +505,7 @@ fn list_and_table_rows_key_by_item_id() {
     extern "C" fn build(user: *mut c_void, raw: *mut c_void) {
         let (ui, state) = (raw.cast::<PxuiUi>(), unsafe { &mut *user.cast::<State>() });
         let mut out = PxuiListResult::EMPTY;
-        let section = PxuiSectionListDesc { size: core::mem::size_of::<PxuiSectionListDesc>() as u32, overlay_scrollbar: 0, measured: 0, reserved: [0; 2], count: 3, row_height: 20.0, leading_height: 0.0, header_height: 0.0, trailing_height: 0.0 };
+        let section = PxuiSectionListDesc { size: core::mem::size_of::<PxuiSectionListDesc>() as u32, overlay_scrollbar: 0, measured: 0, reorder: 0, reserved: 0, count: 3, row_height: 20.0, leading_height: 0.0, header_height: 0.0, trailing_height: 0.0 };
         assert_eq!(unsafe { pxui_ui_section_list(ui, &PxuiKeyedDesc::new("section", ""), &section, Some(key), Some(part), user, &mut out) }, 0);
         assert_eq!(unsafe { pxui_ui_section_list(ui, &PxuiKeyedDesc::new("plain", ""), &section, None, None, user, &mut out) }, 0, "no key: by index");
         let mut list: PxuiSelectionListDesc = unsafe { core::mem::zeroed() };
@@ -558,7 +558,10 @@ fn selection_list_table_and_heading_refuse_invalid_records_before_effects() {
     refuse_list(PxuiSelectionListDesc { multi: 2, ..list }, "multi not 0 or 1");
     refuse_list(PxuiSelectionListDesc { fit: 2, ..list }, "fit not 0 or 1");
     refuse_list(PxuiSelectionListDesc { open_on_click: 2, ..list }, "open_on_click not 0 or 1");
-    refuse_list(PxuiSelectionListDesc { reserved: [0, 1, 0], ..list }, "a reserved byte");
+    refuse_list(PxuiSelectionListDesc { reserved: 1, ..list }, "a reserved byte");
+    refuse_list(PxuiSelectionListDesc { reorder: 2, ..list }, "reorder not 0 or 1");
+    refuse_list(PxuiSelectionListDesc { has_drop_look: 2, ..list }, "has_drop_look not 0 or 1");
+    refuse_list(PxuiSelectionListDesc { has_drop_look: 1, drop_look: pxui_types::ffi::PxuiLookDesc { opacity: f32::NAN, ..list.drop_look }, ..list }, "a drop look the look check refuses");
     refuse_list(PxuiSelectionListDesc { rows: PxuiU8MutSpan { ptr: flags.as_mut_ptr(), len: 3 }, ..list }, "fewer flags than rows");
     refuse_list(PxuiSelectionListDesc { rows: PxuiU8MutSpan { ptr: core::ptr::null_mut(), len: 4 }, ..list }, "a null flag span");
     refuse_list(PxuiSelectionListDesc { row_height: f32::NAN, ..list }, "a NaN row height");

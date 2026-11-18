@@ -227,7 +227,7 @@ impl Ui {
     pub(crate) fn section_list_key(&mut self, key: Key, section: &SectionList, id: &dyn Fn(usize) -> i64, build: &mut dyn FnMut(&mut Ui, SectionPart, f32)) -> pxui_types::ui::ListResponse {
         let mut id_label = [0u8; 17];
         let label = key.label(&mut id_label);
-        let desc = pxui_types::ffi::PxuiSectionListDesc { size: core::mem::size_of::<pxui_types::ffi::PxuiSectionListDesc>() as u32, overlay_scrollbar: section.overlay_scrollbar as u8, measured: section.measured as u8, reserved: [0; 2],
+        let desc = pxui_types::ffi::PxuiSectionListDesc { size: core::mem::size_of::<pxui_types::ffi::PxuiSectionListDesc>() as u32, overlay_scrollbar: section.overlay_scrollbar as u8, measured: section.measured as u8, reorder: section.reorder as u8, reserved: 0,
             count: section.count, row_height: section.row_height, leading_height: section.leading_height, header_height: section.header_height, trailing_height: section.trailing_height };
         let mut out = pxui_types::ffi::PxuiListResult::EMPTY;
         #[cfg(feature = "static")]

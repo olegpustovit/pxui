@@ -115,8 +115,13 @@ pub(crate) fn default_scroll(this: &mut Ui, _c: &ScrollConfig, content: &mut dyn
 }
 
 /// The built-in row of a list or a table: the kit's look is already on it; the content goes inside.
-pub(crate) fn default_row(this: &mut Ui, _c: &RowConfig, content: &mut dyn FnMut(&mut Ui)) {
+pub(crate) fn default_row(this: &mut Ui, c: &RowConfig, content: &mut dyn FnMut(&mut Ui)) {
     content(this);
+    // the insertion line of a payload carried between the rows, over the row's top or bottom edge
+    if c.drop == 1 || c.drop == 2 {
+        let h = this.rect(&c.row).h.max(2.0);
+        this.node_keyed(int_key(c.row.box_key, -2), Node { w: Size::Grow, h: Size::Px(2.0), at: Some((0.0, if c.drop == 1 { 0.0 } else { h - 2.0 })).into(), look: c.line, ..Node::DEFAULT });
+    }
 }
 
 /// The built-in tree row: the disclosure mark (a spacer without children), then the content.

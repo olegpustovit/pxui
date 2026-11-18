@@ -385,6 +385,11 @@ pub struct RowConfig {
     pub state: State,
     pub index: usize,
     pub row: Handle,
+    /// A carried payload: 0 none, 1 would land before the row, 2 after it (a reorderable list; the body draws the insertion line),
+    /// 3 over the row (a list with a drop look, which behaviour has applied to the row).
+    pub drop: u8,
+    /// The insertion line's look (the list's drop look, else the theme's accent).
+    pub line: Look,
 }
 
 pub type RowBody = fn(&mut Ui, &RowConfig, &mut dyn FnMut(&mut Ui));

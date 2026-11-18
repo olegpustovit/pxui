@@ -4817,6 +4817,7 @@ pxui_types::ffi::PxuiListResult struct @U2b.1
 pxui_types::ffi::PxuiListResult::EMPTY const PxuiListResult @U2b.1
 pxui_types::ffi::PxuiListResult::activated field usize @U2b.1
 pxui_types::ffi::PxuiListResult::anchor field usize @U2b.1
+pxui_types::ffi::PxuiListResult::drop_at field usize @U2b.2
 pxui_types::ffi::PxuiListResult::handle field PxuiBox @U2b.1
 pxui_types::ffi::PxuiListResult::reserved field u32 @U2b.1
 pxui_types::ffi::PxuiListResult::row field PxuiBox @U2b.1
@@ -5151,6 +5152,7 @@ pxui_types::ffi::PxuiRowConfig impl Clone @HEAD
 pxui_types::ffi::PxuiRowConfig impl Copy @HEAD
 pxui_types::ffi::PxuiRowConfig struct @HEAD
 pxui_types::ffi::PxuiRowConfig::content field PxuiSlot @HEAD
+pxui_types::ffi::PxuiRowConfig::drop field u8 @U2b.2
 pxui_types::ffi::PxuiRowConfig::index field usize @HEAD
 pxui_types::ffi::PxuiRowConfig::row field PxuiBox @HEAD
 pxui_types::ffi::PxuiRowConfig::size field u32 @HEAD
@@ -5226,8 +5228,9 @@ pxui_types::ffi::PxuiSectionListDesc::header_height field f32 @HEAD
 pxui_types::ffi::PxuiSectionListDesc::leading_height field f32 @HEAD
 pxui_types::ffi::PxuiSectionListDesc::measured field u8 @U2b.1
 pxui_types::ffi::PxuiSectionListDesc::overlay_scrollbar field u8 @HEAD
-pxui_types::ffi::PxuiSectionListDesc::reserved field [u8; 2] @U2b.1
+pxui_types::ffi::PxuiSectionListDesc::reorder field u8 @U2b.2
 -pxui_types::ffi::PxuiSectionListDesc::reserved field [u8; 3] @U2b.1
+pxui_types::ffi::PxuiSectionListDesc::reserved field u8 @U2b.1
 pxui_types::ffi::PxuiSectionListDesc::row_height field f32 @HEAD
 pxui_types::ffi::PxuiSectionListDesc::size field u32 @HEAD
 pxui_types::ffi::PxuiSectionListDesc::trailing_height field f32 @HEAD
@@ -5291,14 +5294,17 @@ pxui_types::ffi::PxuiSelectionListDesc impl Copy @U2b.1
 pxui_types::ffi::PxuiSelectionListDesc struct @U2b.1
 pxui_types::ffi::PxuiSelectionListDesc::anchor field usize @U2b.1
 pxui_types::ffi::PxuiSelectionListDesc::count field usize @U2b.1
+pxui_types::ffi::PxuiSelectionListDesc::drop_look field PxuiLookDesc @U2b.2
 pxui_types::ffi::PxuiSelectionListDesc::fit field u8 @U2b.1
+pxui_types::ffi::PxuiSelectionListDesc::has_drop_look field u8 @U2b.2
 pxui_types::ffi::PxuiSelectionListDesc::header_height field f32 @U2b.1
 pxui_types::ffi::PxuiSelectionListDesc::leading_height field f32 @U2b.1
 pxui_types::ffi::PxuiSelectionListDesc::measured field u8 @U2b.1
 pxui_types::ffi::PxuiSelectionListDesc::multi field u8 @U2b.1
 pxui_types::ffi::PxuiSelectionListDesc::open_on_click field u8 @U2b.1
 pxui_types::ffi::PxuiSelectionListDesc::overlay_scrollbar field u8 @U2b.1
-pxui_types::ffi::PxuiSelectionListDesc::reserved field [u8; 3] @U2b.1
+pxui_types::ffi::PxuiSelectionListDesc::reorder field u8 @U2b.2
+pxui_types::ffi::PxuiSelectionListDesc::reserved field u8 @U2b.1
 pxui_types::ffi::PxuiSelectionListDesc::row_height field f32 @U2b.1
 pxui_types::ffi::PxuiSelectionListDesc::rows field PxuiU8MutSpan @U2b.1
 pxui_types::ffi::PxuiSelectionListDesc::size field u32 @U2b.1

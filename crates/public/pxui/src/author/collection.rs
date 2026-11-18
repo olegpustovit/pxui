@@ -758,6 +758,129 @@ mod tests {
         assert!(mem_sys::take_reports().is_empty());
     }
 
+    /// A clickable 40-point source at the top of the window that carries a "song" payload while held.
+    fn source(ui: &mut Ui) {
+        let src = ui.node("source", Node { flags: crate::Flags::CLICKABLE, h: Size::Px(40.0), ..Node::DEFAULT });
+        if ui.signal(&src).held { ui.carry(Some(&src), "song", "7"); }
+    }
+    /// Presses the source, drags to (`x`, `y`) over three frames and releases there, calling `seen` after each frame.
+    fn drag_to(ui: &mut Ui, t: f64, x: f64, y: f64, build: &mut dyn FnMut(&mut Ui), seen: &mut dyn FnMut(&Ui, bool)) {
+        let p = |kind, x, y| [Event::pointer(kind, 0, x, y)];
+        at(ui, t, &p(Event::POINTER_MOVED, 20.0, 20.0), build);
+        at(ui, t + 0.1, &p(Event::POINTER_PRESSED, 20.0, 20.0), build);
+        for (i, (px, py)) in [(20.0, 30.0), (x, y), (x, y + 0.5), (x, y)].into_iter().enumerate() {
+            at(ui, t + 0.2 + i as f64 * 0.1, &p(Event::POINTER_MOVED, px, py), build);
+            seen(ui, false);
+        }
+        at(ui, t + 1.0, &p(Event::POINTER_RELEASED, x, y), build);
+        seen(ui, true);
+    }
+
+    /// U2b.2: a node without input flags takes a drop: asking `drop_target` makes it a drop zone, so the pointer's hit over it (or
+    /// over a child) reports a hover, then the drop in the release frame.
+    #[test]
+    fn a_plain_node_takes_a_drop() {
+        let got = Cell::new((false, false));
+        let mut build = |ui: &mut Ui| {
+            source(ui);
+            let target = ui.node("target", Node { h: Size::Px(100.0), ..Node::DEFAULT });
+            ui.within(&target, &mut |ui| { ui.node("child", Node { w: Size::Px(20.0), h: Size::Px(20.0), ..Node::DEFAULT }); });
+            match ui.drop_target(&target) {
+                Some(crate::DropRef::Hover(p)) => { assert_eq!((p.kind, p.value), ("song", "7")); got.set((true, got.get().1)); }
+                Some(crate::DropRef::Dropped(_)) => got.set((got.get().0, true)),
+                None => {}
+            }
+        };
+        let mut ui = crate::doc::frames(2, &mut build);
+        drag_to(&mut ui, 1.0, 100.0, 90.0, &mut build, &mut |_, _| {});
+        assert_eq!(got.get(), (true, true), "a plain node saw the hover and took the drop");
+    }
+
+    /// U2b.2: a reorderable `section_list` reports the insertion index a carried payload is dropped at (before a row over its upper
+    /// half, after it over its lower half) and draws the insertion line meanwhile; a selection list with a drop look tells the row
+    /// body `drop` 3 over a row and the app takes the drop on the row's box; a reorderable selection list tells the body 1 or 2.
+    #[test]
+    fn lists_report_where_a_payload_lands() {
+        let dropped = Cell::new(None);
+        let mut build = |ui: &mut Ui| {
+            source(ui);
+            let r = ui.section_list("queue", &SectionList::new(5).row_h(20.0).reorder(true), &|i| i as i64 * 10, &mut |ui, part, _| if let SectionPart::Row(_) = part { ui.node("cell", Node { h: Size::Px(20.0), ..Node::DEFAULT }); });
+            if r.drop_at.is_some() { dropped.set(r.drop_at); }
+        };
+        let mut ui = crate::doc::frames(2, &mut build);
+        // the list starts at y 40: row 2 spans 80..100, its lower half 90..100
+        let mut counts = Vec::new();
+        drag_to(&mut ui, 1.0, 50.0, 95.0, &mut build, &mut |ui, done| if !done { counts.push(ui.built_nodes()) });
+        assert_eq!(dropped.get(), Some(3), "dropped over row 2's lower half: inserted at 3");
+        // the first carried frame is not over a row yet; the hover frames build one node more, the insertion line
+        assert!(counts[1..].iter().all(|n| *n == counts[0] + 1), "{counts:?}");
+        dropped.set(None);
+        drag_to(&mut ui, 3.0, 50.0, 82.0, &mut build, &mut |_, _| {});
+        assert_eq!(dropped.get(), Some(2), "over row 2's upper half: inserted at 2");
+
+        thread_local! { static DROPS: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) }; }
+        fn drop_row(ui: &mut Ui, c: &SelectionListConfig) { DROPS.with(|d| d.borrow_mut().push(c.drop)); ui.slot(c.content); }
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
+        ui.set_a11y(true);
+        ui.register_selection_list_body("drops", drop_row).unwrap();
+        ui.set_theme(&crate::ThemeHandle::parse("selection_list.body = drops").unwrap()).unwrap();
+        let (state, took, mode) = (RefCell::new(ListState::new()), Cell::new(None), Cell::new(0));
+        const LOOK: crate::theme::Look = crate::theme::Look::NONE.fill(crate::Rgba::rgb(0, 128, 255));
+        let mut build = |ui: &mut Ui| {
+            source(ui);
+            let list = if mode.get() == 0 { SelectionList::DEFAULT.row_h(20.0).drop_look(LOOK) } else { SelectionList::DEFAULT.row_h(20.0).reorder(true) };
+            let r = ui.selection_list("lists", 5, &|i| i as i64, &mut state.borrow_mut(), &list, &mut |ui, part, cell| if let SectionPart::Row(i) = part {
+                ui.item_text("row");
+                if let Some(crate::DropRef::Dropped(_)) = ui.drop_target(&cell.handle) { took.set(Some(i)); }
+            });
+            if r.drop_at.is_some() { took.set(r.drop_at.map(|i| i + 100)); }
+        };
+        for n in 0..2 { at(&mut ui, n as f64, &[], &mut build); }
+        DROPS.with(|d| d.borrow_mut().clear());
+        drag_to(&mut ui, 2.0, 50.0, 41.0 + 20.0 + 10.0, &mut build, &mut |_, _| {});
+        assert_eq!(took.get(), Some(1), "the app took the drop on row 1's box");
+        assert!(DROPS.with(|d| d.borrow().contains(&3)), "the row body was told the payload is over the row");
+        mode.set(1);
+        DROPS.with(|d| d.borrow_mut().clear());
+        drag_to(&mut ui, 4.0, 50.0, 41.0 + 20.0 + 15.0, &mut build, &mut |_, _| {});
+        assert_eq!(took.get(), Some(102), "a reorderable selection list reports the insertion index");
+        assert!(DROPS.with(|d| d.borrow().contains(&2)), "the row body was told the payload lands after the row");
+    }
+
+    /// U2b.2: carrying a payload across a reorderable list and a drop-look selection list allocates nothing once warm (both link modes).
+    #[test]
+    fn a_warm_drag_over_lists_allocates_nothing() {
+        mem_sys::set_peer(crate::library_counter);
+        let state = RefCell::new(ListState::new());
+        const LOOK: crate::theme::Look = crate::theme::Look::NONE.fill(crate::Rgba::rgb(0, 128, 255));
+        let mut build = |ui: &mut Ui| {
+            source(ui);
+            ui.column(Node { h: Size::Px(100.0), ..Node::DEFAULT }, |ui| {
+                ui.section_list("queue", &SectionList::new(500).row_h(20.0).reorder(true), &|i| i as i64, &mut |ui, part, _| if let SectionPart::Row(_) = part { ui.node("cell", Node { h: Size::Px(20.0), ..Node::DEFAULT }); });
+            });
+            ui.column(Node { h: Size::Px(100.0), ..Node::DEFAULT }, |ui| {
+                ui.selection_list("lists", 500, &|i| i as i64, &mut state.borrow_mut(), &SelectionList::DEFAULT.row_h(20.0).drop_look(LOOK), &mut |ui, part, cell| if let SectionPart::Row(_) = part {
+                    ui.item_text("row");
+                    let _ = ui.drop_target(&cell.handle);
+                });
+            });
+        };
+        let mut ui = crate::doc::frames(2, &mut build);
+        let p = |kind, y| [Event::pointer(kind, 0, 50.0, y)];
+        at(&mut ui, 1.0, &p(Event::POINTER_MOVED, 20.0), &mut build);
+        at(&mut ui, 1.1, &p(Event::POINTER_PRESSED, 20.0), &mut build);
+        let y = |i: usize| 45.0 + (i * 7 % 190) as f64;
+        for i in 0..40 { at(&mut ui, 1.2 + i as f64 * 0.02, &p(Event::POINTER_MOVED, y(i)), &mut build); }
+        let scope = mem_sys::warm_scope();
+        for i in 40..80 {
+            mem_sys::local_reset();
+            at(&mut ui, 1.2 + i as f64 * 0.02, &p(Event::POINTER_MOVED, y(i)), &mut build);
+            assert_eq!(mem_sys::local_alloc_count(), 0, "a warm drag frame over the lists allocated");
+        }
+        drop(scope);
+        assert!(mem_sys::take_reports().is_empty());
+    }
+
     /// One `section_list` serves fixed and measured rows: a fixed row's `y` is the lead-in, heading and rows above it, and a measured
     /// row takes the height it lays out to.
     #[test]

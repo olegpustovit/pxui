@@ -131,7 +131,7 @@ PxuiSegmentConfig 200 8 0 4 16 24 32 40 72 88 96 98 100 104 112 144 176 177 184 
 PxuiDropdownConfig 80 8 0 4 12 16 24 56 72
 PxuiMenuItemConfig 80 8 0 4 16 24 56 72
 PxuiMenuRowConfig 112 8 0 4 12 13 14 15 16 20 24 32 36 40 72 88 104 108
-PxuiRowConfig 72 8 0 4 16 24 56 64
+PxuiRowConfig 72 8 0 4 16 24 56 64 66
 PxuiTreeRowConfig 88 8 0 4 12 13 16 24 32 40 72 80
 PxuiTableHeadConfig 80 8 0 4 12 13 16 24 56 72
 PxuiSearchFieldConfig 88 8 0 4 16 24 56 72 80
@@ -144,7 +144,7 @@ TextSpans 200 4 0 4 8
 
 # FrameIn above freezes the accepted v1 prefix; the complete ABI 1.8 descriptor follows.
 FrameInV1_8 56 8 0 8 16 24 28 32 40 48 52
-PxuiSectionListDesc 32 8 0 4 5 6 8 16 20 24 28
+PxuiSectionListDesc 32 8 0 4 5 7 8 16 20 24 28
 Environment 72 8 0 16 32 48 56 64 68
 FrameInV1_24 128 8 0 8 16 24 28 32 40 48 52 56
 Touch 48 8 0 8 16 24 32 40 44
@@ -178,11 +178,11 @@ PxuiCheckboxDesc 56 8 0 4 5 6 7 8 16 24 40
 PxuiSheetDesc 20 4 0 4 5 6 8 12 16
 PxuiPickRow 64 8 0 4 5 8 16 32 48
 PxuiCellState 48 8 0 4 5 6 7 8 40 44
-PxuiListResult 104 8 0 4 8 40 72 80 88 96
-PxuiSelectionListDesc 64 8 0 4 5 6 7 8 9 16 24 28 32 36 40 56
+PxuiListResult 112 8 0 4 8 40 72 80 88 96
+PxuiSelectionListDesc 216 8 0 4 5 6 7 8 11 16 24 28 32 36 40 56
 PxuiColumn 40 8 0 4 5 6 7 8 24 32 36
 PxuiColumnWidth 16 8 0 8 12
 PxuiColumnWidthSpan 16 8 0 8
 PxuiTableHeadDesc 56 8 0 4 5 6 8 24 40 48 52
 PxuiHeadResult 56 8 0 4 5 6 7 8 16
-PxuiTableResult 168 8 0 4 8 112
+PxuiTableResult 176 8 0 4 8 120

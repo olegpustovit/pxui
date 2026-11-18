@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 87
+minor 88
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -401,7 +401,7 @@ layout PxuiLabelConfig 144 8 0 4 8 40 56 120 124
 layout PxuiLabelStyle 64 8 0 4 8 10 12 14 16 17 18 19 20 24 28 32 36 40 44 48
 layout PxuiLayerInfo 48 8 0 8 12 16 32
 layout PxuiLineFieldConfig 72 8 0 4 12 16 48 64
-layout PxuiListResult 104 8 0 4 8 40 72 80 88 96
+layout PxuiListResult 112 8 0 4 8 40 72 80 88 96
 layout PxuiLook 160 8 0 4 12 16 20 24 28 44 92 96 128 132 144 148 152
 layout PxuiLookDesc 152 8 0 4 8 12 16 20 24 28 44 92 96 120 124 136 140 144 145
 layout PxuiMark 12 4
@@ -438,18 +438,18 @@ layout PxuiResponse 40 8 0 4 8
 layout PxuiRewrite 24 8 0 16
 layout PxuiRing 12 4 0 4 8
 layout PxuiRingDesc 12 4 0 4 8
-layout PxuiRowConfig 72 8 0 4 16 24 56 64
+layout PxuiRowConfig 72 8 0 4 16 24 56 64 66
 layout PxuiSaved 24 8 0 4 8 16
 layout PxuiScrollConfig 56 8 0 8 40 48
 layout PxuiScrubOut 48 8 0 4 8 40 44
 layout PxuiSearchFieldConfig 88 8 0 4 16 24 56 72 80
 layout PxuiSectionConfig 80 8 0 4 8 16 48 64 72
 layout PxuiSectionIndexConfig 80 8 0 4 12 16 24 56 72
-layout PxuiSectionListDesc 32 8 0 4 5 6 8 16 20 24 28
+layout PxuiSectionListDesc 32 8 0 4 5 7 8 16 20 24 28
 layout PxuiSegmentConfig 200 8 0 4 16 24 32 40 72 88 96 98 100 104 112 144 176 177 184 192 193
 layout PxuiSegmentedDesc 112 8 0 4 5 6 8 16 24 40 56 64 68 72 76 80 96 97 104 105
 layout PxuiSegmentedResult 24 8 0 4 5 6 8 16
-layout PxuiSelectionListDesc 64 8 0 4 5 6 7 8 9 16 24 28 32 36 40 56
+layout PxuiSelectionListDesc 216 8 0 4 5 6 7 8 11 16 24 28 32 36 40 56
 layout PxuiShadow 24 4 0 4 12 16 20
 layout PxuiShadowDesc 24 4 0 4 12 16 20 21
 layout PxuiSheetDesc 20 4 0 4 5 6 8 12 16
@@ -472,7 +472,7 @@ layout PxuiTabConfig 96 8 0 4 16 24 56 72 80
 layout PxuiTableDesc 96 8 0 4 5 6 7 8 24 40 48 56 60 64 80 88 90
 layout PxuiTableHeadConfig 80 8 0 4 12 13 16 24 56 72
 layout PxuiTableHeadDesc 56 8 0 4 5 6 8 24 40 48 52
-layout PxuiTableResult 168 8 0 4 8 112
+layout PxuiTableResult 176 8 0 4 8 120
 layout PxuiTargetDesc 32 4 0 4 8 9 12 16 20 24 28
 layout PxuiTextAreaDesc 200 8 0 4 8 12 16 20 24 32 40 56 72 88 104 120 136 152 168 184
 layout PxuiTextFieldConfig 88 8 0 4 16 48 64 80

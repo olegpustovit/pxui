@@ -623,6 +623,7 @@ impl Ui {
     /// ```
     #[inline] #[track_caller] pub fn cancel_carry(&mut self) { check(self, unsafe { lib::pxui_ui_cancel_carry(self.0.as_ptr()) }) }
     /// What a drag looks like to the drop target `b`: `Hover` while a payload is held over it or one of its descendants, `Dropped` in the frame the payload was released there, `None` otherwise.
+    /// Any node can be a target, whether it takes input or not: asking while a payload is carried makes `b` a drop zone, which takes the pointer's hit over it from the next frame (a plain node behaves as a blocking area while the carry lasts).
     /// A drop stays readable by the target and its ancestors for the whole frame it happened in; the payload is borrowed from the library until the next mutable call on the `Ui`, so no string is copied.
     /// Allocates: never.
     /// Panics: when the library refuses the call (a null `Ui`).

@@ -1608,8 +1608,10 @@ pub struct PxuiSectionListDesc {
     pub overlay_scrollbar: u8,
     /// 1: rows take the heights they lay out to (`row_height` their estimate).
     pub measured: u8,
+    /// 1 (ABI 1.88): a payload carried between the rows shows the insertion line and its drop reports `drop_at`.
+    pub reorder: u8,
     /// Zero.
-    pub reserved: [u8; 2],
+    pub reserved: u8,
     /// Rows (at most a million).
     pub count: usize,
     /// Row height in points (positive, finite).
@@ -1643,11 +1645,13 @@ pub struct PxuiListResult {
     pub secondary: usize,
     /// The anchor Shift extends from, after this frame.
     pub anchor: usize,
+    /// ABI 1.88: the insertion index a carried payload was dropped at (a reorderable list).
+    pub drop_at: usize,
 }
 
 impl PxuiListResult {
     /// An empty record of this size, for a call to fill.
-    pub const EMPTY: PxuiListResult = PxuiListResult { size: core::mem::size_of::<PxuiListResult>() as u32, reserved: 0, handle: PxuiBox { index: 0, box_key: 0, box_slot: 0, generation: 0 }, row: PxuiBox { index: 0, box_key: 0, box_slot: 0, generation: 0 }, activated: usize::MAX, selected: usize::MAX, secondary: usize::MAX, anchor: usize::MAX };
+    pub const EMPTY: PxuiListResult = PxuiListResult { size: core::mem::size_of::<PxuiListResult>() as u32, reserved: 0, handle: PxuiBox { index: 0, box_key: 0, box_slot: 0, generation: 0 }, row: PxuiBox { index: 0, box_key: 0, box_slot: 0, generation: 0 }, activated: usize::MAX, selected: usize::MAX, secondary: usize::MAX, anchor: usize::MAX, drop_at: usize::MAX };
 }
 
 /// A selection list for `pxui_ui_selection_list` (ABI 1.87): the section geometry, the row flags (one byte a row: 1 selected,
@@ -1668,8 +1672,12 @@ pub struct PxuiSelectionListDesc {
     pub overlay_scrollbar: u8,
     /// 1: rows take the heights they lay out to.
     pub measured: u8,
+    /// 1 (ABI 1.88): rows take a payload carried between them (`PxuiRowConfig.drop` 1 and 2, `drop_at`).
+    pub reorder: u8,
+    /// 1 (ABI 1.88): rows take a payload over them, shown in `drop_look` (`PxuiRowConfig.drop` 3).
+    pub has_drop_look: u8,
     /// Zero.
-    pub reserved: [u8; 3],
+    pub reserved: u8,
     /// The section geometry, as `PxuiSectionListDesc`'s.
     pub count: usize,
     /// Row height in points (positive, finite).
@@ -1684,6 +1692,8 @@ pub struct PxuiSelectionListDesc {
     pub rows: PxuiU8MutSpan,
     /// The anchor row (`usize::MAX`: none).
     pub anchor: usize,
+    /// ABI 1.88: the look a row takes while a payload is over it (read when `has_drop_look` is 1; checked as `pxui_ui_set_look` checks one).
+    pub drop_look: PxuiLookDesc,
 }
 
 /// One table column (ABI 1.87): `share` > 0 splits the width the point columns leave by weight, else `w` points (0: hidden);
@@ -2256,8 +2266,10 @@ configs! {
         state: PxuiStateDesc, selected: u8, chevron: u8, danger: u8, has_swatch: u8, swatch: Rgba, has_shortcut: u8, index: i64, lead: f32, swatch_pad: f32,
         row: PxuiBox, text: Str, shortcut: Str, row_h: f32
     }
-    /// A `selection_list` or `table_row` row; `content` is the text or the caller's cells.
-    PxuiRowConfig { state: PxuiStateDesc, index: usize, row: PxuiBox, content: PxuiSlot }
+    /// A `selection_list` or `table_row` row; `content` is the text or the caller's cells. `drop` (ABI 1.88): a carried payload, 0 none,
+    /// 1 would land before the row, 2 after it (a reorderable list: the body draws the insertion line), 3 over the row (a list with a
+    /// drop look, which behaviour has applied to the row).
+    PxuiRowConfig { state: PxuiStateDesc, index: usize, row: PxuiBox, content: PxuiSlot, drop: u8 }
     PxuiTreeRowConfig { state: PxuiStateDesc, has: u8, open: u8, index: usize, node: usize, depth: usize, row: PxuiBox, content: PxuiSlot }
     PxuiTableHeadConfig { state: PxuiStateDesc, has_ascending: u8, ascending: u8, index: usize, node: PxuiBox, title: Str }
     PxuiPickerRowConfig {

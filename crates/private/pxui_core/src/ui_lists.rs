@@ -40,6 +40,8 @@ pub struct ListResult {
     pub selected: Option<usize>,
     pub secondary: Option<usize>,
     pub row: Option<Handle>,
+    /// The insertion index a carried payload was dropped at (a reorderable list).
+    pub drop_at: Option<usize>,
 }
 
 /// One table column as the engine takes it (validated by the caller; its title travels beside it in a `titles` slice): `share` > 0
@@ -129,6 +131,10 @@ fn key_selection(this: &Ui, frame: &Handle, count: usize, page: i64, flags: &mut
 
 /// The rows' shared state while a list or table builds.
 struct Rows {
+    /// rows take a payload between them (insertion line, `drop_at`)
+    reorder: bool,
+    /// rows take a payload over them, shown in this look
+    drop_look: Option<Look>,
     /// a click changed the selection after rows before it were built from the old one
     late: bool,
     multi: bool,
@@ -179,8 +185,13 @@ fn build_row(ui: &mut Ui, r: &mut Rows, flags: &mut [u8], anchor: &mut Option<us
     ui.style(&n, &states, state);
     ui.set_role(&n, r.role, st::SELECTABLE | if on { st::SELECTED } else { 0 });
     ui.node_new(&n).state.disabled = !enabled;
+    let over = if r.reorder { ui.drop_side(&n, i).map(|(after, dropped)| if dropped { 0 } else if after { 2 } else { 1 }) }
+        else if r.drop_look.is_some() { ui.drop_target_ref(&n).map(|_| 3) } else { None };
+    let drop = over.unwrap_or(0);
+    if let (3, Some(look)) = (drop, r.drop_look) { ui.node_mut(&n).look = look; }
+    let line = r.drop_look.unwrap_or(Look { fill: ui.theme().tokens.accent, ..Look::NONE });
     let cell = ListCell { selected: on, enabled, focused, held: s.held && enabled, handle: n, y };
-    let config = RowConfig { state, index: i, row: n };
+    let config = RowConfig { state, index: i, row: n, drop, line };
     let body = if r.kind == ITEM_TABLE { body_of!(ui, table_row) } else { body_of!(ui, selection_list) };
     let outer = (core::mem::replace(&mut ui.bodies.item, n), core::mem::replace(&mut ui.bodies.item_kind, r.kind));
     in_item!(ui, body, n.box_key, n, default_row(&config, &mut |ui| content(ui, i, &cell)));
@@ -340,8 +351,10 @@ impl Ui {
         let page = (self.rect(&frame).h / list.row_height).floor().max(1.0) as i64;
         let (cursor, c, enter, changed) = key_selection(self, &frame, count, page, flags, anchor, list.multi);
         let h = if list.measured { Size::Fit } else { Size::Px(list.row_height) };
-        let mut rows = Rows { late: false, multi: list.multi, open_on_click: list.open_on_click, focused, c, out: ListResult { selected: changed, activated: enter.then_some(c), ..ListResult::default() }, kind: ITEM_LIST, role: Role::ListItem, inset: self.space(2), gap: 4.0, h };
-        let section = SectionList { count, row_height: list.row_height, leading_height: list.leading_height, header_height: list.header_height, trailing_height: list.trailing_height, overlay_scrollbar: list.overlay_scrollbar, measured: list.measured, reorder: list.reorder };
+        self.list_drop = None;
+        let mut rows = Rows { reorder: list.reorder, drop_look: list.drop_look, late: false, multi: list.multi, open_on_click: list.open_on_click, focused, c, out: ListResult { selected: changed, activated: enter.then_some(c), ..ListResult::default() }, kind: ITEM_LIST, role: Role::ListItem, inset: self.space(2), gap: 4.0, h };
+        // the rows take drops themselves (their body draws the line), so the section draws none
+        let section = SectionList { count, row_height: list.row_height, leading_height: list.leading_height, header_height: list.header_height, trailing_height: list.trailing_height, overlay_scrollbar: list.overlay_scrollbar, measured: list.measured, reorder: false };
         let saved = self.enter(&frame);
         let mut part = |ui: &mut Ui, index: usize, y: f32| {
             if index >= usize::MAX - 2 { cell(ui, index, &ListCell { enabled: true, y, ..ListCell::default() }) } else { build_row(ui, &mut rows, flags, anchor, index, y, cell) }
@@ -352,6 +365,7 @@ impl Ui {
         self.set_role(&body, Role::List, if list.multi { st::SELECTABLE } else { 0 });
         self.a11y_name(&body, shown(label));
         let (c, mut out) = (rows.c, rows.out);
+        out.drop_at = self.list_drop.filter(|d| d.1).map(|d| d.0);
         if rows.late { self.build_again(&frame); }
         if c != cursor { self.reveal(&body, c); }
         self.set_state(&frame, c as i64);
@@ -390,7 +404,7 @@ impl Ui {
         let head_out = head_row(self, head, columns, titles, widths, sort);
         (self.bodies.variant, self.bodies.variant_kind) = rows_variant;
         let widths = &*widths;
-        let mut rows = Rows { late: false, multi, open_on_click: false, focused, c, out: ListResult { selected: changed, activated: enter.then_some(c), ..ListResult::default() }, kind: ITEM_TABLE, role: Role::Row, inset: 0.0, gap: 1.0, h: Size::Px(row_h) };
+        let mut rows = Rows { reorder: false, drop_look: None, late: false, multi, open_on_click: false, focused, c, out: ListResult { selected: changed, activated: enter.then_some(c), ..ListResult::default() }, kind: ITEM_TABLE, role: Role::Row, inset: 0.0, gap: 1.0, h: Size::Px(row_h) };
         let mut cells = |ui: &mut Ui, row: usize, info: &ListCell| {
             let n = info.handle;
             for (col, (spec, w)) in columns.iter().zip(widths).enumerate() {

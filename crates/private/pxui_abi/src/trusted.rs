@@ -1026,6 +1026,7 @@ fn write_list(r: &ListResult, anchor: Option<usize>, out: &mut PxuiListResult) {
     let none = usize::MAX;
     (out.reserved, out.handle, out.row) = (0, to_abi_box(r.handle), r.row.map_or(PxuiBox::default(), to_abi_box));
     (out.activated, out.selected, out.secondary, out.anchor) = (r.activated.unwrap_or(none), r.selected.unwrap_or(none), r.secondary.unwrap_or(none), anchor.unwrap_or(none));
+    out.drop_at = r.drop_at.unwrap_or(none);
 }
 
 /// The columns of `span` checked in one pass before any effect into `out`: each record's size, flags and reserved byte, its title
@@ -1066,16 +1067,17 @@ fn write_head(h: &pxui_core::ui_lists::HeadResult, sort: Option<(i64, bool)>, ou
 /// its trailer; `f` gets the borrowed handle, the part's index (`usize::MAX - 2` the trailer) and its logical content Y.
 pub unsafe fn section_list(ui: *mut PxuiUi, key: &str, desc: &PxuiSectionListDesc, ids: Option<&dyn Fn(usize) -> i64>, f: &mut dyn FnMut(*mut PxuiUi, usize, f32), out: &mut PxuiListResult) -> i32 {
     enter!(ui);
-    if bad_key(key) || desc.overlay_scrollbar > 1 || desc.measured > 1 || desc.reserved != [0; 2]
+    if bad_key(key) || desc.overlay_scrollbar > 1 || desc.measured > 1 || desc.reorder > 1 || desc.reserved != 0
         || !geometry_ok(desc.count, desc.row_height, [desc.leading_height, desc.header_height, desc.trailing_height]) { return unsafe { fail(ui, "invalid section list descriptor") }; }
-    let section = pxui_types::ui::SectionList { count: desc.count, row_height: desc.row_height, leading_height: desc.leading_height, header_height: desc.header_height, trailing_height: desc.trailing_height, overlay_scrollbar: desc.overlay_scrollbar != 0, measured: desc.measured != 0, reorder: false };
+    let section = pxui_types::ui::SectionList { count: desc.count, row_height: desc.row_height, leading_height: desc.leading_height, header_height: desc.header_height, trailing_height: desc.trailing_height, overlay_scrollbar: desc.overlay_scrollbar != 0, measured: desc.measured != 0, reorder: desc.reorder != 0 };
     let shared = unsafe { (*ui).shared };
     let body = unsafe { engine(ui) }.section_list(key, &section, ids, true, &mut |engine: &mut Ui, index, y| {
         let mut borrowed = PxuiUi::borrowed(engine, shared);
         let _current = crate::state::Current::set(shared, &mut borrowed);
         f(&mut borrowed, index, y);
     });
-    write_list(&ListResult { handle: body, ..ListResult::default() }, None, out);
+    let drop_at = unsafe { engine(ui) }.list_dropped();
+    write_list(&ListResult { handle: body, drop_at, ..ListResult::default() }, None, out);
     0
 }
 
@@ -1083,13 +1085,16 @@ pub unsafe fn section_list(ui: *mut PxuiUi, key: &str, desc: &PxuiSectionListDes
 /// `count` bytes at least), then the list keyed by `key`; `cell` gets the borrowed handle, the part's index and its cell record.
 pub unsafe fn selection_list(ui: *mut PxuiUi, key: &str, desc: &PxuiSelectionListDesc, ids: Option<&dyn Fn(usize) -> i64>, cell: &mut dyn FnMut(*mut PxuiUi, usize, &PxuiCellState), out: &mut PxuiListResult) -> i32 {
     enter!(ui);
-    if bad_key(key) || [desc.multi, desc.fit, desc.open_on_click, desc.overlay_scrollbar, desc.measured].iter().any(|f| *f > 1) || desc.reserved != [0; 3]
+    let drop_look = if desc.has_drop_look == 1 { crate::style::decode_look(desc.drop_look) } else { None };
+    if bad_key(key) || [desc.multi, desc.fit, desc.open_on_click, desc.overlay_scrollbar, desc.measured, desc.reorder, desc.has_drop_look].iter().any(|f| *f > 1) || desc.reserved != 0
+        || (desc.has_drop_look == 1 && drop_look.is_none())
         || !geometry_ok(desc.count, desc.row_height, [desc.leading_height, desc.header_height, desc.trailing_height])
         || desc.rows.len < desc.count || (desc.count > 0 && desc.rows.ptr.is_null()) { return unsafe { fail(ui, "invalid selection list descriptor") }; }
     let flags: &mut [u8] = if desc.count == 0 { &mut [] } else { unsafe { core::slice::from_raw_parts_mut(desc.rows.ptr, desc.count) } };
     let mut anchor = (desc.anchor < desc.count).then_some(desc.anchor);
     let list = pxui_types::ui::SelectionList { multi: desc.multi != 0, row_height: desc.row_height, leading_height: desc.leading_height, header_height: desc.header_height, trailing_height: desc.trailing_height,
-        overlay_scrollbar: desc.overlay_scrollbar != 0, measured: desc.measured != 0, fit: desc.fit != 0, open_on_click: desc.open_on_click != 0, ..pxui_types::ui::SelectionList::DEFAULT };
+        overlay_scrollbar: desc.overlay_scrollbar != 0, measured: desc.measured != 0, fit: desc.fit != 0, open_on_click: desc.open_on_click != 0,
+        reorder: desc.reorder != 0, drop_look, ..pxui_types::ui::SelectionList::DEFAULT };
     let shared = unsafe { (*ui).shared };
     let r = unsafe { engine(ui) }.selection_rows(key, desc.count, ids.unwrap_or(&|i| i as i64), flags, &mut anchor, &list, &mut |engine, index, c| {
         let mut borrowed = PxuiUi::borrowed(engine, shared);

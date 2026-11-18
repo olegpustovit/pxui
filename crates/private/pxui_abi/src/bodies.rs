@@ -207,8 +207,8 @@ mod tramps {
         state: st(c.state), selected: c.selected as u8, chevron: c.chevron as u8, danger: c.danger as u8, has_swatch: c.swatch.is_some() as u8, swatch: c.swatch.unwrap_or_default(),
         has_shortcut: shortcut.is_some() as u8, index: c.index, lead: c.lead, swatch_pad: c.swatch_pad, row: bx(c.row), text: pair(text), shortcut: opt(shortcut), row_h: c.row_h
     });
-    tramp!(selection_list, |ui, sh, c: &RowConfig, body: &mut dyn FnMut(&mut Ui)| PxuiRowConfig { state: st(c.state), index: c.index, row: bx(c.row), content: content(sh, body) });
-    tramp!(table_row, |ui, sh, c: &RowConfig, body: &mut dyn FnMut(&mut Ui)| PxuiRowConfig { state: st(c.state), index: c.index, row: bx(c.row), content: content(sh, body) });
+    tramp!(selection_list, |ui, sh, c: &RowConfig, body: &mut dyn FnMut(&mut Ui)| PxuiRowConfig { state: st(c.state), index: c.index, row: bx(c.row), content: content(sh, body), drop: c.drop });
+    tramp!(table_row, |ui, sh, c: &RowConfig, body: &mut dyn FnMut(&mut Ui)| PxuiRowConfig { state: st(c.state), index: c.index, row: bx(c.row), content: content(sh, body), drop: c.drop });
     tramp!(tree, |ui, sh, c: &TreeRowConfig, body: &mut dyn FnMut(&mut Ui)| PxuiTreeRowConfig {
         state: st(c.state), has: c.has as u8, open: c.open as u8, index: c.index, node: c.node, depth: c.depth, row: bx(c.row), content: content(sh, body)
     });
