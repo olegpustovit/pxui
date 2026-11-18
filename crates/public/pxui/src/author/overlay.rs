@@ -182,7 +182,7 @@ mod tests {
         ui.register_toasts_body("c", toast).unwrap();
         ui.register_picker_field_body("c", picker).unwrap();
         let text = "panel.body = c\npopup.body = c\nmodal.body = c\nscroll_view.body = c\ntoasts.body = c\npicker_field.body = c";
-        ui.set_theme(&pxui_types::ffi::ThemeSource { size: core::mem::size_of::<pxui_types::ffi::ThemeSource>() as u32, flags: 0, source: pxui_types::Str { ptr: text.as_ptr(), len: text.len() } }).unwrap();
+        ui.set_theme(&crate::ThemeHandle::parse(&text).unwrap()).unwrap();
         SEEN.with(|s| s.borrow_mut().clear());
         ui.frame(&FrameIn { width: 400.0, height: 400.0, ..FrameIn::default() }, &mut build).unwrap();
         let got = SEEN.with(|s| s.borrow().clone());

@@ -144,7 +144,7 @@ mod tests {
         ui.set_a11y(true);
         let id = ui.register_dialog_body("column", column).expect("registered");
         let text = "dialog.body = column";
-        ui.set_theme(&pxui_types::ffi::ThemeSource { size: core::mem::size_of::<pxui_types::ffi::ThemeSource>() as u32, flags: 0, source: pxui_types::Str { ptr: text.as_ptr(), len: text.len() } }).unwrap();
+        ui.set_theme(&crate::ThemeHandle::parse(&text).unwrap()).unwrap();
         assert_eq!(ui.theme().body.dialog, id);
         SAVE.set(false);
         let mut build = build_with;
@@ -182,7 +182,7 @@ mod tests {
         ui.set_a11y(true);
         ui.register_dialog_body("described", self_described).expect("registered");
         let text = "dialog.body = described";
-        ui.set_theme(&pxui_types::ffi::ThemeSource { size: core::mem::size_of::<pxui_types::ffi::ThemeSource>() as u32, flags: 0, source: pxui_types::Str { ptr: text.as_ptr(), len: text.len() } }).unwrap();
+        ui.set_theme(&crate::ThemeHandle::parse(&text).unwrap()).unwrap();
         SAVE.set(true);
         let mut build = build_with;
         for _ in 0..3 { ui.frame(&FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() }, &mut build).unwrap(); }
@@ -210,7 +210,7 @@ mod tests {
         let mut ui = Ui::new().unwrap();
         ui.register_dialog_body("v", variant_dialog).expect("dialog body");
         ui.register_label_body("l", variant_label).expect("label body");
-        let scoped = { let mut theme = crate::Theme::default(); theme.apply(&ui, "dialog.body = v\nlabel.body = l").expect("theme"); theme };
+        let scoped = crate::ThemeHandle::parse("dialog.body = v\nlabel.body = l").expect("theme");
         let mut build = |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| {
             for (key, style) in [("a", Dialog::DEFAULT.variant(3)), ("b", Dialog::DEFAULT)] {
                 ui.dialog(key, "T", &[DialogButton::new("OK").primary()], &style, &mut |ui: &mut Ui| { ui.label("inside", crate::Label::DEFAULT); });
@@ -266,7 +266,7 @@ mod tests {
         ui.set_a11y(true);
         let id = ui.register_dialog_body("detailed", detailed).expect("registered");
         let text = "dialog.body = detailed";
-        ui.set_theme(&pxui_types::ffi::ThemeSource { size: core::mem::size_of::<pxui_types::ffi::ThemeSource>() as u32, flags: 0, source: pxui_types::Str { ptr: text.as_ptr(), len: text.len() } }).unwrap();
+        ui.set_theme(&crate::ThemeHandle::parse(&text).unwrap()).unwrap();
         assert_eq!(ui.theme().body.dialog, id);
         for _ in 0..3 { ui.frame(&FrameIn { width: 400.0, height: 300.0, ..FrameIn::default() }, &mut build).unwrap(); }
         assert_eq!(DETAILS.with(|d| d.borrow().clone()), [(0, 0), (1, 31), (2, 0)]);

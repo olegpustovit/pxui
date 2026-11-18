@@ -523,7 +523,7 @@ mod tests {
         let mut ui = Ui::new().unwrap();
         let id = ui.register_button_body("recording", recording).expect("registered");
         let text = "button.body = recording";
-        ui.set_theme(&pxui_types::ffi::ThemeSource { size: core::mem::size_of::<pxui_types::ffi::ThemeSource>() as u32, flags: 0, source: pxui_types::Str { ptr: text.as_ptr(), len: text.len() } }).unwrap();
+        ui.set_theme(&crate::ThemeHandle::parse(&text).unwrap()).unwrap();
         assert_eq!(ui.theme().body.button, id);
         for (button, seen) in [(Button::sized(120.0, 44.0), (1, 1, 120.0, 44.0)), (Button::DEFAULT.size(Size::Px(120.0), Size::Px(44.0)), (0, 1, 120.0, 44.0))] {
             testing::frame(&mut ui, &[], &mut |ui| { ui.button_with("b", "Go", &button); });
@@ -734,7 +734,7 @@ mod tests {
         ui.set_a11y(true);
         let id = ui.register_button_body("laid_out", laid_out).expect("registered");
         let text = "button.body = laid_out";
-        ui.set_theme(&pxui_types::ffi::ThemeSource { size: core::mem::size_of::<pxui_types::ffi::ThemeSource>() as u32, flags: 0, source: pxui_types::Str { ptr: text.as_ptr(), len: text.len() } }).unwrap();
+        ui.set_theme(&crate::ThemeHandle::parse(&text).unwrap()).unwrap();
         assert_eq!(ui.theme().body.button, id);
         let styled = Button::sized(120.0, 44.0).label(crate::Label::BODY.size(14.0).h_px(20.0)).axis(Axis::Column).gap(6.0).content_align(Along::End);
         for (button, seen) in [(styled, (1, 2, 3, 6.0, 14.0, 1)), (Button::sized(120.0, 44.0), (0, 0, 0, 0.0, 0.0, 0))] {
@@ -796,7 +796,7 @@ mod tests {
         ui.set_a11y(true);
         let id = ui.register_button_body("parts_body", parts_body).expect("registered");
         let text = "button.body = parts_body";
-        ui.set_theme(&pxui_types::ffi::ThemeSource { size: core::mem::size_of::<pxui_types::ffi::ThemeSource>() as u32, flags: 0, source: pxui_types::Str { ptr: text.as_ptr(), len: text.len() } }).unwrap();
+        ui.set_theme(&crate::ThemeHandle::parse(&text).unwrap()).unwrap();
         assert_eq!(ui.theme().body.button, id);
         let full = Button::DEFAULT.icon(Icon::glyph('?')).detail("Every source").accessory("Cmd K").detail_label(Label::BODY.size(12.0)).accessory_label(Label::MONO);
         let drawn = Button::DEFAULT.icon(Icon::draw(dot, 1));

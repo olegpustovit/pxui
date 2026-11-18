@@ -8,14 +8,17 @@ use pxui::{Renderer, Ui};
 use pxui_gallery::gpu::{self, Gpu};
 use pxui_gallery::*;
 use pxui_gallery::bodies_page::{self, BodiesPage};
-use pxui_types::{Event, Str, ffi::{Input, Slice, ThemeSource}};
+use pxui_types::{Event, Str, ffi::{Input, Slice}};
 use std::time::Instant;
 
 const DEPARTURE_MONO: &[u8] = include_bytes!("../../../assets/fonts/DepartureMono-Regular.otf");
 const DUSK: &str = include_str!("../../../assets/themes/dusk.theme");
 
-fn theme(source: &str) -> ThemeSource {
-    ThemeSource { size: core::mem::size_of::<ThemeSource>() as u32, flags: 0, source: Str { ptr: source.as_ptr(), len: source.len() } }
+fn theme(source: &str) -> pxui::ThemeHandle {
+    let mut theme = pxui::ThemeHandle::parse(source).expect("theme source");
+    theme.density(1.0);
+    theme.reduced_motion(false);
+    theme
 }
 
 fn pointer_event() -> Event {
@@ -37,13 +40,13 @@ fn panel(theme: &pxui_types::theme::ThemeSnapshot) -> [u8; 4] {
 }
 
 /// Build one page twice to warm its retained view, then render it through the public renderer.
-fn shoot(gpu: &mut Gpu, theme: &ThemeSource, rtl: bool, size: (i64, i64), density: i64, ground: Option<[u8; 4]>, build: &mut dyn FnMut(&mut Ui)) -> Vec<u8> {
+fn shoot(gpu: &mut Gpu, theme: &pxui::ThemeHandle, rtl: bool, size: (i64, i64), density: i64, ground: Option<[u8; 4]>, build: &mut dyn FnMut(&mut Ui)) -> Vec<u8> {
     shoot_setup(gpu, theme, rtl, size, density, ground, &mut |_| {}, false, build)
 }
 
 /// `shoot` with `setup` run on the new `Ui` before its theme is applied (what a theme that names an app's bodies needs), and with
 /// `rebuild` each frame builds the page again (a body that reads last frame's rectangles settles on the second).
-fn shoot_setup(gpu: &mut Gpu, theme: &ThemeSource, rtl: bool, size: (i64, i64), density: i64, ground: Option<[u8; 4]>, setup: &mut dyn FnMut(&mut Ui), rebuild: bool, build: &mut dyn FnMut(&mut Ui)) -> Vec<u8> {
+fn shoot_setup(gpu: &mut Gpu, theme: &pxui::ThemeHandle, rtl: bool, size: (i64, i64), density: i64, ground: Option<[u8; 4]>, setup: &mut dyn FnMut(&mut Ui), rebuild: bool, build: &mut dyn FnMut(&mut Ui)) -> Vec<u8> {
     let mut ui = Ui::create(pxui::Platform::Apple, None, &[DEPARTURE_MONO]);
     setup(&mut ui);
     ui.set_theme(theme).unwrap_or_else(|code| panic!("theme failed ({code}): {}", ui.last_error()));

@@ -2,7 +2,7 @@
 use super::inputs;
 use pxui::{Dialog, DialogButton, Handle, Image, Menu, MenuItem, Overlay, Pick, TreeNode, Ui};
 use pxui::theme::Look;
-use pxui_types::{a11y::Role, ffi::ThemeSource, geom::Edges, layout::{Align, Along, Cell, Grid, Justify, Placement, Side, Track}, Axis, Flags, Node, Size, Str};
+use pxui_types::{a11y::Role, geom::Edges, layout::{Align, Along, Cell, Grid, Justify, Placement, Side, Track}, Axis, Flags, Node, Size};
 use pxui_types::theme::{Curve, Font};
 use pxui_types::ui::{Key, Keyframe, Keyframes};
 use std::fmt::Write;
@@ -92,16 +92,6 @@ impl Gallery {
             list: vec![0; ROWS], nodes: (0..ROWS).map(|i| TreeNode { depth: [0, 1, 2, 2, 1, 2][i % 6], children: matches!(i % 6, 0 | 1 | 4) as u8 }).collect(),
             open: (0..ROWS).map(|i| (i < 6) as u8).collect(), tree_sel: Some(2), visible: vec![0; ROWS], widths: [96.0, 72.0, 72.0], table_sel: Some(1), sort: (0, true), split: 0.34,
             dialog: false, menu_at: None, picker: false, said: "", bounce: false, toasts: Vec::with_capacity(8), toasted: 0, busy: Vec::with_capacity(4), readout: None,
-        }
-    }
-
-    /// The theme the switches ask for, over the Rays theme or `dusk`.
-    pub fn theme<'a>(&self, dusk_source: &'a str) -> ThemeSource {
-        let source = if self.dusk { dusk_source } else { "" };
-        ThemeSource {
-            size: core::mem::size_of::<ThemeSource>() as u32,
-            flags: (if self.compact { ThemeSource::COMPACT } else { 0 }) | (if self.reduced { ThemeSource::REDUCED_MOTION } else { 0 }),
-            source: Str { ptr: source.as_ptr(), len: source.len() },
         }
     }
 

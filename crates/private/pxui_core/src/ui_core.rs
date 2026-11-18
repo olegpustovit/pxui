@@ -1009,13 +1009,15 @@ fn caret_x(t: &mut Text, size: i64, text: &str, index: usize) -> f32 {
 
 // ----------------------------------------------------------------- Ui
 
+type Palette = [Rgba; pxui_types::theme::ColorToken::LIMIT];
+
 #[repr(C)]
 pub struct Ui {
     /// `themed` overrides in effect (`themes[..theme_depth]`, storage kept), the distinct themes views
     /// were built under (an id is an index) and the id in effect
-    themes: Vec<Theme>,
+    themes: Vec<(Theme, Option<Palette>)>,
     theme_depth: usize,
-    theme_ids: Vec<Theme>,
+    theme_ids: Vec<(Theme, Option<Palette>)>,
     /// the root theme as `set_theme` was given it, kept only when its looks name colour tokens (`theme` holds them resolved), so a
     /// colour table change resolves it again
     theme_raw: Option<Box<Theme>>,
@@ -1035,7 +1037,8 @@ pub struct Ui {
     system_appearance:u32,
     system_reduced_motion:bool,
     /// the app's colour tokens, the light table then the dark one (`set_colors`): a painter copies one whole; unset entries are transparent
-    colors: [[Rgba; pxui_types::theme::ColorToken::LIMIT]; 2],
+    colors: [Palette; 2],
+    theme_colors: Option<Palette>,
     theme_reduced_motion:bool,
     font_size: i64,
     platform: Platform,
@@ -1326,6 +1329,7 @@ impl Ui {
             system_appearance:0,
             system_reduced_motion:false,
             colors: [[Rgba::default(); pxui_types::theme::ColorToken::LIMIT]; 2],
+            theme_colors: None,
             theme_reduced_motion:false,
             font_size,
             platform,
@@ -1527,7 +1531,7 @@ impl Ui {
     /// The theme in effect: the UI's own, or the innermost `themed` override while building in one.
     pub fn theme(&self) -> &Theme {
         // depth 0 wraps to no index: the UI's own (no bounds panic, so a library call that only reads the theme cannot unwind)
-        self.themes.get(self.theme_depth.wrapping_sub(1)).unwrap_or(&self.theme)
+        self.themes.get(self.theme_depth.wrapping_sub(1)).map_or(&self.theme, |(theme, _)| theme)
     }
 
     /// Names the theme `theme()` returns, process-wide: it differs between `Ui`s and changes whenever the theme might (a swap, a
@@ -1554,7 +1558,16 @@ impl Ui {
     /// Install a theme whose named colours were checked during parsing.
     #[doc(hidden)]
     pub fn set_theme_with_token_colors(&mut self, theme: &Theme, names_tokens: bool) {
+        self.set_theme_with_palette(theme, names_tokens, None);
+    }
+
+    #[doc(hidden)]
+    pub fn set_theme_with_palette(&mut self, theme: &Theme, names_tokens: bool, palette: Option<&Palette>) {
         debug_assert_eq!(names_tokens, theme.names_color_tokens());
+        if self.theme_colors.as_ref() != palette {
+            self.theme_colors = palette.copied();
+            self.epoch += 1;
+        }
         self.theme_reduced_motion = theme.tokens.reduced_motion;
         if names_tokens || (self.system_reduced_motion && !theme.tokens.reduced_motion) {
             self.install_theme_with_overrides(theme, names_tokens);
@@ -1567,8 +1580,11 @@ impl Ui {
     #[inline(never)]
     fn install_theme_with_overrides(&mut self, theme: &Theme, names_tokens: bool) {
         let mut theme = *theme;
-        self.theme_raw = names_tokens.then(|| Box::new(theme));
-        if names_tokens { resolve_theme(&mut theme, &self.colors); }
+        self.theme_raw = (names_tokens && self.theme_colors.is_none()).then(|| Box::new(theme));
+        if names_tokens {
+            let palette = self.theme_colors.as_ref().unwrap_or(&self.colors[theme.tokens.is_dark() as usize]);
+            resolve_theme(&mut theme, palette);
+        }
         theme.tokens.reduced_motion |= self.system_reduced_motion;
         self.install_theme(&theme);
     }
@@ -1614,17 +1630,27 @@ impl Ui {
             self.epoch += 1;
             if let Some(raw) = self.theme_raw.as_deref() {
                 let mut theme = *raw;
-                resolve_theme(&mut theme, &self.colors);
+                let palette = &self.colors[theme.tokens.is_dark() as usize];
+                resolve_theme(&mut theme, palette);
                 self.theme = theme;
             }
         }
         true
     }
 
-    /// Colour token `token` for the theme in effect (`theme()`, so a `themed` scope picks its own side): the dark entry
-    /// when that theme is dark (`Tokens::is_dark`), else the light one; transparent past the table.
+    #[inline] fn theme_palette(&self) -> Option<&Palette> {
+        self.themes.get(self.theme_depth.wrapping_sub(1))
+            .and_then(|(_, palette)| palette.as_ref())
+            .or(self.theme_colors.as_ref())
+    }
+
+    #[inline] fn palette(&self) -> &Palette {
+        self.theme_palette().unwrap_or_else(|| &self.colors[self.theme().tokens.is_dark() as usize])
+    }
+
+    /// Colour token for the theme in effect. The legacy table selects a side from the theme's appearance.
     #[inline] pub fn color(&self, token: u16) -> Rgba {
-        self.colors[self.theme().tokens.is_dark() as usize].get(token as usize).copied().unwrap_or_default()
+        self.palette().get(token as usize).copied().unwrap_or_default()
     }
 
     /// `look` with every colour that names a token (`Rgba::token`) replaced by `color(token)`, the theme in effect's entry; `None` when
@@ -1634,7 +1660,7 @@ impl Ui {
     pub fn resolve_look(&self, look: &Look) -> Option<Look> {
         if !names_token(look) { return None; }
         let mut out = *look;
-        resolve_with(&mut out, &self.colors[self.theme().tokens.is_dark() as usize]);
+        resolve_with(&mut out, self.palette());
         Some(out)
     }
 
@@ -1685,32 +1711,41 @@ impl Ui {
     /// Build `f` under `theme` (a scoped override: what `f` builds reads `theme()` as `theme`). A view
     /// built inside rebuilds when the override it was built under changes.
     pub fn themed(&mut self, theme: &Theme, f: &mut dyn FnMut(&mut Ui)) {
+        self.themed_with_palette(theme, None, f);
+    }
+
+    #[doc(hidden)]
+    pub fn themed_with_palette(&mut self, theme: &Theme, palette: Option<&Palette>, f: &mut dyn FnMut(&mut Ui)) {
         let mut reduced;
         let theme=if self.system_reduced_motion && !theme.tokens.reduced_motion {
             reduced=*theme;
             reduced.tokens.reduced_motion=true;
             &reduced
         } else { theme };
+        let palette = palette.or_else(|| self.theme_palette()).copied();
         let saved = self.theme_id;
-        // ids by search over the distinct themes seen, at most 32 (specification/pxui.md, designed limits)
-        self.theme_id = saved & DISABLED_ID | match self.theme_ids.iter().position(|t| t == theme) {
+        // ids by search over the distinct themes and palettes seen, at most 32 (specification/pxui.md, designed limits)
+        self.theme_id = saved & DISABLED_ID | match self.theme_ids.iter().position(|(t, p)| t == theme && *p == palette) {
             Some(i) => i as u32 + 1,
             None => {
                 if self.theme_ids.len() >= 32 {
                     self.theme_ids.pop();
                     self.epoch += 1;
                 }
-                self.theme_ids.push(*theme);
+                self.theme_ids.push((*theme, palette));
                 self.theme_ids.len() as u32
             }
         };
         self.motion |= theme.tokens.moves();
         if self.theme_depth == self.themes.len() {
-            self.themes.push(*theme);
+            self.themes.push((*theme, palette));
         } else {
-            self.themes[self.theme_depth] = *theme;
+            self.themes[self.theme_depth] = (*theme, palette);
         }
-        if theme.names_color_tokens() { resolve_theme(&mut self.themes[self.theme_depth], &self.colors); }
+        if theme.names_color_tokens() {
+            let (resolved, palette) = &mut self.themes[self.theme_depth];
+            resolve_theme(resolved, palette.as_ref().unwrap_or(&self.colors[theme.tokens.is_dark() as usize]));
+        }
         self.theme_depth += 1;
         f(self);
         self.theme_depth -= 1;
@@ -3417,7 +3452,6 @@ impl Ui {
     /// Declare build box `index`: its node record takes `node`, and its text, hit shape and canvases
     /// start empty. A patch made since the node's last build ends here.
     fn set_box(&mut self, index: usize, node: &Node) {
-        let palette = names_token(&node.look).then(|| self.theme().tokens.is_dark() as usize);
         let b = &mut self.boxes[index];
         let slot=b.slot;
         b.hit = None;
@@ -3427,12 +3461,12 @@ impl Ui {
         b.over = arena::EMPTY;
         let s = &mut self.slots[b.slot];
         s.node = *node;
-        if let Some(palette) = palette { resolve_with(&mut s.node.look, &self.colors[palette]); }
         s.text.clear();
         s.a11y_name.clear();
         s.a11y_value.clear();
         s.a11y_selection = (0, 0);
         s.a11y_number = None;
+        if let Some(look) = self.resolve_look(&node.look) { self.slots[slot].node.look = look; }
         self.clear_rich(slot);
         self.cleared_strings(slot);
     }
@@ -3522,7 +3556,7 @@ impl Ui {
     pub fn set_look(&mut self, b: &Handle, mut look: Look, state: State) {
         if self.live(b) {
             if names_token(&look) {
-                resolve_with(&mut look, &self.colors[self.theme().tokens.is_dark() as usize]);
+                resolve_with(&mut look, self.palette());
             }
             let s = &self.slots[b.box_slot];
             // a node shown last frame in another state moves to this look over the theme's transition
@@ -6165,7 +6199,7 @@ impl Ui {
             font_size: self.font_size,
             row_height: self.kit_row_height,
             density: self.density,
-            colors: self.colors[self.theme.tokens.is_dark() as usize],
+            colors: self.theme_colors.unwrap_or(self.colors[self.theme.tokens.is_dark() as usize]),
             label_look: self.theme.label.idle,
             text: self.text.take().expect("Ui: painting re-entered"),
             glyph_light_memo: [([0; 2], [0; 2]); 2],
@@ -8670,8 +8704,7 @@ impl Theme {
 
 /// Resolves every token look of `theme` (its parts' states and its focus ring) against its own side of `colors` (light or dark by its
 /// tokens).
-fn resolve_theme(theme: &mut Theme, colors: &[[Rgba; pxui_types::theme::ColorToken::LIMIT]; 2]) {
-    let table = &colors[theme.tokens.is_dark() as usize];
+fn resolve_theme(theme: &mut Theme, table: &Palette) {
     if let Some(token) = theme.ring.color.as_token() { theme.ring.color = table.get(token.0 as usize).copied().unwrap_or_default(); }
     theme.each_states_mut(&mut |s| for look in [&mut s.idle, &mut s.hover, &mut s.pressed, &mut s.focus, &mut s.disabled, &mut s.checked] { resolve_with(look, table); });
 }

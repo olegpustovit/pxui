@@ -365,7 +365,7 @@ mod tests {
         let mut ui = Ui::new().expect("library");
         ui.set_a11y(true);
         ui.register_text_field_body("probe", label_probe).expect("field body");
-        let themed = { let mut theme = crate::Theme::default(); theme.apply(&ui, "text_field.body = probe").expect("theme"); theme };
+        let themed = crate::ThemeHandle::parse("text_field.body = probe").expect("theme");
         const NAMED: TextField = TextField::DEFAULT.name("Find songs");
         let mut handles = Vec::new();
         let mut build = |ui: &mut Ui| {

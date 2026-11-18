@@ -152,7 +152,7 @@ mod tests {
         ui.register_table_head_body("c", head).unwrap();
         ui.register_table_cell_body("c", cell).unwrap();
         let text = "selection_list.body = c\ntree.body = c\ntable_row.body = c\ntable_head.body = c\ntable_cell.body = c";
-        ui.set_theme(&pxui_types::ffi::ThemeSource { size: core::mem::size_of::<pxui_types::ffi::ThemeSource>() as u32, flags: 0, source: pxui_types::Str { ptr: text.as_ptr(), len: text.len() } }).unwrap();
+        ui.set_theme(&crate::ThemeHandle::parse(&text).unwrap()).unwrap();
         let nodes = [TreeNode { depth: 0, children: 0 }];
         let (mut list, mut open, mut visible, mut selected, mut table_sel, mut widths) = ([0u8; 1], [0u8; 1], [0u32; 1], None, None, [60.0f32]);
         SEEN.with(|s| s.borrow_mut().clear());

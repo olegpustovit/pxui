@@ -95,7 +95,7 @@ struct Direct { ui: engine::Ui, state: direct_pages::Gallery, frame: Frame, move
 
 fn wrapped() -> Wrapped {
     let mut ui = pxui::Ui::create(pxui::Platform::Apple, None, &[DEPARTURE_MONO]);
-    ui.set_theme(&pxui_types::ffi::ThemeSource { size: core::mem::size_of::<pxui_types::ffi::ThemeSource>() as u32, flags: 0, source: Str::default() }).expect("default theme");
+    ui.set_theme(&pxui::ThemeHandle::default()).expect("default theme");
     Wrapped { ui, state: Gallery::new(), events: [pointer()], moved: true }
 }
 

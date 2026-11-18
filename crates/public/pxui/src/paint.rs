@@ -103,20 +103,22 @@ impl<'a> Paint<'a> {
     /// });
     /// ```
     #[inline] pub fn scroll_y(&mut self, slot: u64) -> f32 { unsafe { lib::pxui_paint_scroll_y(self.raw(), slot) } }
-    /// Colour token `token` (`Ui::set_colors`) resolved for this painter's theme, as `Ui::color` reads it.
+    /// Reads a color token from the painter's root theme.
     ///
-    /// The painter resolves the table once when painting starts, from the `Ui`'s root theme; a token past the table reads
-    /// transparent. A theme swap repaints, so a canvas that reads tokens follows light and dark without app changes.
+    /// The painter takes the palette when painting starts. Unset tokens read transparent.
+    /// Changing the root palette repaints canvases that use it.
     /// Allocates: never.
     /// Panics: never.
     ///
     /// ```
-    /// use pxui::{geom::Rgba, theme::ColorToken, ui::Size, Node};
+    /// use pxui::{theme::ColorToken, Node, Rgba, Size, ThemeHandle};
     /// use std::{cell::Cell, rc::Rc};
     /// let ink = Rgba { r: 20, g: 20, b: 20, a: 255 };
     /// let seen = Rc::new(Cell::new(Rgba::default()));
-    /// let mut ui = pxui::Ui::new().unwrap();
-    /// ui.set_colors(&[(ink, ink)]);
+    /// let mut ui = pxui::doc::frames(1, &mut |_| {});
+    /// let mut theme = ThemeHandle::default();
+    /// theme.set_color(ColorToken(0), ink);
+    /// ui.set_theme(&theme).unwrap();
     /// ui.frame(&pxui::FrameIn { width: 100.0, height: 100.0, ..Default::default() }, &mut |ui| {
     ///     let b = ui.node("canvas".into(), Node { w: Size::Px(10.0), h: Size::Px(10.0), ..Node::DEFAULT });
     ///     let seen = seen.clone();

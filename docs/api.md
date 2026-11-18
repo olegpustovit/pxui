@@ -55,7 +55,7 @@ The target public surface. **Rule:** a call not marked with a step keeps its HEA
 | Animation | `animate(&Handle, Target, Curve)`, `animate_keys(&Handle, &[Keyframe], &Keyframes)` (two jobs) | — | HEAD |
 | Images | `image<K>(key, &Image, &ImageStyle) -> Result<Handle, Error>`; `Image::rgba8`; `images::{Want, Request}`, `Images::store/get/requests` | — | U1b.2; builder U1b.5 |
 | A11y | `a11y_name/a11y_value/a11y_number(&Handle, ..) -> bool` (applied); `set_role(&Handle, Role, A11yStates)`; `a11y_tree() -> A11yTree`; `a11y_nodes`, `a11y_name_of`, `a11y_value_of`, `box_of_a11y` | — | U1a.3 (rule), U1b.4 (types) |
-| Theme | `set_theme(&ThemeHandle)`, `themed(&ThemeHandle, f)`, `theme()`, `tokens()`, `ThemeHandle::parse/set_color/density/reduced_motion`; `bodies::register_<kind>_body(..) -> Result<BodyId, Error>`; `Rgba::token(T).alpha(a)` (D19); `ColorToken::ACCENT`; `Appearance`; sizes `f32` (`font_size`, `row_height`, `density`, `set_font_size`) | — | U1a.2; U1b.3 (units); U2b.7 (alpha, accent) |
+| Theme | `set_theme(&ThemeHandle) -> Result<(), Error>`, `themed(&ThemeHandle, f)`, `theme()`, `tokens()`, `ThemeHandle::parse/set_color/density/reduced_motion`; `bodies::register_<kind>_body(..) -> Result<BodyId, Error>`; `Rgba::token(T).alpha(a)` (D19); `ColorToken::ACCENT`; `Appearance`; sizes `f32` (`font_size`, `row_height`, `density`, `set_font_size`) | — | U1a.2; U1b.3 (units); U2b.7 (alpha, accent) |
 | Frame / lifecycle | `Ui::new(&UiDesc) -> Result<Ui, Error>` with `UiDesc::new(Platform).font_size(f32).fonts(&[FontData])` (carries what `Ui::create(Platform, Some(15), &[FONT, MONO])` passes today: lw_bin/src/library.rs:35, app/actions.rs:687, tests/window_input.rs:657/888/1011 …; `UiDesc::DEFAULT` for tests); `frame(&FrameIn, build)`; `FrameIn::new(w, h)` + builders; `layer(i) -> Option<Layer>`; `layers() -> &[Layer]` (or a named iterator) | — | U1a.3 |
 | Host integration | `Renderer::new -> Result<_, Error>`; `A11yBridge::connect -> Option`; `Gpu`, `Pass`, `Commands`, `Input`, `Output`, `Platform`, `Bytes`; pxui_host `Graphics::open/close`, `Accessibility::open`, `Platform::apply` → `Result<_, Error>` | — | U1a.3 |
 | Diagnostics | `phase_times`, `phase_cpu_times`, `set_timing`, `repaint_after`, `wants_frame`, `library_counter` (D3), `verify_views` (D22) | — | HEAD; U1c.2 |
@@ -821,15 +821,18 @@ pxui::TextWorker impl Send @HEAD
 pxui::TextWorker impl Sync @HEAD
 pxui::TextWorker struct (_) @HEAD
 pxui::TextWorker::new fn () -> Result<TextWorker, Error> @HEAD
-pxui::Theme impl Default @HEAD
-pxui::Theme impl Drop @HEAD
-pxui::Theme struct (_) @HEAD
+-pxui::Theme impl Default @U1a.2
+-pxui::Theme impl Drop @U1a.2
+-pxui::Theme struct (_) @U1a.2
 -pxui::Theme::apply fn (&mut self, ui: &Ui, text: &str) -> Result<(), String> @U1a.2
-pxui::Theme::from_tokens fn (tokens: Tokens) -> Theme @HEAD
+-pxui::Theme::from_tokens fn (tokens: Tokens) -> Theme @U1a.2
 -pxui::Theme::load fn (&mut self, path: &str) -> Result<(), String> @U1a.2
 -pxui::Theme::set fn (&mut self, key: &str, value: &str) -> Result<(), String> @U1a.2
-pxui::ThemeHandle struct @U1a.2
+pxui::ThemeHandle impl Default @U1a.2
+pxui::ThemeHandle impl Drop @U1a.2
+pxui::ThemeHandle struct (_) @U1a.2
 pxui::ThemeHandle::density fn (&mut self, density: f32) @U1a.2
+pxui::ThemeHandle::from_tokens fn (tokens: Tokens) -> ThemeHandle @U1a.2
 pxui::ThemeHandle::parse fn (source: &str) -> Result<ThemeHandle, Error> @U1a.2
 pxui::ThemeHandle::reduced_motion fn (&mut self, on: bool) @U1a.2
 pxui::ThemeHandle::set_color fn (&mut self, token: ColorToken, color: Rgba) @U1a.2
@@ -1000,46 +1003,46 @@ pxui::Ui::radio fn <K: Into<Key>>(&mut self, key: K, items: &[Segment<'_>], sele
 pxui::Ui::rebuilt_named fn (&self, prefix: &str) -> usize @HEAD
 pxui::Ui::rebuilt_views fn (&self) -> usize @HEAD
 pxui::Ui::rect fn (&self, box_: &Handle) -> Rect @HEAD
-pxui::Ui::register_badge_body fn (&mut self, name: &str, body: fn(&mut Ui, &BadgeConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::Ui::register_button_body fn (&mut self, name: &str, body: fn(&mut Ui, &ButtonConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::Ui::register_checkbox_body fn (&mut self, name: &str, body: fn(&mut Ui, &CheckboxConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::Ui::register_dialog_body fn (&mut self, name: &str, body: fn(&mut Ui, &DialogConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::Ui::register_dropdown_body fn (&mut self, name: &str, body: fn(&mut Ui, &DropdownConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::Ui::register_footer_body fn (&mut self, name: &str, body: fn(&mut Ui, &FooterConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::Ui::register_grip_body fn (&mut self, name: &str, body: fn(&mut Ui, &GripConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::Ui::register_icon_button_body fn (&mut self, name: &str, body: fn(&mut Ui, &IconButtonConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::Ui::register_inspector_row_body fn (&mut self, name: &str, body: fn(&mut Ui, &InspectorRowConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::Ui::register_inspector_section_body fn (&mut self, name: &str, body: fn(&mut Ui, &InspectorSectionConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::Ui::register_label_body fn (&mut self, name: &str, body: fn(&mut Ui, &LabelConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::Ui::register_line_field_body fn (&mut self, name: &str, body: fn(&mut Ui, &LineFieldConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::Ui::register_menu_bar_body fn (&mut self, name: &str, body: fn(&mut Ui, &MenuBarConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::Ui::register_menu_item_body fn (&mut self, name: &str, body: fn(&mut Ui, &MenuItemConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::Ui::register_menu_row_body fn (&mut self, name: &str, body: fn(&mut Ui, &MenuRowConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::Ui::register_modal_body fn (&mut self, name: &str, body: fn(&mut Ui, &ModalConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::Ui::register_panel_body fn (&mut self, name: &str, body: fn(&mut Ui, &PanelConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::Ui::register_picker_body fn (&mut self, name: &str, body: fn(&mut Ui, &PickerConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::Ui::register_picker_field_body fn (&mut self, name: &str, body: fn(&mut Ui, &PickerFieldConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::Ui::register_popup_body fn (&mut self, name: &str, body: fn(&mut Ui, &PopupConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::Ui::register_progress_body fn (&mut self, name: &str, body: fn(&mut Ui, &ProgressConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::Ui::register_radio_body fn (&mut self, name: &str, body: fn(&mut Ui, &RadioConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::Ui::register_scroll_view_body fn (&mut self, name: &str, body: fn(&mut Ui, &ScrollViewConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::Ui::register_search_field_body fn (&mut self, name: &str, body: fn(&mut Ui, &SearchFieldConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::Ui::register_segmented_body fn (&mut self, name: &str, body: fn(&mut Ui, &SegmentedConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::Ui::register_selection_list_body fn (&mut self, name: &str, body: fn(&mut Ui, &SelectionListConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::Ui::register_slider_body fn (&mut self, name: &str, body: fn(&mut Ui, &SliderConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::Ui::register_spinner_body fn (&mut self, name: &str, body: fn(&mut Ui, &SpinnerConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::Ui::register_split_body fn (&mut self, name: &str, body: fn(&mut Ui, &SplitConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::Ui::register_table_cell_body fn (&mut self, name: &str, body: fn(&mut Ui, &TableCellConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::Ui::register_table_head_body fn (&mut self, name: &str, body: fn(&mut Ui, &TableHeadConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::Ui::register_table_row_body fn (&mut self, name: &str, body: fn(&mut Ui, &TableRowConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::Ui::register_tabs_body fn (&mut self, name: &str, body: fn(&mut Ui, &TabsConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::Ui::register_text_field_body fn (&mut self, name: &str, body: fn(&mut Ui, &TextFieldConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::Ui::register_toasts_body fn (&mut self, name: &str, body: fn(&mut Ui, &ToastsConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::Ui::register_toggle_body fn (&mut self, name: &str, body: fn(&mut Ui, &ToggleConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::Ui::register_tooltip_body fn (&mut self, name: &str, body: fn(&mut Ui, &TooltipConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::Ui::register_tree_body fn (&mut self, name: &str, body: fn(&mut Ui, &TreeConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::Ui::register_value_field_body fn (&mut self, name: &str, body: fn(&mut Ui, &ValueFieldConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::Ui::register_window_body fn (&mut self, name: &str, body: fn(&mut Ui, &WindowConfig)) -> Result<BodyId, Error> @U1a.2
+pxui::Ui::register_badge_body fn (&mut self, name: &str, body: fn(&mut Ui, &BadgeConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::Ui::register_button_body fn (&mut self, name: &str, body: fn(&mut Ui, &ButtonConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::Ui::register_checkbox_body fn (&mut self, name: &str, body: fn(&mut Ui, &CheckboxConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::Ui::register_dialog_body fn (&mut self, name: &str, body: fn(&mut Ui, &DialogConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::Ui::register_dropdown_body fn (&mut self, name: &str, body: fn(&mut Ui, &DropdownConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::Ui::register_footer_body fn (&mut self, name: &str, body: fn(&mut Ui, &FooterConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::Ui::register_grip_body fn (&mut self, name: &str, body: fn(&mut Ui, &GripConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::Ui::register_icon_button_body fn (&mut self, name: &str, body: fn(&mut Ui, &IconButtonConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::Ui::register_inspector_row_body fn (&mut self, name: &str, body: fn(&mut Ui, &InspectorRowConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::Ui::register_inspector_section_body fn (&mut self, name: &str, body: fn(&mut Ui, &InspectorSectionConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::Ui::register_label_body fn (&mut self, name: &str, body: fn(&mut Ui, &LabelConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::Ui::register_line_field_body fn (&mut self, name: &str, body: fn(&mut Ui, &LineFieldConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::Ui::register_menu_bar_body fn (&mut self, name: &str, body: fn(&mut Ui, &MenuBarConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::Ui::register_menu_item_body fn (&mut self, name: &str, body: fn(&mut Ui, &MenuItemConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::Ui::register_menu_row_body fn (&mut self, name: &str, body: fn(&mut Ui, &MenuRowConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::Ui::register_modal_body fn (&mut self, name: &str, body: fn(&mut Ui, &ModalConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::Ui::register_panel_body fn (&mut self, name: &str, body: fn(&mut Ui, &PanelConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::Ui::register_picker_body fn (&mut self, name: &str, body: fn(&mut Ui, &PickerConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::Ui::register_picker_field_body fn (&mut self, name: &str, body: fn(&mut Ui, &PickerFieldConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::Ui::register_popup_body fn (&mut self, name: &str, body: fn(&mut Ui, &PopupConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::Ui::register_progress_body fn (&mut self, name: &str, body: fn(&mut Ui, &ProgressConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::Ui::register_radio_body fn (&mut self, name: &str, body: fn(&mut Ui, &RadioConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::Ui::register_scroll_view_body fn (&mut self, name: &str, body: fn(&mut Ui, &ScrollViewConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::Ui::register_search_field_body fn (&mut self, name: &str, body: fn(&mut Ui, &SearchFieldConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::Ui::register_segmented_body fn (&mut self, name: &str, body: fn(&mut Ui, &SegmentedConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::Ui::register_selection_list_body fn (&mut self, name: &str, body: fn(&mut Ui, &SelectionListConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::Ui::register_slider_body fn (&mut self, name: &str, body: fn(&mut Ui, &SliderConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::Ui::register_spinner_body fn (&mut self, name: &str, body: fn(&mut Ui, &SpinnerConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::Ui::register_split_body fn (&mut self, name: &str, body: fn(&mut Ui, &SplitConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::Ui::register_table_cell_body fn (&mut self, name: &str, body: fn(&mut Ui, &TableCellConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::Ui::register_table_head_body fn (&mut self, name: &str, body: fn(&mut Ui, &TableHeadConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::Ui::register_table_row_body fn (&mut self, name: &str, body: fn(&mut Ui, &TableRowConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::Ui::register_tabs_body fn (&mut self, name: &str, body: fn(&mut Ui, &TabsConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::Ui::register_text_field_body fn (&mut self, name: &str, body: fn(&mut Ui, &TextFieldConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::Ui::register_toasts_body fn (&mut self, name: &str, body: fn(&mut Ui, &ToastsConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::Ui::register_toggle_body fn (&mut self, name: &str, body: fn(&mut Ui, &ToggleConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::Ui::register_tooltip_body fn (&mut self, name: &str, body: fn(&mut Ui, &TooltipConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::Ui::register_tree_body fn (&mut self, name: &str, body: fn(&mut Ui, &TreeConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::Ui::register_value_field_body fn (&mut self, name: &str, body: fn(&mut Ui, &ValueFieldConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::Ui::register_window_body fn (&mut self, name: &str, body: fn(&mut Ui, &WindowConfig)) -> Result<BodyId, Error> @U1a.3
 pxui::Ui::remember fn <K: Into<Key>>(&mut self, key: K, edit: &TextEdit, typing: bool) @U1b.2
 pxui::Ui::repaint_after fn (&mut self, seconds: f64) @HEAD
 pxui::Ui::repaint_at fn (&self) -> Option<f64> @HEAD
@@ -1072,7 +1075,7 @@ pxui::Ui::set_scroll_offset fn (&mut self, b: &Handle, value: f32) @HEAD
 pxui::Ui::set_state fn (&mut self, box_: &Handle, value: i64) @HEAD
 pxui::Ui::set_text_state fn (&mut self, b: &Handle, value: Option<&str>) @HEAD
 pxui::Ui::set_text_worker fn (&mut self, worker: Option<&TextWorker>) -> Result<(), Error> @HEAD
-pxui::Ui::set_theme fn (&mut self, theme: &ThemeHandle) @U1a.2
+pxui::Ui::set_theme fn (&mut self, theme: &ThemeHandle) -> Result<(), Error> @U1a.2
 -pxui::Ui::set_theme_source fn (&mut self, source: &ThemeSource) -> Result<(), Error> @U1a.2
 pxui::Ui::set_timing fn (&mut self, on: bool) @HEAD
 pxui::Ui::set_view fn (&mut self, b: &Handle, view: &ViewTransform) @HEAD
@@ -1907,46 +1910,46 @@ pxui::ui::Ui::radio fn <K: Into<Key>>(&mut self, key: K, items: &[Segment<'_>], 
 pxui::ui::Ui::rebuilt_named fn (&self, prefix: &str) -> usize @HEAD
 pxui::ui::Ui::rebuilt_views fn (&self) -> usize @HEAD
 pxui::ui::Ui::rect fn (&self, box_: &Handle) -> Rect @HEAD
-pxui::ui::Ui::register_badge_body fn (&mut self, name: &str, body: fn(&mut Ui, &BadgeConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::ui::Ui::register_button_body fn (&mut self, name: &str, body: fn(&mut Ui, &ButtonConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::ui::Ui::register_checkbox_body fn (&mut self, name: &str, body: fn(&mut Ui, &CheckboxConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::ui::Ui::register_dialog_body fn (&mut self, name: &str, body: fn(&mut Ui, &DialogConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::ui::Ui::register_dropdown_body fn (&mut self, name: &str, body: fn(&mut Ui, &DropdownConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::ui::Ui::register_footer_body fn (&mut self, name: &str, body: fn(&mut Ui, &FooterConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::ui::Ui::register_grip_body fn (&mut self, name: &str, body: fn(&mut Ui, &GripConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::ui::Ui::register_icon_button_body fn (&mut self, name: &str, body: fn(&mut Ui, &IconButtonConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::ui::Ui::register_inspector_row_body fn (&mut self, name: &str, body: fn(&mut Ui, &InspectorRowConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::ui::Ui::register_inspector_section_body fn (&mut self, name: &str, body: fn(&mut Ui, &InspectorSectionConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::ui::Ui::register_label_body fn (&mut self, name: &str, body: fn(&mut Ui, &LabelConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::ui::Ui::register_line_field_body fn (&mut self, name: &str, body: fn(&mut Ui, &LineFieldConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::ui::Ui::register_menu_bar_body fn (&mut self, name: &str, body: fn(&mut Ui, &MenuBarConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::ui::Ui::register_menu_item_body fn (&mut self, name: &str, body: fn(&mut Ui, &MenuItemConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::ui::Ui::register_menu_row_body fn (&mut self, name: &str, body: fn(&mut Ui, &MenuRowConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::ui::Ui::register_modal_body fn (&mut self, name: &str, body: fn(&mut Ui, &ModalConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::ui::Ui::register_panel_body fn (&mut self, name: &str, body: fn(&mut Ui, &PanelConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::ui::Ui::register_picker_body fn (&mut self, name: &str, body: fn(&mut Ui, &PickerConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::ui::Ui::register_picker_field_body fn (&mut self, name: &str, body: fn(&mut Ui, &PickerFieldConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::ui::Ui::register_popup_body fn (&mut self, name: &str, body: fn(&mut Ui, &PopupConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::ui::Ui::register_progress_body fn (&mut self, name: &str, body: fn(&mut Ui, &ProgressConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::ui::Ui::register_radio_body fn (&mut self, name: &str, body: fn(&mut Ui, &RadioConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::ui::Ui::register_scroll_view_body fn (&mut self, name: &str, body: fn(&mut Ui, &ScrollViewConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::ui::Ui::register_search_field_body fn (&mut self, name: &str, body: fn(&mut Ui, &SearchFieldConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::ui::Ui::register_segmented_body fn (&mut self, name: &str, body: fn(&mut Ui, &SegmentedConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::ui::Ui::register_selection_list_body fn (&mut self, name: &str, body: fn(&mut Ui, &SelectionListConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::ui::Ui::register_slider_body fn (&mut self, name: &str, body: fn(&mut Ui, &SliderConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::ui::Ui::register_spinner_body fn (&mut self, name: &str, body: fn(&mut Ui, &SpinnerConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::ui::Ui::register_split_body fn (&mut self, name: &str, body: fn(&mut Ui, &SplitConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::ui::Ui::register_table_cell_body fn (&mut self, name: &str, body: fn(&mut Ui, &TableCellConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::ui::Ui::register_table_head_body fn (&mut self, name: &str, body: fn(&mut Ui, &TableHeadConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::ui::Ui::register_table_row_body fn (&mut self, name: &str, body: fn(&mut Ui, &TableRowConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::ui::Ui::register_tabs_body fn (&mut self, name: &str, body: fn(&mut Ui, &TabsConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::ui::Ui::register_text_field_body fn (&mut self, name: &str, body: fn(&mut Ui, &TextFieldConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::ui::Ui::register_toasts_body fn (&mut self, name: &str, body: fn(&mut Ui, &ToastsConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::ui::Ui::register_toggle_body fn (&mut self, name: &str, body: fn(&mut Ui, &ToggleConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::ui::Ui::register_tooltip_body fn (&mut self, name: &str, body: fn(&mut Ui, &TooltipConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::ui::Ui::register_tree_body fn (&mut self, name: &str, body: fn(&mut Ui, &TreeConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::ui::Ui::register_value_field_body fn (&mut self, name: &str, body: fn(&mut Ui, &ValueFieldConfig)) -> Result<BodyId, Error> @U1a.2
-pxui::ui::Ui::register_window_body fn (&mut self, name: &str, body: fn(&mut Ui, &WindowConfig)) -> Result<BodyId, Error> @U1a.2
+pxui::ui::Ui::register_badge_body fn (&mut self, name: &str, body: fn(&mut Ui, &BadgeConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::ui::Ui::register_button_body fn (&mut self, name: &str, body: fn(&mut Ui, &ButtonConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::ui::Ui::register_checkbox_body fn (&mut self, name: &str, body: fn(&mut Ui, &CheckboxConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::ui::Ui::register_dialog_body fn (&mut self, name: &str, body: fn(&mut Ui, &DialogConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::ui::Ui::register_dropdown_body fn (&mut self, name: &str, body: fn(&mut Ui, &DropdownConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::ui::Ui::register_footer_body fn (&mut self, name: &str, body: fn(&mut Ui, &FooterConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::ui::Ui::register_grip_body fn (&mut self, name: &str, body: fn(&mut Ui, &GripConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::ui::Ui::register_icon_button_body fn (&mut self, name: &str, body: fn(&mut Ui, &IconButtonConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::ui::Ui::register_inspector_row_body fn (&mut self, name: &str, body: fn(&mut Ui, &InspectorRowConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::ui::Ui::register_inspector_section_body fn (&mut self, name: &str, body: fn(&mut Ui, &InspectorSectionConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::ui::Ui::register_label_body fn (&mut self, name: &str, body: fn(&mut Ui, &LabelConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::ui::Ui::register_line_field_body fn (&mut self, name: &str, body: fn(&mut Ui, &LineFieldConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::ui::Ui::register_menu_bar_body fn (&mut self, name: &str, body: fn(&mut Ui, &MenuBarConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::ui::Ui::register_menu_item_body fn (&mut self, name: &str, body: fn(&mut Ui, &MenuItemConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::ui::Ui::register_menu_row_body fn (&mut self, name: &str, body: fn(&mut Ui, &MenuRowConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::ui::Ui::register_modal_body fn (&mut self, name: &str, body: fn(&mut Ui, &ModalConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::ui::Ui::register_panel_body fn (&mut self, name: &str, body: fn(&mut Ui, &PanelConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::ui::Ui::register_picker_body fn (&mut self, name: &str, body: fn(&mut Ui, &PickerConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::ui::Ui::register_picker_field_body fn (&mut self, name: &str, body: fn(&mut Ui, &PickerFieldConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::ui::Ui::register_popup_body fn (&mut self, name: &str, body: fn(&mut Ui, &PopupConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::ui::Ui::register_progress_body fn (&mut self, name: &str, body: fn(&mut Ui, &ProgressConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::ui::Ui::register_radio_body fn (&mut self, name: &str, body: fn(&mut Ui, &RadioConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::ui::Ui::register_scroll_view_body fn (&mut self, name: &str, body: fn(&mut Ui, &ScrollViewConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::ui::Ui::register_search_field_body fn (&mut self, name: &str, body: fn(&mut Ui, &SearchFieldConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::ui::Ui::register_segmented_body fn (&mut self, name: &str, body: fn(&mut Ui, &SegmentedConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::ui::Ui::register_selection_list_body fn (&mut self, name: &str, body: fn(&mut Ui, &SelectionListConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::ui::Ui::register_slider_body fn (&mut self, name: &str, body: fn(&mut Ui, &SliderConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::ui::Ui::register_spinner_body fn (&mut self, name: &str, body: fn(&mut Ui, &SpinnerConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::ui::Ui::register_split_body fn (&mut self, name: &str, body: fn(&mut Ui, &SplitConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::ui::Ui::register_table_cell_body fn (&mut self, name: &str, body: fn(&mut Ui, &TableCellConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::ui::Ui::register_table_head_body fn (&mut self, name: &str, body: fn(&mut Ui, &TableHeadConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::ui::Ui::register_table_row_body fn (&mut self, name: &str, body: fn(&mut Ui, &TableRowConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::ui::Ui::register_tabs_body fn (&mut self, name: &str, body: fn(&mut Ui, &TabsConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::ui::Ui::register_text_field_body fn (&mut self, name: &str, body: fn(&mut Ui, &TextFieldConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::ui::Ui::register_toasts_body fn (&mut self, name: &str, body: fn(&mut Ui, &ToastsConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::ui::Ui::register_toggle_body fn (&mut self, name: &str, body: fn(&mut Ui, &ToggleConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::ui::Ui::register_tooltip_body fn (&mut self, name: &str, body: fn(&mut Ui, &TooltipConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::ui::Ui::register_tree_body fn (&mut self, name: &str, body: fn(&mut Ui, &TreeConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::ui::Ui::register_value_field_body fn (&mut self, name: &str, body: fn(&mut Ui, &ValueFieldConfig)) -> Result<BodyId, Error> @U1a.3
+pxui::ui::Ui::register_window_body fn (&mut self, name: &str, body: fn(&mut Ui, &WindowConfig)) -> Result<BodyId, Error> @U1a.3
 pxui::ui::Ui::remember fn <K: Into<Key>>(&mut self, key: K, edit: &TextEdit, typing: bool) @U1b.2
 pxui::ui::Ui::repaint_after fn (&mut self, seconds: f64) @HEAD
 pxui::ui::Ui::repaint_at fn (&self) -> Option<f64> @HEAD
@@ -1979,7 +1982,7 @@ pxui::ui::Ui::set_scroll_offset fn (&mut self, b: &Handle, value: f32) @HEAD
 pxui::ui::Ui::set_state fn (&mut self, box_: &Handle, value: i64) @HEAD
 pxui::ui::Ui::set_text_state fn (&mut self, b: &Handle, value: Option<&str>) @HEAD
 pxui::ui::Ui::set_text_worker fn (&mut self, worker: Option<&TextWorker>) -> Result<(), Error> @HEAD
-pxui::ui::Ui::set_theme fn (&mut self, theme: &ThemeHandle) @U1a.2
+pxui::ui::Ui::set_theme fn (&mut self, theme: &ThemeHandle) -> Result<(), Error> @U1a.2
 -pxui::ui::Ui::set_theme_source fn (&mut self, source: &ThemeSource) -> Result<(), Error> @U1a.2
 pxui::ui::Ui::set_timing fn (&mut self, on: bool) @HEAD
 pxui::ui::Ui::set_view fn (&mut self, b: &Handle, view: &ViewTransform) @HEAD

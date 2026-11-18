@@ -59,7 +59,9 @@ impl Ui {
     /// const CLOCK: Label = Label::MONO;
     /// let (title, duration_text, index, total, m, s) = (String::from("Song"), String::from("3:07"), 4, 12, 3, 7);
     /// let mut ui = pxui::Ui::new().unwrap();
-    /// ui.set_colors(&[(ink, paper)]);
+    /// let mut theme = pxui::ThemeHandle::default();
+    /// theme.set_color(DIM_INK, if ui.tokens().is_dark() { paper } else { ink });
+    /// ui.set_theme(&theme).unwrap();
     /// ui.set_a11y(true);
     /// for _ in 0..2 {
     ///     ui.frame(&pxui::FrameIn { width: 320.0, height: 240.0, ..Default::default() }, &mut |ui| {
@@ -180,7 +182,9 @@ mod tests {
     /// Frames `build` in a 160-point-wide `Ui` with red as colour token 0 and accessibility on, five times, and returns the `Ui` with the last frame's tree.
     fn settle(build: &mut dyn FnMut(&mut crate::Ui)) -> crate::Ui {
         let mut ui = crate::Ui::new().unwrap();
-        ui.set_colors(&[(RED, RED)]);
+        let mut theme = crate::ThemeHandle::default();
+        theme.set_color(ColorToken(0), RED);
+        ui.set_theme(&theme).unwrap();
         ui.set_a11y(true);
         for _ in 0..5 { ui.frame(&FrameIn { width: 160.0, height: 240.0, ..FrameIn::default() }, build).unwrap(); }
         ui
@@ -350,10 +354,10 @@ mod tests {
     #[test]
     fn a_registered_label_body_builds_every_label() {
         let mut ui = crate::Ui::new().unwrap();
-        ui.set_colors(&[(RED, RED)]);
         let id = ui.register_label_body("boxed", boxed_label).expect("registered");
-        let text = "label.body = boxed";
-        ui.set_theme(&pxui_types::ffi::ThemeSource { size: core::mem::size_of::<pxui_types::ffi::ThemeSource>() as u32, flags: 0, source: pxui_types::Str { ptr: text.as_ptr(), len: text.len() } }).unwrap();
+        let mut theme = crate::ThemeHandle::parse("label.body = boxed").unwrap();
+        theme.set_color(ColorToken(0), RED);
+        ui.set_theme(&theme).unwrap();
         assert_eq!(ui.theme().body.label, id);
         let (mut kit, mut styled, mut digits, mut boxed) = (None, None, None, None);
         for _ in 0..2 {

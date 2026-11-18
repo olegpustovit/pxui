@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 72
+minor 73
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -74,10 +74,14 @@ function pxui_text_width_spans int32_t pxui_text_width_spans ( PxuiUi * ui , uin
 function pxui_text_worker_create PxuiTextWorker * pxui_text_worker_create ( void ) ;
 function pxui_text_worker_destroy void pxui_text_worker_destroy ( PxuiTextWorker * worker ) ;
 function pxui_theme_create PxuiTheme * pxui_theme_create ( const PxuiThemeTokens * tokens ) ;
+function pxui_theme_density int32_t pxui_theme_density ( PxuiTheme * theme , float density ) ;
 function pxui_theme_destroy void pxui_theme_destroy ( PxuiTheme * theme ) ;
 function pxui_theme_last_error PxuiStr pxui_theme_last_error ( const PxuiTheme * theme ) ;
 function pxui_theme_load int32_t pxui_theme_load ( PxuiTheme * theme , PxuiStr path ) ;
+function pxui_theme_parse int32_t pxui_theme_parse ( PxuiTheme * theme , PxuiStr source ) ;
+function pxui_theme_reduced_motion int32_t pxui_theme_reduced_motion ( PxuiTheme * theme , uint8_t on ) ;
 function pxui_theme_set int32_t pxui_theme_set ( PxuiTheme * theme , PxuiStr key , PxuiStr value ) ;
+function pxui_theme_set_color int32_t pxui_theme_set_color ( PxuiTheme * theme , uint16_t token , PxuiColor color ) ;
 function pxui_toggle int32_t pxui_toggle ( PxuiUi * ui , PxuiStr label , uint8_t on , uint8_t * out ) ;
 function pxui_ui_a11y_name int32_t pxui_ui_a11y_name ( PxuiUi * ui , const PxuiBox * box , PxuiStr name ) ;
 function pxui_ui_a11y_number int32_t pxui_ui_a11y_number ( PxuiUi * ui , const PxuiBox * box , double now , double min , double max , double step ) ;

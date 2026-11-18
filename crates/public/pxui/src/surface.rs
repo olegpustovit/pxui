@@ -1082,7 +1082,9 @@ fn scale_animation_retargets_keyframes_and_accessibility_allocate_nothing_when_w
         assert!(!ui.wants_frame(&[], base + 1.9));
         assert_eq!(ui.layer(0).instances, instances.as_slice(), "scale must only update the transform table");
     }
-    ui.set_theme(&crate::ThemeSource { flags: crate::ThemeSource::REDUCED_MOTION, ..crate::ThemeSource::default() }).unwrap();
+    let mut theme = crate::ThemeHandle::default();
+    theme.reduced_motion(true);
+    ui.set_theme(&theme).unwrap();
     assert!(ui.tokens().reduced_motion);
     ui.frame(&FrameIn { time: 7.0, ..input() }, &mut build).unwrap();
     assert!(ui.animate(&view, large, spring));
@@ -1247,20 +1249,19 @@ impl Ui {
 
 #[test]
 fn a_theme_built_from_key_values_scopes_over_a_subtree_and_refuses_bad_keys() {
-    use crate::Theme;
-    use pxui_types::theme::Tokens;
-    let mut theme = Theme::from_tokens(Tokens::DEFAULT);
-    theme.set("tokens.accent", "#ff0000").expect("a token");
-    theme.set("button.hover.fill", "#00ff00").expect("a look key");
-    let err = theme.set("button.nonsense", "1").expect_err("an unknown key is refused");
-    assert!(err.contains("unknown key"), "{err}");
-    assert!(theme.set("tokens.accent", "red").is_err(), "a malformed value is refused");
-    assert!(theme.load("/no/such/file.theme").is_err());
+    use crate::{Error, ThemeHandle};
+    let theme = ThemeHandle::parse("tokens.accent = #ff0000\nbutton.hover.fill = #00ff00").unwrap();
+    for invalid in ["button.nonsense = 1", "tokens.accent = red", "toggle.body = two words"] {
+        assert!(matches!(ThemeHandle::parse(invalid), Err(Error::InvalidInput)), "{invalid}");
+    }
     let mut ui = Ui::new().expect("library");
     let mut inside = None;
     ui.frame(&input(), &mut |ui: &mut Ui| {
         let outer = ui.tokens().accent;
-        ui.themed(&theme, &mut |ui: &mut Ui| inside = Some(ui.tokens().accent));
+        ui.themed(&theme, &mut |ui: &mut Ui| {
+            inside = Some(ui.tokens().accent);
+            assert_eq!(ui.theme().button.hover.fill, crate::Rgba::rgb(0, 255, 0));
+        });
         assert_eq!(ui.tokens().accent, outer, "the Ui's own theme is back");
     }).expect("frame");
     assert_eq!(inside, Some(pxui_types::geom::Rgba::rgb(255, 0, 0)));
@@ -1563,7 +1564,9 @@ fn inline_node_fractional_font_alignment_matches_canvas_text() {
     use crate::TextSpan;
     use pxui_types::geom::Rgba;
     let mut ui=Ui::new().unwrap();
-    ui.set_colors(&[(Rgba::rgba(0,0,0,255),Rgba::rgba(0,0,0,255))]);
+    let mut theme = crate::ThemeHandle::default();
+    theme.set_color(crate::theme::ColorToken(0), Rgba::rgba(0, 0, 0, 255));
+    ui.set_theme(&theme).unwrap();
     let label=crate::Label::BODY.size(20.25).color(crate::theme::ColorToken(0));
     let style=ui.resolve(&label);
     let span=TextSpan { start:0,end:2,flags:TextSpan::COLOR,color:Rgba::rgba(255,0,0,255),..Default::default() };
@@ -1591,7 +1594,9 @@ fn inline_node_wrapped_alignment_matches_the_complete_canvas_block() {
     use crate::TextSpan;
     use pxui_types::geom::Rgba;
     let mut ui=Ui::new().unwrap();
-    ui.set_colors(&[(Rgba::rgba(0,0,0,255),Rgba::rgba(0,0,0,255))]);
+    let mut theme = crate::ThemeHandle::default();
+    theme.set_color(crate::theme::ColorToken(0), Rgba::rgba(0, 0, 0, 255));
+    ui.set_theme(&theme).unwrap();
     let label=crate::Label::BODY.size(20.0).line_height(24.0).wrap().color(crate::theme::ColorToken(0));
     let style=ui.resolve(&label);
     let span=TextSpan { start:3,end:5,flags:TextSpan::COLOR,color:Rgba::rgba(255,0,0,255),..Default::default() };
@@ -1650,7 +1655,9 @@ fn ellipsis_modes_on_nodes_and_canvas_preserve_labels_fit_modes_and_warm_storage
     let spans=[TextSpan { start:0,end:1,flags:TextSpan::COLOR,color:Rgba::rgba(255,0,0,255),..Default::default() },
         TextSpan { start:25,end:26,flags:TextSpan::COLOR,color:Rgba::rgba(0,0,255,255),..Default::default() }];
     let shift=em_top_to_layout_top(20.0);
-    ui.set_colors(&[(Rgba::rgba(0,0,0,255),Rgba::rgba(0,0,0,255))]);
+    let mut theme = crate::ThemeHandle::default();
+    theme.set_color(crate::theme::ColorToken(0), Rgba::rgba(0, 0, 0, 255));
+    ui.set_theme(&theme).unwrap();
     let body=crate::Label::BODY.size(20.0).color(crate::theme::ColorToken(0));
     let labels=[body.ellipsis(),body.ellipsis_middle(),body.ellipsis_head()];
     let styles=labels.map(|label| ui.resolve(&label));
@@ -1743,7 +1750,7 @@ fn system_preferences_invalidate_kept_views_snap_running_motion_and_restore_auth
     use crate::ui::{Keyframe,Keyframes};
     mem_sys::set_peer(crate::library_counter);
     let mut ui=Ui::new().unwrap();
-    let scoped=crate::Theme::default();
+    let scoped=crate::ThemeHandle::default();
     let handle=Cell::new(None);
     let child=Cell::new(None);
     let builds=Cell::new(0);
@@ -1783,7 +1790,9 @@ fn system_preferences_invalidate_kept_views_snap_running_motion_and_restore_auth
         ui.frame(&FrameIn { time:time+0.5,appearance:FrameIn::APPEARANCE_LIGHT,..input() },&mut build).unwrap();
         assert!(!ui.tokens().reduced_motion,"the app's original motion flag is restored");
     }
-    ui.set_theme(&crate::ThemeSource { flags:crate::ThemeSource::REDUCED_MOTION,..Default::default() }).unwrap();
+    let mut theme = crate::ThemeHandle::default();
+    theme.reduced_motion(true);
+    ui.set_theme(&theme).unwrap();
     ui.frame(&FrameIn { time:120.0,..input() },&mut |_|{}).unwrap();
     assert!(ui.tokens().reduced_motion,"an authored motion restriction is preserved");
     for (appearance,reduced_motion) in [(3,0),(u32::MAX,0),(0,2),(0,u32::MAX)] {
@@ -1995,7 +2004,7 @@ fn custom_text_field_font_sizes_keep_glyphs_caret_hit_selection_and_ime_without_
             ui.set_a11y(true);
             ui.register_text_field_body("font-sized-editor",body).unwrap();
             let source = "text_field.body = font-sized-editor";
-            ui.set_theme(&crate::ThemeSource {source:Str {ptr:source.as_ptr(),len:source.len()},..Default::default()}).unwrap();
+            ui.set_theme(&crate::ThemeHandle::parse(&source).unwrap()).unwrap();
             let value = "café track 10";
             let mut build = |ui: &mut Ui| assert!(ui.text_field("Styled",value,&crate::TextField::DEFAULT).changed.is_none());
             let frame = FrameIn {scale,..input()};
@@ -2813,7 +2822,7 @@ fn marked_text_replaces_the_selection_and_tracks_unicode_caret_without_warm_allo
     let mut ui=Ui::new().unwrap();
     ui.register_text_field_body("marked-editor",body).unwrap();
     let source="text_field.body = marked-editor";
-    ui.set_theme(&crate::ThemeSource {source:Str {ptr:source.as_ptr(),len:source.len()},..Default::default()}).unwrap();
+    ui.set_theme(&crate::ThemeHandle::parse(&source).unwrap()).unwrap();
     let mut build=|ui:&mut Ui|assert!(ui.text_field("Marked","café track",&crate::TextField::DEFAULT).changed.is_none());
     ui.frame(&input(),&mut build).unwrap();
     let key=|kind,n|Event {kind,code:pxui_types::KEY_SPECIAL+n,..Default::default()};
@@ -2968,14 +2977,14 @@ fn colour_tokens_follow_a_light_dark_theme_swap_without_app_rebuild_or_warm_allo
     use pxui_types::{geom::Rgba, theme::ColorToken};
     mem_sys::set_peer(crate::library_counter);
     let c = |v: u8| Rgba::rgb(v, v, v);
-    let table = [(c(240), c(16)), (c(200), c(60))];
-    let mut light = crate::Theme::default();
-    light.set("tokens.panel", "#f4f5f0").unwrap();
-    let mut dark = crate::Theme::default();
-    dark.set("tokens.panel", "#101010").unwrap();
+    let mut light = crate::ThemeHandle::parse("tokens.panel = #f4f5f0").unwrap();
+    let mut dark = crate::ThemeHandle::parse("tokens.panel = #101010").unwrap();
+    light.set_color(ColorToken(0), c(240));
+    light.set_color(ColorToken(1), c(200));
+    dark.set_color(ColorToken(0), c(16));
+    dark.set_color(ColorToken(1), c(60));
     let mut ui = Ui::new().unwrap();
-    ui.set_colors(&table);
-    ui.use_theme(&light);
+    ui.set_theme(&light).unwrap();
     // what the app reads while building (inside a retained view whose revision never changes), painting and in a scope
     let (built, painted, scoped) = (Cell::new(Rgba::default()), Rc::new(Cell::new(Rgba::default())), Cell::new(Rgba::default()));
     let mut build = |ui: &mut Ui| {
@@ -2991,17 +3000,55 @@ fn colour_tokens_follow_a_light_dark_theme_swap_without_app_rebuild_or_warm_allo
         ui.frame(&input(), &mut build).unwrap();
         assert_eq!((ui.color(ColorToken(0)), built.get(), painted.get(), scoped.get()), (c(240), c(200), c(240), c(16)), "light theme: light entries; a dark scope reads dark");
         mem_sys::local_reset();
-        ui.use_theme(&dark);
+        ui.set_theme(&dark).unwrap();
         assert_eq!(ui.color(ColorToken(0)), c(16), "reads change at the swap, before any frame");
         ui.frame(&input(), &mut build).unwrap();
         assert_eq!((built.get(), painted.get()), (c(60), c(16)), "the unchanged-revision view and its canvas follow the dark theme");
         let mut sum = 0u32;
         for token in 0..(ColorToken::LIMIT as u16 + 8) { sum += ui.color(ColorToken(token)).r as u32; }
         assert_eq!(sum, 16 + 60, "unset and out-of-range tokens read transparent");
-        ui.use_theme(&light);
+        ui.set_theme(&light).unwrap();
         if round >= 2 { assert_eq!(mem_sys::local_alloc_count(), 0, "warm swaps, frames and reads allocate nothing"); }
     }
     assert_eq!(ui.color(ColorToken(64)), Rgba::default());
+}
+
+#[test]
+fn authored_scope_palettes_inherit_and_invalidate_retained_views_without_warm_allocations() {
+    use crate::{Rgba, ThemeHandle, theme::ColorToken};
+    use std::cell::Cell;
+
+    let token = ColorToken(0);
+    let with_palette = |color| {
+        let mut theme = ThemeHandle::parse("button.hover.fill = #544b0000").unwrap();
+        theme.set_color(token, color);
+        theme
+    };
+    let root_ink = Rgba::rgb(10, 20, 30);
+    let root = with_palette(root_ink);
+    let (red, blue) = (Rgba::rgb(255, 0, 0), Rgba::rgb(0, 0, 255));
+    let (left, right) = (with_palette(red), with_palette(blue));
+    let inherited = ThemeHandle::default();
+    let mut ui = Ui::new().unwrap();
+    let seen = Cell::new(Rgba::default());
+    mem_sys::set_peer(crate::library_counter);
+    for round in 0..6 {
+        let (scope, ink) = if round % 2 == 0 { (&left, red) } else { (&right, blue) };
+        mem_sys::local_reset();
+        ui.set_theme(&root).unwrap();
+        ui.frame(&FrameIn { reduced_motion: 1, ..input() }, &mut |ui| {
+            ui.themed(scope, &mut |ui| {
+                assert_eq!(ui.theme().button.hover.fill, ink);
+                assert!(ui.tokens().reduced_motion);
+                ui.themed(&inherited, &mut |ui| {
+                    ui.view_of("sample", &1, |ui| seen.set(ui.color(token)));
+                });
+            });
+            assert_eq!(ui.color(token), root_ink);
+        }).unwrap();
+        assert_eq!(seen.get(), ink);
+        if round >= 2 { assert_eq!(mem_sys::local_alloc_count(), 0); }
+    }
 }
 
 thread_local! { static TOKEN_BODY_INK: std::cell::Cell<pxui_types::geom::Rgba> = const { std::cell::Cell::new(pxui_types::geom::Rgba::rgba(0, 0, 0, 0)) }; }
@@ -3024,14 +3071,13 @@ fn const_looks_naming_colour_tokens_resolve_for_the_theme_in_effect_without_app_
     let c = |v: u8| Rgba::rgb(v, v, v);
     let mut ui = Ui::new().unwrap();
     ui.register_icon_button_body("token_body", token_body).unwrap();
-    let mut light = crate::Theme::default();
-    light.set("tokens.panel", "#f4f5f0").unwrap();
-    light.apply(&ui, "icon_button.body = token_body").unwrap();
-    let mut dark = crate::Theme::default();
-    dark.set("tokens.panel", "#101010").unwrap();
-    dark.apply(&ui, "icon_button.body = token_body").unwrap();
-    ui.set_colors(&[(c(240), c(16)), (c(30), c(220))]);
-    ui.use_theme(&light);
+    let mut light = crate::ThemeHandle::parse("tokens.panel = #f4f5f0\nicon_button.body = token_body").unwrap();
+    let mut dark = crate::ThemeHandle::parse("tokens.panel = #101010\nicon_button.body = token_body").unwrap();
+    light.set_color(PAPER, c(240));
+    light.set_color(INK, c(30));
+    dark.set_color(PAPER, c(16));
+    dark.set_color(INK, c(220));
+    ui.set_theme(&light).unwrap();
     let (node, pressed, button) = (Cell::new(Look::NONE), Cell::new(Look::NONE), Cell::new(Look::NONE));
     // a retained view whose revision never changes: the engine rebuilds it at the swap, the app changes nothing
     let mut build = |ui: &mut Ui| {
@@ -3048,7 +3094,7 @@ fn const_looks_naming_colour_tokens_resolve_for_the_theme_in_effect_without_app_
     for round in 0..4 {
         for (theme, paper, ink) in [(&light, c(240), c(30)), (&dark, c(16), c(220))] {
             mem_sys::local_reset();
-            ui.use_theme(theme);
+            ui.set_theme(theme).unwrap();
             ui.frame(&input(), &mut build).unwrap();
             assert_eq!((node.get().fill, node.get().text, node.get().border), (paper, ink, Rgba::rgb(1, 2, 3)), "a node's const look");
             assert_eq!((pressed.get().fill, pressed.get().text), (paper, ink), "a pressable's const look");
@@ -3073,13 +3119,12 @@ fn a_registered_menu_row_body_is_given_a_swatch_token_resolved_for_the_theme() {
     let c = |v: u8| Rgba::rgb(v, v, v);
     let mut ui = Ui::new().unwrap();
     ui.register_menu_row_body("swatch_row", swatch_row).unwrap();
-    let (mut light, mut dark) = (crate::Theme::default(), crate::Theme::default());
-    light.set("tokens.panel", "#f4f5f0").unwrap();
-    dark.set("tokens.panel", "#101010").unwrap();
-    for theme in [&mut light, &mut dark] { theme.apply(&ui, "menu_row.body = swatch_row").unwrap(); }
-    ui.set_colors(&[(c(240), c(16))]);
+    let mut light = crate::ThemeHandle::parse("tokens.panel = #f4f5f0\nmenu_row.body = swatch_row").unwrap();
+    let mut dark = crate::ThemeHandle::parse("tokens.panel = #101010\nmenu_row.body = swatch_row").unwrap();
+    light.set_color(ColorToken(0), c(240));
+    dark.set_color(ColorToken(0), c(16));
     for (theme, want) in [(&light, c(240)), (&dark, c(16)), (&light, c(240))] {
-        ui.use_theme(theme);
+        ui.set_theme(theme).unwrap();
         ui.frame(&input(), &mut |ui| { ui.menu("m", (10.0, 10.0), &ITEMS, &Menu::DEFAULT); }).unwrap();
         assert_eq!(SWATCH_SEEN.with(|s| s.get()), want);
     }

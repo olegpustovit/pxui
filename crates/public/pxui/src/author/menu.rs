@@ -136,7 +136,7 @@ mod tests {
         ui.set_a11y(true);
         ui.register_menu_row_body("marker", marker).expect("registered");
         let text = "menu_row.body = marker\n";
-        ui.set_theme(&pxui_types::ffi::ThemeSource { size: core::mem::size_of::<pxui_types::ffi::ThemeSource>() as u32, flags: 0, source: pxui_types::Str { ptr: text.as_ptr(), len: text.len() } }).unwrap();
+        ui.set_theme(&crate::ThemeHandle::parse(&text).unwrap()).unwrap();
         let menu = Menu::DEFAULT.row_h(30.0);
         for _ in 0..3 {
             SEEN.with(|s| s.borrow_mut().clear());
@@ -277,7 +277,7 @@ mod tests {
         let mut ui = Ui::new().expect("library");
         ui.set_a11y(true);
         ui.register_menu_row_body("current", current_row).expect("row body");
-        let scoped = { let mut theme = crate::Theme::default(); theme.apply(&ui, "menu_row.body = current").expect("theme"); theme };
+        let scoped = crate::ThemeHandle::parse("menu_row.body = current").expect("theme");
         let menu = Cell::new(Menu::DEFAULT);
         let mut build = |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| { ui.menu("cache-size-menu", (10.0, 10.0), &SIZES, &menu.get()); });
         let run = |ui: &mut Ui, build: &mut dyn FnMut(&mut Ui)| for n in 0..3 { CURRENT.with(|s| s.borrow_mut().clear()); ui.frame(&FrameIn { width: 320.0, height: 240.0, time: n as f64, ..FrameIn::default() }, build).expect("frame"); };
@@ -377,7 +377,7 @@ mod tests {
         ui.set_a11y(true);
         ui.register_popup_body("listing", listing_sheet).expect("popup body");
         ui.register_scroll_view_body("counted", counted_scroll).expect("scroll body");
-        let scoped = { let mut theme = crate::Theme::default(); theme.apply(&ui, "popup.body = listing\nscroll_view.body = counted").expect("theme"); theme };
+        let scoped = crate::ThemeHandle::parse("popup.body = listing\nscroll_view.body = counted").expect("theme");
         const LONG: [MenuItem; 20] = [MenuItem::new("Row"); 20];
         let mut build = |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| { ui.menu("m", (10.0, 10.0), &LONG, &Menu::DEFAULT.max_rows(4)); });
         for _ in 0..3 { testing::frame(&mut ui, &[], &mut build); }

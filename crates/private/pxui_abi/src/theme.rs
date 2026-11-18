@@ -2,7 +2,7 @@ use crate::state::{Build, PxuiUi, call_build, checked, fail, get};
 use crate::{PXUI_ERR_ARGUMENT, Str};
 use core::ffi::c_void;
 use pxui_core::{Theme, ui::Ui};
-use pxui_types::{ffi::ThemeTokens, geom::Rgba, theme::{Bodies, ColorToken, ThemeSnapshot}};
+use pxui_types::{ffi::ThemeTokens, geom::Rgba, theme::{Bodies, BodyId, ColorToken, ThemeSnapshot}};
 
 // The engine's theme is the snapshot's bytes: both are generated from `theme_widgets!` with C layout.
 const _: () = assert!(core::mem::size_of::<Theme>() == core::mem::size_of::<ThemeSnapshot>() && core::mem::align_of::<Theme>() == core::mem::align_of::<ThemeSnapshot>()
@@ -19,7 +19,15 @@ export!(trusted pub unsafe fn pxui_ui_theme(ui:*mut PxuiUi) -> *const ThemeSnaps
 /// or `load` applies over what is there already, as `Theme::parse` does over its base: a `tokens.*` key re-derives every
 /// look from the new tokens, so set tokens before the keys that restyle single looks. Body ids are per `Ui`, so the theme also keeps
 /// the name each `KIND.body` line selected (`names`, one per kind at most) and resolves them in the `Ui` it is used in (`in_ui`).
-pub struct PxuiTheme { theme: Theme, names: Vec<(&'static str, String)>, error: String, names_tokens: bool, pub(crate) poisoned: bool }
+pub struct PxuiTheme {
+    theme: Theme,
+    names: Vec<(&'static str, String)>,
+    error: String,
+    names_tokens: bool,
+    strict_bodies: bool,
+    palette: Option<[Rgba; ColorToken::LIMIT]>,
+    pub(crate) poisoned: bool,
+}
 
 // A parsed theme can be selected repeatedly without parsing or allocating on an OS appearance change.
 export!(pub unsafe fn pxui_ui_use_theme(ui:*mut PxuiUi,theme:*const PxuiTheme)->i32 {
@@ -27,9 +35,12 @@ export!(pub unsafe fn pxui_ui_use_theme(ui:*mut PxuiUi,theme:*const PxuiTheme)->
     if !state.owner || state.shared().in_frame { return crate::PXUI_ERR_STATE; }
     let Some(theme)=(unsafe { theme.as_ref() }) else { return unsafe { fail(ui,"null theme") }; };
     let engine = unsafe { &mut *state.engine };
-    let bodies = theme.bodies_in_ui(engine);
+    let bodies = match theme.bodies_in_ui(engine, theme.strict_bodies) {
+        Ok(bodies) => bodies,
+        Err((kind, name)) => return unsafe { fail(ui, &format!("no {kind} body is registered as `{name}`")) },
+    };
     if bodies == theme.theme.body {
-        engine.set_theme_with_token_colors(&theme.theme, theme.names_tokens);
+        engine.set_theme_with_palette(&theme.theme, theme.names_tokens, theme.palette.as_ref());
     } else {
         use_remapped_theme(engine, theme, bodies);
     }
@@ -39,7 +50,7 @@ export!(pub unsafe fn pxui_ui_use_theme(ui:*mut PxuiUi,theme:*const PxuiTheme)->
 /// Materialise a theme only when the destination UI uses other body IDs.
 #[inline(never)]
 fn use_remapped_theme(engine: &mut Ui, theme: &PxuiTheme, bodies: Bodies) {
-    engine.set_theme_with_token_colors(&Theme { body: bodies, ..theme.theme }, theme.names_tokens);
+    engine.set_theme_with_palette(&Theme { body: bodies, ..theme.theme }, theme.names_tokens, theme.palette.as_ref());
 }
 
 // Installs the app's colour tokens between frames: `light[i]`/`dark[i]` are token `i`, `count` at most 64 (0 clears the table).
@@ -58,12 +69,11 @@ export!(pub unsafe fn pxui_ui_color(ui:*mut PxuiUi,token:u16)->Rgba { unsafe { c
 
 impl PxuiTheme {
     /// Applies `text` (a theme file) over the theme, or records why it cannot be and changes nothing.
-    /// With `ui`, `KIND.body = NAME` names the bodies that `Ui` registered; without, only `default`.
-    fn apply(&mut self, text: &str, ui: Option<&Ui>) -> i32 {
+    fn apply(&mut self, text: &str, body: &dyn Fn(&str, &str) -> Option<BodyId>) -> i32 {
         let seen = core::cell::RefCell::new(Vec::new());
         let named = |kind: &str, name: &str| {
             seen.borrow_mut().push((kind.to_owned(), name.to_owned()));
-            ui.map_or((name == "default").then_some(pxui_types::theme::BodyId::DEFAULT), |ui| ui.named_body(kind, name))
+            body(kind, name)
         };
         match Theme::parse_bodies(text, &self.theme, &named) {
             Ok(theme) => {
@@ -86,18 +96,18 @@ impl PxuiTheme {
 }
 
 impl PxuiTheme {
-    /// The theme with each body it names by name resolved in `ui` (the built-in body where `ui` registered no such name): ids are per
-    /// `Ui`, so one applied against another `Ui` never selects a body of `ui` by that other `Ui`'s number. Allocates nothing.
-    pub(crate) fn in_ui(&self, ui: &Ui) -> Theme {
-        Theme { body: self.bodies_in_ui(ui), ..self.theme }
-    }
-
-    fn bodies_in_ui(&self, ui: &Ui) -> Bodies {
+    /// Body ids belong to the destination Ui. Scopes and legacy root installs allow a built-in fallback.
+    fn bodies_in_ui(&self, ui: &Ui, strict: bool) -> Result<Bodies, (&'static str, &str)> {
         let mut bodies = self.theme.body;
         for (kind, name) in &self.names {
-            bodies.set(kind, ui.named_body(kind, name).unwrap_or_default());
+            let id = match ui.named_body(kind, name) {
+                Some(id) => id,
+                None if strict => return Err((kind, name)),
+                None => BodyId::DEFAULT,
+            };
+            bodies.set(kind, id);
         }
-        bodies
+        Ok(bodies)
     }
 }
 
@@ -116,7 +126,10 @@ export!(bare pub unsafe fn pxui_theme_create(tokens: *const ThemeTokens) -> *mut
         None => Theme::default(),
         Some(_) => match read_desc!(tokens, ThemeTokens) { Some(t) if tokens_valid(&t) => Theme::from_tokens(t.into()), _ => return core::ptr::null_mut() },
     };
-    Box::into_raw(Box::new(PxuiTheme { names_tokens: theme.names_color_tokens(), theme, names: Vec::new(), error: String::new(), poisoned: false }))
+    Box::into_raw(Box::new(PxuiTheme {
+        names_tokens: theme.names_color_tokens(), theme, names: Vec::new(), error: String::new(),
+        strict_bodies: false, palette: None, poisoned: false,
+    }))
 });
 
 export!(bare pub unsafe fn pxui_theme_destroy(theme: *mut PxuiTheme) { if !theme.is_null() { drop(unsafe { Box::from_raw(theme) }); } });
@@ -126,7 +139,7 @@ export!(object pub unsafe fn pxui_theme_set(theme: *mut PxuiTheme, key: Str, val
     let Some(theme) = (unsafe { theme.as_mut() }) else { return PXUI_ERR_ARGUMENT; };
     let (Some(key), Some(value)) = (unsafe { crate::state::checked_key(key) }, unsafe { checked(value) }) else { theme.error = "invalid theme text".into(); return PXUI_ERR_ARGUMENT; };
     if key.contains(['\n', '=']) || value.contains('\n') { theme.error = "a key holds no `=` or line break and a value no line break".into(); return PXUI_ERR_ARGUMENT; }
-    theme.apply(&format!("{key} = {value}"), None)
+    theme.apply(&format!("{key} = {value}"), &|_, _| None)
 });
 
 // Applies the theme file at `path`.
@@ -134,7 +147,7 @@ export!(object pub unsafe fn pxui_theme_load(theme: *mut PxuiTheme, path: Str) -
     let Some(theme) = (unsafe { theme.as_mut() }) else { return PXUI_ERR_ARGUMENT; };
     let Some(path) = (unsafe { checked(path) }) else { theme.error = "invalid theme path".into(); return PXUI_ERR_ARGUMENT; };
     match std::fs::read_to_string(path) {
-        Ok(text) => theme.apply(&text, None),
+        Ok(text) => theme.apply(&text, &|_, _| None),
         Err(error) => { theme.error = format!("{path}: {error}"); PXUI_ERR_ARGUMENT }
     }
 });
@@ -150,8 +163,9 @@ export!(build pub unsafe fn pxui_ui_themed(ui: *mut PxuiUi, theme: *const PxuiTh
     let Some(theme) = (unsafe { theme.as_ref() }) else { return unsafe { fail(ui, "null theme") }; };
     let shared = state.shared;
     let engine = unsafe { &mut *state.engine };
-    let resolved = theme.in_ui(engine);
-    engine.themed(&resolved, &mut |engine: &mut Ui| call_build(shared, engine, build, user));
+    let body = theme.bodies_in_ui(engine, false).expect("a scope falls back to the built-in body");
+    let resolved = Theme { body, ..theme.theme };
+    engine.themed_with_palette(&resolved, theme.palette.as_ref(), &mut |engine: &mut Ui| call_build(shared, engine, build, user));
     0
 });
 
@@ -161,7 +175,39 @@ export!(pub unsafe fn pxui_ui_theme_apply(ui: *mut PxuiUi, theme: *mut PxuiTheme
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     let Some(theme) = (unsafe { theme.as_mut() }) else { return unsafe { fail(ui, "null theme") }; };
     let Some(text) = (unsafe { checked(text) }) else { theme.error = "invalid theme text".into(); return PXUI_ERR_ARGUMENT; };
-    theme.apply(text, Some(unsafe { &*state.engine }))
+    let engine = unsafe { &*state.engine };
+    theme.apply(text, &|kind, name| engine.named_body(kind, name))
+});
+
+// Parses a detached theme source. Named bodies are validated when applying the root theme to a Ui.
+export!(object pub unsafe fn pxui_theme_parse(theme: *mut PxuiTheme, source: Str) -> i32 {
+    let Some(theme) = (unsafe { theme.as_mut() }) else { return PXUI_ERR_ARGUMENT; };
+    let Some(source) = (unsafe { crate::state::checked_text(source) }) else { theme.error = "invalid theme text".into(); return PXUI_ERR_ARGUMENT; };
+    let status = theme.apply(source, &|_, name| crate::bodies::name_ok(name).then_some(BodyId::DEFAULT));
+    if status == 0 { theme.strict_bodies = true; }
+    status
+});
+
+export!(object pub unsafe fn pxui_theme_set_color(theme: *mut PxuiTheme, token: u16, color: Rgba) -> i32 {
+    let Some(theme) = (unsafe { theme.as_mut() }) else { return PXUI_ERR_ARGUMENT; };
+    if token as usize >= ColorToken::LIMIT { return PXUI_ERR_ARGUMENT; }
+    let palette = theme.palette.get_or_insert([Rgba::default(); ColorToken::LIMIT]);
+    palette[token as usize] = if color.as_token().is_none() { color } else { Rgba::default() };
+    0
+});
+
+export!(object pub unsafe fn pxui_theme_density(theme: *mut PxuiTheme, density: f32) -> i32 {
+    let Some(theme) = (unsafe { theme.as_mut() }) else { return PXUI_ERR_ARGUMENT; };
+    if !density.is_finite() || density <= 0.0 { return PXUI_ERR_ARGUMENT; }
+    theme.theme.tokens.density = density;
+    0
+});
+
+export!(object pub unsafe fn pxui_theme_reduced_motion(theme: *mut PxuiTheme, on: u8) -> i32 {
+    let Some(theme) = (unsafe { theme.as_mut() }) else { return PXUI_ERR_ARGUMENT; };
+    if on > 1 { return PXUI_ERR_ARGUMENT; }
+    theme.theme.tokens.reduced_motion = on != 0;
+    0
 });
 
 #[cfg(test)]
@@ -201,4 +247,17 @@ fn editing_a_parsed_theme_updates_its_colour_token_scan() {
     }
     unsafe { pxui_theme_destroy(theme) };
     assert_eq!(unsafe { crate::pxui_ui_destroy(ui) }, 0);
+}
+
+#[cfg(test)]
+#[test]
+fn legacy_theme_edit_and_load_keep_their_error_detail() {
+    use crate::state::pair;
+    let theme = unsafe { pxui_theme_create(core::ptr::null()) };
+    let message = || unsafe { crate::state::text(pxui_theme_last_error(theme)).unwrap() };
+    assert_eq!(unsafe { pxui_theme_set(theme, pair("button.nonsense"), pair("1")) }, PXUI_ERR_ARGUMENT);
+    assert!(message().contains("unknown key"), "{}", message());
+    assert_eq!(unsafe { pxui_theme_set(theme, pair("tokens.accent"), pair("red")) }, PXUI_ERR_ARGUMENT);
+    assert_eq!(unsafe { pxui_theme_load(theme, pair("/no/such/file.theme")) }, PXUI_ERR_ARGUMENT);
+    unsafe { pxui_theme_destroy(theme) };
 }

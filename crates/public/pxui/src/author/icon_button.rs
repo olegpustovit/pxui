@@ -337,7 +337,7 @@ mod tests {
         let mut ui = Ui::new().unwrap();
         let id = ui.register_icon_button_body("recording", recording).expect("registered");
         let text = "icon_button.body = recording";
-        ui.set_theme(&pxui_types::ffi::ThemeSource { size: core::mem::size_of::<pxui_types::ffi::ThemeSource>() as u32, flags: 0, source: pxui_types::Str { ptr: text.as_ptr(), len: text.len() } }).unwrap();
+        ui.set_theme(&crate::ThemeHandle::parse(&text).unwrap()).unwrap();
         assert_eq!(ui.theme().body.icon_button, id);
         for (button, seen) in [(KEY, core::ptr::null()), (KEY.press_curves(&EASED), EASED.as_ptr()), (IconButton::DEFAULT, core::ptr::null())] {
             testing::frame(&mut ui, &[], &mut |ui| { ui.icon_button("k", PLAY, "Play", &button); });
@@ -376,7 +376,7 @@ mod tests {
         ui.set_a11y(true);
         let id = ui.register_icon_button_body("checked_body", checked_body).expect("registered");
         let text = "icon_button.body = checked_body";
-        ui.set_theme(&pxui_types::ffi::ThemeSource { size: core::mem::size_of::<pxui_types::ffi::ThemeSource>() as u32, flags: 0, source: pxui_types::Str { ptr: text.as_ptr(), len: text.len() } }).unwrap();
+        ui.set_theme(&crate::ThemeHandle::parse(&text).unwrap()).unwrap();
         assert_eq!(ui.theme().body.icon_button, id);
         for (key, seen) in [(KEY.selected(true), 1), (KEY.selected(false), 0), (KEY, 0)] {
             testing::frame(&mut ui, &[], &mut |ui| { ui.icon_button("k", PLAY, "Key", &key); });

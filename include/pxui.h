@@ -18,7 +18,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 72u)
+#define PXUI_ABI_BUILT ((1u << 16) | 73u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 typedef struct { uint32_t autocorrect, capitalization, action; } PxuiTextInputOptions;
@@ -1068,6 +1068,11 @@ PxuiStr pxui_theme_last_error(const PxuiTheme *theme); /* borrowed from the them
 int32_t pxui_ui_themed(PxuiUi *ui, const PxuiTheme *theme, PxuiBuild build, void *user);
 /* pxui_theme_set for a whole theme file: `KIND.body = NAME` names the bodies `ui` registered; an unregistered name is refused (pxui_theme_last_error). */
 int32_t pxui_ui_theme_apply(PxuiUi *ui, PxuiTheme *theme, PxuiStr text);
+/* Detached source. Root installation checks all named bodies in the destination Ui. Scopes use the built-in body for missing names. */
+int32_t pxui_theme_parse(PxuiTheme *theme, PxuiStr source);
+int32_t pxui_theme_set_color(PxuiTheme *theme, uint16_t token, PxuiColor color);
+int32_t pxui_theme_density(PxuiTheme *theme, float density);
+int32_t pxui_theme_reduced_motion(PxuiTheme *theme, uint8_t on);
 
 
 /* Accessibility bridge of an app's window (Linux: AT-SPI2 on the accessibility bus; elsewhere start returns null, the platform's bridge

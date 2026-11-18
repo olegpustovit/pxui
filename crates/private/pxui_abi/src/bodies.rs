@@ -251,7 +251,7 @@ macro_rules! registrars {
 pxui_types::body_kinds!(registrars);
 
 /// A body name a theme file can select: 1 to `MAX_BODY_NAME` (64) bytes, not `default`, no space and none of `=` or `#`.
-fn name_ok(name: &str) -> bool { !name.is_empty() && name.len() <= MAX_BODY_NAME && name != "default" && !name.contains(|c: char| c.is_whitespace() || c.is_control() || c == '=' || c == '#') }
+pub(crate) fn name_ok(name: &str) -> bool { !name.is_empty() && name.len() <= MAX_BODY_NAME && name != "default" && !name.contains(|c: char| c.is_whitespace() || c.is_control() || c == '=' || c == '#') }
 
 // Registers `body` (called as `body(user, ui, config)`, the config the record of `kind`, a `BodyKind` number) as the body of `kind`
 // called `name`, for a theme's `KIND.body = NAME`; returns its id, or 0 with `pxui_last_error` set when it is refused (an unknown kind,

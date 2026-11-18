@@ -1044,7 +1044,9 @@ fn shared_second_atlas_activates_after_prepare_without_replacing_first_page() {
     assert!(matches!(renderer.atlas(pxui::AtlasKind::Mask2),Err(pxui::Error::State)));
     let first=renderer.atlas(pxui::AtlasKind::Mask).unwrap();
     let black=pxui::geom::Rgba::rgba(0,0,0,255);
-    ui.set_colors(&[(black,black)]);
+    let mut theme = pxui::ThemeHandle::default();
+    theme.set_color(pxui::theme::ColorToken(0), black);
+    ui.set_theme(&theme).unwrap();
     let style=pxui::Label::BODY.size(600.0).color(pxui::theme::ColorToken(0));
     let mut first_pixels:Option<Vec<u8>>=None;
     let mut first_glyph=None;
@@ -1089,16 +1091,14 @@ fn shared_system_preferences_change_native_pixels_without_warm_allocations() {
     let queue=ok(be::create_queue(&device));
     let target=texture(&device,640,600,&[TextureUsage::RenderAttachment,TextureUsage::TextureCopySrc]);
     let mut ui=pxui::Ui::new().unwrap();
-    let mut light=pxui::Theme::default();
-    let mut dark=pxui::Theme::default();
-    light.set("tokens.foreground","#ff0000").unwrap();
-    dark.set("tokens.foreground","#0000ff").unwrap();
+    let light = pxui::ThemeHandle::parse("tokens.foreground = #ff0000").unwrap();
+    let dark = pxui::ThemeHandle::parse("tokens.foreground = #0000ff").unwrap();
     let mut renderer=shared_renderer(&device,&ui);
     for frame in 1..=8 {
         let is_dark=frame%2==0;
         let appearance=if is_dark { pxui::FrameIn::APPEARANCE_DARK } else { pxui::FrameIn::APPEARANCE_LIGHT };
         mem_sys::local_reset();
-        ui.use_theme(if is_dark { &dark } else { &light });
+        ui.set_theme(if is_dark { &dark } else { &light }).unwrap();
         ui.frame(&pxui_types::FrameIn { width:320.0,height:300.0,scale:2.0,time:frame as f64/60.0,appearance,reduced_motion:1,..Default::default() },&mut |ui| {
             ui.column("appearance", pxui::Node::column().w_px(100.0).h_px(40.0), |ui| { ui.view_of("appearance", &1, |ui| {
                 assert_eq!(ui.system_appearance(),appearance);
@@ -1163,7 +1163,9 @@ fn shared_ellipsis_modes_native_pixels_and_warm_draw() {
     let source="ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     let spans=[pxui::TextSpan { start:0,end:1,flags:pxui::TextSpan::COLOR,color:pxui::geom::Rgba::rgba(255,0,0,255),..Default::default() },
         pxui::TextSpan { start:25,end:26,flags:pxui::TextSpan::COLOR,color:pxui::geom::Rgba::rgba(0,0,255,255),..Default::default() }];
-    ui.set_colors(&[(pxui::geom::Rgba::rgba(0,0,0,255),pxui::geom::Rgba::rgba(0,0,0,255))]);
+    let mut theme = pxui::ThemeHandle::default();
+    theme.set_color(pxui::theme::ColorToken(0), pxui::geom::Rgba::rgba(0, 0, 0, 255));
+    ui.set_theme(&theme).unwrap();
     let body=pxui::Label::BODY.size(20.0).color(pxui::theme::ColorToken(0));
     let modes=[body.ellipsis(),body.ellipsis_middle(),body.ellipsis_head()].map(|label| ui.resolve(&label));
     let mut renderer=shared_renderer(&device,&ui);

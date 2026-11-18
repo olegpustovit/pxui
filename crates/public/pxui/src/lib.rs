@@ -96,7 +96,7 @@ mod ui_state;
 mod box_ops;
 mod kit_ext;
 mod theme_scope;
-pub use theme_scope::Theme;
+pub use theme_scope::ThemeHandle;
 pub use ui_state::{Bytes, Platform};
 mod node;
 mod author;
@@ -122,7 +122,7 @@ mod sys {
 mod sys {
     use core::ffi::c_void;
     use pxui_types::{FrameIn, FrameOut, Str};
-    use pxui_types::ffi::{A11yAction, ThemeSource};
+    use pxui_types::ffi::A11yAction;
     #[repr(C)] pub struct PxuiUi { _private: [u8; 0] }
     pub use pxui_types::{PxuiBox, PxuiTargetDesc, PxuiUiDesc};
     #[repr(C)] pub struct PxuiRenderer { _private:[u8;0] }
@@ -145,7 +145,6 @@ mod sys {
         pub fn pxui_ui_input(ui:*mut PxuiUi,has_owner:u8,owner:i64,out:*mut pxui_types::ffi::Input)->i32;
         pub fn pxui_ui_frame(ui:*mut PxuiUi,input:*const pxui_types::ffi::Input,build:pxui_types::ffi::UiBuild,user:*mut c_void,out:*mut FrameOut)->i32;
         pub fn pxui_ui_system_appearance(ui:*mut PxuiUi,out:*mut u32)->i32;
-        pub fn pxui_ui_set_theme(ui:*mut PxuiUi,source:*const ThemeSource)->i32;
         pub fn pxui_ui_set_dir(ui:*mut PxuiUi,dir:u32)->i32;
         pub fn pxui_ui_set_a11y(ui:*mut PxuiUi,on:u8)->i32;
         pub fn pxui_ui_inject_a11y(ui:*mut PxuiUi,actions:*const A11yAction,count:usize)->i32;
@@ -527,12 +526,6 @@ impl Ui {
         at.is_finite().then_some(at)
     }
 
-    /// Replaces the theme from a theme file's text; the library refuses a file that does not parse (see `last_error`).
-    ///
-    /// Errors: InvalidInput for theme text the engine cannot parse; State inside a frame callback.
-    pub fn set_theme_source(&mut self,source:&ThemeSource)->Result<(),Error> { status(unsafe{sys::pxui_ui_set_theme(self.0.as_ptr(),source)}) }
-    /// Errors: As `set_theme_source`.
-    pub fn set_theme(&mut self,source:&ThemeSource)->Result<(),Error> {self.set_theme_source(source)}
     #[track_caller] pub fn set_dir(&mut self,rtl:bool) {check(self, unsafe{sys::pxui_ui_set_dir(self.0.as_ptr(),rtl as u32)})}
     #[track_caller] pub fn set_a11y(&mut self,on:bool) {check(self, unsafe{sys::pxui_ui_set_a11y(self.0.as_ptr(),on as u8)})}
     #[track_caller] pub fn inject_a11y(&mut self,actions:&[A11yAction]) {check(self, unsafe{sys::pxui_ui_inject_a11y(self.0.as_ptr(),actions.as_ptr(),actions.len())})}
@@ -674,13 +667,25 @@ fn check(ui: &Ui, rc: i32) { if rc != 0 { refused(ui, rc) } }
 #[inline(never)]
 #[track_caller]
 fn refused(ui: &Ui, rc: i32) -> ! { panic!("pxui: {} ({rc})", ui.last_error()) }
-/// The library's process counter, for the performance gate: heap allocations its allocator has made (`COUNTER_ALLOCATIONS`). They
-/// count only in a counting build (a `libpxui` built with `pxui_dylib/counting`; statically, the app's `mem_sys/counting`) and read 0
-/// otherwise; in a static build they are the app's own allocator. Calls are counted per `Ui` (`Ui::library_calls`), not here.
-#[cfg(feature="static")]
-pub fn library_counter(which:u32)->u64 { unsafe { sys::pxui_counter(which) } }
-#[cfg(not(feature="static"))]
-pub fn library_counter(which:u32)->u64 { sys::pxui_counter(which) }
+/// Reads a counter from the library's allocator for the `mem_sys::set_peer` protocol.
+///
+/// The selectors 1 through 5 read allocations, total bytes, live bytes, this thread's
+/// allocations and this thread's peak delta in bytes. Selector 6 resets this thread's
+/// counters and returns zero. Selector 7 reports whether the allocator is counting.
+/// Other selectors return zero. A dynamic counting library can be installed as the
+/// allocator peer. A static link shares the application's allocator.
+/// Allocates: never.
+/// Panics: never.
+///
+/// ```
+/// assert_eq!(pxui::library_counter(0), 0);
+/// ```
+pub fn library_counter(which: u32) -> u64 {
+    #[cfg(feature = "static")]
+    { unsafe { sys::pxui_counter(which) } }
+    #[cfg(not(feature = "static"))]
+    { sys::pxui_counter(which) }
+}
 pub const COUNTER_ALLOCATIONS:u32=1;
 /// A capability a library may or may not have, as `pxui_supports` numbers them (`PXUI_FEATURE_*`; ids are append-only and mirror `pxui_types::feature`).
 #[repr(u32)]

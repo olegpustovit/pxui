@@ -576,7 +576,7 @@ mod tests {
         let mut ui = Ui::new().expect("library");
         ui.set_a11y(true);
         ui.register_segmented_body("choice", choice_body).expect("segment body");
-        let scoped = { let mut theme = crate::Theme::default(); theme.apply(&ui, "segmented.body = choice").expect("theme"); theme };
+        let scoped = crate::ThemeHandle::parse("segmented.body = choice").expect("theme");
         let chosen = Cell::new(None);
         let mut build = |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| { ui.segmented_with("s", &THREE, chosen.get(), &Segmented::DEFAULT); });
         for _ in 0..3 { testing::frame(&mut ui, &[], &mut build); }
@@ -612,7 +612,7 @@ mod tests {
         let mut ui = Ui::new().expect("library");
         ui.set_a11y(true);
         ui.register_segmented_body("chosen_stored", chosen_stored_body).expect("segment body");
-        let scoped = { let mut theme = crate::Theme::default(); theme.apply(&ui, "segmented.body = chosen_stored").expect("theme"); theme };
+        let scoped = crate::ThemeHandle::parse("segmented.body = chosen_stored").expect("theme");
         let chosen = Cell::new(Some(0));
         let mut build = |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| { let r = ui.segmented_with("s", &THREE, chosen.get(), &Segmented::DEFAULT); if r.response.changed { chosen.set(r.chosen); } });
         for _ in 0..3 { testing::frame(&mut ui, &[], &mut build); }
@@ -656,7 +656,7 @@ mod tests {
         let mut ui = Ui::new().expect("library");
         ui.set_a11y(true);
         ui.register_segmented_body("chosen_stored", chosen_stored_body).expect("segment body");
-        let scoped = { let mut theme = crate::Theme::default(); theme.apply(&ui, "segmented.body = chosen_stored").expect("theme"); theme };
+        let scoped = crate::ThemeHandle::parse("segmented.body = chosen_stored").expect("theme");
         let chosen = Cell::new(Some(0));
         let mut build = |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| { let r = ui.segmented_with("s", &THREE, chosen.get(), &Segmented::DEFAULT.focus_on_click(true)); if r.response.changed { chosen.set(r.chosen); } });
         for _ in 0..3 { testing::frame(&mut ui, &[], &mut build); }
@@ -827,7 +827,7 @@ mod tests {
         ui.register_toggle_body("probe", toggle_body).expect("toggle body");
         ui.register_segmented_body("probe", segment_body).expect("segment body");
         let source = "toggle.body = probe\nsegmented.body = probe\n";
-        ui.set_theme(&crate::ThemeSource { size: core::mem::size_of::<crate::ThemeSource>() as u32, flags: 0, source: crate::Str { ptr: source.as_ptr(), len: source.len() } }).expect("theme");
+        ui.set_theme(&crate::ThemeHandle::parse(&source).unwrap()).expect("theme");
         let owner = Cell::new(0);
         let mut build = |ui: &mut Ui| {
             owner.set(ui.toggle_with("t", "Offline", true, &SETTING.inset(16.0).press_row(true).detail("More").label(crate::Label::BODY.size(15.0))).handle.box_key);
@@ -880,7 +880,7 @@ mod tests {
         ui.set_a11y(true);
         ui.register_toggle_body("stored", stored_body).expect("toggle body");
         ui.register_segmented_body("container", container_body).expect("segment body");
-        let scoped = { let mut theme = crate::Theme::default(); theme.apply(&ui, "toggle.body = stored\nsegmented.body = container").expect("theme"); theme };
+        let scoped = crate::ThemeHandle::parse("toggle.body = stored\nsegmented.body = container").expect("theme");
         // the app applies the flip a frame late: the body sees the stored value until it does
         let (on, owner) = (Cell::new(false), Cell::new(0));
         let mut build = |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| {

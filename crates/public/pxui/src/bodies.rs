@@ -195,9 +195,9 @@ impl Ui {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Theme;
+    use crate::ThemeHandle;
     use core::cell::{Cell, RefCell};
-    use pxui_types::{ffi::ThemeSource, FrameIn, Size};
+    use pxui_types::{FrameIn, Size};
     use std::panic::{catch_unwind, AssertUnwindSafe};
 
     thread_local! {
@@ -212,7 +212,7 @@ mod tests {
     }
 
     fn input(time: f64) -> FrameIn { FrameIn { width: 320.0, height: 240.0, time, ..FrameIn::default() } }
-    fn source(text: &str) -> ThemeSource { ThemeSource { size: core::mem::size_of::<ThemeSource>() as u32, flags: 0, source: Str { ptr: text.as_ptr(), len: text.len() } } }
+    fn source(text: &str) -> ThemeHandle { ThemeHandle::parse(text).expect("theme source") }
 
     fn probe(ui: &mut Ui, c: &crate::bodies::ToggleConfig) {
         TOGGLES.with(|t| t.borrow_mut().push((c.text_of(&c.label).to_owned(), c.on != 0, c.state.hovered != 0)));
@@ -222,18 +222,14 @@ mod tests {
     }
 
     /// A registered body is called with its kind's record (text, value, state, the row it owns), builds a part behaviour then finds, is picked
-    /// by theme text (the Ui's own and a scoped `Theme`) and only inside the scope that names it.
+    /// by theme text (the Ui's own and a scoped theme) and only inside the scope that names it.
     #[test]
     fn a_registered_body_is_selected_by_theme_text_and_gets_its_config() {
         let mut ui = Ui::new().expect("library");
         let id = ui.register_toggle_body("probe", probe).expect("registered");
         assert_eq!(id, BodyId(1));
         assert_eq!(ui.register_toggle_body("probe", probe).expect("again"), id, "a name again keeps its id");
-        let scoped = {
-            let mut theme = Theme::default();
-            theme.apply(&ui, "toggle.body = probe").expect("scoped theme");
-            theme
-        };
+        let scoped = crate::ThemeHandle::parse("toggle.body = probe").expect("scoped theme");
         // outside the scope the built-in body builds
         for n in 0..2 { ui.frame(&input(n as f64), &mut |ui: &mut Ui| { ui.toggle("plain", true); }).expect("frame"); }
         assert!(TOGGLES.with(|t| t.borrow().is_empty()), "the body ran with no theme naming it");
@@ -257,14 +253,15 @@ mod tests {
     fn unknown_body_names_and_bad_registrations_are_errors() {
         let mut ui = Ui::new().expect("library");
         for name in ["default", "", "two words", "a=b", "x#"] { assert!(ui.register_toggle_body(name, probe).is_err(), "{name:?}"); }
-        let mut theme = Theme::default();
-        let error = theme.apply(&ui, "toggle.body = nope").expect_err("an unregistered body");
-        assert!(error.contains("nope"), "{error}");
-        assert_eq!(ui.set_theme(&source("toggle.body = nope")), Err(crate::Error::InvalidInput));
+        ui.register_toggle_body("probe", probe).unwrap();
+        let before = *ui.theme();
+        let invalid = source("tokens.accent = #ff0000\ntoggle.body = probe\nlabel.body = nope");
+        assert_eq!(ui.set_theme(&invalid), Err(crate::Error::InvalidInput));
         assert!(ui.last_error().contains("nope"), "{}", ui.last_error());
+        assert_eq!(*ui.theme(), before, "body validation precedes theme installation");
         // a body of another kind is not this kind's
-        ui.register_slider_body("probe", |_, _| {}).expect("slider");
-        assert!(theme.apply(&ui, "toggle.body = probe").is_err());
+        ui.register_slider_body("slider", |_, _| {}).expect("slider");
+        assert_eq!(ui.set_theme(&source("toggle.body = slider")), Err(crate::Error::InvalidInput));
         let mut late = None;
         ui.frame(&input(0.0), &mut |ui: &mut Ui| { late = Some(ui.register_toggle_body("late", probe)); }).expect("frame");
         assert!(late.expect("ran").is_err(), "bodies are registered outside a frame");
@@ -273,6 +270,24 @@ mod tests {
         assert!(refused.is_err());
         assert!(ui.last_error().contains("frame callback"), "{}", ui.last_error());
         ui.frame(&input(1.0), &mut |ui: &mut Ui| { ui.label("still usable", crate::Label::DEFAULT); }).expect("the Ui is not poisoned");
+    }
+
+    #[test]
+    fn detached_theme_resolves_per_ui_and_scopes_use_the_builtin_fallback() {
+        let theme = source("toggle.body = probe");
+        let mut unregistered = Ui::new().unwrap();
+        assert_eq!(unregistered.set_theme(&theme), Err(crate::Error::InvalidInput));
+        unregistered.frame(&input(0.0), &mut |ui| ui.themed(&theme, &mut |ui| {
+            assert_eq!(ui.theme().body.toggle, BodyId::DEFAULT);
+            ui.toggle("Builtin", false);
+        })).unwrap();
+
+        let mut registered = Ui::new().unwrap();
+        registered.register_toggle_body("earlier", probe).unwrap();
+        let id = registered.register_toggle_body("probe", probe).unwrap();
+        assert_ne!(id, BodyId::DEFAULT);
+        registered.set_theme(&theme).unwrap();
+        assert_eq!(registered.theme().body.toggle, id);
     }
 
     fn boom(_: &mut Ui, _: &crate::bodies::ToggleConfig) {
@@ -438,7 +453,7 @@ mod tests {
         ui.register_button_body("sized", sized_button).expect("button body");
         ui.register_icon_button_body("sized", sized_icon_button).expect("icon body");
         ui.register_text_field_body("sized", sized_field).expect("field body");
-        let scoped = { let mut theme = Theme::default(); theme.apply(&ui, "label.body = sized\nbutton.body = sized\nicon_button.body = sized\ntext_field.body = sized").expect("theme"); theme };
+        let scoped = crate::ThemeHandle::parse("label.body = sized\nbutton.body = sized\nicon_button.body = sized\ntext_field.body = sized").expect("theme");
         let (plain, wide) = (Label::DEFAULT, Label::DEFAULT.variant(1));
         let handles = Cell::new((None, None));
         let mut build = |ui: &mut Ui| {
@@ -484,7 +499,7 @@ mod tests {
         ui.register_label_body("nested", nested_label).expect("label body");
         ui.register_toggle_body("t", toggle_probe).expect("toggle body");
         ui.register_segmented_body("s", segment_probe).expect("segment body");
-        let scoped = { let mut theme = Theme::default(); theme.apply(&ui, "menu_row.body = rows\nlabel.body = nested\ntoggle.body = t\nsegmented.body = s").expect("theme"); theme };
+        let scoped = crate::ThemeHandle::parse("menu_row.body = rows\nlabel.body = nested\ntoggle.body = t\nsegmented.body = s").expect("theme");
         const ITEMS: [MenuItem; 3] = [MenuItem::new("A"), MenuItem::new("B"), MenuItem::new("C")];
         let mut build = |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| {
             ui.menu("menu", (10.0, 10.0), &ITEMS, &Menu::DEFAULT.variant(2));
@@ -519,7 +534,7 @@ mod tests {
         let mut ui = Ui::new().expect("library");
         ui.register_menu_row_body("rows", menu_row).expect("row body");
         ui.register_scroll_view_body("scroll", scroll_probe).expect("scroll body");
-        let scoped = { let mut theme = Theme::default(); theme.apply(&ui, "menu_row.body = rows\nscroll_view.body = scroll").expect("theme"); theme };
+        let scoped = crate::ThemeHandle::parse("menu_row.body = rows\nscroll_view.body = scroll").expect("theme");
         const ITEMS: [MenuItem; 5] = [MenuItem::new("A"), MenuItem::new("B"), MenuItem::new("C"), MenuItem::new("D"), MenuItem::new("E")];
         let mut build = |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| { ui.menu("menu", (10.0, 10.0), &ITEMS, &Menu::DEFAULT.max_rows(2).variant(1)); });
         for n in 0..3 { VARIANTS.with(|v| v.borrow_mut().clear()); ui.frame(&input(n as f64), &mut build).expect("frame"); }
@@ -535,7 +550,7 @@ mod tests {
         use pxui_types::theme::BodyKind;
         let mut ui = Ui::new().expect("library");
         ui.register_label_body("nested", nested_label).expect("label body");
-        let scoped = { let mut theme = Theme::default(); theme.apply(&ui, "label.body = nested").expect("theme"); theme };
+        let scoped = crate::ThemeHandle::parse("label.body = nested").expect("theme");
         ui.set_variant(BodyKind::label, 9);
         VARIANTS.with(|v| v.borrow_mut().clear());
         ui.frame(&input(0.0), &mut |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| { ui.label("x", crate::Label::DEFAULT); })).expect("frame");

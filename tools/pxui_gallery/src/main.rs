@@ -90,14 +90,17 @@ fn modified(path: &str) -> Option<std::time::SystemTime> {
 }
 
 fn apply_theme(ui: &mut Ui, s: &Gallery, dusk: &mut String, path: &str) {
-    let source = s.theme(dusk);
-    if ui.set_theme(&source).is_err() {
-        let error = ui.last_error().to_owned();
+    let mut install = |source: &str| {
+        let mut theme = pxui::ThemeHandle::parse(source).map_err(|error| error.to_string())?;
+        theme.density(if s.compact { 0.84 } else { 1.0 });
+        theme.reduced_motion(s.reduced);
+        ui.set_theme(&theme).map_err(|error| format!("{error}: {}", ui.last_error()))
+    };
+    if let Err(error) = install(if s.dusk { dusk } else { "" }) {
         eprintln!("pxui_gallery: {path}: {error}");
         dusk.clear();
-        let fallback = s.theme(dusk);
-        if let Err(code) = ui.set_theme(&fallback) {
-            eprintln!("pxui_gallery: default theme failed ({code})");
+        if let Err(error) = install("") {
+            eprintln!("pxui_gallery: default theme failed ({error})");
         }
     }
 }

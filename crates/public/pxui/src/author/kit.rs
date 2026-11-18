@@ -210,7 +210,7 @@ mod tests {
         ui.register_spinner_body("c", spinner).unwrap();
         ui.register_badge_body("c", badge).unwrap();
         let text = "checkbox.body = c\nradio.body = c\ntabs.body = c\ndropdown.body = c\nslider.body = c\nprogress.body = c\nspinner.body = c\nbadge.body = c";
-        ui.set_theme(&pxui_types::ffi::ThemeSource { size: core::mem::size_of::<pxui_types::ffi::ThemeSource>() as u32, flags: 0, source: pxui_types::Str { ptr: text.as_ptr(), len: text.len() } }).unwrap();
+        ui.set_theme(&crate::ThemeHandle::parse(&text).unwrap()).unwrap();
         SEEN.with(|s| s.borrow_mut().clear());
         ui.frame(&FrameIn { width: 400.0, height: 400.0, ..FrameIn::default() }, &mut build).unwrap();
         let mut got = SEEN.with(|s| s.borrow().clone());
