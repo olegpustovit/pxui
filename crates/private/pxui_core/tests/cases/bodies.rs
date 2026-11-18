@@ -1466,7 +1466,7 @@ fn list_build(ui: &mut Ui, c: &Cells) {
     if sel.is_empty() {
         sel.resize(4, 0);
     }
-    let got = ui.selection_list("List", 4, &mut sel, &pxui_core::ui::SelectionList { multi: false }, &mut |ui, i| ui.item_text(["one", "two", "three", "four"][i])).activated;
+    let got = ui.selection_list("List", 4, &|i| i as i64, &mut sel, &pxui_core::ui::SelectionList { multi: false }, &mut |ui, i| ui.item_text(["one", "two", "three", "four"][i])).activated;
     if got.is_some() {
         c.b.set(c.b.get() + 1);
     }
@@ -1535,7 +1535,7 @@ fn table_view_build(ui: &mut Ui, c: &Cells) {
         widths.extend([120.0, 120.0]);
     }
     let mut selected = c.row.get();
-    let sorted = ui.table_view("Table", &["Name", "Size"], &mut widths, 3, &mut selected, &pxui_core::ui::TableView { sort: Some((0, true)), text: None }, &mut |ui, r, col| ui.item_text(NAMES[r][col])).sort;
+    let sorted = ui.table_view("Table", &["Name", "Size"], &mut widths, 3, &|i| i as i64, &mut selected, &pxui_core::ui::TableView { sort: Some((0, true)), text: None }, &mut |ui, r, col| ui.item_text(NAMES[r][col])).sort;
     c.row.set(selected);
     c.a.set(selected.map_or(0, |n| n as i64 + 1));
     if let Some(col) = sorted {
@@ -1587,7 +1587,7 @@ pub fn table_view_with_widget_cell() {
         let mut step = |ui: &mut Ui, e: Vec<Event>| {
             t += 0.1;
             ui.frame(&frame(t, e), &mut |ui| {
-                ui.table_view("Table", &["Name", "Action"], &mut widths.borrow_mut(), 3, &mut selected, &pxui_core::ui::TableView { sort: None, text: None }, &mut |ui, row, col| {
+                ui.table_view("Table", &["Name", "Action"], &mut widths.borrow_mut(), 3, &|i| i as i64, &mut selected, &pxui_core::ui::TableView { sort: None, text: None }, &mut |ui, row, col| {
                     if col == 0 {
                         ui.label(["row 0", "row 1", "row 2"][row], pxui_core::ui::Label::DEFAULT);
                     } else if ui.button("Go") {
@@ -1619,7 +1619,7 @@ pub fn table_view_with_widget_cell() {
 }
 
 fn read_only_table(ui: &mut Ui, c: &Cells) {
-    let clicked = ui.table_view("t", &["Name", "Size"], &mut [], 5, &mut None, &pxui_core::ui::TableView::text(pxui_core::ui::Rect::new(0.0, 0.0, 200.0, 100.0)), &mut |ui, r, col| ui.item_text(NAMES[r % 3][col])).row.map(|r| r as i64);
+    let clicked = ui.table_view("t", &["Name", "Size"], &mut [], 5, &|i| i as i64, &mut None, &pxui_core::ui::TableView::text(pxui_core::ui::Rect::new(0.0, 0.0, 200.0, 100.0)), &mut |ui, r, col| ui.item_text(NAMES[r % 3][col])).row.map(|r| r as i64);
     if let Some(r) = clicked {
         c.a.set(r + 1);
     }

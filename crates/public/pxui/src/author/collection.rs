@@ -89,24 +89,25 @@ impl Ui {
     /// node the `selection_list` body shapes (`item_text` for the kit's text row; any widgets otherwise); reports the row a double click or
     /// Enter activated.
     ///
-    /// `selected` holds one flag a row (not 0: selected), updated in place: a click selects a row alone; with `SelectionList::multi`,
+    /// Row `i`'s box is keyed by the item id `row_key(i)`, so a row's state follows its item when the items reorder; ids must be unique
+    /// among the rows (a repeated id takes a `#dup` key). `selected` holds one flag a row (by row index, not id; not 0: selected), updated in place: a click selects a row alone; with `SelectionList::multi`,
     /// Command (Ctrl) toggles one and Shift selects a run. One Tab stop; arrows, Page keys, Home and End move the keyboard's row.
     /// Allocates: never on a warm frame.
-    /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); rows are keyed by index.
-    /// Panics: when the library refuses the call (outside a frame, `selected` shorter than `count`), or when `cell` panics. A key over 256 bytes panics (a programmer error). Display text past 64 KiB is clipped at a character boundary, never refused.
+    /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); rows are keyed by the item id `row_key(i)` (never the display text).
+    /// Panics: when the library refuses the call (outside a frame, `selected` shorter than `count`), or when `cell` or `row_key` panics. A key over 256 bytes panics (a programmer error). Display text past 64 KiB is clipped at a character boundary, never refused.
     ///
     /// ```
     /// use pxui::SelectionList;
     /// let mut selected = [0u8; 3];
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let r = ui.selection_list("files", 3, &mut selected, &SelectionList::DEFAULT.multi(), &mut |ui, row| ui.item_text(["a", "b", "c"][row]));
+    ///     let r = ui.selection_list("files", 3, &|i| i as i64, &mut selected, &SelectionList::DEFAULT.multi(), &mut |ui, row| ui.item_text(["a", "b", "c"][row]));
     ///     assert_eq!(r.activated, None);
     /// });
     /// ```
     #[inline]
     #[track_caller]
-    pub fn selection_list<K: Into<Key>>(&mut self, key: K, count: usize, selected: &mut [u8], list: &SelectionList, cell: &mut dyn FnMut(&mut Ui, usize)) -> ListResponse {
-        self.selection_list_key(key.into(), count, selected, list, cell)
+    pub fn selection_list<K: Into<Key>>(&mut self, key: K, count: usize, row_key: &dyn Fn(usize) -> i64, selected: &mut [u8], list: &SelectionList, cell: &mut dyn FnMut(&mut Ui, usize)) -> ListResponse {
+        self.selection_list_key(key.into(), count, row_key, selected, list, cell)
     }
 
     /// Declares a preorder virtual tree: `cell(ui, node)` builds the row that shows tree node `node`, after the disclosure mark
@@ -136,25 +137,26 @@ impl Ui {
     /// (the sort intent). With `TableView::text(rect)` it is instead the fixed text table at `rect`: a 24-point header, hairlines and
     /// right-aligned cells whose text `cell` gives `item_text` (widths, selection and sort do not apply), reporting the clicked row.
     ///
-    /// `widths` and `selected` update in place (dragging a header grip resizes its column; a click selects a row); `TableView::sort`
+    /// The virtual table's row `i` is keyed by the item id `row_key(i)` (unique among the rows), so a row's state follows its item when the
+    /// rows are sorted; the text table has no row boxes and ignores `row_key`. `widths` and `selected` update in place (dragging a header grip resizes its column; a click selects a row); `TableView::sort`
     /// marks the sorted column with a chevron (up when ascending), the app sorts its rows.
     /// Allocates: never on a warm frame.
-    /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); rows are keyed by index.
-    /// Panics: when the library refuses the call (outside a frame, `widths` not one a title, a sort column past them), or when `cell`
+    /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); the virtual table's rows are keyed by the item id `row_key(i)` (never the display text).
+    /// Panics: when the library refuses the call (outside a frame, `widths` not one a title, a sort column past them), or when `cell` or `row_key`
     /// panics. A key over 256 bytes panics (a programmer error). Display text past 64 KiB is clipped at a character boundary, never refused.
     ///
     /// ```
     /// use pxui::TableView;
     /// let (mut widths, mut selected) = ([80.0f32, 60.0], None);
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     ui.table_view("points", &["Name", "Tag"], &mut widths, 2, &mut selected, &TableView::DEFAULT.sort(0, true), &mut |ui, row, column| ui.item_text(["a", "b", "c", "d"][row * 2 + column]));
+    ///     ui.table_view("points", &["Name", "Tag"], &mut widths, 2, &|i| i as i64, &mut selected, &TableView::DEFAULT.sort(0, true), &mut |ui, row, column| ui.item_text(["a", "b", "c", "d"][row * 2 + column]));
     /// });
     /// ```
     #[allow(clippy::too_many_arguments)]
     #[inline]
     #[track_caller]
-    pub fn table_view<K: Into<Key>>(&mut self, key: K, titles: &[&str], widths: &mut [f32], rows: usize, selected: &mut Option<usize>, table: &TableView, cell: &mut dyn FnMut(&mut Ui, usize, usize)) -> TableResponse {
-        self.table_view_key(key.into(), titles, widths, rows, selected, table, cell)
+    pub fn table_view<K: Into<Key>>(&mut self, key: K, titles: &[&str], widths: &mut [f32], rows: usize, row_key: &dyn Fn(usize) -> i64, selected: &mut Option<usize>, table: &TableView, cell: &mut dyn FnMut(&mut Ui, usize, usize)) -> TableResponse {
+        self.table_view_key(key.into(), titles, widths, rows, row_key, selected, table, cell)
     }
 }
 
@@ -196,12 +198,12 @@ mod tests {
             ui.frame(&FrameIn::new(400.0, 600.0), &mut |ui: &mut Ui| {
                 for (key, kind) in [("lists", 0), ("trees", 1), ("tables", 2)] {
                     ui.id(key, |ui| { ui.column(Node { h: Size::Px(80.0), ..Node::DEFAULT }, |ui| match kind {
-                        0 => { ui.selection_list("list", 1, &mut list, &SelectionList::DEFAULT, &mut |ui, _| ui.item_text("list row")); }
+                        0 => { ui.selection_list("list", 1, &|i| i as i64, &mut list, &SelectionList::DEFAULT, &mut |ui, _| ui.item_text("list row")); }
                         1 => { ui.tree("tree", &nodes, &mut open, &mut selected, &mut visible, &mut |ui, _| ui.item_text("tree row")); }
-                        _ => { ui.table_view("table", &["Name"], &mut widths, 1, &mut table_sel, &TableView::DEFAULT, &mut |ui, _, _| ui.item_text("table cell")); }
+                        _ => { ui.table_view("table", &["Name"], &mut widths, 1, &|i| i as i64, &mut table_sel, &TableView::DEFAULT, &mut |ui, _, _| ui.item_text("table cell")); }
                     }); });
                 }
-                ui.table_view("text", &["A"], &mut [], 2, &mut None, &TableView::text(Rect::new(0.0, 300.0, 200.0, 100.0)), &mut |ui, row, _| ui.item_text(["r0", "r1"][row]));
+                ui.table_view("text", &["A"], &mut [], 2, &|i| i as i64, &mut None, &TableView::text(Rect::new(0.0, 300.0, 200.0, 100.0)), &mut |ui, row, _| ui.item_text(["r0", "r1"][row]));
             }).unwrap();
         }
         let got = SEEN.with(|s| s.borrow().clone());
@@ -210,6 +212,35 @@ mod tests {
         }
         for kind in ["custom list row", "custom tree row", "custom table row", "custom head"] {
             assert!(testing::find(&ui, Role::Image, kind).is_some(), "the {kind} structure is used");
+        }
+    }
+
+    /// `selection_list` and the virtual `table_view` key row `i` by the item id `id(i)`: a node built in an item's row keeps its key when
+    /// the items reorder, in the list (a row) and in the table (a cell), while the text table ignores the ids.
+    #[test]
+    fn list_and_table_rows_are_keyed_by_item_id() {
+        let (ids, keys) = (RefCell::new([10i64, 20, 30]), RefCell::new(([0i64; 3], [0i64; 3])));
+        let mut build = |ui: &mut Ui| {
+            let (mut list, mut selected, mut widths) = ([0u8; 3], None, [60.0f32]);
+            ui.column(Node { h: Size::Px(100.0), ..Node::DEFAULT }, |ui| {
+                ui.selection_list("list", 3, &|i| ids.borrow()[i], &mut list, &SelectionList::DEFAULT, &mut |ui, row| {
+                    keys.borrow_mut().0[row] = ui.node("mark", Node { w: Size::Px(4.0), h: Size::Px(4.0), ..Node::DEFAULT }).box_key;
+                });
+            });
+            ui.column(Node { h: Size::Px(100.0), ..Node::DEFAULT }, |ui| {
+                ui.table_view("table", &["A"], &mut widths, 3, &|i| ids.borrow()[i], &mut selected, &TableView::DEFAULT, &mut |ui, row, _| {
+                    keys.borrow_mut().1[row] = ui.node("mark", Node { w: Size::Px(4.0), h: Size::Px(4.0), ..Node::DEFAULT }).box_key;
+                });
+            });
+        };
+        let mut ui = crate::doc::frames(2, &mut build);
+        let before = *keys.borrow();
+        ids.borrow_mut().reverse();
+        testing::frame(&mut ui, &[], &mut build);
+        let after = *keys.borrow();
+        for (b, a) in [(before.0, after.0), (before.1, after.1)] {
+            assert_eq!((a[0], a[2]), (b[2], b[0]), "each id's row keeps its key: {b:?} {a:?}");
+            assert_ne!(b[0], b[1]);
         }
     }
 

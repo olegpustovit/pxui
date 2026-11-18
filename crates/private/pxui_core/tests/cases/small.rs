@@ -29,7 +29,7 @@ pub fn window_pxui_table() {
                 first.set(first.get().min(row));
                 (row + column).to_string()
             };
-            let c = ui.table_view("table", &headers, &mut [], 1_000_000 as usize, &mut None, &pxui_core::ui::TableView::text(pxui_core::ui::Rect::new(0.0, 0.0, 300.0, 168.0)), &mut |ui, r, c| ui.item_text(&cell(r as i64, c as i64))).row.map(|r| r as i64);
+            let c = ui.table_view("table", &headers, &mut [], 1_000_000 as usize, &|i| i as i64, &mut None, &pxui_core::ui::TableView::text(pxui_core::ui::Rect::new(0.0, 0.0, 300.0, 168.0)), &mut |ui, r, c| ui.item_text(&cell(r as i64, c as i64))).row.map(|r| r as i64);
             clicked.set(c);
         }
     };

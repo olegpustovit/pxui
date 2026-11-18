@@ -423,6 +423,49 @@ fn section_lists_take_the_old_record_and_key_rows_by_item_id() {
     assert_eq!(unsafe {pxui_ui_destroy(ui)},0);
 }
 
+/// ABI 1.83: `ui_list_view_rows` and `ui_table_view_rows` key row `i` (and so its children) by `key(user, i)`, so an id's row keeps its
+/// key when the items reorder; a NULL key and the legacy `ui_list_view_with` key by index.
+#[test]
+fn list_and_table_rows_exports_key_rows_by_item_id() {
+    use pxui_types::ffi::{PxuiKeyedDesc, PxuiListViewWithDesc, PxuiTableViewWithDesc, PxuiU8MutSpan, PxuiF32MutSpan};
+    type State = ([i64; 3], [i64; 3], [u8; 3], [f32; 1], usize);
+    extern "C" fn cell(user: *mut c_void, raw: *mut c_void, row: usize, _column: usize) {
+        let state = unsafe { &mut *user.cast::<State>() };
+        let mut node = PxuiBox::default();
+        assert_eq!(unsafe { crate::pxui_ui_node(raw.cast(), Str { ptr: b"title".as_ptr(), len: 5 }, &pxui_types::Node::DEFAULT, &mut node) }, 0);
+        if row < 3 && state.4 == 0 { state.1[row] = node.box_key; }
+    }
+    extern "C" fn key(user: *mut c_void, row: usize) -> i64 { unsafe { (*user.cast::<State>()).0[row] } }
+    extern "C" fn build(user: *mut c_void, raw: *mut c_void) {
+        let (ui, state) = (raw.cast::<PxuiUi>(), unsafe { &mut *user.cast::<State>() });
+        let mut hit = 0usize;
+        let list = PxuiListViewWithDesc { size: core::mem::size_of::<PxuiListViewWithDesc>() as u32, multi: 0, reserved: [0; 3], label: Str { ptr: b"list".as_ptr(), len: 4 }, count: 3,
+            selected: PxuiU8MutSpan { ptr: state.2.as_mut_ptr(), len: 3 }, build: Some(cell), user };
+        assert_eq!(unsafe { pxui_ui_list_view_rows(ui, &list, Some(key), &mut hit) }, 0);
+        let plain = PxuiListViewWithDesc { label: Str { ptr: b"plain".as_ptr(), len: 5 }, build: None, ..list };
+        assert_eq!(unsafe { pxui_ui_list_view_rows(ui, &plain, None, &mut hit) }, 0, "no key: by index");
+        assert_eq!(unsafe { pxui_ui_list_view_with(ui, &PxuiListViewWithDesc { label: Str { ptr: b"legacy".as_ptr(), len: 6 }, ..plain }, &mut hit) }, 0);
+        assert_ne!(unsafe { pxui_ui_list_view_rows(ui, &PxuiListViewWithDesc { size: 60, ..plain }, Some(key), &mut hit) }, 0, "a short record is refused");
+        let (mut selected, mut sort, mut row) = (usize::MAX, 0usize, 0usize);
+        let titles = [Str { ptr: b"A".as_ptr(), len: 1 }];
+        let table = PxuiTableViewWithDesc { size: core::mem::size_of::<PxuiTableViewWithDesc>() as u32, has_sort: 0, ascending: 0, reserved: [0; 2], label: Str { ptr: core::ptr::null(), len: 0 },
+            titles: pxui_types::ffi::Slice { ptr: titles.as_ptr(), len: 1 }, widths: PxuiF32MutSpan { ptr: state.3.as_mut_ptr(), len: 1 }, rows: 3, sort_column: 0, selected: &mut selected, build: Some(cell), user };
+        state.4 = 1;
+        let keyed = PxuiKeyedDesc::new("table", "");
+        assert_eq!(unsafe { pxui_ui_table_view_rows(ui, &keyed, &table, Some(key), core::ptr::null(), &mut sort, &mut row) }, 0);
+        state.4 = 0;
+    }
+    let ui = create();
+    let mut state: State = ([10, 20, 30], [0; 3], [0; 3], [60.0], 0);
+    assert_eq!(run(ui, Some(build), (&mut state as *mut State).cast()), 0, "{}", error(ui));
+    let before = state.1;
+    state.0.reverse();
+    assert_eq!(run(ui, Some(build), (&mut state as *mut State).cast()), 0, "{}", error(ui));
+    assert_eq!((state.1[0], state.1[2]), (before[2], before[0]), "each id's row (and its child) keeps its key");
+    assert_ne!(before[0], before[1]);
+    assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
+}
+
 #[test]
 fn measured_section_descriptors_validate_before_callbacks_and_restore_the_owner() {
     use pxui_types::ffi::PxuiMeasuredSectionDesc;

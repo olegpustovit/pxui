@@ -877,12 +877,13 @@ impl Ui {
     /// double click or Enter activated.
     /// `cell(ui, i)` builds row `i`'s children (any widgets; `item_text` for the kit's text row) inside the row node (`Ui::item`) the
     /// `list_view` body shapes.
-    /// Keyed by `key` (hashed under the parent's seed); `list.multi` lets Command (Ctrl) and Shift select several rows.
-    pub fn selection_list(&mut self, key: &str, count: usize, selected: &mut [u8], list: &SelectionList, cell: &mut dyn FnMut(&mut Ui, usize)) -> ListResponse {
-        ListResponse { activated: self.list_view(key, count, list.multi, selected, cell) }
+    /// Keyed by `key` (hashed under the parent's seed); `list.multi` lets Command (Ctrl) and Shift select several rows. Row `i`'s box is
+    /// keyed by the item id `ids(i)`, so its state follows the item when the items reorder.
+    pub fn selection_list(&mut self, key: &str, count: usize, ids: &dyn Fn(usize) -> i64, selected: &mut [u8], list: &SelectionList, cell: &mut dyn FnMut(&mut Ui, usize)) -> ListResponse {
+        ListResponse { activated: self.list_view(key, count, ids, list.multi, selected, cell) }
     }
 
-    fn list_view(&mut self, label: &str, count: usize, multi: bool, selected: &mut [u8], cell: &mut dyn FnMut(&mut Ui, usize)) -> Option<usize> {
+    fn list_view(&mut self, label: &str, count: usize, ids: &dyn Fn(usize) -> i64, multi: bool, selected: &mut [u8], cell: &mut dyn FnMut(&mut Ui, usize)) -> Option<usize> {
         let count = count.min(selected.len());
         let rh = self.row_px() as f32;
         let frame = self.node_ref(label, &Node { flags: Flags::FOCUSABLE | Flags::CLIP, w: Size::Grow, h: Size::Grow, look: self.theme().scroll_view.idle, padding: Edges::all(1.0), ..Node::DEFAULT });
@@ -902,7 +903,7 @@ impl Ui {
         let states = self.theme().listbox;
         let row_body = body_of!(self, selection_list);
         let saved = self.enter(&frame);
-        let body = self.list("rows", count, rh, &mut |ui, i| {
+        let body = self.list_keyed("rows", count, rh, Some(ids), &mut |ui, i| {
             let (n, rs, state) = ui.virtual_row(&states, selected[i] != 0, focused && i == c, ui.space(2), Role::ListItem, st::SELECTABLE | if selected[i] != 0 { st::SELECTED } else { 0 });
             if rs.clicked {
                 let keys = ui.press_keys(&n);
@@ -1061,12 +1062,13 @@ impl Ui {
     /// (the column's width, the cell role) of a row node (`Ui::item`) the `table_view` body shapes.
     /// Keyed by `key` (hashed under the parent's seed). With `TableView::text(rect)`, the fixed text table at `rect` instead: a
     /// 24-point header of `titles`, hairlines and right-aligned cells whose text each `cell` gives `item_text`; a click reports the row.
-    pub fn table_view(&mut self, key: &str, titles: &[&str], widths: &mut [f32], rows: usize, selected: &mut Option<usize>, table: &TableView, cell: &mut dyn FnMut(&mut Ui, usize, usize)) -> TableResponse {
+    /// The virtual table's row `i` box is keyed by the item id `ids(i)`; the text table has no row boxes and ignores `ids`.
+    pub fn table_view(&mut self, key: &str, titles: &[&str], widths: &mut [f32], rows: usize, ids: &dyn Fn(usize) -> i64, selected: &mut Option<usize>, table: &TableView, cell: &mut dyn FnMut(&mut Ui, usize, usize)) -> TableResponse {
         if let Some(r) = table.text {
             let row = crate::ui_kit::table_body(self, (r.x, r.y), r.w, r.h, titles, rows.min(i64::MAX as usize) as i64, cell, key).0;
             return TableResponse { row: row.map(|row| row as usize), sort: None };
         }
-        TableResponse { row: None, sort: table_view_body(self, key, titles, widths, rows, table.sort, selected, cell) }
+        TableResponse { row: None, sort: table_view_body(self, key, titles, widths, rows, ids, table.sort, selected, cell) }
     }
 
     /// A modal dialog titled `title`: its title bar, `body`, then `buttons` at the end of a row, built through the dialog body and
@@ -1244,7 +1246,7 @@ impl Ui {
 
 // Method bodies outside `impl` blocks: each module is its own codegen unit, so the big bodies
 // compile in parallel with the rest of the crate (rustc places methods with their type).
-fn table_view_body(this: &mut Ui, label: &str, titles: &[&str], widths: &mut [f32], rows: usize, sort: Option<(usize, bool)>, selected: &mut Option<usize>, cell: &mut dyn FnMut(&mut Ui, usize, usize)) -> Option<usize> {
+fn table_view_body(this: &mut Ui, label: &str, titles: &[&str], widths: &mut [f32], rows: usize, ids: &dyn Fn(usize) -> i64, sort: Option<(usize, bool)>, selected: &mut Option<usize>, cell: &mut dyn FnMut(&mut Ui, usize, usize)) -> Option<usize> {
     let rh = this.row_px() as f32;
     let columns = titles.len().min(widths.len());
     let t = this.theme();
@@ -1284,7 +1286,7 @@ fn table_view_body(this: &mut Ui, label: &str, titles: &[&str], widths: &mut [f3
     }
     this.leave(hs);
     let w = widths;
-    let body = this.list("rows", rows, rh, &mut |ui, i| {
+    let body = this.list_keyed("rows", rows, rh, Some(ids), &mut |ui, i| {
         let on = *selected == Some(i);
         let (n, rs, state) = ui.virtual_row(&states, on, focused && on, 0.0, Role::Row, st::SELECTABLE | if on { st::SELECTED } else { 0 });
         if rs.clicked {

@@ -102,7 +102,7 @@ arg!(plain: u16, *mut PxuiRenderer, u8, u32, u64, i64, usize, f32, c_void, Str, 
 arg!(null: PxuiRenderer, PxuiPaint, PxuiPreparedText, PxuiA11y, PxuiTextWorker);
 arg!(none: UiBuild, PxuiGridBuild, PxuiButtonBuild, PxuiBodyFn, crate::paint::PaintBuild, crate::paint::PaintRelease, crate::paint::SpanBuild,
     crate::overlays::PickerRows, crate::overlays::PickerMark, crate::overlays::PickerOff, crate::text_inputs::TextValid, crate::text_inputs::SlideText,
-    crate::text_inputs::ScrubText);
+    crate::text_inputs::ScrubText, pxui_types::ffi::PxuiRowKey);
 arg!(bytes: geom::Rgba, geom::Rect, PxuiSlot);
 
 /// Boxes: zero (the root slot), all ones (no slot), one stale since an earlier frame, one of another `Ui`, one live this frame (passed to
@@ -235,7 +235,7 @@ fuzz!(
     pxui_ui_button_content/5, pxui_ui_button_plain/4, pxui_ui_button_response/5, pxui_ui_button_styled/8, pxui_ui_button_with/7, pxui_ui_bytes/3,
     pxui_ui_cached_label/5, pxui_ui_calls/1, pxui_ui_cancel_carry/1, pxui_ui_cap_width/3, pxui_ui_captured/1, pxui_ui_carry/5, pxui_ui_carrying/4, pxui_ui_checkbox/4, pxui_ui_checkbox_keyed/4, pxui_ui_choice_keyed/7, pxui_ui_slider_keyed/7, pxui_ui_progress_keyed/5, pxui_ui_spinner_keyed/3,
     pxui_ui_badge_keyed/4, pxui_ui_panel_keyed/5, pxui_ui_popup_keyed/6, pxui_ui_modal_keyed/7, pxui_ui_anchored_keyed/8, pxui_ui_scroll_view_keyed/7, pxui_ui_scroll_view_node/6, pxui_ui_view_keyed/6,
-    pxui_ui_toasts_keyed/6, pxui_ui_table_view_keyed/6, pxui_ui_picker_keyed/13,
+    pxui_ui_toasts_keyed/6, pxui_ui_table_view_keyed/6, pxui_ui_table_view_rows/7, pxui_ui_picker_keyed/13,
     pxui_ui_color/2, pxui_ui_content_rect/2, pxui_ui_context_at/4, pxui_ui_context_menu/13, pxui_ui_density/1,
     pxui_ui_dialog/6, pxui_ui_dialog_response/5, pxui_ui_disabled/4, pxui_ui_dismiss/4, pxui_ui_dismiss_popup/1, pxui_ui_draw/6,
     pxui_ui_drop_target/5, pxui_ui_dropdown/5, pxui_ui_enter/3, pxui_ui_environment/2, pxui_ui_expanded/3, pxui_ui_field_drag/4, pxui_ui_focus_box/2,
@@ -244,7 +244,7 @@ fuzz!(
     pxui_ui_icon_word/2, pxui_ui_image/7, pxui_ui_image_keyed/8, pxui_ui_image_node/7, pxui_ui_inject_a11y/3, pxui_ui_input/4, pxui_ui_input_box/2, pxui_ui_item_text/2, pxui_ui_key_down/3, pxui_ui_key_pressed/3,
     pxui_ui_key_pressed_mods/4, pxui_ui_key_pressed_with/4, pxui_ui_keyboard/2, pxui_ui_label/3, pxui_ui_label_node/5, pxui_ui_label_text_spans/5, pxui_ui_label_text_line_box/5, pxui_ui_label_measure/6,
     pxui_ui_label_quads/9, pxui_ui_label_rasterize_rgba/13, pxui_ui_label_prewarm/4, pxui_ui_layer_drawn/2, pxui_ui_leave/2, pxui_ui_list_measured/7,
-    pxui_ui_list_view/3, pxui_ui_list_view_with/3, pxui_ui_load_text_edit/6, pxui_ui_local_rect/3, pxui_ui_menu_bar/3, pxui_ui_modal/7, pxui_ui_node/4,
+    pxui_ui_list_view/3, pxui_ui_list_view_with/3, pxui_ui_list_view_rows/4, pxui_ui_load_text_edit/6, pxui_ui_local_rect/3, pxui_ui_menu_bar/3, pxui_ui_modal/7, pxui_ui_node/4,
     pxui_ui_node_fields/3, pxui_ui_node_keyed/4, pxui_ui_node_layout/3, pxui_ui_now/1, pxui_ui_output/1, pxui_ui_passed_undo/1, pxui_ui_patch_field/5,
     pxui_ui_patch_look/4, pxui_ui_patch_mark/4, pxui_ui_patch_rect/4, pxui_ui_patch_text/4, pxui_ui_phase_cpu_times/3, pxui_ui_phase_times/3, pxui_ui_platform/1,
     pxui_ui_popup/5, pxui_ui_press_keys/4, pxui_ui_progress/5, pxui_ui_radio/5, pxui_ui_rebuilt_named/3, pxui_ui_rect/3, pxui_ui_remember/5, pxui_ui_remember_key/6,
@@ -454,6 +454,7 @@ static LEGACY_KEYED: &[(&str, LegacyCall)] = &[
         ("pxui_ui_menu_bar_result", |ui, l| { let d = PxuiMenuBarDesc { label: l, size: core::mem::size_of::<PxuiMenuBarDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_menu_bar_result(ui, &d, &mut menu_out(), &mut 0) } }),
         ("pxui_ui_list_view", |ui, l| { let d = PxuiListViewDesc { label: l, size: core::mem::size_of::<PxuiListViewDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_list_view(ui, &d, &mut 0) } }),
         ("pxui_ui_list_view_with", |ui, l| { let d = PxuiListViewWithDesc { label: l, size: core::mem::size_of::<PxuiListViewWithDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_list_view_with(ui, &d, &mut 0) } }),
+        ("pxui_ui_list_view_rows", |ui, l| { let d = PxuiListViewWithDesc { label: l, size: core::mem::size_of::<PxuiListViewWithDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_list_view_rows(ui, &d, None, &mut 0) } }),
         ("pxui_ui_tree", |ui, l| { let (mut selected, mut len) = (0usize, 0usize); let d = PxuiTreeViewDesc { label: l, selected: &mut selected, visible_len: &mut len, size: core::mem::size_of::<PxuiTreeViewDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_tree(ui, &d, &mut 0) } }),
         ("pxui_ui_tree_with", |ui, l| { let (mut selected, mut len) = (0usize, 0usize); let d = PxuiTreeViewWithDesc { label: l, selected: &mut selected, visible_len: &mut len, size: core::mem::size_of::<PxuiTreeViewWithDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_tree_with(ui, &d, &mut 0) } }),
         ("pxui_ui_table_view", |ui, l| { let mut selected = 0usize; let d = PxuiTableViewDesc { label: l, selected: &mut selected, size: core::mem::size_of::<PxuiTableViewDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_table_view(ui, &d, &mut 0) } }),

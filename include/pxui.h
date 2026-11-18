@@ -18,7 +18,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 82u)
+#define PXUI_ABI_BUILT ((1u << 16) | 83u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 typedef struct { uint32_t autocorrect, capitalization, action; } PxuiTextInputOptions;
@@ -741,6 +741,8 @@ typedef struct { uint32_t size,reserved; PxuiStr label; const PxuiTreeNode *ptr;
 typedef struct { uint32_t size; uint8_t has_sort,ascending,reserved[2]; PxuiStr label; PxuiStrSpan titles; PxuiF32MutSpan widths; size_t rows; size_t sort_column; size_t *selected; PxuiCellBuild build; void *user; } PxuiTableViewWithDesc;
 /* The three collections with the caller's own rows or cells: `build` builds the children of one row or cell (`column` 0 in a list or a tree) inside the row's or cell's node. */
 int32_t pxui_ui_list_view_with(PxuiUi *ui, const PxuiListViewWithDesc *desc, size_t *activated);
+/* ABI 1.83: pxui_ui_list_view_with whose row index is keyed by the item id key(desc->user, index) (NULL: by index), so a row's state follows its item when the items reorder. Legacy pxui_ui_list_view_with keys rows by index. */
+int32_t pxui_ui_list_view_rows(PxuiUi *ui, const PxuiListViewWithDesc *desc, PxuiRowKey key, size_t *activated);
 int32_t pxui_ui_tree_with(PxuiUi *ui, const PxuiTreeViewWithDesc *desc, size_t *activated);
 int32_t pxui_ui_table_view_with(PxuiUi *ui, const PxuiTableViewWithDesc *desc, size_t *sort_column);
 /* ABI 1.49: from inside a list_view/tree row or table_view cell callback of the _with calls, the kit's text of that item: a list
@@ -1121,6 +1123,8 @@ int32_t pxui_ui_menu_bar_result(PxuiUi *ui, const PxuiMenuBarDesc *desc, PxuiMen
 int32_t pxui_ui_view_keyed(PxuiUi *ui, const PxuiKeyedDesc *keyed, uint64_t revision, PxuiBuild build, void *user, PxuiBox *out);
 int32_t pxui_ui_toasts_keyed(PxuiUi *ui, const PxuiKeyedDesc *keyed, PxuiStrSpan items, PxuiI64Span ids, double seconds, int64_t *out_index);
 int32_t pxui_ui_table_view_keyed(PxuiUi *ui, const PxuiKeyedDesc *keyed, const PxuiTableViewWithDesc *desc, const PxuiRect *text, size_t *sort, size_t *row);
+/* ABI 1.83: pxui_ui_table_view_keyed whose virtual table keys row index by the item id key(desc->user, index) (NULL: by index), so a row's state follows its item when the rows are sorted; the text table ignores it. */
+int32_t pxui_ui_table_view_rows(PxuiUi *ui, const PxuiKeyedDesc *keyed, const PxuiTableViewWithDesc *desc, PxuiRowKey key, const PxuiRect *text, size_t *sort, size_t *row);
 int32_t pxui_ui_picker_keyed(PxuiUi *ui, const PxuiKeyedDesc *keyed, int64_t limit, uint8_t slash, uint8_t at_rest, PxuiStr query, PxuiPickerRows rows, PxuiPickerMark mark, PxuiPickerOff off, void *user, PxuiStr *out_query, uint32_t *out_tag, int64_t *out_index);
 
 /* Themes a caller builds and scopes over a subtree. set and load apply over what the theme holds, as a theme file applies over

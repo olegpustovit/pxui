@@ -141,7 +141,7 @@ pub fn page(ui: &mut Ui, s: &mut BodiesPage) {
         // the table fills its parent: give it a height
         let frame = ui.node("frame", Node { h: Size::Px(140.0), ..Node::DEFAULT });
         ui.within(&frame, &mut |ui: &mut Ui| {
-            let _ = ui.table_view("settings", &["Name", "On"], widths, 3, selected, &pxui::TableView::DEFAULT, &mut |ui: &mut Ui, row, column| {
+            let _ = ui.table_view("settings", &["Name", "On"], widths, 3, &|i| i as i64, selected, &pxui::TableView::DEFAULT, &mut |ui: &mut Ui, row, column| {
                 if column == 0 { ui.label(NAMES[row], pxui::Label::DEFAULT); } else { flags[row] = ui.toggle("toggle", NAMES[row], flags[row], &pxui::Toggle::DEFAULT).changed != flags[row]; }
             });
         });

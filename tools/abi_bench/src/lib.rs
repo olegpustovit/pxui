@@ -164,14 +164,14 @@ pub mod shapes {
             let (response, _, ratio) = self.0.split_result(key, split.axis, ratio, split.min_a, split.min_b, page!(a), page!(b));
             SplitResponse { response, ratio }
         }
-        pub fn selection_list(&mut self, key: &str, count: usize, selected: &mut [u8], list: &SelectionList, f: &mut dyn FnMut(&mut Ui, usize)) -> ListResponse {
-            self.0.selection_list(key, count, selected, list, &mut |e: &mut Engine, i| f(Ui::of(e), i))
+        pub fn selection_list(&mut self, key: &str, count: usize, row_key: &dyn Fn(usize) -> i64, selected: &mut [u8], list: &SelectionList, f: &mut dyn FnMut(&mut Ui, usize)) -> ListResponse {
+            self.0.selection_list(key, count, row_key, selected, list, &mut |e: &mut Engine, i| f(Ui::of(e), i))
         }
         pub fn tree(&mut self, key: &str, nodes: &[TreeNode], open: &mut [u8], selected: &mut Option<usize>, visible: &mut [u32], f: &mut dyn FnMut(&mut Ui, usize)) -> TreeResponse {
             self.0.tree(key, nodes, open, selected, visible, &mut |e: &mut Engine, i| f(Ui::of(e), i))
         }
-        pub fn table_view(&mut self, key: &str, titles: &[&str], widths: &mut [f32], rows: usize, selected: &mut Option<usize>, table: &TableView, f: &mut dyn FnMut(&mut Ui, usize, usize)) -> TableResponse {
-            self.0.table_view(key, titles, widths, rows, selected, table, &mut |e: &mut Engine, r, c| f(Ui::of(e), r, c))
+        pub fn table_view(&mut self, key: &str, titles: &[&str], widths: &mut [f32], rows: usize, row_key: &dyn Fn(usize) -> i64, selected: &mut Option<usize>, table: &TableView, f: &mut dyn FnMut(&mut Ui, usize, usize)) -> TableResponse {
+            self.0.table_view(key, titles, widths, rows, row_key, selected, table, &mut |e: &mut Engine, r, c| f(Ui::of(e), r, c))
         }
     }
 }

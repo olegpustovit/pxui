@@ -164,7 +164,7 @@ pub fn kit_page(ui: &mut Ui, s: &mut Gallery) {
     column(ui, "old-table", (332.0, 250.0), 296.0, Size::Px(200.0), &mut |ui: &mut Ui| {
         const OLD_TABLE: pxui::TableView = pxui::TableView::text(pxui_types::geom::Rect { x: 0.0, y: 0.0, w: 296.0, h: 200.0 });
         let mut cell = String::new();
-        let _ = ui.table_view("old-table", &["row", "name", "x"], &mut [], 1000, &mut None, &OLD_TABLE, &mut |ui: &mut Ui, r: usize, c: usize| {
+        let _ = ui.table_view("old-table", &["row", "name", "x"], &mut [], 1000, &|i| i as i64, &mut None, &OLD_TABLE, &mut |ui: &mut Ui, r: usize, c: usize| {
             cell.clear();
             let _ = if c == 0 { write!(cell, "{r}") } else if c == 1 { cell.write_str(NAMES[r % NAMES.len()]) } else { write!(cell, "{:.2}", r as f64 * 0.25) };
             ui.item_text(&cell);
@@ -227,7 +227,7 @@ pub fn collections_page(ui: &mut Ui, s: &mut Gallery) {
     ui.within(&pad, &mut |ui: &mut Ui| {
         let ratio = s.split;
         if let Some(r) = ui.split("split", ratio, &pxui::Split::DEFAULT.min_a(120.0).min_b(200.0), &mut |ui: &mut Ui| {
-            let _ = ui.selection_list("files", ROWS, &mut s.list, &pxui::SelectionList::DEFAULT.multi(), &mut |ui: &mut Ui, i: usize| names(i, &mut |t| ui.item_text(t)));
+            let _ = ui.selection_list("files", ROWS, &|i| i as i64, &mut s.list, &pxui::SelectionList::DEFAULT.multi(), &mut |ui: &mut Ui, i: usize| names(i, &mut |t| ui.item_text(t)));
         }, &mut |ui: &mut Ui| {
             let half = node(ui, "right", Node { w: Size::Grow, h: Size::Grow, padding: Edges { l: 8.0, ..Edges::ZERO }, gap: 8.0, ..Node::DEFAULT });
             ui.within(&half, &mut |ui: &mut Ui| {
@@ -237,7 +237,7 @@ pub fn collections_page(ui: &mut Ui, s: &mut Gallery) {
                 });
                 let bottom = node(ui, "table-box", Node { h: Size::Grow, ..Node::DEFAULT });
                 ui.within(&bottom, &mut |ui: &mut Ui| {
-                    if let Some(c) = ui.table_view("points", &["Name", "Group", "Tag"], &mut s.widths, ROWS, &mut s.table_sel, &pxui::TableView::DEFAULT.sort(s.sort.0, s.sort.1), &mut |ui: &mut Ui, r: usize, c: usize| cells(r, c, &mut |t| ui.item_text(t))).sort {
+                    if let Some(c) = ui.table_view("points", &["Name", "Group", "Tag"], &mut s.widths, ROWS, &|i| i as i64, &mut s.table_sel, &pxui::TableView::DEFAULT.sort(s.sort.0, s.sort.1), &mut |ui: &mut Ui, r: usize, c: usize| cells(r, c, &mut |t| ui.item_text(t))).sort {
                         s.sort = (c, if s.sort.0 == c { !s.sort.1 } else { true });
                     }
                 });

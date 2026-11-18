@@ -7513,6 +7513,11 @@ impl Ui {
     // Rows are chosen from the scroll position before layout: a fling past the overscan shows empty
     // rows for a frame. Rows of differing heights: `list_measured`.
     pub fn list(&mut self, label: &str, count: usize, row_h: f32, f: &mut dyn FnMut(&mut Ui, usize)) -> Handle {
+        self.list_keyed(label, count, row_h, None, f)
+    }
+
+    /// `list` with row `i`'s box keyed by the item id `ids(i)` when `ids` is given (as `section_list`'s `row_key`), else by its index.
+    pub fn list_keyed(&mut self, label: &str, count: usize, row_h: f32, ids: Option<&dyn Fn(usize) -> i64>, f: &mut dyn FnMut(&mut Ui, usize)) -> Handle {
         let padding = self.list_padding(key_of(self.current_seed(), label));
         assert!(row_h > 0.0, "Ui.list {label}: rows need a positive height");
         let body = self.node_ref(label, &Node { flags: Flags::SCROLL | Flags::CLIP, w: Size::Grow, h: Size::Grow, scroll_step: row_h, role: Role::List, ..Node::DEFAULT });
@@ -7536,7 +7541,7 @@ impl Ui {
         let shown = top..top + (height / row_h).ceil() as usize + 1;
         for i in first..last {
             self.ahead_row(outer, &shown, i);
-            let row = self.node_keyed(int_key(body.box_key, i as i64), Node { h: Size::Px(row_h), at: Some((0.0, i as f32 * row_h)).into(), role: Role::ListItem, ..Node::DEFAULT });
+            let row = self.list_row(body.box_key, i, ids, Node { h: Size::Px(row_h), at: Some((0.0, i as f32 * row_h)).into(), role: Role::ListItem, ..Node::DEFAULT });
             self.slots[row.box_slot].row_of = (body.box_key, i as u32);
             let saved = self.enter(&row);
             f(self, i);

@@ -40,9 +40,9 @@ mod link {
 
     #[link(name = "pxui")]
     unsafe extern "C" {
-        fn pxui_ui_list_view_with(ui: *mut crate::sys::PxuiUi, desc: *const ListViewWithDesc, out: *mut usize) -> i32;
+        fn pxui_ui_list_view_rows(ui: *mut crate::sys::PxuiUi, desc: *const ListViewWithDesc, key: pxui_types::ffi::PxuiRowKey, out: *mut usize) -> i32;
         fn pxui_ui_tree_with(ui: *mut crate::sys::PxuiUi, desc: *const TreeViewWithDesc, out: *mut usize) -> i32;
-        fn pxui_ui_table_view_keyed(ui: *mut crate::sys::PxuiUi, keyed: *const pxui_types::ffi::PxuiKeyedDesc, desc: *const TableViewWithDesc, text: *const pxui_types::geom::Rect, sort: *mut usize, row: *mut usize) -> i32;
+        fn pxui_ui_table_view_rows(ui: *mut crate::sys::PxuiUi, keyed: *const pxui_types::ffi::PxuiKeyedDesc, desc: *const TableViewWithDesc, key: pxui_types::ffi::PxuiRowKey, text: *const pxui_types::geom::Rect, sort: *mut usize, row: *mut usize) -> i32;
     }
 
     /// The cell callback: the caller's closure behind a trait object, so one trampoline serves all three collections.
@@ -56,17 +56,37 @@ mod link {
         if let Err(panic) = result { defer_callback_panic(panic); }
     }
 
+    /// The list and table context: the cell builder and the row ids, behind the one `user` the descriptor carries.
+    struct Rows<'a> { cell: Cell<'a>, id: &'a dyn Fn(usize) -> i64 }
+    extern "C" fn call_rows(user: *mut c_void, raw: *mut c_void, row: usize, column: usize) {
+        if raw.is_null() || deferred() { return; }
+        let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
+            let mut ui = core::mem::ManuallyDrop::new(Ui(core::ptr::NonNull::new(raw.cast()).unwrap()));
+            (unsafe { &mut *user.cast::<Rows>() }.cell)(&mut ui, row, column);
+        }));
+        if let Err(panic) = result { defer_callback_panic(panic); }
+    }
+    extern "C" fn call_row_id(user: *mut c_void, row: usize) -> i64 {
+        if deferred() { return row as i64; }
+        let rows = unsafe { &*user.cast::<Rows>() };
+        match std::panic::catch_unwind(AssertUnwindSafe(|| (rows.id)(row))) {
+            Ok(id) => id,
+            Err(panic) => { defer_callback_panic(panic); row as i64 }
+        }
+    }
+
     #[inline]
     fn as_str(value: &str) -> Str { crate::as_str(value) }
 
     impl Ui {
-        pub(super) fn list_view_c(&mut self, label: &str, count: usize, multi: bool, selected: &mut [u8], mut cell: Cell) -> Option<usize> {
+        pub(super) fn list_view_c(&mut self, label: &str, count: usize, row_key: &dyn Fn(usize) -> i64, multi: bool, selected: &mut [u8], cell: Cell) -> Option<usize> {
+            let mut rows = Rows { cell, id: row_key };
             let desc = ListViewWithDesc {
                 size: core::mem::size_of::<ListViewWithDesc>() as u32, multi: multi as u8, reserved: [0; 3], label: as_str(label), count,
-                selected: U8MutSpan { ptr: selected.as_mut_ptr(), len: selected.len() }, build: Some(call_cell), user: (&mut cell as *mut Cell).cast(),
+                selected: U8MutSpan { ptr: selected.as_mut_ptr(), len: selected.len() }, build: Some(call_rows), user: (&mut rows as *mut Rows).cast(),
             };
             let mut out = usize::MAX;
-            let rc = unsafe { pxui_ui_list_view_with(self.0.as_ptr(), &desc, &mut out) };
+            let rc = unsafe { pxui_ui_list_view_rows(self.0.as_ptr(), &desc, Some(call_row_id), &mut out) };
             crate::composite::resume_deferred();
             check(self, rc);
             (out != usize::MAX).then_some(out)
@@ -90,7 +110,8 @@ mod link {
         }
 
         #[allow(clippy::too_many_arguments)]
-        pub(super) fn table_view_c(&mut self, key: &str, titles: &[&str], widths: &mut [f32], rows: usize, table: &TableView, selected: &mut Option<usize>, mut cell: Cell) -> TableResponse {
+        pub(super) fn table_view_c(&mut self, key: &str, titles: &[&str], widths: &mut [f32], rows: usize, row_key: &dyn Fn(usize) -> i64, table: &TableView, selected: &mut Option<usize>, cell: Cell) -> TableResponse {
+            let mut context = Rows { cell, id: row_key };
             let (sort, label) = (table.sort, "");
             let titles = crate::Strs::new(titles);
             let mut selected_raw = selected.unwrap_or(usize::MAX);
@@ -99,11 +120,11 @@ mod link {
                 widths: F32MutSpan { ptr: widths.as_mut_ptr(), len: widths.len() }, rows,
                 has_sort: sort.is_some() as u8, ascending: sort.map_or(0, |(_, ascending)| ascending as u8), reserved: [0; 2],
                 sort_column: sort.map_or(0, |(column, _)| column), selected: &mut selected_raw,
-                build: Some(call_cell), user: (&mut cell as *mut Cell).cast(),
+                build: Some(call_rows), user: (&mut context as *mut Rows).cast(),
             };
             let (mut sort, mut row) = (usize::MAX, usize::MAX);
             let text = table.text.as_ref().map_or(core::ptr::null(), |r| r as *const _);
-            let rc = unsafe { pxui_ui_table_view_keyed(self.0.as_ptr(), &pxui_types::ffi::PxuiKeyedDesc::new(key, ""), &desc, text, &mut sort, &mut row) };
+            let rc = unsafe { pxui_ui_table_view_rows(self.0.as_ptr(), &pxui_types::ffi::PxuiKeyedDesc::new(key, ""), &desc, Some(call_row_id), text, &mut sort, &mut row) };
             crate::composite::resume_deferred();
             check(self, rc);
             *selected = (selected_raw != usize::MAX).then_some(selected_raw);
@@ -116,17 +137,17 @@ mod link {
 impl Ui {
     /// The one body of `selection_list`: keyed by `key` (the export's label is identity only).
     #[track_caller]
-    pub(crate) fn selection_list_key(&mut self, key: Key, count: usize, selected: &mut [u8], list: &SelectionList, cell: &mut dyn FnMut(&mut Ui, usize)) -> ListResponse {
+    pub(crate) fn selection_list_key(&mut self, key: Key, count: usize, row_key: &dyn Fn(usize) -> i64, selected: &mut [u8], list: &SelectionList, cell: &mut dyn FnMut(&mut Ui, usize)) -> ListResponse {
         let mut id_label = [0u8; 17];
         let (label, multi) = (key.label(&mut id_label), list.multi);
         #[cfg(feature = "static")]
         {
             let mut out = None;
-            check(self, unsafe { pxui_abi_link::trusted::list_view(self.0.as_ptr(), label, count, multi, selected, &mut |raw, row, _| (&mut *cell)(&mut *core::mem::ManuallyDrop::new(Ui(core::ptr::NonNull::new_unchecked(raw))), row), &mut out) });
+            check(self, unsafe { pxui_abi_link::trusted::list_view(self.0.as_ptr(), label, count, Some(row_key), multi, selected, &mut |raw, row, _| (&mut *cell)(&mut *core::mem::ManuallyDrop::new(Ui(core::ptr::NonNull::new_unchecked(raw))), row), &mut out) });
             ListResponse { activated: out }
         }
         #[cfg(not(feature = "static"))]
-        ListResponse { activated: self.list_view_c(label, count, multi, selected, &mut |ui, row, _| cell(ui, row)) }
+        ListResponse { activated: self.list_view_c(label, count, row_key, multi, selected, &mut |ui, row, _| cell(ui, row)) }
     }
 
     /// The one body of `tree`: keyed by `key` (the export's label is identity only).
@@ -150,17 +171,17 @@ impl Ui {
     /// The one body of `table_view`: keyed by `key`, unnamed, a text table with `TableView::text`.
     #[allow(clippy::too_many_arguments)]
     #[track_caller]
-    pub(crate) fn table_view_key(&mut self, key: Key, titles: &[&str], widths: &mut [f32], rows: usize, selected: &mut Option<usize>, table: &TableView, cell: &mut dyn FnMut(&mut Ui, usize, usize)) -> TableResponse {
+    pub(crate) fn table_view_key(&mut self, key: Key, titles: &[&str], widths: &mut [f32], rows: usize, row_key: &dyn Fn(usize) -> i64, selected: &mut Option<usize>, table: &TableView, cell: &mut dyn FnMut(&mut Ui, usize, usize)) -> TableResponse {
         let mut id_label = [0u8; 17];
         let key = key.label(&mut id_label);
         #[cfg(feature = "static")]
         {
             let mut out = TableResponse::default();
-            check(self, unsafe { pxui_abi_link::trusted::table_view(self.0.as_ptr(), key, "", titles, widths, rows, selected, table, &mut |raw, row, column| (&mut *cell)(&mut *core::mem::ManuallyDrop::new(Ui(core::ptr::NonNull::new_unchecked(raw))), row, column), &mut out) });
+            check(self, unsafe { pxui_abi_link::trusted::table_view(self.0.as_ptr(), key, "", titles, widths, rows, Some(row_key), selected, table, &mut |raw, row, column| (&mut *cell)(&mut *core::mem::ManuallyDrop::new(Ui(core::ptr::NonNull::new_unchecked(raw))), row, column), &mut out) });
             out
         }
         #[cfg(not(feature = "static"))]
-        self.table_view_c(key, titles, widths, rows, table, selected, cell)
+        self.table_view_c(key, titles, widths, rows, row_key, table, selected, cell)
     }
 
     /// The kit's text of the collection item `cell` is building: a `selection_list` row's label, a `tree` row's (naming the row) or a
@@ -172,7 +193,7 @@ impl Ui {
     ///
     /// ```
     /// let mut selected = [0u8; 2];
-    /// pxui::doc::frames(1, &mut |ui| { ui.selection_list("files", 2, &mut selected, &pxui::SelectionList::DEFAULT, &mut |ui, row| ui.item_text(["notes.txt", "song.flac"][row])); });
+    /// pxui::doc::frames(1, &mut |ui| { ui.selection_list("files", 2, &|i| i as i64, &mut selected, &pxui::SelectionList::DEFAULT, &mut |ui, row| ui.item_text(["notes.txt", "song.flac"][row])); });
     /// ```
     #[inline]
     #[track_caller] pub fn item_text(&mut self, text: &str) {
@@ -208,11 +229,11 @@ mod item_text_tests {
         for _ in 0..2 {
             ui.frame(&input, &mut |ui: &mut Ui| {
                 let half = ui.node("lists", crate::Node { h: crate::ui::Size::Px(80.0), ..crate::Node::DEFAULT });
-                ui.within(&half, &mut |ui| { ui.selection_list("list", 1, &mut list, &crate::SelectionList::DEFAULT, &mut |ui, _| ui.item_text("list row")); });
+                ui.within(&half, &mut |ui| { ui.selection_list("list", 1, &|i| i as i64, &mut list, &crate::SelectionList::DEFAULT, &mut |ui, _| ui.item_text("list row")); });
                 let half = ui.node("trees", crate::Node { h: crate::ui::Size::Px(80.0), ..crate::Node::DEFAULT });
                 ui.within(&half, &mut |ui| { ui.tree("tree", &nodes, &mut open, &mut selected, &mut visible, &mut |ui, _| ui.item_text("tree row")); });
                 let half = ui.node("tables", crate::Node { h: crate::ui::Size::Px(80.0), ..crate::Node::DEFAULT });
-                ui.within(&half, &mut |ui| { ui.table_view("table", &["A"], &mut widths, 1, &mut cell, &crate::TableView::DEFAULT, &mut |ui, _, _| ui.item_text("table cell")); });
+                ui.within(&half, &mut |ui| { ui.table_view("table", &["A"], &mut widths, 1, &|i| i as i64, &mut cell, &crate::TableView::DEFAULT, &mut |ui, _, _| ui.item_text("table cell")); });
             }).expect("frame");
         }
         let names: Vec<String> = ui.a11y_nodes().iter().map(|node| ui.a11y_name_of(node).to_owned()).collect();
@@ -242,10 +263,10 @@ mod tests {
             ui.frame(&input, &mut |ui: &mut Ui| {
                 ui.view_of("page", &count, |ui: &mut Ui| {
                     let ratio = ui.split("split", 0.34, &crate::Split::DEFAULT.min_a(120.0).min_b(200.0), &mut |ui: &mut Ui| {
-                        let _ = ui.selection_list("files", ROWS, &mut list, &crate::SelectionList::DEFAULT.multi(), &mut |ui, i| { texts.set(texts.get() + 1); ui.item_text(&format!("file {i}")); });
+                        let _ = ui.selection_list("files", ROWS, &|i| i as i64, &mut list, &crate::SelectionList::DEFAULT.multi(), &mut |ui, i| { texts.set(texts.get() + 1); ui.item_text(&format!("file {i}")); });
                     }, &mut |ui: &mut Ui| {
                         shown = ui.tree("outline", &nodes, &mut open, &mut selected, &mut visible, &mut |ui, i| { texts.set(texts.get() + 1); ui.item_text(&format!("node {i}")); }).shown;
-                        let _ = ui.table_view("points", &["Name", "Group", "Tag"], &mut widths, ROWS, &mut table_sel, &crate::TableView::DEFAULT.sort(0, true), &mut |ui, r, c| { cells.set(cells.get() + 1); ui.item_text(&format!("{r}:{c}")); });
+                        let _ = ui.table_view("points", &["Name", "Group", "Tag"], &mut widths, ROWS, &|i| i as i64, &mut table_sel, &crate::TableView::DEFAULT.sort(0, true), &mut |ui, r, c| { cells.set(cells.get() + 1); ui.item_text(&format!("{r}:{c}")); });
                     });
                     assert!(ratio.ratio.is_none());
                 });

@@ -772,7 +772,7 @@ pub unsafe fn list_view_text(ui: *mut PxuiUi, label: &str, count: usize, multi: 
     enter!(ui);
     if bad_key(label) || count > MAX_ITEMS || selected.len() != count { return unsafe { fail(ui, "invalid list view descriptor") }; }
     let (bad, total, text) = (core::cell::Cell::new(false), core::cell::Cell::new(0), core::cell::RefCell::new(text));
-    *out = unsafe { engine(ui) }.selection_list(label, count, selected, &SelectionList { multi }, &mut |ui, row| (text.borrow_mut())(row, &mut |value| bounded(&mut |t| { ui.row_text(t); }, &bad, &total, value))).activated;
+    *out = unsafe { engine(ui) }.selection_list(label, count, &|i| i as i64, selected, &SelectionList { multi }, &mut |ui, row| (text.borrow_mut())(row, &mut |value| bounded(&mut |t| { ui.row_text(t); }, &bad, &total, value))).activated;
     if bad.get() { return unsafe { fail(ui, "invalid collection callback text") }; }
     0
 }
@@ -801,7 +801,7 @@ pub unsafe fn table_view_text(ui: *mut PxuiUi, label: &str, titles: &[&str], wid
     if widths.iter().any(|w| !w.is_finite() || *w < 0.0) || sort.is_some_and(|(column, _)| column >= titles.len()) { return unsafe { fail(ui, "invalid table widths or sort column") }; }
     let (bad, total, cell) = (core::cell::Cell::new(false), core::cell::Cell::new(0), core::cell::RefCell::new(cell));
     let engine = unsafe { engine(ui) };
-    let r = engine.table_view(label, titles, widths, rows, selected, &TableView { sort, text: None }, &mut |ui, row, column| (cell.borrow_mut())(row, column, &mut |value| bounded(&mut |t| ui.cell_text(t), &bad, &total, value)));
+    let r = engine.table_view(label, titles, widths, rows, &|i| i as i64, selected, &TableView { sort, text: None }, &mut |ui, row, column| (cell.borrow_mut())(row, column, &mut |value| bounded(&mut |t| ui.cell_text(t), &bad, &total, value)));
     name_table(engine, label, pxui_types::ui::shown(label));
     *out = r.sort;
     if bad.get() { return unsafe { fail(ui, "invalid collection callback text") }; }
@@ -936,7 +936,7 @@ pub unsafe fn table(ui: *mut PxuiUi, at: (f32, f32), width: f32, height: f32, he
     }
     let (bad, total) = (core::cell::Cell::new(false), core::cell::Cell::new(0));
     let text = TableView::text(pxui_types::geom::Rect::new(at.0, at.1, width, height));
-    *out = unsafe { engine(ui) }.table_view(label, headers, &mut [], rows as usize, &mut None, &text, &mut |ui, row, column| cell(row as i64, column as i64, &mut |value| bounded(&mut |t| ui.item_text(t), &bad, &total, value))).row.map(|row| row as i64);
+    *out = unsafe { engine(ui) }.table_view(label, headers, &mut [], rows as usize, &|i| i as i64, &mut None, &text, &mut |ui, row, column| cell(row as i64, column as i64, &mut |value| bounded(&mut |t| ui.item_text(t), &bad, &total, value))).row.map(|row| row as i64);
     if bad.get() { return unsafe { fail(ui, "invalid table cell callback text") }; }
     0
 }
@@ -957,11 +957,11 @@ pub unsafe fn pxui_slot(ui: *mut PxuiUi, slot: pxui_types::ffi::PxuiSlot, out: *
 
 /// `selection_list` keyed by `key`: `cell(ui, row, 0)` builds the children of row `row`, `ui` the borrowed handle.
 #[inline]
-pub unsafe fn list_view(ui: *mut PxuiUi, key: &str, count: usize, multi: bool, selected: &mut [u8], cell: &mut dyn FnMut(*mut PxuiUi, usize, usize), out: &mut Option<usize>) -> i32 {
+pub unsafe fn list_view(ui: *mut PxuiUi, key: &str, count: usize, ids: Option<&dyn Fn(usize) -> i64>, multi: bool, selected: &mut [u8], cell: &mut dyn FnMut(*mut PxuiUi, usize, usize), out: &mut Option<usize>) -> i32 {
     enter!(ui);
     if bad_key(key) || count > MAX_ITEMS || selected.len() != count { return unsafe { fail(ui, "invalid list view descriptor") }; }
     let shared = unsafe { (*ui).shared };
-    *out = unsafe { engine(ui) }.selection_list(key, count, selected, &SelectionList { multi }, &mut |engine, row| { let mut borrowed = PxuiUi::borrowed(engine, shared); let _current = crate::state::Current::set(shared, &mut borrowed); cell(&mut borrowed, row, 0) }).activated;
+    *out = unsafe { engine(ui) }.selection_list(key, count, ids.unwrap_or(&|i| i as i64), selected, &SelectionList { multi }, &mut |engine, row| { let mut borrowed = PxuiUi::borrowed(engine, shared); let _current = crate::state::Current::set(shared, &mut borrowed); cell(&mut borrowed, row, 0) }).activated;
     0
 }
 
@@ -982,7 +982,7 @@ pub unsafe fn tree(ui: *mut PxuiUi, key: &str, nodes: &[pxui_types::ffi::PxuiTre
 /// `TableView::text`, gives its text to `item_text`); `out` the clicked row (text table) or header (sort intent).
 #[allow(clippy::too_many_arguments)]
 #[inline]
-pub unsafe fn table_view(ui: *mut PxuiUi, key: &str, name: &str, titles: &[&str], widths: &mut [f32], rows: usize, selected: &mut Option<usize>, table: &TableView, cell: &mut dyn FnMut(*mut PxuiUi, usize, usize), out: &mut TableResponse) -> i32 {
+pub unsafe fn table_view(ui: *mut PxuiUi, key: &str, name: &str, titles: &[&str], widths: &mut [f32], rows: usize, ids: Option<&dyn Fn(usize) -> i64>, selected: &mut Option<usize>, table: &TableView, cell: &mut dyn FnMut(*mut PxuiUi, usize, usize), out: &mut TableResponse) -> i32 {
     enter!(ui);
     let name = clip(name);
     let mut spare = Vec::new();
@@ -994,7 +994,7 @@ pub unsafe fn table_view(ui: *mut PxuiUi, key: &str, name: &str, titles: &[&str]
     }
     let shared = unsafe { (*ui).shared };
     let engine = unsafe { engine(ui) };
-    *out = engine.table_view(key, titles, widths, rows, selected, table, &mut |engine, row, column| { let mut borrowed = PxuiUi::borrowed(engine, shared); let _current = crate::state::Current::set(shared, &mut borrowed); cell(&mut borrowed, row, column) });
+    *out = engine.table_view(key, titles, widths, rows, ids.unwrap_or(&|i| i as i64), selected, table, &mut |engine, row, column| { let mut borrowed = PxuiUi::borrowed(engine, shared); let _current = crate::state::Current::set(shared, &mut borrowed); cell(&mut borrowed, row, column) });
     if !name.is_empty() { name_table(engine, key, name); }
     0
 }

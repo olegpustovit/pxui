@@ -3,7 +3,7 @@
 //! settles. Validate descriptors before mutation and preserve callback recovery, hit/accessibility
 //! geometry and bounded warm allocation behavior.
 //!
-use pxui_types::{ffi::PxuiKeyedDesc, ui::{TableResponse, TableView}};
+use pxui_types::{ffi::{PxuiKeyedDesc, PxuiRowKey}, ui::{TableResponse, TableView}};
 use crate::state::{PxuiUi, checked, fail, get, strings};
 use crate::{PXUI_ERR_ARGUMENT, Str};
 use core::{cell::Cell, ffi::c_void, mem::{align_of, offset_of, size_of}};
@@ -120,7 +120,9 @@ export!(build pub unsafe fn pxui_ui_item_text(ui: *mut PxuiUi, text: Str) -> i32
     unsafe { crate::trusted::item_text(ui, text) }
 });
 
-export!(trusted pub unsafe fn pxui_ui_list_view_with(ui: *mut PxuiUi, desc: *const PxuiListViewWithDesc, out: *mut usize) -> i32 {
+/// The list of `desc`, row `i` keyed by `key(desc.user, i)` when `key` is given (else by its index): the body of `pxui_ui_list_view_with`
+/// and `pxui_ui_list_view_rows`.
+unsafe fn list_view(ui: *mut PxuiUi, desc: *const PxuiListViewWithDesc, key: PxuiRowKey, out: *mut usize) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if out.is_null() { return unsafe { fail(ui, "null list view argument") }; }
     let Some(desc) = sized!(desc) else { return unsafe { fail(ui, "invalid list view descriptor") }; };
@@ -130,10 +132,22 @@ export!(trusted pub unsafe fn pxui_ui_list_view_with(ui: *mut PxuiUi, desc: *con
     let Some(label) = (unsafe { crate::state::checked_key(desc.label) }) else { return unsafe { fail(ui, "invalid list view label") }; };
     let selected: &mut [u8] = if desc.selected.len == 0 { &mut [] } else { unsafe { core::slice::from_raw_parts_mut(desc.selected.ptr, desc.selected.len) } };
     let mut activated = None;
-    let rc = unsafe { crate::trusted::list_view(ui, label, desc.count, desc.multi != 0, selected, &mut |ui, row, column| if let Some(build) = desc.build { build(desc.user, ui.cast(), row, column) }, &mut activated) };
+    let ids = key.map(|key| move |row| key(desc.user, row));
+    let rc = unsafe { crate::trusted::list_view(ui, label, desc.count, ids.as_ref().map(|ids| ids as &dyn Fn(usize) -> i64), desc.multi != 0, selected, &mut |ui, row, column| if let Some(build) = desc.build { build(desc.user, ui.cast(), row, column) }, &mut activated) };
     if rc != 0 { return rc; }
     unsafe { *out = activated.unwrap_or(usize::MAX); }
     0
+}
+
+// Legacy (cut at 2.0): rows keyed by index; `pxui_ui_list_view_rows` keys them by item id.
+export!(trusted pub unsafe fn pxui_ui_list_view_with(ui: *mut PxuiUi, desc: *const PxuiListViewWithDesc, out: *mut usize) -> i32 {
+    unsafe { list_view(ui, desc, None, out) }
+});
+
+// ABI 1.83: `pxui_ui_list_view_with` whose row `i` is keyed by the item id `key(desc.user, i)` (NULL: by index), so a row's state
+// follows its item when the items reorder.
+export!(trusted pub unsafe fn pxui_ui_list_view_rows(ui: *mut PxuiUi, desc: *const PxuiListViewWithDesc, key: PxuiRowKey, out: *mut usize) -> i32 {
+    unsafe { list_view(ui, desc, key, out) }
 });
 
 export!(trusted pub unsafe fn pxui_ui_tree_with(ui: *mut PxuiUi, desc: *const PxuiTreeViewWithDesc, out: *mut usize) -> i32 {
@@ -157,8 +171,10 @@ export!(trusted pub unsafe fn pxui_ui_tree_with(ui: *mut PxuiUi, desc: *const Px
 });
 
 /// The table of `desc` keyed by `key`, named `name`, a text table at `text` when given: the body of `pxui_ui_table_view_with` and
-/// `pxui_ui_table_view_keyed`; `sort` the clicked header, `row` the clicked row (a text table).
-unsafe fn table_view(ui: *mut PxuiUi, key: &str, name: &str, desc: &PxuiTableViewWithDesc, text: Option<pxui_types::geom::Rect>, sort_out: *mut usize, row_out: *mut usize) -> i32 {
+/// `pxui_ui_table_view_keyed`; `sort` the clicked header, `row` the clicked row (a text table); the virtual table's row `i` keyed by
+/// `ids(desc.user, i)` when given (`pxui_ui_table_view_rows`), else by its index.
+#[allow(clippy::too_many_arguments)]
+unsafe fn table_view(ui: *mut PxuiUi, key: &str, name: &str, desc: &PxuiTableViewWithDesc, ids: PxuiRowKey, text: Option<pxui_types::geom::Rect>, sort_out: *mut usize, row_out: *mut usize) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if desc.has_sort > 1 || desc.ascending > 1 || desc.reserved != [0; 2] || desc.rows > MAX_ITEMS || desc.titles.len > 4096
         || (text.is_none() && desc.widths.len != desc.titles.len) || !valid_span(desc.widths.ptr, desc.widths.len, desc.widths.len) || desc.selected.is_null() {
@@ -170,7 +186,8 @@ unsafe fn table_view(ui: *mut PxuiUi, key: &str, name: &str, desc: &PxuiTableVie
     let sort = (desc.has_sort != 0).then_some((desc.sort_column, desc.ascending != 0));
     let mut selected = (unsafe { *desc.selected } != usize::MAX).then_some(unsafe { *desc.selected });
     let mut r = TableResponse::default();
-    let rc = unsafe { crate::trusted::table_view(ui, key, name, &titles, widths, desc.rows, &mut selected, &TableView { sort, text }, &mut |ui, row, column| if let Some(build) = desc.build { build(desc.user, ui.cast(), row, column) }, &mut r) };
+    let ids = ids.map(|ids| move |row| ids(desc.user, row));
+    let rc = unsafe { crate::trusted::table_view(ui, key, name, &titles, widths, desc.rows, ids.as_ref().map(|ids| ids as &dyn Fn(usize) -> i64), &mut selected, &TableView { sort, text }, &mut |ui, row, column| if let Some(build) = desc.build { build(desc.user, ui.cast(), row, column) }, &mut r) };
     state.shared().put_strs(titles);
     if rc != 0 { return rc; }
     unsafe { *desc.selected = selected.unwrap_or(usize::MAX); *sort_out = r.sort.unwrap_or(usize::MAX); }
@@ -184,18 +201,29 @@ export!(trusted pub unsafe fn pxui_ui_table_view_with(ui: *mut PxuiUi, desc: *co
     if out.is_null() { return unsafe { fail(ui, "null table argument") }; }
     let Some(desc) = sized!(desc) else { return unsafe { fail(ui, "invalid table descriptor") }; };
     let Some(label) = (unsafe { crate::state::checked_label(desc.label) }) else { return unsafe { fail(ui, "invalid table strings") }; };
-    unsafe { table_view(ui, label, pxui_types::ui::shown(label), desc, None, out, core::ptr::null_mut()) }
+    unsafe { table_view(ui, label, pxui_types::ui::shown(label), desc, None, None, out, core::ptr::null_mut()) }
 });
 
-// ABI 1.68: the table keyed by `keyed.key` and named `keyed.name` (empty: none); `desc.label` must be empty. With `text`, the fixed text
-// table at that rectangle (each cell's text given to `pxui_ui_item_text`; `widths` may be empty), `row` its clicked row; `sort` the clicked
-// header of the virtual table. `usize::MAX`: none.
-export!(trusted pub unsafe fn pxui_ui_table_view_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, desc: *const PxuiTableViewWithDesc, text: *const pxui_types::geom::Rect, sort: *mut usize, row: *mut usize) -> i32 {
+/// The body of `pxui_ui_table_view_keyed` and `pxui_ui_table_view_rows`.
+unsafe fn table_view_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, desc: *const PxuiTableViewWithDesc, ids: PxuiRowKey, text: *const pxui_types::geom::Rect, sort: *mut usize, row: *mut usize) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if sort.is_null() || row.is_null() { return unsafe { fail(ui, "null table argument") }; }
     let Some((key, name)) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
     let Some(desc) = sized!(desc) else { return unsafe { fail(ui, "invalid table descriptor") }; };
     if desc.label.len != 0 { return unsafe { fail(ui, "a keyed table takes no label") }; }
     let text = if text.is_null() { None } else { Some(unsafe { *text }) };
-    unsafe { table_view(ui, key, name, desc, text, sort, row) }
+    unsafe { table_view(ui, key, name, desc, ids, text, sort, row) }
+}
+
+// ABI 1.68: the table keyed by `keyed.key` and named `keyed.name` (empty: none); `desc.label` must be empty. With `text`, the fixed text
+// table at that rectangle (each cell's text given to `pxui_ui_item_text`; `widths` may be empty), `row` its clicked row; `sort` the clicked
+// header of the virtual table. `usize::MAX`: none.
+export!(trusted pub unsafe fn pxui_ui_table_view_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, desc: *const PxuiTableViewWithDesc, text: *const pxui_types::geom::Rect, sort: *mut usize, row: *mut usize) -> i32 {
+    unsafe { table_view_keyed(ui, keyed, desc, None, text, sort, row) }
+});
+
+// ABI 1.83: `pxui_ui_table_view_keyed` whose virtual table keys row `i` by the item id `key(desc.user, i)` (NULL: by index), so a row's
+// state follows its item when the rows are sorted; the text table has no row boxes and ignores it.
+export!(trusted pub unsafe fn pxui_ui_table_view_rows(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, desc: *const PxuiTableViewWithDesc, key: PxuiRowKey, text: *const pxui_types::geom::Rect, sort: *mut usize, row: *mut usize) -> i32 {
+    unsafe { table_view_keyed(ui, keyed, desc, key, text, sort, row) }
 });

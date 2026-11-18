@@ -154,7 +154,7 @@ pub fn body(ui: &mut Ui, s: &mut S) {
         ui.within(&right, &mut |ui| {
             let b = ui.node("list-box".into(), Node { h: Size::Px(120.0), ..Node::DEFAULT });
             ui.within(&b, &mut |ui| {
-                if let Some(a) = ui.selection_list("List", BIG, &mut s.list, &pxui_core::ui::SelectionList { multi: s.multi }, &mut |ui, i| names(i, &mut |t| ui.item_text(t))).activated {
+                if let Some(a) = ui.selection_list("List", BIG, &|i| i as i64, &mut s.list, &pxui_core::ui::SelectionList { multi: s.multi }, &mut |ui, i| names(i, &mut |t| ui.item_text(t))).activated {
                     s.activated = Some(a);
                 }
             });
@@ -163,7 +163,7 @@ pub fn body(ui: &mut Ui, s: &mut S) {
                 s.shown = { let r = ui.tree("Tree", &s.nodes, &mut s.open, &mut s.tree_sel, &mut s.visible, &mut |ui, i| names(i, &mut |t| ui.item_text(t))); (r.activated, r.shown) }.1;
             });
             sized(ui, "table-box", 150.0, &mut |ui| {
-                if let Some(c) = ui.table_view("Table", &["Name", "Next", "More"], &mut s.widths, BIG, &mut s.table_sel, &pxui_core::ui::TableView { sort: Some((0, true)), text: None }, &mut |ui, r, c| cells(r, c, &mut |t| ui.item_text(t))).sort {
+                if let Some(c) = ui.table_view("Table", &["Name", "Next", "More"], &mut s.widths, BIG, &|i| i as i64, &mut s.table_sel, &pxui_core::ui::TableView { sort: Some((0, true)), text: None }, &mut |ui, r, c| cells(r, c, &mut |t| ui.item_text(t))).sort {
                     s.sorted = Some(c);
                 }
             });

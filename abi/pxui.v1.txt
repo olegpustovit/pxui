@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 82
+minor 83
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -182,6 +182,7 @@ function pxui_ui_leave int32_t pxui_ui_leave ( PxuiUi * ui , const PxuiSaved * s
 function pxui_ui_line_field_response int32_t pxui_ui_line_field_response ( PxuiUi * ui , float x , float y , float w , float h , uint8_t grab , PxuiStr placeholder , PxuiStr label , PxuiStr value , PxuiStr name , PxuiStr * text , uint32_t * step , PxuiResponse * response ) ;
 function pxui_ui_list_measured int32_t pxui_ui_list_measured ( PxuiUi * ui , PxuiStr label , size_t count , float estimate_h , PxuiGridBuild build , void * user , PxuiBox * out ) ;
 function pxui_ui_list_view int32_t pxui_ui_list_view ( PxuiUi * ui , const PxuiListViewDesc * desc , size_t * activated ) ;
+function pxui_ui_list_view_rows int32_t pxui_ui_list_view_rows ( PxuiUi * ui , const PxuiListViewWithDesc * desc , PxuiRowKey key , size_t * activated ) ;
 function pxui_ui_list_view_with int32_t pxui_ui_list_view_with ( PxuiUi * ui , const PxuiListViewWithDesc * desc , size_t * activated ) ;
 function pxui_ui_load_text_edit int32_t pxui_ui_load_text_edit ( PxuiUi * ui , int64_t key , PxuiStr text , PxuiStr * out_text , uint64_t * caret , uint64_t * anchor ) ;
 function pxui_ui_local_rect int32_t pxui_ui_local_rect ( PxuiUi * ui , const PxuiBox * box , PxuiRect * out ) ;
@@ -273,6 +274,7 @@ function pxui_ui_system_appearance int32_t pxui_ui_system_appearance ( PxuiUi * 
 function pxui_ui_table int32_t pxui_ui_table ( PxuiUi * ui , const PxuiTableDesc * desc , int64_t * clicked_row ) ;
 function pxui_ui_table_view int32_t pxui_ui_table_view ( PxuiUi * ui , const PxuiTableViewDesc * desc , size_t * sort_column ) ;
 function pxui_ui_table_view_keyed int32_t pxui_ui_table_view_keyed ( PxuiUi * ui , const PxuiKeyedDesc * keyed , const PxuiTableViewWithDesc * desc , const PxuiRect * text , size_t * sort , size_t * row ) ;
+function pxui_ui_table_view_rows int32_t pxui_ui_table_view_rows ( PxuiUi * ui , const PxuiKeyedDesc * keyed , const PxuiTableViewWithDesc * desc , PxuiRowKey key , const PxuiRect * text , size_t * sort , size_t * row ) ;
 function pxui_ui_table_view_with int32_t pxui_ui_table_view_with ( PxuiUi * ui , const PxuiTableViewWithDesc * desc , size_t * sort_column ) ;
 function pxui_ui_tabs int32_t pxui_ui_tabs ( PxuiUi * ui , PxuiStr label , PxuiStrSpan options , size_t selected , size_t * out ) ;
 function pxui_ui_text int32_t pxui_ui_text ( PxuiUi * ui , const PxuiBox * box , PxuiStr value ) ;

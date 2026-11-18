@@ -117,7 +117,7 @@ fn table(ui: &mut Ui) {
             cfmt::g((row + column) as f64 * 0.125, 6)
         }
     };
-    ui.table_view("table", &headers, &mut [], 1000000 as usize, &mut None, &pxui_core::ui::TableView::text(pxui_core::ui::Rect::new(8.0, 8.0, 304.0, 280.0)), &mut |ui, r, c| ui.item_text(&cell(r as i64, c as i64))).row.map(|r| r as i64);
+    ui.table_view("table", &headers, &mut [], 1000000 as usize, &|i| i as i64, &mut None, &pxui_core::ui::TableView::text(pxui_core::ui::Rect::new(8.0, 8.0, 304.0, 280.0)), &mut |ui, r, c| ui.item_text(&cell(r as i64, c as i64))).row.map(|r| r as i64);
 }
 
 fn parity(name: &str, golden: &str, height: i64, build: fn(&mut Ui)) {
