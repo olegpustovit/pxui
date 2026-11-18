@@ -7,7 +7,7 @@ use pxui::bodies::{BodyConfig, SearchFieldConfig, SegmentedConfig, SliderConfig,
 use pxui::theme::{Look, State};
 use pxui::{Overlay, Part, SearchField, Ui};
 use pxui_types::Flags;
-use pxui_types::{ffi::PxuiStateDesc, geom::Edges, layout::Align, ui::int_key, Axis, Node, Size};
+use pxui_types::{ffi::PxuiStateDesc, geom::Edges, layout::Align, Axis, Node, Size};
 
 /// The theme lines that select the proof bodies, on top of any base theme text.
 pub const THEME_LINES: &str = "toggle.body = checkbox\nslider.body = round\nsegmented.body = sliding\ntable_row.body = ruled\nsearch_field.body = boxed\n";
@@ -71,8 +71,8 @@ fn round_slider(ui: &mut Ui, c: &SliderConfig) {
     });
 }
 
-/// Segments with no outline of their own and one marker (`Part::THUMB`, built by the first segment) placed over the chosen segment from
-/// that segment's rectangle last frame, so it follows the choice a frame later.
+/// Segments with no outline of their own and one marker, built by the chosen segment into the strip under one key, so it slides
+/// between segments: placed from the chosen segment's rectangle last frame, it follows the choice a frame later.
 fn sliding_segment(ui: &mut Ui, c: &SegmentedConfig) {
     let state = state_of(&c.state);
     let look = *ui.theme().segment.pick(state);
@@ -81,12 +81,11 @@ fn sliding_segment(ui: &mut Ui, c: &SegmentedConfig) {
     ui.set_node_layout(&c.node, &node);
     ui.set_look(&c.node, Look { text: look.text, font: look.font, ..Look::NONE }, state);
     ui.text(&c.node, c.text_of(&c.text));
-    if c.index == 0 {
-        let rect_of = |ui: &Ui, key: i64| ui.box_of_key(key).map(|b| ui.rect(&b)).filter(|r| r.w > 0.0);
-        let (first, chosen) = (rect_of(ui, c.node.box_key), rect_of(ui, int_key(c.group, c.selected as i64)));
-        let (at, w) = match (first, chosen) { (Some(f), Some(s)) => ((s.x - f.x, 0.0), s.w), _ => ((0.0, 0.0), 40.0) };
-        let marker = ink(ui);
-        ui.part(Part::THUMB, Node { at: Some(at).into(), w: Size::Px(w), h: Size::Px(3.0), look: marker, ..Node::DEFAULT });
+    if state.checked {
+        let (own, strip) = (ui.rect(&c.node), ui.rect(&c.strip));
+        let (at, w) = if own.w > 0.0 { ((own.x - strip.x, 0.0), own.w) } else { ((0.0, 0.0), 40.0) };
+        let marker = Node { at: Some(at).into(), w: Size::Px(w), h: Size::Px(3.0), look: ink(ui), ..Node::DEFAULT };
+        ui.within(&c.strip, &mut |ui: &mut Ui| { ui.node("marker".into(), marker); });
     }
 }
 

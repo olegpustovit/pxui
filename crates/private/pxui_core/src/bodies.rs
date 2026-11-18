@@ -281,10 +281,11 @@ pub struct TabConfig {
 pub type TabBody = fn(&mut Ui, &TabConfig, &str);
 
 /// What a segmented-control body is given (the option's text beside it). It runs with the segment's `node` entered: a radio-role item
-/// keyed by its place in the strip, checked when it is the choice; behaviour reads its presses. `selected` is the choice's index (`None`:
-/// no option is chosen) and
-/// `group` the strip's key, so a body can find the choice's segment (`Ui::part_rect(int_key(group, selected), part)`) and move a
-/// marker to it. The body gives the segment its width, inset, look for `state` (`checked`) and text.
+/// keyed by its item id (or by its place in the strip for an item without one), checked when it is the choice; behaviour reads its
+/// presses. `selected` is the choice's index (`None`: no option is chosen) and `group` the strip's key. The chosen segment's body
+/// (`state.checked`) has that segment's `node`, so it finds the choice by its state, not by a key: to slide one marker between
+/// segments it builds the marker into `strip` (`Ui::within`) under one fixed key, at its own `node`'s rectangle. The body gives the
+/// segment its width, inset, look for `state` (`checked`) and text.
 ///
 /// the look per state the caller asked for comes beside the config (`None`: the theme's `segment`); `grow`: the caller asked each
 /// segment to share the strip's width (the strip fills its line or is `Segmented::size` wide) instead of the text's; `padding` the text's

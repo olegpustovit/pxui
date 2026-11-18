@@ -1171,6 +1171,36 @@ pub fn split_spacer_body() {
     check(got.0 > 0 && got.1 == 750, &format!("split: the drag gave {got:?}"));
 }
 
+/// A split laid out as two panes with no grip.
+fn gripless_split(ui: &mut Ui, c: &SplitConfig, a: &mut dyn FnMut(&mut Ui), b: &mut dyn FnMut(&mut Ui)) {
+    let first = ui.node("a".into(), Node { w: Size::Grow, h: Size::Grow, grow: c.ratio, flags: Flags::CLIP, ..Node::DEFAULT });
+    ui.within(&first, a);
+    let second = ui.node("b".into(), Node { w: Size::Grow, h: Size::Grow, grow: 1.0 - c.ratio, flags: Flags::CLIP, ..Node::DEFAULT });
+    ui.within(&second, b);
+}
+
+/// A body without a grip never reports a ratio, whatever the pointer does over the split.
+pub fn split_gripless_body() {
+    let mut ui = new_ui(None);
+    ui.set_a11y(true);
+    pick(&mut ui, &|t, id| t.body.split = id, &|ui| ui.register_split_body("gripless", gripless_split));
+    let ratios = Cell::new(0);
+    let mut t = 0.0;
+    let mid = (100, 50);
+    for e in [vec![], vec![], vec![move_to(mid)], vec![press(mid)], vec![move_to((150, 50))], vec![release((150, 50))], vec![]] {
+        t += 0.1;
+        ui.frame(&frame(t, e), &mut |ui| {
+            let host = ui.node("host".into(), Node { at: Some((0.0, 0.0)).into(), w: Size::Px(201.0), h: Size::Px(100.0), ..Node::DEFAULT });
+            let saved = ui.enter(&host);
+            let r = ui.split("split", 0.5, &pxui_core::ui::Split::DEFAULT, &mut |ui| { ui.node("x".into(), Node { h: Size::Grow, ..Node::DEFAULT }); }, &mut |ui| { ui.node("y".into(), Node { h: Size::Grow, ..Node::DEFAULT }); });
+            if r.ratio.is_some() { ratios.set(ratios.get() + 1); }
+            ui.leave(saved);
+        });
+    }
+    check(ratios.get() == 0, &format!("split: a body without a grip reported a ratio on {} frames", ratios.get()));
+    ui.destroy();
+}
+
 /// A scroll view with a square dark look and a 3-point thumb.
 fn square_scroll(ui: &mut Ui, c: &ScrollConfig, content: &mut dyn FnMut(&mut Ui)) {
     let n = ui.node_mut(&c.node);
@@ -1304,30 +1334,30 @@ pub fn tab_fixed_body() {
     swap_all("tab", &install, Role::Tab, "B", Key::ArrowRight, &|ui, v| v.set(ui.tabs("Tabs", &["A", "B", "C"], v.get() as usize, &pxui_core::ui::Choice::DEFAULT.name("Tabs")).1 as i64));
 }
 
-thread_local! { static FIRST_SEGMENT: Cell<i64> = const { Cell::new(0) }; }
+thread_local! { static STRIP: Cell<i64> = const { Cell::new(0) }; }
 
-/// Segments with no outline of their own and, the sliding proof, one node (`Part::THUMB`, built by the first segment) that is placed
-/// over whichever segment is chosen, from that segment's rectangle last frame.
+/// The marker's key in the strip: one node, so it slides between segments.
+const MARKER: i64 = 0x4d4b;
+
+/// Segments with no outline of their own and, the sliding proof, one node (keyed from `group`, built by the chosen segment into the
+/// strip) that is placed over whichever segment is chosen, from that segment's rectangle last frame.
 fn sliding_segment(ui: &mut Ui, c: &SegmentConfig, _states: Option<&States>, text: &str) {
     ui.node_mut(&c.node).w = Size::Px(70.0);
     ui.set_look(&c.node, Look::NONE, c.state);
     ui.text(&c.node, text);
     ui.part(Part::HIT, Node { w: Size::Grow, h: Size::Grow, ..Node::DEFAULT });
-    if c.index == 0 {
-        FIRST_SEGMENT.with(|f| f.set(c.node.box_key));
-        let first = ui.part_rect(c.node.box_key, Part::HIT);
-        let chosen = c.selected.and_then(|at| ui.part_rect(int_key(c.group, at as i64), Part::HIT));
-        let at = match (first, chosen) {
-            (Some(f), Some(s)) => (s.x - f.x, 0.0),
-            _ => (0.0, 0.0),
-        };
-        ui.part(Part::THUMB, Node { at: Some(at).into(), w: Size::Px(70.0), h: Size::Px(4.0), look: ink_look(), ..Node::DEFAULT });
+    STRIP.with(|f| f.set(c.group));
+    if c.state.checked {
+        let (own, strip) = (ui.rect(&c.node), ui.rect(&c.strip));
+        let at = if own.w > 0.0 { (own.x - strip.x, 0.0) } else { (0.0, 0.0) };
+        ui.within(&c.strip, &mut |ui| { ui.node_keyed(int_key(c.group, MARKER), Node { at: Some(at).into(), w: Size::Px(70.0), h: Size::Px(4.0), look: ink_look(), ..Node::DEFAULT }); });
     }
 }
 
 pub fn segment_sliding_body() {
     let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.segmented = id, &|ui| ui.register_segmented_body("sliding", sliding_segment));
-    let build = |ui: &mut Ui, v: &Cell<i64>| v.set(ui.segmented_opts("Align", "Align", &[Segment::new("Left"), Segment::new("Centre"), Segment::new("Right")], Some(v.get() as usize), &SegmentedOpts::DEFAULT).1.map_or(v.get(), |i| i as i64));
+    // id-keyed items: the chosen segment is found by its state, not by its place
+    let build = |ui: &mut Ui, v: &Cell<i64>| v.set(ui.segmented_opts("Align", "Align", &[Segment::new("Left").id(30), Segment::new("Centre").id(10), Segment::new("Right").id(20)], Some(v.get() as usize), &SegmentedOpts::DEFAULT).1.map_or(v.get(), |i| i as i64));
     swap_all("segment", &install, Role::Radio, "Centre", Key::ArrowRight, &build);
     // the marker is one node and follows the choice: after a click on "Right" it sits over "Right"
     let mut ui = new_ui(None);
@@ -1342,7 +1372,7 @@ pub fn segment_sliding_body() {
     for _ in 0..3 {
         step(&mut ui, vec![]);
     }
-    let thumb_x = |ui: &Ui| ui.part_rect(FIRST_SEGMENT.with(|f| f.get()), Part::THUMB).expect("the marker was built").x;
+    let thumb_x = |ui: &Ui| ui.box_of_key(int_key(STRIP.with(|f| f.get()), MARKER)).map(|b| ui.rect(&b)).expect("the marker was built").x;
     let left = tree_node(&ui, Role::Radio, "Left").rect;
     check((thumb_x(&ui) - left.x).abs() < 0.5, "segment: the marker is not over the first segment at rest");
     let p = mid(tree_node(&ui, Role::Radio, "Right").rect, 4.0);
@@ -1912,6 +1942,7 @@ pub const CASES: &[(&str, fn())] = &[
     ("inspector_section_plain_body", inspector_section_plain_body),
     ("inspector_row_bullet_body", inspector_row_bullet_body),
     ("split_spacer_body", split_spacer_body),
+    ("split_gripless_body", split_gripless_body),
     ("scroll_view_square_body", scroll_view_square_body),
     ("toast_chip_body", toast_chip_body),
     ("tip_dark_body", tip_dark_body),
