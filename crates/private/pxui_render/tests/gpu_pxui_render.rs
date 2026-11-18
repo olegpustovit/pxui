@@ -200,6 +200,7 @@ fn main() {
         ("shared_resize_validation", shared_resize_validation),
         ("shared_foreign_image_wrappers_retire_without_leaking_or_destroying_the_source", shared_foreign_image_wrappers_retire_without_leaking_or_destroying_the_source),
         ("shared_skipped_draws", shared_skipped_draws),
+        ("shared_in_order_draw_batches_a_popup_layer_with_the_base", shared_in_order_draw_batches_a_popup_layer_with_the_base),
         ("shared_layer_borrows_survive_acknowledgment_and_publish_patches", shared_layer_borrows_survive_acknowledgment_and_publish_patches),
         ("shared_inline_spans_render_colors_background_and_rule", shared_inline_spans_render_colors_background_and_rule),
         ("shared_pixel_fit_text_matches_explicit_width_pixels", shared_pixel_fit_text_matches_explicit_width_pixels),
@@ -568,7 +569,7 @@ fn gpu_retained_layer_writes_only_dirty_ranges() {
         let mut splits = 0;
         pass(&queue, &target, &mut |encoder| {
             mem_sys::local_reset();
-            ok(painter.draw_retained_split(encoder, size, SCALE as f32, 0, &instances, &dirty, &breaks, &[2, 14], &mut |_, _| {
+            ok(painter.draw_retained_split(encoder, size, SCALE as f32, &[(0, &instances[..], &dirty[..])], &breaks, &[2, 14], &mut |_, _| {
                 splits += 1;
                 ok(be::invalidate_state(encoder));
                 Ok(None)
@@ -1759,6 +1760,73 @@ fn shared_skipped_draws() {
     ok(be::destroy_texture(&target));
     ok(be::destroy_queue(&queue));
     ok(be::destroy_device(&device));
+}
+
+/// `popup`: none, or the popup's caption. The base is a label and a filled block, the popup an anchored node with text.
+fn popup_ui(ui: &mut pxui::Ui, popup: Option<&str>, base: &str) {
+    use pxui::{Node, Rgba, theme::Look, ui::Size};
+    let input = pxui::FrameIn::new(320.0, 300.0).scale(2.0).time(1.0 / 60.0);
+    ui.frame(&input, &mut |ui: &mut pxui::Ui| {
+        ui.label(base, pxui_core::ui::Label::DEFAULT);
+        let _ = ui.node("block", Node { w: Size::Px(80.0), h: Size::Px(40.0), look: Look { fill: Rgba::rgba(30, 90, 200, 255).into(), ..Look::NONE }, ..Node::DEFAULT });
+        if let Some(caption) = popup {
+            let _ = ui.anchored("popup", pxui::Rect::new(20.0, 20.0, 40.0, 20.0), &pxui::Overlay::DEFAULT.w_px(120.0).h_px(30.0), &mut |ui: &mut pxui::Ui| {
+                let n = ui.node("popup-body", Node { w: Size::Px(120.0), h: Size::Px(30.0), look: Look { fill: Rgba::rgba(200, 40, 40, 255).into(), text: Rgba::rgba(255, 255, 255, 255).into(), ..Look::NONE }, ..Node::DEFAULT });
+                let _ = ui.text(&n, caption);
+            });
+        }
+    }).expect("build popup frame");
+}
+
+/// A host drawing every layer in order (`Renderer::draw`) draws a popup layer and the base in one call, and the pixels match a
+/// host drawing each layer on its own (`Renderer::draw_layer`) through the popup opening, changing, closing and reopening, and
+/// through a switch between the two ways of drawing on one renderer (the batch took the popup layer's content).
+fn shared_in_order_draw_batches_a_popup_layer_with_the_base() {
+    let Some(device) = open() else { return };
+    let queue = ok(be::create_queue(&device));
+    let target = texture(&device, 640, 600, &[TextureUsage::RenderAttachment, TextureUsage::TextureCopySrc]);
+    let font = pxui::FontData(include_bytes!("../../../../assets/fonts/DepartureMono-Regular.otf"));
+    let (mut batched, mut layered) = [0, 1].map(|_| pxui::Ui::new(&pxui::UiDesc::new(pxui::Platform::Apple).fonts(&[font])).expect("pxui Ui")).into();
+    // (popup, base, drawn in order): "one" drawn alone, then "two" in a batch, then drawn alone again unchanged must not show "one"
+    let steps: [(Option<&str>, &str, bool); 8] = [(None, "a", true), (Some("one"), "a", false), (Some("two"), "a", true), (Some("two"), "b", false),
+        (None, "b", true), (Some("six"), "b", true), (Some("six"), "c", false), (Some("ten"), "c", true)];
+    for (popup, base, _) in steps.iter().take(1) { popup_ui(&mut batched, *popup, base); popup_ui(&mut layered, *popup, base); }
+    let (mut a, mut b) = (shared_renderer(&device, &batched), shared_renderer(&device, &layered));
+    for (serial, &(popup, base, in_order)) in steps.iter().enumerate() {
+        let serial = serial as u64 + 1;
+        // anchored roots place against the last frame: build twice
+        for _ in 0..2 { popup_ui(&mut batched, popup, base); popup_ui(&mut layered, popup, base); }
+        let layers = batched.layer_count();
+        assert_eq!(layers, if popup.is_some() { 2 } else { 1 }, "the popup is a layer of its own");
+        let draws = a.draw_calls();
+        if in_order { shared_app_frame(&queue, &target, &mut a, serial, serial - 1); } else { layered_app_frame(&queue, &target, &mut a, layers, serial); }
+        if in_order { assert_eq!(a.draw_calls() - draws, 1, "the base and the popup are one draw call"); }
+        let got = ok(be::read_texture(&target, 640 * 4));
+        layered_app_frame(&queue, &target, &mut b, layers, serial);
+        assert_eq!(got, ok(be::read_texture(&target, 640 * 4)), "step {serial}: batched layers draw as each layer drawn alone does");
+    }
+    drop((a, b));
+    ok(be::destroy_texture(&target));
+    ok(be::destroy_queue(&queue));
+    ok(be::destroy_device(&device));
+}
+
+/// [`shared_app_frame`] drawing each of `layers` layers with its own `Renderer::draw_layer` call.
+fn layered_app_frame(queue: &Queue, target: &Texture, renderer: &mut pxui::Renderer, layers: usize, frame: u64) {
+    let commands = ok(be::begin_commands(queue));
+    renderer.prepare(&public_commands(&commands), frame, frame - 1).expect("prepare layered frame");
+    let encoder = ok(be::render_encoder(&commands, &RenderTarget { colors: vec![ColorAttachment {
+        texture: target.clone(), resolve: None, load: Load::Clear, store: Store::Store, clear: (228.0 / 255.0, 139.0 / 255.0, 161.0 / 255.0, 1.0),
+    }], depth: None }));
+    let native_pass = ok(be::native_pass(&encoder));
+    let pass = pxui_types::Pass { size: std::mem::size_of::<pxui_types::Pass>() as u32, vk_command_buffer: native_pass.vk_command_buffer,
+        mtl_render_encoder: native_pass.mtl_render_encoder, width_px: native_pass.width_px, height_px: native_pass.height_px, scale: 2.0,
+        mtl_command_buffer: public_commands(&commands).mtl_command_buffer, ..pxui_types::Pass::default() };
+    for layer in 0..layers as u32 { renderer.draw_layer(&pass, layer, &mut |_| panic!("no blur")).expect("draw layer"); }
+    ok(be::invalidate_state(&encoder));
+    ok(be::end_render(&encoder));
+    let submitted = ok(be::commit(&commands));
+    ok(be::complete_through(queue, submitted.epoch));
 }
 
 fn shared_layer_borrows_survive_acknowledgment_and_publish_patches() {

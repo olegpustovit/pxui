@@ -339,35 +339,53 @@ export!(pub unsafe fn pxui_renderer_draw(renderer:*mut PxuiRenderer, pass:*const
     let end=if pass.layer_count==0 { layers } else { (first+pass.layer_count as usize).min(layers) };
     // the pass the next layer draws into: the one the app opened, or the last one its split reopened
     let mut encoder=encoder;
-    for index in first..end {
-        let layer=&ui.output().draw[index];
-        // Cache foreign wrappers before building this layer's texture bindings.
-        for (index,b) in layer.breaks.iter().enumerate() {
-            if b.image==pxui_core::draw::ATLAS || !samples_image(&layer.instances,&layer.breaks,index) { continue; }
-            let Some(image)=layer.images.get(b.image as usize) else { continue; };
-            if image.handle.downcast_ref::<Texture>().is_some() { continue; }
-            let Some(key)=crate::image::texture_key(image) else { continue; };
-            match renderer.textures.get_mut(&key) {
-                Some(entry)=>entry.used=renderer.frame_serial,
-                None=>{
-                    let texture=match crate::image::adopt_texture(&renderer.device,image) { Ok(texture)=>texture, Err(())=>return renderer.fail(PXUI_ERR_GPU, "an app image could not be wrapped") };
-                    renderer.textures.insert(key,CachedTexture { texture, used:renderer.frame_serial, image:Some(std::rc::Rc::downgrade(&image.handle)) });
+    let blurred=|ui:&Ui,index:usize| ui.output().blurs.iter().any(|b| b.layer==index && (b.at_instance as usize)<ui.output().draw[index].instances.len());
+    let mut index=first;
+    while index<end {
+        // A host drawing layers in order into one pass draws consecutive layers without a backdrop blur as one batch (one draw
+        // call while their textures agree); a layer with a blur goes alone, since its pass splits.
+        let batch_end=if blurred(ui,index) { index+1 } else { (index+1..end).find(|&i| blurred(ui,i)).unwrap_or(end) };
+        let mut parts: [(u32,&[Instance],&[(u32,u32)]); pxui_types::MAX_LAYERS]=[(0,&[],&[]); pxui_types::MAX_LAYERS];
+        renderer.breaks.clear();
+        renderer.split_points.clear();
+        // the texture the batch's last segment samples is the colour atlas
+        let mut atlas_last=true;
+        let mut offset=0u32;
+        for (part,index) in (index..batch_end).enumerate() {
+            let layer=&ui.output().draw[index];
+            parts[part]=(layer.id,&layer.instances,&layer.dirty);
+            // Cache foreign wrappers before building this layer's texture bindings.
+            for (index,b) in layer.breaks.iter().enumerate() {
+                if b.image==pxui_core::draw::ATLAS || !samples_image(&layer.instances,&layer.breaks,index) { continue; }
+                let Some(image)=layer.images.get(b.image as usize) else { continue; };
+                if image.handle.downcast_ref::<Texture>().is_some() { continue; }
+                let Some(key)=crate::image::texture_key(image) else { continue; };
+                match renderer.textures.get_mut(&key) {
+                    Some(entry)=>entry.used=renderer.frame_serial,
+                    None=>{
+                        let texture=match crate::image::adopt_texture(&renderer.device,image) { Ok(texture)=>texture, Err(())=>return renderer.fail(PXUI_ERR_GPU, "an app image could not be wrapped") };
+                        renderer.textures.insert(key,CachedTexture { texture, used:renderer.frame_serial, image:Some(std::rc::Rc::downgrade(&image.handle)) });
+                    }
                 }
             }
+            renderer.split_points.extend(ui.output().blurs.iter().filter(|b| b.layer==index && (b.at_instance as usize)<layer.instances.len()).map(|b| b.at_instance));
+            renderer.split_points.sort_unstable();
+            renderer.split_points.dedup();
+            renderer.breaks.reserve(layer.breaks.len()+renderer.split_points.len()+1);
+            // a later layer starts on the colour atlas: it needs a break of its own only when the batch's last segment samples an image
+            if offset>0 && !atlas_last && layer.breaks.first().map_or(true, |b| b.at_instance>0) { renderer.breaks.push(Break { at_instance:offset, texture:None }); atlas_last=true; }
+            for (index,b) in layer.breaks.iter().enumerate() {
+                let texture=if b.image==pxui_core::draw::ATLAS || !samples_image(&layer.instances,&layer.breaks,index) { None } else if let Some(image)=layer.images.get(b.image as usize) {
+                    if let Some(texture)=image.handle.downcast_ref::<Texture>() { Some(texture.clone()) }
+                    else { crate::image::texture_key(image).and_then(|key|renderer.textures.get(&key).map(|e|e.texture.clone())) }
+                } else { None };
+                if offset>0 && b.at_instance==0 && atlas_last && texture.is_none() { continue; }
+                atlas_last=texture.is_none();
+                renderer.breaks.push(Break { at_instance:offset+b.at_instance, texture });
+            }
+            offset+=layer.instances.len() as u32;
         }
-        renderer.split_points.clear();
-        renderer.split_points.extend(ui.output().blurs.iter().filter(|b| b.layer==index && (b.at_instance as usize)<layer.instances.len()).map(|b| b.at_instance));
-        renderer.split_points.sort_unstable();
-        renderer.split_points.dedup();
-        renderer.breaks.clear();
-        renderer.breaks.reserve(layer.breaks.len()+renderer.split_points.len());
-        for (index,b) in layer.breaks.iter().enumerate() {
-            let texture=if b.image==pxui_core::draw::ATLAS || !samples_image(&layer.instances,&layer.breaks,index) { None } else if let Some(image)=layer.images.get(b.image as usize) {
-                if let Some(texture)=image.handle.downcast_ref::<Texture>() { Some(texture.clone()) }
-                else { crate::image::texture_key(image).and_then(|key|renderer.textures.get(&key).map(|e|e.texture.clone())) }
-            } else { None };
-            renderer.breaks.push(Break { at_instance:b.at_instance, texture });
-        }
+        let parts=&parts[..batch_end-index];
         for &at in &renderer.split_points {
             let i=renderer.breaks.partition_point(|b| b.at_instance<at);
             if i==renderer.breaks.len() || renderer.breaks[i].at_instance!=at {
@@ -377,14 +395,14 @@ export!(pub unsafe fn pxui_renderer_draw(renderer:*mut PxuiRenderer, pass:*const
         }
         let breaks=&renderer.breaks;
         let result=if renderer.split_points.is_empty() {
-            renderer.painter.draw_retained(&encoder,size_px,pass.scale,layer.id,&layer.instances,&layer.dirty,breaks)
+            renderer.painter.draw_retained_split(&encoder,size_px,pass.scale,parts,breaks,&[],&mut |_,_| Ok(None))
         } else {
             let Some(split)=pass.split else { renderer.breaks.clear(); return renderer.fail(PXUI_ERR_STATE, "a layer with a backdrop blur needs the pass's split callback") };
             let (queue,device,format,samples,serial)=(&renderer.queue,&renderer.device,renderer.format,renderer.samples,renderer.frame_serial);
             let (native_commands,scale)=([pass.vk_command_buffer,pass.mtl_command_buffer],pass.scale);
             let mut reopened: Option<ogpu_core::backend::RenderEncoder>=None;
             let current=encoder.clone();
-            let outcome=renderer.painter.draw_retained_split(&current,size_px,scale,layer.id,&layer.instances,&layer.dirty,breaks,&renderer.split_points,&mut |painter,at| {
+            let outcome=renderer.painter.draw_retained_split(&current,size_px,scale,parts,breaks,&renderer.split_points,&mut |painter,at| {
                 let mut latest=None;
                 for b in ui.output().blurs.iter().filter(|b|b.layer==index && b.at_instance==at) {
                     let [w,h]=size_px;
@@ -420,8 +438,9 @@ export!(pub unsafe fn pxui_renderer_draw(renderer:*mut PxuiRenderer, pass:*const
         };
         renderer.breaks.clear();
         if let Err(e)=result { return renderer.fail_gpu(e); }
-        ui.drawn(index);
+        for index in index..batch_end { ui.drawn(index); }
         unsafe { (*renderer.shared).draw_acknowledged = true; }
+        index=batch_end;
     }
     // ends only this copy's view of the pass; the app's encoder must `invalidate_state` before drawing more
     if let Err(e)=gpu_backend::end_render(&encoder) { return renderer.fail_gpu(e); }

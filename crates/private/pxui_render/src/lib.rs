@@ -83,7 +83,8 @@
 //!
 //! # Retained layers, blur, and what is left out
 //! [`Painter::draw_retained`] keeps a layer's instances in persistent GPU storage and writes only the
-//! dirty ranges (its doc states the frames-in-flight rule). [`Painter::blur`] is the only extra pass: a
+//! dirty ranges (its doc states the frames-in-flight rule); [`Painter::draw_retained_split`] draws consecutive layers from one storage,
+//! so a host drawing a frame's layers in order draws a popup over the base in one call. [`Painter::blur`] is the only extra pass: a
 //! second small pipeline (`blur.*` shaders) runs a downsampling separable gaussian into scratch targets.
 //! Pure helpers in `pxui_core::draw` place images (`fit`, `nine_slice`) and emit per-side borders.
 //! Not built, opt-in later and only if measured: group opacity (render a view to a texture and composite
@@ -208,6 +209,9 @@ struct Retained {
     /// Per copy: the `[start, end)` ranges of instances that differ from the layer's current content
     /// (`PENDING_RANGES` at most, the closest merged past that).
     pending: [Vec<(u32, u32)>; FRAMES],
+    /// The (layer, instance count) runs the storage holds, in order: one for a layer drawn alone, more for
+    /// layers drawn as one batch ([`Painter::draw_retained_split`]); empty when another batch took this layer's content.
+    parts: Vec<(u32, u32)>,
 }
 
 /// Ranges a copy keeps pending before the closest two merge: a few far-apart edits each frame copy
@@ -608,34 +612,41 @@ impl Painter {
     /// retired until its frames finish. Each segment after a [`Break`] gets its own globals record in the
     /// ring because storage bindings need 256-byte offsets (see [`Painter::retained_bytes`]).
     pub fn draw_retained(&mut self, pass: &RenderEncoder, size_px: [u32; 2], scale: f32, layer: u32, instances: &[Instance], dirty: &[(u32, u32)], breaks: &[Break]) -> Result<(), Error> {
-        self.draw_retained_split(pass, size_px, scale, layer, instances, dirty, breaks, &[], &mut |_, _| Ok(None))
+        self.draw_retained_split(pass, size_px, scale, &[(layer, instances, dirty)], breaks, &[], &mut |_, _| Ok(None))
     }
 
-    /// [`Painter::draw_retained`] that stops where the caller must end the pass: before the segment that
-    /// starts at each instance in `splits` (each must also be some break's `at_instance`; one at the
-    /// layer's end is ignored) it calls `split(self, at)`. The callback may record other passes and returns the
-    /// pass the rest of the layer draws into, or `None` to go on in the same one.
-    pub fn draw_retained_split(&mut self, pass: &RenderEncoder, size_px: [u32; 2], scale: f32, layer: u32, instances: &[Instance], dirty: &[(u32, u32)], breaks: &[Break], splits: &[u32], split: &mut dyn FnMut(&mut Painter, u32) -> Result<Option<RenderEncoder>, Error>) -> Result<(), Error> {
+    /// [`Painter::draw_retained`] for consecutive layers (`parts`: each one's index, instances and dirty ranges) drawn in order as one batch from the first part's storage, with
+    /// `breaks` and `splits` indexing their instances end to end: layers of one draw state cost one draw call between them. A
+    /// change in the batch's layers or their lengths rewrites the batch; a layer a batch took in is rewritten when it is next
+    /// drawn from its own storage. Before the segment that starts at each instance in `splits` (each must also be some break's
+    /// `at_instance`; one at the end is ignored) it stops where the caller must end the pass and calls `split(self, at)`. The
+    /// callback may record other passes and returns the pass the rest draws into, or `None` to go on in the same one.
+    pub fn draw_retained_split(&mut self, pass: &RenderEncoder, size_px: [u32; 2], scale: f32, parts: &[(u32, &[Instance], &[(u32, u32)])], breaks: &[Break], splits: &[u32], split: &mut dyn FnMut(&mut Painter, u32) -> Result<Option<RenderEncoder>, Error>) -> Result<(), Error> {
         const OP: &str = "Painter.draw_retained";
         let mut pass = pass.clone();
         if !(scale > 0.0) || size_px[0] == 0 || size_px[1] == 0 { return Err(invalid(OP, "target size and scale must be positive")); }
-        if layer as usize >= MAX_LAYERS { return Err(invalid(OP, "layer must be below MAX_LAYERS")); }
-        let len = instances.len();
+        let Some(first) = parts.first() else { return Err(invalid(OP, "a batch needs a layer")) };
+        if parts.len() > MAX_LAYERS || parts.iter().any(|p| p.0 as usize >= MAX_LAYERS) { return Err(invalid(OP, "layer must be below MAX_LAYERS")); }
+        if parts.iter().enumerate().any(|(i, p)| parts[..i].iter().any(|q| q.0 == p.0)) { return Err(invalid(OP, "a batch names each layer once")); }
+        let len: usize = parts.iter().map(|p| p.1.len()).sum();
         let mut previous = 0;
         for at in breaks.iter().map(|b| b.at_instance as usize) {
             if at < previous || at > len { return Err(invalid(OP, "breaks must be ascending and within the instances")); }
             previous = at;
         }
-        if dirty.iter().any(|d| d.0 > d.1 || d.1 as usize > len) { return Err(invalid(OP, "dirty ranges must be start <= end <= instance count")); }
-        let layer = layer as usize;
+        if parts.iter().any(|p| p.2.iter().any(|d| d.0 > d.1 || d.1 as usize > p.1.len())) { return Err(invalid(OP, "dirty ranges must be start <= end <= instance count")); }
+        let layer = first.0 as usize;
         if self.layers.len() <= layer { self.layers.resize_with(layer + 1, || None); }
         let fresh = self.layers[layer].as_ref().map_or(true, |s| len > s.cap);
-        let changed = fresh || self.layers[layer].as_ref().is_some_and(|s| s.len != len);
+        let same = |s: &Retained| s.len == len && s.parts.len() == parts.len() && s.parts.iter().zip(parts).all(|(&(l, n), p)| l == p.0 && n as usize == p.1.len());
+        let changed = fresh || !self.layers[layer].as_ref().is_some_and(same);
         let check = |slice: &[Instance], views_len: usize| match slice.iter().find(|i| i.kind > kind::TRIANGLE || i.view as usize >= views_len) {
             Some(bad) => Err(invalid(OP, if bad.kind > kind::TRIANGLE { "unknown instance kind" } else { "instance names an unset view" })),
             None => Ok(()),
         };
-        if changed { check(instances, self.views_len)?; } else { for d in dirty { check(&instances[d.0 as usize..d.1 as usize], self.views_len)?; } }
+        for p in parts {
+            if changed { check(p.1, self.views_len)?; } else { for d in p.2 { check(&p.1[d.0 as usize..d.1 as usize], self.views_len)?; } }
+        }
         if fresh && len > 0 {
             // Headroom: hover, focus and selection add a few instances to a warm layer; growing a buffer
             // then would allocate in a warm frame.
@@ -644,34 +655,52 @@ impl Painter {
             let descriptor = BufferDescriptor { label: Some("pxui_render.retained".into()), size: (stride * FRAMES) as i64, usage: vec![BufferUsage::Storage] };
             let buffer = backend::create_host_buffer(&self.device, descriptor)?;
             let ptr = backend::host_ptr(&buffer)?.0.as_ptr();
-            if let Some(old) = self.layers[layer].replace(Retained { buffer, ptr, cap, stride, len: 0, pending: pending() }) { self.retired.push((old.buffer, FRAMES)); }
+            if let Some(old) = self.layers[layer].replace(Retained { buffer, ptr, cap, stride, len: 0, pending: pending(), parts: Vec::with_capacity(MAX_LAYERS) }) { self.retired.push((old.buffer, FRAMES)); }
         }
+        // the batch now holds these layers' content: their own storage is stale until rewritten whole
+        for p in &parts[1..] { if let Some(Some(s)) = self.layers.get_mut(p.0 as usize) { s.parts.clear(); } }
         let Some(store) = self.layers[layer].as_mut() else { return Ok(()) };
         let copy = self.region;
+        // copies instances `[lo, hi)` of the batch (end to end over its parts) into copy `c`
+        let write = |store: &Retained, c: usize, lo: usize, hi: usize| -> Result<(), Error> {
+            let mut at = 0;
+            for p in parts {
+                let (from, to) = (lo.max(at), hi.min(at + p.1.len()));
+                if from < to {
+                    let src = &instance_bytes(p.1)[(from - at) * 64..(to - at) * 64];
+                    // SAFETY: `to <= len <= cap`, so the range lies inside copy `c` of the live host-mapped buffer.
+                    unsafe { std::ptr::copy_nonoverlapping(src.as_ptr(), store.ptr.add(c * store.stride + from * 64), src.len()) }
+                }
+                at += p.1.len();
+            }
+            backend::flush_host_range(&store.buffer, (c * store.stride + lo * 64) as i64, (hi - lo) * 64)
+        };
         if fresh {
             // New storage is not in flight: fill every copy now.
-            for c in 0..FRAMES {
-                // SAFETY: copy `c` holds `cap >= len` instances at `c * stride` in the live host-mapped buffer.
-                unsafe { std::ptr::copy_nonoverlapping(instances.as_ptr().cast::<u8>(), store.ptr.add(c * store.stride), len * 64) }
-                backend::flush_host_range(&store.buffer, (c * store.stride) as i64, len * 64)?;
-            }
+            for c in 0..FRAMES { write(store, c, 0, len)?; }
             self.retained_bytes += (len * 64 * FRAMES) as u64;
         } else {
-            let all = [(0, len as u32)];
-            for d in if changed { &all[..] } else { dirty } { for p in &mut store.pending { pxui_core::draw::add_range(p, d.0, d.1, PENDING_RANGES); } }
+            if changed {
+                for q in &mut store.pending { pxui_core::draw::add_range(q, 0, len as u32, PENDING_RANGES); }
+            } else {
+                let mut at = 0;
+                for p in parts {
+                    for d in p.2 { for q in &mut store.pending { pxui_core::draw::add_range(q, d.0 + at, d.1 + at, PENDING_RANGES); } }
+                    at += p.1.len() as u32;
+                }
+            }
             for k in 0..store.pending[copy].len() {
                 // (a range pending from a longer layer ends at the layer now)
                 let (lo, hi) = store.pending[copy][k];
                 let hi = hi.min(len as u32);
                 if lo >= hi { continue; }
-                let (at, src) = (store.stride * copy + lo as usize * 64, &instance_bytes(instances)[lo as usize * 64..hi as usize * 64]);
-                // SAFETY: `hi <= len <= cap` (a checked slice of the instances), so the range lies inside copy `copy`.
-                unsafe { std::ptr::copy_nonoverlapping(src.as_ptr(), store.ptr.add(at), src.len()) }
-                backend::flush_host_range(&store.buffer, at as i64, src.len())?;
-                self.retained_bytes += src.len() as u64;
+                write(store, copy, lo as usize, hi as usize)?;
+                self.retained_bytes += (hi - lo) as u64 * 64;
             }
             store.pending[copy].clear();
         }
+        store.parts.clear();
+        store.parts.extend(parts.iter().map(|p| (p.0, p.1.len() as u32)));
         store.len = len;
         if len == 0 { return Ok(()); }
         let mut bound = None;
