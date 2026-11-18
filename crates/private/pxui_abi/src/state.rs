@@ -30,21 +30,23 @@ pub(crate) const MAX_RETURNED_BYTES: usize = 64 << 20;
 #[derive(Default)]
 pub(crate) struct KeyChunk { pub events: Vec<FfiEvent>, pub text: String, pub touches:Vec<pxui_types::Touch> }
 
-/// Everything a `Ui` owns besides the engine. Borrowed callback handles point at the same value.
+/// Everything a `Ui` owns besides the engine. Borrowed callback handles point at the same value. `repr(C)`: the fields every call
+/// reads (`enter!`: the count, the current handle, the frame flag) come first, each one load from the `Shared` pointer.
+#[repr(C)]
 pub(crate) struct Shared {
-    pub error: String,
-    pub poisoned: bool,
     /// calls into the library on this `Ui` since it was created (`pxui_ui_calls`)
     pub calls: u64,
-    /// a paint call was refused (a span left open, a library call under an open span): the frame that ran the callback reports it
-    pub paint_error: bool,
-    /// the word `pxui_ui_icon_word` gave the next icon button call's drawing; that call takes it (back to 0)
-    pub icon_word: u32,
-    pub in_frame: bool,
     /// the one `PxuiUi` handle that may be used right now: the owner outside a frame; in a frame the innermost borrowed handle (the
     /// engine it holds is the live `&mut Ui` of that callback), or null while no callback runs. Any other handle reaches the engine
     /// through a pointer the live `&mut Ui` was not derived from, so every export refuses it (`usable`).
     pub current: *mut PxuiUi,
+    pub in_frame: bool,
+    pub poisoned: bool,
+    /// a paint call was refused (a span left open, a library call under an open span): the frame that ran the callback reports it
+    pub paint_error: bool,
+    /// the word `pxui_ui_icon_word` gave the next icon button call's drawing; that call takes it (back to 0)
+    pub icon_word: u32,
+    pub error: String,
     /// a frame ended since the output was last built: its next build refreshes the accessibility records too
     pub frame_ended: bool,
     /// A renderer or caller acknowledged a layer since the output was last read.

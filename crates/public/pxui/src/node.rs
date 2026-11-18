@@ -23,7 +23,7 @@ impl Ui {
         // written by the library whenever it returns 0; `check` does not return otherwise
         let mut out=core::mem::MaybeUninit::<Handle>::uninit();
         let rc=match key {
-            crate::Key::Label(label)=>{ crate::authored(label); self.node_call(label,&node,out.as_mut_ptr()) },
+            crate::Key::Label(label)=>{ crate::authored(label); self.node_call_label(label,&node,out.as_mut_ptr()) },
             key=>{ let mut id_label=[0u8;17]; self.node_call(key.label(&mut id_label),&node,out.as_mut_ptr()) }
         };
         check(self,rc);
@@ -43,6 +43,14 @@ impl Ui {
         check(self,rc);
         // written by the library whenever it returns 0; `check` does not return otherwise
         unsafe { out.assume_init() }
+    }
+
+    /// `node_call` of a label `authored` checked: statically linked, the library checks only its length.
+    fn node_call_label(&mut self,label:&str,node:&Node,out:*mut Handle)->i32 {
+        #[cfg(feature="static")]
+        return unsafe{pxui_abi_link::trusted::node_label(self.0.as_ptr(),label,node,out)};
+        #[cfg(not(feature="static"))]
+        self.node_call(label,node,out)
     }
 
     /// The library call of `node`. Static: a Rust label is UTF-8 by its type, so the trusted entry checks only its length.

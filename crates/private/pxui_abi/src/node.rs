@@ -130,9 +130,10 @@ unsafe fn tracks(ptr: *const Track, len: usize, out: &mut [Track]) -> Option<usi
 #[inline(always)]
 pub(crate) fn declare(engine: &mut Ui, label: Option<&str>, key: i64, desc: &Node, out: &mut PxuiBox) {
     // no label and key 0 (a key no keyed call accepts): a keyless layout container, keyed by the engine by position
-    let b = match label { Some(label) => engine.node_ref(label, desc), None if key == 0 => engine.layout_node(desc), None => engine.node_keyed_ref(key, desc) };
-    if SAME_BOX { unsafe { core::ptr::copy_nonoverlapping((&b as *const UiBox).cast::<u8>(), (out as *mut PxuiBox).cast::<u8>(), size_of::<PxuiBox>()) } }
-    else { (out.index, out.box_key, out.box_slot, out.generation) = (b.index as u64, b.box_key, b.box_slot as u64, b.generation); }
+    let mut b = || match label { Some(label) => engine.node_ref(label, desc), None if key == 0 => engine.layout_node(desc), None => engine.node_keyed_ref(key, desc) };
+    // written in place: the engine returns the handle straight into `out`
+    if SAME_BOX { unsafe { (out as *mut PxuiBox).cast::<UiBox>().write(b()) } }
+    else { let b = b(); (out.index, out.box_key, out.box_slot, out.generation) = (b.index as u64, b.box_key, b.box_slot as u64, b.generation); }
 }
 /// Whether the engine's handle is `PxuiBox` byte for byte (every 64-bit target): its padding is copied too, as padding.
 const SAME_BOX: bool = size_of::<UiBox>() == size_of::<PxuiBox>() && offset_of!(UiBox, index) == offset_of!(PxuiBox, index)

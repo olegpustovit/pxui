@@ -37,6 +37,13 @@ pub unsafe fn node_str(ui: *mut PxuiUi, label: &str, desc: &Node, out: *mut Pxui
     unsafe { node(ui, label, desc, out) }
 }
 
+/// `node_str` of a label the static wrapper checked (`authored`: never below 0x20, so never a resolved key's form): only its length.
+#[inline(always)]
+pub unsafe fn node_label(ui: *mut PxuiUi, label: &str, desc: &Node, out: *mut PxuiBox) -> i32 {
+    if label.len() > MAX_KEY_BYTES { unsafe { note_call((*ui).shared) }; return unsafe { fail(ui, "invalid node label") } }
+    unsafe { node(ui, label, desc, out) }
+}
+
 /// `pxui_ui_node` of a label already checked (UTF-8, at most `MAX_KEY_BYTES`): the export's entry, which checks it as C hands it over.
 #[inline(always)]
 pub(crate) unsafe fn node(ui: *mut PxuiUi, label: &str, desc: &Node, out: *mut PxuiBox) -> i32 {
