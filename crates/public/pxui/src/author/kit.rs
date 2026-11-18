@@ -199,7 +199,7 @@ mod tests {
     /// holds, and each style's variant reaches its own body's config (the leaves, which have no style, are given 0).
     #[test]
     fn each_kit_widget_is_built_through_its_registered_body_with_its_variant() {
-        let mut ui = Ui::new().expect("library");
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
         ui.set_a11y(true);
         ui.register_checkbox_body("c", check).unwrap();
         ui.register_radio_body("c", radio).unwrap();
@@ -212,7 +212,7 @@ mod tests {
         let text = "checkbox.body = c\nradio.body = c\ntabs.body = c\ndropdown.body = c\nslider.body = c\nprogress.body = c\nspinner.body = c\nbadge.body = c";
         ui.set_theme(&crate::ThemeHandle::parse(&text).unwrap()).unwrap();
         SEEN.with(|s| s.borrow_mut().clear());
-        ui.frame(&FrameIn { width: 400.0, height: 400.0, ..FrameIn::default() }, &mut build).unwrap();
+        ui.frame(&FrameIn::new(400.0, 400.0), &mut build).unwrap();
         let mut got = SEEN.with(|s| s.borrow().clone());
         got.dedup();
         assert_eq!(got, [("checkbox", 1), ("radio", 2), ("tab", 3), ("dropdown", 4), ("slider", 5), ("progress", 0), ("spinner", 0), ("badge", 0)]);

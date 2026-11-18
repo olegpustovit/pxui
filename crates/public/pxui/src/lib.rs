@@ -1,6 +1,8 @@
 #![allow(clippy::all)]
 #![cfg_attr(feature = "static", allow(unused_mut, dead_code))] // the static build runs callbacks without a trampoline and calls trusted entries: `mut f` and the C-callback machinery serve the dynamic one
 //! Stable PXUI wrapper. Shape and geometry types are re-exported from the std-only public crate.
+//! Fallible data and host operations return [Error]. Queries use Option for absence, and build
+//! operations may panic on caller errors documented on the operation.
 
 #[macro_use]
 mod macros;
@@ -9,7 +11,8 @@ pub use error::Error;
 use core::ffi::c_void;
 use core::marker::PhantomData;
 use core::ptr::NonNull;
-pub use pxui_types::{Environment, Keyboard, FrameIn, FrameOut, PxuiPanel, PxuiTargetDesc, PxuiUiDesc};
+pub use pxui_types::{Appearance, Environment, Keyboard, FrameOut, PxuiPanel, PxuiTargetDesc, PxuiUiDesc};
+use pxui_types::FrameIn as WireFrame;
 // the C record `Handle` names; the wrapper's own signatures say `Handle`
 use pxui_types::PxuiBox;
 pub use pxui_types::{Capitalize, Commands, Event, Gpu, Image, Pass, ReturnKey, Str, TextTraits, Touch};
@@ -84,6 +87,8 @@ mod image;
 pub use image::ImageStyle;
 mod text_inputs;
 pub use text_inputs::ScrubPhase;
+mod frame;
+pub use frame::FrameIn;
 mod kit;
 pub use pxui_types::ui::{Keyframes, Repeat};
 #[path = "a11y.rs"]
@@ -108,7 +113,7 @@ mod settled;
 mod surface;
 #[cfg(test)]
 mod panics;
-pub use interaction::{Signal, UiSaved};
+pub use interaction::Signal;
 pub use pxui_types::Node;
 
 #[cfg(feature = "static")]
@@ -122,7 +127,7 @@ mod sys {
 mod sys {
     use core::ffi::c_void;
     use pxui_types::{FrameIn, FrameOut, Str};
-    use pxui_types::ffi::A11yAction;
+    use pxui_types::ffi::{A11yAction, Input};
     #[repr(C)] pub struct PxuiUi { _private: [u8; 0] }
     pub use pxui_types::{PxuiBox, PxuiTargetDesc, PxuiUiDesc};
     #[repr(C)] pub struct PxuiRenderer { _private:[u8;0] }
@@ -142,8 +147,7 @@ mod sys {
         pub fn pxui_ui_theme(ui:*mut PxuiUi)->*const pxui_types::theme::ThemeSnapshot;
         pub fn pxui_ui_view_size(ui:*mut PxuiUi,out:*mut pxui_types::geom::Point)->i32;
         pub fn pxui_ui_layer_drawn(ui:*mut PxuiUi,layer:u64)->i32;
-        pub fn pxui_ui_input(ui:*mut PxuiUi,has_owner:u8,owner:i64,out:*mut pxui_types::ffi::Input)->i32;
-        pub fn pxui_ui_frame(ui:*mut PxuiUi,input:*const pxui_types::ffi::Input,build:pxui_types::ffi::UiBuild,user:*mut c_void,out:*mut FrameOut)->i32;
+        pub fn pxui_ui_frame(ui:*mut PxuiUi,input:*const Input,build:pxui_types::ffi::UiBuild,user:*mut c_void,out:*mut FrameOut)->i32;
         pub fn pxui_ui_system_appearance(ui:*mut PxuiUi,out:*mut u32)->i32;
         pub fn pxui_ui_set_dir(ui:*mut PxuiUi,dir:u32)->i32;
         pub fn pxui_ui_set_a11y(ui:*mut PxuiUi,on:u8)->i32;
@@ -159,7 +163,6 @@ mod sys {
         pub fn pxui_last_error(ui: *const PxuiUi) -> Str;
         pub fn pxui_frame(ui:*mut PxuiUi,input:*const FrameIn,build:pxui_types::ffi::UiBuild,user:*mut c_void,out:*mut FrameOut)->i32;
         pub fn pxui_within(ui:*mut PxuiUi,box_:*const PxuiBox,build:pxui_types::ffi::UiBuild,user:*mut c_void)->i32;
-        pub fn pxui_renderer_create(ui:*mut PxuiUi,gpu:*const pxui_types::Gpu,target:*const PxuiTargetDesc)->*mut PxuiRenderer;
         pub fn pxui_renderer_prepare(renderer:*mut PxuiRenderer,commands:*const pxui_types::Commands,frame:u64,completed:u64)->i32;
         pub fn pxui_renderer_resize(renderer:*mut PxuiRenderer,width:u32,height:u32)->i32;
         pub fn pxui_renderer_draw(renderer:*mut PxuiRenderer,pass:*const pxui_types::Pass)->i32;
@@ -169,6 +172,10 @@ mod sys {
         pub fn pxui_renderer_destroy(renderer:*mut PxuiRenderer);
     }
 }
+
+library!(renderer_lib {
+    fn pxui_renderer_create_checked(ui: *mut PxuiUi, gpu: *const Gpu, target: *const PxuiTargetDesc, out: *mut *mut sys::PxuiRenderer) -> i32;
+});
 
 #[derive(Clone, Copy, Default)]
 pub struct TargetDesc {
@@ -181,11 +188,28 @@ pub struct TargetDesc {
 pub struct Renderer { raw:NonNull<sys::PxuiRenderer> }
 
 impl Renderer {
-    /// A renderer on the app's device; the error is the library's reason (the device, the target or the `Ui` was refused).
-    pub fn new(ui:&Ui,gpu:pxui_types::Gpu,target:TargetDesc)->Result<Self,String> {
+    /// Creates a renderer for the app's device and target, tied to `ui`.
+    ///
+    /// Use the owning Ui outside its frame callback. A call during a callback returns
+    /// `Error::State`. Invalid descriptors return `Error::InvalidInput` and native
+    /// GPU failures return `Error::Gpu`. `ui.last_error()` has the library's reason.
+    /// The call takes the GPU lease even when creation fails.
+    /// Allocates: the renderer and its GPU resources on success.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let ui = pxui::doc::frames(1, &mut |_| {});
+    /// assert!(matches!(pxui::Renderer::new(&ui, pxui::Gpu::default(), pxui::TargetDesc::default()), Err(pxui::Error::InvalidInput)));
+    /// ```
+    pub fn new(ui: &Ui, mut gpu: Gpu, target: TargetDesc) -> Result<Self, Error> {
+        // Rust supplied the full value. C cannot read the lease fields of a short descriptor.
+        if gpu.size < core::mem::size_of::<Gpu>() as u32 {
+            if let Some(release) = gpu.release_owner.take() { release(gpu.owner_token); }
+        }
         let desc=sys::PxuiTargetDesc { format:target.format,samples:target.samples,..sys::PxuiTargetDesc::default() };
-        let raw=unsafe { sys::pxui_renderer_create(ui.0.as_ptr(),&gpu,&desc) };
-        match NonNull::new(raw) { Some(raw)=>Ok(Self { raw }), None=>Err(ui.last_error().to_owned()) }
+        let mut raw = core::ptr::null_mut();
+        status(unsafe { renderer_lib::pxui_renderer_create_checked(ui.0.as_ptr(), &gpu, &desc, &mut raw) })?;
+        NonNull::new(raw).map(|raw| Self { raw }).ok_or(Error::Engine)
     }
     /// Errors: InvalidInput for a frame serial that repeats, regresses or runs more than the in-flight frames past `completed`; Gpu when recording fails.
     pub fn prepare(&mut self,commands:&pxui_types::Commands,frame:u64,completed:u64)->Result<(),Error> {
@@ -222,15 +246,51 @@ impl Renderer {
     pub fn draw_calls(&self)->u64 { unsafe { sys::pxui_renderer_draw_calls(self.raw.as_ptr()) } }
 }
 
-/// A layer of the last frame: the key of its root box, its retained id, its instances, how many texture breaks they hold and the
-/// instance ranges changed since it was last drawn.
+/// A draw layer borrowed from the last frame.
 #[derive(Clone, Copy, Debug)]
 pub struct Layer<'a> {
+    /// The layer's root node key.
     pub key: i64,
+    /// The retained layer's identity.
     pub id: u32,
+    /// The number of texture breaks in the instance stream.
     pub breaks: usize,
+    /// The complete draw instances in order.
     pub instances: &'a [pxui_types::draw::Instance],
+    /// Instance ranges changed since the layer was last drawn.
     pub dirty: &'a [pxui_types::ffi::PxuiDirty],
+}
+
+/// The last frame's draw layers in order, borrowed from their Ui.
+pub struct Layers<'a> {
+    raw: Slice<pxui_types::ffi::PxuiLayerInfo>,
+    next: usize,
+    _ui: PhantomData<&'a Ui>,
+}
+
+impl<'a> Layers<'a> {
+    fn get(&self, index: usize) -> Option<Layer<'a>> {
+        if index >= self.raw.len { return None; }
+        // Acknowledgment may update metadata, but the span stays in place until a frame or patch.
+        let raw = unsafe { self.raw.ptr.add(index).read() };
+        let instances = if raw.instances.len == 0 { &[] } else {
+            unsafe { core::slice::from_raw_parts(raw.instances.ptr, raw.instances.len) }
+        };
+        let dirty = if raw.dirty.len == 0 { &[] } else {
+            unsafe { core::slice::from_raw_parts(raw.dirty.ptr, raw.dirty.len) }
+        };
+        Some(Layer { key: raw.key, id: raw.id, breaks: raw.breaks as usize, instances, dirty })
+    }
+}
+
+impl<'a> Iterator for Layers<'a> {
+    type Item = Layer<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let layer = self.get(self.next)?;
+        self.next += 1;
+        Some(layer)
+    }
 }
 
 /// What a pass split hands the app's recorder: the colour target of the pass the app just ended.
@@ -259,7 +319,7 @@ extern "C" fn split_pass(user: *mut c_void, record: pxui_types::PassRecord, reco
 fn deferred_panic() -> bool { composite::deferred() }
 
 impl Renderer {
-    /// Draws one layer of the last frame (`Ui::layers()[layer]`) into the app's open pass, so the app can draw its own content
+    /// Draws one layer of the last frame (`Ui::layer(layer)`) into the app's open pass, so the app can draw its own content
     /// between layers. A layer with a backdrop blur calls `split`: end the open pass, hand `record` the colour target it holds so far
     /// (the library records the blur into the prepared command buffer), reopen a pass over the same target (load, not clear; the same
     /// viewport and scissor) and return it; the rest of the layer draws into that pass.
@@ -310,26 +370,6 @@ fn sweep_orphans() {
     let _ = ORPHANS.try_with(|orphans| orphans.borrow_mut().retain(|ui| unsafe { sys::pxui_ui_destroy(ui.as_ptr()) } != 0));
 }
 
-/// The input of a frame as routed to one owner: its scalars and the wire form of its keys, buttons and events (the numbering of
-/// `input::wire`), borrowed from the `Ui`.
-pub struct Routed<'a> {
-    raw: Input,
-    _ui: PhantomData<&'a mut Ui>,
-}
-
-impl Routed<'_> {
-    /// Numeric touch payload borrowed from this routed frame. Non-touch events return None.
-    pub fn touch(&self,index:usize)->Option<Touch> {
-        let event=self.events().get(index)?;
-        if event.kind!=Event::TOUCH || event.text.len!=core::mem::size_of::<Touch>() || event.text.ptr.is_null() {return None;}
-        Some(unsafe {event.text.ptr.cast::<Touch>().read_unaligned()})
-    }
-    #[inline] pub fn input(&self) -> &Input { &self.raw }
-    pub fn keys(&self) -> &[u32] { if self.raw.keys.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(self.raw.keys.ptr, self.raw.keys.len) } } }
-    pub fn buttons(&self) -> &[u32] { if self.raw.buttons.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(self.raw.buttons.ptr, self.raw.buttons.len) } } }
-    pub fn events(&self) -> &[Event] { if self.raw.events.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(self.raw.events.ptr, self.raw.events.len) } } }
-}
-
 /// The UTF-8 text of an event (empty when it has none).
 pub fn event_text(event: &Event) -> &str {
     if event.kind==Event::TOUCH || event.text.len == 0 || event.text.ptr.is_null() { return ""; }
@@ -348,25 +388,143 @@ impl core::ops::Deref for Frame<'_> { type Target=FrameOut; #[inline] fn deref(&
 #[repr(transparent)]
 pub struct Ui(NonNull<sys::PxuiUi>);
 
+impl<'a> FrameIn<'a> {
+    /// Borrows the host's complete input snapshot for this frame.
+    ///
+    /// The snapshot supplies held keys and buttons, pointer, timing, logical extent,
+    /// pixel scale and ordered events. The event-mode record and its builders apply to
+    /// frames created with `new`.
+    /// Allocates: never.
+    /// Panics: never. The frame call validates the input.
+    ///
+    /// # Safety
+    ///
+    /// Nonempty keys, buttons and event spans must be initialized and properly aligned.
+    /// They and every nonempty payload must be readable for their declared lengths.
+    /// Keep the storage alive and unmodified through each frame call using this
+    /// descriptor or a copy of it.
+    ///
+    /// ```
+    /// use pxui::{FrameIn, Input};
+    /// let snapshot = Input { logical_size: [320, 240], ..Input::default() };
+    /// let mut ui = pxui::doc::frames(1, &mut |_| {});
+    /// // The snapshot has empty spans and stays alive through this call.
+    /// ui.frame(&unsafe { FrameIn::snapshot(&snapshot) }, &mut |_| {}).unwrap();
+    /// ```
+    pub const unsafe fn snapshot(input: &'a Input) -> FrameIn<'a> {
+        FrameIn { wire: WireFrame::new(0.0, 0.0), snapshot: Some(input) }
+    }
+}
+
+/// Font bytes borrowed for Ui creation.
+#[derive(Clone, Copy)]
+pub struct FontData<'a>(
+    /// The contents of a font file.
+    pub &'a [u8],
+);
+
+/// The platform conventions, kit font size and font data for a new Ui.
+#[derive(Clone, Copy)]
+pub struct UiDesc<'a> {
+    platform: Platform,
+    font_size: Option<f32>,
+    fonts: &'a [FontData<'a>],
+}
+
+impl<'a> UiDesc<'a> {
+    /// The host platform with the library's default font and kit size.
+    pub const DEFAULT: UiDesc<'a> = UiDesc::new(if cfg!(any(target_os = "macos", target_os = "ios")) {
+        Platform::Apple
+    } else {
+        Platform::Other
+    });
+
+    /// Sets the platform's text editing and keyboard conventions.
+    ///
+    /// The default kit size and installed font are used until overridden.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::{Platform, Ui, UiDesc};
+    /// let ui = Ui::new(&UiDesc::new(Platform::Other)).unwrap();
+    /// assert_eq!(ui.platform(), Platform::Other);
+    /// ```
+    pub const fn new(platform: Platform) -> UiDesc<'a> {
+        UiDesc { platform, font_size: None, fonts: &[] }
+    }
+
+    /// Sets the kit's logical font size in points.
+    ///
+    /// The current library accepts positive whole-point sizes representable as a signed 32-bit integer.
+    /// Allocates: never.
+    /// Panics: never. Creation reports an invalid size as `Error::InvalidInput`.
+    ///
+    /// ```
+    /// use pxui::{Ui, UiDesc};
+    /// let ui = Ui::new(&UiDesc::DEFAULT.font_size(15.0)).unwrap();
+    /// assert_eq!(ui.font_size(), 15);
+    /// ```
+    pub const fn font_size(mut self, points: f32) -> UiDesc<'a> {
+        self.font_size = Some(points);
+        self
+    }
+
+    /// Selects the font files in family order, with the kit face first.
+    ///
+    /// An empty slice uses the library's bundled font. Each supplied file is read during
+    /// creation and its borrow can end when `Ui::new` returns.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::{FontData, Ui, UiDesc};
+    /// let fonts = [FontData(pxui::pragmasevka())];
+    /// assert!(Ui::new(&UiDesc::DEFAULT.fonts(&fonts)).is_ok());
+    /// ```
+    pub const fn fonts(mut self, fonts: &'a [FontData<'a>]) -> UiDesc<'a> {
+        self.fonts = fonts;
+        self
+    }
+}
+
 impl Ui {
-    /// A `Ui` with the library's default font; `None` when the library's ABI is not the one this wrapper was built for.
-    pub fn new() -> Option<Self> {
-        Self::try_create(if cfg!(any(target_os = "macos", target_os = "ios")) { Platform::Apple } else { Platform::Other }, None, &[])
-    }
-
-    /// A `Ui` for `platform` with the kit font size `font_size` (the theme's when `None`) and `fonts` (the library's default
-    /// font when empty). A caller bug (an unusable font, a library of another ABI major) panics with the library's message.
-    #[track_caller]
-    pub fn create(platform: Platform, font_size: Option<i64>, fonts: &[&[u8]]) -> Self {
-        Self::try_create(platform, font_size, fonts).expect("pxui: the library refused to create a Ui (a font it cannot read, or a library of another ABI major version than this wrapper's)")
-    }
-
-    fn try_create(platform: Platform, font_size: Option<i64>, fonts: &[&[u8]]) -> Option<Self> {
-        if abi_version() >> 16 != pxui_types::ABI_BUILT >> 16 { return None; }
-        let desc = sys::PxuiUiDesc { platform: match platform { Platform::Apple => 1, Platform::Other => 2 }, font_size: font_size.map_or(0, |size| size as i32), ..sys::PxuiUiDesc::default() };
-        if fonts.is_empty() { return NonNull::new(unsafe { sys::pxui_ui_create(&desc) }).map(Self); }
-        let fonts: Vec<Str> = fonts.iter().map(|bytes| Str { ptr: bytes.as_ptr(), len: bytes.len() }).collect();
-        NonNull::new(unsafe { sys::pxui_ui_create_with_fonts(&desc, fonts.as_ptr(), fonts.len()) }).map(Self)
+    /// Creates a UI with the descriptor's platform conventions, kit size and fonts.
+    ///
+    /// `Error::Version` means the ABI major differs. `Error::InvalidInput` means the size
+    /// or supplied fonts were refused. At most 64 fonts, 32 MiB per font and 256 MiB total
+    /// are accepted.
+    /// Allocates: the Ui and its owned font storage at creation.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::{Error, FontData, Ui, UiDesc};
+    /// assert!(matches!(Ui::new(&UiDesc::DEFAULT.fonts(&[FontData(b"invalid font")])), Err(Error::InvalidInput)));
+    /// ```
+    pub fn new(desc: &UiDesc) -> Result<Self, Error> {
+        if abi_version() >> 16 != pxui_types::ABI_BUILT >> 16 { return Err(Error::Version); }
+        let font_size = match desc.font_size {
+            None => 0,
+            Some(points) if (1.0..i32::MAX as f32).contains(&points) && points.fract() == 0.0 => points as i32,
+            Some(_) => return Err(Error::InvalidInput),
+        };
+        let raw = sys::PxuiUiDesc {
+            platform: match desc.platform { Platform::Apple => 1, Platform::Other => 2 },
+            font_size,
+            ..sys::PxuiUiDesc::default()
+        };
+        let ui = if desc.fonts.is_empty() {
+            unsafe { sys::pxui_ui_create(&raw) }
+        } else {
+            // Match the font limit enforced by pxui_ui_create_with_fonts.
+            let mut fonts = [Str::default(); 64];
+            let Some(fonts) = fonts.get_mut(..desc.fonts.len()) else { return Err(Error::InvalidInput) };
+            for (out, FontData(bytes)) in fonts.iter_mut().zip(desc.fonts) {
+                *out = Str { ptr: bytes.as_ptr(), len: bytes.len() };
+            }
+            unsafe { sys::pxui_ui_create_with_fonts(&raw, fonts.as_ptr(), fonts.len()) }
+        };
+        NonNull::new(ui).map(Self).ok_or(Error::InvalidInput)
     }
 
     /// The engine the library keeps behind this `Ui`, for the checks that compare the wrapper's drawing with the engine's own;
@@ -378,45 +536,39 @@ impl Ui {
     /// The library's handle of this `Ui`: stable while it lives, so an app can key its own per-`Ui` state by it.
     #[inline] pub fn id(&self) -> usize { self.0.as_ptr() as usize }
 
-    /// Builds one frame. A panic in `build` (or in any callback of a widget it called) is carried out of the
-    /// library and resumed here, after the call returns.
+    /// Routes the frame's input and builds its draw and platform output.
+    ///
+    /// The host supplies logical points and a monotonic time in seconds. A frame can carry
+    /// event edges or an authoritative host snapshot. The returned draw output borrows the Ui.
+    /// Malformed input returns `Error::InvalidInput`. Calling inside a frame callback returns
+    /// `Error::State`. A panic caught inside the library returns `Error::Panic`.
+    /// Allocates: when input or retained build storage grows.
+    /// Panics: a panic in `build` or one of its callbacks resumes after the library returns.
     ///
     /// ```
     /// let mut ui = pxui::doc::frames(1, &mut |ui| { ui.label("a", pxui::Label::DEFAULT); });
-    /// ui.frame(&pxui::FrameIn { width: 320.0, height: 240.0, ..Default::default() }, &mut |ui| { ui.label("b", pxui::Label::DEFAULT); }).unwrap();
+    /// ui.frame(&pxui::FrameIn::new(320.0, 240.0), &mut |ui| { ui.label("b", pxui::Label::DEFAULT); }).unwrap();
     /// assert_eq!(ui.frame_index(), 2);
     /// ```
-    ///
-    /// Errors: InvalidInput for malformed input (events, environment); State when called inside a frame callback; Panic when the build closure panicked in the library.
-    pub fn frame(&mut self, input: &FrameIn, mut build: &mut dyn FnMut(&mut Ui)) -> Result<Frame<'_>, Error> {
+    pub fn frame(&mut self, input: &FrameIn<'_>, mut build: &mut dyn FnMut(&mut Ui)) -> Result<Frame<'_>, Error> {
         let mut out = FrameOut::default();
         #[cfg(feature = "static")]
-        let rc = unsafe { pxui_abi_link::trusted::frame(self.0.as_ptr(), input, inner!(|ui: &mut Ui| build(ui)), &mut out) };
+        let rc = unsafe {
+            let build: &mut dyn FnMut(*mut sys::PxuiUi) = inner!(|ui: &mut Ui| build(ui));
+            match input.snapshot {
+                Some(snapshot) => pxui_abi_link::trusted::input_frame(self.0.as_ptr(), snapshot, build, &mut out),
+                None => pxui_abi_link::trusted::frame(self.0.as_ptr(), &input.wire, build, &mut out),
+            }
+        };
         #[cfg(not(feature = "static"))]
-        let rc = unsafe { sys::pxui_frame(self.0.as_ptr(), input, Some(composite::call::<&mut dyn FnMut(&mut Ui)>), &mut build as *mut _ as *mut c_void, &mut out) };
-        self.framed(rc, out)
-    }
-
-    /// Errors: As `frame`.
-    pub fn input_frame(&mut self,input:&Input,mut build: &mut dyn FnMut(&mut Ui))->Result<Frame<'_>,Error> {
-        let mut out=FrameOut::default();
-        #[cfg(feature = "static")]
-        let rc=unsafe { pxui_abi_link::trusted::input_frame(self.0.as_ptr(),input,inner!(|ui: &mut Ui| build(ui)),&mut out) };
-        #[cfg(not(feature = "static"))]
-        let rc=unsafe { sys::pxui_ui_frame(self.0.as_ptr(),input,Some(composite::call::<&mut dyn FnMut(&mut Ui)>),&mut build as *mut _ as *mut c_void,&mut out) };
-        self.framed(rc, out)
-    }
-
-    /// The last frame's input as the engine routed it to `owner` (a viewport's root key; `None`: the app's), borrowed until the
-    /// next frame or call. Panics before the first frame, like the engine.
-    #[track_caller]
-    pub fn routed_input(&mut self, owner: Option<i64>) -> Routed<'_> {
-        let mut raw = Input::default();
-        check(self, unsafe { sys::pxui_ui_input(self.0.as_ptr(), owner.is_some() as u8, owner.unwrap_or_default(), &mut raw) });
-        Routed { raw, _ui: PhantomData }
-    }
-
-    fn framed(&mut self, rc:i32, out:FrameOut)->Result<Frame<'_>,Error> {
+        let rc = unsafe {
+            let call: pxui_types::ffi::UiBuild = Some(composite::call::<&mut dyn FnMut(&mut Ui)>);
+            let user = (&mut build as *mut &mut dyn FnMut(&mut Ui)).cast::<c_void>();
+            match input.snapshot {
+                Some(snapshot) => sys::pxui_ui_frame(self.0.as_ptr(), snapshot, call, user, &mut out),
+                None => sys::pxui_frame(self.0.as_ptr(), &input.wire, call, user, &mut out),
+            }
+        };
         composite::resume_deferred();
         if rc==0 { Ok(Frame { out, _ui:PhantomData }) } else { Err(Error::from_code(rc)) }
     }
@@ -465,30 +617,59 @@ impl Ui {
     /// How many layers the last frame has (a floating root's each, in draw order).
     #[inline] pub fn layer_count(&self) -> usize { self.output().layers.len }
 
-    /// Layer `index` of the last frame.
-    pub fn layer(&self, index: usize) -> Layer<'_> {
-        let layers = self.output().layers;
-        assert!(index < layers.len, "pxui: layer {index} of {}", layers.len);
-        let raw = unsafe { *layers.ptr.add(index) };
-        let span = |ptr, len| if len == 0 { &[][..] } else { unsafe { core::slice::from_raw_parts(ptr, len) } };
-        Layer { key: raw.key, id: raw.id, breaks: raw.breaks as usize, instances: span(raw.instances.ptr, raw.instances.len), dirty: { let d = raw.dirty; if d.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(d.ptr, d.len) } } } }
+    /// Looks up a draw layer of the last frame by zero-based index.
+    ///
+    /// Returns `None` when that index has no layer. Its instances and dirty ranges are
+    /// borrowed from the Ui. Later output reads and renderer acknowledgments preserve
+    /// the bytes of a layer already returned.
+    /// Allocates: when reading the output grows its retained layer or dirty-range storage.
+    /// Panics: when reading the Ui's output fails.
+    ///
+    /// ```
+    /// let ui = pxui::doc::frames(1, &mut |_| {});
+    /// assert!(ui.layer(ui.layer_count()).is_none());
+    /// ```
+    pub fn layer(&self, index: usize) -> Option<Layer<'_>> {
+        self.layers().get(index)
     }
 
-    /// The last frame's layers in draw order.
-    pub fn layers(&self) -> impl Iterator<Item = Layer<'_>> + '_ { (0..self.layer_count()).map(|index| self.layer(index)) }
+    /// Visits the last frame's layers in draw order while borrowing the Ui.
+    ///
+    /// Allocates: when reading the output grows its retained layer or dirty-range storage.
+    /// Panics: when reading the Ui's output fails.
+    ///
+    /// ```
+    /// let ui = pxui::doc::frames(1, &mut |_| {});
+    /// assert_eq!(ui.layers().count(), ui.layer_count());
+    /// ```
+    pub fn layers(&self) -> Layers<'_> {
+        Layers { raw: self.output().layers, next: 0, _ui: PhantomData }
+    }
 
     /// Marks layer `index` of the last frame drawn (its dirty ranges clear), as `Renderer::draw_layer` does: for a host that
     /// reads the layers itself.
     #[track_caller] pub fn drawn(&mut self, index: usize) { check(self, unsafe { sys::pxui_ui_layer_drawn(self.0.as_ptr(), index as u64) }) }
 
-    /// The output of the last frame, borrowed from the `Ui`: a new frame needs `&mut self`, so a stale read does not compile.
+    /// Reads the last frame's platform and draw output records.
+    ///
+    /// The descriptor is copied, so a later query can report damage cleared by a
+    /// renderer without changing a descriptor already returned. Its raw span pointers
+    /// lend Ui storage. Prefer `layer` or `layers` for borrowed draw data.
+    /// Allocates: when publishing a frame or patch grows retained output storage.
+    /// Panics: when the library fails to provide the output.
+    ///
+    /// ```
+    /// let ui = pxui::doc::frames(1, &mut |_| {});
+    /// let output = ui.output();
+    /// assert_eq!(output.draw_revision, ui.output().draw_revision);
+    /// ```
     #[inline]
     #[track_caller]
-    pub fn output(&self) -> &Output {
+    pub fn output(&self) -> Output {
         // null only when building the output panicked inside the library
         let output = unsafe { sys::pxui_ui_output(self.0.as_ptr()) };
         if output.is_null() { refused(self, pxui_types::PXUI_ERR_PANIC) }
-        unsafe { &*output }
+        unsafe { output.read() }
     }
     /// The last FrameIn's host appearance (UNKNOWN, LIGHT or DARK); available inside cached views.
     pub fn system_appearance(&self)->u32 {
@@ -782,3 +963,23 @@ fn lent_string(value: Str) -> String { lent_str(value).to_owned() }
 
 #[inline]
 fn status(rc:i32)->Result<(),Error>{ if rc==0 { Ok(()) } else { Err(Error::from_code(rc)) } }
+
+#[cfg(test)]
+mod snapshot_tests {
+    use super::*;
+
+    #[test]
+    fn snapshot_sets_and_clears_held_keys_without_edges() {
+        let mut ui = Ui::new(&UiDesc::DEFAULT).unwrap();
+        let meta = pxui_types::KEY_SPECIAL + 12;
+        let keys = [meta];
+        let mut snapshot = Input {
+            logical_size: [320, 240],
+            keys: Slice { ptr: keys.as_ptr(), len: keys.len() },
+            ..Default::default()
+        };
+        ui.frame(&unsafe { FrameIn::snapshot(&snapshot) }, &mut |ui| assert!(ui.key_down(meta))).unwrap();
+        snapshot.keys = Slice::default();
+        ui.frame(&unsafe { FrameIn::snapshot(&snapshot) }, &mut |ui| assert!(!ui.key_down(meta))).unwrap();
+    }
+}

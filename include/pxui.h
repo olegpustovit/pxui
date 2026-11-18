@@ -18,7 +18,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 73u)
+#define PXUI_ABI_BUILT ((1u << 16) | 74u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 typedef struct { uint32_t autocorrect, capitalization, action; } PxuiTextInputOptions;
@@ -540,8 +540,10 @@ int32_t pxui_ui_set_dir(PxuiUi *ui, uint32_t dir);
 int32_t pxui_ui_set_a11y(PxuiUi *ui, uint8_t on);
 int32_t pxui_ui_inject_a11y(PxuiUi *ui, const PxuiA11yAction *actions, size_t count);
 int32_t pxui_ui_a11y_name(PxuiUi *ui, const PxuiBox *box, PxuiStr name);
+int32_t pxui_ui_a11y_name_checked(PxuiUi *ui, const PxuiBox *box, PxuiStr name);
 int32_t pxui_ui_a11y_value(PxuiUi *ui, const PxuiBox *box, PxuiStr value, uint32_t anchor, uint32_t caret);
 int32_t pxui_ui_a11y_number(PxuiUi *ui, const PxuiBox *box, double now, double min, double max, double step);
+int32_t pxui_ui_a11y_number_checked(PxuiUi *ui, const PxuiBox *box, double now, double min, double max, double step);
 int32_t pxui_ui_set_role(PxuiUi *ui, const PxuiBox *box, uint32_t role, uint32_t states);
 int32_t pxui_ui_enter(PxuiUi *ui, const PxuiBox *box, PxuiSaved *out);
 int32_t pxui_ui_leave(PxuiUi *ui, const PxuiSaved *saved);
@@ -706,6 +708,7 @@ typedef struct { uint32_t size; PxuiStateDesc state; uint8_t empty; PxuiBox fiel
 typedef struct { uint32_t size; PxuiStateDesc state; uint8_t invalid; float w; float h; PxuiBox field; PxuiValueFieldDesc opts; PxuiStr text; uint16_t variant; } PxuiValueFieldConfig;
 typedef struct { uint32_t size; PxuiStateDesc state; uint8_t empty; uint8_t slash; float prefix; float inset; PxuiBox search; PxuiStr placeholder; uint16_t variant; } PxuiPickerFieldConfig;
 uint16_t pxui_body_register(PxuiUi *ui, uint32_t kind, PxuiStr name, PxuiBodyFn body, void *user);
+int32_t pxui_body_register_checked(PxuiUi *ui, uint32_t kind, PxuiStr name, PxuiBodyFn body, void *user, uint16_t *out);
 /* Builds a node as part `part` (PXUI_PART_*) of the widget whose body is running; PXUI_ERR_STATE outside a body call. */
 int32_t pxui_part(PxuiUi *ui, uint32_t part, const PxuiNode *node, PxuiBox *out);
 /* The box of `part` of the widget keyed `owner` as the last build left it: 0 and the box in `out`, 1 when it was not built. */
@@ -868,6 +871,8 @@ int32_t pxui_paint_image_checked(PxuiPaint *paint, const PxuiImage *image, float
  * VK_IMAGE_LAYOUT_GENERAL while frames sampling them run; PXUI only samples them. destroy: the app has
  * finished every frame it prepared; a teardown failure is the Ui's last error. */
 PxuiRenderer *pxui_renderer_create(PxuiUi *ui, const PxuiGpu *gpu, const PxuiTargetDesc *target);
+/* Writes out on success. With a valid out pointer, a complete GPU record transfers its device lease even on failure. */
+int32_t pxui_renderer_create_checked(PxuiUi *ui, const PxuiGpu *gpu, const PxuiTargetDesc *target, PxuiRenderer **out);
 int32_t pxui_renderer_prepare(PxuiRenderer *renderer, const PxuiCommands *commands, uint64_t frame, uint64_t completed);
 /* Prepare blur storage at startup/resize, outside frame recording. Nonzero drawable-pixel dimensions. */
 int32_t pxui_renderer_resize(PxuiRenderer *renderer, uint32_t width, uint32_t height);

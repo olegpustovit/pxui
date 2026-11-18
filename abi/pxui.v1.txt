@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 73
+minor 74
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -7,6 +7,7 @@ function pxui_a11y_stop void pxui_a11y_stop ( PxuiA11y * a11y ) ;
 function pxui_a11y_update int32_t pxui_a11y_update ( PxuiA11y * a11y , const PxuiA11yTree * tree ) ;
 function pxui_abi_version uint32_t pxui_abi_version ( void ) ;
 function pxui_body_register uint16_t pxui_body_register ( PxuiUi * ui , uint32_t kind , PxuiStr name , PxuiBodyFn body , void * user ) ;
+function pxui_body_register_checked int32_t pxui_body_register_checked ( PxuiUi * ui , uint32_t kind , PxuiStr name , PxuiBodyFn body , void * user , uint16_t * out ) ;
 function pxui_button int32_t pxui_button ( PxuiUi * ui , PxuiStr label , uint8_t * out ) ;
 function pxui_col int32_t pxui_col ( PxuiUi * ui , float padding , PxuiStr label , PxuiBuild build , void * user ) ;
 function pxui_counter uint64_t pxui_counter ( uint32_t which ) ;
@@ -43,6 +44,7 @@ function pxui_part_box int32_t pxui_part_box ( PxuiUi * ui , int64_t owner , uin
 function pxui_prepared_destroy void pxui_prepared_destroy ( PxuiPreparedText * record ) ;
 function pxui_renderer_atlas int32_t pxui_renderer_atlas ( PxuiRenderer * renderer , uint32_t kind , PxuiImage * out ) ;
 function pxui_renderer_create PxuiRenderer * pxui_renderer_create ( PxuiUi * ui , const PxuiGpu * gpu , const PxuiTargetDesc * target ) ;
+function pxui_renderer_create_checked int32_t pxui_renderer_create_checked ( PxuiUi * ui , const PxuiGpu * gpu , const PxuiTargetDesc * target , PxuiRenderer * * out ) ;
 function pxui_renderer_destroy void pxui_renderer_destroy ( PxuiRenderer * renderer ) ;
 function pxui_renderer_draw int32_t pxui_renderer_draw ( PxuiRenderer * renderer , const PxuiPass * pass ) ;
 function pxui_renderer_draw_calls uint64_t pxui_renderer_draw_calls ( PxuiRenderer * renderer ) ;
@@ -84,7 +86,9 @@ function pxui_theme_set int32_t pxui_theme_set ( PxuiTheme * theme , PxuiStr key
 function pxui_theme_set_color int32_t pxui_theme_set_color ( PxuiTheme * theme , uint16_t token , PxuiColor color ) ;
 function pxui_toggle int32_t pxui_toggle ( PxuiUi * ui , PxuiStr label , uint8_t on , uint8_t * out ) ;
 function pxui_ui_a11y_name int32_t pxui_ui_a11y_name ( PxuiUi * ui , const PxuiBox * box , PxuiStr name ) ;
+function pxui_ui_a11y_name_checked int32_t pxui_ui_a11y_name_checked ( PxuiUi * ui , const PxuiBox * box , PxuiStr name ) ;
 function pxui_ui_a11y_number int32_t pxui_ui_a11y_number ( PxuiUi * ui , const PxuiBox * box , double now , double min , double max , double step ) ;
+function pxui_ui_a11y_number_checked int32_t pxui_ui_a11y_number_checked ( PxuiUi * ui , const PxuiBox * box , double now , double min , double max , double step ) ;
 function pxui_ui_a11y_value int32_t pxui_ui_a11y_value ( PxuiUi * ui , const PxuiBox * box , PxuiStr value , uint32_t anchor , uint32_t caret ) ;
 function pxui_ui_anchored int32_t pxui_ui_anchored ( PxuiUi * ui , PxuiStr label , const PxuiAnchorDesc * anchor , PxuiSizeDesc width , PxuiSizeDesc height , PxuiBuild build , void * user , PxuiBox * out ) ;
 function pxui_ui_anchored_keyed int32_t pxui_ui_anchored_keyed ( PxuiUi * ui , const PxuiKeyedDesc * keyed , const PxuiAnchorDesc * anchor , PxuiSizeDesc width , PxuiSizeDesc height , PxuiBuild build , void * user , PxuiBox * out ) ;

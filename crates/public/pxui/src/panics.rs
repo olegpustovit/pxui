@@ -1,13 +1,14 @@
 //! A panic in an app callback is carried across the library and resumed at the call that can run callbacks.
 use crate::Ui;
-use pxui_types::{FrameIn, Node, Size};
+use crate::FrameIn;
+use pxui_types::{Node, Size};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
-fn input() -> FrameIn { FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() } }
+fn input() -> FrameIn<'static> { FrameIn::new(320.0, 240.0) }
 
 #[test]
 fn a_callback_panic_resumes_at_frame_skips_later_siblings_and_leaves_the_ui_usable() {
-    let mut ui = Ui::new().expect("library");
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
     let mut second_ran = false;
     let result = catch_unwind(AssertUnwindSafe(|| {
         let _ = ui.frame(&input(), &mut |ui: &mut Ui| {
@@ -25,7 +26,7 @@ fn a_callback_panic_resumes_at_frame_skips_later_siblings_and_leaves_the_ui_usab
 
 #[test]
 fn a_paint_callback_panic_is_carried_to_the_frame_that_paints() {
-    let mut ui = Ui::new().expect("library");
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
     let result = catch_unwind(AssertUnwindSafe(|| {
         let _ = ui.frame(&input(), &mut |ui: &mut Ui| {
             let node = ui.node("canvas".into(), Node { w: Size::Px(40.0), h: Size::Px(40.0), ..Node::DEFAULT });
@@ -39,7 +40,7 @@ fn a_paint_callback_panic_is_carried_to_the_frame_that_paints() {
 
 #[test]
 fn the_output_borrows_the_ui() {
-    let mut ui = Ui::new().expect("library");
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
     ui.frame(&input(), &mut |ui: &mut Ui| { ui.label("x", crate::Label::DEFAULT); }).expect("frame");
     let revision = ui.output().draw_revision;
     assert_eq!(revision, ui.draw_revision());
@@ -49,7 +50,7 @@ fn the_output_borrows_the_ui() {
 /// with its message and the `Ui` stays usable, not poisoned.
 #[test]
 fn a_builder_outside_a_frame_panics_with_the_library_message_and_leaves_the_ui_usable() {
-    let mut ui = Ui::new().expect("library");
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
     let message = refusal("node outside a frame must panic", &mut || { ui.node("outside a frame".into(), Node::DEFAULT); });
     assert!(message.contains("frame callback") && message.ends_with("(-3)"), "{message}");
     let _ = ui.view_size();
@@ -60,7 +61,7 @@ fn a_builder_outside_a_frame_panics_with_the_library_message_and_leaves_the_ui_u
 /// injected; static link only, where the wrapper reaches the library's internals.
 #[cfg(feature = "static")]
 fn poisoned() -> Ui {
-    let ui = Ui::new().expect("library");
+    let ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
     pxui_abi_link::poison_of(ui.id());
     ui
 }

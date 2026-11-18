@@ -117,6 +117,54 @@ fn a_ui_with_a_renderer_attached_refuses_to_be_destroyed() {
 }
 
 #[test]
+fn checked_constructors_leave_outputs_untouched_on_refusal() {
+    extern "C" fn body(_: *mut c_void, _: *mut c_void, _: *const c_void) {}
+    let ui = create();
+    let short = 4_u32;
+    let mut renderer = core::ptr::dangling_mut::<PxuiRenderer>();
+    let mut id = 77;
+    let name = crate::state::pair("body");
+    let kind = pxui_types::theme::BodyKind::toggle as u32;
+    unsafe {
+        assert_eq!(pxui_renderer_create_checked(ui, (&short as *const u32).cast(), &PxuiTargetDesc::default(), &mut renderer), PXUI_ERR_ARGUMENT);
+        assert_eq!(renderer, core::ptr::dangling_mut::<PxuiRenderer>());
+        assert_eq!(pxui_renderer_create_checked(ui, &pxui_types::Gpu::default(), &PxuiTargetDesc::default(), core::ptr::null_mut()), PXUI_ERR_ARGUMENT);
+        assert_eq!(pxui_body_register_checked(ui, kind, name, Some(body), core::ptr::null_mut(), core::ptr::null_mut()), PXUI_ERR_ARGUMENT);
+        assert_eq!(pxui_body_register_checked(ui, u32::MAX, name, Some(body), core::ptr::null_mut(), &mut id), PXUI_ERR_ARGUMENT);
+        assert_eq!(id, 77);
+        assert_eq!(pxui_body_register_checked(ui, kind, name, Some(body), core::ptr::null_mut(), &mut id), 0);
+        assert_eq!(id, 1);
+        assert_eq!(pxui_ui_destroy(ui), 0);
+    }
+}
+
+#[test]
+fn legacy_accessibility_setters_keep_success_for_a_recycled_slot() {
+    extern "C" fn node(user: *mut c_void, raw: *mut c_void) {
+        let handle = unsafe { &mut *user.cast::<PxuiBox>() };
+        assert_eq!(unsafe { pxui_ui_node_keyed(raw.cast(), handle.box_key, &pxui_types::Node::DEFAULT, handle) }, 0);
+    }
+    let ui = create();
+    let mut retired = PxuiBox { box_key: 27, ..Default::default() };
+    let mut live = PxuiBox { box_key: 28, ..Default::default() };
+    assert_eq!(run(ui, Some(node), (&mut retired as *mut PxuiBox).cast()), 0);
+    assert_eq!(run(ui, None, core::ptr::null_mut()), 0);
+    assert_eq!(run(ui, Some(node), (&mut live as *mut PxuiBox).cast()), 0);
+    assert_eq!(live.box_slot, retired.box_slot);
+    assert_ne!(live.generation, retired.generation);
+    let name = crate::state::pair("retired");
+    unsafe {
+        assert_eq!(pxui_ui_a11y_name(ui, &retired, name), 0);
+        assert_eq!(pxui_ui_a11y_number(ui, &retired, 0.0, 0.0, 1.0, 0.0), 0);
+        assert_eq!(pxui_ui_set_role(ui, &retired, pxui_types::a11y::Role::Button as u32, 0), 0);
+        assert_eq!(pxui_ui_a11y_name_checked(ui, &retired, name), PXUI_ERR_STALE);
+        assert_eq!(pxui_ui_a11y_number_checked(ui, &retired, 0.0, 0.0, 1.0, 0.0), PXUI_ERR_STALE);
+        assert_eq!(pxui_ui_a11y_value(ui, &retired, name, 0, 0), PXUI_ERR_STALE);
+        assert_eq!(pxui_ui_destroy(ui), 0);
+    }
+}
+
+#[test]
 fn default_descriptors_carry_their_size() {
     use pxui_types::{Commands, Gpu, Pass, ffi::{Input, ThemeSource}};
     assert_eq!(FrameIn::default().size as usize, core::mem::size_of::<FrameIn>());

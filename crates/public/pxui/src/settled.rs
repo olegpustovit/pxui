@@ -11,7 +11,8 @@ static CANVAS_RUNS: AtomicUsize = AtomicUsize::new(0);
 static CANVAS_SHAPES: AtomicUsize = AtomicUsize::new(0);
 const SHAPES: usize = 300;
 use mem_sys as _;
-use pxui_types::{Axis, FrameIn, Size, layout::{Cell, Grid, Track}};
+use crate::FrameIn;
+use pxui_types::{Axis, Size, layout::{Cell, Grid, Track}};
 use pxui_types::Flags;
 
 struct State {
@@ -77,11 +78,11 @@ fn a_settled_frame_through_the_wrapper_allocates_nothing() {
     let counted = mem_sys::local_alloc_count();
     drop(std::hint::black_box(Box::new(1u64)));
     assert!(mem_sys::local_alloc_count() > counted, "the counting allocator is installed");
-    let mut ui = Ui::new().expect("library");
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
     let mut state = State {
         clicks: 0, night: false, check: false, volume: 0.5, mode: 0, seen: 0,
     };
-    let input = FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() };
+    let input = FrameIn::new(320.0, 240.0);
     // `revision` is the page view's when there is one: a changing one rebuilds the whole page (every canvas callback runs and
     // refills its spans); without a view the retained frame is left alone
     let frame = |ui: &mut Ui, state: &mut State, revision: Option<u64>| {

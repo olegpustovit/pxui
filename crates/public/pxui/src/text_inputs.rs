@@ -362,7 +362,7 @@ mod tests {
     #[test]
     fn a_text_field_is_keyed_by_its_key_named_by_its_name_and_a_registered_body_builds_it() {
         use crate::{FrameIn, TextField, ui::Role};
-        let mut ui = Ui::new().expect("library");
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
         ui.set_a11y(true);
         ui.register_text_field_body("probe", label_probe).expect("field body");
         let themed = crate::ThemeHandle::parse("text_field.body = probe").expect("theme");
@@ -379,7 +379,7 @@ mod tests {
                 ui.text_field("plain", "abc", &TextField::DEFAULT);
             });
         };
-        let input = |time: f64| FrameIn { width: 320.0, height: 240.0, time, ..FrameIn::default() };
+        let input = |time: f64| FrameIn::new(320.0, 240.0).time(time);
         for n in 0..2 { LABELS.with(|l| l.borrow_mut().clear()); ui.frame(&input(n as f64), &mut build).expect("frame"); }
         assert_eq!(LABELS.with(|l| l.borrow().clone()), ["Find songs", "Find songs", ""], "the body's config carries the name; an unnamed field is unnamed, never named by its key");
         assert_ne!(handles[0].box_key, handles[1].box_key, "one name under two keys is two fields");
@@ -392,12 +392,12 @@ mod tests {
     #[test]
     fn field_responses_agree_with_their_text_name_their_row_only_by_style_and_refuse_huge_offsets() {
         use crate::{ui::{Rect, Role}, AreaCallbacks, LineField, SearchField, TextArea, ValueCallbacks, ValueField};
-        let mut ui = Ui::new().expect("library");
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
         ui.set_a11y(true);
         let rect = Rect::new(0.0, 0.0, 100.0, 20.0);
         let (mut search, mut line, mut value, mut area) = (None, None, None, None);
         for n in 0..2 {
-            let input = crate::FrameIn { width: 320.0, height: 240.0, time: n as f64, ..crate::FrameIn::default() };
+            let input = crate::FrameIn::new(320.0, 240.0).time(n as f64);
             ui.frame(&input, &mut |ui: &mut Ui| {
                 search = Some(ui.search_field("s", "x", &SearchField::DEFAULT.name("Find")).response);
                 line = Some(ui.line_field("l", "x", rect, &LineField::DEFAULT).response);

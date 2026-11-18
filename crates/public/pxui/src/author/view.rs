@@ -90,8 +90,8 @@ mod tests {
     #[test]
     fn view_of_rebuilds_only_when_inputs_change() {
         let runs = Cell::new(0u32);
-        let mut ui = crate::Ui::new().expect("library");
-        let input = FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() };
+        let mut ui = crate::Ui::new(&crate::UiDesc::DEFAULT).expect("library");
+        let input = FrameIn::new(320.0, 240.0);
         let frame = |ui: &mut crate::Ui, n: u32| {
             ui.frame(&input, &mut |ui| { ui.view_of("v", &("title", n), |ui| { runs.set(runs.get() + 1); ui.label("title", crate::Label::DEFAULT); }); }).expect("frame");
         };
@@ -112,8 +112,8 @@ mod tests {
     fn view_of_fills_its_parent_and_fits_a_fit_column() {
         use crate::{Node, ui::Size};
         let (fixed, fitted) = (Cell::new(None), Cell::new(None));
-        let mut ui = crate::Ui::new().expect("library");
-        let input = FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() };
+        let mut ui = crate::Ui::new(&crate::UiDesc::DEFAULT).expect("library");
+        let input = FrameIn::new(320.0, 240.0);
         let mut build = |ui: &mut crate::Ui| {
             ui.column("fixed", Node { w: Size::Px(120.0), h: Size::Px(40.0), ..Node::DEFAULT }, |ui| {
                 fixed.set(Some(ui.view_of("v", &1u8, |ui| { ui.node("a".into(), Node { h: Size::Px(10.0), ..Node::DEFAULT }); })));

@@ -520,7 +520,7 @@ mod tests {
     /// A registered button body is given `centered` in its config.
     #[test]
     fn a_registered_body_is_given_centered() {
-        let mut ui = Ui::new().unwrap();
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
         let id = ui.register_button_body("recording", recording).expect("registered");
         let text = "button.body = recording";
         ui.set_theme(&crate::ThemeHandle::parse(&text).unwrap()).unwrap();
@@ -730,7 +730,7 @@ mod tests {
     #[test]
     fn a_registered_body_is_given_the_label_and_layout() {
         use crate::ui::{Along, Axis};
-        let mut ui = Ui::new().unwrap();
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
         ui.set_a11y(true);
         let id = ui.register_button_body("laid_out", laid_out).expect("registered");
         let text = "button.body = laid_out";
@@ -792,7 +792,7 @@ mod tests {
     #[test]
     fn a_registered_body_is_given_the_parts() {
         use crate::{Icon, Label};
-        let mut ui = Ui::new().unwrap();
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
         ui.set_a11y(true);
         let id = ui.register_button_body("parts_body", parts_body).expect("registered");
         let text = "button.body = parts_body";

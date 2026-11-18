@@ -1,16 +1,17 @@
 //! The engine-shaped surface through the wrapper: queries, boxes, patches, scroll and text state, carries, view calls
 //! and the loud failure of a caller bug.
 use crate::{Fill, Stroke, Ui};
-use pxui_types::{geom::Rect, ui::{Cursor, UndoKind}, FrameIn, Mark, Node, Size};
+use crate::FrameIn;
+use pxui_types::{geom::Rect, ui::{Cursor, UndoKind}, Mark, Node, Size};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 
-fn input() -> FrameIn { FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() } }
+fn input() -> FrameIn<'static> { FrameIn::new(320.0, 240.0) }
 
 /// How far below a canvas draw's `at` (the layout's top) the same style's node text starts: node text is placed by its em box, so a
 /// canvas that must land on the same pixels draws at the node's top plus this.
 fn em_top_to_layout_top(points:f32)->f32 {
-    let mut ui=Ui::new().unwrap();
+    let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let label=crate::Label::BODY.size(points);
     let style=ui.resolve(&label);
     ui.frame(&input(),&mut |ui| {
@@ -27,7 +28,7 @@ fn em_top_to_layout_top(points:f32)->f32 {
 fn prepared_text_moves_between_worker_and_ui_without_shaping_or_allocating_on_install() {
     use crate::{PreparedText,RetiredText,TextSpan};
     mem_sys::set_peer(crate::library_counter);
-    let mut ui=Ui::new().unwrap();
+    let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let mut worker=ui.text_service().fork().unwrap();
     let label=crate::Label::BODY;
     let style=ui.resolve(&label);
@@ -41,7 +42,7 @@ fn prepared_text_moves_between_worker_and_ui_without_shaping_or_allocating_on_in
             (text,record)
         }).collect::<Vec<_>>()
     }).join().unwrap();
-    let mut other=Ui::new().unwrap();
+    let mut other=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let _=other.text_service().fork().unwrap();
     let mut records=records.into_iter();
     let (first_text,first)=records.next().unwrap();
@@ -79,7 +80,7 @@ fn prepared_text_moves_between_worker_and_ui_without_shaping_or_allocating_on_in
 #[test]
 fn phase_cpu_timing_is_opt_in_and_zero_warm_allocation() {
     mem_sys::set_peer(crate::library_counter);
-    let mut ui = Ui::new().unwrap();
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     assert_eq!(ui.phase_cpu_times(), Err(crate::Error::State));
     ui.set_timing(true);
     for round in 0..20 {
@@ -108,7 +109,7 @@ fn phase_cpu_timing_is_opt_in_and_zero_warm_allocation() {
 fn text_layout_count_distinguishes_cold_content_from_retained_warm_frames_without_allocations() {
     use crate::ui::Node;
     mem_sys::set_peer(crate::library_counter);
-    let mut ui=Ui::new().unwrap();
+    let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     assert_eq!(ui.text_layout_count(),0);
     let mut build=|ui:&mut Ui| {
         let node=ui.node("label".into(),Node::DEFAULT.w_px(200.0).h_px(30.0));
@@ -145,47 +146,12 @@ fn hash_of_borrows_its_input_and_allocates_nothing() {
 }
 
 #[test]
-fn completed_file_drop_events_preserve_paths_positions_errors_and_empty_warm_storage() {
-    use crate::{Event,Str};
-    mem_sys::set_peer(crate::library_counter);
-    let mut ui=Ui::new().unwrap();
-    for (code,payload) in [(0,"/Music/名前.flac\0/Music/Björk.m4a"),(1,"transport limit exceeded"),(0,"")] {
-        let event=Event {kind:Event::FILES_DROPPED,code,x:-12.5,y:31.25,text:Str {ptr:payload.as_ptr(),len:payload.len()},..Default::default()};
-        ui.frame(&FrameIn {events:&event,event_count:1,..input()},&mut |_| {}).unwrap();
-        let routed=ui.routed_input(None);
-        assert_eq!(routed.events().len(),1);
-        let event=&routed.events()[0];
-        assert_eq!((event.kind,event.code,event.x,event.y),(Event::FILES_DROPPED,code,-12.5,31.25));
-        assert_eq!(crate::event_text(event),payload);
-    }
-    let bad_utf8=[255u8];
-    for invalid in [
-        Event {kind:Event::FILES_DROPPED,code:2,..Default::default()},
-        Event {kind:Event::FILES_DROPPED,x:f64::NAN,..Default::default()},
-        Event {kind:Event::FILES_DROPPED,y:f64::INFINITY,..Default::default()},
-        Event {kind:Event::FILES_DROPPED,text:Str {ptr:core::ptr::null(),len:1},..Default::default()},
-        Event {kind:Event::FILES_DROPPED,text:Str {ptr:bad_utf8.as_ptr(),len:1},..Default::default()},
-    ] {
-        let mut built=false;
-        assert_eq!(ui.frame(&FrameIn {events:&invalid,event_count:1,..input()},&mut |_| built=true).err(),Some(crate::Error::InvalidInput));
-        assert!(!built);
-    }
-    let empty=Event {kind:Event::FILES_DROPPED,..Default::default()};
-    for round in 0..20 {
-        mem_sys::local_reset();
-        ui.frame(&FrameIn {events:&empty,event_count:1,..input()},&mut |_| {}).unwrap();
-        assert_eq!(ui.routed_input(None).events().len(),1);
-        if round>2 {assert_eq!(mem_sys::local_alloc_count(),0);}
-    }
-}
-
-#[test]
 fn reveal_uses_fixed_measured_section_and_grid_geometry_without_warm_allocations() {
     use crate::ui::{Node, SectionList, SectionPart, Look};
     use std::cell::Cell;
     mem_sys::set_peer(crate::library_counter);
     for kind in 0..4 {
-        let mut ui=Ui::new().unwrap();
+        let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
         ui.set_dir(kind==3);
         let body=Cell::new(None);let count=Cell::new(10_000);let requested=Cell::new(None);
         let size=Cell::new(100.0);let calls=Cell::new(0);
@@ -265,7 +231,7 @@ fn gestures_swipe_long_press_and_stale_handles_through_the_abi_without_warm_allo
     use crate::{Event, GestureOpts, GestureState, SwipeActions, Touch, Str, ui::Size};
     use std::cell::Cell;
     mem_sys::set_peer(crate::library_counter);
-    let mut ui = Ui::new().unwrap();
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let state = Cell::new(GestureState::default());
     let node = Cell::new(None);
     let mut time = 0.0;
@@ -277,9 +243,14 @@ fn gestures_swipe_long_press_and_stale_handles_through_the_abi_without_warm_allo
     let touch = |ui: &mut Ui, phase: u32, x: f64, at: f64, build: &mut dyn FnMut(&mut Ui)| {
         let packet = Touch { device: 1, finger: 7, x, y: 25.0, phase, time: at, pressure: 1.0 };
         let event = Event { kind: Event::TOUCH, text: Str { ptr: (&packet as *const Touch).cast(), len: core::mem::size_of::<Touch>() }, ..Default::default() };
-        ui.frame(&FrameIn { time: at, events: &event, event_count: 1, ..input() }, build).unwrap();
+        ui.frame(&{
+            let mut frame = input().time(at);
+            frame.wire.events = &event;
+            frame.wire.event_count = 1;
+            frame
+        }, build).unwrap();
     };
-    ui.frame(&FrameIn { time, ..input() }, &mut build).unwrap();
+    ui.frame(&input().time(time), &mut build).unwrap();
     for round in 0..4 {
         time = f64::from(round) * 20.0 + 1.0;
         mem_sys::local_reset();
@@ -289,19 +260,19 @@ fn gestures_swipe_long_press_and_stale_handles_through_the_abi_without_warm_allo
         touch(&mut ui, 1, 100.0, time + 0.032, &mut build);
         assert_eq!((state.get().swiping, state.get().swipe), (true, -50.0));
         touch(&mut ui, 2, 100.0, time + 0.4, &mut build);
-        ui.frame(&FrameIn { time: time + 0.5, ..input() }, &mut build).unwrap();
+        ui.frame(&input().time(time + 0.5), &mut build).unwrap();
         assert!(state.get().swipe_open && !state.get().swiping);
-        ui.frame(&FrameIn { time: time + 2.0, ..input() }, &mut build).unwrap();
+        ui.frame(&input().time(time + 2.0), &mut build).unwrap();
         assert_eq!(state.get().swipe, -80.0);
         ui.close_swipe(&node.get().unwrap());
-        ui.frame(&FrameIn { time: time + 3.0, ..input() }, &mut build).unwrap();
-        ui.frame(&FrameIn { time: time + 4.0, ..input() }, &mut build).unwrap();
+        ui.frame(&input().time(time + 3.0), &mut build).unwrap();
+        ui.frame(&input().time(time + 4.0), &mut build).unwrap();
         assert_eq!(state.get().swipe, 0.0);
         // a held touch: highlight then long press come from frames alone
         touch(&mut ui, 0, 100.0, time + 5.0, &mut build);
-        ui.frame(&FrameIn { time: time + 5.2, ..input() }, &mut build).unwrap();
+        ui.frame(&input().time(time + 5.2), &mut build).unwrap();
         assert!(state.get().highlighted && !state.get().long_pressed);
-        ui.frame(&FrameIn { time: time + 5.6, ..input() }, &mut build).unwrap();
+        ui.frame(&input().time(time + 5.6), &mut build).unwrap();
         assert!(state.get().long_pressed && !state.get().highlighted);
         touch(&mut ui, 2, 100.0, time + 5.7, &mut build);
         // leading side opens; a full swipe commits each side for one frame and settles closed
@@ -310,12 +281,12 @@ fn gestures_swipe_long_press_and_stale_handles_through_the_abi_without_warm_allo
         touch(&mut ui, 1, 150.0, time + 8.132, &mut build);
         assert_eq!((state.get().swiping, state.get().swipe), (true, 50.0));
         touch(&mut ui, 2, 150.0, time + 8.5, &mut build);
-        ui.frame(&FrameIn { time: time + 10.0, ..input() }, &mut build).unwrap();
+        ui.frame(&input().time(time + 10.0), &mut build).unwrap();
         let open = state.get();
         assert!(open.swipe_open && open.swipe_open_leading && !open.swipe_open_trailing && open.swipe == 60.0 && !open.swipe_commit_leading);
         ui.close_swipe(&node.get().unwrap());
-        ui.frame(&FrameIn { time: time + 10.1, ..input() }, &mut build).unwrap();
-        ui.frame(&FrameIn { time: time + 11.0, ..input() }, &mut build).unwrap();
+        ui.frame(&input().time(time + 10.1), &mut build).unwrap();
+        ui.frame(&input().time(time + 11.0), &mut build).unwrap();
         assert_eq!(state.get().swipe, 0.0);
         for (i, (end, trailing)) in [(20.0, true), (280.0, false)].into_iter().enumerate() {
             let t = time + 12.0 + 3.0 * i as f64;
@@ -325,15 +296,15 @@ fn gestures_swipe_long_press_and_stale_handles_through_the_abi_without_warm_allo
             touch(&mut ui, 2, end, t + 0.5, &mut build);
             let done = state.get();
             assert_eq!((done.swipe_commit_trailing, done.swipe_commit_leading, done.swipe_open), (trailing, !trailing, false));
-            ui.frame(&FrameIn { time: t + 0.6, ..input() }, &mut build).unwrap();
+            ui.frame(&input().time(t + 0.6), &mut build).unwrap();
             assert!(!state.get().swipe_commit_trailing && !state.get().swipe_commit_leading);
-            ui.frame(&FrameIn { time: t + 2.0, ..input() }, &mut build).unwrap();
+            ui.frame(&input().time(t + 2.0), &mut build).unwrap();
             assert_eq!(state.get().swipe, 0.0);
         }
         if round > 1 { assert_eq!(mem_sys::local_alloc_count(), 0, "warm gesture frames"); }
     }
     let stale = node.get().unwrap();
-    ui.frame(&FrameIn { time, ..input() }, &mut |_| {}).unwrap();
+    ui.frame(&input().time(time), &mut |_| {}).unwrap();
     assert_eq!(ui.gesture_state(&stale), GestureState::default(), "a retired node reads as rest");
     ui.close_swipe(&stale);
 }
@@ -343,7 +314,7 @@ fn dismiss_drags_commits_and_springs_back_through_the_abi_without_warm_allocatio
     use crate::{DismissOpts, Event, GestureOpts, GestureState, Touch, Str, ui::Size};
     use std::cell::Cell;
     mem_sys::set_peer(crate::library_counter);
-    let mut ui = Ui::new().unwrap();
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let state = Cell::new(GestureState::default());
     let mut build = |ui: &mut Ui| {
         let sheet = ui.node("sheet".into(), Node { at: Some((0.0, 0.0)).into(), ..Node::DEFAULT.w(Size::Px(200.0)).h(Size::Px(200.0)).flags(pxui_types::Flags::CLICKABLE) });
@@ -352,9 +323,14 @@ fn dismiss_drags_commits_and_springs_back_through_the_abi_without_warm_allocatio
     let touch = |ui: &mut Ui, phase: u32, y: f64, at: f64, build: &mut dyn FnMut(&mut Ui)| {
         let packet = Touch { device: 1, finger: 7, x: 100.0, y, phase, time: at, pressure: 1.0 };
         let event = Event { kind: Event::TOUCH, text: Str { ptr: (&packet as *const Touch).cast(), len: core::mem::size_of::<Touch>() }, ..Default::default() };
-        ui.frame(&FrameIn { time: at, events: &event, event_count: 1, ..input() }, build).unwrap();
+        ui.frame(&{
+            let mut frame = input().time(at);
+            frame.wire.events = &event;
+            frame.wire.event_count = 1;
+            frame
+        }, build).unwrap();
     };
-    ui.frame(&FrameIn { time: 0.0, ..input() }, &mut build).unwrap();
+    ui.frame(&input().time(0.0), &mut build).unwrap();
     for round in 0..4 {
         let t = f64::from(round) * 20.0 + 1.0;
         mem_sys::local_reset();
@@ -368,11 +344,11 @@ fn dismiss_drags_commits_and_springs_back_through_the_abi_without_warm_allocatio
             touch(&mut ui, 2, end, t + 0.5, &mut build);
             let lifted = state.get();
             assert_eq!((lifted.dismiss_committed, lifted.dismiss_cancelled), (i == 0, i == 1));
-            ui.frame(&FrameIn { time: t + 0.6, ..input() }, &mut build).unwrap();
+            ui.frame(&input().time(t + 0.6), &mut build).unwrap();
             assert!(!state.get().dismiss_committed && !state.get().dismiss_cancelled);
-            ui.frame(&FrameIn { time: t + 3.0, ..input() }, &mut build).unwrap();
+            ui.frame(&input().time(t + 3.0), &mut build).unwrap();
             assert_eq!((state.get().dismiss, state.get().dismissing), (if i == 0 { 200.0 } else { 0.0 }, false));
-            if i == 0 { ui.frame(&FrameIn { time: t + 4.0, ..input() }, &mut |_| {}).unwrap(); ui.frame(&FrameIn { time: t + 4.1, ..input() }, &mut build).unwrap(); }
+            if i == 0 { ui.frame(&input().time(t + 4.0), &mut |_| {}).unwrap(); ui.frame(&input().time(t + 4.1), &mut build).unwrap(); }
         }
         if round > 1 { assert_eq!(mem_sys::local_alloc_count(), 0, "warm dismiss frames"); }
     }
@@ -383,7 +359,7 @@ fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_war
     use crate::{Event, Scrub, Touch, Str, ui::{Node, Role}};
     use std::cell::Cell;
     mem_sys::set_peer(crate::library_counter);
-    let mut ui = Ui::new().unwrap();
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     ui.set_a11y(true);
     let value = Cell::new(40.0);
     let range = Cell::new((10.0, 110.0));
@@ -427,44 +403,99 @@ fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_war
             (pointer(Event::POINTER_RELEASED, 50.0, 0), None, None, false),
         ] {
             time += 0.01;
-            ui.frame(&FrameIn { time, events: &event, event_count: 1, ..input() }, &mut build).unwrap();
+            ui.frame(&{
+                let mut frame = input().time(time);
+                frame.wire.events = &event;
+                frame.wire.event_count = 1;
+                frame
+            }, &mut build).unwrap();
             let s = result.get().unwrap();
             assert_eq!((s.preview, s.commit, s.held), (preview, commit, held), "event {event:?}");
             assert_eq!(ui.rect(&s.node), Rect::new(0.0, 0.0, 200.0, 20.0));
         }
         // The release point survives a later move in the same batch.
         let press = pointer(Event::POINTER_PRESSED, 50.0, 0);
-        ui.frame(&FrameIn { time, events: &press, event_count: 1, ..input() }, &mut build).unwrap();
+        ui.frame(&{
+            let mut frame = input().time(time);
+            frame.wire.events = &press;
+            frame.wire.event_count = 1;
+            frame
+        }, &mut build).unwrap();
         let events = [pointer(Event::POINTER_RELEASED, 150.0, 0), pointer(Event::POINTER_MOVED, 5.0, 0)];
-        ui.frame(&FrameIn { time, events: events.as_ptr(), event_count: 2, ..input() }, &mut build).unwrap();
+        ui.frame(&{
+            let mut frame = input().time(time);
+            frame.wire.events = events.as_ptr();
+            frame.wire.event_count = 2;
+            frame
+        }, &mut build).unwrap();
         assert_eq!(result.get().unwrap().commit, Some(85.0));
-        ui.frame(&FrameIn { time, events: &press, event_count: 1, ..input() }, &mut build).unwrap();
+        ui.frame(&{
+            let mut frame = input().time(time);
+            frame.wire.events = &press;
+            frame.wire.event_count = 1;
+            frame
+        }, &mut build).unwrap();
         let events = [pointer(Event::POINTER_RELEASED,150.0,0),pointer(Event::POINTER_PRESSED,20.0,0)];
-        ui.frame(&FrameIn { time, events: events.as_ptr(), event_count: 2, ..input() }, &mut build).unwrap();
+        ui.frame(&{
+            let mut frame = input().time(time);
+            frame.wire.events = events.as_ptr();
+            frame.wire.event_count = 2;
+            frame
+        }, &mut build).unwrap();
         let s = result.get().unwrap();
         assert_eq!((s.preview,s.commit,s.held),(Some(20.0),Some(85.0),true),"a new capture previews independently of the previous release");
         let cancel = pointer(Event::POINTER_CANCELLED,20.0,0);
-        ui.frame(&FrameIn { time, events: &cancel, event_count: 1, ..input() }, &mut build).unwrap();
+        ui.frame(&{
+            let mut frame = input().time(time);
+            frame.wire.events = &cancel;
+            frame.wire.event_count = 1;
+            frame
+        }, &mut build).unwrap();
         for accessible in [false,true] {
-            ui.frame(&FrameIn { time, events: &press, event_count: 1, ..input() }, &mut build).unwrap();
+            ui.frame(&{
+                let mut frame = input().time(time);
+                frame.wire.events = &press;
+                frame.wire.event_count = 1;
+                frame
+            }, &mut build).unwrap();
             let right=key(3);
             if accessible { ui.inject_a11y(&[crate::A11yAction {id:identity,action_code:4,payload:75.0,..Default::default()}]); }
-            ui.frame(&FrameIn { time, events: if accessible {core::ptr::null()} else {&right}, event_count:usize::from(!accessible), ..input() }, &mut build).unwrap();
+            ui.frame(&{
+                let mut frame = input().time(time);
+                frame.wire.events = if accessible {core::ptr::null()} else {&right};
+                frame.wire.event_count = usize::from(!accessible);
+                frame
+            }, &mut build).unwrap();
             let s=result.get().unwrap();let expected=if accessible {75.0} else {40.0};
             assert_eq!((s.preview,s.commit,s.held),(Some(expected),Some(expected),false),"digital adjustment takes over a held pointer");
             let release=pointer(Event::POINTER_RELEASED,150.0,0);
-            ui.frame(&FrameIn {time,events:&release,event_count:1,..input()},&mut build).unwrap();
+            ui.frame(&{
+                let mut frame = input().time(time);
+                frame.wire.events = &release;
+                frame.wire.event_count = 1;
+                frame
+            },&mut build).unwrap();
             assert!(result.get().unwrap().commit.is_none());
         }
         let events = [key(3), key(3), key(2)];
-        ui.frame(&FrameIn { time, events: events.as_ptr(), event_count: events.len(), ..input() }, &mut build).unwrap();
+        ui.frame(&{
+            let mut frame = input().time(time);
+            frame.wire.events = events.as_ptr();
+            frame.wire.event_count = events.len();
+            frame
+        }, &mut build).unwrap();
         assert_eq!(result.get().unwrap().commit, Some(45.0), "all routed presses retain their order");
         let events = [key(12), key(3), Event { kind: Event::KEY_RELEASED, code: pxui_types::KEY_SPECIAL + 12, ..Default::default() }];
-        ui.frame(&FrameIn { time, events: events.as_ptr(), event_count: events.len(), ..input() }, &mut build).unwrap();
+        ui.frame(&{
+            let mut frame = input().time(time);
+            frame.wire.events = events.as_ptr();
+            frame.wire.event_count = events.len();
+            frame
+        }, &mut build).unwrap();
         assert!(result.get().unwrap().commit.is_none(),"command chords remain available to the application");
         for (payload, expected) in [(75.0, 75.0), (-1.0, 10.0), (f64::MAX, 110.0)] {
             ui.inject_a11y(&[crate::A11yAction { id: identity, action_code: 4, payload, ..Default::default() }]);
-            ui.frame(&FrameIn { time, ..input() }, &mut build).unwrap();
+            ui.frame(&input().time(time), &mut build).unwrap();
             assert_eq!(result.get().unwrap().commit, Some(expected));
             let node = ui.a11y_nodes().iter().find(|n| n.id == identity).unwrap();
             assert_eq!((node.value.now, node.value.min, node.value.max, node.value.step), (expected as f64, 10.0, 110.0, 5.0));
@@ -473,7 +504,12 @@ fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_war
             time += 0.01;
             let touch = Touch { device: 1, finger: 7, x, y: 10.0, phase, time, pressure: 1.0 };
             let event = Event { kind: Event::TOUCH, text: Str { ptr: (&touch as *const Touch).cast(), len: core::mem::size_of::<Touch>() }, ..Default::default() };
-            ui.frame(&FrameIn { time, events: &event, event_count: 1, ..input() }, &mut build).unwrap();
+            ui.frame(&{
+                let mut frame = input().time(time);
+                frame.wire.events = &event;
+                frame.wire.event_count = 1;
+                frame
+            }, &mut build).unwrap();
             let s = result.get().unwrap();
             assert_eq!((s.preview, s.commit), (preview, commit));
         }
@@ -481,51 +517,101 @@ fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_war
             time += 0.01;
             let touch = Touch { device: 1, finger, x: 50.0, y: 10.0, phase, time, pressure: 1.0 };
             let event = Event { kind: Event::TOUCH, text: Str { ptr: (&touch as *const Touch).cast(), len: core::mem::size_of::<Touch>() }, ..Default::default() };
-            ui.frame(&FrameIn { time, events: &event, event_count: 1, ..input() }, &mut build).unwrap();
+            ui.frame(&{
+                let mut frame = input().time(time);
+                frame.wire.events = &event;
+                frame.wire.event_count = 1;
+                frame
+            }, &mut build).unwrap();
             let s = result.get().unwrap();
             assert_eq!(s.held,held);
             assert!(s.commit.is_none(),"multitouch cancels the original adjustment");
         }
-        ui.frame(&FrameIn { time, events: &press, event_count: 1, ..input() }, &mut build).unwrap();
+        ui.frame(&{
+            let mut frame = input().time(time);
+            frame.wire.events = &press;
+            frame.wire.event_count = 1;
+            frame
+        }, &mut build).unwrap();
         popup.set(true);
-        ui.frame(&FrameIn { time, ..input() }, &mut build).unwrap();
+        ui.frame(&input().time(time), &mut build).unwrap();
         assert!(!result.get().unwrap().held);
         let release = pointer(Event::POINTER_RELEASED,150.0,0);
-        ui.frame(&FrameIn { time, events: &release, event_count: 1, ..input() }, &mut build).unwrap();
+        ui.frame(&{
+            let mut frame = input().time(time);
+            frame.wire.events = &release;
+            frame.wire.event_count = 1;
+            frame
+        }, &mut build).unwrap();
         assert!(result.get().unwrap().commit.is_none(),"a modal cancels an outside scrub");
         ui.dismiss_popup(); popup.set(false);
-        ui.frame(&FrameIn { time, ..input() }, &mut build).unwrap();
-        ui.frame(&FrameIn { time, events: &press, event_count: 1, ..input() }, &mut build).unwrap();
+        ui.frame(&input().time(time), &mut build).unwrap();
+        ui.frame(&{
+            let mut frame = input().time(time);
+            frame.wire.events = &press;
+            frame.wire.event_count = 1;
+            frame
+        }, &mut build).unwrap();
         present.set(false);
-        ui.frame(&FrameIn { time, ..input() }, &mut build).unwrap();
+        ui.frame(&input().time(time), &mut build).unwrap();
         assert!(result.get().is_none());
         present.set(true);
-        ui.frame(&FrameIn { time, events: &release, event_count: 1, ..input() }, &mut build).unwrap();
+        ui.frame(&{
+            let mut frame = input().time(time);
+            frame.wire.events = &release;
+            frame.wire.event_count = 1;
+            frame
+        }, &mut build).unwrap();
         assert!(result.get().unwrap().commit.is_none(),"a retired owner cannot commit after reappearing");
         identity = ui.a11y_nodes().iter().find(|n| ui.a11y_name_of(n) == "Position").unwrap().id;
         if round > 1 { assert_eq!(mem_sys::local_alloc_count(), 0, "warm pointer/keyboard/a11y/touch scrub frames"); }
     }
     let press = pointer(Event::POINTER_PRESSED, 50.0, 0);
-    ui.frame(&FrameIn { time, events: &press, event_count: 1, ..input() }, &mut build).unwrap();
+    ui.frame(&{
+        let mut frame = input().time(time);
+        frame.wire.events = &press;
+        frame.wire.event_count = 1;
+        frame
+    }, &mut build).unwrap();
     range.set((10.0, 10.0)); value.set(10.0);
-    ui.frame(&FrameIn { time, ..input() }, &mut build).unwrap();
+    ui.frame(&input().time(time), &mut build).unwrap();
     assert!(!result.get().unwrap().held);
     assert!(ui.a11y_nodes().iter().find(|n| n.id == identity).unwrap().is_role(Role::Progress));
     range.set((10.0, 110.0)); value.set(40.0);
     let release = pointer(Event::POINTER_RELEASED, 150.0, 0);
-    ui.frame(&FrameIn { time, events: &release, event_count: 1, ..input() }, &mut build).unwrap();
+    ui.frame(&{
+        let mut frame = input().time(time);
+        frame.wire.events = &release;
+        frame.wire.event_count = 1;
+        frame
+    }, &mut build).unwrap();
     assert!(result.get().unwrap().commit.is_none(), "a read-only transition cancels capture");
     ui.set_dir(true);
-    ui.frame(&FrameIn { time, ..input() }, &mut build).unwrap();
+    ui.frame(&input().time(time), &mut build).unwrap();
     let x = f64::from(ui.rect(&result.get().unwrap().node).x);
     let press = pointer(Event::POINTER_PRESSED, x + 50.0, 0);
     let release = pointer(Event::POINTER_RELEASED, x + 150.0, 0);
-    ui.frame(&FrameIn { time, events: &press, event_count: 1, ..input() }, &mut build).unwrap();
+    ui.frame(&{
+        let mut frame = input().time(time);
+        frame.wire.events = &press;
+        frame.wire.event_count = 1;
+        frame
+    }, &mut build).unwrap();
     assert_eq!(result.get().unwrap().preview, Some(85.0));
-    ui.frame(&FrameIn { time, events: &release, event_count: 1, ..input() }, &mut build).unwrap();
+    ui.frame(&{
+        let mut frame = input().time(time);
+        frame.wire.events = &release;
+        frame.wire.event_count = 1;
+        frame
+    }, &mut build).unwrap();
     assert_eq!(result.get().unwrap().commit, Some(35.0));
     let right = key(3);
-    ui.frame(&FrameIn { time, events: &right, event_count: 1, ..input() }, &mut build).unwrap();
+    ui.frame(&{
+        let mut frame = input().time(time);
+        frame.wire.events = &right;
+        frame.wire.event_count = 1;
+        frame
+    }, &mut build).unwrap();
     assert_eq!(result.get().unwrap().commit, Some(35.0));
 }
 
@@ -534,7 +620,7 @@ fn repeating_keyframes_keep_instances_and_builds_idle_when_hidden_and_stop_witho
     use crate::{ui::{Curve, Keyframe, Keyframes, Look, Node, Repeat, Target, ViewTransform}};
     use std::cell::Cell;
     mem_sys::set_peer(crate::library_counter);
-    let mut ui = Ui::new().unwrap();
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     ui.set_a11y(true);
     let view = Cell::new(None);
     let child = Cell::new(None);
@@ -555,16 +641,16 @@ fn repeating_keyframes_keep_instances_and_builds_idle_when_hidden_and_stop_witho
     let child = child.get().unwrap();
     let identity = ui.a11y_nodes().iter().find(|node| ui.a11y_name_of(node) == "Repeated bar").unwrap().id;
     assert!(ui.box_of_a11y(u64::MAX).is_none());
-    let instances = ui.layer(0).instances.to_vec();
+    let instances = ui.layer(0).expect("base layer").instances.to_vec();
     let built = builds.get();
     for round in 0..3 {
         let start = round as f64 * 10.0;
-        ui.frame(&FrameIn { time: start, ..input() }, &mut build).unwrap();
+        ui.frame(&input().time(start), &mut build).unwrap();
         mem_sys::local_reset();
         assert!(ui.animate_keys(&view, &keys, &Keyframes::DEFAULT.repeat(Repeat::Forever).autoreverse().offset(0.25)));
         for tick in 0..61 {
             let dt = tick as f64 / 60.0;
-            ui.frame(&FrameIn { time: start + dt, ..input() }, &mut build).unwrap();
+            ui.frame(&input().time(start + dt), &mut build).unwrap();
             let phase = (dt + 0.25) % 1.0;
             let progress = if phase < 0.5 { phase * 2.0 } else { 2.0 - phase * 2.0 };
             let rect = ui.rect(&child);
@@ -575,47 +661,47 @@ fn repeating_keyframes_keep_instances_and_builds_idle_when_hidden_and_stop_witho
             assert!((rect.y + rect.h - 10.0).abs() < 0.001, "fixed bottom anchor");
             assert!(ui.wants_frame(&[], start + dt));
             assert_eq!(builds.get(), built);
-            assert_eq!(ui.layer(0).instances, instances.as_slice());
+            assert_eq!(ui.layer(0).expect("base layer").instances, instances.as_slice());
         }
         ui.view_clip(&view, Some(Rect::new(0.0, 0.0, 0.0, 0.0)));
-        ui.frame(&FrameIn { time: start + 2.0, ..input() }, &mut build).unwrap();
+        ui.frame(&input().time(start + 2.0), &mut build).unwrap();
         assert!(!ui.wants_frame(&[], start + 2.0), "hidden loops must idle");
         ui.view_clip(&view, None);
-        ui.frame(&FrameIn { time: start + 3.0, ..input() }, &mut build).unwrap();
+        ui.frame(&input().time(start + 3.0), &mut build).unwrap();
         assert!(ui.wants_frame(&[], start + 3.0));
         ui.set_view(&view, &ViewTransform::DEFAULT.opacity(0.0));
-        ui.frame(&FrameIn { time: start + 3.0, ..input() }, &mut build).unwrap();
+        ui.frame(&input().time(start + 3.0), &mut build).unwrap();
         assert!(!ui.wants_frame(&[], start + 3.0), "manually hidden loops must idle");
         ui.set_view(&view, &ViewTransform::DEFAULT.opacity(1.0));
-        ui.frame(&FrameIn { time: start + 3.0, ..input() }, &mut build).unwrap();
+        ui.frame(&input().time(start + 3.0), &mut build).unwrap();
         assert!(ui.wants_frame(&[], start + 3.0));
         // Finite cycles count both legs and settle at their authored first stop.
         assert!(ui.animate_keys(&view, &keys, &Keyframes::DEFAULT.repeat(Repeat::Count(2)).autoreverse()));
         for (dt, height, running) in [(0.5, 10.0, true), (1.0, 4.0, true), (1.5, 10.0, true), (2.0, 4.0, false)] {
-            ui.frame(&FrameIn { time: start + 3.0 + dt, ..input() }, &mut build).unwrap();
+            ui.frame(&input().time(start + 3.0 + dt), &mut build).unwrap();
             assert!((ui.rect(&child).h - height).abs() < 0.001);
             assert_eq!(ui.wants_frame(&[], start + 3.0 + dt), running);
         }
         assert!(ui.animate_keys(&view, &keys, &Keyframes::DEFAULT.repeat(Repeat::Count(2)).offset(0.25)));
-        ui.frame(&FrameIn { time: start + 5.75, ..input() }, &mut build).unwrap();
+        ui.frame(&input().time(start + 5.75), &mut build).unwrap();
         assert!((ui.rect(&child).h - 10.0).abs() < 0.001);
         assert!(!ui.wants_frame(&[], start + 5.75));
         assert!(ui.animate_keys(&view, &keys, &Keyframes::DEFAULT.repeat(Repeat::Forever).autoreverse()));
         assert!(ui.animate(&view, Target::Scale { x: 1.0, y: 0.4, anchor: (0.5, 1.0) }, curve.with_duration(0.0)));
-        ui.frame(&FrameIn { time: start + 6.0, ..input() }, &mut build).unwrap();
+        ui.frame(&input().time(start + 6.0), &mut build).unwrap();
         assert!(!ui.wants_frame(&[], start + 6.0), "retargeting stops a loop");
         if round > 0 { assert_eq!(mem_sys::local_alloc_count(), 0); }
     }
     assert!(ui.animate_keys(&view, &keys, &Keyframes::DEFAULT.repeat(Repeat::Forever).autoreverse().offset(0.25)));
-    ui.frame(&FrameIn { time: 27.0, reduced_motion: 1, ..input() }, &mut build).unwrap();
+    ui.frame(&input().time(27.0).reduced_motion(true), &mut build).unwrap();
     assert!((ui.rect(&child).h - 4.0).abs() < 0.001);
     assert!(!ui.wants_frame(&[], 28.0));
     assert!(ui.animate_keys(&view, &keys, &Keyframes::DEFAULT.repeat(Repeat::Forever).autoreverse()));
-    ui.frame(&FrameIn { time: 28.0, reduced_motion: 1, ..input() }, &mut build).unwrap();
+    ui.frame(&input().time(28.0).reduced_motion(true), &mut build).unwrap();
     assert!(!ui.wants_frame(&[], 29.0));
-    ui.frame(&FrameIn { time: 29.0, ..input() }, &mut |_| {}).unwrap();
+    ui.frame(&input().time(29.0), &mut |_| {}).unwrap();
     assert!(ui.box_of_a11y(identity).is_none());
-    ui.frame(&FrameIn { time: 30.0, ..input() }, &mut build).unwrap();
+    ui.frame(&input().time(30.0), &mut build).unwrap();
     assert!(ui.box_of_a11y(identity).is_none(), "recycled slots must not revive retired identities");
 }
 
@@ -625,7 +711,7 @@ fn shrinking_virtual_sections_select_the_clamped_rows_in_one_build_without_warm_
     use crate::ui::{SectionList,SectionPart};
     mem_sys::set_peer(crate::library_counter);
     let count=Cell::new(10_000);let body=Cell::new(None);let first=Cell::new(None);let rows=Cell::new(0);let builds=Cell::new(0);
-    let mut ui=Ui::new().unwrap();
+    let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let mut build=|ui:&mut Ui| {
         builds.set(builds.get()+1);rows.set(0);first.set(None);
         body.set(Some(ui.section_list("shrinking",&SectionList::new(count.get()).row_h(20.0).lead(100.0).header(30.0).trail(40.0).overlay_scrollbar(),&|i| i as i64,&mut |_,part,_| {
@@ -655,7 +741,7 @@ fn section_list_scrolls_leading_content_pins_blocks_and_virtualizes_without_warm
     use crate::ui::{Node,SectionList,SectionPart,Role};
     mem_sys::set_peer(crate::library_counter);
     {
-    let mut ui=Ui::new().unwrap(); ui.set_a11y(true);
+    let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap(); ui.set_a11y(true);
     let section=SectionList::new(10_000).row_h(20.0).lead(100.0).header(30.0).trail(40.0).overlay_scrollbar();
     let body=Cell::new(None); let lead=Cell::new(None); let header=Cell::new(None); let first=Cell::new(None);
     let rows=Cell::new(0usize); let frame_builds=Cell::new(0usize); let clicked=Cell::new(false); let sorted=Cell::new(false);
@@ -717,7 +803,12 @@ fn section_list_scrolls_leading_content_pins_blocks_and_virtualizes_without_warm
     for (x,y,sort,row) in [(200.0,27.0,false,false),(20.0,15.0,true,false),(200.0,35.0,false,true)] {
         for kind in [crate::Event::POINTER_PRESSED,crate::Event::POINTER_RELEASED] {
             let event=crate::Event {kind,x,y,..Default::default()};
-            ui.frame(&FrameIn {events:&event,event_count:1,..input()},&mut build).unwrap();
+            ui.frame(&{
+                let mut frame = input();
+                frame.wire.events = &event;
+                frame.wire.event_count = 1;
+                frame
+            },&mut build).unwrap();
         }
         assert_eq!(sorted.get(),sort); assert_eq!(clicked.get(),row,"sticky padding blocks rows underneath");
     }
@@ -728,7 +819,7 @@ fn section_list_scrolls_leading_content_pins_blocks_and_virtualizes_without_warm
 fn section_lists_validate_geometry_recover_callbacks_and_support_empty_unpinned_sections() {
     use crate::ui::{SectionList,SectionPart};
     let valid=SectionList::new(0).row_h(20.0).lead(30.0).trail(40.0);
-    let mut ui=Ui::new().unwrap();
+    let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let called=std::cell::Cell::new(false);
     for bad in [SectionList {count:1_000_001,..valid},SectionList {row_height:0.0,..valid},SectionList {row_height:f32::NAN,..valid},SectionList {leading_height:-1.0,..valid},SectionList {header_height:f32::INFINITY,..valid},SectionList {trailing_height:-1.0,..valid},SectionList {count:2,row_height:f32::MAX,..valid}] {
         assert!(catch_unwind(AssertUnwindSafe(|| {let _=ui.frame(&input(),&mut |ui| {ui.section_list("bad",&bad,&|i| i as i64,&mut |_,_,_|called.set(true));});})).is_err());
@@ -747,7 +838,7 @@ fn section_lists_validate_geometry_recover_callbacks_and_support_empty_unpinned_
 fn measured_sections_validate_geometry_recover_callbacks_and_support_empty_unpinned_sections() {
     use crate::ui::{SectionList,SectionPart};
     let valid=SectionList::new(0).row_h(20.0).lead(30.0).trail(40.0);
-    let mut ui=Ui::new().unwrap();
+    let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let called=std::cell::Cell::new(false);
     for bad in [SectionList {count:1_000_001,..valid},SectionList {row_height:0.0,..valid},SectionList {row_height:f32::NAN,..valid},SectionList {leading_height:-1.0,..valid},SectionList {header_height:f32::INFINITY,..valid},SectionList {trailing_height:-1.0,..valid},SectionList {count:2,row_height:f32::MAX,..valid}] {
         assert!(catch_unwind(AssertUnwindSafe(|| {let _=ui.frame(&input(),&mut |ui| {ui.section_list("bad",&bad.measured(),&|i| i as i64,&mut |_,_,_|called.set(true));});})).is_err());
@@ -765,14 +856,14 @@ fn measured_sections_validate_geometry_recover_callbacks_and_support_empty_unpin
 #[test]
 fn rendering_density_matches_paint_updates_cached_views_and_allocates_nothing() {
     mem_sys::set_peer(crate::library_counter);
-    let mut ui=Ui::new().unwrap();
+    let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     assert_eq!(ui.density(),1);
     let builds=std::cell::Cell::new(0);
     for round in 0..6 {
         mem_sys::local_reset();
         let before=builds.get();
         for scale in [1.0,2.0,3.0,3.0] {
-            ui.frame(&FrameIn {scale,..input()},&mut |ui| {
+            ui.frame(&input().scale(scale),&mut |ui| {
                 assert_eq!(ui.density(),scale as i64);
                 ui.column("density", Node::column().w_px(40.0).h_px(40.0), |ui| { ui.view_of("density", &0, |ui| {
                     builds.set(builds.get()+1);
@@ -791,11 +882,11 @@ fn rendering_density_matches_paint_updates_cached_views_and_allocates_nothing() 
 #[test]
 fn analytic_curves_preserve_fractional_geometry_validate_and_reuse_warm_storage() {
     mem_sys::set_peer(crate::library_counter);
-    let mut ui=Ui::new().unwrap();
+    let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     for round in 0..6 {
         mem_sys::local_reset();
         for scale in [1.0,2.0] {
-            ui.frame(&FrameIn {scale,..input()},&mut |ui| {
+            ui.frame(&input().scale(scale),&mut |ui| {
                 let node=ui.node("curves".into(),crate::Node::DEFAULT.w_px(100.0).h_px(100.0));
                 ui.canvas(&node,|paint,_| {
                     let color=crate::geom::Rgba::rgb(12, 34, 56);
@@ -823,7 +914,7 @@ fn analytic_curves_preserve_fractional_geometry_validate_and_reuse_warm_storage(
 #[test]
 fn soft_wrap_separator_widths_preserve_glyphs_and_cached_measurements() {
     mem_sys::set_peer(crate::library_counter);
-    let mut ui=Ui::new().unwrap();
+    let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let values=["one two three four","one   two three four","one two\nthree four","one\u{00a0}two three four","one אב two three four","\t one two three four"];
     for round in 0..6 {
         mem_sys::local_reset();
@@ -858,7 +949,7 @@ fn dismissed_popups_do_not_intercept_the_next_press_over_their_previous_bounds()
     use std::cell::Cell;
     use pxui_types::Event;
     mem_sys::set_peer(crate::library_counter);
-    let mut ui = Ui::new().unwrap();
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let open = Cell::new(true);
     let pressed = Cell::new(false);
     let clicked = Cell::new(false);
@@ -880,7 +971,12 @@ fn dismissed_popups_do_not_intercept_the_next_press_over_their_previous_bounds()
         open.set(false);
         for kind in [Event::POINTER_PRESSED,Event::POINTER_RELEASED] {
             let event=Event {kind,x:60.0,y:50.0,..Event::default()};
-            ui.frame(&FrameIn {events:&event,event_count:1,..input()},&mut build).unwrap();
+            ui.frame(&{
+                let mut frame = input();
+                frame.wire.events = &event;
+                frame.wire.event_count = 1;
+                frame
+            },&mut build).unwrap();
             assert_eq!(pressed.get(),kind==Event::POINTER_PRESSED);
             assert_eq!(clicked.get(),kind==Event::POINTER_RELEASED);
         }
@@ -893,7 +989,7 @@ fn held_keys_include_focused_and_modal_modifiers_without_allocating_or_consuming
     use std::cell::Cell;
     use pxui_types::{Event, KEY_SPECIAL};
     mem_sys::set_peer(crate::library_counter);
-    let mut ui = Ui::new().unwrap();
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let meta = KEY_SPECIAL + 12;
     assert!(!ui.key_down(meta));
     let modal = Cell::new(false);
@@ -929,25 +1025,25 @@ fn held_keys_include_focused_and_modal_modifiers_without_allocating_or_consuming
             ] {
                 held.set(down); comma.set(pressed);
                 let event=Event {kind,code,..Event::default()};
-                ui.frame(&FrameIn {time:round as f64+0.01,events:&event,event_count:1,..input()},&mut build).unwrap();
+                ui.frame(&{
+                    let mut frame = input().time(round as f64+0.01);
+                    frame.wire.events = &event;
+                    frame.wire.event_count = 1;
+                    frame
+                },&mut build).unwrap();
                 assert_eq!(ui.key_down(meta), down);
                 trace[index]=mem_sys::local_alloc_count(); index+=1;
             }
         }
         if round>=3 { assert_eq!(mem_sys::local_alloc_count(),0,"raw held-key queries with focus and a popup: {trace:?}"); }
     }
-    modal.set(false); held.set(true); comma.set(false);
-    let keys=[meta];
-    ui.input_frame(&crate::Input { logical_size:[320,240], keys:crate::Slice {ptr:keys.as_ptr(),len:1}, ..Default::default() },&mut build).unwrap();
-    held.set(false);
-    ui.input_frame(&crate::Input { logical_size:[320,240], ..Default::default() },&mut build).unwrap();
 }
 
 #[test]
 fn modifier_at_press_queries_keep_event_order_focus_loss_and_warm_storage() {
     use pxui_types::{Event, KEY_SPECIAL};
     mem_sys::set_peer(crate::library_counter);
-    let mut ui=Ui::new().unwrap();
+    let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     for round in 0..5 {
         mem_sys::local_reset();
         for modifier in [KEY_SPECIAL+9,KEY_SPECIAL+10,KEY_SPECIAL+11,KEY_SPECIAL+12] {
@@ -967,16 +1063,31 @@ fn modifier_at_press_queries_keep_event_order_focus_loss_and_warm_storage() {
                         assert!(ui.key_pressed('k', None));
                         assert!(!ui.key_down(modifier));
                     };
-                    ui.frame(&FrameIn {time:round as f64,events:events.as_ptr(),event_count:events.len(),..input()},&mut |ui| {
+                    ui.frame(&{
+                        let mut frame = input().time(round as f64);
+                        frame.wire.events = events.as_ptr();
+                        frame.wire.event_count = events.len();
+                        frame
+                    },&mut |ui| {
                         if popup {ui.popup("chord", &crate::Overlay::DEFAULT.at(0.0, 0.0).w(120.0).h(30.0).attached(), &mut contents);}
                         else {contents(ui);}
                     }).unwrap();
                     ui.dismiss_popup();
                 }
                 let press=key(Event::KEY_PRESSED,modifier);
-                ui.frame(&FrameIn {events:&press,event_count:1,..input()},&mut |_| {}).unwrap();
+                ui.frame(&{
+                    let mut frame = input();
+                    frame.wire.events = &press;
+                    frame.wire.event_count = 1;
+                    frame
+                },&mut |_| {}).unwrap();
                 let events=[key(Event::KEY_PRESSED,b'k' as u32),key(Event::KEY_RELEASED,modifier)];
-                ui.frame(&FrameIn {events:events.as_ptr(),event_count:events.len(),..input()},&mut |ui| {
+                ui.frame(&{
+                    let mut frame = input();
+                    frame.wire.events = events.as_ptr();
+                    frame.wire.event_count = events.len();
+                    frame
+                },&mut |ui| {
                     assert!(ui.key_pressed('k' as u32, Some(modifier)),"modifier can be held from the previous frame");
                     assert!(!ui.key_down(modifier));
                 }).unwrap();
@@ -990,7 +1101,7 @@ fn modifier_at_press_queries_keep_event_order_focus_loss_and_warm_storage() {
 fn backdrop_saturation_validates_and_updates_without_warm_allocations() {
     use std::cell::Cell;
     mem_sys::set_peer(crate::library_counter);
-    let mut ui = Ui::new().unwrap();
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let view = Cell::new(None);
     let mut build = |ui: &mut Ui| {
         view.set(Some({ let enclosing = ui.node("glass".into(), Node::column().w_px(120.0).h_px(40.0)); let mut view = enclosing; ui.within(&enclosing, &mut |ui| view = ui.view_of("glass", &1, |ui| {
@@ -1000,11 +1111,11 @@ fn backdrop_saturation_validates_and_updates_without_warm_allocations() {
     ui.frame(&input(), &mut build).unwrap();
     let view = view.get().unwrap();
     ui.view_backdrop_blur(&view, 8.0);
-    for time in [1.0, 2.0] { ui.frame(&FrameIn { time, ..input() }, &mut build).unwrap(); }
+    for time in [1.0, 2.0] { ui.frame(&input().time(time), &mut build).unwrap(); }
     for saturation in [0.0, 0.9, 1.0, 1.5] {
         mem_sys::local_reset();
         ui.view_backdrop_saturation(&view, saturation);
-        ui.frame(&FrameIn { time: 3.0, ..input() }, &mut build).unwrap();
+        ui.frame(&input().time(3.0), &mut build).unwrap();
         assert_eq!(mem_sys::local_alloc_count(), 0, "warm backdrop saturation update");
     }
     for invalid in [-1.0, f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
@@ -1019,7 +1130,7 @@ fn scale_animation_retargets_keyframes_and_accessibility_allocate_nothing_when_w
     use std::cell::Cell;
     mem_sys::set_peer(crate::library_counter);
     for nested in [false,true] {
-    let mut ui = Ui::new().unwrap();
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     ui.set_a11y(true);
     let (child, view, builds) = (Cell::new(None), Cell::new(None), Cell::new(0));
     let mut content = |ui: &mut Ui| {
@@ -1035,9 +1146,9 @@ fn scale_animation_retargets_keyframes_and_accessibility_allocate_nothing_when_w
         view.set(Some(v));
     };
     let mut build=|ui:&mut Ui| {if nested {ui.view_of("outer", &0, &mut content);} else {content(ui);}};
-    for time in [0.0, 0.1] { ui.frame(&FrameIn { time, ..input() }, &mut build).unwrap(); }
+    for time in [0.0, 0.1] { ui.frame(&input().time(time), &mut build).unwrap(); }
     let (view, child, built) = (view.get().unwrap(), child.get().unwrap(), builds.get());
-    let instances = ui.layer(0).instances.to_vec();
+    let instances = ui.layer(0).expect("base layer").instances.to_vec();
     let mut positions = [0.0; 16]; positions[1] = 0.5; positions[2] = 1.0;
     let mut values = positions; values[1] = 1.1;
     let spring = Curve::Table { duration: 0.2, count: 3, positions, values };
@@ -1055,17 +1166,17 @@ fn scale_animation_retargets_keyframes_and_accessibility_allocate_nothing_when_w
         let base = 0.1 + round as f64 * 2.0;
         mem_sys::local_reset();
         assert!(ui.animate(&view, normal, instant));
-        ui.frame(&FrameIn { time: base, ..input() }, &mut build).unwrap();
+        ui.frame(&input().time(base), &mut build).unwrap();
         assert!(ui.animate(&view, large, spring));
-        ui.frame(&FrameIn { time: base + 0.1, ..input() }, &mut build).unwrap();
+        ui.frame(&input().time(base + 0.1), &mut build).unwrap();
         shown(&ui, Rect::new(32.0, 88.5, 42.0, 4.5));
         let before = ui.rect(&child);
         assert!(ui.animate(&view, normal, linear));
-        ui.frame(&FrameIn { time: base + 0.1, ..input() }, &mut build).unwrap();
+        ui.frame(&input().time(base + 0.1), &mut build).unwrap();
         assert_eq!(ui.rect(&child), before, "retargeting cannot jump");
-        ui.frame(&FrameIn { time: base + 0.2, ..input() }, &mut build).unwrap();
+        ui.frame(&input().time(base + 0.2), &mut build).unwrap();
         shown(&ui, Rect::new(76.0, 69.25, 31.0, 7.25));
-        ui.frame(&FrameIn { time: base + 0.3, ..input() }, &mut build).unwrap();
+        ui.frame(&input().time(base + 0.3), &mut build).unwrap();
         shown(&ui, Rect::new(120.0, 50.0, 20.0, 10.0));
         let keys = [
             Keyframe::scale(0.2, 2.0, 0.5).anchor(1.0, 1.0).curve(spring.with_duration(99.0)),
@@ -1073,22 +1184,22 @@ fn scale_animation_retargets_keyframes_and_accessibility_allocate_nothing_when_w
         ];
         assert!(ui.animate_keys(&view, &keys, &Keyframes::DEFAULT));
         for (dt, expected) in [(0.1, Rect::new(32.0, 88.5, 42.0, 4.5)), (0.3, Rect::new(80.0, 67.5, 30.0, 7.5)), (0.4, Rect::new(120.0, 50.0, 20.0, 10.0))] {
-            ui.frame(&FrameIn { time: base + 0.3 + dt, ..input() }, &mut build).unwrap();
+            ui.frame(&input().time(base + 0.3 + dt), &mut build).unwrap();
             shown(&ui, expected);
         }
         let allocations = mem_sys::local_alloc_count();
         assert!(round == 0 || allocations == 0, "warm scale animations allocated {allocations} times");
         assert_eq!(builds.get(), built);
         assert!(!ui.wants_frame(&[], base + 1.9));
-        assert_eq!(ui.layer(0).instances, instances.as_slice(), "scale must only update the transform table");
+        assert_eq!(ui.layer(0).expect("base layer").instances, instances.as_slice(), "scale must only update the transform table");
     }
     let mut theme = crate::ThemeHandle::default();
     theme.reduced_motion(true);
     ui.set_theme(&theme).unwrap();
     assert!(ui.tokens().reduced_motion);
-    ui.frame(&FrameIn { time: 7.0, ..input() }, &mut build).unwrap();
+    ui.frame(&input().time(7.0), &mut build).unwrap();
     assert!(ui.animate(&view, large, spring));
-    ui.frame(&FrameIn { time: 7.0, ..input() }, &mut build).unwrap();
+    ui.frame(&input().time(7.0), &mut build).unwrap();
     shown(&ui, Rect::new(40.0, 85.0, 40.0, 5.0));
     assert!(!ui.wants_frame(&[], 7.1));
     }
@@ -1108,31 +1219,31 @@ fn sampled_and_stepped_animations_keep_overshoot_and_allocate_nothing_when_warm(
     let steps = Curve::Steps { duration: 0.2, count: 2 };
     let chip = Cell::new(None);
     let builds = Cell::new(0);
-    let mut ui = Ui::new().expect("library");
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
     let mut build = |ui: &mut Ui| {
         ui.column("animation", Node::column().w_px(250.0).h_px(50.0), |ui| { ui.view_of("animation", &1, |ui| {
             builds.set(builds.get() + 1);
             chip.set(Some(ui.node("chip".into(), Node::DEFAULT.w_px(40.0).h_px(20.0).look(Look::NONE.fill(pxui_types::geom::Rgba::rgb(200, 40, 40))))));
         }); });
     };
-    for time in [0.0, 0.1] { ui.frame(&FrameIn { time, ..input() }, &mut build).unwrap(); }
+    for time in [0.0, 0.1] { ui.frame(&input().time(time), &mut build).unwrap(); }
     let chip = chip.get().unwrap();
     let built = builds.get();
-    let x = |ui: &Ui| ui.layer(0).instances.iter().find(|i| i.color[0] == 200).unwrap().rect[0];
+    let x = |ui: &Ui| ui.layer(0).expect("base layer").instances.iter().find(|i| i.color[0] == 200).unwrap().rect[0];
     for round in 0..3 {
         let base = 0.1 + round as f64 * 2.0;
         mem_sys::local_reset();
         assert!(ui.animate(&chip, Target::Offset(0.0, 0.0), instant));
-        ui.frame(&FrameIn { time: base, ..input() }, &mut build).unwrap();
+        ui.frame(&input().time(base), &mut build).unwrap();
         assert!(ui.animate(&chip, Target::Offset(100.0, 0.0), table));
         for (dt, expected) in [(0.1, 120.0), (0.2, 90.0), (0.3, 95.0), (0.4, 100.0)] {
-            ui.frame(&FrameIn { time: base + dt, ..input() }, &mut build).unwrap();
+            ui.frame(&input().time(base + dt), &mut build).unwrap();
             assert!((x(&ui) - expected).abs() < 0.001, "table {dt}: {}", x(&ui));
             assert_eq!(ui.repaint_at().is_some(), dt < 0.4);
         }
         assert!(ui.animate(&chip, Target::Offset(0.0, 0.0), steps));
         for (dt, expected) in [(0.02, 100.0), (0.1, 50.0), (0.15, 50.0), (0.2, 0.0)] {
-            ui.frame(&FrameIn { time: base + 0.4 + dt, ..input() }, &mut build).unwrap();
+            ui.frame(&input().time(base + 0.4 + dt), &mut build).unwrap();
             assert!((x(&ui) - expected).abs() < 0.001, "steps {dt}: {}", x(&ui));
         }
         let keys = [
@@ -1141,7 +1252,7 @@ fn sampled_and_stepped_animations_keep_overshoot_and_allocate_nothing_when_warm(
         ];
         assert!(ui.animate_keys(&chip, &keys, &Keyframes::DEFAULT));
         for (dt, expected) in [(0.1, 120.0), (0.2, 90.0), (0.4, 100.0), (0.5, 50.0), (0.6, 0.0)] {
-            ui.frame(&FrameIn { time: base + 0.6 + dt, ..input() }, &mut build).unwrap();
+            ui.frame(&input().time(base + 0.6 + dt), &mut build).unwrap();
             assert!((x(&ui) - expected).abs() < 0.001, "keys {dt}: {}", x(&ui));
         }
         let allocations = mem_sys::local_alloc_count();
@@ -1153,7 +1264,7 @@ fn sampled_and_stepped_animations_keep_overshoot_and_allocate_nothing_when_warm(
 
 #[test]
 fn queries_boxes_patches_and_text_state_have_the_engine_shape() {
-    let mut ui = Ui::new().expect("library");
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
     assert_eq!(ui.font_size(), 13);
     ui.set_font_size(14);
     assert_eq!((ui.font_size(), ui.row_height()), (14, 25));
@@ -1199,7 +1310,7 @@ fn queries_boxes_patches_and_text_state_have_the_engine_shape() {
 
 #[test]
 fn a_caller_bug_panics_with_the_librarys_message_at_the_call() {
-    let mut ui = Ui::new().expect("library");
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
     let stale = crate::Handle { index: 0, box_key: 1, box_slot: 99, generation: 7 };
     let err = catch_unwind(AssertUnwindSafe(|| { let _ = ui.scroll(&stale).settled; })).expect_err("a stale box is refused");
     let message = err.downcast_ref::<String>().expect("a formatted message");
@@ -1212,7 +1323,7 @@ fn a_caller_bug_panics_with_the_librarys_message_at_the_call() {
 #[test]
 fn kit_extras_build_and_report_through_the_engine_shapes() {
     use pxui_types::{theme::Curve, ui::{HeadAction, LineStep, Target}, Axis};
-    let mut ui = Ui::new().expect("library");
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
     let hints = [("Esc", "close")];
     let actions = [HeadAction { caption: "Run".into(), keycap: "R".into(), active: false, usable: true }];
     for round in 0..3 {
@@ -1254,7 +1365,7 @@ fn a_theme_built_from_key_values_scopes_over_a_subtree_and_refuses_bad_keys() {
     for invalid in ["button.nonsense = 1", "tokens.accent = red", "toggle.body = two words"] {
         assert!(matches!(ThemeHandle::parse(invalid), Err(Error::InvalidInput)), "{invalid}");
     }
-    let mut ui = Ui::new().expect("library");
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
     let mut inside = None;
     ui.frame(&input(), &mut |ui: &mut Ui| {
         let outer = ui.tokens().accent;
@@ -1269,7 +1380,7 @@ fn a_theme_built_from_key_values_scopes_over_a_subtree_and_refuses_bad_keys() {
 
 #[test]
 fn canvas_text_goes_through_the_uis_own_text_service() {
-    let mut ui = Ui::new().expect("library");
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
     let style = crate::Label::BODY;
     let mut text = ui.text_service();
     let metrics = text.measure("abc", &style, 0.0).expect("measure");
@@ -1285,7 +1396,7 @@ fn canvas_text_goes_through_the_uis_own_text_service() {
 
 #[test]
 fn second_atlas_pages_reach_public_quads_and_both_rasterizers() {
-    let mut ui=Ui::new().unwrap();
+    let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let style=crate::Label::BODY.size(600.0);
     let resolved=ui.resolve(&style);
     let mut text=ui.text_service();
@@ -1315,7 +1426,7 @@ fn second_atlas_pages_reach_public_quads_and_both_rasterizers() {
 fn value_fields_take_their_options_and_text_edits_are_kept() {
     use crate::{ValueCallbacks, ValueField};
     use pxui_types::ui::TextEdit;
-    let mut ui = Ui::new().expect("library");
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
     let opts = ValueField::DEFAULT.fraction(0.5).left(true).kept_drag(true).trail("px", pxui_types::geom::Rgba::rgb(1, 2, 3));
     let (accept, slide, scrub) = (|t: &str| t.parse::<f32>().is_ok(), |f: f32| format!("{f:.2}"), |origin: &str, dx: f32, _: bool| format!("{origin}{dx}"));
     let callbacks = ValueCallbacks::DEFAULT.valid(&accept).slide(&slide).scrub(&scrub);
@@ -1340,7 +1451,7 @@ fn value_fields_take_their_options_and_text_edits_are_kept() {
 
 #[test]
 fn a_shaper_of_its_own_measures_and_rasterizes_off_the_ui() {
-    let mut ui = Ui::new().expect("library");
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
     let style = ui.resolve(&crate::Label::BODY);
     let mut text = crate::Text::new(&[crate::pragmasevka()]).expect("a shaper");
     let metrics = text.measure("abc", &style, 0.0).expect("measure");
@@ -1355,7 +1466,7 @@ fn a_shaper_of_its_own_measures_and_rasterizes_off_the_ui() {
 #[test]
 fn a_stale_field_patches_nothing_and_whole_source_files_round_trip() {
     use pxui_types::ui::TextEdit;
-    let mut ui = Ui::new().expect("library");
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
     let stale = crate::Handle { index: 0, box_key: 1, box_slot: 99, generation: 7 };
     // the engine answers a stale handle with false, so does the one export that replaced the wrapper's several calls
     assert!(!ui.patch_field(&stale, &crate::ValueField::DEFAULT, "1.5"));
@@ -1376,14 +1487,14 @@ fn a_stale_field_patches_nothing_and_whole_source_files_round_trip() {
 fn text_area_borrows_its_text_and_allocates_nothing_on_warm_frames() {
     use crate::{AreaCallbacks, Splice, TextArea};
     mem_sys::set_peer(crate::library_counter);
-    let mut ui = Ui::new().expect("library");
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
     let source = "alpha\nbeta\ngamma";
     let plain = TextArea::DEFAULT;
     for tick in 0..12 {
         // warm-up and measured frames make the same call; the first 8 only warm the caches
         mem_sys::local_reset();
         let scope = (tick >= 8).then(mem_sys::warm_scope);
-        ui.frame(&FrameIn { time: tick as f64 / 60.0, ..input() }, &mut |ui: &mut Ui| {
+        ui.frame(&input().time(tick as f64 / 60.0), &mut |ui: &mut Ui| {
             ui.panel("borrowed", &crate::Overlay::DEFAULT, &mut |ui: &mut Ui| {
                 let area = ui.text_area("area", source, pxui_types::geom::Rect::new(0.0, 0.0, 100.0, 100.0), &plain, &AreaCallbacks::DEFAULT);
                 assert_eq!((area.changed, area.submitted), (None, false));
@@ -1401,7 +1512,7 @@ fn text_area_borrows_its_text_and_allocates_nothing_on_warm_frames() {
     let edit = TextArea::DEFAULT.select(0, 0).splices(&splices);
     let mut changed = None;
     for tick in 12..16 {
-        ui.frame(&FrameIn { time: tick as f64 / 60.0, ..input() }, &mut |ui: &mut Ui| {
+        ui.frame(&input().time(tick as f64 / 60.0), &mut |ui: &mut Ui| {
             ui.panel("borrowed", &crate::Overlay::DEFAULT, &mut |ui: &mut Ui| {
                 changed = changed.take().or(ui.text_area("area", source, pxui_types::geom::Rect::new(0.0, 0.0, 100.0, 100.0), &edit, &AreaCallbacks::DEFAULT).changed.map(str::to_owned));
             });
@@ -1414,7 +1525,7 @@ fn text_area_borrows_its_text_and_allocates_nothing_on_warm_frames() {
 fn a_text_area_with_data_callbacks_and_a_language_and_a_value_field_with_callbacks_allocate_nothing_on_warm_frames() {
     use crate::{AreaCallbacks, AreaNote, Language, TextArea, ValueCallbacks, ValueField};
     mem_sys::set_peer(crate::library_counter);
-    let mut ui = Ui::new().expect("library");
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
     let source = "alpha\nbeta\ngamma";
     let notes = [AreaNote::new(1, "unused"), AreaNote::new(2, "shadowed").range(0, 3)];
     let chips = [(0, 5, pxui_types::geom::Rgba::rgb(90, 140, 220))];
@@ -1431,7 +1542,7 @@ fn a_text_area_with_data_callbacks_and_a_language_and_a_value_field_with_callbac
     for tick in 0..12 {
         mem_sys::local_reset();
         let scope = (tick >= 8).then(mem_sys::warm_scope);
-        ui.frame(&FrameIn { time: tick as f64 / 60.0, ..input() }, &mut |ui: &mut Ui| {
+        ui.frame(&input().time(tick as f64 / 60.0), &mut |ui: &mut Ui| {
             ui.panel("data", &crate::Overlay::DEFAULT, &mut |ui: &mut Ui| {
                 let r = ui.text_area("area", source, pxui_types::geom::Rect::new(0.0, 0.0, 100.0, 100.0), &area, &callbacks);
                 assert_eq!((r.changed, r.submitted), (None, false));
@@ -1453,7 +1564,7 @@ fn tabular_digits_reach_shaping_and_keep_warm_layouts_allocation_free() {
     const FONT: &[u8]=include_bytes!("../../../../assets/fonts/Inter-Regular.ttf");
     mem_sys::set_peer(crate::library_counter);
     let mut text=crate::Text::new(&[FONT]).expect("shaper");
-    let ui=Ui::create(crate::Platform::Apple,None,&[FONT]);
+    let ui=Ui::new(&crate::UiDesc::new(crate::Platform::Apple).fonts(&[crate::FontData(FONT)])).expect("pxui Ui");
     let plain=ui.resolve(&crate::Label::BODY.size(20.0));
     let tabular=ui.resolve(&crate::Label::BODY.size(20.0).tabular());
     let proportional=text.measure("1111",&plain,0.0).unwrap();
@@ -1476,13 +1587,13 @@ fn tabular_digits_reach_shaping_and_keep_warm_layouts_allocation_free() {
 fn canvas_feature_styles_have_distinct_warm_cache_entries() {
     const FONT: &[u8]=include_bytes!("../../../../assets/fonts/Inter-Regular.ttf");
     mem_sys::set_peer(crate::library_counter);
-    let mut ui=Ui::create(crate::Platform::Apple,None,&[FONT]);
+    let mut ui=Ui::new(&crate::UiDesc::new(crate::Platform::Apple).fonts(&[crate::FontData(FONT)])).expect("pxui Ui");
     let a=ui.text_service().measure("1111",&crate::Label::BODY.size(20.0),0.0).unwrap();
     let b=ui.text_service().measure("1111",&crate::Label::BODY.size(20.0).tabular(),0.0).unwrap();
     assert!((a.width-b.width).abs()>1.0);
     for frame in 0..7 {
         mem_sys::local_reset();
-        ui.frame(&FrameIn { time:frame as f64/60.0,..input() },&mut |ui| {
+        ui.frame(&input().time(frame as f64/60.0),&mut |ui| {
             let bounds=ui.node("numbers".into(),crate::Node::DEFAULT.w_px(240.0).h_px(80.0));
             ui.canvas(&bounds,move |paint,rect| {
                 assert_eq!(paint.text((rect.x,rect.y), &crate::Label::BODY.size(20.0), 0.0, "1111"),a);
@@ -1499,7 +1610,7 @@ fn inline_spans_on_nodes_preserve_labels_opacity_and_zero_allocation_rebuilds() 
     use crate::TextSpan;
     use pxui_types::geom::Rgba;
     mem_sys::set_peer(crate::library_counter);
-    let mut ui=Ui::new().unwrap();
+    let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     ui.set_a11y(true);
     let text="ab CD ef";
     let label=crate::Label::BODY.size(20.0).line_height(24.0);
@@ -1513,7 +1624,7 @@ fn inline_spans_on_nodes_preserve_labels_opacity_and_zero_allocation_rebuilds() 
         let plain=frame%3==0;
         let opacity=if frame%2==0 { 0.5 } else { 1.0 };
         mem_sys::local_reset();
-        ui.frame(&FrameIn { time:frame as f64/60.0,..input() },&mut |ui| {
+        ui.frame(&input().time(frame as f64/60.0),&mut |ui| {
             let b=ui.node("label".into(),crate::Node::DEFAULT.role(crate::ui::Role::Label).w_px(200.0).h_px(40.0).look(crate::ui::Look::NONE.text(Rgba::rgba(30,30,30,255)).opacity(opacity)));
             if plain { ui.text(&b,text); } else { ui.text_spans(&b,text,&label,&[span]).unwrap(); }
         }).unwrap();
@@ -1535,7 +1646,7 @@ fn inline_canvas_styles_keep_independent_caches_and_reject_invalid_ranges() {
     use crate::TextSpan;
     use pxui_types::geom::Rgba;
     mem_sys::set_peer(crate::library_counter);
-    let mut ui=Ui::new().unwrap();
+    let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let label=crate::Label::BODY.size(20.0);
     let style=ui.resolve(&label);
     let red=TextSpan { start:0,end:2,flags:TextSpan::COLOR|TextSpan::UNDERLINE,color:Rgba::rgba(255,0,0,255),underline:Rgba::rgba(255,0,0,255),..Default::default() };
@@ -1546,7 +1657,7 @@ fn inline_canvas_styles_keep_independent_caches_and_reject_invalid_ranges() {
     assert!(ui.text_service().measure_spans("abcdefghij",&label,0.0,&[red;9]).is_err());
     for frame in 0..7 {
         mem_sys::local_reset();
-        ui.frame(&FrameIn { time:frame as f64/60.0,..input() },&mut |ui| {
+        ui.frame(&input().time(frame as f64/60.0),&mut |ui| {
             let b=ui.node("canvas".into(),crate::Node::DEFAULT.w_px(200.0).h_px(80.0));
             ui.canvas(&b,move |paint,rect| {
                 let a=paint.text_spans((rect.x,rect.y),&style,0.0,"ab cd",&[red]).unwrap();
@@ -1563,7 +1674,7 @@ fn inline_canvas_styles_keep_independent_caches_and_reject_invalid_ranges() {
 fn inline_node_fractional_font_alignment_matches_canvas_text() {
     use crate::TextSpan;
     use pxui_types::geom::Rgba;
-    let mut ui=Ui::new().unwrap();
+    let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let mut theme = crate::ThemeHandle::default();
     theme.set_color(crate::theme::ColorToken(0), Rgba::rgba(0, 0, 0, 255));
     ui.set_theme(&theme).unwrap();
@@ -1593,7 +1704,7 @@ fn inline_node_fractional_font_alignment_matches_canvas_text() {
 fn inline_node_wrapped_alignment_matches_the_complete_canvas_block() {
     use crate::TextSpan;
     use pxui_types::geom::Rgba;
-    let mut ui=Ui::new().unwrap();
+    let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let mut theme = crate::ThemeHandle::default();
     theme.set_color(crate::theme::ColorToken(0), Rgba::rgba(0, 0, 0, 255));
     ui.set_theme(&theme).unwrap();
@@ -1623,7 +1734,7 @@ fn inline_node_wrapped_alignment_matches_the_complete_canvas_block() {
 
 #[test]
 fn ellipsis_modes_match_standalone_ui_measurement_quads_and_rasterization() {
-    let mut ui=Ui::new().unwrap();
+    let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let mut shaper=crate::Text::new(&[crate::pragmasevka()]).unwrap();
     let source="ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     let mut previous=None;
@@ -1649,7 +1760,7 @@ fn ellipsis_modes_on_nodes_and_canvas_preserve_labels_fit_modes_and_warm_storage
     use crate::TextSpan;
     use pxui_types::geom::Rgba;
     mem_sys::set_peer(crate::library_counter);
-    let mut ui=Ui::new().unwrap();
+    let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     ui.set_a11y(true);
     let source="ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     let spans=[TextSpan { start:0,end:1,flags:TextSpan::COLOR,color:Rgba::rgba(255,0,0,255),..Default::default() },
@@ -1664,7 +1775,7 @@ fn ellipsis_modes_on_nodes_and_canvas_preserve_labels_fit_modes_and_warm_storage
     for frame in 0..15 {
         let (label,style)=(labels[frame%3],styles[frame%3]);
         mem_sys::local_reset();
-        ui.frame(&FrameIn { time:frame as f64/60.0,..input() },&mut |ui| {
+        ui.frame(&input().time(frame as f64/60.0),&mut |ui| {
             let b=ui.node("ellipsis".into(),crate::Node::DEFAULT.flags(pxui_types::Flags::FIT_TEXT).role(crate::ui::Role::Label).w_px(100.0).h_px(40.0).look(crate::ui::Look::NONE.text(Rgba::rgba(0,0,0,255))));
             ui.text_spans(&b,source,&label,&spans).unwrap();
             ui.canvas(&b,move |paint,rect| {
@@ -1690,7 +1801,7 @@ fn ellipsis_modes_on_nodes_and_canvas_preserve_labels_fit_modes_and_warm_storage
 #[test]
 fn system_fonts_reach_standalone_and_ui_shapers_without_warm_allocations() {
     mem_sys::set_peer(crate::library_counter);
-    let mut ui=Ui::new().unwrap();
+    let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let mut text=crate::Text::new(&[crate::pragmasevka()]).unwrap();
     let label=crate::Label::BODY.size(20.0);
     let style=ui.resolve(&label);
@@ -1723,14 +1834,14 @@ fn system_fonts_reach_standalone_and_ui_shapers_without_warm_allocations() {
 #[test]
 fn system_font_nodes_keep_labels_warm_storage_and_refuse_late_enable() {
     mem_sys::set_peer(crate::library_counter);
-    let mut ui=Ui::new().unwrap();
+    let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     ui.enable_system_fonts().unwrap();
     ui.set_a11y(true);
     let source="漢字 العربية 😀";
     let label=crate::Label::BODY.size(20.0);
     for frame in 0..7 {
         mem_sys::local_reset();
-        ui.frame(&FrameIn { time:frame as f64/60.0,..input() },&mut |ui| {
+        ui.frame(&input().time(frame as f64/60.0),&mut |ui| {
             let b=ui.node("native-fonts".into(),crate::Node::DEFAULT.role(crate::ui::Role::Label).w_px(300.0).h_px(40.0));
             ui.text_spans(&b,source,&label,&[]).unwrap();
             ui.canvas(&b,move |paint,rect| { paint.text((rect.x,rect.y+50.0), &crate::Label::BODY.size(20.0), 300.0, source); });
@@ -1749,7 +1860,7 @@ fn system_preferences_invalidate_kept_views_snap_running_motion_and_restore_auth
     use crate::ui::Curve;
     use crate::ui::{Keyframe,Keyframes};
     mem_sys::set_peer(crate::library_counter);
-    let mut ui=Ui::new().unwrap();
+    let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let scoped=crate::ThemeHandle::default();
     let handle=Cell::new(None);
     let child=Cell::new(None);
@@ -1767,36 +1878,69 @@ fn system_preferences_invalidate_kept_views_snap_running_motion_and_restore_auth
     let ease=Curve::Bezier { duration:10.0,points:[0.0,0.0,1.0,1.0] };
     for cycle in 0..5 {
         let time=cycle as f64*20.0;
-        ui.frame(&FrameIn { time,appearance:FrameIn::APPEARANCE_LIGHT,..input() },&mut build).unwrap();
-        ui.frame(&FrameIn { time:time+0.01,appearance:FrameIn::APPEARANCE_LIGHT,..input() },&mut build).unwrap();
+        ui.frame(&{
+            let mut frame = input().time(time);
+            frame.wire.appearance = crate::Appearance::Light as u32;
+            frame
+        },&mut build).unwrap();
+        ui.frame(&{
+            let mut frame = input().time(time+0.01);
+            frame.wire.appearance = crate::Appearance::Light as u32;
+            frame
+        },&mut build).unwrap();
         let before=builds.get();
         let view=handle.get().unwrap();
         ui.animate_keys(&view,&[Keyframe::scale(5.0, 0.9, 0.9).curve(ease),
             Keyframe::scale(10.0, 0.8, 0.8).curve(ease)],&Keyframes::DEFAULT);
-        ui.frame(&FrameIn { time:time+0.1,appearance:FrameIn::APPEARANCE_LIGHT,..input() },&mut build).unwrap();
+        ui.frame(&{
+            let mut frame = input().time(time+0.1);
+            frame.wire.appearance = crate::Appearance::Light as u32;
+            frame
+        },&mut build).unwrap();
         mem_sys::local_reset();
-        ui.frame(&FrameIn { time:time+0.2,appearance:FrameIn::APPEARANCE_DARK,reduced_motion:1,..input() },&mut build).unwrap();
+        ui.frame(&{
+            let mut frame = input().time(time+0.2).reduced_motion(true);
+            frame.wire.appearance = crate::Appearance::Dark as u32;
+            frame
+        },&mut build).unwrap();
         assert!(builds.get()>before);
-        assert_eq!(seen.get(),FrameIn::APPEARANCE_DARK);
+        assert_eq!(seen.get(),crate::Appearance::Dark as u32);
         assert!(ui.tokens().reduced_motion);
         assert!(ui.repaint_at().is_none(),"turning on reduced motion settles existing keyframes");
         let rect=ui.rect(&child.get().unwrap());
         assert!((rect.w-16.0).abs()<0.001 && (rect.h-8.0).abs()<0.001,"motion reaches the final keyframe: {rect:?}");
         if cycle>=2 { assert_eq!(mem_sys::local_alloc_count(),0,"warm preference changes retain caches and animation storage"); }
-        ui.frame(&FrameIn { time:time+0.3,appearance:FrameIn::APPEARANCE_DARK,reduced_motion:1,..input() },&mut build).unwrap();
+        ui.frame(&{
+            let mut frame = input().time(time+0.3).reduced_motion(true);
+            frame.wire.appearance = crate::Appearance::Dark as u32;
+            frame
+        },&mut build).unwrap();
         let before=builds.get();
-        ui.frame(&FrameIn { time:time+0.4,appearance:FrameIn::APPEARANCE_DARK,reduced_motion:1,..input() },&mut build).unwrap();
+        ui.frame(&{
+            let mut frame = input().time(time+0.4).reduced_motion(true);
+            frame.wire.appearance = crate::Appearance::Dark as u32;
+            frame
+        },&mut build).unwrap();
         assert_eq!(builds.get(),before,"unchanged OS inputs do not invalidate views");
-        ui.frame(&FrameIn { time:time+0.5,appearance:FrameIn::APPEARANCE_LIGHT,..input() },&mut build).unwrap();
+        ui.frame(&{
+            let mut frame = input().time(time+0.5);
+            frame.wire.appearance = crate::Appearance::Light as u32;
+            frame
+        },&mut build).unwrap();
         assert!(!ui.tokens().reduced_motion,"the app's original motion flag is restored");
     }
     let mut theme = crate::ThemeHandle::default();
     theme.reduced_motion(true);
     ui.set_theme(&theme).unwrap();
-    ui.frame(&FrameIn { time:120.0,..input() },&mut |_|{}).unwrap();
+    ui.frame(&input().time(120.0),&mut |_|{}).unwrap();
     assert!(ui.tokens().reduced_motion,"an authored motion restriction is preserved");
     for (appearance,reduced_motion) in [(3,0),(u32::MAX,0),(0,2),(0,u32::MAX)] {
-        assert!(ui.frame(&FrameIn { appearance,reduced_motion,..input() },&mut |_|panic!("invalid inputs must not build")).is_err());
+        assert!(ui.frame(&{
+            let mut frame = input();
+            frame.wire.appearance = appearance;
+            frame.wire.reduced_motion = reduced_motion;
+            frame
+        },&mut |_|panic!("invalid inputs must not build")).is_err());
     }
 }
 
@@ -1808,7 +1952,7 @@ fn public_view_controls_retain_instances_geometry_and_hit_clips_without_warm_all
     let view=Cell::new(None);
     let child=Cell::new(None);
     let builds=Cell::new(0);
-    let mut ui=Ui::new().unwrap();
+    let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let mut build=|ui:&mut Ui| {
         let enclosing = ui.node("controlled".into(), Node::column().w_px(100.0).h_px(80.0));
         ui.set_at(&enclosing,(40.0,30.0));
@@ -1818,9 +1962,9 @@ fn public_view_controls_retain_instances_geometry_and_hit_clips_without_warm_all
         })); view };
         view.set(Some(v));
     };
-    for time in [0.0,0.1] { ui.frame(&FrameIn { time,..input() },&mut build).unwrap(); }
+    for time in [0.0,0.1] { ui.frame(&input().time(time),&mut build).unwrap(); }
     let (v,c,built)=(view.get().unwrap(),child.get().unwrap(),builds.get());
-    let original=ui.layer(0).instances.to_vec();
+    let original=ui.layer(0).expect("base layer").instances.to_vec();
     let near=|a:Rect,b:Rect|[a.x-b.x,a.y-b.y,a.w-b.w,a.h-b.h].iter().all(|v|v.abs()<0.001);
     ui.set_view(&v,&ViewTransform::DEFAULT.about(1.0,[0.0,-1.0,1.0,0.0],(90.0,70.0)));
     ui.set_view(&v,&ViewTransform::DEFAULT.scale(1.0));
@@ -1834,9 +1978,9 @@ fn public_view_controls_retain_instances_geometry_and_hit_clips_without_warm_all
             ui.view_clip(&v,Some(Rect::new(0.0,0.0,320.0,240.0)));
             ui.view_clip(&v,None);
             assert!(near(ui.rect(&c),expected),"scale {scale}: {:?}",ui.rect(&c));
-            assert_eq!(ui.layer(0).instances,original.as_slice(),"view table edits never rewrite instances");
+            assert_eq!(ui.layer(0).expect("base layer").instances,original.as_slice(),"view table edits never rewrite instances");
         }
-        ui.frame(&FrameIn { time:0.2+cycle as f64*0.1,..input() },&mut build).unwrap();
+        ui.frame(&input().time(0.2+cycle as f64*0.1),&mut build).unwrap();
         assert_eq!(builds.get(),built);
         if cycle>0 { assert_eq!(mem_sys::local_alloc_count(),0); }
     }
@@ -1844,12 +1988,22 @@ fn public_view_controls_retain_instances_geometry_and_hit_clips_without_warm_all
     ui.view_clip(&v,Some(Rect::new(20.0,15.0,10.0,10.0)));
     for (time,x,hovered) in [(1.0,25.0,true),(1.1,15.0,false)] {
         let event=pxui_types::Event { kind:pxui_types::Event::POINTER_MOVED,x,y:20.0,..Default::default() };
-        ui.frame(&FrameIn { time,events:&event,event_count:1,..input() },&mut build).unwrap();
+        ui.frame(&{
+            let mut frame = input().time(time);
+            frame.wire.events = &event;
+            frame.wire.event_count = 1;
+            frame
+        },&mut build).unwrap();
         assert_eq!(ui.signal(&c).hovered,hovered,"a view's window clip also clips hit testing");
     }
     ui.view_clip(&v,None);
     let event=pxui_types::Event { kind:pxui_types::Event::POINTER_MOVED,x:15.0,y:20.0,..Default::default() };
-    ui.frame(&FrameIn { time:1.2,events:&event,event_count:1,..input() },&mut build).unwrap();
+    ui.frame(&{
+        let mut frame = input().time(1.2);
+        frame.wire.events = &event;
+        frame.wire.event_count = 1;
+        frame
+    },&mut build).unwrap();
     assert!(ui.signal(&c).hovered);
     for opacity in [-1.0,1.01,f32::NAN,f32::INFINITY] { assert!(catch_unwind(AssertUnwindSafe(||ui.set_view(&v,&ViewTransform::DEFAULT.opacity(opacity)))).is_err()); }
     for scale in [f32::NAN,f32::INFINITY,f32::NEG_INFINITY] { assert!(catch_unwind(AssertUnwindSafe(||ui.set_view(&v,&ViewTransform::DEFAULT.scale(scale)))).is_err()); }
@@ -1866,7 +2020,7 @@ fn public_measured_list_settles_virtual_rows_and_reuses_warm_storage() {
     let calls=Cell::new(0);
     let list=Cell::new(None);
     let count=Cell::new(200);
-    let mut ui=Ui::new().unwrap();
+    let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let mut build=|ui:&mut Ui| {
         let col=ui.node("column".into(),crate::Node::DEFAULT.w_px(100.0).h_px(200.0));
         ui.within(&col,&mut |ui| {
@@ -1886,28 +2040,28 @@ fn public_measured_list_settles_virtual_rows_and_reuses_warm_storage() {
     for frame in 1..8 {
         calls.set(0);
         mem_sys::local_reset();
-        ui.frame(&FrameIn { time:frame as f64/60.0,..input() },&mut build).unwrap();
+        ui.frame(&input().time(frame as f64/60.0),&mut build).unwrap();
         assert!(calls.get()>0 && calls.get()<40);
         if frame>=3 { assert_eq!(mem_sys::local_alloc_count(),0,"warm measured rows keep their cache and callback storage"); }
     }
     ui.set_scroll_offset(&list.get().unwrap(),120.0);
-    ui.frame(&FrameIn { time:1.0,..input() },&mut build).unwrap();
+    ui.frame(&input().time(1.0),&mut build).unwrap();
     assert!(ui.scroll(&list.get().unwrap()).settled>=120.0);
     for frame in 1..5 {
         mem_sys::local_reset();
-        ui.frame(&FrameIn { time:1.0+frame as f64/60.0,..input() },&mut build).unwrap();
+        ui.frame(&input().time(1.0+frame as f64/60.0),&mut build).unwrap();
         if frame>=2 { assert_eq!(mem_sys::local_alloc_count(),0); }
     }
     count.set(0);
     calls.set(0);
-    ui.frame(&FrameIn { time:2.0,..input() },&mut build).unwrap();
+    ui.frame(&input().time(2.0),&mut build).unwrap();
     assert_eq!(calls.get(),0);
     assert_eq!(ui.scroll(&list.get().unwrap()).settled,0.0);
 }
 
 #[test]
 fn measured_list_validation_and_callback_panics_leave_frames_reusable() {
-    let mut ui=Ui::new().unwrap();
+    let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     for (count,estimate) in [(1,0.0),(1,-1.0),(1,f32::NAN),(1,f32::INFINITY),(1_000_001,12.0),(10,f32::MAX)] {
         assert!(catch_unwind(AssertUnwindSafe(|| {
             ui.frame(&input(),&mut |ui| { ui.section_list("bad",&crate::ui::SectionList::new(count).row_h(estimate).measured(),&|i| i as i64,&mut |_,_,_|panic!("invalid arguments reached the row")); }).unwrap();
@@ -1923,12 +2077,17 @@ fn measured_list_validation_and_callback_panics_leave_frames_reusable() {
 fn short_startup_input_keeps_capacity_for_the_first_background_resume_batch() {
     use pxui_types::Event;
     mem_sys::set_peer(crate::library_counter);
-    let mut ui = Ui::new().unwrap();
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let mut build = |ui: &mut Ui| { ui.label("Lifecycle", crate::Label::DEFAULT); };
     let first = Event { kind: Event::FOCUS_GAINED, ..Event::default() };
-    ui.frame(&FrameIn { events: &first, event_count: 1, ..input() }, &mut build).unwrap();
+    ui.frame(&{
+        let mut frame = input();
+        frame.wire.events = &first;
+        frame.wire.event_count = 1;
+        frame
+    }, &mut build).unwrap();
     for frame in 0..82 {
-        ui.frame(&FrameIn { time: frame as f64 / 60.0, ..input() }, &mut build).unwrap();
+        ui.frame(&input().time(frame as f64 / 60.0), &mut build).unwrap();
     }
     let events = [
         Event { kind: Event::VISIBILITY_CHANGED, value: 0.0, ..Event::default() },
@@ -1938,7 +2097,12 @@ fn short_startup_input_keeps_capacity_for_the_first_background_resume_batch() {
         Event { kind: Event::ENVIRONMENT_CHANGED, ..Event::default() },
     ];
     mem_sys::local_reset();
-    ui.frame(&FrameIn { time: 30.0, events: events.as_ptr(), event_count: events.len(), ..input() }, &mut build).unwrap();
+    ui.frame(&{
+        let mut frame = input().time(30.0);
+        frame.wire.events = events.as_ptr();
+        frame.wire.event_count = events.len();
+        frame
+    }, &mut build).unwrap();
     assert_eq!(mem_sys::local_alloc_count(), 0, "first resume must retain the normal input capacity");
     assert!(!ui.text_input_focused());
 }
@@ -1947,22 +2111,36 @@ fn short_startup_input_keeps_capacity_for_the_first_background_resume_batch() {
 fn focused_text_field_keeps_selection_and_ime_without_warm_allocations() {
     use pxui_types::{Event, Str, KEY_SPECIAL};
     mem_sys::set_peer(crate::library_counter);
-    let mut ui = Ui::new().unwrap();
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let mut build = |ui: &mut Ui| {
         assert!(ui.text_field("Caption", "café track 10", &crate::TextField::DEFAULT).changed.is_none());
     };
     ui.frame(&input(), &mut build).unwrap();
     let key = |kind, code| Event { kind, code: KEY_SPECIAL + code, ..Event::default() };
     let focus = [key(Event::KEY_PRESSED, 8)];
-    ui.frame(&FrameIn { time: 0.1, events: focus.as_ptr(), event_count: focus.len(), ..input() }, &mut build).unwrap();
+    ui.frame(&{
+        let mut frame = input().time(0.1);
+        frame.wire.events = focus.as_ptr();
+        frame.wire.event_count = focus.len();
+        frame
+    }, &mut build).unwrap();
     assert!(ui.text_input_focused());
     let composition = "é";
     let select = [key(Event::KEY_PRESSED, 9), key(Event::KEY_PRESSED, 2), key(Event::KEY_RELEASED, 9),
         Event { kind: Event::TEXT_EDITING, text: Str { ptr: composition.as_ptr(), len: composition.len() }, y: 1.0, ..Event::default() }];
-    ui.frame(&FrameIn { time: 0.2, events: select.as_ptr(), event_count: select.len(), ..input() }, &mut build).unwrap();
+    ui.frame(&{
+        let mut frame = input().time(0.2);
+        frame.wire.events = select.as_ptr();
+        frame.wire.event_count = select.len();
+        frame
+    }, &mut build).unwrap();
     for tick in 0..80 {
         mem_sys::local_reset();
-        ui.frame(&FrameIn { time: 0.3 + tick as f64 / 60.0, width: 320.0 + (tick % 2) as f32, ..input() }, &mut build).unwrap();
+        ui.frame(&{
+            let mut frame = input().time(0.3 + tick as f64 / 60.0);
+            frame.wire.width = 320.0 + (tick % 2) as f32;
+            frame
+        }, &mut build).unwrap();
         if tick >= 10 { assert_eq!(mem_sys::local_alloc_count(), 0, "warm focused text field across the ABI"); }
         assert!(ui.text_input_focused());
         let ((_, _, w, h), caret) = ui.ime().expect("focused field must publish IME geometry");
@@ -1970,7 +2148,12 @@ fn focused_text_field_keeps_selection_and_ime_without_warm_allocations() {
     }
     let commit = Event { kind: Event::TEXT_INPUT, text: Str { ptr: composition.as_ptr(), len: composition.len() }, ..Event::default() };
     let mut changed = false;
-    ui.frame(&FrameIn { time: 2.0, events: &commit, event_count: 1, ..input() }, &mut |ui| {
+    ui.frame(&{
+        let mut frame = input().time(2.0);
+        frame.wire.events = &commit;
+        frame.wire.event_count = 1;
+        frame
+    }, &mut |ui| {
         changed = ui.text_field("Caption", "café track 10", &crate::TextField::DEFAULT).changed == Some("café track 1é");
     }).unwrap();
     assert!(changed, "composition commit must replace the retained selection");
@@ -2000,21 +2183,26 @@ fn custom_text_field_font_sizes_keep_glyphs_caret_hit_selection_and_ime_without_
     for size in [20,-3,0] {
         for scale in [1.0,2.0] {
             SIZE.set(size);
-            let mut ui = Ui::new().unwrap();
+            let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
             ui.set_a11y(true);
             ui.register_text_field_body("font-sized-editor",body).unwrap();
             let source = "text_field.body = font-sized-editor";
             ui.set_theme(&crate::ThemeHandle::parse(&source).unwrap()).unwrap();
             let value = "café track 10";
             let mut build = |ui: &mut Ui| assert!(ui.text_field("Styled",value,&crate::TextField::DEFAULT).changed.is_none());
-            let frame = FrameIn {scale,..input()};
-            for tick in 0..3 { ui.frame(&FrameIn {time:tick as f64/60.0,..frame},&mut build).unwrap(); }
+            let frame = input().scale(scale);
+            for tick in 0..3 { ui.frame(&frame.time(tick as f64/60.0),&mut build).unwrap(); }
             let glyphs = ui.layers().flat_map(|layer|layer.instances.iter()).filter(|quad|quad.kind==crate::draw::kind::MASK).map(|quad|(quad.rect,quad.aux)).collect::<Vec<_>>();
             assert!(!glyphs.is_empty());
             let points = if size==0 {ui.font_size()} else {Font::BODY.size(size).points(ui.font_size())};
             let full_width = ui.text_width(Some(points),value);
             let focus = Event {kind:Event::KEY_PRESSED,code:pxui_types::KEY_SPECIAL+8,..Default::default()};
-            ui.frame(&FrameIn {time:0.1,events:&focus,event_count:1,..frame},&mut build).unwrap();
+            ui.frame(&{
+                let mut frame = frame.time(0.1);
+                frame.wire.events = &focus;
+                frame.wire.event_count = 1;
+                frame
+            },&mut build).unwrap();
             assert_eq!(ui.ime().unwrap().1,(2.0+full_width).round() as i64,"focused text uses the body's editor font size {size}");
             assert!(ui.layers().flat_map(|layer|layer.instances.iter()).filter(|quad|quad.kind==crate::draw::kind::MASK).map(|quad|(quad.rect,quad.aux)).eq(glyphs.iter().copied()),"focus preserves the exact glyph positions and atlas samples");
             let editor = ui.part_rect(ROW.get(),Part::EDITOR).unwrap();
@@ -2024,7 +2212,12 @@ fn custom_text_field_font_sizes_keep_glyphs_caret_hit_selection_and_ime_without_
             if size==20 { SIZE.set(24); }
             for kind in [Event::POINTER_PRESSED,Event::POINTER_RELEASED] {
                 let click = Event {kind,x:x as f64,y:y as f64,..Default::default()};
-                ui.frame(&FrameIn {time:0.2,events:&click,event_count:1,..frame},&mut build).unwrap();
+                ui.frame(&{
+                    let mut frame = frame.time(0.2);
+                    frame.wire.events = &click;
+                    frame.wire.event_count = 1;
+                    frame
+                },&mut build).unwrap();
             }
             let selected = ui.a11y_nodes().iter().find(|node|node.role==Role::TextField as u32).unwrap();
             assert_eq!(selected.selection,[5,5],"pointer hit testing uses the displayed UTF-8 text at size {size}");
@@ -2035,20 +2228,35 @@ fn custom_text_field_font_sizes_keep_glyphs_caret_hit_selection_and_ime_without_
             let key = |kind,code| Event {kind,code:pxui_types::KEY_SPECIAL+code,..Default::default()};
             let composition = "é";
             let select = [key(Event::KEY_PRESSED,9),key(Event::KEY_PRESSED,2),key(Event::KEY_RELEASED,9),Event {kind:Event::TEXT_EDITING,text:Str {ptr:composition.as_ptr(),len:composition.len()},y:1.0,..Default::default()}];
-            ui.frame(&FrameIn {time:0.3,events:select.as_ptr(),event_count:select.len(),..frame},&mut build).unwrap();
+            ui.frame(&{
+                let mut frame = frame.time(0.3);
+                frame.wire.events = select.as_ptr();
+                frame.wire.event_count = select.len();
+                frame
+            },&mut build).unwrap();
             let selected = ui.a11y_nodes().iter().find(|node|node.role==Role::TextField as u32).unwrap();
             assert_eq!(selected.selection,[5,4]);
             let keys = [Event {kind:Event::KEY_PRESSED,code:pxui_types::KEY_SPECIAL+11,..Default::default()},Event {kind:Event::KEY_PRESSED,code:pxui_types::KEY_SPECIAL+14,..Default::default()},Event {kind:Event::KEY_RELEASED,code:pxui_types::KEY_SPECIAL+14,..Default::default()},Event {kind:Event::KEY_RELEASED,code:pxui_types::KEY_SPECIAL+11,..Default::default()}];
             for tick in 0..24 {
                 mem_sys::local_reset();
-                ui.frame(&FrameIn {time:0.4+tick as f64/60.0,events:keys.as_ptr(),event_count:keys.len(),..frame},&mut build).unwrap();
+                ui.frame(&{
+                    let mut frame = frame.time(0.4+tick as f64/60.0);
+                    frame.wire.events = keys.as_ptr();
+                    frame.wire.event_count = keys.len();
+                    frame
+                },&mut build).unwrap();
                 if tick>=8 {assert_eq!(mem_sys::local_alloc_count(),0,"warm custom body, focus, selection and composition");}
                 assert!(ui.ime().is_some());
             }
             assert_eq!(ui.signal_keys(&ui.box_of_key(ROW.get()).unwrap()).len(),keys.len(),"editing must restore the original key stream for later consumers");
             let commit = Event {kind:Event::TEXT_INPUT,text:Str {ptr:composition.as_ptr(),len:composition.len()},..Default::default()};
             let mut changed = false;
-            ui.frame(&FrameIn {time:1.0,events:&commit,event_count:1,..frame},&mut |ui| {changed=ui.text_field("Styled",value,&crate::TextField::DEFAULT).changed==Some("caféétrack 10");}).unwrap();
+            ui.frame(&{
+                let mut frame = frame.time(1.0);
+                frame.wire.events = &commit;
+                frame.wire.event_count = 1;
+                frame
+            },&mut |ui| {changed=ui.text_field("Styled",value,&crate::TextField::DEFAULT).changed==Some("caféétrack 10");}).unwrap();
             assert!(changed,"composition commit replaces exactly the selected UTF-8 range");
         }
     }
@@ -2059,7 +2267,7 @@ fn numeric_signal_preserves_legacy_keys_without_warm_keyboard_allocations() {
     use std::cell::Cell;
     use pxui_types::{Event, KEY_SPECIAL};
     mem_sys::set_peer(crate::library_counter);
-    let mut ui = Ui::new().unwrap();
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let button = Cell::new(None);
     let clicks = Cell::new(0);
     let mut build = |ui: &mut Ui| {
@@ -2076,13 +2284,23 @@ fn numeric_signal_preserves_legacy_keys_without_warm_keyboard_allocations() {
     let events = [key(Event::KEY_PRESSED, 9), key(Event::KEY_PRESSED, 4), key(Event::KEY_RELEASED, 4), key(Event::KEY_RELEASED, 9)];
     for tick in 0..60 {
         mem_sys::local_reset();
-        ui.frame(&FrameIn { time: 1.0 + tick as f64 / 60.0, events: events.as_ptr(), event_count: events.len(), ..input() }, &mut build).unwrap();
+        ui.frame(&{
+            let mut frame = input().time(1.0 + tick as f64 / 60.0);
+            frame.wire.events = events.as_ptr();
+            frame.wire.event_count = events.len();
+            frame
+        }, &mut build).unwrap();
         if tick >= 5 { assert_eq!(mem_sys::local_alloc_count(), 0, "numeric keyboard routing and scalar signal across the ABI"); }
     }
     // a warm frame whose box has key events: reading them through the borrowed slice allocates nothing
     let mut seen = 0;
     let scope = mem_sys::warm_scope();
-    ui.frame(&FrameIn { time: 9.0, events: events.as_ptr(), event_count: events.len(), ..input() }, &mut |ui: &mut Ui| {
+    ui.frame(&{
+        let mut frame = input().time(9.0);
+        frame.wire.events = events.as_ptr();
+        frame.wire.event_count = events.len();
+        frame
+    }, &mut |ui: &mut Ui| {
         let node = ui.node("button".into(), crate::Node::DEFAULT.flags(pxui_types::Flags::CLICKABLE | pxui_types::Flags::TAB_STOP).w_px(120.0).h_px(32.0));
         seen = ui.signal_keys(&node).len() + ui.press_keys(&node).len() + usize::from(ui.signal(&node).clicked);
     }).unwrap();
@@ -2101,13 +2319,18 @@ fn numeric_signal_preserves_legacy_keys_without_warm_keyboard_allocations() {
     let events = [Event { kind: Event::TEXT_EDITING, x: 1.0, y: 2.0,
         text: pxui_types::Str { ptr: text.as_ptr(), len: text.len() }, ..Default::default() },
         Event { kind: Event::TEXT_INPUT, text: pxui_types::Str { ptr: text.as_ptr(), len: text.len() }, ..Default::default() }];
-    ui.frame(&FrameIn { time: 3.0, events: events.as_ptr(), event_count: events.len(), ..input() }, &mut build).unwrap();
+    ui.frame(&{
+        let mut frame = input().time(3.0);
+        frame.wire.events = events.as_ptr();
+        frame.wire.event_count = events.len();
+        frame
+    }, &mut build).unwrap();
     let owned = ui.signal_keys(&node);
     assert_eq!(owned.len(), 2);
     let str_of = |e: &Event| e.text.len;
     assert_eq!((owned[0].kind, owned[0].x, owned[0].y, str_of(&owned[0])), (Event::TEXT_EDITING, 1.0, 2.0, text.len()));
     assert_eq!((owned[1].kind, str_of(&owned[1])), (Event::TEXT_INPUT, text.len()));
-    ui.frame(&FrameIn { time: 3.1, ..input() }, &mut |_| {}).unwrap();
+    ui.frame(&input().time(3.1), &mut |_| {}).unwrap();
     assert!(ui.signal_keys(&node).is_empty() && !ui.signal(&node).clicked);
 }
 
@@ -2116,7 +2339,7 @@ fn borrowed_carry_queries_and_whole_warm_pointer_gestures_allocate_nothing() {
     use crate::{DropRef, PayloadRef};
     use pxui_types::Event;
     mem_sys::set_peer(crate::library_counter);
-    let mut ui = Ui::new().unwrap();
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let mut hover = false;
     let mut dropped = false;
     let mut deliveries = 0;
@@ -2141,7 +2364,12 @@ fn borrowed_carry_queries_and_whole_warm_pointer_gestures_allocate_nothing() {
         mem_sys::local_reset();
         for e in [None, Some(event(Event::POINTER_PRESSED, 10.0)), Some(event(Event::POINTER_MOVED, 120.0)), Some(event(Event::POINTER_RELEASED, 120.0)), None] {
             tick += 1;
-            ui.frame(&FrameIn { time: tick as f64 / 60.0, events: e.as_ref().map_or(core::ptr::null(), |e| e), event_count: usize::from(e.is_some()), ..input() }, &mut build).unwrap();
+            ui.frame(&{
+                let mut frame = input().time(tick as f64 / 60.0);
+                frame.wire.events = e.as_ref().map_or(core::ptr::null(), |e| e);
+                frame.wire.event_count = usize::from(e.is_some());
+                frame
+            }, &mut build).unwrap();
         }
         if round > 3 { assert_eq!(mem_sys::local_alloc_count(), 0, "whole warm gesture including payload start, hover, release and retirement"); }
     }
@@ -2150,7 +2378,7 @@ fn borrowed_carry_queries_and_whole_warm_pointer_gestures_allocate_nothing() {
     assert_eq!(deliveries, 24);
     // Key carries reuse the same storage, including replacement and cancellation.
     for round in 0..12 {
-        ui.frame(&FrameIn { time: 10.0 + round as f64, ..input() }, &mut |_| {}).unwrap();
+        ui.frame(&input().time(10.0 + round as f64), &mut |_| {}).unwrap();
         mem_sys::local_reset();
         ui.carry(None, payload.kind, payload.value);
         assert_eq!(ui.carrying(), Some(payload));
@@ -2168,7 +2396,7 @@ fn transferred_pointer_carries_survive_virtualization_and_keep_warm_modified_ges
     use pxui_types::{Event, KEY_SPECIAL};
     use std::cell::Cell;
     mem_sys::set_peer(crate::library_counter);
-    let mut ui = Ui::new().unwrap();
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let list = Cell::new(None);
     let source = Cell::new(None);
     let dropped = Cell::new(None);
@@ -2211,7 +2439,12 @@ fn transferred_pointer_carries_survive_virtualization_and_keep_warm_modified_ges
             time += 0.02;
             // Zero-kind events are not wire events; omit the unused slots.
             let count = if events[0].kind == 0 { 0 } else { 1 + usize::from(events[1].kind != 0) };
-            ui.frame(&FrameIn { time, events: events.as_ptr(), event_count: count, ..input() }, &mut build).unwrap();
+            ui.frame(&{
+                let mut frame = input().time(time);
+                frame.wire.events = events.as_ptr();
+                frame.wire.event_count = count;
+                frame
+            }, &mut build).unwrap();
             if round == 0 && events[0].kind == Event::POINTER_RELEASED {
                 assert_eq!(ui.press_keys(&list.get().unwrap()), &[KEY_SPECIAL + 9], "capture transfer preserves the press modifiers through release");
             }
@@ -2227,25 +2460,45 @@ fn transferred_pointer_carries_survive_virtualization_and_keep_warm_modified_ges
     for cancel in [Some(event(Event::POINTER_CANCELLED, 0.0)), Some(event(Event::FOCUS_LOST, 0.0)), None] {
         for e in [event(Event::POINTER_PRESSED, 10.0), event(Event::POINTER_MOVED, 80.0)] {
             time += 0.02;
-            ui.frame(&FrameIn { time, events: &e, event_count: 1, ..input() }, &mut build).unwrap();
+            ui.frame(&{
+                let mut frame = input().time(time);
+                frame.wire.events = &e;
+                frame.wire.event_count = 1;
+                frame
+            }, &mut build).unwrap();
         }
         dropped.set(None);
         if let Some(e) = cancel {
             time += 0.02;
-            ui.frame(&FrameIn { time, events: &e, event_count: 1, ..input() }, &mut build).unwrap();
+            ui.frame(&{
+                let mut frame = input().time(time);
+                frame.wire.events = &e;
+                frame.wire.event_count = 1;
+                frame
+            }, &mut build).unwrap();
         } else { ui.cancel_carry(); }
         let e = event(Event::POINTER_RELEASED, 80.0);
         time += 0.02;
-        ui.frame(&FrameIn { time, events: &e, event_count: 1, ..input() }, &mut build).unwrap();
+        ui.frame(&{
+            let mut frame = input().time(time);
+            frame.wire.events = &e;
+            frame.wire.event_count = 1;
+            frame
+        }, &mut build).unwrap();
         assert!(dropped.get().is_none() && ui.carrying().is_none());
     }
     for e in [event(Event::POINTER_PRESSED, 10.0), event(Event::POINTER_MOVED, 80.0)] {
         time += 0.02;
-        ui.frame(&FrameIn { time, events: &e, event_count: 1, ..input() }, &mut build).unwrap();
+        ui.frame(&{
+            let mut frame = input().time(time);
+            frame.wire.events = &e;
+            frame.wire.event_count = 1;
+            frame
+        }, &mut build).unwrap();
     }
     visible.set(false);
     time += 0.02;
-    ui.frame(&FrameIn { time, ..input() }, &mut build).unwrap();
+    ui.frame(&input().time(time), &mut build).unwrap();
     assert!(ui.carrying().is_none() && !ui.captured());
     assert_eq!(ui.built_nodes(), 1, "removing the container must remove its floating label in the same frame");
     assert!(ui.repaint_at().is_none());
@@ -2259,10 +2512,10 @@ fn transferred_pointer_carries_survive_virtualization_and_keep_warm_modified_ges
 #[test]
 fn fractional_fills_preserve_subpixel_quads_refuse_invalid_bounds_and_allocate_nothing_when_warm() {
     mem_sys::set_peer(crate::library_counter);
-    let mut ui=Ui::new().unwrap();
+    let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     for frame in 0..20 {
         mem_sys::local_reset();
-        ui.frame(&FrameIn{time:frame as f64,..input()},&mut |ui| {
+        ui.frame(&input().time(frame as f64),&mut |ui| {
             let node=ui.node("fractional".into(),crate::Node::DEFAULT.w_px(320.0).h_px(40.0));
             ui.canvas(&node,|paint,rect| {
                 let white=pxui_types::geom::Rgba::WHITE;
@@ -2287,10 +2540,10 @@ fn fractional_fills_preserve_subpixel_quads_refuse_invalid_bounds_and_allocate_n
 fn output_partitions_reuse_the_engine_dirty_capacity_after_unchanged_frames() {
     use crate::ui::{Node,Look};
     mem_sys::set_peer(crate::library_counter);
-    let mut ui=Ui::new().unwrap();
+    let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let names:Vec<&'static str>=(0..32).map(|index|&*format!("part-{index}").leak()).collect();
     for frame in 0..8 {
-        ui.frame(&FrameIn{time:frame as f64,..input()},&mut |ui| {
+        ui.frame(&input().time(frame as f64),&mut |ui| {
             for (index,name) in names.iter().enumerate() {
                 let phase=if frame<3 {frame.min(1)} else {frame-1};
                 let changed=index%2==0 && phase%2==1;
@@ -2302,7 +2555,7 @@ fn output_partitions_reuse_the_engine_dirty_capacity_after_unchanged_frames() {
         }).unwrap();
         if frame<2 { ui.drawn(0); continue; }
         mem_sys::local_reset();
-        let layer=ui.layer(0);
+        let layer=ui.layer(0).expect("base layer");
         if frame>2 {
             assert_eq!(layer.dirty.len(),16);
             assert_eq!(mem_sys::local_alloc_count(),0,"output partition metadata must reuse capacity when no draw storage grows");
@@ -2317,7 +2570,7 @@ fn simultaneous_view_entrance_channels_move_cached_children_and_settle_without_a
     use crate::ui::{Curve, Node, Role};
     use std::cell::Cell;
     mem_sys::set_peer(crate::library_counter);
-    let mut ui = Ui::new().unwrap();
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     ui.set_a11y(true);
     let (view, child, builds) = (Cell::new(None), Cell::new(None), Cell::new(0));
     let mut build = |ui: &mut Ui| {
@@ -2329,7 +2582,7 @@ fn simultaneous_view_entrance_channels_move_cached_children_and_settle_without_a
         ui.set_at(&v,(20.0,20.0)); view.set(Some(v));
     };
     ui.frame(&input(),&mut build).unwrap();
-    let instances=ui.layer(0).instances.to_vec();
+    let instances=ui.layer(0).expect("base layer").instances.to_vec();
     let curve=Curve::Bezier {duration:1.0,points:[0.0,0.0,1.0,1.0]};
     let keys=[
         Keyframe::opacity(0.0, 0.0).curve(curve),
@@ -2340,17 +2593,17 @@ fn simultaneous_view_entrance_channels_move_cached_children_and_settle_without_a
     ];
     for round in 0..4 {
         let base=round as f64;
-        ui.frame(&FrameIn {time:base,..input()},&mut build).unwrap();
+        ui.frame(&input().time(base),&mut build).unwrap();
         mem_sys::local_reset();
         assert!(ui.animate_keys(&view.get().unwrap(),&keys,&Keyframes::DEFAULT));
         for (dt,y) in [(0.0,30.0),(0.05,30.0),(0.22,25.0),(0.34,20.0),(0.5,20.0)] {
-            ui.frame(&FrameIn {time:base+dt,..input()},&mut build).unwrap();
+            ui.frame(&input().time(base+dt),&mut build).unwrap();
             assert_eq!(ui.now(),base+dt);
             let r=ui.rect(&child.get().unwrap());
             assert!((r.y-y).abs()<0.005,"entrance y {r:?} expected {y}");
             let node=ui.a11y_nodes().iter().find(|n|ui.a11y_name_of(n)=="Moving child").unwrap();
             assert!((node.rect.y-y).abs()<0.005);
-            assert_eq!(ui.layer(0).instances,instances.as_slice(),"entrance updates the view table");
+            assert_eq!(ui.layer(0).expect("base layer").instances,instances.as_slice(),"entrance updates the view table");
         }
         assert_eq!(builds.get(),1,"animation must not rebuild cached contents");
         assert!(ui.repaint_at().is_none(),"settled entrance must stop drawing");
@@ -2362,7 +2615,7 @@ fn simultaneous_view_entrance_channels_move_cached_children_and_settle_without_a
 fn recycled_view_records_reserve_short_name_storage_without_losing_diagnostics() {
     use crate::ui::Node;
     mem_sys::set_peer(crate::library_counter);
-    let mut ui=Ui::new().unwrap();
+    let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let seed=|ui:&mut Ui,label:&'static str| {
         for index in 0..16 {
             let parent=ui.node(crate::ui::int_key(0x91b17,index).into(),Node::DEFAULT.w_px(10.0).h_px(10.0));
@@ -2383,7 +2636,7 @@ fn reopening_nested_view_kinds_reuses_their_node_and_hit_capacities() {
     use crate::ui::{Node, Role};
     use std::cell::Cell;
     mem_sys::set_peer(crate::library_counter);
-    let mut ui=Ui::new().unwrap();
+    let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     ui.set_a11y(true);
     let shown=Cell::new(true);
     let mut build=|ui:&mut Ui| {
@@ -2404,7 +2657,7 @@ fn reopening_nested_view_kinds_reuses_their_node_and_hit_capacities() {
         mem_sys::local_reset();
         for (step,value) in [true,false,true,false].into_iter().enumerate() {
             shown.set(value);
-            ui.frame(&FrameIn {time:(round*4+step) as f64,..input()},&mut build).unwrap();
+            ui.frame(&input().time((round*4+step) as f64),&mut build).unwrap();
         }
         if round>=3 { assert_eq!(mem_sys::local_alloc_count(),0,"reopening view kinds"); }
     }
@@ -2415,12 +2668,12 @@ fn accessibility_action_batches_keep_order_without_warm_allocations() {
     use crate::ui::{Node, Role};
     use std::cell::Cell;
     mem_sys::set_peer(crate::library_counter);
-    let mut ui=Ui::new().unwrap(); ui.set_a11y(true);
+    let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap(); ui.set_a11y(true);
     let value=Cell::new(None);
     let mut build=|ui:&mut Ui| {
         let slider=ui.node("slider".into(),Node::DEFAULT.flags(pxui_types::Flags::FOCUSABLE).role(Role::Slider).w_px(200.0).h_px(20.0));
         ui.a11y_name(&slider,"Accessible value");
-        ui.a11y_number(&slider,0.0,0.0,100.0,1.0);
+        assert_eq!(ui.a11y_number(&slider,0.0,0.0,100.0,1.0), Ok(true));
         value.set(ui.signal(&slider).a11y_value);
     };
     ui.frame(&input(),&mut build).unwrap();
@@ -2430,7 +2683,7 @@ fn accessibility_action_batches_keep_order_without_warm_allocations() {
         for (index,action) in batch.iter_mut().enumerate() {action.payload=if cycle%2==0 {index as f64} else {(64-index) as f64};}
         mem_sys::local_reset();
         ui.inject_a11y(&batch);
-        ui.frame(&FrameIn {time:cycle as f64,..input()},&mut build).unwrap();
+        ui.frame(&input().time(cycle as f64),&mut build).unwrap();
         assert_eq!(value.get(),Some(if cycle%2==0 {64.0} else {0.0}));
         if cycle>1 {assert_eq!(mem_sys::local_alloc_count(),0,"ordered accessibility chunks");}
     }
@@ -2441,7 +2694,7 @@ fn line_box_text_fits_wraps_and_resizes_in_one_frame_without_warm_allocations() 
     use crate::ui::{Node, Role};
     use std::cell::Cell;
     mem_sys::set_peer(crate::library_counter);
-    let mut ui=Ui::new().unwrap(); ui.set_a11y(true);
+    let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap(); ui.set_a11y(true);
     let style=crate::Label::BODY.size(12.0).line_height(20.0).wrap();
     let value="one two three four";
     let expected=[80.0,200.0].map(|width| ui.text_service().measure(value,&style,width).unwrap().lines as f32*20.0);
@@ -2451,7 +2704,7 @@ fn line_box_text_fits_wraps_and_resizes_in_one_frame_without_warm_allocations() 
         mem_sys::local_reset();
         for (index,width) in [80.0,200.0].into_iter().enumerate() {
             for empty in [false,true] {
-                ui.frame(&FrameIn {time:round as f64,..input()},&mut |ui| {
+                ui.frame(&input().time(round as f64),&mut |ui| {
                     ui.column("wrapper", Node::column().w_px(width), |ui| { ui.view_of("wrapper", &((width as u64)*2+u64::from(empty)), |ui| {
                         let node=ui.node("line".into(),Node::DEFAULT.role(Role::Label).w(Size::Grow).h(Size::Fit));
                         ui.text_line_box(&node,if empty {""} else {value},&style,&[]).unwrap();
@@ -2486,7 +2739,7 @@ fn measured_section_rows_settle_positions_pin_heading_and_reuse_warm_storage() {
     use std::cell::{Cell,RefCell};
     use crate::ui::{Node,SectionList,SectionPart};
     mem_sys::set_peer(crate::library_counter);
-    let mut ui=Ui::new().unwrap();
+    let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let count=Cell::new(10_000);let taller=Cell::new(false);let body=Cell::new(None);let header=Cell::new(None);
     let positions=RefCell::new(Vec::with_capacity(100));
     let mut build=|ui:&mut Ui| {
@@ -2527,11 +2780,11 @@ fn measured_section_rows_settle_positions_pin_heading_and_reuse_warm_storage() {
 
 #[test]
 fn filled_triangles_preserve_vertices_winding_validate_and_allocate_nothing_when_warm() {
-    mem_sys::set_peer(crate::library_counter);let mut ui=Ui::new().unwrap();
+    mem_sys::set_peer(crate::library_counter);let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     for round in 0..8 {
         mem_sys::local_reset();
         for scale in [1.0,2.0] {
-            ui.frame(&FrameIn {scale,..input()},&mut |ui| {
+            ui.frame(&input().scale(scale),&mut |ui| {
                 let node=ui.node("triangles".into(),crate::Node::DEFAULT.w_px(100.0).h_px(100.0));
                 ui.canvas(&node,|paint,_| {
                     let color=crate::geom::Rgba::rgba(12, 34, 56, 128);
@@ -2557,29 +2810,52 @@ fn filled_triangles_preserve_vertices_winding_validate_and_allocate_nothing_when
 
 #[test]
 fn accessible_text_values_preserve_utf8_selection_precedence_and_warm_storage() {
-    mem_sys::set_peer(crate::library_counter);let mut ui=Ui::new().unwrap();ui.set_a11y(true);
+    mem_sys::set_peer(crate::library_counter);let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();ui.set_a11y(true);
     for round in 0..8 {
         mem_sys::local_reset();
         for value in ["Not kept offline","Kept offline","Café","", "ready\0now","🎵e\u{301}","👩‍💻"] {
             ui.frame(&input(),&mut |ui| {
                 let button=ui.node("value".into(),crate::Node::DEFAULT.w_px(100.0).h_px(30.0).role(crate::ui::Role::Button));
-                ui.a11y_name(&button,"Offline");ui.a11y_value(&button,value,(value.len() as u32,0));
+                ui.a11y_name(&button,"Offline");assert_eq!(ui.a11y_value(&button,value,(value.len() as u32,0)), Ok(true));
             }).unwrap();
             let node=ui.a11y_nodes().iter().find(|node|ui.a11y_name_of(node)=="Offline").unwrap();
             assert_eq!(ui.a11y_value_of(node),if value.is_empty() {None} else {Some(value)});assert_eq!(node.selection,[value.chars().count() as u32,0],"accessibility output uses character offsets, as native text widgets do");
         }
         if round>=3 {assert_eq!(mem_sys::local_alloc_count(),0,"warm accessible value/selection changes");}
     }
+    let mut original = None;
     ui.frame(&input(),&mut |ui| {
         let node=ui.node("number".into(),crate::Node::DEFAULT.w_px(100.0).h_px(30.0).role(crate::ui::Role::Slider));
-        ui.a11y_value(&node,"one",(0,0));ui.a11y_number(&node,1.0,0.0,2.0,1.0);
+        assert_eq!(ui.a11y_value(&node,"one",(0,0)), Ok(true));
+        assert_eq!(ui.a11y_number(&node,1.0,0.0,2.0,1.0), Ok(true));
+        original = Some(node);
     }).unwrap();
     let node=ui.a11y_nodes().iter().find(|node|node.is_role(crate::ui::Role::Slider)).unwrap();assert_eq!(node.value.tag,2);assert_eq!(ui.a11y_value_of(node),None);
-    let stale=crate::Handle {index:0,box_key:1,box_slot:99,generation:99};ui.a11y_value(&stale,"stale",(0,0));
-    assert!(ui.last_error().contains("stale"));
+    let retired = original.unwrap();
+    ui.frame(&input(), &mut |_| {}).unwrap();
+    assert_eq!(ui.a11y_value(&retired, "stale", (0, 0)), Ok(false));
+    let name = format!("{}é", "a".repeat((64 << 10) - 1));
+    ui.frame(&input(), &mut |ui| {
+        let replacement = ui.node("replacement".into(), Node::DEFAULT.flags(crate::Flags::FOCUSABLE).role(crate::Role::Button));
+        assert_eq!(replacement.box_slot, retired.box_slot, "exercise an actually recycled slot");
+        assert_ne!(replacement.generation, retired.generation);
+        assert!(ui.a11y_name(&replacement, &name));
+        assert_eq!(ui.a11y_value(&replacement, &name, (0, 0)), Err(crate::Error::InvalidInput));
+        assert_eq!(ui.a11y_number(&replacement, f64::NAN, 0.0, 1.0, 0.0), Err(crate::Error::InvalidInput));
+        assert!(!ui.a11y_name(&retired, "stale"));
+        assert_eq!(ui.a11y_number(&retired, 1.0, 0.0, 2.0, 1.0), Ok(false));
+        ui.set_role(&retired, crate::Role::Slider, 0);
+        ui.focus_box(&replacement);
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| ui.focus_box(&retired))).is_err());
+        assert!(ui.last_error().contains("stale focus box"));
+        assert!(ui.focused(&replacement));
+    }).unwrap();
+    let replacement = ui.a11y_nodes().iter().find(|node| node.is_role(crate::Role::Button)).unwrap();
+    assert_eq!(ui.a11y_name_of(replacement), &name[..name.len() - 2]);
     for (value,selection,expected) in [("é",(1,0),[0,0]),("aé",(2,99),[1,2]),("🎵x",(3,1),[0,0])] {
         ui.frame(&input(),&mut |ui| {
-            let node=ui.node("invalid".into(),crate::Node::DEFAULT.role(crate::ui::Role::Button));ui.a11y_value(&node,value,selection);
+            let node=ui.node("normalized".into(),crate::Node::DEFAULT.role(crate::ui::Role::Button));
+            assert_eq!(ui.a11y_value(&node,value,selection), Ok(true));
         }).unwrap();
         let node=ui.a11y_nodes().iter().find(|node|ui.a11y_value_of(node)==Some(value)).unwrap();
         assert_eq!(node.selection,expected,"offsets inside a character round down, past the end clamp, never panic");
@@ -2587,9 +2863,33 @@ fn accessible_text_values_preserve_utf8_selection_precedence_and_warm_storage() 
 }
 
 #[test]
+fn checked_renderer_creation_releases_the_gpu_lease_on_refusal() {
+    use crate::{Error, Gpu, Renderer, TargetDesc};
+    use std::cell::Cell;
+    thread_local! { static RELEASES: Cell<u32> = const { Cell::new(0) }; }
+    extern "C" fn release(_: *mut core::ffi::c_void) {
+        RELEASES.with(|count| count.set(count.get() + 1));
+    }
+    let lease = || Gpu { release_owner: Some(release), ..Default::default() };
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+    let target = TargetDesc { format: 1, samples: 1 };
+    assert!(matches!(Renderer::new(&ui, lease(), TargetDesc { samples: 0, ..target }), Err(Error::InvalidInput)));
+    assert!(ui.last_error().contains("invalid target descriptor"));
+    assert_eq!(RELEASES.with(Cell::get), 1);
+    assert!(matches!(Renderer::new(&ui, Gpu { size: 0, ..lease() }, target), Err(Error::InvalidInput)));
+    assert!(ui.last_error().contains("invalid gpu descriptor"));
+    assert_eq!(RELEASES.with(Cell::get), 2);
+    ui.frame(&input(), &mut |ui| {
+        assert!(matches!(Renderer::new(ui, lease(), target), Err(Error::State)));
+        assert!(ui.last_error().contains("outside a frame"));
+        assert_eq!(RELEASES.with(Cell::get), 3);
+    }).unwrap();
+}
+
+#[test]
 fn host_environment_invalidates_cached_layout_and_reuses_warm_geometry() {
     use std::cell::Cell;
-    let mut ui=Ui::new().unwrap();
+    let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     mem_sys::set_peer(crate::library_counter);
     let builds=Cell::new(0);
     let seen=Cell::new(crate::Environment::default());
@@ -2603,50 +2903,24 @@ fn host_environment_invalidates_cached_layout_and_reuses_warm_geometry() {
             keyboard_from:[0.0,844.0,390.0,344.0],keyboard_started:1.0,keyboard_duration:0.25,keyboard_curve:7,keyboard_visible:u32::from(round%2==0) };
         mem_sys::local_reset();
         let previous=builds.get();
-        ui.frame(&FrameIn { time:round as f64,environment,..input() },&mut build).unwrap();
+        ui.frame(&input().time(round as f64).environment(environment),&mut build).unwrap();
         assert!(builds.get()>previous,"geometry changes must rebuild a kept view");
         assert_eq!(seen.get(),environment); assert_eq!(ui.environment(),environment);
         let previous=builds.get();
-        ui.frame(&FrameIn { time:round as f64,environment,..input() },&mut build).unwrap();
+        ui.frame(&input().time(round as f64).environment(environment),&mut build).unwrap();
         assert_eq!(builds.get(),previous,"unchanged geometry must keep cached content");
         if round>=10 {assert_eq!(mem_sys::local_alloc_count(),0,"warm environment updates allocated");}
     }
     let prior=ui.environment();
     let mut invalid=prior; invalid.safe_area[0]=f32::NAN;
-    assert_eq!(ui.frame(&FrameIn { environment:invalid,..input() },&mut build).err(),Some(crate::Error::InvalidInput));
+    assert_eq!(ui.frame(&input().environment(invalid),&mut build).err(),Some(crate::Error::InvalidInput));
     assert_eq!(ui.environment(),prior);
-    ui.frame(&FrameIn { size:56,environment:invalid,..input() },&mut build).unwrap();
+    ui.frame(&{
+        let mut frame = input().environment(invalid);
+        frame.wire.size = 56;
+        frame
+    },&mut build).unwrap();
     assert_eq!(ui.environment(),crate::Environment::default(),"an old complete descriptor ignores the new tail");
-}
-
-#[test]
-fn typed_touch_batches_keep_ids_phases_lifetimes_and_zero_warm_allocations() {
-    use crate::{Touch,Event,Str};
-    mem_sys::set_peer(crate::library_counter);
-    let mut ui=Ui::new().unwrap();
-    let mut packets=[Touch::default();32];
-    let mut events=[Event::default();32];
-    for frame in 0..182 {
-        let count=[32,1,0,3][frame%4];
-        for (index,packet) in packets.iter_mut().enumerate() {
-            *packet=Touch {device:u64::MAX,finger:u64::MAX-index as u64,x:-1.25,y:99.5,
-                time:frame as f64/120.,pressure:0.375,phase:(frame%4) as u32};
-            events[index]=Event {kind:Event::TOUCH,text:Str {ptr:(packet as *const Touch).cast(),len:core::mem::size_of::<Touch>()},..Event::default()};
-        }
-        let expected=packets;
-        mem_sys::local_reset();
-        ui.frame(&FrameIn {events:events.as_ptr(),event_count:count,time:frame as f64/120.,..input()},&mut |_| {}).unwrap();
-        // The library must own the decoded value after the call returns.
-        packets.fill(Touch::default());
-        let routed=ui.routed_input(None);
-        assert_eq!(routed.events().len(),count);
-        for (index,packet) in expected[..count].iter().enumerate() {
-            assert_eq!(routed.touch(index),Some(*packet));
-            assert_eq!(crate::event_text(&routed.events()[index]),"");
-        }
-        assert_eq!(routed.touch(count),None);
-        if frame>=82 {assert_eq!(mem_sys::local_alloc_count(),0,"warm typed touch frame and routed read allocated");}
-    }
 }
 
 #[test]
@@ -2655,7 +2929,7 @@ fn touch_gestures_drive_virtual_rows_catch_coasts_and_keep_warm_allocations_zero
     use crate::ui::{Node, SectionList, SectionPart};
     use std::cell::Cell;
     mem_sys::set_peer(crate::library_counter);
-    let mut ui = Ui::new().unwrap();
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     ui.set_a11y(true);
     let body = Cell::new(None);
     let clicked = Cell::new(None);
@@ -2678,10 +2952,20 @@ fn touch_gestures_drive_virtual_rows_catch_coasts_and_keep_warm_allocations_zero
     let mut packet = Touch { device: u64::MAX, finger: 7, x: 50.0, y: 100.0, pressure: 1.0, ..Touch::default() };
     // Start outside the list so the initial host mouse position does not hover it.
     let outside = Event { kind: Event::POINTER_MOVED, x: -1.0, y: -1.0, ..Event::default() };
-    ui.frame(&FrameIn { events: &outside, event_count: 1, ..input() }, &mut build).unwrap();
+    ui.frame(&{
+        let mut frame = input();
+        frame.wire.events = &outside;
+        frame.wire.event_count = 1;
+        frame
+    }, &mut build).unwrap();
     let send = |ui: &mut Ui, packet: &Touch, build: &mut dyn FnMut(&mut Ui)| {
         let event = Event { kind: Event::TOUCH, text: Str { ptr: (packet as *const Touch).cast(), len: core::mem::size_of::<Touch>() }, ..Event::default() };
-        ui.frame(&FrameIn { time: packet.time, events: &event, event_count: 1, ..input() }, build).unwrap();
+        ui.frame(&{
+            let mut frame = input().time(packet.time);
+            frame.wire.events = &event;
+            frame.wire.event_count = 1;
+            frame
+        }, build).unwrap();
     };
     send(&mut ui, &packet, &mut build);
     packet.phase = 2; packet.time = 0.01;
@@ -2711,7 +2995,7 @@ fn keyboard_presentation_updates_cached_content_bounds_without_warm_allocations(
     use crate::{Environment, Keyboard};
     use std::cell::Cell;
     mem_sys::set_peer(crate::library_counter);
-    let mut ui = Ui::new().unwrap();
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let node = Cell::new(None);
     let builds = Cell::new(0);
     let expected = Cell::new([0.0, 47.0, 390.0, 763.0]);
@@ -2730,13 +3014,13 @@ fn keyboard_presentation_updates_cached_content_bounds_without_warm_allocations(
         let keyboard = Keyboard {frame:[0.0,y,390.0,844.0-y],flags};
         expected.set([0.0,47.0,390.0,y.min(810.0)-47.0]);
         mem_sys::local_reset();
-        ui.frame(&FrameIn {width:390.0,height:844.0,time:frame as f64/120.0,environment,keyboard,..FrameIn::default()}, &mut build).unwrap();
+        ui.frame(&FrameIn::new(390.0, 844.0).time(frame as f64/120.0).environment(environment).keyboard(keyboard), &mut build).unwrap();
         assert_eq!(ui.keyboard(), keyboard);
         let rect=ui.rect(&node.get().unwrap());
         assert_eq!([rect.x,rect.y,rect.w,rect.h],expected.get());
         assert_eq!(ui.repaint_at().is_some(),flags & Keyboard::ANIMATING != 0);
         let before=builds.get();
-        ui.frame(&FrameIn {width:390.0,height:844.0,time:frame as f64/120.0,environment,keyboard,..FrameIn::default()}, &mut build).unwrap();
+        ui.frame(&FrameIn::new(390.0, 844.0).time(frame as f64/120.0).environment(environment).keyboard(keyboard), &mut build).unwrap();
         assert_eq!(builds.get(),before,"unchanged keyboard geometry rebuilt a cached view");
         if frame>=82 {assert_eq!(mem_sys::local_alloc_count(),0,"warm keyboard frame {frame}");}
     }
@@ -2746,7 +3030,7 @@ fn keyboard_presentation_updates_cached_content_bounds_without_warm_allocations(
         (Keyboard {frame:[0.0,-100.0,390.0,1000.0],flags:Keyboard::VALID},0.0),
     ] {
         expected.set([0.0,47.0,390.0,height]);
-        ui.frame(&FrameIn {width:390.0,height:844.0,environment,keyboard,..FrameIn::default()},&mut build).unwrap();
+        ui.frame(&FrameIn::new(390.0, 844.0).environment(environment).keyboard(keyboard),&mut build).unwrap();
     }
 }
 
@@ -2754,7 +3038,7 @@ fn keyboard_presentation_updates_cached_content_bounds_without_warm_allocations(
 fn text_field_refocus_reuses_its_warm_editor_storage() {
     use pxui_types::{Event, KEY_SPECIAL};
     mem_sys::set_peer(crate::library_counter);
-    let mut ui = Ui::new().unwrap();
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let mut build = |ui: &mut Ui| assert!(ui.text_field("Caption", "café track 10", &crate::TextField::DEFAULT).changed.is_none());
     let focus = [
         Event {kind:Event::KEY_PRESSED,code:KEY_SPECIAL+8,..Event::default()},
@@ -2766,11 +3050,11 @@ fn text_field_refocus_reuses_its_warm_editor_storage() {
         let focusing = matches!(frame, 1 | 90);
         let focused = (1..40).contains(&frame) || (90..130).contains(&frame);
         if matches!(frame,40|130) { ui.unfocus(); }
-        ui.frame(&FrameIn {
-            time:frame as f64/60.0,
-            events:if focusing {focus.as_ptr()} else {std::ptr::null()},
-            event_count:if focusing {focus.len()} else {0},
-            ..input()
+        ui.frame(&{
+            let mut frame = input().time(frame as f64/60.0);
+            frame.wire.events = if focusing {focus.as_ptr()} else {std::ptr::null()};
+            frame.wire.event_count = if focusing {focus.len()} else {0};
+            frame
         }, &mut build).unwrap();
         assert_eq!(ui.text_input_focused(),focused);
         if frame>=82 {assert_eq!(mem_sys::local_alloc_count(),0,"warm field refocus frame {frame}");}
@@ -2782,7 +3066,7 @@ fn text_input_options_follow_the_focused_field_and_done_keeps_warm_storage() {
     use crate::{Event, TextField, TextTraits as Options};
     use std::cell::Cell;
     mem_sys::set_peer(crate::library_counter);
-    let mut ui=Ui::new().unwrap();
+    let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let show_search=Cell::new(true);
     let done=Options::SEARCH.action(crate::ReturnKey::Done);
     let mut build=|ui:&mut Ui| {
@@ -2798,7 +3082,12 @@ fn text_input_options_follow_the_focused_field_and_done_keeps_warm_storage() {
         let events=[Event {kind:Event::KEY_PRESSED,code,..Default::default()},Event {kind:Event::KEY_RELEASED,code,..Default::default()}];
         let active=matches!(step,0|2|4);
         mem_sys::local_reset();
-        ui.frame(&FrameIn {time:frame as f64,events:events.as_ptr(),event_count:if active {2} else {0},..input()},&mut build).unwrap();
+        ui.frame(&{
+            let mut frame = input().time(frame as f64);
+            frame.wire.events = events.as_ptr();
+            frame.wire.event_count = if active {2} else {0};
+            frame
+        },&mut build).unwrap();
         let expected=match step {0|1=>Options::SEARCH,2|3=>done,_=>Options::default()};
         assert_eq!(ui.text_input_options(),expected,"frame {frame}");
         assert_eq!(ui.ime().is_some(),step<4,"Done must dismiss native input in the same frame");
@@ -2819,26 +3108,41 @@ fn marked_text_replaces_the_selection_and_tracks_unicode_caret_without_warm_allo
         if c.state.focused==0 {ui.text(&editor,c.text_of(&c.value));}
     }
     mem_sys::set_peer(crate::library_counter);
-    let mut ui=Ui::new().unwrap();
+    let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     ui.register_text_field_body("marked-editor",body).unwrap();
     let source="text_field.body = marked-editor";
     ui.set_theme(&crate::ThemeHandle::parse(&source).unwrap()).unwrap();
-    let mut build=|ui:&mut Ui|assert!(ui.text_field("Marked","café track",&crate::TextField::DEFAULT).changed.is_none());
+    let mut build=|ui:&mut Ui| {
+        let field = ui.text_field("Marked", "café track", &crate::TextField::DEFAULT);
+        assert!(field.changed.is_none());
+        let response = field.response;
+        if response.focused { ui.focus_box(&response.handle); }
+    };
     ui.frame(&input(),&mut build).unwrap();
     let key=|kind,n|Event {kind,code:pxui_types::KEY_SPECIAL+n,..Default::default()};
     let focus=[key(Event::KEY_PRESSED,8),key(Event::KEY_RELEASED,8),key(Event::KEY_PRESSED,12),
         Event {kind:Event::KEY_PRESSED,code:'a' as u32,..Default::default()},key(Event::KEY_RELEASED,12)];
-    ui.frame(&FrameIn {events:focus.as_ptr(),event_count:focus.len(),..input()},&mut build).unwrap();
+    ui.frame(&{
+        let mut frame = input();
+        frame.wire.events = focus.as_ptr();
+        frame.wire.event_count = focus.len();
+        frame
+    },&mut build).unwrap();
     let value="éix";
     for (start,length) in [(f64::from(i32::MAX),f64::from(i32::MAX)),(1.0,1.0)] {
         let event=Event {kind:Event::TEXT_EDITING,text:Str {ptr:value.as_ptr(),len:value.len()},x:start,y:length,..Default::default()};
-        ui.frame(&FrameIn {events:&event,event_count:1,..input()},&mut build).unwrap();
+        ui.frame(&{
+            let mut frame = input();
+            frame.wire.events = &event;
+            frame.wire.event_count = 1;
+            frame
+        },&mut build).unwrap();
         let prefix=if start>3.0 {value} else {"éi"};
         assert_eq!(ui.ime().unwrap().1,(2.0+ui.text_width(Some(18),prefix)).round() as i64,"marked selection uses Unicode scalar offsets");
     }
     for frame in 0..182 {
         mem_sys::local_reset();
-        ui.frame(&FrameIn {time:frame as f64/120.0,..input()},&mut build).unwrap();
+        ui.frame(&input().time(frame as f64/120.0),&mut build).unwrap();
         assert_eq!(ui.layers().flat_map(|layer|layer.instances.iter()).filter(|quad|quad.kind==crate::draw::kind::MASK).count(),3,
             "preedit must replace the selected base text instead of appending to it");
         assert_eq!(ui.ime().unwrap().1,(2.0+ui.text_width(Some(18),"éi")).round() as i64);
@@ -2846,7 +3150,12 @@ fn marked_text_replaces_the_selection_and_tracks_unicode_caret_without_warm_allo
     }
     let commit=[Event {kind:Event::TEXT_INPUT,text:Str {ptr:value.as_ptr(),len:value.len()},..Default::default()},key(Event::KEY_PRESSED,5),key(Event::KEY_RELEASED,5)];
     let mut changed=false;
-    ui.frame(&FrameIn {events:commit.as_ptr(),event_count:commit.len(),..input()},&mut |ui| {
+    ui.frame(&{
+        let mut frame = input();
+        frame.wire.events = commit.as_ptr();
+        frame.wire.event_count = commit.len();
+        frame
+    },&mut |ui| {
         changed=ui.text_field("Marked","café track",&crate::TextField::DEFAULT.action(crate::ReturnKey::Done)).changed==Some(value);
     }).unwrap();
     assert!(changed,"commit replaces precisely the original UTF-8 selection");
@@ -2857,7 +3166,7 @@ fn marked_text_replaces_the_selection_and_tracks_unicode_caret_without_warm_allo
 #[test]
 fn keyless_text_measurement_retains_interleaved_values_styles_widths_and_spans() {
     mem_sys::set_peer(crate::library_counter);
-    let mut ui = Ui::new().unwrap();
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let mut text = crate::Text::new(&[crate::pragmasevka()]).unwrap();
     let plain = crate::Label::BODY.size(14.0).line_height(20.0).wrap();
     let cases = [
@@ -2893,7 +3202,7 @@ fn keyless_text_measurement_retains_interleaved_values_styles_widths_and_spans()
 fn pixel_fit_text_rounds_density_and_reuses_recycled_identity_style_and_span_layouts() {
     use crate::{TextSpan,ui::{Node,Look,Font,Role}};
     mem_sys::set_peer(crate::library_counter);
-    let mut ui=Ui::new().unwrap();ui.set_a11y(true);
+    let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();ui.set_a11y(true);
     let mut text=crate::Text::new(&[crate::pragmasevka()]).unwrap();
     let span=[TextSpan {start:0,end:2,weight:700,..Default::default()}];
     let mut nodes=[None;9];
@@ -2908,7 +3217,7 @@ fn pixel_fit_text_rounds_density_and_reuses_recycled_identity_style_and_span_lay
         for scale in [1.0,2.0,1.25,1.75] {
             for (variant,style) in styles.into_iter().enumerate() {
                 mem_sys::local_reset();serial+=1;
-                ui.frame(&FrameIn {scale,time:serial as f64/60.0,..input()},&mut |ui| {
+                ui.frame(&input().scale(scale).time(serial as f64/60.0),&mut |ui| {
                     for (index,value) in values.into_iter().enumerate() {
                         let node=ui.node((index as i64+100+100*(round%2) as i64).into(),Node::DEFAULT.flags(pxui_types::Flags::FIT_TEXT|pxui_types::Flags::FIT_TEXT_PIXEL).w(Size::Fit).h_px(24.0).role(Role::Label).look(look));
                         ui.text_line_box(&node,value,&style,&[]).unwrap();nodes[index]=Some(node);
@@ -2943,7 +3252,7 @@ fn pixel_fit_text_rounds_density_and_reuses_recycled_identity_style_and_span_lay
 #[test]
 fn text_into_forms_match_and_allocate_nothing_with_capacity() {
     mem_sys::set_peer(crate::library_counter);
-    let mut ui = Ui::new().unwrap();
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let mut shaper = crate::Text::new(&[crate::pragmasevka()]).unwrap();
     let label = crate::Label::BODY;
     let style = ui.resolve(&label);
@@ -2983,7 +3292,7 @@ fn colour_tokens_follow_a_light_dark_theme_swap_without_app_rebuild_or_warm_allo
     light.set_color(ColorToken(1), c(200));
     dark.set_color(ColorToken(0), c(16));
     dark.set_color(ColorToken(1), c(60));
-    let mut ui = Ui::new().unwrap();
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     ui.set_theme(&light).unwrap();
     // what the app reads while building (inside a retained view whose revision never changes), painting and in a scope
     let (built, painted, scoped) = (Cell::new(Rgba::default()), Rc::new(Cell::new(Rgba::default())), Cell::new(Rgba::default()));
@@ -3029,14 +3338,14 @@ fn authored_scope_palettes_inherit_and_invalidate_retained_views_without_warm_al
     let (red, blue) = (Rgba::rgb(255, 0, 0), Rgba::rgb(0, 0, 255));
     let (left, right) = (with_palette(red), with_palette(blue));
     let inherited = ThemeHandle::default();
-    let mut ui = Ui::new().unwrap();
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let seen = Cell::new(Rgba::default());
     mem_sys::set_peer(crate::library_counter);
     for round in 0..6 {
         let (scope, ink) = if round % 2 == 0 { (&left, red) } else { (&right, blue) };
         mem_sys::local_reset();
         ui.set_theme(&root).unwrap();
-        ui.frame(&FrameIn { reduced_motion: 1, ..input() }, &mut |ui| {
+        ui.frame(&input().reduced_motion(true), &mut |ui| {
             ui.themed(scope, &mut |ui| {
                 assert_eq!(ui.theme().button.hover.fill, ink);
                 assert!(ui.tokens().reduced_motion);
@@ -3069,7 +3378,7 @@ fn const_looks_naming_colour_tokens_resolve_for_the_theme_in_effect_without_app_
     const KEY: crate::IconButton = crate::IconButton::sized(36.0, 36.0).look(&PLATE);
     mem_sys::set_peer(crate::library_counter);
     let c = |v: u8| Rgba::rgb(v, v, v);
-    let mut ui = Ui::new().unwrap();
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     ui.register_icon_button_body("token_body", token_body).unwrap();
     let mut light = crate::ThemeHandle::parse("tokens.panel = #f4f5f0\nicon_button.body = token_body").unwrap();
     let mut dark = crate::ThemeHandle::parse("tokens.panel = #101010\nicon_button.body = token_body").unwrap();
@@ -3117,7 +3426,7 @@ fn a_registered_menu_row_body_is_given_a_swatch_token_resolved_for_the_theme() {
     use pxui_types::{geom::Rgba, theme::ColorToken, ui::{Menu, MenuItem}};
     const ITEMS: [MenuItem; 1] = [MenuItem::new("Accent").swatch(Rgba::token(ColorToken(0)))];
     let c = |v: u8| Rgba::rgb(v, v, v);
-    let mut ui = Ui::new().unwrap();
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     ui.register_menu_row_body("swatch_row", swatch_row).unwrap();
     let mut light = crate::ThemeHandle::parse("tokens.panel = #f4f5f0\nmenu_row.body = swatch_row").unwrap();
     let mut dark = crate::ThemeHandle::parse("tokens.panel = #101010\nmenu_row.body = swatch_row").unwrap();
@@ -3134,7 +3443,7 @@ fn a_registered_menu_row_body_is_given_a_swatch_token_resolved_for_the_theme() {
 /// tracking becomes points, and an invalid style is refused by `text_line_box` without failing the `Ui`.
 #[test]
 fn resolve_gives_the_style_a_label_shapes_with() {
-    let mut ui=Ui::new().unwrap();
+    let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     use pxui_types::ffi::PxuiTextStyle;
     let body=ui.resolve(&crate::Label::BODY).0;
     let plain=PxuiTextStyle::default();

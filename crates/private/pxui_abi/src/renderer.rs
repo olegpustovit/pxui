@@ -10,7 +10,7 @@ use pxui_core::ui::Ui;
 use pxui_render::{AtlasKind, Blurred, Break, Instance, Painter, View};
 use pxui_core::text::AtlasKind as TextKind;
 
-use crate::state::{fail, get, PxuiUi};
+use crate::state::{fail, fail_code, get, Handle, PxuiUi};
 use crate::{PXUI_ERR_ARGUMENT, PXUI_ERR_GPU, PXUI_ERR_STATE, PxuiTargetDesc};
 use core::ffi::c_void;
 
@@ -61,6 +61,12 @@ impl PxuiRenderer {
 }
 
 struct GpuLease { token:*mut c_void, release:Option<extern "C" fn(*mut c_void)>, active:bool }
+impl GpuLease {
+    fn new(gpu: &pxui_types::Gpu) -> Self {
+        Self { token: gpu.owner_token, release: gpu.release_owner, active: true }
+    }
+}
+
 impl Drop for GpuLease {
     fn drop(&mut self) {
         if self.active {
@@ -71,12 +77,10 @@ impl Drop for GpuLease {
 
 /// A renderer on the app's device, or why it could not be made. The lease on the app's device is released on every refusal
 /// until the adopted driver owns it.
-unsafe fn make(ui: &mut PxuiUi, gpu: pxui_types::Gpu, target: PxuiTargetDesc) -> Result<PxuiRenderer, String> {
-    let mut lease=GpuLease { token:gpu.owner_token, release:gpu.release_owner, active:true };
-    if target.samples == 0 { return Err("invalid target descriptor".into()); }
-    let (format,color) = match target.format { 1=>(TextureFormat::Rgba8Unorm,ColorFormat::Rgba8Unorm), 2=>(TextureFormat::Bgra8Unorm,ColorFormat::Bgra8Unorm), _=>return Err("unknown target format".into()) };
+unsafe fn make(ui: &mut PxuiUi, gpu: pxui_types::Gpu, target: PxuiTargetDesc, mut lease: GpuLease) -> Result<PxuiRenderer, (i32, String)> {
+    if target.samples == 0 { return Err((PXUI_ERR_ARGUMENT, "invalid target descriptor".into())); }
+    let (format,color) = match target.format { 1=>(TextureFormat::Rgba8Unorm,ColorFormat::Rgba8Unorm), 2=>(TextureFormat::Bgra8Unorm,ColorFormat::Bgra8Unorm), _=>return Err((PXUI_ERR_ARGUMENT, "unknown target format".into())) };
     let native=ogpu_core::backend::NativeDevice { size:gpu.size, backend:gpu.backend, instance:gpu.instance, physical_device:gpu.physical_device, device:gpu.device, queue:gpu.queue, queue_family:gpu.queue_family, api_version:gpu.api_version, features:gpu.features, get_instance_proc_addr:gpu.get_instance_proc_addr, pipeline_cache:gpu.pipeline_cache, mtl_device:gpu.mtl_device, wl_display:gpu.wl_display, wl_surface:gpu.wl_surface, metal_layer:gpu.metal_layer, hwnd:gpu.hwnd, owner_token:gpu.owner_token, release_owner:gpu.release_owner };
-    lease.active=false;
     // This copy of OGPU (the library's own) has not been told which backend it drives: the app selected one in its copy.
     // In a static build this is the app's own copy: its selection (a mock, say) stays.
     if !ogpu_core::impl_::is_selected() {
@@ -85,16 +89,23 @@ unsafe fn make(ui: &mut PxuiUi, gpu: pxui_types::Gpu, target: PxuiTargetDesc) ->
         #[cfg(any(windows,target_os = "linux"))]
         ogpu_core::impl_::select(ogpu_core::impl_::Impl { backend: ogpu_vulkan::impl_::BACKEND, create_driver: ogpu_vulkan::backend::create, live_handles: ogpu_vulkan::impl_::live_handles });
     }
+    lease.active=false;
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     let driver=ogpu_metal::adopt(native);
     #[cfg(any(windows,target_os = "linux"))]
     let driver=ogpu_vulkan::adopt(native);
-    let describe=|e: ogpu_core::error::Error| ogpu_core::error::to_string(&e);
+    let describe = |error: ogpu_core::error::Error| {
+        let status = match error.kind {
+            ogpu_core::error::ErrorKind::InvalidArgument => PXUI_ERR_ARGUMENT,
+            _ => PXUI_ERR_GPU,
+        };
+        (status, ogpu_core::error::to_string(&error))
+    };
     let device=gpu_backend::create_device(driver.map_err(describe)?).map_err(describe)?;
     let queue=match gpu_backend::create_queue(&device) { Ok(q)=>q, Err(e)=>{ let _=gpu_backend::destroy_device(&device); return Err(describe(e)); } };
     let (mask,color_size)=unsafe { let text=(&mut *ui.engine).text_mut(); (text.atlas_size(TextKind::Mask),text.atlas_size(TextKind::Color)) };
     if (target.mask_width!=0 && target.mask_width!=mask.0) || (target.mask_height!=0 && target.mask_height!=mask.1) || (target.color_width!=0 && target.color_width!=color_size.0) || (target.color_height!=0 && target.color_height!=color_size.1) {
-        let _=gpu_backend::destroy_queue(&queue); let _=gpu_backend::destroy_device(&device); return Err("the target's atlas sizes differ from the Ui's".into());
+        let _=gpu_backend::destroy_queue(&queue); let _=gpu_backend::destroy_device(&device); return Err((PXUI_ERR_ARGUMENT, "the target's atlas sizes differ from the Ui's".into()));
     }
     let painter=match Painter::new(&device,color,DepthFormat::NoDepth,i64::from(target.samples),mask,color_size) {
         Ok(p)=>p,
@@ -106,22 +117,58 @@ unsafe fn make(ui: &mut PxuiUi, gpu: pxui_types::Gpu, target: PxuiTargetDesc) ->
 // Makes a renderer for the owner `Ui` (never a callback's borrowed handle) outside a frame; null, with the reason in
 // `pxui_last_error`, when it cannot be made.
 export!(pub unsafe fn pxui_renderer_create(ui:*mut PxuiUi, gpu:*const pxui_types::Gpu, target:*const PxuiTargetDesc) -> *mut PxuiRenderer {
-    let Some(state)=(unsafe { get(ui) }) else { return core::ptr::null_mut(); };
+    unsafe { create(ui, gpu, target) }.unwrap_or(core::ptr::null_mut())
+});
+
+export!(bare pub unsafe fn pxui_renderer_create_checked(ui:*mut PxuiUi, gpu:*const pxui_types::Gpu, target:*const PxuiTargetDesc, out:*mut *mut PxuiRenderer) -> i32 {
+    let shared = ui.shared();
+    unsafe { crate::state::note_call(shared); }
+    // A complete GPU record transfers its lease before the Ui/target checks. The legacy call keeps its original order.
+    export!(@run payload => { unsafe { crate::state::panicked(shared, payload, false); } crate::PXUI_ERR_PANIC }, {
+        if out.is_null() { return unsafe { fail(ui, "null renderer output") }; }
+        let Some(gpu) = (if gpu.is_null() { None } else { read_desc!(gpu, pxui_types::Gpu) }) else {
+            return unsafe { fail(ui, "invalid gpu descriptor") };
+        };
+        let lease = GpuLease::new(&gpu);
+        if !ui.usable(shared) { return unsafe { crate::state::refuse(shared) }; }
+        let state = match unsafe { renderer_owner(ui, !target.is_null()) } {
+            Ok(state) => state,
+            Err(code) => return code,
+        };
+        let Some(target) = read_desc!(target, PxuiTargetDesc) else { return unsafe { fail(ui, "invalid target descriptor") }; };
+        match unsafe { create_renderer(ui, state, gpu, target, lease) } {
+            Ok(renderer) => { unsafe { out.write(renderer); } 0 }
+            Err(code) => code,
+        }
+    })
+});
+
+unsafe fn renderer_owner<'a>(ui:*mut PxuiUi, descriptors:bool) -> Result<&'a mut PxuiUi, i32> {
+    let Some(state)=(unsafe { get(ui) }) else { return Err(PXUI_ERR_ARGUMENT); };
     // a borrowed callback handle's engine is only live for its frame: a renderer needs the owner, outside a frame
-    if !state.owner || state.shared().in_frame || gpu.is_null() || target.is_null() {
-        unsafe { fail(ui, "a renderer needs the owner Ui outside a frame, a gpu and a target"); }
-        return core::ptr::null_mut();
+    if !state.owner || state.shared().in_frame || !descriptors {
+        let code = if !state.owner || state.shared().in_frame { PXUI_ERR_STATE } else { PXUI_ERR_ARGUMENT };
+        return Err(unsafe { fail_code(ui, "a renderer needs the owner Ui outside a frame, a gpu and a target", code) });
     }
+    Ok(state)
+}
+
+unsafe fn create(ui:*mut PxuiUi, gpu:*const pxui_types::Gpu, target:*const PxuiTargetDesc) -> Result<*mut PxuiRenderer, i32> {
+    let state = unsafe { renderer_owner(ui, !gpu.is_null() && !target.is_null()) }?;
     // sizes are checked before the records are read: a shorter record is refused, never over-read (the lease of a gpu record that short is not released: its fields are not there)
     let (Some(gpu), Some(target))=(read_desc!(gpu, pxui_types::Gpu), read_desc!(target, PxuiTargetDesc)) else {
-        unsafe { fail(ui, "invalid gpu or target descriptor"); }
-        return core::ptr::null_mut();
+        return Err(unsafe { fail(ui, "invalid gpu or target descriptor") });
     };
-    match unsafe { make(state, gpu, target) } {
-        Ok(renderer)=>{ state.shared().renderers += 1; Box::into_raw(Box::new(renderer)) }
-        Err(message)=>{ unsafe { fail(ui, &message); } core::ptr::null_mut() }
+    let lease = GpuLease::new(&gpu);
+    unsafe { create_renderer(ui, state, gpu, target, lease) }
+}
+
+unsafe fn create_renderer(ui:*mut PxuiUi, state:&mut PxuiUi, gpu:pxui_types::Gpu, target:PxuiTargetDesc, lease:GpuLease) -> Result<*mut PxuiRenderer, i32> {
+    match unsafe { make(state, gpu, target, lease) } {
+        Ok(renderer)=>{ state.shared().renderers += 1; Ok(Box::into_raw(Box::new(renderer))) }
+        Err((code, message))=>Err(unsafe { fail_code(ui, &message, code) }),
     }
-});
+}
 
 export!(pub unsafe fn pxui_renderer_prepare(renderer:*mut PxuiRenderer, commands:*const pxui_types::Commands, frame:u64, completed:u64) -> i32 {
     if renderer.is_null() { return PXUI_ERR_ARGUMENT; }
@@ -374,6 +421,7 @@ export!(pub unsafe fn pxui_renderer_draw(renderer:*mut PxuiRenderer, pass:*const
         renderer.breaks.clear();
         if let Err(e)=result { return renderer.fail_gpu(e); }
         ui.drawn(index);
+        unsafe { (*renderer.shared).draw_acknowledged = true; }
     }
     // ends only this copy's view of the pass; the app's encoder must `invalidate_state` before drawing more
     if let Err(e)=gpu_backend::end_render(&encoder) { return renderer.fail_gpu(e); }

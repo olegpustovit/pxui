@@ -54,10 +54,10 @@ The target public surface. **Rule:** a call not marked with a step keeps its HEA
 | Looks | `style(&Handle, &States, State)` (`set_look` folded in, `States::of(Look)`); `patch_*` family | — | U1b.4 |
 | Animation | `animate(&Handle, Target, Curve)`, `animate_keys(&Handle, &[Keyframe], &Keyframes)` (two jobs) | — | HEAD |
 | Images | `image<K>(key, &Image, &ImageStyle) -> Result<Handle, Error>`; `Image::rgba8`; `images::{Want, Request}`, `Images::store/get/requests` | — | U1b.2; builder U1b.5 |
-| A11y | `a11y_name/a11y_value/a11y_number(&Handle, ..) -> bool` (applied); `set_role(&Handle, Role, A11yStates)`; `a11y_tree() -> A11yTree`; `a11y_nodes`, `a11y_name_of`, `a11y_value_of`, `box_of_a11y` | — | U1a.3 (rule), U1b.4 (types) |
+| A11y | `a11y_name(&Handle, &str) -> bool` with UTF-8-safe display clipping; `a11y_value/a11y_number(&Handle, ..) -> Result<bool, Error>`; `set_role(&Handle, Role, A11yStates)`; `a11y_tree() -> A11yTree`; `a11y_nodes`, `a11y_name_of`, `a11y_value_of`, `box_of_a11y` | — | U1a.3 (rule), U1b.4 (types) |
 | Theme | `set_theme(&ThemeHandle) -> Result<(), Error>`, `themed(&ThemeHandle, f)`, `theme()`, `tokens()`, `ThemeHandle::parse/set_color/density/reduced_motion`; `bodies::register_<kind>_body(..) -> Result<BodyId, Error>`; `Rgba::token(T).alpha(a)` (D19); `ColorToken::ACCENT`; `Appearance`; sizes `f32` (`font_size`, `row_height`, `density`, `set_font_size`) | — | U1a.2; U1b.3 (units); U2b.7 (alpha, accent) |
-| Frame / lifecycle | `Ui::new(&UiDesc) -> Result<Ui, Error>` with `UiDesc::new(Platform).font_size(f32).fonts(&[FontData])` (carries what `Ui::create(Platform, Some(15), &[FONT, MONO])` passes today: lw_bin/src/library.rs:35, app/actions.rs:687, tests/window_input.rs:657/888/1011 …; `UiDesc::DEFAULT` for tests); `frame(&FrameIn, build)`; `FrameIn::new(w, h)` + builders; `layer(i) -> Option<Layer>`; `layers() -> &[Layer]` (or a named iterator) | — | U1a.3 |
-| Host integration | `Renderer::new -> Result<_, Error>`; `A11yBridge::connect -> Option`; `Gpu`, `Pass`, `Commands`, `Input`, `Output`, `Platform`, `Bytes`; pxui_host `Graphics::open/close`, `Accessibility::open`, `Platform::apply` → `Result<_, Error>` | — | U1a.3 |
+| Frame / lifecycle | `Ui::new(&UiDesc) -> Result<Ui, Error>` with `UiDesc::new(Platform).font_size(f32).fonts(&[FontData])` and `UiDesc::DEFAULT`; one `frame(&FrameIn, build)`; `FrameIn::new(w, h)` with event wire fields and const builders, or `unsafe FrameIn::snapshot(&Input)` for a host's complete borrowed snapshot; `layer(i) -> Option<Layer>`, `layers() -> Layers`, `output() -> Output`; `focus_box(&Handle)` stays public for the registered command editor body, with `focused` crate-private and `enter`/`leave` internal to the engine and C ABI | — | U1a.3 |
+| Host integration | `Renderer::new -> Result<_, Error>`; `Ui::register_<kind>_body(..) -> Result<BodyId, Error>`; `A11yBridge::connect -> Option`; `Gpu`, `Pass`, `Commands`, `Input`, `Output`, `Platform`, `Bytes`; pxui_host `Graphics::open/draw/close`, `Accessibility::open`, `Platform::pump/apply` → `Result<_, Error>` | — | U1a.3 |
 | Diagnostics | `phase_times`, `phase_cpu_times`, `set_timing`, `repaint_after`, `wants_frame`, `library_counter` (D3), `verify_views` (D22) | — | HEAD; U1c.2 |
 | Getters | `keyboard()`, `environment()`, `text_traits()` (was `text_input_options`), `ime() -> Option<Ime>`, `platform()`, `now()`, `frame_index()`, `system_appearance() -> Appearance` | — | U1a.4 (appearance), U1b.2 |
 | Signals | `signal`, `signal_keys` → `Signal`: documented as the body/custom-control layer | — | HEAD |
@@ -80,6 +80,12 @@ One item per line in exactly `surface.py`'s rendering (`<path> <kind> <signature
 surface) for landed steps; `--all` compares the whole target, which is `tools/dx/ledger_delta.txt`.
 Lines added for new items carry best-known names; the step that adds an item corrects its line here.
 
+The U1a frame descriptor leaves the C input records and routes available. The event payload
+lifetime work stays in U5.1. In Rust, a layer lends published instance and dirty-range bytes.
+The output descriptor is a value so fresh queries can reflect a draw acknowledgment while a
+borrowed layer remains valid. The C output query and layout stay intact. Programmatic
+`focus_box` serves the command palette and compact Find on the build that creates the field.
+
 <!-- surface -->
 ```text
 pxui mod @HEAD
@@ -93,6 +99,7 @@ pxui::A11yBridge::update fn (&mut self, tree: &A11yTree) -> bool @HEAD
 pxui::A11yNode use pxui_types::ffi::A11yNode @HEAD
 pxui::A11yTree use pxui_types::ffi::A11yTree @HEAD
 pxui::Appearance enum @U1a.4
+pxui::Appearance use pxui_types::Appearance @U1a.3
 pxui::Appearance::Dark variant @U1a.4
 pxui::Appearance::Light variant @U1a.4
 pxui::Appearance::Unknown variant @U1a.4
@@ -226,10 +233,12 @@ pxui::Error impl StructuralPartialEq @HEAD
 pxui::Error::Allocation variant @HEAD
 pxui::Error::Engine variant @HEAD
 pxui::Error::Gpu variant @HEAD
+pxui::Error::Host variant (&'static str) @U1a.3
 pxui::Error::InvalidInput variant @HEAD
 pxui::Error::Panic variant @HEAD
 pxui::Error::Stale variant @HEAD
 pxui::Error::State variant @HEAD
+pxui::Error::Version variant @U1a.3
 pxui::Error::from_code fn (code: i32) -> Error @HEAD
 pxui::Event use pxui_types::Event @HEAD
 pxui::Feature enum @HEAD
@@ -276,9 +285,25 @@ pxui::Fill::DEFAULT const Fill @HEAD
 pxui::Fill::fractional fn const (self) -> Fill @HEAD
 pxui::Fill::new fn const (color: Rgba) -> Fill @HEAD
 pxui::Flags use pxui_types::Flags @U1a.1
+pxui::FontData impl Clone @U1a.3
+pxui::FontData impl Copy @U1a.3
+pxui::FontData struct <'a>(&'a [u8]) @U1a.3
 pxui::Frame impl Deref @HEAD
 pxui::Frame struct <'a> @HEAD
-pxui::FrameIn use pxui_types::FrameIn @HEAD
+pxui::FrameIn impl Clone @U1a.3
+pxui::FrameIn impl Copy @U1a.3
+pxui::FrameIn impl Debug @U1a.3
+pxui::FrameIn impl Default @U1a.3
+pxui::FrameIn struct <'a> @U1a.3
+pxui::FrameIn::appearance fn const (self, appearance: Appearance) -> FrameIn<'a> @U1a.3
+pxui::FrameIn::environment fn const (self, environment: Environment) -> FrameIn<'a> @U1a.3
+pxui::FrameIn::keyboard fn const (self, keyboard: Keyboard) -> FrameIn<'a> @U1a.3
+pxui::FrameIn::new fn const (width: f32, height: f32) -> FrameIn<'a> @U1a.3
+pxui::FrameIn::reduced_motion fn const (self, on: bool) -> FrameIn<'a> @U1a.3
+pxui::FrameIn::scale fn const (self, scale: f32) -> FrameIn<'a> @U1a.3
+pxui::FrameIn::snapshot fn const unsafe (input: &'a Input) -> FrameIn<'a> @U1a.3
+pxui::FrameIn::time fn const (self, time: f64) -> FrameIn<'a> @U1a.3
+pxui::FrameIn::wire field FrameIn @U1a.3
 pxui::FrameOut use pxui_types::FrameOut @HEAD
 pxui::GestureOpts impl Clone @HEAD
 pxui::GestureOpts impl Copy @HEAD
@@ -393,6 +418,8 @@ pxui::Layer::dirty field &'a [PxuiDirty] @HEAD
 pxui::Layer::id field u32 @HEAD
 pxui::Layer::instances field &'a [Instance] @HEAD
 pxui::Layer::key field i64 @HEAD
+pxui::Layers impl Iterator @U1a.3
+pxui::Layers struct <'a> @U1a.3
 pxui::LineField impl Clone @HEAD
 pxui::LineField impl Copy @HEAD
 pxui::LineField impl Debug @HEAD
@@ -559,7 +586,7 @@ pxui::Renderer::draw fn (&mut self, pass: &Pass) -> Result<(), Error> @HEAD
 pxui::Renderer::draw_calls fn (&self) -> u64 @HEAD
 pxui::Renderer::draw_layer fn (&mut self, pass: &Pass, layer: u32, split: &mut dyn FnMut(Recorder<'_>) -> Result<Pass, Error>) -> Result<(), Error> @HEAD
 pxui::Renderer::forget_image fn (&mut self, image: &Image, completed: u64) -> Result<(), Error> @HEAD
-pxui::Renderer::new fn (ui: &Ui, gpu: Gpu, target: TargetDesc) -> Result<Self, String> @HEAD
+pxui::Renderer::new fn (ui: &Ui, gpu: Gpu, target: TargetDesc) -> Result<Self, Error> @U1a.3
 pxui::Renderer::prepare fn (&mut self, commands: &Commands, frame: u64, completed: u64) -> Result<(), Error> @HEAD
 pxui::Renderer::resize fn (&mut self, width: u32, height: u32) -> Result<(), Error> @HEAD
 pxui::Repeat use pxui_types::ui::Repeat @HEAD
@@ -590,12 +617,12 @@ pxui::Reveal::new fn const (at: usize, request: u64) -> Reveal @HEAD
 pxui::RewriteFn type <'a>= dyn Fn(&str, usize) -> (String, usize) + 'a @HEAD
 pxui::Rgba use pxui_types::geom::Rgba @U1a.1
 pxui::Role use pxui_types::a11y::Role @U1a.1
-pxui::Routed struct <'a> @HEAD
-pxui::Routed::buttons fn (&self) -> &[u32] @HEAD
-pxui::Routed::events fn (&self) -> &[Event] @HEAD
-pxui::Routed::input fn (&self) -> &Input @HEAD
-pxui::Routed::keys fn (&self) -> &[u32] @HEAD
-pxui::Routed::touch fn (&self, index: usize) -> Option<Touch> @HEAD
+-pxui::Routed struct <'a> @U1a.3
+-pxui::Routed::buttons fn (&self) -> &[u32] @U1a.3
+-pxui::Routed::events fn (&self) -> &[Event] @U1a.3
+-pxui::Routed::input fn (&self) -> &Input @U1a.3
+-pxui::Routed::keys fn (&self) -> &[u32] @U1a.3
+-pxui::Routed::touch fn (&self, index: usize) -> Option<Touch> @U1a.3
 pxui::Scroll impl Clone @HEAD
 pxui::Scroll impl Copy @HEAD
 pxui::Scroll impl Debug @HEAD
@@ -871,9 +898,9 @@ pxui::Ui struct (_) @HEAD
 pxui::Ui::a11y_name fn (&mut self, box_: &Handle, name: &str) -> bool @U1a.3
 pxui::Ui::a11y_name_of fn (&self, node: &A11yNode) -> &str @HEAD
 pxui::Ui::a11y_nodes fn (&self) -> &[A11yNode] @HEAD
-pxui::Ui::a11y_number fn (&mut self, box_: &Handle, now: f64, min: f64, max: f64, step: f64) -> bool @U1a.3
+pxui::Ui::a11y_number fn (&mut self, box_: &Handle, now: f64, min: f64, max: f64, step: f64) -> Result<bool, Error> @U1a.3
 pxui::Ui::a11y_tree fn (&self) -> A11yTree @U1b.4
-pxui::Ui::a11y_value fn (&mut self, box_: &Handle, value: &str, selection: (u32, u32)) -> bool @U1a.3
+pxui::Ui::a11y_value fn (&mut self, box_: &Handle, value: &str, selection: (u32, u32)) -> Result<bool, Error> @U1a.3
 pxui::Ui::a11y_value_of fn (&self, node: &A11yNode) -> Option<&str> @HEAD
 pxui::Ui::anchored fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, anchor: Rect, overlay: &Overlay<'_>, f: F) -> OverlayResponse @U1b.1
 pxui::Ui::animate fn (&mut self, b: &Handle, target: Target, curve: Curve) -> bool @HEAD
@@ -920,11 +947,11 @@ pxui::Ui::end_refresh fn (&mut self, node: &Handle) @HEAD
 pxui::Ui::environment fn (&self) -> Environment @HEAD
 pxui::Ui::expanded fn <K: Into<Key>>(&self, key: K) -> Option<bool> @U1b.2
 -pxui::Ui::field_drag fn (&self, field: &Handle) -> Option<(f32, f32)> @U1c.3
-pxui::Ui::focus_box fn (&mut self, box_: &Handle) @HEAD
-pxui::Ui::focused fn (&self, box_: &Handle) -> bool @HEAD
+pxui::Ui::focus_box fn (&mut self, box_: &Handle) @U1a.3
+-pxui::Ui::focused fn (&self, box_: &Handle) -> bool @U1a.3
 pxui::Ui::font_size fn (&self) -> f32 @U1b.3
 -pxui::Ui::footer fn (&mut self, right: Option<&str>, hints: &[(&str, &str)]) @U1c.3
-pxui::Ui::frame fn (&mut self, input: &FrameIn, build: &mut dyn FnMut(&mut Ui)) -> Result<Frame<'_>, Error> @HEAD
+pxui::Ui::frame fn (&mut self, input: &FrameIn<'_>, build: &mut dyn FnMut(&mut Ui)) -> Result<Frame<'_>, Error> @U1a.3
 pxui::Ui::frame_index fn (&self) -> u64 @HEAD
 pxui::Ui::gesture fn (&mut self, node: &Handle, opts: &GestureOpts) -> GestureState @U1b.2
 pxui::Ui::gesture_state fn (&mut self, node: &Handle) -> GestureState @HEAD
@@ -963,7 +990,7 @@ pxui::Ui::last_error fn (&self) -> &str @HEAD
 pxui::Ui::last_press_within fn (&self, events: &[Event], roots: &[i64]) -> Option<i64> @HEAD
 pxui::Ui::layer fn (&self, index: usize) -> Option<Layer<'_>> @U1a.3
 pxui::Ui::layer_count fn (&self) -> usize @HEAD
-pxui::Ui::layers fn (&self) -> impl Iterator<Item = Layer<'_>> + '_ @HEAD
+pxui::Ui::layers fn (&self) -> Layers<'_> @U1a.3
 -pxui::Ui::leave fn (&mut self, saved: UiSaved) @U1a.3
 pxui::Ui::library_calls fn (&self) -> u64 @HEAD
 -pxui::Ui::line_field fn <K: Into<Key>>(&mut self, key: K, value: &str, rect: Rect, field: &LineField<'_>) -> LineFieldResponse<'_> @U1c.3
@@ -973,12 +1000,12 @@ pxui::Ui::local_rect fn (&self, b: &Handle) -> Rect @HEAD
 pxui::Ui::menu fn <K: Into<Key>>(&mut self, key: K, at: Point, items: &[MenuItem<'_>], menu: &Menu<'_>) -> Chosen @U1b.1
 pxui::Ui::menu_bar fn <K: Into<Key>>(&mut self, key: K, menus: &[MenuBarMenu<'_>], bar: &MenuBar<'_>) -> Chosen @U1b.1
 pxui::Ui::modal fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, overlay: &Overlay<'_>, f: F) -> OverlayResponse @U1b.1
-pxui::Ui::new fn (desc: &UiDesc) -> Result<Self, Error> @U1a.3
+pxui::Ui::new fn (desc: &UiDesc<'_>) -> Result<Self, Error> @U1a.3
 pxui::Ui::node fn <K: Into<Key>>(&mut self, key: K, node: Node) -> Handle @U1b.2
 pxui::Ui::node_layout fn (&self, b: &Handle) -> Node @HEAD
 pxui::Ui::node_mut fn (&mut self, b: &Handle, edit: &mut dyn FnMut(&mut NodeFields)) @U1c.1
 pxui::Ui::now fn (&self) -> f64 @HEAD
-pxui::Ui::output fn (&self) -> &Output @HEAD
+pxui::Ui::output fn (&self) -> Output @U1a.3
 pxui::Ui::panel fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, overlay: &Overlay<'_>, f: F) -> OverlayResponse @U1b.1
 pxui::Ui::part fn (&mut self, part: Part, node: Node) -> Handle @HEAD
 pxui::Ui::part_box fn (&self, owner: &Handle, part: Part) -> Option<Handle> @U1b.2
@@ -1130,12 +1157,14 @@ pxui::Ui::view_of fn <K: Into<Key>, T: Hash + ?Sized, F: FnMut(&mut Ui)>(&mut se
 pxui::Ui::view_size fn (&self) -> Size @U1b.3
 pxui::Ui::wants_frame fn (&self, events: &[Event], now: f64) -> bool @HEAD
 pxui::Ui::within fn (&mut self, box_: &Handle, f: &mut dyn FnMut(&mut Ui)) @HEAD
+pxui::UiDesc impl Clone @U1a.3
+pxui::UiDesc impl Copy @U1a.3
 pxui::UiDesc struct <'a> @U1a.3
 pxui::UiDesc::DEFAULT const UiDesc<'a> @U1a.3
 pxui::UiDesc::font_size fn const (self, points: f32) -> UiDesc<'a> @U1a.3
 pxui::UiDesc::fonts fn const (self, fonts: &'a [FontData<'a>]) -> UiDesc<'a> @U1a.3
 pxui::UiDesc::new fn const (platform: Platform) -> UiDesc<'a> @U1a.3
-pxui::UiSaved type = PxuiSaved @HEAD
+-pxui::UiSaved type = PxuiSaved @U1a.3
 pxui::UiText struct <'ui>(_) @HEAD
 pxui::UiText::add_font fn (&mut self, bytes: &[u8]) -> Result<u32, Error> @HEAD
 pxui::UiText::enable_system_fonts fn (&mut self) -> Result<(), Error> @U1b.3
@@ -1778,9 +1807,9 @@ pxui::ui::Ui struct (_) @HEAD
 pxui::ui::Ui::a11y_name fn (&mut self, box_: &Handle, name: &str) -> bool @U1a.3
 pxui::ui::Ui::a11y_name_of fn (&self, node: &A11yNode) -> &str @HEAD
 pxui::ui::Ui::a11y_nodes fn (&self) -> &[A11yNode] @HEAD
-pxui::ui::Ui::a11y_number fn (&mut self, box_: &Handle, now: f64, min: f64, max: f64, step: f64) -> bool @U1a.3
+pxui::ui::Ui::a11y_number fn (&mut self, box_: &Handle, now: f64, min: f64, max: f64, step: f64) -> Result<bool, Error> @U1a.3
 pxui::ui::Ui::a11y_tree fn (&self) -> A11yTree @U1b.4
-pxui::ui::Ui::a11y_value fn (&mut self, box_: &Handle, value: &str, selection: (u32, u32)) -> bool @U1a.3
+pxui::ui::Ui::a11y_value fn (&mut self, box_: &Handle, value: &str, selection: (u32, u32)) -> Result<bool, Error> @U1a.3
 pxui::ui::Ui::a11y_value_of fn (&self, node: &A11yNode) -> Option<&str> @HEAD
 pxui::ui::Ui::anchored fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, anchor: Rect, overlay: &Overlay<'_>, f: F) -> OverlayResponse @U1b.1
 pxui::ui::Ui::animate fn (&mut self, b: &Handle, target: Target, curve: Curve) -> bool @HEAD
@@ -1827,11 +1856,11 @@ pxui::ui::Ui::end_refresh fn (&mut self, node: &Handle) @HEAD
 pxui::ui::Ui::environment fn (&self) -> Environment @HEAD
 pxui::ui::Ui::expanded fn <K: Into<Key>>(&self, key: K) -> Option<bool> @U1b.2
 -pxui::ui::Ui::field_drag fn (&self, field: &Handle) -> Option<(f32, f32)> @U1c.3
-pxui::ui::Ui::focus_box fn (&mut self, box_: &Handle) @HEAD
-pxui::ui::Ui::focused fn (&self, box_: &Handle) -> bool @HEAD
+pxui::ui::Ui::focus_box fn (&mut self, box_: &Handle) @U1a.3
+-pxui::ui::Ui::focused fn (&self, box_: &Handle) -> bool @U1a.3
 pxui::ui::Ui::font_size fn (&self) -> f32 @U1b.3
 -pxui::ui::Ui::footer fn (&mut self, right: Option<&str>, hints: &[(&str, &str)]) @U1c.3
-pxui::ui::Ui::frame fn (&mut self, input: &FrameIn, build: &mut dyn FnMut(&mut Ui)) -> Result<Frame<'_>, Error> @HEAD
+pxui::ui::Ui::frame fn (&mut self, input: &FrameIn<'_>, build: &mut dyn FnMut(&mut Ui)) -> Result<Frame<'_>, Error> @U1a.3
 pxui::ui::Ui::frame_index fn (&self) -> u64 @HEAD
 pxui::ui::Ui::gesture fn (&mut self, node: &Handle, opts: &GestureOpts) -> GestureState @U1b.2
 pxui::ui::Ui::gesture_state fn (&mut self, node: &Handle) -> GestureState @HEAD
@@ -1870,7 +1899,7 @@ pxui::ui::Ui::last_error fn (&self) -> &str @HEAD
 pxui::ui::Ui::last_press_within fn (&self, events: &[Event], roots: &[i64]) -> Option<i64> @HEAD
 pxui::ui::Ui::layer fn (&self, index: usize) -> Option<Layer<'_>> @U1a.3
 pxui::ui::Ui::layer_count fn (&self) -> usize @HEAD
-pxui::ui::Ui::layers fn (&self) -> impl Iterator<Item = Layer<'_>> + '_ @HEAD
+pxui::ui::Ui::layers fn (&self) -> Layers<'_> @U1a.3
 -pxui::ui::Ui::leave fn (&mut self, saved: UiSaved) @U1a.3
 pxui::ui::Ui::library_calls fn (&self) -> u64 @HEAD
 -pxui::ui::Ui::line_field fn <K: Into<Key>>(&mut self, key: K, value: &str, rect: Rect, field: &LineField<'_>) -> LineFieldResponse<'_> @U1c.3
@@ -1880,12 +1909,12 @@ pxui::ui::Ui::local_rect fn (&self, b: &Handle) -> Rect @HEAD
 pxui::ui::Ui::menu fn <K: Into<Key>>(&mut self, key: K, at: Point, items: &[MenuItem<'_>], menu: &Menu<'_>) -> Chosen @U1b.1
 pxui::ui::Ui::menu_bar fn <K: Into<Key>>(&mut self, key: K, menus: &[MenuBarMenu<'_>], bar: &MenuBar<'_>) -> Chosen @U1b.1
 pxui::ui::Ui::modal fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, overlay: &Overlay<'_>, f: F) -> OverlayResponse @U1b.1
-pxui::ui::Ui::new fn (desc: &UiDesc) -> Result<Self, Error> @U1a.3
+pxui::ui::Ui::new fn (desc: &UiDesc<'_>) -> Result<Self, Error> @U1a.3
 pxui::ui::Ui::node fn <K: Into<Key>>(&mut self, key: K, node: Node) -> Handle @U1b.2
 pxui::ui::Ui::node_layout fn (&self, b: &Handle) -> Node @HEAD
 pxui::ui::Ui::node_mut fn (&mut self, b: &Handle, edit: &mut dyn FnMut(&mut NodeFields)) @U1c.1
 pxui::ui::Ui::now fn (&self) -> f64 @HEAD
-pxui::ui::Ui::output fn (&self) -> &Output @HEAD
+pxui::ui::Ui::output fn (&self) -> Output @U1a.3
 pxui::ui::Ui::panel fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, overlay: &Overlay<'_>, f: F) -> OverlayResponse @U1b.1
 pxui::ui::Ui::part fn (&mut self, part: Part, node: Node) -> Handle @HEAD
 pxui::ui::Ui::part_box fn (&self, owner: &Handle, part: Part) -> Option<Handle> @U1b.2
@@ -2559,6 +2588,16 @@ pxui::ui::state use pxui_types::a11y::state @U1a.1
 -pxui::widgets::Scrub::preview field Option<f32> @U1a.1
 pxui_types mod @HEAD
 pxui_types::ABI_BUILT const u32 @HEAD
+pxui_types::Appearance enum @U1a.3
+pxui_types::Appearance impl Clone @U1a.3
+pxui_types::Appearance impl Copy @U1a.3
+pxui_types::Appearance impl Debug @U1a.3
+pxui_types::Appearance impl Eq @U1a.3
+pxui_types::Appearance impl PartialEq @U1a.3
+pxui_types::Appearance impl StructuralPartialEq @U1a.3
+pxui_types::Appearance::Dark variant = FrameIn::APPEARANCE_DARK @U1a.3
+pxui_types::Appearance::Light variant = FrameIn::APPEARANCE_LIGHT @U1a.3
+pxui_types::Appearance::Unknown variant = FrameIn::APPEARANCE_UNKNOWN @U1a.3
 pxui_types::Axis enum @HEAD
 pxui_types::Axis impl Clone @HEAD
 pxui_types::Axis impl Copy @HEAD

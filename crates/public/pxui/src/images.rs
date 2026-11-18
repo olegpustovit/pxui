@@ -696,15 +696,10 @@ mod tests {
     #[test]
     fn only_final_visible_image_nodes_request_decodes_and_cached_nodes_keep_their_requests() {
         let images = Images::default();
-        let mut ui = crate::Ui::new().unwrap();
+        let mut ui = crate::Ui::new(&crate::UiDesc::DEFAULT).unwrap();
         for frame in 0..2 {
             ui.frame(
-                &crate::FrameIn {
-                    width: 200.0,
-                    height: 100.0,
-                    time: frame as f64,
-                    ..Default::default()
-                },
+                &crate::FrameIn::new(200.0, 100.0).time(frame as f64),
                 &mut |ui| {
                     for (id, y) in [
                         (1, 0.0),
@@ -741,12 +736,7 @@ mod tests {
         }
         assert_eq!(mem_sys::local_alloc_count(), 0);
         ui.frame(
-            &crate::FrameIn {
-                width: 200.0,
-                height: 100.0,
-                time: 2.0,
-                ..Default::default()
-            },
+            &crate::FrameIn::new(200.0, 100.0).time(2.0),
             &mut |_| {},
         )
         .unwrap();

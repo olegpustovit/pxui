@@ -3,7 +3,8 @@
 use input::{frame, Event, Platform};
 use pxui_core::ui::{Node, Ui as Engine};
 use pxui::{Fill, Label, Stroke};
-use pxui_types::{geom::{Rect, Rgba}, node::Dir, shape::Shapes, theme::Look, FrameIn, Size};
+use pxui::FrameIn;
+use pxui_types::{geom::{Rect, Rgba}, node::Dir, shape::Shapes, theme::Look, Size};
 
 const SIZE: (f32, f32) = (300.0, 200.0);
 
@@ -103,8 +104,8 @@ fn engine_instances() -> Vec<pxui_types::draw::Instance> {
 }
 
 fn wrapper_instances() -> Vec<pxui_types::draw::Instance> {
-    let mut ui = pxui::Ui::create(pxui::Platform::Apple, None, &[pxui_core::text::PRAGMASEVKA]);
-    ui.frame(&FrameIn { width: SIZE.0, height: SIZE.1, scale: 1.0, ..FrameIn::default() }, &mut |ui: &mut pxui::Ui| {
+    let mut ui = pxui::Ui::new(&pxui::UiDesc::new(pxui::Platform::Apple).fonts(&[pxui::FontData(pxui_core::text::PRAGMASEVKA)])).expect("pxui Ui");
+    ui.frame(&FrameIn::new(SIZE.0, SIZE.1).scale(1.0), &mut |ui: &mut pxui::Ui| {
         let round = ui.node("round".into(), pxui::Node { flags: pxui_types::Flags::CLIP | pxui_types::Flags::ROUND_CLIP, w: Size::Px(SIZE.0), h: Size::Px(SIZE.1), look: Look { radius: [6.0; 4], ..Look::NONE }, ..pxui::Node::DEFAULT });
         ui.within(&round, &mut |ui: &mut pxui::Ui| {
             let b = ui.node("canvas".into(), pxui::Node { w: Size::Px(SIZE.0), h: Size::Px(SIZE.1), ..pxui::Node::DEFAULT });

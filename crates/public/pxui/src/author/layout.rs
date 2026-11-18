@@ -152,7 +152,7 @@ mod tests {
         use std::cell::Cell;
         let rows: Vec<Cell<Option<crate::Handle>>> = (0..10_000).map(|_| Cell::new(None)).collect();
         let (built, list) = (Cell::new(0), Cell::new(None));
-        let mut ui = crate::Ui::new().expect("library");
+        let mut ui = crate::Ui::new(&crate::UiDesc::DEFAULT).expect("library");
         let mut build = |ui: &mut crate::Ui| {
             let column = ui.node("column".into(), Node { w: Size::Px(100.0), h: Size::Px(200.0), ..Node::DEFAULT });
             ui.within(&column, &mut |ui| {
@@ -162,7 +162,7 @@ mod tests {
                 })));
             });
         };
-        let input = crate::FrameIn { width: 320.0, height: 240.0, ..crate::FrameIn::default() };
+        let input = crate::FrameIn::new(320.0, 240.0);
         for _ in 0..4 { ui.frame(&input, &mut build).expect("frame"); }
         assert!(built.get() < 4 * 40, "built {} rows", built.get());
         let top = ui.rect(&list.get().unwrap()).y;
@@ -181,7 +181,7 @@ mod tests {
         use std::cell::{Cell, RefCell};
         let ids = RefCell::new(vec![10i64, 20, 30]);
         let seen: [Cell<(i64, i64)>; 3] = Default::default();
-        let mut ui = crate::Ui::new().expect("library");
+        let mut ui = crate::Ui::new(&crate::UiDesc::DEFAULT).expect("library");
         let mut build = |ui: &mut crate::Ui| {
             let ids = ids.borrow();
             ui.list("items", ids.len(), 20.0, &|i| ids[i], |ui, i| {
@@ -189,7 +189,7 @@ mod tests {
                 seen[i].set((ids[i], child.box_key));
             });
         };
-        let input = crate::FrameIn { width: 320.0, height: 240.0, ..crate::FrameIn::default() };
+        let input = crate::FrameIn::new(320.0, 240.0);
         ui.frame(&input, &mut build).expect("frame");
         let before: Vec<(i64, i64)> = seen.iter().map(Cell::get).collect();
         ids.borrow_mut().reverse();

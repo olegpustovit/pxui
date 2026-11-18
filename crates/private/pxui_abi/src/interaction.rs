@@ -32,7 +32,7 @@ export!(pub unsafe fn pxui_ui_focus_box(ui: *mut PxuiUi, box_: *const PxuiBox) -
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if box_.is_null() { return unsafe { fail(ui, "null focus box") }; }
     let engine = unsafe { &mut *state.engine };
-    let Some(box_) = live_box(engine, unsafe { *box_ }) else { return unsafe { fail(ui, "stale focus box") }; };
+    let Some(box_) = live_box(engine, unsafe { *box_ }).filter(|box_| engine.live(box_)) else { return unsafe { fail(ui, "stale focus box") }; };
     engine.focus_box(&box_);
     0
 });

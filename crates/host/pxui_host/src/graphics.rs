@@ -1,11 +1,7 @@
 use metal_sys::frames::Frames;
 use ogpu_core::backend as be;
-use pxui::{Commands, Gpu, Pass, Renderer, TargetDesc, Ui};
+use pxui::{Commands, Error, Gpu, Pass, Renderer, TargetDesc, Ui};
 use pxui_sdl::Window;
-
-fn message(error: ogpu_core::error::Error) -> String {
-    ogpu_core::error::to_string(&error)
-}
 
 /// One surface's GPU state: its own device, queue, frame pacing (`Frames` on the window's layer),
 /// renderer and bounded image cache (`images`: 1,024 entries, 128 MiB). Owned per surface, so N windows
@@ -28,15 +24,19 @@ impl Graphics {
     pub fn can_draw(&self) -> bool {
         self.frames.as_ref().is_some_and(Frames::can_draw)
     }
-    pub fn open(window: &mut Window, ui: &Ui) -> Result<Self, String> {
+    /// Creates a device, queue, frame context and renderer for this surface on the main thread.
+    ///
+    /// A native startup failure returns `Error::Host` with the operation that failed.
+    /// Renderer creation can return `Error::Gpu`.
+    pub fn open(window: &mut Window, ui: &Ui) -> Result<Self, Error> {
         ogpu_core::impl_::select(ogpu_metal::impl_::implementation());
-        let driver = ogpu_core::impl_::create_driver().map_err(message)?;
-        let device = be::create_device(driver).map_err(message)?;
+        let driver = ogpu_core::impl_::create_driver().map_err(|_| Error::Host("could not create graphics driver"))?;
+        let device = be::create_device(driver).map_err(|_| Error::Host("could not create graphics device"))?;
         let queue = match be::create_queue(&device) {
             Ok(queue) => queue,
-            Err(error) => {
+            Err(_) => {
                 let _ = be::destroy_device(&device);
-                return Err(message(error));
+                return Err(Error::Host("could not create graphics queue"));
             }
         };
         let mut host = Self {
@@ -48,8 +48,9 @@ impl Graphics {
             blur_extent: (0, 0),
             acquire_wall: std::time::Duration::ZERO,
         };
-        host.frames = Some(Frames::new(&host.device, window.token()?)?);
-        let native = be::native_leased(&host.device).map_err(message)?;
+        let layer = window.token().map_err(|_| Error::Host("could not get surface token"))?;
+        host.frames = Some(Frames::new(&host.device, layer).map_err(|_| Error::Host("could not open native frame context"))?);
+        let native = be::native_leased(&host.device).map_err(|_| Error::Host("could not lease graphics device"))?;
         let renderer = Renderer::new(
             ui,
             Gpu {
@@ -98,12 +99,15 @@ impl Graphics {
         self.images.configure(density, max_pixels)
     }
 
+    /// Renders the UI into the surface, or returns false when no frame can be submitted.
+    ///
+    /// Native failures name the operation and renderer errors retain their library category.
     pub fn draw(
         &mut self,
         window: &mut Window,
         ui: &Ui,
         trace: Option<&mut [u64; 4]>,
-    ) -> Result<bool, String> {
+    ) -> Result<bool, Error> {
         let count = || {
             if trace.is_some() {
                 mem_sys::local_alloc_count()
@@ -123,13 +127,13 @@ impl Graphics {
             self.renderer
                 .as_mut()
                 .expect("Live graphics renderer")
-                .resize(size.0, size.1)
-                .map_err(|code| format!("Renderer resize failed ({code})"))?;
+                .resize(size.0, size.1)?;
             self.blur_extent = size;
         }
         let frames = self.frames.as_mut().expect("Live frame context");
         let acquiring = std::time::Instant::now();
-        let began = frames.begin(extent.drawable.0 as u32, extent.drawable.1 as u32)?;
+        let began = frames.begin(extent.drawable.0 as u32, extent.drawable.1 as u32)
+            .map_err(|_| Error::Host("could not begin native frame"))?;
         self.acquire_wall = acquiring.elapsed();
         if !began {
             return Ok(false);
@@ -147,11 +151,11 @@ impl Graphics {
                 },
                 frames.serial(),
                 frames.completed(),
-            )
-            .map_err(|code| format!("Renderer prepare failed ({code})"))?;
+            )?;
         let prepared = count();
         let color = ui.theme().tokens.panel;
-        let encoder = frames.pass([color.r, color.g, color.b])?;
+        let encoder = frames.pass([color.r, color.g, color.b])
+            .map_err(|_| Error::Host("could not open native render pass"))?;
         renderer
             .draw(&Pass {
                 size: core::mem::size_of::<Pass>() as u32,
@@ -161,13 +165,12 @@ impl Graphics {
                 height_px: extent.drawable.1 as u32,
                 scale: window.scale() as f32,
                 ..Pass::default()
-            })
-            .map_err(|code| format!("Renderer draw failed ({code})"))?;
+            })?;
         let drawn = count();
-        if !frames.submit()? { return Ok(false); }
+        if !frames.submit().map_err(|_| Error::Host("could not submit native frame"))? { return Ok(false); }
         self.images.submitted(frames.serial());
         let completed = frames.completed();
-        self.retire_images(completed).map_err(|error| format!("Image retirement failed ({error})"))?;
+        self.retire_images(completed)?;
         let submitted = count();
         if let Some(trace) = trace {
             *trace = [
@@ -186,8 +189,12 @@ impl Graphics {
         self.acquire_wall
     }
 
-    pub fn close(mut self) -> Result<(), String> {
+    /// Waits for submitted work, then releases this surface's graphics resources.
+    ///
+    /// A failed wait returns `Error::Host`. Drop still runs the graphics cleanup path.
+    pub fn close(mut self) -> Result<(), Error> {
         self.frames.as_mut().expect("Live frame context").wait()
+            .map_err(|_| Error::Host("could not wait for graphics completion"))
     }
     fn retire_images(&mut self, completed: u64) -> Result<(), pxui::Error> {
         self.images.retire_completed(

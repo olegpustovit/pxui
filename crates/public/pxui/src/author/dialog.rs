@@ -140,7 +140,7 @@ mod tests {
     /// click on its part chooses the button, and the press of a disabled one is ignored.
     #[test]
     fn a_registered_dialog_body_builds_the_dialog() {
-        let mut ui = Ui::new().unwrap();
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
         ui.set_a11y(true);
         let id = ui.register_dialog_body("column", column).expect("registered");
         let text = "dialog.body = column";
@@ -148,7 +148,7 @@ mod tests {
         assert_eq!(ui.theme().body.dialog, id);
         SAVE.set(false);
         let mut build = build_with;
-        for _ in 0..3 { ui.frame(&FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() }, &mut build).unwrap(); }
+        for _ in 0..3 { ui.frame(&FrameIn::new(320.0, 240.0), &mut build).unwrap(); }
         let seen = SEEN.with(|s| s.borrow().clone());
         assert!(seen.len() >= 3 && seen[seen.len() - 3..] == [(0, 4, 2, 1, 0), (1, 4, 2, 1, 0), (2, 4, 2, 1, 0)], "{seen:?}");
         let cancel = testing::find(&ui, Role::Button, "Cancel").unwrap();
@@ -178,14 +178,14 @@ mod tests {
     #[test]
     fn a_registered_dialog_body_keeps_its_roles_states_and_names() {
         use crate::ui::state;
-        let mut ui = Ui::new().unwrap();
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
         ui.set_a11y(true);
         ui.register_dialog_body("described", self_described).expect("registered");
         let text = "dialog.body = described";
         ui.set_theme(&crate::ThemeHandle::parse(&text).unwrap()).unwrap();
         SAVE.set(true);
         let mut build = build_with;
-        for _ in 0..3 { ui.frame(&FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() }, &mut build).unwrap(); }
+        for _ in 0..3 { ui.frame(&FrameIn::new(320.0, 240.0), &mut build).unwrap(); }
         assert!(testing::find(&ui, Role::Label, "Delete layer").is_some() && testing::find(&ui, Role::Heading, "Delete layer").is_none(), "the body's Label title stays a Label");
         let states = |ui: &Ui, name: &str| ui.a11y_nodes().iter().find(|n| n.is_role(Role::Button) && ui.a11y_name_of(n) == name).map(|n| n.states).unwrap_or_else(|| panic!("no button {name}"));
         assert_ne!(states(&ui, "Save") & state::DEFAULT, 0, "the body's DEFAULT state stands on the unnamed Save, which behaviour named");
@@ -207,7 +207,7 @@ mod tests {
     /// the body, sees 0, and a dialog without a variant is given 0.
     #[test]
     fn a_dialog_variant_reaches_the_dialog_body_and_not_its_content() {
-        let mut ui = Ui::new().unwrap();
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
         ui.register_dialog_body("v", variant_dialog).expect("dialog body");
         ui.register_label_body("l", variant_label).expect("label body");
         let scoped = crate::ThemeHandle::parse("dialog.body = v\nlabel.body = l").expect("theme");
@@ -216,7 +216,7 @@ mod tests {
                 ui.dialog(key, "T", &[DialogButton::new("OK").primary()], &style, &mut |ui: &mut Ui| { ui.label("inside", crate::Label::DEFAULT); });
             }
         });
-        for _ in 0..3 { VARIANTS.with(|v| v.borrow_mut().clear()); ui.frame(&FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() }, &mut build).unwrap(); }
+        for _ in 0..3 { VARIANTS.with(|v| v.borrow_mut().clear()); ui.frame(&FrameIn::new(320.0, 240.0), &mut build).unwrap(); }
         let seen = VARIANTS.with(|v| v.borrow().clone());
         let of = |name: &str| seen.iter().filter(|s| s.0 == name).map(|s| s.1).collect::<Vec<_>>();
         assert_eq!(of("dialog"), [3, 0], "the dialog body is given its call's variant: {seen:?}");
@@ -262,13 +262,13 @@ mod tests {
             testing::frame(&mut ui, &[], &mut build);
             if round > 3 { assert_eq!(mem_sys::local_alloc_count(), 0, "round {round}"); }
         }
-        let mut ui = Ui::new().unwrap();
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
         ui.set_a11y(true);
         let id = ui.register_dialog_body("detailed", detailed).expect("registered");
         let text = "dialog.body = detailed";
         ui.set_theme(&crate::ThemeHandle::parse(&text).unwrap()).unwrap();
         assert_eq!(ui.theme().body.dialog, id);
-        for _ in 0..3 { ui.frame(&FrameIn { width: 400.0, height: 300.0, ..FrameIn::default() }, &mut build).unwrap(); }
+        for _ in 0..3 { ui.frame(&FrameIn::new(400.0, 300.0), &mut build).unwrap(); }
         assert_eq!(DETAILS.with(|d| d.borrow().clone()), [(0, 0), (1, 31), (2, 0)]);
         assert!(testing::find(&ui, Role::Button, "Cancel").unwrap().w > 200.0, "the body's structure shows");
     }

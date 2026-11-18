@@ -85,7 +85,7 @@ impl TextStyle {
     /// Panics: never.
     ///
     /// ```
-    /// let ui = pxui::Ui::new().unwrap();
+    /// let ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
     /// assert_eq!(ui.resolve(&pxui::Label::BODY.line_height(19.6)).line_height(), 19.6);
     /// assert_eq!(ui.resolve(&pxui::Label::BODY.size(10.0)).line_height(), 12.0);
     /// ```
@@ -96,7 +96,7 @@ impl TextStyle {
     /// Panics: never.
     ///
     /// ```
-    /// let ui = pxui::Ui::new().unwrap();
+    /// let ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
     /// assert_eq!(ui.resolve(&pxui::Label::BODY.size(15.0)).size(), 15.0);
     /// ```
     pub fn size(&self) -> f32 { self.0.size_points }
@@ -106,7 +106,7 @@ impl TextStyle {
     /// Panics: never.
     ///
     /// ```
-    /// let ui = pxui::Ui::new().unwrap();
+    /// let ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
     /// assert_eq!(ui.resolve(&pxui::Label::BODY.size(20.0).tracking(-0.05)).tracking(), -0.05 * 20.0);
     /// ```
     pub fn tracking(&self) -> f32 { self.0.tracking }
@@ -184,7 +184,7 @@ impl Text {
     /// Errors: `Error::InvalidInput` for more than eight or overlapping spans or text over the limits; `Error::Engine` when shaping fails.
     ///
     /// ```
-    /// let style = pxui::Ui::new().unwrap().resolve(&pxui::Label::BODY);
+    /// let style = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap().resolve(&pxui::Label::BODY);
     /// let mut text = pxui::Text::new(&[pxui::pragmasevka()]).unwrap();
     /// let prepared = text.prepare("Song title", &style, 0.0, &[]).unwrap();
     /// assert!(prepared.metrics().width > 0.0);
@@ -204,7 +204,7 @@ impl Text {
     /// Errors: `Error::State` once the shaper has been used or when the platform has no system fonts.
     ///
     /// ```
-    /// let style = pxui::Ui::new().unwrap().resolve(&pxui::Label::BODY);
+    /// let style = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap().resolve(&pxui::Label::BODY);
     /// let mut text = pxui::Text::new(&[pxui::pragmasevka()]).unwrap();
     /// let _ = text.enable_system_fonts(); // `Err(State)` where the platform has none
     /// ```
@@ -234,7 +234,7 @@ impl Text {
     /// Panics: never.
     ///
     /// ```
-    /// let style = pxui::Ui::new().unwrap().resolve(&pxui::Label::BODY);
+    /// let style = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap().resolve(&pxui::Label::BODY);
     /// let mut text = pxui::Text::new(&[pxui::pragmasevka()]).unwrap();
     /// assert_eq!(text.add_font(pxui::pragmasevka()), Ok(1));
     /// assert!(text.add_font(b"not a font").is_err()); // not a parseable font
@@ -248,7 +248,7 @@ impl Text {
     /// Errors: `Error::InvalidInput` for a non-finite `max_width` or oversized text.
     ///
     /// ```
-    /// let style = pxui::Ui::new().unwrap().resolve(&pxui::Label::BODY);
+    /// let style = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap().resolve(&pxui::Label::BODY);
     /// let mut text = pxui::Text::new(&[pxui::pragmasevka()]).unwrap();
     /// let m = text.measure("Song title", &style, 0.0).unwrap();
     /// assert!(m.width > 0.0 && m.height > 0.0);
@@ -260,7 +260,7 @@ impl Text {
     /// Errors: `Error::InvalidInput` for bad spans (more than eight, overlapping, or off a character boundary) or oversized text.
     ///
     /// ```
-    /// let style = pxui::Ui::new().unwrap().resolve(&pxui::Label::BODY);
+    /// let style = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap().resolve(&pxui::Label::BODY);
     /// let mut text = pxui::Text::new(&[pxui::pragmasevka()]).unwrap();
     /// let bold = pxui::TextSpan { start: 0, end: 4, weight: 700, ..Default::default() };
     /// assert!(text.measure_spans("Song title", &style, 0.0, &[bold]).unwrap().width > 0.0);
@@ -272,7 +272,7 @@ impl Text {
     /// Errors: as `measure`.
     ///
     /// ```
-    /// let style = pxui::Ui::new().unwrap().resolve(&pxui::Label::BODY);
+    /// let style = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap().resolve(&pxui::Label::BODY);
     /// let mut text = pxui::Text::new(&[pxui::pragmasevka()]).unwrap();
     /// assert!(text.width("Song title", &style, 0.0).unwrap() > 0.0);
     /// ```
@@ -284,7 +284,7 @@ impl Text {
     /// Panics: never.
     ///
     /// ```
-    /// let style = pxui::Ui::new().unwrap().resolve(&pxui::Label::BODY);
+    /// let style = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap().resolve(&pxui::Label::BODY);
     /// let mut text = pxui::Text::new(&[pxui::pragmasevka()]).unwrap();
     /// let mut pixels = Vec::new();
     /// let (w, h) = text.rasterize_rgba("abc", &style, 0.0, 1.0, [255; 4], &mut pixels).unwrap();
@@ -341,7 +341,7 @@ impl Ui {
     /// Errors: `Error::State` once a frame has run or when the platform has no system fonts.
     ///
     /// ```
-    /// let mut ui = pxui::Ui::new().unwrap();
+    /// let mut ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
     /// let _ = ui.enable_system_fonts(); // `Err(State)` where the platform has none
     /// ```
     pub fn enable_system_fonts(&mut self)->Result<(),Error> {
@@ -358,7 +358,7 @@ impl Ui {
     /// or when the `Ui` has failed.
     ///
     /// ```
-    /// let ui = pxui::Ui::new().unwrap();
+    /// let ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
     /// const TITLE: pxui::Label = pxui::Label::BODY.size(20.0).tracking(-0.05);
     /// let style = ui.resolve(&TITLE);
     /// assert_eq!((style.size(), style.tracking()), (20.0, -0.05 * 20.0));

@@ -259,23 +259,34 @@ pub(crate) fn name_ok(name: &str) -> bool { !name.is_empty() && name.len() <= MA
 // Registering a name again replaces its function and keeps its id. Ids are this `Ui`'s (a theme used in another `Ui` is resolved there
 // by name). Register at start-up: `user` must outlive the `Ui`.
 export!(pub unsafe fn pxui_body_register(ui: *mut PxuiUi, kind: u32, name: Str, body: PxuiBodyFn, user: *mut c_void) -> u16 {
-    let Some(state) = (unsafe { get(ui) }) else { return 0 };
-    let (Some(body), Some(name)) = (body, unsafe { crate::state::checked_key(name) }) else { unsafe { fail(ui, "invalid body registration") }; return 0 };
-    if state.shared().in_frame || !state.owner { unsafe { fail_code(ui, "bodies are registered outside a frame", PXUI_ERR_STATE) }; return 0 }
-    let Some(register) = REGISTER.get(kind as usize) else { unsafe { fail(ui, "unknown body kind") }; return 0 };
-    if !name_ok(name) { unsafe { fail(ui, "invalid body name") }; return 0 }
+    unsafe { register_body(ui, kind, name, body, user) }.unwrap_or(0)
+});
+
+export!(pub unsafe fn pxui_body_register_checked(ui: *mut PxuiUi, kind: u32, name: Str, body: PxuiBodyFn, user: *mut c_void, out: *mut u16) -> i32 {
+    if out.is_null() { return unsafe { fail(ui, "null body id output") }; }
+    match unsafe { register_body(ui, kind, name, body, user) } {
+        Ok(id) => { unsafe { out.write(id); } 0 }
+        Err(code) => code,
+    }
+});
+
+unsafe fn register_body(ui: *mut PxuiUi, kind: u32, name: Str, body: PxuiBodyFn, user: *mut c_void) -> Result<u16, i32> {
+    let Some(state) = (unsafe { get(ui) }) else { return Err(PXUI_ERR_ARGUMENT); };
+    let (Some(body), Some(name)) = (body, unsafe { crate::state::checked_key(name) }) else { return Err(unsafe { fail(ui, "invalid body registration") }); };
+    if state.shared().in_frame || !state.owner { return Err(unsafe { fail_code(ui, "bodies are registered outside a frame", PXUI_ERR_STATE) }); }
+    let Some(register) = REGISTER.get(kind as usize) else { return Err(unsafe { fail(ui, "unknown body kind") }); };
+    if !name_ok(name) { return Err(unsafe { fail(ui, "invalid body name") }); }
     let engine = unsafe { &mut *state.engine };
-    let shared = state.shared;
-    engine.set_body_host(shared.cast());
     let id = register(engine, name);
+    if id.0 == 0 { return Err(unsafe { fail_code(ui, "too many bodies of one kind", PXUI_ERR_STATE) }); }
+    engine.set_body_host(state.shared.cast());
     let table = &mut state.shared().bodies.table;
     if table.is_empty() { table.resize_with(REGISTER.len(), Vec::new); }
-    if id.0 == 0 { unsafe { fail(ui, "too many bodies of one kind") }; return 0 }
     let (kind_table, at) = (&mut table[kind as usize], id.0 as usize - 1);
     if kind_table.len() <= at { kind_table.resize(at + 1, None) }
     kind_table[at] = Some((body, user));
-    id.0
-});
+    Ok(id.0)
+}
 
 // Builds a node as `part` of the widget whose body is running (the way `pxui_ui_node_keyed` does): behaviour finds it again by role.
 // A part is a number of `Part`; refused outside a body call or for a number that names no part.

@@ -437,15 +437,23 @@ impl Keyboard {
     }
 }
 
+/// Input for one UI frame in logical points.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct FrameIn {
+    /// The byte size of the ABI record supplied by the host.
     pub size: u32,
+    /// An event span whose records and payloads must live through the frame call.
     pub events: *const Event,
+    /// The number of records at `events`.
     pub event_count: usize,
+    /// The logical width of the surface in points.
     pub width: f32,
+    /// The logical height of the surface in points.
     pub height: f32,
+    /// Drawable pixels per logical point.
     pub scale: f32,
+    /// Time in seconds on the host's monotonic clock.
     pub time: f64,
     /// Host appearance: UNKNOWN, LIGHT or DARK. Added after the frozen 48-byte v1 prefix.
     pub appearance: u32,
@@ -459,12 +467,50 @@ pub struct FrameIn {
     pub surface: u64,
 }
 impl Default for FrameIn {
-    fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, events: core::ptr::null(), event_count: 0, width: 0.0, height: 0.0, scale: 1.0, time: 0.0,appearance:0,reduced_motion:0,environment:Environment::default(),keyboard:Keyboard::default(),surface:0 } }
+    fn default() -> Self { Self::new(0.0, 0.0) }
 }
 impl FrameIn {
+    /// The wire value for unknown appearance.
     pub const APPEARANCE_UNKNOWN:u32=0;
+    /// The wire value for light appearance.
     pub const APPEARANCE_LIGHT:u32=1;
+    /// The wire value for dark appearance.
     pub const APPEARANCE_DARK:u32=2;
+
+    /// Creates an empty frame for a surface of `width` by `height` logical points.
+    ///
+    /// Starts at time zero and scale one with no events, insets, or keyboard.
+    /// Allocates: never.
+    /// Panics: never. The frame call validates its dimensions and settings.
+    ///
+    /// ```
+    /// let input = pxui_types::FrameIn::new(320.0, 240.0);
+    /// assert_eq!((input.width, input.height, input.scale), (320.0, 240.0, 1.0));
+    /// ```
+    pub const fn new(width: f32, height: f32) -> FrameIn {
+        FrameIn {
+            size: core::mem::size_of::<FrameIn>() as u32, events: core::ptr::null(), event_count: 0,
+            width, height, scale: 1.0, time: 0.0, appearance: Self::APPEARANCE_UNKNOWN, reduced_motion: 0,
+            environment: Environment {
+                safe_area: [0.0; 4], keyboard_frame: [0.0; 4], keyboard_from: [0.0; 4],
+                keyboard_started: 0.0, keyboard_duration: 0.0, keyboard_curve: 0, keyboard_visible: 0,
+            },
+            keyboard: Keyboard { frame: [0.0; 4], flags: 0 }, surface: 0,
+        }
+    }
+
+}
+
+/// The native appearance reported with a frame.
+#[repr(u32)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Appearance {
+    /// The host did not report an appearance.
+    Unknown = FrameIn::APPEARANCE_UNKNOWN,
+    /// The host reports light appearance.
+    Light = FrameIn::APPEARANCE_LIGHT,
+    /// The host reports dark appearance.
+    Dark = FrameIn::APPEARANCE_DARK,
 }
 
 #[repr(C)]
@@ -744,7 +790,7 @@ pub mod feature {
 }
 
 /// The ABI version this crate's records describe (`major << 16 | minor`); an app states it as `PxuiUiDesc::abi_built`.
-pub const ABI_BUILT: u32 = 1 << 16 | 73;
+pub const ABI_BUILT: u32 = 1 << 16 | 74;
 impl Default for PxuiUiDesc { fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, platform: 0, font_size: 0, abi_built: ABI_BUILT } } }
 
 #[cfg(test)]

@@ -2,9 +2,9 @@
 
 use pxui_types::{PXUI_ERR_ARGUMENT, PXUI_ERR_GPU, PXUI_ERR_PANIC, PXUI_ERR_STALE, PXUI_ERR_STATE};
 
-/// Why a fallible call refused: the ABI's `PXUI_ERR_*` status codes, plus two the wrapper raises itself.
+/// Why a fallible UI or host call was refused.
 ///
-/// The library's own message for the last refusal is `Ui::last_error`.
+/// `Ui::last_error` gives the library's own message when the operation was tied to a Ui.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum Error {
@@ -20,6 +20,10 @@ pub enum Error {
     Stale,
     /// The wrapper could not reserve the memory a result needs.
     Allocation,
+    /// The library and wrapper use different ABI major versions.
+    Version,
+    /// A native host operation failed. The static message identifies the operation.
+    Host(&'static str),
     /// The engine failed in a way no other variant names, including a status code this version does not know.
     Engine,
 }
@@ -47,7 +51,7 @@ impl Error {
 
 #[cfg(test)]
 impl Error {
-    /// The ABI status code of this error; the two wrapper-raised variants report the generic engine refusal.
+    /// The ABI status code of this error; wrapper-raised variants report a generic refusal.
     pub(crate) fn code(self) -> i32 {
         match self {
             Error::InvalidInput => PXUI_ERR_ARGUMENT,
@@ -55,7 +59,7 @@ impl Error {
             Error::State => PXUI_ERR_STATE,
             Error::Panic => PXUI_ERR_PANIC,
             Error::Stale => PXUI_ERR_STALE,
-            Error::Allocation | Error::Engine => PXUI_ERR_ARGUMENT,
+            Error::Allocation | Error::Version | Error::Host(_) | Error::Engine => PXUI_ERR_ARGUMENT,
         }
     }
 }
@@ -69,6 +73,8 @@ impl core::fmt::Display for Error {
             Error::Panic => "panic inside the library",
             Error::Stale => "stale handle",
             Error::Allocation => "allocation failed",
+            Error::Version => "incompatible pxui ABI",
+            Error::Host(operation) => operation,
             Error::Engine => "engine failure",
         })
     }

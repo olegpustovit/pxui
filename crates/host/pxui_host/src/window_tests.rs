@@ -15,7 +15,7 @@ fn framework_host_uploads_exact_rgba_reuses_warm_frames_and_fences_texture_relea
     mem_sys::set_peer(pxui::library_counter);
     let mut window =
         Window::open_with("PXUI resource lifecycle", 320, 240, false, true, true).unwrap();
-    let mut ui = Ui::new().unwrap();
+    let mut ui = Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
     let mut graphics = Graphics::open(&mut window, &ui).unwrap();
     graphics.configure_images(1.0, 64).unwrap();
     graphics.sync_images(1).unwrap();
@@ -62,12 +62,7 @@ fn framework_host_uploads_exact_rgba_reuses_warm_frames_and_fences_texture_relea
                 .unwrap()
         );
         ui.frame(
-            &FrameIn {
-                width: 320.0,
-                height: 240.0,
-                time: frame as f64 / 60.0,
-                ..Default::default()
-            },
+            &FrameIn::new(320.0, 240.0).time(frame as f64 / 60.0),
             &mut |ui| {
                 let node = ui.node(
                     "image".into(),
@@ -107,12 +102,7 @@ fn framework_host_uploads_exact_rgba_reuses_warm_frames_and_fences_texture_relea
     }
     for frame in 0..3 {
         ui.frame(
-            &FrameIn {
-                width: 320.0,
-                height: 240.0,
-                time: 1.0 + frame as f64 / 60.0,
-                ..Default::default()
-            },
+            &FrameIn::new(320.0, 240.0).time(1.0 + frame as f64 / 60.0),
             &mut |_| {},
         )
         .unwrap();
@@ -167,7 +157,7 @@ fn framework_host_constructor_refusals_release_devices_and_queues() {
     let mut window =
         crate::Window::open_with("PXUI refused host", 320, 240, false, true, true).unwrap();
     window.destroy().unwrap();
-    let ui = pxui::Ui::new().unwrap();
+    let ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
     let before = ogpu_metal::impl_::live_handles();
     for _ in 0..3 {
         assert!(crate::Graphics::open(&mut window, &ui).is_err());
@@ -185,16 +175,21 @@ fn framework_platform_applies_focused_ime_reuses_warm_frames_and_rejects_dead_wi
     mem_sys::set_peer(pxui::library_counter);
     let mut window = crate::Window::open_with("PXUI platform output", 320, 240, false, true, true).unwrap();
     let mut platform = crate::Platform::default();
-    let mut ui = Ui::new().unwrap();
+    let mut ui = Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
     let mut build = |ui: &mut Ui| { assert!(ui.text_field("Caption", "café track 10", &pxui::TextField::DEFAULT).changed.is_none()); };
-    let input = FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() };
+    let input = FrameIn::new(320.0, 240.0);
     ui.frame(&input, &mut build).unwrap();
     let focus = Event { kind: Event::KEY_PRESSED, code: input::Key::Tab.code(), ..Event::default() };
-    ui.frame(&FrameIn { events: &focus, event_count: 1, ..input }, &mut build).unwrap();
+    ui.frame(&{
+        let mut frame = input;
+        frame.wire.events = &focus;
+        frame.wire.event_count = 1;
+        frame
+    }, &mut build).unwrap();
     assert!(ui.ime().is_some());
     for frame in 0..100 {
         mem_sys::local_reset();
-        ui.frame(&FrameIn { time: 0.2 + frame as f64 / 60.0, ..input }, &mut build).unwrap();
+        ui.frame(&input.time(0.2 + frame as f64 / 60.0), &mut build).unwrap();
         platform.apply(&mut window, &ui).unwrap();
         platform.apply(&mut window, &ui).unwrap();
         if frame >= 10 { assert_eq!(mem_sys::local_alloc_count(), 0, "warm platform output allocated"); }
@@ -214,7 +209,7 @@ fn voiceover_bridge_maps_nodes_round_trips_actions_and_stays_quiet_when_unchange
     mem_sys::set_peer(pxui::library_counter);
     let mut window = crate::Window::open_with("PXUI accessibility", 320, 240, false, true, true).unwrap();
     let mut ax = crate::Accessibility::open(&mut window).unwrap();
-    let mut ui = Ui::new().unwrap();
+    let mut ui = Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
     let (seek, shuffle, pressed, hidden) = (Cell::new(25.0f32), Cell::new(false), Cell::new(0), Cell::new(false));
     let mut build = |ui: &mut Ui| {
         ui.label("Now playing", pxui::Label::DEFAULT);
@@ -226,7 +221,7 @@ fn voiceover_bridge_maps_nodes_round_trips_actions_and_stays_quiet_when_unchange
     let step = |ui: &mut Ui, ax: &mut crate::Accessibility, build: &mut dyn FnMut(&mut Ui)| {
         ax.frame(ui);
         time.set(time.get() + 1.0 / 60.0);
-        ui.frame(&FrameIn { width: 320.0, height: 240.0, time: time.get(), ..Default::default() }, build).unwrap();
+        ui.frame(&FrameIn::new(320.0, 240.0).time(time.get()), build).unwrap();
     };
     // Off by default: no tree, no elements (skipped when VoiceOver really is running here).
     if !pxui_sdl::ax::Bridge::voiceover() {

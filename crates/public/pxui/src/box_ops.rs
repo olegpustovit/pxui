@@ -534,7 +534,7 @@ impl Ui {
     /// Panics: when the `Ui` has failed, like every `Ui` call.
     ///
     /// ```
-    /// let mut ui = pxui::Ui::new().unwrap();
+    /// let mut ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
     /// ui.frame(&pxui::FrameIn::default(), &mut |ui| {
     ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
     ///     assert_eq!(ui.text_state(&b), None);
@@ -736,7 +736,7 @@ impl Ui {
     /// Panics: when the `Ui` has failed, like every `Ui` call.
     ///
     /// ```
-    /// let mut ui = pxui::Ui::new().unwrap();
+    /// let mut ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
     /// ui.frame(&pxui::FrameIn::default(), &mut |ui| {
     ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
     ///     assert!(ui.press_keys(&b).is_empty());

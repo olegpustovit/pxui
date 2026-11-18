@@ -63,6 +63,7 @@ impl Gpu {
             hwnd: native.hwnd, owner_token: native.owner_token, release_owner: native.release_owner,
         };
         Renderer::new(ui, gpu, TargetDesc { format: TARGET_RGBA8, samples: 1 })
+            .map_err(|error| format!("{error}: {}", ui.last_error()))
     }
 
     /// An RGBA8 image `w` x `h` as a public host image. `Gpu` keeps its native texture alive.

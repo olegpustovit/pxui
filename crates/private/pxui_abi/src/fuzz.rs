@@ -96,7 +96,7 @@ arg!(sized: PxuiTextFieldDesc, Environment, Gpu, Keyboard, Pass, pxui_text::Text
     PxuiTableViewWithDesc, PxuiTreeViewDesc, PxuiTreeViewWithDesc, PxuiValueFieldDesc, ThemeSource, ThemeTokens, FrameIn, FrameOut, Image, Node, PxuiPanel,
     PxuiTargetDesc, PxuiUiDesc, TextMetrics, PxuiTextStyle, PxuiAnchorDesc, PxuiAreaCallbacks, PxuiDialogOut, PxuiLabelBox, PxuiMarkDesc, PxuiSegmentedDesc,
     PxuiTextAreaDesc, PxuiTextInputOptions, PxuiToggleDesc, Span, TextGlyph);
-arg!(plain: u8, u32, u64, i64, usize, f32, c_void, Str, geom::Rgba, geom::Rect, geom::Point, *const u32, *mut PxuiPreparedText, A11yTree, Slice<A11yAction>);
+arg!(plain: u16, *mut PxuiRenderer, u8, u32, u64, i64, usize, f32, c_void, Str, geom::Rgba, geom::Rect, geom::Point, *const u32, *mut PxuiPreparedText, A11yTree, Slice<A11yAction>);
 arg!(null: PxuiRenderer, PxuiPaint, PxuiPreparedText, PxuiA11y, PxuiTextWorker);
 arg!(none: UiBuild, PxuiGridBuild, PxuiButtonBuild, PxuiBodyFn, crate::paint::PaintBuild, crate::paint::PaintRelease, crate::paint::SpanBuild,
     crate::overlays::PickerRows, crate::overlays::PickerMark, crate::overlays::PickerOff, crate::text_inputs::TextValid, crate::text_inputs::SlideText,
@@ -214,18 +214,18 @@ fuzz!(
     pxui_ui_inspector_bar/3, pxui_ui_inspector_body/3, pxui_ui_inspector_button/4, pxui_ui_inspector_header/5, pxui_ui_inspector_label_x/1,
     pxui_ui_inspector_message/2, pxui_ui_inspector_readout/2, pxui_ui_inspector_row/2, pxui_ui_inspector_section/2, pxui_ui_inspector_section_view/10,
     pxui_ui_inspector_toggle/5, pxui_ui_inspector_toggle_value/6, pxui_ui_inspector_width/1, pxui_ui_line_field/11, pxui_ui_picker/13, pxui_ui_value_field/9,
-    pxui_a11y_fd/1, pxui_a11y_pump/2, pxui_a11y_update/2, pxui_abi_version/0, pxui_body_register/5, pxui_button/3, pxui_col/5,
+    pxui_a11y_fd/1, pxui_a11y_pump/2, pxui_a11y_update/2, pxui_abi_version/0, pxui_body_register/5, pxui_body_register_checked/6, pxui_button/3, pxui_col/5,
     pxui_counter/1, pxui_default_font/0, pxui_frame/5, pxui_label/2, pxui_last_error/1, pxui_paint_cap/6, pxui_paint_cap_width/2, pxui_paint_caret_x/5,
     pxui_paint_color/2, pxui_paint_icon/7, pxui_paint_icon_word/1, pxui_paint_image/8, pxui_paint_image_checked/8, pxui_paint_input_region/6, pxui_paint_label/6, pxui_paint_label_chars/5,
     pxui_paint_ratio/5, pxui_paint_scroll_y/2, pxui_paint_selection/8, pxui_paint_span/3, pxui_paint_text/4, pxui_paint_text_color/5, pxui_paint_text_metrics/4,
     pxui_paint_text_size/6, pxui_paint_text_spans/10, pxui_paint_text_styled/8, pxui_paint_text_width/4, pxui_paint_text_with/9, pxui_panel/5, pxui_part/4,
-    pxui_part_box/4, pxui_renderer_atlas/3, pxui_renderer_draw/2,
+    pxui_part_box/4, pxui_renderer_atlas/3, pxui_renderer_create_checked/4, pxui_renderer_draw/2,
     pxui_renderer_draw_calls/1, pxui_renderer_forget_image/3, pxui_renderer_prepare/4, pxui_renderer_resize/3, pxui_scope/4, pxui_shaper_add_font/2,
     pxui_shaper_prepare/7, pxui_shaper_rasterize_rgba/14, pxui_shaper_system_fonts/1, pxui_shaper_width/6,
     pxui_shaper_width_spans/7, pxui_slot/3, pxui_supports/1, pxui_text_add_font/2, pxui_text_field/5, pxui_text_field_with_options/6,
     pxui_text_install/2, pxui_text_prewarm/4, pxui_text_quads/10, pxui_text_rasterize_rgba/14, pxui_text_system_fonts/1, pxui_text_width/6,
     pxui_text_width_spans/7, pxui_theme_density/2, pxui_theme_last_error/1, pxui_theme_load/2, pxui_theme_parse/2,
-    pxui_theme_reduced_motion/2, pxui_theme_set/3, pxui_theme_set_color/3, pxui_toggle/4, pxui_ui_a11y_name/3, pxui_ui_a11y_number/6, pxui_ui_a11y_value/5, pxui_ui_anchored/8, pxui_ui_animate/4,
+    pxui_theme_reduced_motion/2, pxui_theme_set/3, pxui_theme_set_color/3, pxui_toggle/4, pxui_ui_a11y_name/3, pxui_ui_a11y_name_checked/3, pxui_ui_a11y_number/6, pxui_ui_a11y_number_checked/6, pxui_ui_a11y_value/5, pxui_ui_anchored/8, pxui_ui_animate/4,
     pxui_ui_animate_keys/4, pxui_ui_animate_keys_repeat/7, pxui_ui_badge/4, pxui_ui_box/4, pxui_ui_box_of_a11y/3, pxui_ui_box_of_key/3, pxui_ui_busy_step/4,
     pxui_ui_button_content/5, pxui_ui_button_plain/4, pxui_ui_button_response/5, pxui_ui_button_styled/8, pxui_ui_button_with/7, pxui_ui_bytes/3,
     pxui_ui_cached_label/5, pxui_ui_calls/1, pxui_ui_cancel_carry/1, pxui_ui_cap_width/3, pxui_ui_captured/1, pxui_ui_carry/5, pxui_ui_carrying/4, pxui_ui_checkbox/4, pxui_ui_checkbox_keyed/4, pxui_ui_choice_keyed/7, pxui_ui_slider_keyed/7, pxui_ui_progress_keyed/5, pxui_ui_spinner_keyed/3,

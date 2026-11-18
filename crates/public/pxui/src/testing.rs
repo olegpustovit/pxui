@@ -14,7 +14,9 @@ use crate::{Event, FrameIn, Handle, Ui};
 /// assert_eq!(ui.frame_index(), 2);
 /// ```
 pub fn frame(ui: &mut Ui, events: &[Event], build: &mut dyn FnMut(&mut Ui)) {
-    let input = FrameIn { width: 320.0, height: 240.0, events: events.as_ptr(), event_count: events.len(), ..FrameIn::default() };
+    let mut input = FrameIn::new(320.0, 240.0);
+    input.wire.events = events.as_ptr();
+    input.wire.event_count = events.len();
     ui.frame(&input, build).expect("pxui: a testing frame failed");
 }
 

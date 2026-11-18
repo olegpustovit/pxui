@@ -67,13 +67,9 @@ mod ios {
             if !window.token()?.alive() {
                 return Err("Metal layer token is not live".into());
             }
-            let ui = pxui::Ui::create(
-                pxui::Platform::Apple,
-                None,
-                &[include_bytes!(
+            let ui = pxui::Ui::new(&pxui::UiDesc::new(pxui::Platform::Apple).fonts(&[pxui::FontData(include_bytes!(
                     "../../../assets/fonts/Pragmasevka-Regular.ttf"
-                )],
-            );
+                ))])).expect("pxui Ui");
             let graphics = pxui_host::Graphics::open(window, &ui)?;
             Ok(Self {
                 ui,
@@ -345,18 +341,13 @@ mod ios {
             let mut bounds = None;
             self.ui
                 .frame(
-                    &pxui::FrameIn {
-                        width: extent.logical.0 as f32,
-                        height: extent.logical.1 as f32,
-                        scale: window.scale() as f32,
-                        time: window.time(),
-                        environment: self.platform.environment(),
-                        keyboard: self.platform.keyboard(),
-                        appearance: self.system.appearance,
-                        reduced_motion: self.system.reduced_motion,
-                        events: wire.as_ptr(),
-                        event_count: wire.len(),
-                        ..pxui::FrameIn::default()
+                    &{
+                        let mut frame = pxui::FrameIn::new(extent.logical.0 as f32, extent.logical.1 as f32).scale(window.scale() as f32).time(window.time()).environment(self.platform.environment()).keyboard(self.platform.keyboard());
+                        frame.wire.appearance = self.system.appearance;
+                        frame.wire.reduced_motion = self.system.reduced_motion;
+                        frame.wire.events = wire.as_ptr();
+                        frame.wire.event_count = wire.len();
+                        frame
                     },
                     &mut |ui| {
                         use pxui::ui::{Edges, Node, Size};

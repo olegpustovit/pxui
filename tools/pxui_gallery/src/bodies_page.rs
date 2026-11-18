@@ -115,7 +115,7 @@ fn boxed_search(ui: &mut Ui, c: &SearchFieldConfig) {
 }
 
 /// Registers the proof bodies; `THEME_LINES` selects them. Once, before the theme that names them is applied.
-pub fn register(ui: &mut Ui) -> Result<(), String> {
+pub fn register(ui: &mut Ui) -> Result<(), pxui::Error> {
     ui.register_toggle_body("checkbox", checkbox_toggle)?;
     ui.register_slider_body("round", round_slider)?;
     ui.register_segmented_body("sliding", sliding_segment)?;

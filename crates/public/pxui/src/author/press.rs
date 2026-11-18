@@ -335,13 +335,18 @@ mod tests {
             held.set(r.held);
             gesture.set(ui.gesture(&r.handle, opts.get()));
         };
-        let input = |time: f64| FrameIn { width: 320.0, height: 240.0, time, ..FrameIn::default() };
+        let input = |time: f64| FrameIn::new(320.0, 240.0).time(time);
         let touch = |ui: &mut Ui, phase: u32, at: f64, build: &mut dyn FnMut(&mut Ui)| {
             let packet = Touch { device: 1, finger: 7, x: 100.0, y: 25.0, phase, time: at, pressure: 1.0 };
             let event = Event { kind: Event::TOUCH, text: Str { ptr: (&packet as *const Touch).cast(), len: core::mem::size_of::<Touch>() }, ..Default::default() };
-            ui.frame(&FrameIn { events: &event, event_count: 1, ..input(at) }, build).unwrap();
+            ui.frame(&{
+                let mut frame = input(at);
+                frame.wire.events = &event;
+                frame.wire.event_count = 1;
+                frame
+            }, build).unwrap();
         };
-        let mut ui = Ui::new().unwrap();
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
         ui.frame(&input(0.0), &mut build).unwrap();
         touch(&mut ui, 0, 1.0, &mut build);
         ui.frame(&input(1.2), &mut build).unwrap();

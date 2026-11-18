@@ -173,7 +173,7 @@ mod tests {
     /// the tree, the caller's content runs through the body's slot, and a sheet's body is given its name (never its key).
     #[test]
     fn each_overlay_is_built_through_its_registered_body() {
-        let mut ui = Ui::new().expect("library");
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
         ui.set_a11y(true);
         ui.register_panel_body("c", panel).unwrap();
         ui.register_popup_body("c", popup).unwrap();
@@ -184,7 +184,7 @@ mod tests {
         let text = "panel.body = c\npopup.body = c\nmodal.body = c\nscroll_view.body = c\ntoasts.body = c\npicker_field.body = c";
         ui.set_theme(&crate::ThemeHandle::parse(&text).unwrap()).unwrap();
         SEEN.with(|s| s.borrow_mut().clear());
-        ui.frame(&FrameIn { width: 400.0, height: 400.0, ..FrameIn::default() }, &mut build).unwrap();
+        ui.frame(&FrameIn::new(400.0, 400.0), &mut build).unwrap();
         let got = SEEN.with(|s| s.borrow().clone());
         let want: Vec<(&str, String)> = [("panel", "Settings"), ("popup", ""), ("scroll_view", ""), ("toast", "Saved"), ("picker_field", "Search"), ("modal", "Delete?")]
             .iter().map(|(k, t)| (*k, t.to_string())).collect();

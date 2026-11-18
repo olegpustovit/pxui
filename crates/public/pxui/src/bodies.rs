@@ -1,12 +1,12 @@
 //! Widget bodies: an app builds a widget kind's nodes itself. `Ui::register_toggle_body(name, f)` and its siblings (one per kind,
 //! generated from `pxui_types::body_kinds!`) register `f`, a plain `fn(&mut Ui, &KindConfig)` (`ToggleConfig`, `MenuRowConfig`, ...: one wrapper per kind, named for the kind), through the one export
-//! `pxui_body_register`; a theme (`theme.body.toggle = id`, or `toggle.body = NAME` in a theme file applied with `Theme::apply`) then picks
+//! `pxui_body_register`; the theme's `toggle.body = NAME` line then picks
 //! it. The body runs as a callback from the library under the callback panic rule: a panic in it is carried to the call that can run
 //! callbacks (the frame) and the body calls after it are skipped. The config is the kind's C record behind its wrapper: borrowed until the body returns,
 //! text fields are read with the wrapper's `text_of` (`BodyConfig`), handles are `Handle`s the body may restyle and enter, and slots run the caller's content.
 use crate::Handle;
 use crate::composite::{defer_callback_panic, deferred};
-use crate::{as_str, check, Ui};
+use crate::{as_text, check, status, Error, Ui};
 use core::{ffi::c_void, mem::ManuallyDrop, ptr::NonNull};
 use pxui_types::{geom::Rect, theme::{BodyId, BodyKind, Curve, Part, States}, ffi::{PxuiBodyFn, PxuiHintDesc, PxuiSlot, Slice}, Node, PxuiBox, Str};
 
@@ -24,7 +24,7 @@ mod sealed {
 /// ```
 /// use pxui::bodies::{BodyConfig, ToggleConfig};
 /// fn toggle(_ui: &mut pxui::Ui, config: &ToggleConfig) { let _label: &str = config.text_of(&config.label); }
-/// let _register: fn(&mut pxui::Ui, &str) -> Result<_, String> = |ui, name| ui.register_toggle_body(name, toggle);
+/// let _register: fn(&mut pxui::Ui, &str) -> Result<_, pxui::Error> = |ui, name| ui.register_toggle_body(name, toggle);
 /// ```
 pub trait BodyConfig: sealed::Sealed {
     /// The text of a config field (`config.text_of(&config.label)`), borrowed from the config (valid until the body returns).
@@ -113,7 +113,7 @@ fn str_of<'a>(field: &Str) -> &'a str {
 fn inside((start, len): (usize, usize), at: usize, size: usize) -> bool { at >= start && at + size <= start + len }
 
 library!(sys {
-    fn pxui_body_register(ui: *mut PxuiUi, kind: u32, name: Str, body: PxuiBodyFn, user: *mut c_void) -> u16;
+    fn pxui_body_register_checked(ui: *mut PxuiUi, kind: u32, name: Str, body: PxuiBodyFn, user: *mut c_void, out: *mut u16) -> i32;
     fn pxui_part(ui: *mut PxuiUi, part: u32, node: *const Node, out: *mut PxuiBox) -> i32;
     fn pxui_part_box(ui: *mut PxuiUi, owner: i64, part: u32, out: *mut PxuiBox) -> i32;
     #[trusted] fn pxui_slot(ui: *mut PxuiUi, slot: PxuiSlot, out: *mut u8) -> i32;
@@ -141,8 +141,17 @@ macro_rules! typed {
         )*
         impl Ui {
             $(
-                #[doc = concat!("Registers `body` as the ", stringify!($kind), " body called `name`, for a theme's `body.", stringify!($kind), "` (`", stringify!($kind), ".body = NAME` in a theme file). Registering a name again replaces its function and keeps its id; ids are this `Ui`'s, numbered from 1 in its order of first registration, and freed with it (a theme carried to another `Ui` selects that name's body there, the built-in body where it has none; a kind takes 65,535 names at most, so choose names statically and register one again to change its body); the error is the library's reason (`default`, names longer than 64 bytes and names with a space, `=` or `#` are refused, and so is a call inside a frame).")]
-                pub fn $register(&mut self, name: &str, body: fn(&mut Ui, &$wrapper)) -> Result<BodyId, String> {
+                #[doc = concat!(
+                    "Registers a ", stringify!($kind), " body for use in theme files.\n\n",
+                    "Call between frames. A name is local to this Ui and kind. Registering it again replaces the function and keeps its id. ",
+                    "Each kind accepts up to 65,535 names. An invalid name returns `Error::InvalidInput`. ",
+                    "A registration during a frame or beyond that capacity returns `Error::State`. ",
+                    "`Ui::last_error` gives the reason.\n",
+                    "Allocates: when the registry grows.\nPanics: never.\n\n",
+                    "```\nlet mut ui = pxui::doc::frames(1, &mut |_| {});\n",
+                    "ui.", stringify!($register), "(\"doc-body\", |_, _| {}).unwrap();\n```"
+                )]
+                pub fn $register(&mut self, name: &str, body: fn(&mut Ui, &$wrapper)) -> Result<BodyId, Error> {
                     extern "C" fn entry(user: *mut c_void, raw: *mut c_void, config: *const c_void) {
                         enter(raw, config, &mut |ui| (unsafe { core::mem::transmute::<*mut c_void, fn(&mut Ui, &$wrapper)>(user) })(ui, unsafe { &*config.cast::<$wrapper>() }));
                     }
@@ -155,11 +164,10 @@ macro_rules! typed {
 pxui_types::body_kinds!(typed);
 
 impl Ui {
-    fn register_body(&mut self, kind: BodyKind, name: &str, entry: extern "C" fn(*mut c_void, *mut c_void, *const c_void), user: *mut c_void) -> Result<BodyId, String> {
-        match unsafe { sys::pxui_body_register(self.0.as_ptr(), kind as u32, as_str(name), Some(entry), user) } {
-            0 => Err(self.last_error().to_owned()),
-            id => Ok(BodyId(id)),
-        }
+    fn register_body(&mut self, kind: BodyKind, name: &str, entry: extern "C" fn(*mut c_void, *mut c_void, *const c_void), user: *mut c_void) -> Result<BodyId, Error> {
+        let mut id = 0;
+        status(unsafe { sys::pxui_body_register_checked(self.0.as_ptr(), kind as u32, as_text(name), Some(entry), user, &mut id) })?;
+        Ok(BodyId(id))
     }
 
     /// Builds a node as `part` of the widget whose body is running: behaviour finds it again by role (see the config's documentation
@@ -197,7 +205,8 @@ mod tests {
     use super::*;
     use crate::ThemeHandle;
     use core::cell::{Cell, RefCell};
-    use pxui_types::{FrameIn, Size};
+    use crate::FrameIn;
+    use pxui_types::{Size};
     use std::panic::{catch_unwind, AssertUnwindSafe};
 
     thread_local! {
@@ -211,7 +220,7 @@ mod tests {
         static TAB: RefCell<Option<Handle>> = const { RefCell::new(None) };
     }
 
-    fn input(time: f64) -> FrameIn { FrameIn { width: 320.0, height: 240.0, time, ..FrameIn::default() } }
+    fn input(time: f64) -> FrameIn<'static> { FrameIn::new(320.0, 240.0).time(time) }
     fn source(text: &str) -> ThemeHandle { ThemeHandle::parse(text).expect("theme source") }
 
     fn probe(ui: &mut Ui, c: &crate::bodies::ToggleConfig) {
@@ -225,7 +234,7 @@ mod tests {
     /// by theme text (the Ui's own and a scoped theme) and only inside the scope that names it.
     #[test]
     fn a_registered_body_is_selected_by_theme_text_and_gets_its_config() {
-        let mut ui = Ui::new().expect("library");
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
         let id = ui.register_toggle_body("probe", probe).expect("registered");
         assert_eq!(id, BodyId(1));
         assert_eq!(ui.register_toggle_body("probe", probe).expect("again"), id, "a name again keeps its id");
@@ -251,8 +260,11 @@ mod tests {
     /// A theme text that names no registered body, and every bad registration, are errors, not crashes.
     #[test]
     fn unknown_body_names_and_bad_registrations_are_errors() {
-        let mut ui = Ui::new().expect("library");
-        for name in ["default", "", "two words", "a=b", "x#"] { assert!(ui.register_toggle_body(name, probe).is_err(), "{name:?}"); }
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
+        for name in ["default", "", "two words", "a=b", "x#"] {
+            assert_eq!(ui.register_toggle_body(name, probe), Err(crate::Error::InvalidInput), "{name:?}");
+            assert!(ui.last_error().contains("invalid body name"));
+        }
         ui.register_toggle_body("probe", probe).unwrap();
         let before = *ui.theme();
         let invalid = source("tokens.accent = #ff0000\ntoggle.body = probe\nlabel.body = nope");
@@ -264,7 +276,8 @@ mod tests {
         assert_eq!(ui.set_theme(&source("toggle.body = slider")), Err(crate::Error::InvalidInput));
         let mut late = None;
         ui.frame(&input(0.0), &mut |ui: &mut Ui| { late = Some(ui.register_toggle_body("late", probe)); }).expect("frame");
-        assert!(late.expect("ran").is_err(), "bodies are registered outside a frame");
+        assert_eq!(late.expect("ran"), Err(crate::Error::State));
+        assert!(ui.last_error().contains("outside a frame"));
         // a part outside a body is a caller bug (outside a frame, it is refused as every builder is)
         let refused = catch_unwind(AssertUnwindSafe(|| ui.part(Part::HIT, Node::DEFAULT)));
         assert!(refused.is_err());
@@ -275,14 +288,14 @@ mod tests {
     #[test]
     fn detached_theme_resolves_per_ui_and_scopes_use_the_builtin_fallback() {
         let theme = source("toggle.body = probe");
-        let mut unregistered = Ui::new().unwrap();
+        let mut unregistered = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
         assert_eq!(unregistered.set_theme(&theme), Err(crate::Error::InvalidInput));
         unregistered.frame(&input(0.0), &mut |ui| ui.themed(&theme, &mut |ui| {
             assert_eq!(ui.theme().body.toggle, BodyId::DEFAULT);
             ui.toggle("Builtin", false);
         })).unwrap();
 
-        let mut registered = Ui::new().unwrap();
+        let mut registered = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
         registered.register_toggle_body("earlier", probe).unwrap();
         let id = registered.register_toggle_body("probe", probe).unwrap();
         assert_ne!(id, BodyId::DEFAULT);
@@ -299,7 +312,7 @@ mod tests {
     /// are skipped, and the next frame builds again.
     #[test]
     fn a_body_that_panics_follows_the_callback_panic_rule() {
-        let mut ui = Ui::new().expect("library");
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
         ui.register_toggle_body("boom", boom).expect("registered");
         ui.set_theme(&source("toggle.body = boom")).expect("theme");
         let result = catch_unwind(AssertUnwindSafe(|| {
@@ -321,7 +334,7 @@ mod tests {
     /// An accessor reads only fields inside the config the library gave: a forged or copied field reads as empty.
     #[test]
     fn accessors_refuse_fields_outside_their_config() {
-        let mut ui = Ui::new().expect("library");
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
         ui.register_toggle_body("forger", forger).expect("registered");
         ui.set_theme(&source("toggle.body = forger")).expect("theme");
         ui.frame(&input(0.0), &mut |ui: &mut Ui| { ui.toggle("Real", true); }).expect("frame");
@@ -341,7 +354,7 @@ mod tests {
     /// A footer body reads its hints' real text; a list copied out of the config, or built by the app, reads as nothing.
     #[test]
     fn hint_and_list_accessors_read_library_lists_and_refuse_forged_ones() {
-        let mut ui = Ui::new().expect("library");
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
         ui.register_footer_body("hinter", hinter).expect("registered");
         ui.set_theme(&source("footer.body = hinter")).expect("theme");
         ui.frame(&input(0.0), &mut |ui: &mut Ui| { ui.footer(None, &[("Esc", "close")]); }).expect("frame");
@@ -357,7 +370,7 @@ mod tests {
     /// A body runs the caller's content through its slot, once; the slot is stale after the body call and refused, without poisoning.
     #[test]
     fn a_slot_runs_the_callers_content_and_is_refused_once_stale() {
-        let mut ui = Ui::new().expect("library");
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
         ui.register_scroll_view_body("probe", scroll).expect("registered");
         ui.set_theme(&source("scroll_view.body = probe")).expect("theme");
         ui.frame(&input(0.0), &mut |ui: &mut Ui| { ui.scroll_view("list", Size::Grow, Size::Grow, &mut |ui: &mut Ui| { CONTENT.with(|c| c.set(c.get() + 1)); ui.label("row", crate::Label::DEFAULT); }); }).expect("frame");
@@ -372,7 +385,7 @@ mod tests {
     /// the body's entry): the panic surfaces at the frame, and the next frame's body runs its slot again.
     #[test]
     fn a_slot_whose_content_panics_follows_the_callback_panic_rule() {
-        let mut ui = Ui::new().expect("library");
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
         ui.register_scroll_view_body("probe", |ui, c| { ui.slot(c.content); }).expect("registered");
         ui.set_theme(&source("scroll_view.body = probe")).expect("theme");
         let ran = Cell::new(0);
@@ -394,7 +407,7 @@ mod tests {
     /// A body sizes the node its widget gave it (`set_node_layout`): the second tab is 100 points wide.
     #[test]
     fn a_body_sizes_its_node_with_node_layout() {
-        let mut ui = Ui::new().expect("library");
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
         ui.register_tabs_body("wide", wide_tab).expect("registered");
         ui.set_theme(&source("tabs.body = wide")).expect("theme");
         for n in 0..3 { ui.frame(&input(n as f64), &mut |ui: &mut Ui| { ui.tabs("t", &["a", "b"], 0, &crate::Choice::DEFAULT); }).expect("frame"); }
@@ -405,7 +418,7 @@ mod tests {
     /// The `_with` forms build the caller's own children for each row and cell, in both link modes.
     #[test]
     fn collections_build_the_callers_cells() {
-        let mut ui = Ui::new().expect("library");
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
         let (mut list, mut open, mut visible) = (vec![0u8; 5], vec![0u8; 3], vec![0u32; 3]);
         let nodes = [crate::TreeNode { depth: 0, children: 1 }, crate::TreeNode { depth: 1, children: 0 }, crate::TreeNode { depth: 0, children: 0 }];
         let (mut widths, mut selected, mut tree_selected) = ([80.0f32, 80.0], None, None);
@@ -448,7 +461,7 @@ mod tests {
     fn a_style_variant_reaches_the_registered_body_and_picks_its_structure() {
         use crate::{Button, Icon, IconButton, Label};
         mem_sys::set_peer(crate::library_counter);
-        let mut ui = Ui::new().expect("library");
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
         ui.register_label_body("sized", sized_label).expect("label body");
         ui.register_button_body("sized", sized_button).expect("button body");
         ui.register_icon_button_body("sized", sized_icon_button).expect("icon body");
@@ -494,7 +507,7 @@ mod tests {
     #[test]
     fn a_variant_reaches_every_menu_row_and_never_a_nested_widget() {
         use crate::{ui::{Menu, MenuItem}, Button, Label};
-        let mut ui = Ui::new().expect("library");
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
         ui.register_menu_row_body("rows", menu_row).expect("row body");
         ui.register_label_body("nested", nested_label).expect("label body");
         ui.register_toggle_body("t", toggle_probe).expect("toggle body");
@@ -531,7 +544,7 @@ mod tests {
     #[test]
     fn a_menu_variant_is_for_its_rows_and_a_long_menu_builds_no_scroll_view() {
         use crate::ui::{Menu, MenuItem};
-        let mut ui = Ui::new().expect("library");
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
         ui.register_menu_row_body("rows", menu_row).expect("row body");
         ui.register_scroll_view_body("scroll", scroll_probe).expect("scroll body");
         let scoped = crate::ThemeHandle::parse("menu_row.body = rows\nscroll_view.body = scroll").expect("theme");
@@ -548,7 +561,7 @@ mod tests {
     #[test]
     fn a_pending_variant_does_not_survive_into_the_next_frame() {
         use pxui_types::theme::BodyKind;
-        let mut ui = Ui::new().expect("library");
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
         ui.register_label_body("nested", nested_label).expect("label body");
         let scoped = crate::ThemeHandle::parse("label.body = nested").expect("theme");
         ui.set_variant(BodyKind::label, 9);

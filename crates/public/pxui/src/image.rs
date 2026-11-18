@@ -157,11 +157,11 @@ mod tests {
     #[test]
     fn an_image_name_is_verbatim_accessibility_and_not_identity() {
         let image = Image { mtl_texture: std::ptr::dangling_mut(), width: 8, height: 4, format: Image::FORMAT_RGBA8, ..Default::default() };
-        let mut ui = Ui::new().unwrap();
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
         ui.set_a11y(true);
         let mut keys = [0i64; 2];
         for (frame, name) in ["a##b###c", "renamed"].into_iter().enumerate() {
-            ui.frame(&FrameIn { width: 320.0, height: 240.0, time: frame as f64, ..FrameIn::default() }, &mut |ui| {
+            ui.frame(&FrameIn::new(320.0, 240.0).time(frame as f64), &mut |ui| {
                 keys[frame] = ui.image(name, &image, &ImageStyle::DEFAULT.w_px(20.0).h_px(20.0)).unwrap().box_key;
             }).unwrap();
             assert!(ui.a11y_nodes().iter().any(|n| ui.a11y_name_of(n) == name), "{name} is the accessible name");
@@ -177,10 +177,10 @@ mod tests {
         const THUMB: ImageStyle = ImageStyle::DEFAULT.fit(Fit::Cover).w_px(40.0).h_px(40.0);
         let image = Image { mtl_texture: std::ptr::dangling_mut(), width: 8, height: 4, format: Image::FORMAT_RGBA8, ..Default::default() };
         let ink = Rgba::rgb(10, 20, 30);
-        let mut ui = Ui::new().unwrap();
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
         for frame in 0..12 {
             if frame == 8 { mem_sys::local_reset(); }
-            ui.frame(&FrameIn { width: 320.0, height: 240.0, time: frame as f64 / 60.0, ..FrameIn::default() }, &mut |ui| {
+            ui.frame(&FrameIn::new(320.0, 240.0).time(frame as f64 / 60.0), &mut |ui| {
                 for name in ["One", "Two", "Three"] { ui.image(name, &image, &THUMB).unwrap(); }
                 assert!(ui.image("Bad", &Image::default(), &THUMB).is_err());
                 let node = ui.node("canvas".into(), crate::Node::DEFAULT.w_px(200.0).h_px(100.0));

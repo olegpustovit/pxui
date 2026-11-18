@@ -9,7 +9,8 @@ mod run;
 use abi_bench::{gallery as direct_pages, pxui as engine};
 use input::{frame::Frame, Event as HostEvent, Platform};
 use pxui_gallery::{page, Gallery, PAGES, PAGE_H, PAGE_W};
-use pxui_types::{geom::Rgba, Event, FrameIn, Size, Str};
+use pxui::FrameIn;
+use pxui_types::{geom::Rgba, Event, Size, Str};
 use std::{io::{BufRead, BufReader}, process::{Command, Stdio}, time::{Duration, Instant}};
 
 const DEPARTURE_MONO: &[u8] = include_bytes!("../../../assets/fonts/DepartureMono-Regular.otf");
@@ -94,7 +95,7 @@ struct Wrapped { ui: pxui::Ui, state: Gallery, events: [Event; 1], moved: bool }
 struct Direct { ui: engine::Ui, state: direct_pages::Gallery, frame: Frame, moved: bool }
 
 fn wrapped() -> Wrapped {
-    let mut ui = pxui::Ui::create(pxui::Platform::Apple, None, &[DEPARTURE_MONO]);
+    let mut ui = pxui::Ui::new(&pxui::UiDesc::new(pxui::Platform::Apple).fonts(&[pxui::FontData(DEPARTURE_MONO)])).expect("pxui Ui");
     ui.set_theme(&pxui::ThemeHandle::default()).expect("default theme");
     Wrapped { ui, state: Gallery::new(), events: [pointer()], moved: true }
 }
@@ -110,7 +111,12 @@ fn direct() -> Direct {
 
 /// One frame of page `index` whose view has revision `revision` (a new one rebuilds the page, the same one settles).
 fn wrapped_frame(w: &mut Wrapped, index: usize, revision: u64, count: u64) {
-    let input = FrameIn { width: PAGE_W as f32, height: PAGE_H as f32, scale: 1.0, time: count as f64 / 60.0, events: w.events.as_ptr(), event_count: w.moved as usize, ..FrameIn::default() };
+    let input = {
+        let mut frame = FrameIn::new(PAGE_W as f32, PAGE_H as f32).scale(1.0).time(count as f64 / 60.0);
+        frame.wire.events = w.events.as_ptr();
+        frame.wire.event_count = w.moved as usize;
+        frame
+    };
     let state = &mut w.state;
     w.ui.frame(&input, &mut |ui: &mut pxui::Ui| { ui.view_of("page", &revision, |ui: &mut pxui::Ui| page(ui, state, index)); }).expect("frame");
 }
@@ -269,11 +275,11 @@ fn abi_bench_author() {
     // a row in all three paths, so `ui.row` setting the axis lays out the same tree
     let row = pxui::Node { axis: pxui::ui::Axis::Row, w: Size::Grow, h: Size::Px(24.0), ..pxui::Node::DEFAULT };
     let leaf = pxui::Node { w: Size::Px(10.0), h: Size::Px(10.0), ..pxui::Node::DEFAULT };
-    let mut ui = pxui::Ui::create(pxui::Platform::Apple, None, &[DEPARTURE_MONO]);
+    let mut ui = pxui::Ui::new(&pxui::UiDesc::new(pxui::Platform::Apple).fonts(&[pxui::FontData(DEPARTURE_MONO)])).expect("pxui Ui");
     let shim = Shim;
     // kind 0: node + within; 1: `ui.row` (the authoring layer); 2: the node-rebuilding helper
     let mut build = |kind: u8, count: u64| {
-        let input = FrameIn { width: PAGE_W as f32, height: PAGE_H as f32, scale: 1.0, time: count as f64 / 60.0, ..FrameIn::default() };
+        let input = FrameIn::new(PAGE_W as f32, PAGE_H as f32).scale(1.0).time(count as f64 / 60.0);
         ui.frame(&input, &mut |ui: &mut pxui::Ui| for label in &labels {
             let mut children = |ui: &mut pxui::Ui| for l in &leaves { ui.node((*l).into(), leaf); };
             match kind {
@@ -443,10 +449,10 @@ fn abi_bench_gpu() {
 /// partly filled span counted as a span (the first span is asked for, the last one committed).
 fn abi_bench_paint_calls() {
     if !slow() { return; }
-    let mut ui = pxui::Ui::create(pxui::Platform::Apple, None, &[DEPARTURE_MONO]);
+    let mut ui = pxui::Ui::new(&pxui::UiDesc::new(pxui::Platform::Apple).fonts(&[pxui::FontData(DEPARTURE_MONO)])).expect("pxui Ui");
     let ink = Rgba { r: 20, g: 120, b: 220, a: 255 };
     let mut calls = |shapes: u64, count: u64| {
-        let input = FrameIn { width: 300.0, height: 200.0, scale: 1.0, time: count as f64 / 60.0, ..FrameIn::default() };
+        let input = FrameIn::new(300.0, 200.0).scale(1.0).time(count as f64 / 60.0);
         let before = ui.library_calls();
         ui.frame(&input, &mut |ui: &mut pxui::Ui| {
             let b = ui.node("canvas".into(), pxui::Node { w: Size::Px(300.0), h: Size::Px(200.0), ..pxui::Node::DEFAULT });

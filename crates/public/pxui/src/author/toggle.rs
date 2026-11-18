@@ -573,7 +573,7 @@ mod tests {
     /// `has_selected` 1 and its index; the focused option's state says so.
     #[test]
     fn a_segment_body_sees_no_choice_and_the_focus() {
-        let mut ui = Ui::new().expect("library");
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
         ui.set_a11y(true);
         ui.register_segmented_body("choice", choice_body).expect("segment body");
         let scoped = crate::ThemeHandle::parse("segmented.body = choice").expect("theme");
@@ -609,7 +609,7 @@ mod tests {
     /// caller's value beside the new `selected`; with no choice `has_stored` is 0; an index past the options arrives clamped.
     #[test]
     fn a_segment_body_sees_the_callers_stored_choice() {
-        let mut ui = Ui::new().expect("library");
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
         ui.set_a11y(true);
         ui.register_segmented_body("chosen_stored", chosen_stored_body).expect("segment body");
         let scoped = crate::ThemeHandle::parse("segmented.body = chosen_stored").expect("theme");
@@ -653,7 +653,7 @@ mod tests {
             assert_eq!(radios(&ui).map(|s| s & state::FOCUSED != 0), [false, false, focuses], "focus_on_click({focuses})");
             assert_eq!(last.get().unwrap().response.focused, focuses);
         }
-        let mut ui = Ui::new().expect("library");
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
         ui.set_a11y(true);
         ui.register_segmented_body("chosen_stored", chosen_stored_body).expect("segment body");
         let scoped = crate::ThemeHandle::parse("segmented.body = chosen_stored").expect("theme");
@@ -822,7 +822,7 @@ mod tests {
     /// `toggle_with` and `segmented_with` are built through their registered bodies, which get the caller's options in their records.
     #[test]
     fn registered_bodies_build_the_widgets_and_see_the_options() {
-        let mut ui = Ui::new().expect("library");
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
         ui.set_a11y(true);
         ui.register_toggle_body("probe", toggle_body).expect("toggle body");
         ui.register_segmented_body("probe", segment_body).expect("segment body");
@@ -833,7 +833,7 @@ mod tests {
             owner.set(ui.toggle_with("t", "Offline", true, &SETTING.inset(16.0).press_row(true).detail("More").label(crate::Label::BODY.size(15.0))).handle.box_key);
             ui.segmented_with("s", &[Segment::new("A"), Segment::new("B").name("Use B")], Some(0), &Segmented::DEFAULT.w_px(200.0).padding(10.0).min_segment(40.0));
         };
-        for n in 0..3 { ui.frame(&crate::FrameIn { width: 320.0, height: 240.0, time: n as f64, ..crate::FrameIn::default() }, &mut build).expect("frame"); }
+        for n in 0..3 { ui.frame(&crate::FrameIn::new(320.0, 240.0).time(n as f64), &mut build).expect("frame"); }
         let (size, on, row_h, w, h) = TOGGLE_SEEN.with(Cell::get);
         assert!(size >= 76 && on == 1 && (row_h, w, h) == (60.0, 48.0, 28.0), "the toggle body's record: {size} {on} {row_h} {w} {h}");
         assert_eq!(TOGGLE_MORE.with(Cell::get), (16.0, 1, 4), "the record carries the inset, press_row and detail");
@@ -876,7 +876,7 @@ mod tests {
     /// the app applied; a registered segment body is given the line and the strip and may restyle them (the built-in body leaves them).
     #[test]
     fn a_toggle_body_sees_the_stored_value_and_a_segment_body_owns_its_container() {
-        let mut ui = Ui::new().expect("library");
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
         ui.set_a11y(true);
         ui.register_toggle_body("stored", stored_body).expect("toggle body");
         ui.register_segmented_body("container", container_body).expect("segment body");

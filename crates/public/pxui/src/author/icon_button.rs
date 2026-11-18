@@ -334,7 +334,7 @@ mod tests {
     /// A registered icon button body is given the caller's press curves (the very `static`, by pointer), or null for the kit's springs.
     #[test]
     fn a_registered_body_is_given_the_press_curves() {
-        let mut ui = Ui::new().unwrap();
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
         let id = ui.register_icon_button_body("recording", recording).expect("registered");
         let text = "icon_button.body = recording";
         ui.set_theme(&crate::ThemeHandle::parse(&text).unwrap()).unwrap();
@@ -372,7 +372,7 @@ mod tests {
         testing::click(&mut ui, f64::from(off.rect.x + 18.0), f64::from(off.rect.y + 18.0), &mut build);
         testing::frame(&mut ui, &[], &mut build);
         assert!(on.get() && find(&ui, "Shuffle").states & state::CHECKED != 0, "the caller's flip shows checked");
-        let mut ui = Ui::new().unwrap();
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
         ui.set_a11y(true);
         let id = ui.register_icon_button_body("checked_body", checked_body).expect("registered");
         let text = "icon_button.body = checked_body";

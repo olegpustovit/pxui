@@ -47,14 +47,14 @@ fn shoot(gpu: &mut Gpu, theme: &pxui::ThemeHandle, rtl: bool, size: (i64, i64), 
 /// `shoot` with `setup` run on the new `Ui` before its theme is applied (what a theme that names an app's bodies needs), and with
 /// `rebuild` each frame builds the page again (a body that reads last frame's rectangles settles on the second).
 fn shoot_setup(gpu: &mut Gpu, theme: &pxui::ThemeHandle, rtl: bool, size: (i64, i64), density: i64, ground: Option<[u8; 4]>, setup: &mut dyn FnMut(&mut Ui), rebuild: bool, build: &mut dyn FnMut(&mut Ui)) -> Vec<u8> {
-    let mut ui = Ui::create(pxui::Platform::Apple, None, &[DEPARTURE_MONO]);
+    let mut ui = Ui::new(&pxui::UiDesc::new(pxui::Platform::Apple).fonts(&[pxui::FontData(DEPARTURE_MONO)])).expect("pxui Ui");
     setup(&mut ui);
     ui.set_theme(theme).unwrap_or_else(|code| panic!("theme failed ({code}): {}", ui.last_error()));
     ui.set_dir(rtl);
     let events = [pointer_event()];
     for count in 0..if rebuild { 3 } else { 2 } {
         let input = frame_at(count, size, density, &events);
-        ui.input_frame(&input, &mut |ui: &mut Ui| { ui.view_of("page", &(if rebuild { count as u64 + 1 } else { 1 }), &mut *build); }).expect("frame");
+        ui.frame(&unsafe { pxui::FrameIn::snapshot(&input) }, &mut |ui: &mut Ui| { ui.view_of("page", &(if rebuild { count as u64 + 1 } else { 1 }), &mut *build); }).expect("frame");
     }
     let clear = ground.unwrap_or_else(|| panel(&ui.theme()));
     let mut renderer: Renderer = gpu.renderer(&ui).expect("PXUI renderer");
@@ -69,7 +69,7 @@ fn abi_baseline_pages() {
     let theme = theme("");
     for (index, name) in PAGES.iter().enumerate() {
         let mut state = Gallery::new();
-        let mut ui = Ui::create(pxui::Platform::Apple, None, &[DEPARTURE_MONO]);
+        let mut ui = Ui::new(&pxui::UiDesc::new(pxui::Platform::Apple).fonts(&[pxui::FontData(DEPARTURE_MONO)])).expect("pxui Ui");
         ui.set_theme(&theme).expect("default theme");
         let (mut times, mut allocations) = (Vec::with_capacity(1000), Vec::with_capacity(1000));
         for count in 0..1010 {
@@ -77,7 +77,7 @@ fn abi_baseline_pages() {
             let revision = count as u64;
             let allocated = gpu::allocations();
             let started = Instant::now();
-            ui.input_frame(&input, &mut |ui: &mut Ui| {
+            ui.frame(&unsafe { pxui::FrameIn::snapshot(&input) }, &mut |ui: &mut Ui| {
                 ui.view_of("page", &revision, |ui: &mut Ui| page(ui, &mut state, index));
             }).expect("frame");
             if count >= 10 {
@@ -160,7 +160,7 @@ fn bodies_page_settled() {
     let mut built = Vec::new();
     for custom in [false, true] {
         let mut page = BodiesPage::new(custom);
-        let mut ui = Ui::create(pxui::Platform::Apple, None, &[DEPARTURE_MONO]);
+        let mut ui = Ui::new(&pxui::UiDesc::new(pxui::Platform::Apple).fonts(&[pxui::FontData(DEPARTURE_MONO)])).expect("pxui Ui");
         bodies_page::register(&mut ui).expect("the proof bodies register");
         let text = page.theme_text("");
         ui.set_theme(&theme(&text)).expect("theme");
@@ -168,7 +168,7 @@ fn bodies_page_settled() {
         for count in 0..40 {
             let input = frame_at(count, (PAGE_W, PAGE_H), 1, &events);
             let before = gpu::allocations();
-            ui.input_frame(&input, &mut |ui: &mut Ui| { ui.view_of("page", &(count as u64 + 1), |ui: &mut Ui| bodies_page::page(ui, &mut page)); }).expect("frame");
+            ui.frame(&unsafe { pxui::FrameIn::snapshot(&input) }, &mut |ui: &mut Ui| { ui.view_of("page", &(count as u64 + 1), |ui: &mut Ui| bodies_page::page(ui, &mut page)); }).expect("frame");
             if count >= 10 { worst = worst.max(gpu::allocations() - before); }
         }
         println!("PXUI Bodies page custom {custom}: {} nodes built, {worst} allocations in the worst warm frame", ui.built_nodes());
@@ -198,7 +198,7 @@ fn abi_kit_panel() {
 fn ui_and_renderer_drop_in_any_order() {
     let gpu = Gpu::open().expect("a GPU backend");
     let round = |gpu: &Gpu, ui_first: bool| {
-        let ui = Ui::create(pxui::Platform::Apple, None, &[DEPARTURE_MONO]);
+        let ui = Ui::new(&pxui::UiDesc::new(pxui::Platform::Apple).fonts(&[pxui::FontData(DEPARTURE_MONO)])).expect("pxui Ui");
         let renderer = gpu.renderer(&ui).expect("PXUI renderer");
         if ui_first { drop(ui); drop(renderer); } else { drop(renderer); drop(ui); }
     };
@@ -219,12 +219,12 @@ fn renderer_draw_settled() {
     let mut gpu = Gpu::open().expect("a GPU backend");
     let theme = theme("");
     let mut state = Gallery::new();
-    let mut ui = Ui::create(pxui::Platform::Apple, None, &[DEPARTURE_MONO]);
+    let mut ui = Ui::new(&pxui::UiDesc::new(pxui::Platform::Apple).fonts(&[pxui::FontData(DEPARTURE_MONO)])).expect("pxui Ui");
     ui.set_theme(&theme).expect("default theme");
     let events = [pointer_event()];
     for count in 0..3 {
         let input = frame_at(count, (PAGE_W, PAGE_H), 1, &events);
-        ui.input_frame(&input, &mut |ui: &mut Ui| { ui.view_of("page", &1, |ui: &mut Ui| page(ui, &mut state, 0)); }).expect("frame");
+        ui.frame(&unsafe { pxui::FrameIn::snapshot(&input) }, &mut |ui: &mut Ui| { ui.view_of("page", &1, |ui: &mut Ui| page(ui, &mut state, 0)); }).expect("frame");
     }
     let clear = panel(&ui.theme());
     let mut renderer: Renderer = gpu.renderer(&ui).expect("PXUI renderer");

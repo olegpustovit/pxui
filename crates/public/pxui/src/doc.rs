@@ -1,5 +1,5 @@
 //! Helpers that keep doc examples short.
-use crate::{FrameIn, Ui};
+use crate::{FrameIn, Ui, UiDesc};
 
 /// Runs `n` frames of `build` on a fresh headless `Ui` (320 x 240 points, accessibility on) and returns the `Ui`.
 ///
@@ -12,10 +12,10 @@ use crate::{FrameIn, Ui};
 /// assert_eq!(ui.frame_index(), 2);
 /// ```
 pub fn frames(n: usize, build: &mut dyn FnMut(&mut Ui)) -> Ui {
-    let mut ui = Ui::new().expect("pxui: the library refused to create a Ui");
+    let mut ui = Ui::new(&UiDesc::DEFAULT).expect("pxui: the library refused to create a Ui");
     ui.set_a11y(true);
     for _ in 0..n {
-        ui.frame(&FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() }, build).expect("pxui: a doc frame failed");
+        ui.frame(&FrameIn::new(320.0, 240.0), build).expect("pxui: a doc frame failed");
     }
     ui
 }

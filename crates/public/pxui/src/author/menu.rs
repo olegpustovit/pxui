@@ -132,7 +132,7 @@ mod tests {
     /// structure is what shows.
     #[test]
     fn a_registered_row_body_builds_the_rows() {
-        let mut ui = Ui::new().unwrap();
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
         ui.set_a11y(true);
         ui.register_menu_row_body("marker", marker).expect("registered");
         let text = "menu_row.body = marker\n";
@@ -180,8 +180,8 @@ mod tests {
     #[test]
     fn warm_frames_and_the_opening_frame_allocate_nothing() {
         mem_sys::set_peer(crate::library_counter);
-        let mut ui = Ui::new().unwrap();
-        let input = FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() };
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+        let input = FrameIn::new(320.0, 240.0);
         let (shown, menu) = (Cell::new(true), Menu::DEFAULT.row_h(36.0).w_px(200.0));
         const LONG: [MenuItem; 40] = [MenuItem::new("Row"); 40];
         const SIZES: [MenuItem; 2] = [MenuItem::new("4 GB"), MenuItem::new("8 GB").selected(true)];
@@ -274,13 +274,13 @@ mod tests {
     fn a_registered_row_body_gets_the_current_choice_and_the_sheet_its_name() {
         use crate::ui::state;
         const SIZES: [MenuItem; 3] = [MenuItem::new("4 GB"), MenuItem::new("8 GB").selected(true), MenuItem::new("16 GB").checked(true)];
-        let mut ui = Ui::new().expect("library");
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
         ui.set_a11y(true);
         ui.register_menu_row_body("current", current_row).expect("row body");
         let scoped = crate::ThemeHandle::parse("menu_row.body = current").expect("theme");
         let menu = Cell::new(Menu::DEFAULT);
         let mut build = |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| { ui.menu("cache-size-menu", (10.0, 10.0), &SIZES, &menu.get()); });
-        let run = |ui: &mut Ui, build: &mut dyn FnMut(&mut Ui)| for n in 0..3 { CURRENT.with(|s| s.borrow_mut().clear()); ui.frame(&FrameIn { width: 320.0, height: 240.0, time: n as f64, ..FrameIn::default() }, build).expect("frame"); };
+        let run = |ui: &mut Ui, build: &mut dyn FnMut(&mut Ui)| for n in 0..3 { CURRENT.with(|s| s.borrow_mut().clear()); ui.frame(&FrameIn::new(320.0, 240.0).time(n as f64), build).expect("frame"); };
         run(&mut ui, &mut build);
         let seen = CURRENT.with(|s| s.borrow().clone());
         assert_eq!(seen, [("4 GB".to_owned(), 0, 0), ("8 GB".to_owned(), 1, 0), ("16 GB".to_owned(), 0, 1)], "state.checked is the current choice, selected the mark");
@@ -373,7 +373,7 @@ mod tests {
     /// `max_rows` scrolls in the sheet itself, building no scroll view of its own.
     #[test]
     fn a_sheet_body_keeps_its_role_and_a_long_menu_scrolls_in_the_sheet() {
-        let mut ui = Ui::new().expect("library");
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
         ui.set_a11y(true);
         ui.register_popup_body("listing", listing_sheet).expect("popup body");
         ui.register_scroll_view_body("counted", counted_scroll).expect("scroll body");

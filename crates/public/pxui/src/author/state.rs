@@ -3,14 +3,14 @@ use crate::Handle;
 use crate::{FrameIn, Node};
 
 fn frame(ui: &mut crate::Ui, f: &mut dyn FnMut(&mut crate::Ui)) {
-    let input = FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() };
+    let input = FrameIn::new(320.0, 240.0);
     ui.frame(&input, f).expect("frame");
 }
 
 /// Values round-trip across frames, including the i64 extremes and an f32 stored as its bits; unset reads the default.
 #[test]
 fn round_trips() {
-    let mut ui = crate::Ui::new().expect("library");
+    let mut ui = crate::Ui::new(&crate::UiDesc::DEFAULT).expect("library");
     frame(&mut ui, &mut |ui| {
         let b = ui.node("n".into(), Node::DEFAULT);
         assert_eq!(ui.state(&b, -1), -1);
@@ -23,7 +23,7 @@ fn round_trips() {
 /// A handle the engine no longer resolves reads the default and a set stores nothing: no panic, and the `Ui` stays usable.
 #[test]
 fn stale_handle_reads_default_and_set_is_a_no_op() {
-    let mut ui = crate::Ui::new().expect("library");
+    let mut ui = crate::Ui::new(&crate::UiDesc::DEFAULT).expect("library");
     let stale = Handle { index: 9999, box_key: 77, box_slot: 9999, generation: 99 };
     frame(&mut ui, &mut |ui| {
         let b = ui.node("n".into(), Node::DEFAULT);
@@ -43,7 +43,7 @@ fn stale_handle_reads_default_and_set_is_a_no_op() {
 /// Warm get/set calls allocate nothing.
 #[test]
 fn warm_calls_allocate_nothing() {
-    let mut ui = crate::Ui::new().expect("library");
+    let mut ui = crate::Ui::new(&crate::UiDesc::DEFAULT).expect("library");
     let run = |ui: &mut crate::Ui| frame(ui, &mut |ui| {
         let b = ui.node("n".into(), Node::DEFAULT);
         ui.set_state(&b, -3);

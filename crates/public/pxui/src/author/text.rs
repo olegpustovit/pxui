@@ -58,13 +58,13 @@ impl Ui {
     /// const DIM: Label = Label::BODY.color(DIM_INK);
     /// const CLOCK: Label = Label::MONO;
     /// let (title, duration_text, index, total, m, s) = (String::from("Song"), String::from("3:07"), 4, 12, 3, 7);
-    /// let mut ui = pxui::Ui::new().unwrap();
+    /// let mut ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
     /// let mut theme = pxui::ThemeHandle::default();
     /// theme.set_color(DIM_INK, if ui.tokens().is_dark() { paper } else { ink });
     /// ui.set_theme(&theme).unwrap();
     /// ui.set_a11y(true);
     /// for _ in 0..2 {
-    ///     ui.frame(&pxui::FrameIn { width: 320.0, height: 240.0, ..Default::default() }, &mut |ui| {
+    ///     ui.frame(&pxui::FrameIn::new(320.0, 240.0), &mut |ui| {
     ///         ui.row("song", ROW, |ui| {
     ///             ui.label(&title, TITLE.grow());
     ///             ui.label(&duration_text, DIM);
@@ -112,7 +112,7 @@ impl Ui {
     /// // once every digit and the colon have been shown, a changing clock shapes nothing new
     /// let mut ui = pxui::doc::frames(1, &mut |ui| { ui.label_digits(format_args!("0123456789:"), pxui::Label::MONO); });
     /// let layouts = ui.text_layout_count();
-    /// ui.frame(&pxui::FrameIn { width: 320.0, height: 240.0, ..Default::default() }, &mut |ui| { ui.label_digits(format_args!("{}:{:02}", 3, 47), pxui::Label::MONO); }).unwrap();
+    /// ui.frame(&pxui::FrameIn::new(320.0, 240.0), &mut |ui| { ui.label_digits(format_args!("{}:{:02}", 3, 47), pxui::Label::MONO); }).unwrap();
     /// assert_eq!(ui.text_layout_count(), layouts, "no new layout for digits already shown");
     /// ```
     #[inline]
@@ -138,8 +138,8 @@ mod tests {
     #[test]
     fn label_fmt_allocates_nothing_on_warm_frames() {
         mem_sys::set_peer(crate::library_counter);
-        let mut ui = crate::Ui::new().unwrap();
-        let input = FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() };
+        let mut ui = crate::Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+        let input = FrameIn::new(320.0, 240.0);
         let mut build = |ui: &mut crate::Ui| {
             ui.label_fmt(format_args!("{} songs", 10_000), Label::DEFAULT);
             ui.label_fmt(format_args!("{} songs", 10_000), Label::MONO);
@@ -163,9 +163,9 @@ mod tests {
         mem_sys::set_peer(crate::library_counter);
         let mut title = String::from("a");
         while title.len() < 100 << 10 { title.push('é'); }
-        let mut ui = crate::Ui::new().unwrap();
+        let mut ui = crate::Ui::new(&crate::UiDesc::DEFAULT).unwrap();
         ui.set_a11y(true);
-        let input = FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() };
+        let input = FrameIn::new(320.0, 240.0);
         let mut build = |ui: &mut crate::Ui| { ui.label(&title, Label::TITLE); };
         for _ in 0..8 { ui.frame(&input, &mut build).unwrap(); }
         assert!(ui.a11y_nodes().iter().any(|node| ui.a11y_name_of(node) == &title[..65_535]), "the clipped title is the label's name");
@@ -181,12 +181,12 @@ mod tests {
 
     /// Frames `build` in a 160-point-wide `Ui` with red as colour token 0 and accessibility on, five times, and returns the `Ui` with the last frame's tree.
     fn settle(build: &mut dyn FnMut(&mut crate::Ui)) -> crate::Ui {
-        let mut ui = crate::Ui::new().unwrap();
+        let mut ui = crate::Ui::new(&crate::UiDesc::DEFAULT).unwrap();
         let mut theme = crate::ThemeHandle::default();
         theme.set_color(ColorToken(0), RED);
         ui.set_theme(&theme).unwrap();
         ui.set_a11y(true);
-        for _ in 0..5 { ui.frame(&FrameIn { width: 160.0, height: 240.0, ..FrameIn::default() }, build).unwrap(); }
+        for _ in 0..5 { ui.frame(&FrameIn::new(160.0, 240.0), build).unwrap(); }
         ui
     }
 
@@ -223,8 +223,8 @@ mod tests {
     #[test]
     fn wrapped_labels_allocate_nothing_on_warm_frames() {
         mem_sys::set_peer(crate::library_counter);
-        let mut ui = crate::Ui::new().unwrap();
-        let input = FrameIn { width: 160.0, height: 240.0, ..FrameIn::default() };
+        let mut ui = crate::Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+        let input = FrameIn::new(160.0, 240.0);
         let wrapped = Label::BODY.grow().wrap().lines(3).ellipsis().align(crate::TextAlign::Center);
         let frame = core::cell::Cell::new(0usize);
         let mut build = |ui: &mut crate::Ui| {
@@ -291,7 +291,7 @@ mod tests {
         let (mut first, mut second) = (Vec::new(), Vec::new());
         let mut ui = crate::doc::frames(1, &mut |ui| { ui.label("same", Label::BODY); ui.label("same", Label::BODY); });
         for n in 0..2 {
-            ui.frame(&FrameIn { width: 160.0, height: 240.0, ..FrameIn::default() }, &mut |ui| {
+            ui.frame(&FrameIn::new(160.0, 240.0), &mut |ui| {
                 ui.label("same", Label::BODY);
                 ui.label("same", Label::BODY);
                 if n == 1 { ui.label("more", Label::BODY); }
@@ -308,13 +308,13 @@ mod tests {
     #[test]
     fn a_label_that_changes_every_frame_makes_no_layout_and_no_allocation() {
         mem_sys::set_peer(crate::library_counter);
-        let mut ui = crate::Ui::new().expect("library");
+        let mut ui = crate::Ui::new(&crate::UiDesc::DEFAULT).expect("library");
         let mut layouts = 0;
         for n in 0..400u32 {
             let t = n * 7 + 11;
             let (a, b, c) = if n % 2 == 0 { (t / 6000, t / 100 % 60, t % 100) } else { (t / 120 / 60, t / 120 % 60, t % 120 * 100 / 120) };
             mem_sys::local_reset();
-            ui.frame(&FrameIn { width: 200.0, height: 100.0, ..FrameIn::default() }, &mut |ui: &mut crate::Ui| { ui.label_digits(format_args!("{a}:{b:02}.{c:02}"), Label::BODY); }).unwrap();
+            ui.frame(&FrameIn::new(200.0, 100.0), &mut |ui: &mut crate::Ui| { ui.label_digits(format_args!("{a}:{b:02}.{c:02}"), Label::BODY); }).unwrap();
             if n == 100 { layouts = ui.text_layout_count(); }
             if n > 100 {
                 assert_eq!(ui.text_layout_count(), layouts, "frame {n}");
@@ -353,7 +353,7 @@ mod tests {
     /// body builds is what shows (no text of the built-in body).
     #[test]
     fn a_registered_label_body_builds_every_label() {
-        let mut ui = crate::Ui::new().unwrap();
+        let mut ui = crate::Ui::new(&crate::UiDesc::DEFAULT).unwrap();
         let id = ui.register_label_body("boxed", boxed_label).expect("registered");
         let mut theme = crate::ThemeHandle::parse("label.body = boxed").unwrap();
         theme.set_color(ColorToken(0), RED);
@@ -363,7 +363,7 @@ mod tests {
         for _ in 0..2 {
             SEEN.with(|s| s.borrow_mut().clear());
             GROWN.with(|g| g.borrow_mut().clear());
-            ui.frame(&FrameIn { width: 160.0, height: 240.0, ..FrameIn::default() }, &mut |ui| {
+            ui.frame(&FrameIn::new(160.0, 240.0), &mut |ui| {
                 kit = Some(ui.column("kit", Node::DEFAULT, |ui| { ui.label("Kit", Label::DEFAULT); }));
                 styled = Some(ui.column("styled", Node::DEFAULT, |ui| { ui.label("Styled", Label::TITLE.color(ColorToken(0))); }));
                 digits = Some(ui.column("digits", Node::DEFAULT, |ui| { ui.label_digits(format_args!("{}:{:02}", 1, 5), Label::MONO); }));

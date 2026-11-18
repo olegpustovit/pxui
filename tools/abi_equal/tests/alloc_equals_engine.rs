@@ -5,7 +5,7 @@
 use input::{frame, Event, Platform};
 use mem_sys as _;
 use pxui_core::ui::{HeadAction, Overlay, PickRows, PickerOpts, Ui as Engine};
-use pxui_types::FrameIn;
+use pxui::FrameIn;
 use std::rc::Rc;
 
 fn fill(_: &str, rows: &mut PickRows) {
@@ -36,12 +36,12 @@ fn engine_allocations() -> u64 {
 }
 
 fn wrapper_allocations() -> u64 {
-    let mut ui = pxui::Ui::create(pxui::Platform::Apple, None, &[pxui_core::text::PRAGMASEVKA]);
+    let mut ui = pxui::Ui::new(&pxui::UiDesc::new(pxui::Platform::Apple).fonts(&[pxui::FontData(pxui_core::text::PRAGMASEVKA)])).expect("pxui Ui");
     let actions = [pxui::ui::HeadAction { caption: "Run".into(), keycap: "R".into(), active: false, usable: true }];
     let rename: Rc<dyn Fn(&str) -> bool> = Rc::new(|name: &str| !name.is_empty());
     let mut worst = 0;
     for count in 0..12 {
-        let input = FrameIn { width: 320.0, height: 240.0, time: count as f64 / 60.0, scale: 1.0, ..FrameIn::default() };
+        let input = FrameIn::new(320.0, 240.0).scale(1.0).time(count as f64 / 60.0);
         let mut measured = 0;
         ui.frame(&input, &mut |ui: &mut pxui::Ui| ui.panel("panel", &pxui::Overlay::DEFAULT, &mut |ui: &mut pxui::Ui| {
             let before = mem_sys::local_alloc_count();

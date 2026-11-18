@@ -180,13 +180,13 @@ config, and `.variant(n)` on a style picks between structures of one body per ca
 get a different structure; register a body.
 
 ```rust
-use pxui::{bodies::ButtonConfig, ui::Size, Button, Ui};
+use pxui::{bodies::ButtonConfig, Button, Size, Ui, UiDesc};
 fn pill(ui: &mut Ui, c: &ButtonConfig) {
     let mut row = ui.node_layout(&c.row);
     (row.w, row.h) = (Size::Px(120.0), Size::Px(40.0));
     ui.set_node_layout(&c.row, &row);
 }
-let mut ui = Ui::new().expect("library");
+let mut ui = Ui::new(&UiDesc::DEFAULT).expect("library");
 ui.register_button_body("pill", pill).expect("registered");
 const WIDE: Button = Button::DEFAULT.variant(1);
 let _ = WIDE;

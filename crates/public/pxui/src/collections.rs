@@ -185,11 +185,11 @@ mod item_text_tests {
     /// exports name them), list rows are not; outside a collection item it is refused.
     #[test]
     fn item_text_names_tree_rows_and_table_cells_and_is_refused_outside_an_item() {
-        let mut ui = Ui::new().expect("library");
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
         ui.set_a11y(true);
         let nodes = [TreeNode { depth: 0, children: 0 }];
         let (mut list, mut open, mut selected, mut visible, mut widths, mut cell) = ([0u8; 1], [0u8; 1], None, [0u32; 1], [80.0f32], None);
-        let input = crate::FrameIn { width: 400.0, height: 300.0, ..crate::FrameIn::default() };
+        let input = crate::FrameIn::new(400.0, 300.0);
         for _ in 0..2 {
             ui.frame(&input, &mut |ui: &mut Ui| {
                 let half = ui.node("lists".into(), crate::Node { h: crate::ui::Size::Px(80.0), ..crate::Node::DEFAULT });
@@ -216,14 +216,14 @@ mod tests {
     #[test]
     fn collections_page_builds_through_the_library_and_updates_state() {
         const ROWS: usize = 100_000;
-        let mut ui = Ui::new().expect("library");
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
         let mut list = vec![0u8; ROWS];
         let nodes: Vec<TreeNode> = (0..ROWS).map(|i| TreeNode { depth: [0, 1, 2, 2, 1, 2][i % 6], children: matches!(i % 6, 0 | 1 | 4) as u8 }).collect();
         let mut open: Vec<u8> = (0..ROWS).map(|i| (i < 6) as u8).collect();
         let (mut selected, mut visible, mut widths, mut table_sel) = (Some(2usize), vec![0u32; ROWS], [96.0f32, 72.0, 72.0], Some(1usize));
         let (texts, cells, mut shown) = (core::cell::Cell::new(0usize), core::cell::Cell::new(0usize), 0);
         for count in 0..3 {
-            let input = pxui_types::FrameIn { width: 640.0, height: 464.0, time: count as f64 / 60.0, ..Default::default() };
+            let input = crate::FrameIn::new(640.0, 464.0).time(count as f64 / 60.0);
             ui.frame(&input, &mut |ui: &mut Ui| {
                 ui.view_of("page", &count, |ui: &mut Ui| {
                     let ratio = ui.split("split", pxui_types::Axis::Row, 0.34, 120.0, 200.0, &mut |ui: &mut Ui| {

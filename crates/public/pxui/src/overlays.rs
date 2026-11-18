@@ -326,9 +326,9 @@ mod tests {
     /// or a reserved byte set; from 1.67 a negative or non-finite `max_h` or a reserved word set (the 1.58 record is still read).
     #[test]
     fn the_extra_is_read_by_its_size_and_validated_whole() {
-        let mut ui = Ui::new().unwrap();
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
         let mut results = Vec::new();
-        ui.frame(&FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() }, &mut |ui: &mut Ui| {
+        ui.frame(&FrameIn::new(320.0, 240.0), &mut |ui: &mut Ui| {
             let danger = [1i64];
             let old = PxuiMenuExtra { danger: Slice { ptr: danger.as_ptr(), len: 1 }, ..extra(80) };
             results.push(call(ui, &old));

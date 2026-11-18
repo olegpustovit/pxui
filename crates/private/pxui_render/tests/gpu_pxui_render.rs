@@ -200,6 +200,7 @@ fn main() {
         ("shared_resize_validation", shared_resize_validation),
         ("shared_foreign_image_wrappers_retire_without_leaking_or_destroying_the_source", shared_foreign_image_wrappers_retire_without_leaking_or_destroying_the_source),
         ("shared_skipped_draws", shared_skipped_draws),
+        ("shared_layer_borrows_survive_acknowledgment_and_publish_patches", shared_layer_borrows_survive_acknowledgment_and_publish_patches),
         ("shared_inline_spans_render_colors_background_and_rule", shared_inline_spans_render_colors_background_and_rule),
         ("shared_pixel_fit_text_matches_explicit_width_pixels", shared_pixel_fit_text_matches_explicit_width_pixels),
         ("shared_ellipsis_modes_native_pixels_and_warm_draw", shared_ellipsis_modes_native_pixels_and_warm_draw),
@@ -928,14 +929,13 @@ fn nine_slice_corners_stay_and_centre_stretches() {
 /// a staged atlas upload in each frame).
 fn shared_ui(caption: &str) -> pxui::Ui {
     const GOLDEN_FONT: &[u8] = include_bytes!("../../../../assets/fonts/DepartureMono-Regular.otf");
-    let mut ui = pxui::Ui::create(pxui::Platform::Apple, None, &[GOLDEN_FONT]);
+    let mut ui = pxui::Ui::new(&pxui::UiDesc::new(pxui::Platform::Apple).fonts(&[pxui::FontData(GOLDEN_FONT)])).expect("pxui Ui");
     shared_frame_ui(&mut ui, caption);
     ui
 }
 
 fn shared_frame_ui(ui: &mut pxui::Ui, caption: &str) {
-    let input = pxui_types::FrameIn { size: std::mem::size_of::<pxui_types::FrameIn>() as u32,
-        width: 320.0, height: 300.0, scale: 2.0, time: 1.0 / 60.0, ..Default::default() };
+    let input = pxui::FrameIn::new(320.0, 300.0).scale(2.0).time(1.0 / 60.0);
     ui.frame(&input, &mut |ui: &mut pxui::Ui| ui.panel("panel", &pxui::Overlay::DEFAULT, &mut |ui: &mut pxui::Ui| {
         ui.label("PXUI", pxui_core::ui::Label::DEFAULT);
         ui.toggle("Animate", true);
@@ -1039,7 +1039,7 @@ fn shared_second_atlas_activates_after_prepare_without_replacing_first_page() {
     let Some(device)=open() else { return };
     let queue=ok(be::create_queue(&device));
     let target=texture(&device,640,600,&[TextureUsage::RenderAttachment,TextureUsage::TextureCopySrc]);
-    let mut ui=pxui::Ui::new().unwrap();
+    let mut ui=pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
     let mut renderer=shared_renderer(&device,&ui);
     assert!(matches!(renderer.atlas(pxui::AtlasKind::Mask2),Err(pxui::Error::State)));
     let first=renderer.atlas(pxui::AtlasKind::Mask).unwrap();
@@ -1052,7 +1052,7 @@ fn shared_second_atlas_activates_after_prepare_without_replacing_first_page() {
     let mut first_glyph=None;
     for frame in 1..=7 {
         mem_sys::local_reset();
-        ui.frame(&pxui_types::FrameIn { width:320.0,height:300.0,scale:2.0,time:frame as f64/60.0,..Default::default() },&mut |ui| {
+        ui.frame(&pxui::FrameIn::new(320.0, 300.0).scale(2.0).time(frame as f64/60.0),&mut |ui| {
             let b=ui.node("page-growth".into(),pxui::Node { w:pxui::ui::Size::Px(320.0),h:pxui::ui::Size::Px(300.0),..pxui::Node::DEFAULT });
             ui.canvas(&b,move |paint,_| { paint.text((0.0,0.0), &style, 0.0, if frame==1 { "A" } else { "ABCDEF" }); });
         }).unwrap();
@@ -1090,16 +1090,20 @@ fn shared_system_preferences_change_native_pixels_without_warm_allocations() {
     let Some(device)=open() else { return };
     let queue=ok(be::create_queue(&device));
     let target=texture(&device,640,600,&[TextureUsage::RenderAttachment,TextureUsage::TextureCopySrc]);
-    let mut ui=pxui::Ui::new().unwrap();
+    let mut ui=pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
     let light = pxui::ThemeHandle::parse("tokens.foreground = #ff0000").unwrap();
     let dark = pxui::ThemeHandle::parse("tokens.foreground = #0000ff").unwrap();
     let mut renderer=shared_renderer(&device,&ui);
     for frame in 1..=8 {
         let is_dark=frame%2==0;
-        let appearance=if is_dark { pxui::FrameIn::APPEARANCE_DARK } else { pxui::FrameIn::APPEARANCE_LIGHT };
+        let appearance=if is_dark { pxui::Appearance::Dark as u32 } else { pxui::Appearance::Light as u32 };
         mem_sys::local_reset();
         ui.set_theme(if is_dark { &dark } else { &light }).unwrap();
-        ui.frame(&pxui_types::FrameIn { width:320.0,height:300.0,scale:2.0,time:frame as f64/60.0,appearance,reduced_motion:1,..Default::default() },&mut |ui| {
+        ui.frame(&{
+            let mut frame = pxui::FrameIn::new(320.0, 300.0).scale(2.0).time(frame as f64/60.0).reduced_motion(true);
+            frame.wire.appearance = appearance;
+            frame
+        },&mut |ui| {
             ui.column("appearance", pxui::Node::column().w_px(100.0).h_px(40.0), |ui| { ui.view_of("appearance", &1, |ui| {
                 assert_eq!(ui.system_appearance(),appearance);
                 assert!(ui.tokens().reduced_motion);
@@ -1125,13 +1129,13 @@ fn shared_inline_spans_render_colors_background_and_rule() {
     let Some(device)=open() else { return };
     let queue=ok(be::create_queue(&device));
     let target=texture(&device,640,600,&[TextureUsage::RenderAttachment,TextureUsage::TextureCopySrc]);
-    let mut ui=pxui::Ui::new().unwrap();
+    let mut ui=pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
     let style=pxui::Label::BODY.size(20.0).line_height(24.0);
     let span=pxui::TextSpan { start:3,end:5,weight:700,flags:pxui::TextSpan::COLOR|pxui::TextSpan::BACKGROUND|pxui::TextSpan::UNDERLINE,
         color:pxui::geom::Rgba::rgba(255,0,0,255),background:pxui::geom::Rgba::rgba(0,0,255,64),underline:pxui::geom::Rgba::rgba(0,255,0,255) };
     let mut renderer=shared_renderer(&device,&ui);
     for frame in 1..=6 {
-        ui.frame(&pxui_types::FrameIn { width:320.0,height:300.0,scale:2.0,time:frame as f64/60.0,..Default::default() },&mut |ui| {
+        ui.frame(&pxui::FrameIn::new(320.0, 300.0).scale(2.0).time(frame as f64/60.0),&mut |ui| {
             let b=ui.node("label".into(),pxui::ui::Node { w:pxui::ui::Size::Px(200.0),h:pxui::ui::Size::Px(40.0),look:pxui::ui::Look { text:pxui::geom::Rgba::rgba(0,0,0,255),..pxui::ui::Look::NONE },..pxui::ui::Node::DEFAULT });
             ui.text_spans(&b,"ab CD ef",&style,&[span]).unwrap();
         }).unwrap();
@@ -1159,7 +1163,7 @@ fn shared_ellipsis_modes_native_pixels_and_warm_draw() {
     let Some(device)=open() else { return };
     let queue=ok(be::create_queue(&device));
     let target=texture(&device,640,320,&[TextureUsage::RenderAttachment,TextureUsage::TextureCopySrc]);
-    let mut ui=pxui::Ui::new().unwrap();
+    let mut ui=pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
     let source="ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     let spans=[pxui::TextSpan { start:0,end:1,flags:pxui::TextSpan::COLOR,color:pxui::geom::Rgba::rgba(255,0,0,255),..Default::default() },
         pxui::TextSpan { start:25,end:26,flags:pxui::TextSpan::COLOR,color:pxui::geom::Rgba::rgba(0,0,255,255),..Default::default() }];
@@ -1170,7 +1174,7 @@ fn shared_ellipsis_modes_native_pixels_and_warm_draw() {
     let modes=[body.ellipsis(),body.ellipsis_middle(),body.ellipsis_head()].map(|label| ui.resolve(&label));
     let mut renderer=shared_renderer(&device,&ui);
     for frame in 1..=6 {
-        ui.frame(&pxui_types::FrameIn { width:320.0,height:160.0,scale:2.0,time:frame as f64/60.0,..Default::default() },&mut |ui| {
+        ui.frame(&pxui::FrameIn::new(320.0, 160.0).scale(2.0).time(frame as f64/60.0),&mut |ui| {
             let b=ui.node("truncation".into(),pxui::Node { w:pxui::ui::Size::Px(320.0),h:pxui::ui::Size::Px(160.0),..pxui::Node::DEFAULT });
             ui.canvas(&b,move |paint,_| {
                 for (i,style) in modes.into_iter().enumerate() {
@@ -1208,14 +1212,14 @@ fn shared_system_fonts_render_scripts_emoji_and_zero_warm_allocations() {
     let Some(device)=open() else { return };
     let queue=ok(be::create_queue(&device));
     let target=texture(&device,640,300,&[TextureUsage::RenderAttachment,TextureUsage::TextureCopySrc]);
-    let mut ui=pxui::Ui::new().unwrap();
+    let mut ui=pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
     ui.enable_system_fonts().unwrap();
     let style=pxui::Label::BODY.size(24.0);
     let emoji=pxui::Label::BODY.size(24.0);
     let mut renderer=shared_renderer(&device,&ui);
     for frame in 1..=6 {
         mem_sys::local_reset();
-        ui.frame(&pxui_types::FrameIn { width:320.0,height:150.0,scale:2.0,time:frame as f64/60.0,..Default::default() },&mut |ui| {
+        ui.frame(&pxui::FrameIn::new(320.0, 150.0).scale(2.0).time(frame as f64/60.0),&mut |ui| {
             let b=ui.node("native-fonts".into(),pxui::Node { w:pxui::ui::Size::Px(300.0),h:pxui::ui::Size::Px(80.0),look:pxui::ui::Look { text:pxui::geom::Rgba::rgba(0,0,0,255),..pxui::ui::Look::NONE },..pxui::Node::DEFAULT });
             ui.text_spans(&b,"漢字 العربية",&style,&[]).unwrap();
             ui.canvas(&b,move |paint,_| { paint.text((10.0,100.0), &emoji, 100.0, "😀"); });
@@ -1240,14 +1244,14 @@ fn shared_inline_ligature_color_preserves_native_coverage() {
     let Some(device)=open() else { return };
     let queue=ok(be::create_queue(&device));
     let target=texture(&device,640,600,&[TextureUsage::RenderAttachment,TextureUsage::TextureCopySrc]);
-    let mut ui=pxui::Ui::create(pxui::Platform::Apple,None,&[FONT]);
+    let mut ui=pxui::Ui::new(&pxui::UiDesc::new(pxui::Platform::Apple).fonts(&[pxui::FontData(FONT)])).expect("pxui Ui");
     let style=pxui::Label::BODY.size(30.0).line_height(36.0);
     let span=pxui::TextSpan { start:2,end:4,flags:pxui::TextSpan::COLOR,color:pxui::geom::Rgba::rgba(255,0,0,255),..Default::default() };
     let mut renderer=shared_renderer(&device,&ui);
     let mut original:Option<Vec<u8>>=None;
     for frame in 1..=6 {
         let colored=frame%2==0;
-        ui.frame(&pxui_types::FrameIn { width:320.0,height:300.0,scale:2.0,time:frame as f64/60.0,..Default::default() },&mut |ui| {
+        ui.frame(&pxui::FrameIn::new(320.0, 300.0).scale(2.0).time(frame as f64/60.0),&mut |ui| {
             let b=ui.node("ligature".into(),pxui::ui::Node { w:pxui::ui::Size::Px(200.0),h:pxui::ui::Size::Px(60.0),look:pxui::ui::Look { text:pxui::geom::Rgba::rgba(0,0,0,255),..pxui::ui::Look::NONE },..pxui::ui::Node::DEFAULT });
             ui.text_spans(&b,"لا",&style,if colored { std::slice::from_ref(&span) } else { &[] }).unwrap();
         }).unwrap();
@@ -1343,10 +1347,10 @@ fn shared_backdrop_blur_case(prepared: bool, reenter: bool, large: bool) {
         pxui_types::Image { vk_image_view:native.vk_image_view,mtl_texture:native.mtl_texture,width:1,height:1,format:native.format,..Default::default() }
     }).collect();
     let mut host_commands: Option<be::Commands> = None;
-    let mut ui = pxui::Ui::create(pxui::Platform::Apple, None, &[include_bytes!("../../../../assets/fonts/DepartureMono-Regular.otf")]);
+    let mut ui = pxui::Ui::new(&pxui::UiDesc::new(pxui::Platform::Apple).fonts(&[pxui::FontData(include_bytes!("../../../../assets/fonts/DepartureMono-Regular.otf"))])).expect("pxui Ui");
     let glass = std::cell::Cell::new(None);
     let second = std::cell::Cell::new(None);
-    let input = pxui_types::FrameIn { size: std::mem::size_of::<pxui_types::FrameIn>() as u32, width: 320.0, height: 300.0, scale: 2.0, time: 1.0 / 60.0, ..Default::default() };
+    let input = pxui::FrameIn::new(320.0, 300.0).scale(2.0).time(1.0 / 60.0);
     let build = |ui: &mut pxui::Ui| {
         ui.frame(&input, &mut |ui: &mut pxui::Ui| {
             glass.set(Some({ let enclosing = ui.node("glass".into(), pxui::Node::column().w_px(160.0).h_px(80.0)); let mut view = enclosing; ui.within(&enclosing, &mut |ui| view = ui.view_of("glass", &1, |ui: &mut pxui::Ui| {
@@ -1484,7 +1488,7 @@ fn shared_resize_validation() {
     mem_sys::local_reset();
     renderer.resize(640, 600).expect("unchanged resize");
     assert_eq!(mem_sys::local_alloc_count(), 0, "same dimensions reuse prepared targets");
-    ui.frame(&pxui_types::FrameIn { width: 320.0, height: 300.0, ..Default::default() }, &mut |ui| {
+    ui.frame(&pxui::FrameIn::new(320.0, 300.0), &mut |ui| {
         assert_eq!(renderer.resize(800, 600), Err(pxui::Error::State), "resizing in a UI frame is refused");
         assert!(ui.last_error().contains("owner only outside a frame"));
     }).expect("frame after resize");
@@ -1515,7 +1519,7 @@ fn shared_backdrop_blur_bgra() {
         depth_load:Load::Clear,depth_store:ogpu_core::render_pass::AttachmentStore::Store,clear_depth:1.0,
         stencil_load:Load::Clear,stencil_store:ogpu_core::render_pass::AttachmentStore::Store,clear_stencil:0,
     }));
-    let mut ui=pxui::Ui::new().unwrap();
+    let mut ui=pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
     let glass=std::cell::Cell::new(None);
     let mut build=|ui: &mut pxui::Ui| {
         glass.set(Some({ let enclosing = ui.node("BGRA glass".into(), pxui::Node::column().w_px(160.0).h_px(80.0)); let mut view = enclosing; ui.within(&enclosing, &mut |ui| view = ui.view_of("BGRA glass", &1, |ui| {
@@ -1523,7 +1527,7 @@ fn shared_backdrop_blur_bgra() {
                 look:pxui::ui::Look { fill:pxui::geom::Rgba::rgba(0,0,0,1),..pxui::ui::Look::NONE },..pxui::ui::Node::DEFAULT });
         })); view }));
     };
-    let input=pxui_types::FrameIn { width:320.0,height:300.0,scale:2.0,..Default::default() };
+    let input=pxui::FrameIn::new(320.0, 300.0).scale(2.0);
     ui.frame(&input,&mut build).unwrap();
     ui.view_backdrop_blur(&glass.get().unwrap(),8.0);
     ui.view_backdrop_saturation(&glass.get().unwrap(),0.9);
@@ -1577,10 +1581,10 @@ fn shared_foreign_image_wrappers_retire_without_leaking_or_destroying_the_source
     ok(be::write_texture(&source,None,Origin { x:0,y:0,z:0 },Extent { width:16,height:16,depth:1 },64,&red));
     let native=ok(be::native_texture(&source));
     let image=pxui_types::Image { vk_image_view:native.vk_image_view,mtl_texture:native.mtl_texture,width:native.width,height:native.height,format:native.format,..Default::default() };
-    let mut ui=pxui::Ui::new().expect("UI");
+    let mut ui=pxui::Ui::new(&pxui::UiDesc::DEFAULT).expect("UI");
     let mut renderer=shared_renderer(&device,&ui);
     for frame in 1..=9 {
-        ui.frame(&pxui_types::FrameIn { width:320.0,height:300.0,scale:2.0,time:frame as f64/60.0,..Default::default() },&mut |ui| {
+        ui.frame(&pxui::FrameIn::new(320.0, 300.0).scale(2.0).time(frame as f64/60.0),&mut |ui| {
             if frame<=4 { ui.image("photo",&image,&pxui::ImageStyle::DEFAULT.fit(Fit::Fill).w_px(64.0).h_px(48.0)).unwrap(); }
         }).expect("image frame");
         shared_app_frame(&queue,&target,&mut renderer,frame,frame-1);
@@ -1606,13 +1610,13 @@ fn shared_large_image_layer_allocates_nothing() {
         let native=ok(be::native_texture(&sources[i]));
         pxui_types::Image { vk_image_view:native.vk_image_view,mtl_texture:native.mtl_texture,width:1,height:1,format:native.format,..Default::default() }
     });
-    let mut ui=pxui::Ui::new().expect("UI");
+    let mut ui=pxui::Ui::new(&pxui::UiDesc::DEFAULT).expect("UI");
     let mut renderer=shared_renderer(&device,&ui);
     #[cfg(target_os="macos")]
     let mut cpu_ns=0;
     for (index,count) in [65,128,96,128,65,64,96].into_iter().chain([128;20]).enumerate() {
         let frame=index as u64+1;
-        ui.frame(&pxui_types::FrameIn { width:320.0,height:300.0,scale:2.0,time:frame as f64/60.0,..Default::default() },&mut |ui| {
+        ui.frame(&pxui::FrameIn::new(320.0, 300.0).scale(2.0).time(frame as f64/60.0),&mut |ui| {
             let bounds=ui.node("images".into(),pxui::ui::Node { w:pxui::ui::Size::Px(64.0),h:pxui::ui::Size::Px(256.0),..pxui::ui::Node::DEFAULT });
             ui.canvas(&bounds,move |paint,rect| {
                 for i in 0..count { paint.image(pxui::geom::Rect::new(rect.x, rect.y+i as f32*2.0, 64.0, 2.0), &images[i%2], Fit::Fill, pxui::geom::Rgba::rgb(255, 255, 255)).unwrap(); }
@@ -1685,7 +1689,7 @@ fn shared_frame_serials() {
 
 /// A panel of `rows` labels and a caption: frames of different sizes, so each build moves the layer's instance count.
 fn rows_ui(ui: &mut pxui::Ui, rows: usize, caption: &str) {
-    let input = pxui_types::FrameIn { size: std::mem::size_of::<pxui_types::FrameIn>() as u32, width: 320.0, height: 300.0, scale: 2.0, time: 1.0 / 60.0, ..Default::default() };
+    let input = pxui::FrameIn::new(320.0, 300.0).scale(2.0).time(1.0 / 60.0);
     ui.frame(&input, &mut |ui: &mut pxui::Ui| ui.panel("panel", &pxui::Overlay::DEFAULT, &mut |ui: &mut pxui::Ui| {
         for row in 0..rows { ui.label(&format!("row {row} {caption}"), pxui_core::ui::Label::DEFAULT); }
         ui.button("Quit");
@@ -1694,7 +1698,7 @@ fn rows_ui(ui: &mut pxui::Ui, rows: usize, caption: &str) {
 
 /// Views of `rows` labels each, kept by revision: frames that move kept runs inside a layer.
 fn views_ui(ui: &mut pxui::Ui, views: usize, rows: usize, revision: u64) {
-    let input = pxui_types::FrameIn { size: std::mem::size_of::<pxui_types::FrameIn>() as u32, width: 320.0, height: 300.0, scale: 2.0, time: 1.0 / 60.0, ..Default::default() };
+    let input = pxui::FrameIn::new(320.0, 300.0).scale(2.0).time(1.0 / 60.0);
     ui.frame(&input, &mut |ui: &mut pxui::Ui| {
         for v in 0..views {
             let name = format!("view {v}");
@@ -1710,7 +1714,7 @@ fn shared_skipped_draws() {
     let Some(device) = open() else { return };
     let queue = ok(be::create_queue(&device));
     let target = texture(&device, 640, 600, &[TextureUsage::RenderAttachment, TextureUsage::TextureCopySrc]);
-    let mut ui = pxui::Ui::create(pxui::Platform::Apple, None, &[include_bytes!("../../../../assets/fonts/DepartureMono-Regular.otf")]);
+    let mut ui = pxui::Ui::new(&pxui::UiDesc::new(pxui::Platform::Apple).fonts(&[pxui::FontData(include_bytes!("../../../../assets/fonts/DepartureMono-Regular.otf"))])).expect("pxui Ui");
     // three builds, then the first draw
     rows_ui(&mut ui, 12, "a");
     rows_ui(&mut ui, 2, "b");
@@ -1724,7 +1728,7 @@ fn shared_skipped_draws() {
     shared_app_frame(&queue, &target, &mut renderer, 2, 1);
     // the skipped frames' result is the last build's: the same build drawn at once looks the same
     let skipped = ok(be::read_texture(&target, 640 * 4));
-    let mut fresh = pxui::Ui::create(pxui::Platform::Apple, None, &[include_bytes!("../../../../assets/fonts/DepartureMono-Regular.otf")]);
+    let mut fresh = pxui::Ui::new(&pxui::UiDesc::new(pxui::Platform::Apple).fonts(&[pxui::FontData(include_bytes!("../../../../assets/fonts/DepartureMono-Regular.otf"))])).expect("pxui Ui");
     rows_ui(&mut fresh, 14, "e");
     let mut fresh_renderer = shared_renderer(&device, &fresh);
     shared_app_frame(&queue, &target, &mut fresh_renderer, 1, 0);
@@ -1733,7 +1737,7 @@ fn shared_skipped_draws() {
     drop(fresh_renderer);
     drop(renderer);
     // kept views that come, go and move between draws
-    let mut ui = pxui::Ui::create(pxui::Platform::Apple, None, &[include_bytes!("../../../../assets/fonts/DepartureMono-Regular.otf")]);
+    let mut ui = pxui::Ui::new(&pxui::UiDesc::new(pxui::Platform::Apple).fonts(&[pxui::FontData(include_bytes!("../../../../assets/fonts/DepartureMono-Regular.otf"))])).expect("pxui Ui");
     views_ui(&mut ui, 4, 3, 1);
     views_ui(&mut ui, 1, 3, 1);
     views_ui(&mut ui, 5, 2, 2);
@@ -1761,13 +1765,54 @@ fn shared_skipped_draws() {
     ok(be::destroy_device(&device));
 }
 
+fn shared_layer_borrows_survive_acknowledgment_and_publish_patches() {
+    use pxui::{Node, Rgba, theme::Look};
+    let Some(device) = open() else { return };
+    let queue = ok(be::create_queue(&device));
+    let target = texture(&device, 640, 600, &[TextureUsage::RenderAttachment, TextureUsage::TextureCopySrc]);
+    let mut ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
+    let mut node = None;
+    let look = |red| Look::NONE.fill(Rgba::rgb(red, 60, 90));
+    ui.frame(&pxui::FrameIn::new(320.0, 300.0).scale(2.0), &mut |ui| {
+        node = Some(ui.node("block".into(), Node::DEFAULT.w_px(80.0).h_px(24.0).look(look(1))));
+    }).unwrap();
+    let mut renderer = shared_renderer(&device, &ui);
+    for serial in 1..=6 {
+        if serial > 1 {
+            let revision = ui.output().draw_revision;
+            assert!(ui.patch_look(&node.unwrap(), &look(serial as u8)));
+            assert_ne!(ui.output().draw_revision, revision);
+        }
+        let before = ui.output();
+        let mut layers = ui.layers();
+        let layer = ui.layer(0).expect("base layer");
+        let dirty = (layer.dirty[0].start, layer.dirty[0].end);
+        let instance = layer.instances[dirty.0 as usize];
+        assert!(layer.instances.iter().any(|i| i.color == [serial as u8, 60, 90, 255]));
+        assert_eq!(ui.layer(0).unwrap().dirty.as_ptr(), layer.dirty.as_ptr());
+        assert_ne!(before.damage.has_damage, 0);
+        shared_app_frame(&queue, &target, &mut renderer, serial, serial - 1);
+        mem_sys::local_reset();
+        assert_eq!(ui.output().damage.has_damage, 0);
+        assert_eq!(ui.output().draw_revision, before.draw_revision);
+        assert!(layers.next().unwrap().dirty.is_empty());
+        assert!(ui.layer(0).unwrap().dirty.is_empty());
+        assert_eq!((layer.dirty[0].start, layer.dirty[0].end), dirty);
+        assert_eq!(layer.instances[dirty.0 as usize], instance);
+        assert_eq!(mem_sys::local_alloc_count(), 0);
+    }
+    drop(renderer);
+    ok(be::destroy_texture(&target));
+    finish(device, queue);
+}
+
 fn shared_public_view_controls_keep_native_draws_and_instances() {
     use std::cell::Cell;
     use pxui_types::geom::{Rect, Rgba};
     let Some(device)=open() else { return };
     let queue=ok(be::create_queue(&device));
     let target=texture(&device,640,600,&[TextureUsage::RenderAttachment,TextureUsage::TextureCopySrc]);
-    let mut ui=pxui::Ui::new().unwrap();
+    let mut ui=pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
     let mut renderer=shared_renderer(&device,&ui);
     let (outer,inner)=(Cell::new(None),Cell::new(None));
     let builds=Cell::new(0);
@@ -1779,7 +1824,7 @@ fn shared_public_view_controls_keep_native_draws_and_instances() {
         let scale=[1.0,2.0,0.0,-1.0][(frame as usize-1)%4];
         let clip=(frame%3==0).then_some(Rect::new(60.0,40.0,60.0,60.0));
         mem_sys::local_reset();
-        ui.frame(&pxui_types::FrameIn { width:320.0,height:300.0,scale:2.0,time:frame as f64/60.0,..Default::default() },&mut |ui| {
+        ui.frame(&pxui::FrameIn::new(320.0, 300.0).scale(2.0).time(frame as f64/60.0),&mut |ui| {
             let outer_box = ui.node("outer".into(), pxui::Node::column().w_px(100.0).h_px(80.0));
             ui.set_at(&outer_box,(40.0,30.0));
             let view={ let enclosing = outer_box; let mut view = enclosing; ui.within(&enclosing, &mut |ui| view = ui.view_of("outer", &1, |ui| {
@@ -1799,7 +1844,7 @@ fn shared_public_view_controls_keep_native_draws_and_instances() {
         ui.set_view(&view, &pxui::ViewTransform::DEFAULT.scale(scale));
         ui.view_clip(&view,clip);
         if frame>=5 { assert_eq!(mem_sys::local_alloc_count(),0,"warm public view updates keep their table storage"); }
-        let instances=ui.layer(0).instances;
+        let instances=ui.layer(0).expect("base layer").instances;
         if let Some(original)=&original { assert_eq!(instances,original,"view controls preserve retained instances"); }
         else { original=Some(instances.to_vec()); }
         let draws=renderer.draw_calls();
@@ -1830,7 +1875,7 @@ fn shared_public_measured_rows_render_settled_clipped_heights() {
     let Some(device)=open() else { return };
     let queue=ok(be::create_queue(&device));
     let target=texture(&device,640,600,&[TextureUsage::RenderAttachment,TextureUsage::TextureCopySrc]);
-    let mut ui=pxui::Ui::new().unwrap();
+    let mut ui=pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
     let mut renderer=shared_renderer(&device,&ui);
     let list=Cell::new(None);
     let colors=[Rgba::rgb(255,0,0),Rgba::rgb(0,255,0),Rgba::rgb(0,0,255)];
@@ -1839,7 +1884,7 @@ fn shared_public_measured_rows_render_settled_clipped_heights() {
         if let Some(list)=list.get() { ui.set_scroll_offset(&list,offset); }
         mem_sys::local_reset();
         let calls=Cell::new(0);
-        ui.frame(&pxui_types::FrameIn { width:320.0,height:300.0,scale:2.0,time:frame as f64/60.0,..Default::default() },&mut |ui| {
+        ui.frame(&pxui::FrameIn::new(320.0, 300.0).scale(2.0).time(frame as f64/60.0),&mut |ui| {
             let bounds=ui.node("bounds".into(),pxui::Node { w:pxui::ui::Size::Px(100.0),h:pxui::ui::Size::Px(200.0),..pxui::Node::DEFAULT });
             ui.within(&bounds,&mut |ui| {
                 list.set(Some(ui.section_list("rows",&pxui::ui::SectionList::new(200).row_h(12.0).measured(),&|i| i as i64,&mut |ui,part,_| {
@@ -1885,13 +1930,13 @@ fn shared_foreign_image_gallery_reuses_wrappers_and_releases_only_completed_imag
         let native=ok(be::native_texture(&sources[index]));
         pxui_types::Image{vk_image_view:native.vk_image_view,mtl_texture:native.mtl_texture,width:1,height:1,format:native.format,..Default::default()}
     });
-    let mut ui=pxui::Ui::new().expect("UI");
+    let mut ui=pxui::Ui::new(&pxui::UiDesc::DEFAULT).expect("UI");
     let mut renderer=shared_renderer(&device,&ui);
     assert_eq!(renderer.forget_image(&pxui_types::Image::default(),0),Err(pxui::Error::InvalidInput));
     for frame in 1..=24u64 {
         let start=((frame-1)%4) as usize*32;
         mem_sys::local_reset();
-        ui.frame(&pxui_types::FrameIn{width:128.0,height:64.0,time:frame as f64/60.0,..Default::default()},&mut |ui| {
+        ui.frame(&pxui::FrameIn::new(128.0, 64.0).time(frame as f64/60.0),&mut |ui| {
             let bounds=ui.node("gallery".into(),pxui::ui::Node{w:pxui::ui::Size::Px(128.0),h:pxui::ui::Size::Px(64.0),..pxui::ui::Node::DEFAULT});
             ui.canvas(&bounds,move |paint,rect| {
                 for index in 0..32 { paint.image(pxui::geom::Rect::new(rect.x+(index%8) as f32*16.0, rect.y+(index/8) as f32*16.0, 16.0, 16.0), &images[start+index], Fit::Fill, pxui::geom::Rgba::rgb(255, 255, 255)).unwrap(); }
@@ -1930,11 +1975,11 @@ fn shared_fractional_fills_render_thin_bars_in_one_warm_draw() {
     let queue=ok(be::create_queue(&device));
     for scale in [1u32,2] {
         let target=texture(&device,640*scale,32*scale,&[TextureUsage::RenderAttachment,TextureUsage::TextureCopySrc]);
-        let mut ui=pxui::Ui::new().unwrap();
+        let mut ui=pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
         let mut renderer=shared_renderer(&device,&ui);
         for frame in 1..=12u64 {
             mem_sys::local_reset();
-            ui.frame(&pxui_types::FrameIn{width:640.0,height:32.0,scale:scale as f32,time:frame as f64/60.0,..Default::default()},&mut |ui| {
+            ui.frame(&pxui::FrameIn::new(640.0, 32.0).scale(scale as f32).time(frame as f64/60.0),&mut |ui| {
                 let node=ui.node("bars".into(),pxui::ui::Node{w:pxui::ui::Size::Px(640.0),h:pxui::ui::Size::Px(32.0),..pxui::ui::Node::DEFAULT});
                 ui.canvas(&node,|paint,rect| {
                     for i in 0..200 { paint.fill(pxui::geom::Rect::new(rect.x+1.25+i as f32*3.0, rect.y+1.25, 0.5, 12.0), pxui::Fill::new(pxui::geom::Rgba{r:0,g:255,b:0,a:255}).fractional()); }
@@ -1977,7 +2022,7 @@ fn shared_section_list_pins_native_pixels_without_gutters_or_warm_allocations() 
     mem_sys::set_peer(pxui::library_counter);
     for (scale,measured) in [(1u32,false),(2,false),(1,true),(2,true)] {
         let target=texture(&device,320*scale,240*scale,&[TextureUsage::RenderAttachment,TextureUsage::TextureCopySrc]);
-        let mut ui=pxui::Ui::new().unwrap();
+        let mut ui=pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
         let mut renderer=shared_renderer(&device,&ui);
         let mut body=None;
         let mut frame=0;
@@ -1986,7 +2031,7 @@ fn shared_section_list_pins_native_pixels_without_gutters_or_warm_allocations() 
                 if let Some(body)=body {ui.set_scroll_offset(&body,offset);}
                 frame+=1;
                 mem_sys::local_reset();
-                ui.frame(&pxui_types::FrameIn {width:320.0,height:240.0,scale:scale as f32,time:frame as f64/60.0,..Default::default()},&mut |ui| {
+                ui.frame(&pxui::FrameIn::new(320.0, 240.0).scale(scale as f32).time(frame as f64/60.0),&mut |ui| {
                     let section=pxui::ui::SectionList::new(10_000).row_h(20.0).lead(100.0).header(30.0).trail(40.0).overlay_scrollbar();
                     let build=|ui:&mut pxui::Ui,part| {
                         let (r,g,b)=match part {pxui::ui::SectionPart::Leading=>(255,0,0),pxui::ui::SectionPart::Header=>(255,255,255),pxui::ui::SectionPart::Row(_)=>(0,0,255)};
@@ -2051,10 +2096,10 @@ fn shared_filled_triangle_pixels_cover_both_windings_in_one_warm_draw() {
     mem_sys::set_peer(pxui::library_counter);
     for scale in [1u32,2] {
         let target=texture(&device,64*scale,32*scale,&[TextureUsage::RenderAttachment,TextureUsage::TextureCopySrc]);
-        let mut ui=pxui::Ui::new().unwrap();let mut renderer=shared_renderer(&device,&ui);
+        let mut ui=pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();let mut renderer=shared_renderer(&device,&ui);
         for frame in 1..=8u64 {
             mem_sys::local_reset();
-            ui.frame(&pxui_types::FrameIn {width:64.0,height:32.0,scale:scale as f32,time:frame as f64/60.0,..Default::default()},&mut |ui| {
+            ui.frame(&pxui::FrameIn::new(64.0, 32.0).scale(scale as f32).time(frame as f64/60.0),&mut |ui| {
                 let node=ui.node("triangles".into(),pxui::ui::Node {w:pxui::ui::Size::Px(64.0),h:pxui::ui::Size::Px(32.0),..pxui::Node::DEFAULT});
                 ui.canvas(&node,|paint,_| {
                     for index in 0..3 {
@@ -2098,7 +2143,7 @@ fn shared_pixel_fit_text_matches_explicit_width_pixels() {
     let queue=ok(be::create_queue(&device));
     for density in [1u32,2] {
         let target=texture(&device,320*density,100*density,&[TextureUsage::RenderAttachment,TextureUsage::TextureCopySrc]);
-        let mut ui=pxui::Ui::new().unwrap();
+        let mut ui=pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
         let mut renderer=shared_renderer(&device,&ui);
         let style=pxui::Label::BODY.size(14.25).line_height(20.0).lines(1);
         let value="ab CD café";
@@ -2113,7 +2158,7 @@ fn shared_pixel_fit_text_matches_explicit_width_pixels() {
                 let fitted=frame%2==0;
                 let look=pxui::ui::Look {text:pxui::geom::Rgba::rgba(0,0,0,255),..pxui::ui::Look::NONE};
                 mem_sys::local_reset();
-                ui.frame(&pxui::FrameIn {width:320.0,height:100.0,scale:density as f32,time:frame as f64/60.0,..Default::default()},&mut |ui| {
+                ui.frame(&pxui::FrameIn::new(320.0, 100.0).scale(density as f32).time(frame as f64/60.0),&mut |ui| {
                     let label=ui.node("rich".into(),pxui::Node {flags:pxui_types::Flags::FIT_TEXT|if fitted {pxui_types::Flags::FIT_TEXT_PIXEL} else {pxui_types::Flags::NONE},w:if fitted {pxui::ui::Size::Fit} else {pxui::ui::Size::Px(width)},h:pxui::ui::Size::Px(24.0),at:Some((10.0,10.0)).into(),look,..pxui::Node::DEFAULT});
                     ui.text_line_box(&label,value,&style,&span).unwrap();
                     let label=ui.node("plain".into(),pxui::Node {flags:if fitted {pxui_types::Flags::FIT_TEXT_PIXEL} else {pxui_types::Flags::NONE},w:if fitted {pxui::ui::Size::Fit} else {pxui::ui::Size::Px(plain_width)},h:pxui::ui::Size::Px(24.0),at:Some((10.0,40.0)).into(),inset:pxui::ui::Edges {l:1.25,r:3.5,..Default::default()},look:pxui::ui::Look {font:pxui::ui::Font {size:14,caps:true,..pxui::ui::Font::BODY},..look},..pxui::Node::DEFAULT});

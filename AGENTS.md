@@ -100,6 +100,17 @@ that changes public behaviour without touching its comment is incomplete.
 `cargo run -p gate -- docs` enforces the shape; `#![deny(missing_docs)]`
 enforces presence.
 
+## Public API errors
+
+Use `Result<T, Error>` for operations that can fail on input or host state, and `Option<T>` when
+the requested item may be absent. Native host errors carry a static message naming the failed
+operation. A call tied to a Ui can also report the library's detail through `Ui::last_error`.
+An accessibility update reports whether it applied to a live handle. Numeric and text-data
+errors from fallible setters return `Error::InvalidInput`.
+
+Panics cover documented programmer errors. A Rust callback panic resumes after the ABI call
+returns. C entry points validate their callers' records and return status codes.
+
 ## Architecture: UI, platform and host integration
 
 A crate's tier is its folder: `crates/public`, `crates/private` or `crates/open`. Put each new crate

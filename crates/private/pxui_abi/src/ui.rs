@@ -153,17 +153,26 @@ pub(crate) fn build_output(shared: &mut Shared, engine: &Ui, nodes: bool) {
             });
         }
     }
-    // the dirty ranges first, all of them, so no slice below points into a vector that grows
-    shared.dirty.clear();
-    // A new partition of warmed instances must not grow the ABI copy after drawing starts.
-    shared.dirty.reserve(output.draw.iter().map(|layer| layer.dirty.capacity()).sum());
-    shared.dirty.extend(output.draw.iter().flat_map(|l| l.dirty.iter().map(|&(start, end)| pxui_types::ffi::PxuiDirty { start, end })));
-    shared.layers.clear();
-    let mut at = 0;
-    for l in output.draw.iter() {
-        let dirty = Slice { ptr: shared.dirty.as_ptr().wrapping_add(at), len: l.dirty.len() };
-        at += l.dirty.len();
-        shared.layers.push(pxui_types::ffi::PxuiLayerInfo { key: l.key, id: l.id, breaks: l.breaks.len() as u32, instances: Slice { ptr: l.instances.as_ptr(), len: l.instances.len() }, dirty });
+    let revision = engine.draw_revision() as u64;
+    let acknowledged = core::mem::take(&mut shared.draw_acknowledged);
+    if nodes || revision != shared.output.draw_revision {
+        // Publish all dirty bytes before lending pointers into the retained buffer.
+        shared.dirty.clear();
+        shared.dirty.reserve(output.draw.iter().map(|layer| layer.dirty.capacity()).sum());
+        shared.dirty.extend(output.draw.iter().flat_map(|l| l.dirty.iter().map(|&(start, end)| pxui_types::ffi::PxuiDirty { start, end })));
+        shared.layers.clear();
+        let mut at = 0;
+        for l in output.draw.iter() {
+            let dirty = Slice { ptr: shared.dirty.as_ptr().wrapping_add(at), len: l.dirty.len() };
+            at += l.dirty.len();
+            shared.layers.push(pxui_types::ffi::PxuiLayerInfo { key: l.key, id: l.id, breaks: l.breaks.len() as u32, instances: Slice { ptr: l.instances.as_ptr(), len: l.instances.len() }, dirty });
+        }
+    } else if acknowledged {
+        // The renderer can acknowledge a draw while Rust readers still hold the published slices.
+        let published = shared.layers.as_mut_ptr();
+        for (index, drawn) in output.draw.iter().take(shared.layers.len()).enumerate() {
+            unsafe { core::ptr::addr_of_mut!((*published.add(index)).dirty.len).write(drawn.dirty.len()); }
+        }
     }
     let platform = output.platform;
     let (cursor, has_cursor) = match platform.cursor {
@@ -174,7 +183,7 @@ pub(crate) fn build_output(shared: &mut Shared, engine: &Ui, nodes: bool) {
     let (background, has_background) = platform.background.map_or((pxui_types::geom::Rgba::default(), false), |c| (c, true));
     let (clipboard, has_clipboard) = platform.clipboard.as_ref().map_or((Str::default(), false), |s| (Str { ptr: s.as_ptr(), len: s.len() }, true));
     shared.output = Output {
-        size: core::mem::size_of::<Output>() as u32, reserved: 0, draw_revision: engine.draw_revision() as u64,
+        size: core::mem::size_of::<Output>() as u32, reserved: 0, draw_revision: revision,
         repaint_at: engine.repaint_at().unwrap_or(f64::INFINITY), built_nodes: engine.built_nodes() as u64,
         rebuilt_views: engine.rebuilt_views() as u64, arranged_nodes: engine.arranged_nodes() as u64,
         platform: PlatformOut {
@@ -306,14 +315,19 @@ fn valid_touches(events:&[pxui_types::Event])->bool {
     events.iter().all(|e|e.kind!=pxui_types::Event::TOUCH || touch_event(e).is_some())
 }
 
-/// Appends `events` to `base`, folding the key and pointer ones into its held state. False when one is invalid (`translate_event`,
-/// with the frame's text budget).
-unsafe fn push_events(base: &mut input::Frame, events: Slice<pxui_types::Event>) -> bool {
-    if events.len == 0 { return true; }
+/// Decode the whole batch before any edge changes retained input.
+fn decode_events(out: &mut Vec<Event>, events: &[pxui_types::Event]) -> bool {
     let mut budget = crate::state::MAX_TOTAL_TEXT_BYTES;
-    for raw in unsafe { std::slice::from_raw_parts(events.ptr, events.len) } {
+    for raw in events {
         let Some(event) = translate_event(raw, &mut budget) else { return false };
-        match &event {
+        out.push(event);
+    }
+    true
+}
+
+fn fold_input_edges(base: &mut input::Frame) {
+    for event in &base.events {
+        match event {
             Event::KeyPressed(k) => if !base.keys.contains(k) { base.keys.push(*k) },
             Event::KeyReleased(k) => base.keys.retain(|held| held != k),
             Event::FocusLost => { base.keys.clear(); base.buttons.clear(); }
@@ -323,24 +337,22 @@ unsafe fn push_events(base: &mut input::Frame, events: Slice<pxui_types::Event>)
             Event::PointerCancelled(b) => base.buttons.retain(|held| held != b),
             _ => {}
         }
-        base.events.push(event);
     }
-    true
 }
 
-/// Reuse input buffers (the whole frame record, boxed so a frame moves a pointer, not the record); the event-only entry retains keys,
-/// and the snapshot entry replaces them.
+/// Reuse input buffers. Retained keys and buttons change only after the batch has been validated.
 unsafe fn take_input(ui: *mut PxuiUi, time: f64) -> Box<frame::Frame> {
     let mut base = unsafe { (*(*ui).shared).spare_input.take() }.unwrap_or_else(|| {
         let mut input=input::at_time(time);
         input.events.reserve(input::EVENT_RESERVE);
         Box::new(frame::Frame { input, pixel_scale: (1.0, 1.0), fps: 60.0, mouse_delta: (0.0, 0.0) })
     });
-    let input=&mut base.input;
-    (input.t, input.dt, input.frame, input.tick, input.size, input.pointer) = (time, 0.0, 0, 0, (0, 0), (0.0, 0.0));
-    input.buttons.clear();
-    input.events.clear();
+    base.input.events.clear();
     base
+}
+
+unsafe fn restore_input(ui: *mut PxuiUi, base: Box<frame::Frame>) {
+    unsafe { (*(*ui).shared).spare_input = Some(base); }
 }
 
 const NO_ENVIRONMENT: pxui_types::Environment = pxui_types::Environment { safe_area: [0.0; 4], keyboard_frame: [0.0; 4], keyboard_from: [0.0; 4], keyboard_started: 0.0, keyboard_duration: 0.0, keyboard_curve: 0, keyboard_visible: 0 };
@@ -401,7 +413,10 @@ unsafe fn run_frame(ui: *mut PxuiUi, frame: &frame::Frame, build: Inner, out: &m
     let _leave = Leave(shared, ui);
     // a panic of the build (the static wrapper's callbacks run without a catch) leaves the engine mid-frame: it is reset, then the panic goes on
     let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe { (&mut *engine).frame(frame, &mut |engine: &mut Ui| call_inner(shared, engine, build)) }));
-    let output = match built { Ok(output) => output, Err(panic) => { unsafe { (&mut *engine).abandon_frame(); } std::panic::resume_unwind(panic) } };
+    let output = match built { Ok(output) => output, Err(panic) => {
+        unsafe { (&mut *engine).abandon_frame(); (*shared).frame_ended = true; }
+        std::panic::resume_unwind(panic)
+    } };
     let (damage, layers, layer_count) = (output.damage, output.draw.as_ptr(), output.draw.len());
     let s = unsafe { &mut *shared };
     s.in_frame = false;
@@ -445,21 +460,24 @@ pub(crate) unsafe fn frame_body(ui: *mut PxuiUi, input: &FrameIn, build: Inner, 
     if keyboard_changed && !keyboard.valid() { return unsafe { fail(ui,"invalid keyboard geometry") }; }
     if appearance>FrameIn::APPEARANCE_DARK || reduced>1 { return unsafe { fail(ui,"invalid system preferences") }; }
     let mut base = unsafe { take_input(ui, input.time) };
-    base.input.size = (input.width as i64, input.height as i64);
-    base.input.frame = input.time.to_bits() as i64;
-    // decoding checks every event (a touch's payload too) before the engine is changed; the input buffers go back for the next frame
-    if !unsafe { push_events(&mut base.input, Slice { ptr: input.events, len: input.event_count }) } {
-        let events=unsafe { core::slice::from_raw_parts(input.events,input.event_count) };
+    let events = if input.event_count == 0 { &[] } else { unsafe { core::slice::from_raw_parts(input.events, input.event_count) } };
+    if !decode_events(&mut base.input.events, events) {
         let message=if valid_touches(events) { "invalid event kind, code, or UTF-8 payload" } else { "invalid touch payload" };
-        unsafe { (*(*ui).shared).spare_input = Some(base); }
+        base.input.events.clear();
+        unsafe { restore_input(ui, base); }
         return unsafe { fail(ui, message) };
     }
+    let frame = &mut base.input;
+    (frame.t, frame.dt, frame.frame, frame.tick) = (input.time, 0.0, input.time.to_bits() as i64, 0);
+    (frame.size, frame.pointer) = ((input.width as i64, input.height as i64), (0.0, 0.0));
+    frame.buttons.clear();
+    fold_input_edges(frame);
     unsafe { &mut *(*ui).engine }.set_system_preferences(appearance,reduced!=0);
     if environment_changed { engine.set_environment(*environment); }
     if keyboard_changed { engine.set_keyboard(*keyboard); }
     (base.pixel_scale, base.fps, base.mouse_delta) = ((input.scale as f64, input.scale as f64), 60.0, (0.0, 0.0));
     let rc = unsafe { run_frame(ui, &base, build, out) };
-    unsafe { (*(*ui).shared).spare_input = Some(base); }
+    unsafe { restore_input(ui, base); }
     rc
 }
 
@@ -502,31 +520,30 @@ pub(crate) unsafe fn input_frame_body(ui: *mut PxuiUi, input: &Input, build: Inn
     if input.events.len > 4096 || input.keys.len > 512 || input.buttons.len > 32 || (input.events.len != 0 && input.events.ptr.is_null()) || (input.keys.len != 0 && input.keys.ptr.is_null()) || (input.buttons.len != 0 && input.buttons.ptr.is_null()) { return unsafe { fail(ui, "invalid input spans") }; }
     let events=if input.events.len==0 {&[]} else {unsafe {core::slice::from_raw_parts(input.events.ptr,input.events.len)}};
     if !valid_touches(events) {return unsafe {fail(ui,"invalid touch payload")};}
+    let keys = if input.keys.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(input.keys.ptr, input.keys.len) } };
+    let buttons = if input.buttons.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(input.buttons.ptr, input.buttons.len) } };
+    if keys.iter().any(|code| key(*code).is_none()) { return unsafe { fail(ui, "invalid held key") }; }
+    if buttons.iter().any(|code| button(*code).is_none()) { return unsafe { fail(ui, "invalid held mouse button") }; }
     let mut held = unsafe { take_input(ui, input.time) };
     let base = &mut held.input;
-    base.dt = input.dt; base.frame = input.frame; base.tick = input.tick;
-    base.keys.clear(); // This entry receives the host's authoritative held-key snapshot.
+    if !decode_events(&mut base.events, events) {
+        base.events.clear();
+        unsafe { restore_input(ui, held); }
+        return unsafe { fail(ui, "invalid event kind, code, or UTF-8 payload") };
+    }
+    (base.t, base.dt, base.frame, base.tick) = (input.time, input.dt, input.frame, input.tick);
+    base.keys.clear();
+    base.keys.extend(keys.iter().filter_map(|code| key(*code)));
+    base.buttons.clear();
+    base.buttons.extend(buttons.iter().filter_map(|code| button(*code)));
     base.size = (input.logical_size[0], input.logical_size[1]);
     base.pointer = (input.pointer[0], input.pointer[1]);
-    if input.keys.len != 0 {
-        for code in unsafe { std::slice::from_raw_parts(input.keys.ptr, input.keys.len) } {
-            // an unknown code is refused as the event path refuses it
-            let Some(value) = key(*code) else { return unsafe { fail(ui, "invalid held key") }; };
-            base.keys.push(value);
-        }
-    }
-    if input.buttons.len != 0 {
-        for code in unsafe { std::slice::from_raw_parts(input.buttons.ptr, input.buttons.len) } {
-            let Some(value) = button(*code) else { return unsafe { fail(ui, "invalid held mouse button") }; };
-            base.buttons.push(value);
-        }
-    }
-    if !unsafe { push_events(base, input.events) } { return unsafe { fail(ui, "invalid event kind, code, or UTF-8 payload") }; }
+    fold_input_edges(base);
     unsafe { &mut *(*ui).engine }.set_environment(pxui_types::Environment::default());
     unsafe { &mut *(*ui).engine }.set_keyboard(pxui_types::Keyboard::default());
     (held.pixel_scale, held.fps, held.mouse_delta) = ((input.pixel_scale[0], input.pixel_scale[1]), input.fps, (input.mouse_delta[0], input.mouse_delta[1]));
     let rc = unsafe { run_frame(ui, &held, build, out) };
-    unsafe { (*(*ui).shared).spare_input = Some(held); }
+    unsafe { restore_input(ui, held); }
     rc
 }
 
@@ -585,6 +602,7 @@ export!(pub unsafe fn pxui_ui_layer_drawn(ui: *mut PxuiUi, layer: u64) -> i32 {
     let engine = unsafe { &mut *state.engine };
     if layer as usize >= engine.output().draw.len() { return unsafe { fail(ui, "no such layer") }; }
     engine.drawn(layer as usize);
+    state.shared().draw_acknowledged = true;
     0
 });
 
@@ -938,6 +956,120 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_retains_geometry_timing_and_held_input_after_rejected_spans() {
+        use super::*;
+        let ui = unsafe { pxui_ui_create(&PxuiUiDesc::default()) };
+        let keys = [Key::Meta.code()];
+        let buttons = [MouseButton::LeftButton.code()];
+        let snapshot = Input {
+            logical_size: [320, 240], pixel_scale: [2.0, 3.0],
+            pointer: [42.0, 35.0], mouse_delta: [8.0, 9.0],
+            time: 0.25, dt: 0.125, frame: 7, tick: 11, fps: 120.0,
+            keys: Slice { ptr: keys.as_ptr(), len: keys.len() },
+            buttons: Slice { ptr: buttons.as_ptr(), len: buttons.len() },
+            ..Default::default()
+        };
+        let mut out = FrameOut::default();
+        assert_eq!(unsafe { pxui_ui_frame(ui, &snapshot, None, core::ptr::null_mut(), &mut out) }, 0);
+        let invalid = [Key::Alt.code(), 0];
+        let bad = Input { keys: Slice { ptr: invalid.as_ptr(), len: invalid.len() }, ..snapshot };
+        out.size = 777;
+        assert_eq!(unsafe { pxui_ui_frame(ui, &bad, None, core::ptr::null_mut(), &mut out) }, PXUI_ERR_ARGUMENT);
+        assert_eq!(out.size, 777);
+        let frame = unsafe { &*(*ui).shared }.spare_input.as_ref().unwrap();
+        let input = &frame.input;
+        assert_eq!((input.t, input.dt, input.frame, input.tick), (0.25, 0.125, 7, 11));
+        assert_eq!((input.size, input.pointer), ((320, 240), (42.0, 35.0)));
+        assert_eq!((frame.pixel_scale, frame.fps, frame.mouse_delta), ((2.0, 3.0), 120.0, (8.0, 9.0)));
+        assert_eq!(input.keys, [Key::Meta]);
+        assert_eq!(input.buttons, [MouseButton::LeftButton]);
+        assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
+    }
+
+    #[test]
+    fn completed_file_drop_events_preserve_paths_order_and_warm_storage() {
+        use super::*;
+        use pxui_types::Event as Wire;
+        let ui = unsafe { pxui_ui_create(&PxuiUiDesc::default()) };
+        let mut out = FrameOut::default();
+        for (code, payload) in [(0, "/Music/名前.flac\0/Music/Björk.m4a"), (1, "transport limit exceeded"), (0, "")] {
+            let backing = payload.to_owned();
+            let event = Wire { kind: Wire::FILES_DROPPED, code, x: -12.5, y: 31.25, text: pair(&backing), ..Default::default() };
+            let frame = FrameIn { events: &event, event_count: 1, ..FrameIn::new(320.0, 240.0) };
+            assert_eq!(unsafe { pxui_frame(ui, &frame, None, core::ptr::null_mut(), &mut out) }, 0);
+            drop(backing);
+            for (has_owner, owner) in [(0, 0), (1, 123)] {
+                let mut routed = Input::default();
+                assert_eq!(unsafe { pxui_ui_input(ui, has_owner, owner, &mut routed) }, 0);
+                assert_eq!(routed.events.len, 1);
+                let event = unsafe { routed.events.ptr.read() };
+                assert_eq!((event.kind, event.code, event.x, event.y), (Wire::FILES_DROPPED, code, -12.5, 31.25));
+                assert_eq!(unsafe { text(event.text) }, Some(payload));
+            }
+        }
+        let bad_utf8 = [255u8];
+        let empty = Wire { kind: Wire::FILES_DROPPED, ..Default::default() };
+        for invalid in [
+            Wire { code: 2, ..empty },
+            Wire { x: f64::NAN, ..empty },
+            Wire { y: f64::INFINITY, ..empty },
+            Wire { text: Str { ptr: core::ptr::null(), len: 1 }, ..empty },
+            Wire { text: Str { ptr: bad_utf8.as_ptr(), len: 1 }, ..empty },
+        ] {
+            let frame = FrameIn { events: &invalid, event_count: 1, ..FrameIn::new(320.0, 240.0) };
+            out.size = 777;
+            assert_eq!(unsafe { pxui_frame(ui, &frame, None, core::ptr::null_mut(), &mut out) }, PXUI_ERR_ARGUMENT);
+            assert_eq!(out.size, 777);
+        }
+        let frame = FrameIn { events: &empty, event_count: 1, ..FrameIn::new(320.0, 240.0) };
+        for round in 0..20 {
+            mem_sys::local_reset();
+            assert_eq!(unsafe { pxui_frame(ui, &frame, None, core::ptr::null_mut(), &mut out) }, 0);
+            let mut routed = Input::default();
+            assert_eq!(unsafe { pxui_ui_input(ui, 0, 0, &mut routed) }, 0);
+            assert_eq!(routed.events.len, 1);
+            if round > 2 { assert_eq!(mem_sys::local_alloc_count(), 0); }
+        }
+        assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
+    }
+
+    #[test]
+    fn typed_touch_batches_keep_ids_phases_lifetimes_and_zero_warm_allocations() {
+        use super::*;
+        use pxui_types::{Event as Wire, Touch};
+        let ui = unsafe { pxui_ui_create(&PxuiUiDesc::default()) };
+        let mut packets = [Touch::default(); 32];
+        let mut events = [Wire::default(); 32];
+        let mut out = FrameOut::default();
+        for tick in 0..182 {
+            let count = [32, 1, 0, 3][tick % 4];
+            for (index, packet) in packets.iter_mut().enumerate() {
+                *packet = Touch { device: u64::MAX, finger: u64::MAX - index as u64, x: -1.25, y: 99.5,
+                    time: tick as f64 / 120.0, pressure: 0.375, phase: (tick % 4) as u32 };
+                events[index] = Wire { kind: Wire::TOUCH,
+                    text: Str { ptr: (packet as *const Touch).cast(), len: core::mem::size_of::<Touch>() },
+                    ..Default::default() };
+            }
+            let expected = packets;
+            let frame = FrameIn { time: tick as f64 / 120.0, events: events.as_ptr(), event_count: count, ..FrameIn::new(320.0, 240.0) };
+            mem_sys::local_reset();
+            assert_eq!(unsafe { pxui_frame(ui, &frame, None, core::ptr::null_mut(), &mut out) }, 0);
+            packets.fill(Touch::default());
+            let mut routed = Input::default();
+            assert_eq!(unsafe { pxui_ui_input(ui, 0, 0, &mut routed) }, 0);
+            assert_eq!(routed.events.len, count);
+            for (index, packet) in expected[..count].iter().enumerate() {
+                let event = unsafe { routed.events.ptr.add(index).read() };
+                assert_eq!(event.kind, Wire::TOUCH);
+                assert_eq!(touch_event(&event).map(|touch| touch.finger), Some(packet.finger));
+                assert_eq!(unsafe { event.text.ptr.cast::<Touch>().read_unaligned() }, *packet);
+            }
+            if tick >= 82 { assert_eq!(mem_sys::local_alloc_count(), 0); }
+        }
+        assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
+    }
+
+    #[test]
     fn typed_touch_payloads_round_trip_full_ids_and_reject_invalid_tails_atomically() {
         use pxui_types::{Touch,Event as C,FrameIn,Str};
         let ui=unsafe {super::pxui_ui_create(&crate::PxuiUiDesc::default())};
@@ -971,6 +1103,8 @@ mod tests {
             assert_eq!(unsafe {super::pxui_ui_frame(ui,&snapshot,None,core::ptr::null_mut(),&mut out)},crate::PXUI_ERR_ARGUMENT);
             assert_eq!(out.size,777);
             assert!(!unsafe {&*(*ui).engine}.key_down(input::Key::Meta));
+            assert_eq!(unsafe {super::pxui_frame(ui,&input,None,core::ptr::null_mut(),&mut out)},0);
+            assert!(!unsafe {&*(*ui).engine}.key_down(input::Key::Meta), "the rejected batch must leave the next frame's held keys intact");
         }
         for text in [Str::default(),Str {ptr:(&packet as *const Touch).cast(),len:47}] {
             let event=C {kind:C::TOUCH,text,..Default::default()};

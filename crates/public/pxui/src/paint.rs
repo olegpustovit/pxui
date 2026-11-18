@@ -119,7 +119,7 @@ impl<'a> Paint<'a> {
     /// let mut theme = ThemeHandle::default();
     /// theme.set_color(ColorToken(0), ink);
     /// ui.set_theme(&theme).unwrap();
-    /// ui.frame(&pxui::FrameIn { width: 100.0, height: 100.0, ..Default::default() }, &mut |ui| {
+    /// ui.frame(&pxui::FrameIn::new(100.0, 100.0), &mut |ui| {
     ///     let b = ui.node("canvas".into(), Node { w: Size::Px(10.0), h: Size::Px(10.0), ..Node::DEFAULT });
     ///     let seen = seen.clone();
     ///     ui.canvas(&b, move |p, _| seen.set(p.color(ColorToken(0))));
@@ -747,11 +747,12 @@ mod tests {
         assert_eq!(pool_take(few), one, "the second layout's box came back from the pool");
     }
 
-    use pxui_types::{FrameIn, Node, Size};
+    use crate::FrameIn;
+    use pxui_types::{Node, Size};
 
     fn frame_with<F: FnMut(&mut Paint<'_>, Rect) + 'static>(ui: &mut crate::Ui, canvas: F) -> Result<(), crate::Error> {
         let mut canvas = Some(canvas);
-        ui.frame(&FrameIn { width: 200.0, height: 100.0, ..FrameIn::default() }, &mut |ui: &mut crate::Ui| {
+        ui.frame(&FrameIn::new(200.0, 100.0), &mut |ui: &mut crate::Ui| {
             let node = ui.node("canvas".into(), Node { w: Size::Px(80.0), h: Size::Px(40.0), ..Node::DEFAULT });
             if let Some(canvas) = canvas.take() { ui.canvas(&node, canvas); }
         }).map(|_| ())
@@ -763,7 +764,7 @@ mod tests {
     fn a_clip_set_mid_drawing_restamps_every_refilled_span() {
         let ink = Rgba { r: 1, g: 2, b: 3, a: 255 };
         let narrow = Rect::new(10.0, 10.0, 30.0, 20.0);
-        let mut ui = crate::Ui::new().expect("library");
+        let mut ui = crate::Ui::new(&crate::UiDesc::DEFAULT).expect("library");
         frame_with(&mut ui, move |p, _| {
             let saved = Shapes::clip_rect(&p.w);
             Shapes::set_clip_rect(&mut p.w, narrow);
@@ -779,7 +780,7 @@ mod tests {
     #[test]
     fn a_span_left_open_or_a_library_call_under_one_is_an_error_not_a_silent_drop() {
         let ink = Rgba { r: 1, g: 2, b: 3, a: 255 };
-        let mut ui = crate::Ui::new().expect("library");
+        let mut ui = crate::Ui::new(&crate::UiDesc::DEFAULT).expect("library");
         // a library call made while a span is open (the wrapper's own calls commit first; this one bypasses it)
         let rc = frame_with(&mut ui, move |p, _| {
             p.fill(Rect::new(0.0, 0.0, 4.0, 4.0), Fill::new(ink));

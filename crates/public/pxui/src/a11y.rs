@@ -1,9 +1,9 @@
 use crate::Handle;
-use crate::{Str, Ui, check};
+use crate::{Str, Ui};
 
 #[cfg(feature = "static")]
 mod sys {
-    pub use pxui_abi_link::{pxui_a11y_fd, pxui_a11y_pump, pxui_a11y_start, pxui_a11y_stop, pxui_a11y_update, pxui_ui_a11y_name, pxui_ui_a11y_value, PxuiA11y};
+    pub use pxui_abi_link::{pxui_a11y_fd, pxui_a11y_pump, pxui_a11y_start, pxui_a11y_stop, pxui_a11y_update, pxui_ui_a11y_name_checked, pxui_ui_a11y_value, PxuiA11y};
 }
 
 #[cfg(not(feature = "static"))]
@@ -74,9 +74,9 @@ mod sys {
         /// Panics: never.
         ///
         /// ```
-        /// pxui::doc::frames(1, &mut |ui| { let b = ui.node("play".into(), pxui::Node { role: pxui::Role::Button, ..pxui::Node::DEFAULT }); ui.a11y_name(&b, "Play"); });
+        /// pxui::doc::frames(1, &mut |ui| { let b = ui.node("play".into(), pxui::Node::DEFAULT.role(pxui::Role::Button)); ui.a11y_name(&b, "Play"); });
         /// ```
-        pub fn pxui_ui_a11y_name(ui: *mut PxuiUi, box_: *const PxuiBox, name: Str) -> i32;
+        pub fn pxui_ui_a11y_name_checked(ui: *mut PxuiUi, box_: *const PxuiBox, name: Str) -> i32;
         /// The C entry `Ui::a11y_value` calls: sets a box's accessible text `value` and selection (`anchor`, `caret` as UTF-8 byte offsets,
         /// stored as character offsets); a stale box returns the stale code, a split character or invalid text an argument error.
         ///
@@ -84,7 +84,7 @@ mod sys {
         /// Panics: never.
         ///
         /// ```
-        /// pxui::doc::frames(1, &mut |ui| { let b = ui.node("field".into(), pxui::Node::DEFAULT); ui.a11y_value(&b, "héllo", (0, 3)); });
+        /// pxui::doc::frames(1, &mut |ui| { let b = ui.node("field".into(), pxui::Node::DEFAULT); assert!(ui.a11y_value(&b, "héllo", (0, 3)).unwrap()); });
         /// ```
         pub fn pxui_ui_a11y_value(ui:*mut PxuiUi,box_:*const PxuiBox,value:Str,anchor:u32,caret:u32)->i32;
     }
@@ -94,43 +94,42 @@ impl Ui {
     /// Sets the accessible text value of `box_` and its selection, `(anchor, caret)` as UTF-8 byte offsets into `value`.
     ///
     /// A value set with `a11y_number` on the same box takes precedence in the published tree. The tree reports the selection in Unicode
-    /// scalar offsets, matching native text widgets. An offset past the end of `value` becomes the end, and one inside a character moves back to
-    /// that character's start. A dead `box_` (from an earlier frame) is ignored.
+    /// scalar offsets. An offset past the end of `value` becomes the end, and one inside a character moves back to
+    /// its start. Returns `Ok(false)` for a retired node and `Error::InvalidInput` if the value exceeds 64 KiB.
     /// Allocates: grows the node's value string when `value` is longer than the one it held; otherwise never.
-    /// Panics: when `value` is longer than the text limit (the library refuses it). Display text past 64 KiB is clipped at a character boundary, never refused.
+    /// Panics: never.
     ///
     /// ```
     /// let ui = pxui::doc::frames(1, &mut |ui| {
-    ///     let b = ui.node("name".into(), pxui::Node { role: pxui::Role::TextField, ..pxui::Node::DEFAULT });
-    ///     ui.a11y_value(&b, "héllo", (0, 3));
+    ///     let b = ui.node("name".into(), pxui::Node::DEFAULT.role(pxui::Role::TextField));
+    ///     assert!(ui.a11y_value(&b, "héllo", (0, 3)).unwrap());
     /// });
     /// assert!(ui.a11y_tree().0.windows("héllo".len()).any(|w| w == "héllo".as_bytes()));
     /// ```
-    #[track_caller]
-    pub fn a11y_value(&mut self,box_:&Handle,value:&str,selection:(u32,u32)) {
+    pub fn a11y_value(&mut self, box_: &Handle, value: &str, selection: (u32, u32)) -> Result<bool, crate::Error> {
         let boundary=|offset:u32|{let mut at=(offset as usize).min(value.len());while !value.is_char_boundary(at) {at-=1;}at as u32};
         let (anchor,caret)=(boundary(selection.0),boundary(selection.1));
         let value=Str {ptr:value.as_ptr(),len:value.len()};
-        crate::live(self,unsafe {sys::pxui_ui_a11y_value(self.0.as_ptr(),box_,value,anchor,caret)});
+        let rc = unsafe { sys::pxui_ui_a11y_value(self.0.as_ptr(), box_, value, anchor, caret) };
+        if rc == pxui_types::PXUI_ERR_STALE { Ok(false) } else { crate::status(rc).map(|()| true) }
     }
     /// Sets the accessible name (what a screen reader announces) of `box_`, a box declared in the current frame.
     ///
-    /// A dead `box_` (from an earlier frame) is ignored.
+    /// Returns false for a retired node. Names over 64 KiB are clipped at a UTF-8 character boundary.
     /// Allocates: grows the node's name string when `name` is longer than the one it held; otherwise never.
-    /// Panics: when the library refuses the call (an invalid box or name), or outside a frame. Display text past 64 KiB is clipped at a character boundary, never refused.
+    /// Panics: when the library refuses the Ui or the handle is malformed.
     ///
     /// ```
     /// let ui = pxui::doc::frames(1, &mut |ui| {
-    ///     let b = ui.node("play".into(), pxui::Node { role: pxui::Role::Button, ..pxui::Node::DEFAULT });
-    ///     ui.a11y_name(&b, "Play");
+    ///     let b = ui.node("play".into(), pxui::Node::DEFAULT.role(pxui::Role::Button));
+    ///     assert!(ui.a11y_name(&b, "Play"));
     /// });
     /// assert!(ui.a11y_tree().0.windows(4).any(|w| w == b"Play"));
     /// ```
     #[inline]
-    #[track_caller] pub fn a11y_name(&mut self, box_: &Handle, name: &str)  {
-        let name = Str { ptr: name.as_ptr(), len: name.len() };
-        let rc = unsafe { sys::pxui_ui_a11y_name(self.0.as_ptr(), box_, name) };
-        check(self, rc)
+    #[track_caller] pub fn a11y_name(&mut self, box_: &Handle, name: &str) -> bool {
+        let rc = unsafe { sys::pxui_ui_a11y_name_checked(self.0.as_ptr(), box_, crate::as_str(name)) };
+        crate::live(self, rc)
     }
 }
 

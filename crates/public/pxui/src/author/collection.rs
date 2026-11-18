@@ -144,7 +144,7 @@ mod tests {
     /// caller's cells run through the row bodies' slots, and the text table's cells are given the text the caller wrote.
     #[test]
     fn each_collection_is_built_through_its_registered_bodies() {
-        let mut ui = Ui::new().expect("library");
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
         ui.set_a11y(true);
         ui.register_selection_list_body("c", list_row).unwrap();
         ui.register_tree_body("c", tree_row).unwrap();
@@ -157,7 +157,7 @@ mod tests {
         let (mut list, mut open, mut visible, mut selected, mut table_sel, mut widths) = ([0u8; 1], [0u8; 1], [0u32; 1], None, None, [60.0f32]);
         SEEN.with(|s| s.borrow_mut().clear());
         for _ in 0..2 {
-            ui.frame(&FrameIn { width: 400.0, height: 600.0, ..FrameIn::default() }, &mut |ui: &mut Ui| {
+            ui.frame(&FrameIn::new(400.0, 600.0), &mut |ui: &mut Ui| {
                 for (key, kind) in [("lists", 0), ("trees", 1), ("tables", 2)] {
                     ui.column(key, Node { h: Size::Px(80.0), ..Node::DEFAULT }, |ui| match kind {
                         0 => { ui.selection_list("list", 1, &mut list, &SelectionList::DEFAULT, &mut |ui, _| ui.item_text("list row")); }

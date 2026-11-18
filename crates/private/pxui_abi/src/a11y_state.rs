@@ -7,15 +7,24 @@ fn valid_number(now: f64, min: f64, max: f64, step: f64) -> bool {
 }
 
 export!(pub unsafe fn pxui_ui_a11y_number(ui: *mut PxuiUi, box_: *const PxuiBox, now: f64, min: f64, max: f64, step: f64) -> i32 {
+    unsafe { set_number(ui, box_, [now, min, max, step], false) }
+});
+
+export!(pub unsafe fn pxui_ui_a11y_number_checked(ui: *mut PxuiUi, box_: *const PxuiBox, now: f64, min: f64, max: f64, step: f64) -> i32 {
+    unsafe { set_number(ui, box_, [now, min, max, step], true) }
+});
+
+unsafe fn set_number(ui: *mut PxuiUi, box_: *const PxuiBox, [now, min, max, step]: [f64; 4], report_stale: bool) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if box_.is_null() || !valid_number(now, min, max, step) {
         return unsafe { fail(ui, "invalid accessibility number") };
     }
     let engine = unsafe { &mut *state.engine };
     let Some(box_) = live_box(engine, unsafe { *box_ }) else { return unsafe { crate::state::fail_code(ui, "stale accessibility box", crate::PXUI_ERR_STALE) }; };
-    engine.a11y_number(&box_, now, min, max, step);
+    if engine.live(&box_) { engine.a11y_number(&box_, now, min, max, step); }
+    else if report_stale { return unsafe { crate::state::fail_code(ui, "stale accessibility box", crate::PXUI_ERR_STALE) }; }
     0
-});
+}
 
 #[cfg(test)]
 mod tests {
@@ -37,6 +46,6 @@ export!(pub unsafe fn pxui_ui_set_role(ui: *mut PxuiUi, box_: *const PxuiBox, ro
     let engine = unsafe { &mut *state.engine };
     let Some(box_) = live_box(engine, unsafe { *box_ }) else { return unsafe { crate::state::fail_code(ui, "stale accessibility box", crate::PXUI_ERR_STALE) }; };
     let role = unsafe { core::mem::transmute::<u8, Role>(role as u8) };
-    engine.set_role(&box_, role, states);
+    if engine.live(&box_) { engine.set_role(&box_, role, states); }
     0
 });

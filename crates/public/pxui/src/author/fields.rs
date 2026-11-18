@@ -17,7 +17,7 @@ impl Ui {
     /// Panics: when the library refuses the call (outside a frame, text too long). A key or identity label over 256 bytes panics (a programmer error).
     ///
     /// ```
-    /// let mut ui = pxui::Ui::new().unwrap();
+    /// let mut ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
     /// ui.frame(&pxui::FrameIn::default(), &mut |ui| {
     ///     const FIND: pxui::TextField = pxui::TextField::SEARCH.action(pxui::ReturnKey::Done).name("Find songs");
     ///     let field = ui.text_field("find", "abc", &FIND);
@@ -38,7 +38,7 @@ impl Ui {
     ///
     /// ```
     /// use pxui::{ui::{LineStep, Rect}, LineField};
-    /// let mut ui = pxui::Ui::new().unwrap();
+    /// let mut ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
     /// ui.frame(&pxui::FrameIn::default(), &mut |ui| {
     ///     const LINE: LineField = LineField::DEFAULT.placeholder("line");
     ///     let line = ui.line_field("find", "abc", Rect::new(0.0, 0.0, 120.0, 20.0), &LINE);
@@ -61,7 +61,7 @@ impl Ui {
     ///
     /// ```
     /// use pxui::{ui::Rect, AreaCallbacks, TextArea};
-    /// let mut ui = pxui::Ui::new().unwrap();
+    /// let mut ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
     /// ui.frame(&pxui::FrameIn::default(), &mut |ui| {
     ///     let area = ui.text_area("area", "hello", Rect::new(0.0, 0.0, 100.0, 60.0), &TextArea::DEFAULT, &AreaCallbacks::DEFAULT);
     ///     assert_eq!((area.changed, area.submitted), (None, false));
@@ -81,7 +81,7 @@ impl Ui {
     ///
     /// ```
     /// use pxui::{ui::Rect, ValueCallbacks, ValueField};
-    /// let mut ui = pxui::Ui::new().unwrap();
+    /// let mut ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
     /// ui.frame(&pxui::FrameIn::default(), &mut |ui| {
     ///     let accept = |t: &str| t.parse::<f32>().is_ok();
     ///     let field = ui.value_field("amount", "0.25", Rect::new(0.0, 0.0, 100.0, 20.0), &ValueField::DEFAULT, &ValueCallbacks::DEFAULT.valid(&accept));
@@ -100,7 +100,7 @@ impl Ui {
     /// Panics: when the `Ui` has failed, like every `Ui` call. A key or identity label over 256 bytes panics (a programmer error).
     ///
     /// ```
-    /// let mut ui = pxui::Ui::new().unwrap();
+    /// let mut ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
     /// ui.frame(&pxui::FrameIn::default(), &mut |ui| {
     ///     const FIND: pxui::SearchField = pxui::SearchField::DEFAULT.icon("?").placeholder("Search");
     ///     assert_eq!(ui.search_field("find", "", &FIND).changed, None);
@@ -120,7 +120,7 @@ impl Ui {
     /// Panics: when the library refuses the call (outside a frame, a non-finite value or step). A key or identity label over 256 bytes panics (a programmer error).
     ///
     /// ```
-    /// let mut ui = pxui::Ui::new().unwrap();
+    /// let mut ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
     /// ui.frame(&pxui::FrameIn::default(), &mut |ui| {
     ///     let scrub = ui.scrub("position", 5.0, 0.0..=10.0, &pxui::Scrubber::DEFAULT.step(1.0));
     ///     assert!(scrub.preview.is_none() && scrub.commit.is_none() && !scrub.held);

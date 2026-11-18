@@ -23,8 +23,10 @@ extern "C" fn wake() {
 impl Accessibility {
     /// Attaches to the window's content view; call once after the window opens, on the main thread.
     /// `PXUI_ACCESSIBILITY=1` keeps the tree on without VoiceOver (Accessibility Inspector, tests).
-    pub fn open(window: &mut Window) -> Result<Self, String> {
-        let bridge = Bridge::open(&window.token()?, wake).map_err(|e| e.to_string())?;
+    /// Returns `Error::Host` if the window token or native bridge is refused.
+    pub fn open(window: &mut Window) -> Result<Self, pxui::Error> {
+        let token = window.token().map_err(|_| pxui::Error::Host("could not get accessibility window token"))?;
+        let bridge = Bridge::open(&token, wake).map_err(|_| pxui::Error::Host("could not open accessibility bridge"))?;
         let forced = std::env::var_os("PXUI_ACCESSIBILITY").is_some_and(|v| v == "1");
         Ok(Self { bridge, nodes: Vec::new(), enabled: false, forced, listening: false, polls: 0, revision: None })
     }

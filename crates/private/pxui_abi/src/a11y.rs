@@ -2,13 +2,23 @@ use crate::state::{PxuiUi, checked, core_box, fail, get};
 use crate::{PXUI_ERR_ARGUMENT, PxuiBox, Str};
 
 export!(pub unsafe fn pxui_ui_a11y_name(ui: *mut PxuiUi, box_: *const PxuiBox, name: Str) -> i32 {
+    unsafe { set_name(ui, box_, name, false) }
+});
+
+export!(pub unsafe fn pxui_ui_a11y_name_checked(ui: *mut PxuiUi, box_: *const PxuiBox, name: Str) -> i32 {
+    unsafe { set_name(ui, box_, name, true) }
+});
+
+unsafe fn set_name(ui: *mut PxuiUi, box_: *const PxuiBox, name: Str, report_stale: bool) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if box_.is_null() { return unsafe { fail(ui, "null accessibility name box") }; }
     let Some(name) = (unsafe { checked(name) }) else { return unsafe { fail(ui, "invalid accessibility name") }; };
     let Some(box_) = core_box(unsafe { *box_ }) else { return unsafe { fail(ui, "invalid accessibility box") }; };
-    unsafe { (&mut *state.engine).a11y_name(&box_, name); }
+    let engine = unsafe { &mut *state.engine };
+    if engine.live(&box_) { engine.a11y_name(&box_, name); }
+    else if report_stale { return unsafe { crate::state::fail_code(ui, "stale accessibility name box", crate::PXUI_ERR_STALE) }; }
     0
-});
+}
 
 export!(pub unsafe fn pxui_ui_a11y_value(ui:*mut PxuiUi,box_:*const PxuiBox,value:Str,anchor:u32,caret:u32)->i32 {
     if unsafe {get(ui)}.is_none() {return PXUI_ERR_ARGUMENT;}
