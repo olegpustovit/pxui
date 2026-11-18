@@ -7,6 +7,14 @@ Static/dynamic validation, pixel and warm-allocation checks remain required.
 
 ## Policy
 
+**Before 2.0: the 1.x ABI is not frozen (D28, owner, 18 Nov 2026).** Until the 2.0 cut, C exports and records change in place and an
+export a step supersedes is deleted in that step: no parallel exports, legacy bodies or old-caller tests. `abi-snapshot` is a change
+detector only: any change to exports, records or layouts takes the next minor and regenerated manifests (`cargo run -p gate --
+abi-snapshot --write`, never by hand), and existing rows may change, be removed or be reshaped. The 1.x frozen fixtures and the 1.57
+old-consumer check are retired; `abi-frozen` and `abi-compat` report "no 2.x baseline yet" and pass. The promise, append-only and growth
+rules below are the 2.x stability rules: the gate applies the growth rule only to a manifest of major 2 or later, and U5 re-baselines
+the manifests and `fixtures/abi/2.N/` at 2.0, when `abi-frozen` and `abi-compat` check again.
+
 **Version.** `pxui_abi_version()` returns `major << 16 | minor` (`ABI_VERSION` in `pxui_abi`, mirrored by the `minor N` line of
 `abi/pxui.v1.txt`). The wrapper refuses a library whose major is not 1. Minor grows by one for each additive change.
 
@@ -21,7 +29,7 @@ frozen by a released minor. An app built against 1.N does not run against an old
 - Records are `repr(C)` with `size: u32` first. **Growth (the rule the `abi-snapshot` and `abi-frozen` gates enforce).** A recorded layout row
   changes only by growing at its end, under a minor bump: the same name and alignment, a larger size, every recorded field offset in place
   and every recorded field's type unchanged (the gates read the field types from the header the row was recorded with: `abi-snapshot` compares
-  the committed `abi/pxui.v1.txt` and `include/pxui.h` with the working tree, `abi-frozen` each `fixtures/abi/1.N/` pair), and the new fields appended at or past the
+  the committed `abi/pxui.v1.txt` and `include/pxui.h` with the working tree, `abi-frozen` each `fixtures/abi/2.N/` pair), and the new fields appended at or past the
   recorded size (or, with none, the last field a record that itself grew only at its end, as `PxuiBodies` at the end of `PxuiThemeSnapshot`).
   Only two kinds of record may grow: (a) a record the library writes and the app reads, the config a `body_kinds!` line names (the record a registered body receives; a name ending in `Config` proves nothing) and a borrowed snapshot an
   export returns as `const T *` (`PxuiThemeSnapshot`); a reader built against the smaller layout reads its prefix, and a reader built against
@@ -131,7 +139,7 @@ The set is the names in that file; the `abi-snapshot` gate keeps its rows curren
 left in the frozen manifest is frozen.
 
 **Old-app fixture.** At each release `tools/abi-fixture.sh <minor>` (on macOS and on Linux) keeps the release's header, its manifest and a C
-app built against it in `fixtures/abi/1.<minor>/`. `cargo run -p gate -- abi-compat` runs every kept binary against the library built from
+app built against it in `fixtures/abi/2.<minor>/` (from 2.0; D28 retired the 1.x fixtures). `cargo run -p gate -- abi-compat` runs every kept binary against the library built from
 the tree, and `abi-frozen` fails when a row the fixture's manifest froze is missing or changed in `abi/pxui.v1.txt` (a layout row may only
 grow at its end behind its size prefix: same name and alignment, every frozen offset in place, new fields at or past the frozen size, no
 shrink), or when the manifest gained a row without a later minor: editing `abi/pxui.v1.txt` to match changed code does not touch the fixture's copy.

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # usage: tools/abi-fixture.sh <minor>   (run on macOS and on Linux at the release commit)
-# Builds the old-app fixture for release 1.<minor>: copies this commit's header and frozen manifest into fixtures/abi/1.<minor>/ and
-# compiles tools/abi-old-app.c against that header and the installed library as fixtures/abi/1.<minor>/old_app-<os>-<arch>. Commit all of it.
+# Builds the old-app fixture for release 2.<minor> (the 1.x fixtures were retired, D28; U5 makes the first at 2.0): copies this commit's header and frozen manifest into fixtures/abi/2.<minor>/ and
+# compiles tools/abi-old-app.c against that header and the installed library as fixtures/abi/2.<minor>/old_app-<os>-<arch>. Commit all of it.
 set -euo pipefail
 minor=${1:?usage: abi-fixture.sh <minor>}
 repo=$(cd "$(dirname "$0")/.." && pwd)
 target_dir=${CARGO_TARGET_DIR:-"$repo/target"}
-dir="$repo/fixtures/abi/1.$minor"
+dir="$repo/fixtures/abi/2.$minor"
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/pxui-abi-fixture.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT
 grep -qx "minor $minor" "$repo/abi/pxui.v1.txt" || { echo "abi-fixture: abi/pxui.v1.txt is not at minor $minor" >&2; exit 1; }

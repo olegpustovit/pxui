@@ -2182,14 +2182,24 @@ impl Growth {
     }
 }
 
-/// `old` against the current rows: a row removed or changed fails, and new or grown rows need a later minor. A layout row may grow
-/// at its end as `Growth::refuse` allows, and any other change of a recorded record's field types fails.
-fn compare_abi_snapshot(old: &str, minor: u32, current: &BTreeMap<String, String>, growth: &Growth) -> Vec<String> {
+/// The major of the manifest `abi/pxui.v1.txt`. The growth rule (append-only rows) holds from major 2; before the 2.0 cut the 1.x ABI
+/// is not frozen (D28) and `abi-snapshot` only detects changes.
+const ABI_MAJOR: u32 = 1;
+
+/// `old` against the current rows. Any new, removed or changed row needs a later minor. From `major` 2 the manifest is append-only: a
+/// row removed or changed fails, except a layout row grown at its end as `Growth::refuse` allows, and any other change of a recorded
+/// record's field types fails. Before 2 (D28) rows may change or go freely, behind the minor bump.
+fn compare_abi_snapshot(old: &str, major: u32, minor: u32, current: &BTreeMap<String, String>, growth: &Growth) -> Vec<String> {
     let mut issues = Vec::new();
     let (old_minor, old_lines) = snapshot_rows(old);
     let Some(old_minor) = old_minor else { return vec!["abi-snapshot: snapshot has no valid `minor N` line".to_owned()] };
     if minor < old_minor {
         issues.push(format!("abi-snapshot: ABI minor decreased from {old_minor} to {minor}"));
+    }
+    if major < 2 {
+        let changes = old_lines.iter().filter(|(key, line)| current.get(*key) != Some(*line)).count() + current.keys().filter(|key| !old_lines.contains_key(*key)).count();
+        if changes > 0 && minor <= old_minor { issues.push(format!("abi-snapshot: {changes} new, changed or removed ABI line(s) require ABI minor > {old_minor}")); }
+        return issues;
     }
     let (mut grown, mut nested) = (Vec::new(), BTreeSet::new());
     for (key, old_line) in &old_lines {
@@ -2254,7 +2264,7 @@ fn abi_snapshot(workspace: &Path, write: bool) -> Result<Vec<String>, String> {
         let mut words = line.split_whitespace();
         !matches!((words.next(), words.next()), (Some(kind), Some(name)) if ext.contains_key(&format!("{kind} {name}")))
     }).map(|line| format!("{line}\n")).collect();
-    let issues = if old.is_empty() { Vec::new() } else { compare_abi_snapshot(&frozen, minor, &lines, &growth(workspace, &committed("include/pxui.h")?, &lines)?) };
+    let issues = if old.is_empty() { Vec::new() } else { compare_abi_snapshot(&frozen, ABI_MAJOR, minor, &lines, &growth(workspace, &committed("include/pxui.h")?, &lines)?) };
     if !issues.is_empty() { return Ok(issues); }
     let mut snapshot = format!("# Append-only PXUI ABI snapshot.\nminor {minor}\n");
     for line in lines.values() { snapshot.push_str(line); snapshot.push('\n'); }
@@ -2275,39 +2285,49 @@ fn abi_snapshot(workspace: &Path, write: bool) -> Result<Vec<String>, String> {
     }
 }
 
-/// The release directories under `fixtures/abi/` (`1.57`, ...), oldest first.
+/// The release directories under `fixtures/abi/` (`2.0`, ...), oldest first. The 1.x fixtures were retired with the 1.x freeze (D28);
+/// none exist until U5 re-baselines at 2.0, and the frozen and compat checks pass with nothing to check until then.
 fn abi_fixtures(workspace: &Path) -> Result<Vec<PathBuf>, String> {
     let root = workspace.join("fixtures/abi");
     let mut dirs: Vec<(u32, PathBuf)> = Vec::new();
-    for entry in fs::read_dir(&root).map_err(|error| format!("{}: {error}", root.display()))? {
+    let Ok(entries) = fs::read_dir(&root) else { return Ok(Vec::new()) };
+    for entry in entries {
         let path = entry.map_err(|error| error.to_string())?.path();
-        let minor = path.file_name().and_then(|n| n.to_str()).and_then(|n| n.strip_prefix("1.")).and_then(|n| n.parse().ok());
+        let minor = path.file_name().and_then(|n| n.to_str()).and_then(|n| n.strip_prefix("2.")).and_then(|n| n.parse().ok());
         if let (true, Some(minor)) = (path.is_dir(), minor) { dirs.push((minor, path)); }
     }
     dirs.sort();
     Ok(dirs.into_iter().map(|(_, path)| path).collect())
 }
 
-/// Every row a released minor froze is still in the current manifest, unchanged (a record may have grown at its end behind its size
+/// Every row a released 2.x minor froze is still in the current manifest, unchanged (a record may have grown at its end behind its size
 /// prefix, its frozen offsets in place), and anything new came with a later minor. The check is
-/// against the copy kept in `fixtures/abi/1.N/`, which editing `abi/pxui.v1.txt` to match changed code does not touch.
+/// against the copy kept in `fixtures/abi/2.N/`, which editing the manifest to match changed code does not touch. Before the 2.0
+/// baseline there is nothing to check (D28).
 fn abi_frozen(workspace: &Path) -> Result<Vec<String>, String> {
     let current_path = workspace.join("abi/pxui.v1.txt");
     let current = fs::read_to_string(&current_path).map_err(|error| format!("{}: {error}", current_path.display()))?;
     let (Some(minor), rows) = snapshot_rows(&current) else { return Ok(vec!["abi-frozen: abi/pxui.v1.txt has no valid `minor N` line".to_owned()]) };
     let mut issues = Vec::new();
-    for dir in abi_fixtures(workspace)? {
+    let fixtures = abi_fixtures(workspace)?;
+    if fixtures.is_empty() { println!("abi-frozen: no 2.x baseline yet (the 1.x ABI is not frozen, D28)"); }
+    for dir in fixtures {
         let path = dir.join("pxui.v1.txt");
         let frozen = fs::read_to_string(&path).map_err(|error| format!("{}: {error}", path.display()))?;
         let header_path = dir.join("pxui.h");
         let header = fs::read_to_string(&header_path).map_err(|error| format!("{}: {error}", header_path.display()))?;
-        issues.extend(compare_abi_snapshot(&frozen, minor, &rows, &growth(workspace, &header, &rows)?).into_iter().map(|issue| issue.replacen("abi-snapshot", &format!("abi-frozen ({})", dir.display()), 1)));
+        issues.extend(compare_abi_snapshot(&frozen, 2, minor, &rows, &growth(workspace, &header, &rows)?).into_iter().map(|issue| issue.replacen("abi-snapshot", &format!("abi-frozen ({})", dir.display()), 1)));
     }
     Ok(issues)
 }
 
-/// Each kept old-app binary for this platform runs against the library built from this tree and exits 0.
+/// Each kept 2.x old-app binary for this platform runs against the library built from this tree and exits 0; before the 2.0 baseline
+/// there is none (D28).
 fn abi_compat(workspace: &Path) -> Result<Vec<String>, String> {
+    if abi_fixtures(workspace)?.is_empty() {
+        println!("abi-compat: no 2.x baseline yet (the 1.x ABI is not frozen, D28)");
+        return Ok(Vec::new());
+    }
     if cfg!(windows) {
         println!("abi-compat: skipped on Windows (the old-app fixtures are macOS and Linux binaries)");
         return Ok(Vec::new());
@@ -2333,7 +2353,7 @@ fn abi_compat(workspace: &Path) -> Result<Vec<String>, String> {
             issues.push(format!("abi-compat: {} failed ({}): {}{}", app.display(), output.status, String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr)));
         }
     }
-    if ran == 0 { issues.push(format!("abi-compat: no fixtures/abi/1.N/{suffix} for this platform; run tools/abi-fixture.sh on it")); }
+    if ran == 0 { issues.push(format!("abi-compat: no fixtures/abi/2.N/{suffix} for this platform; run tools/abi-fixture.sh on it")); }
     Ok(issues)
 }
 
@@ -2567,14 +2587,19 @@ mod abi_tests {
             ("function pxui_b".to_owned(), "function pxui_b void pxui_b ( void ) ;".to_owned()),
             ("layout Rect".to_owned(), "layout Rect 16 4 0 4 8 12".to_owned()),
         ]);
-        assert!(!compare_abi_snapshot(old, 2, &current, &none()).is_empty());
-        assert!(compare_abi_snapshot(old, 3, &current, &none()).is_empty());
+        assert!(!compare_abi_snapshot(old, 2, 2, &current, &none()).is_empty());
+        assert!(compare_abi_snapshot(old, 2, 3, &current, &none()).is_empty());
 
         let changed = BTreeMap::from([
             ("function pxui_a".to_owned(), "function pxui_a int32_t pxui_a ( int32_t ) ;".to_owned()),
             ("layout Rect".to_owned(), "layout Rect 16 4 0 4 8 12".to_owned()),
         ]);
-        assert!(!compare_abi_snapshot(old, 4, &changed, &none()).is_empty());
+        assert!(!compare_abi_snapshot(old, 2, 4, &changed, &none()).is_empty());
+
+        // 1.x (D28): rows change or go freely, but every change still needs the next minor
+        assert!(compare_abi_snapshot(old, 1, 3, &changed, &none()).is_empty());
+        assert!(!compare_abi_snapshot(old, 1, 2, &changed, &none()).is_empty());
+        assert!(compare_abi_snapshot(old, 1, 2, &BTreeMap::from([("function pxui_a".to_owned(), "function pxui_a int32_t pxui_a ( void ) ;".to_owned()), ("layout Rect".to_owned(), "layout Rect 16 4 0 4 8 12".to_owned())]), &none()).is_empty());
     }
 
     /// The header fields of a record named `name`.
@@ -2588,7 +2613,7 @@ mod abi_tests {
         let mut current = BTreeMap::from([(format!("layout {name}"), format!("layout {new_row}"))]);
         if !extra.1.is_empty() { current.insert("function pxui_get".to_owned(), extra.1.to_owned()); }
         let growth = Growth::new(&(record(name, old_fields) + extra.0), &(record(name, new_fields) + extra.0), &current, &[source.to_owned()]);
-        compare_abi_snapshot(&old, minor, &current, &growth)
+        compare_abi_snapshot(&old, 2, minor, &current, &growth)
     }
 
     /// The `body_kinds!` line that makes `PxuiTabConfig` a body config.
@@ -2616,7 +2641,7 @@ mod abi_tests {
             let old = format!("minor 2\nlayout {}\n", snapshot.0);
             let current = BTreeMap::from([("layout PxuiSnap".to_owned(), format!("layout {row}")), ("function pxui_get".to_owned(), returned.to_owned())]);
             let growth = Growth::new(&(bodies(old_b) + &record("PxuiSnap", snapshot.1)), &(bodies(new_b) + &record("PxuiSnap", snapshot.1)), &current, &[]);
-            compare_abi_snapshot(&old, 3, &current, &growth)
+            compare_abi_snapshot(&old, 2, 3, &current, &growth)
         };
         assert!(check("uint16_t a, b;", "uint16_t a, b, c;", "PxuiSnap 12 4 0 4").is_empty(), "a snapshot grown by its last record");
         assert!(!check("uint16_t a, b;", "uint16_t a, c, b;", "PxuiSnap 12 4 0 4").is_empty(), "its last record changed inside");
@@ -2660,7 +2685,7 @@ mod abi_tests {
         refused("PxuiTabConfig 32 4 0 8 16", appended.1, "another alignment");
         refused("PxuiTabConfig 24 8 0 8", "uint32_t size; int64_t index;", "a size grown with no new field");
         let renamed = BTreeMap::from([("layout Other".to_owned(), "layout Other 32 8 0 4 8 16".to_owned())]);
-        assert!(!compare_abi_snapshot("minor 2\nlayout Rec 16 8 0 4 8\n", 3, &renamed, &none()).is_empty(), "a renamed record is a removed one");
+        assert!(!compare_abi_snapshot("minor 2\nlayout Rec 16 8 0 4 8\n", 2, 3, &renamed, &none()).is_empty(), "a renamed record is a removed one");
     }
 
     #[test]

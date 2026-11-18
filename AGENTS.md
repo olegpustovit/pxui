@@ -31,7 +31,10 @@ nothing may reach outside this repository (no `../../..` paths past the root).
   (LocalWave `tools/dx/buildtime.sh`) may use their own target directories and a temporary worktree, removed when they
   finish; the shared-`target/` rule above holds for everything else. (5) Breaking API and ABI changes are welcome until
   the 2.0 freeze, with no compat layers, twins or shims; only performance, build speed and zero warm allocations
-  constrain a change (ABI minors still bump and manifests are regenerated, never hand-edited).
+  constrain a change (ABI minors still bump and manifests are regenerated, never hand-edited). D28 (2026-11-18): the
+  1.x C ABI is not frozen either: exports and records change in place, a superseded export is deleted in the step that
+  supersedes it, and `abi-snapshot` is a change detector only. The 1.x frozen fixtures and the 1.57 old-consumer check are
+  retired; `abi-frozen`/`abi-compat` and the growth rule return at 2.0 against re-baselined manifests (docs/abi.md).
 
 ## Contracts
 
