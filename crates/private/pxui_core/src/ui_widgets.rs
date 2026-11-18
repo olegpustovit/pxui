@@ -34,6 +34,7 @@ pub use pxui_types::ui::{Checkbox, Choice, Dropdown, Slider, Toast};
 
 /// Behavior for a caller-painted horizontal adjustable value. Pointer motion previews; only a
 /// captured left-button release commits. Keyboard and accessibility adjustments commit directly.
+/// Not a mirror of the Rust `SliderResponse`: it is the source of the C-ABI 1.x `PxuiScrubOut` record (`pxui_abi` `write_scrub`).
 #[derive(Clone, Copy, Debug)]
 pub struct Scrub {
     pub node: Handle,
