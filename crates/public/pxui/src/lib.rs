@@ -568,8 +568,9 @@ impl Ui {
             unsafe { sys::pxui_ui_create_with_fonts(&raw, fonts.as_ptr(), fonts.len()) }
         };
         let ui = NonNull::new(ui).map(Self).ok_or(Error::InvalidInput)?;
-        let mut ui = ui;
         if let Some(points) = exact { ui.set_font_points(points)?; }
+        #[cfg(debug_assertions)]
+        let mut ui = ui;
         #[cfg(debug_assertions)]
         ui.verify_views(true);
         Ok(ui)
