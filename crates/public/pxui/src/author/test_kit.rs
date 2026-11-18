@@ -115,11 +115,12 @@ fn the_section_index_reports_the_letter_under_the_pointer() {
 /// its value the active letter.
 #[test]
 fn the_new_widgets_report_their_role_and_state() {
-    use pxui_types::a11y::state::{CHECKABLE, CHECKED, ENABLED, EXPANDABLE, EXPANDED, FOCUSABLE};
+    use pxui_types::a11y::state::{CHECKABLE, CHECKED, ENABLED, EXPANDABLE, EXPANDED, FOCUSABLE, READ_ONLY};
     let open = Cell::new(true);
     let mut build = |ui: &mut Ui| {
         ui.checkbox("on", "On", true, &Checkbox::DEFAULT);
         ui.checkbox("off", "Off", false, &Checkbox::DEFAULT.disabled(true));
+        ui.checkbox("seen", "Seen", true, &Checkbox::DEFAULT.passive(true));
         ui.disclosure("more", "More", open.get(), &Disclosure::DEFAULT, &mut |_| {});
         let column = ui.node("column", Node { w: Size::Px(40.0), h: Size::Px(120.0), ..Node::DEFAULT });
         ui.within(&column, &mut |ui| { ui.section_index("index", &["A", "B", "C"], &SectionIndex::DEFAULT.name("Jump to")); });
@@ -127,7 +128,9 @@ fn the_new_widgets_report_their_role_and_state() {
     let mut ui = crate::doc::frames(2, &mut build);
     let states = |ui: &Ui, role: Role, name: &str| ui.a11y_nodes().iter().find(|n| n.is_role(role) && ui.a11y_name_of(n) == name).map(|n| n.states).expect(name);
     let on = states(&ui, Role::CheckBox, "On");
-    assert!(on & CHECKABLE != 0 && on & CHECKED != 0 && on & ENABLED != 0, "a checked checkbox");
+    assert!(on & CHECKABLE != 0 && on & CHECKED != 0 && on & ENABLED != 0 && on & READ_ONLY == 0, "a checked checkbox");
+    let seen = states(&ui, Role::CheckBox, "Seen");
+    assert!(seen & CHECKABLE != 0 && seen & CHECKED != 0 && seen & READ_ONLY != 0, "a passive checkbox reports its state read-only");
     let off = states(&ui, Role::CheckBox, "Off");
     assert!(off & CHECKED == 0 && off & ENABLED == 0, "an unchecked disabled checkbox");
     let head = states(&ui, Role::Heading, "More");

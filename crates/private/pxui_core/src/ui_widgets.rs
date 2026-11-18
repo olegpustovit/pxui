@@ -319,7 +319,7 @@ impl Ui {
         // a disabled checkbox reports no click from any input (a press begun while it was enabled, an assistive technology's press)
         s.clicked &= enabled;
         let value = value ^ s.clicked;
-        self.set_role(&row, Role::CheckBox, st::CHECKABLE | if value { st::CHECKED } else { 0 });
+        self.set_role(&row, Role::CheckBox, st::CHECKABLE | if value { st::CHECKED } else { 0 } | if checkbox.passive { st::READ_ONLY } else { 0 });
         self.a11y_name(&row, text);
         let states = match checkbox.look { Some(look) => { let mut states = *look; self.resolve_states(&mut states); states } None => self.theme().checkbox };
         let config = CheckConfig {
