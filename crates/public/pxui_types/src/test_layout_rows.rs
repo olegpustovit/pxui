@@ -71,13 +71,15 @@ fn c_assert(r: &Row) -> Option<String> {
 const BEGIN: &str = "/* abi-layout begin: generated from the Rust types by `PXUI_LAYOUT_WRITE=1 cargo t -p pxui_types abi_layout_rows`; do not edit */";
 const END: &str = "/* abi-layout end */";
 
-/// The manifest with each row replaced by its generated text (comments and order kept) and rows the file lacks appended.
+/// The manifest with each row replaced by its generated text (comments and order kept), a repeated row dropped and rows the file lacks
+/// appended, so a file that repeats a row disagrees with it.
 fn render_manifest(old: &str, rows: &[Row]) -> Result<String, String> {
     let mut seen = Vec::new();
     let mut out = String::new();
     for line in old.lines() {
         let name = line.split_whitespace().next().filter(|n| !n.starts_with('#'));
         match name {
+            Some(name) if seen.iter().any(|seen| seen == name) => continue,
             Some(name) => {
                 let r = rows.iter().find(|r| r.name == name).ok_or_else(|| format!("manifest row `{name}` has no Rust type reporting it"))?;
                 seen.push(name.to_owned());
@@ -97,10 +99,12 @@ fn render_manifest(old: &str, rows: &[Row]) -> Result<String, String> {
 /// The extension manifest (`abi/pxui.ext.txt`) with each `layout` row regenerated; its function rows and comments are kept.
 /// The rows it names are the extension set: `layout.v1.txt` carries none of them.
 fn render_extension(old: &str, rows: &[Row]) -> Result<String, String> {
-    let mut out = String::new();
+    let (mut out, mut seen) = (String::new(), Vec::new());
     for line in old.lines() {
         match line.strip_prefix("layout ").and_then(|row| row.split_whitespace().next()) {
+            Some(name) if seen.contains(&name) => continue,
             Some(name) => {
+                seen.push(name);
                 let r = rows.iter().find(|r| r.name == name).ok_or_else(|| format!("extension row `{name}` has no Rust type reporting it"))?;
                 out.push_str("layout ");
                 out.push_str(&manifest_line(r));
@@ -135,6 +139,16 @@ fn render_header(old: &str, manifest: &str, rows: &[Row]) -> String {
             format!("{}\n{}\n{}", old[..at].trim_end(), block, &old[at..])
         }
     }
+}
+
+/// A manifest that repeats a row disagrees with its rendering (the U2a.3 merge left `PxuiSectionIndexConfig` twice and every gate passed).
+#[test]
+fn a_repeated_layout_row_fails_the_check() {
+    let rows = [Row { name: "PxuiA".to_owned(), size: 4, align: 4, fields: vec![("a".to_owned(), 0)] }];
+    let once = "# rows\nPxuiA 4 4 0\n";
+    assert_eq!(render_manifest(once, &rows).unwrap(), once);
+    assert_eq!(render_manifest("# rows\nPxuiA 4 4 0\nPxuiA 4 4 0\n", &rows).unwrap(), once);
+    assert_eq!(render_extension("layout PxuiA 4 4 0\nlayout PxuiA 4 4 0\n", &rows).unwrap(), "layout PxuiA 4 4 0\n");
 }
 
 #[test]
