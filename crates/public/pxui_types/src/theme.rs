@@ -281,9 +281,10 @@ impl BodyId {
     pub const DEFAULT: BodyId = BodyId(0);
 }
 
-/// An app-defined colour token: an index into the light/dark colour table a `Ui` installs (`Ui::set_colors`,
-/// `pxui_ui_set_colors`). Reads (`Ui::color`, `Paint::color`) return the light or dark entry for the theme in effect
-/// (dark when `tokens.is_dark()` holds); a token at or past `ColorToken::LIMIT`, or past the installed count, reads transparent.
+/// An app-defined colour token indexes the palette installed by `ThemeHandle::set_color`.
+/// Reads use the active theme in `Ui::color` and the root theme in `Paint::color`.
+/// Missing entries and indices at or past `ColorToken::LIMIT` read transparent.
+/// The C API can also supply a light/dark table through `pxui_ui_set_colors`.
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct ColorToken(pub u16);

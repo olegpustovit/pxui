@@ -1,5 +1,5 @@
 //! Layout data a node carries (plain `Copy` values, no allocation) and the pure placement rule of
-//! anchored popups. The passes that read them are `Ui::intrinsic` and `Ui::arrange` in ui_core.
+//! anchored popups. The engine reads them during intrinsic sizing and placement.
 use crate::geom::Rect;
 
 /// Where children sit along the main axis (CSS `justify-content`).

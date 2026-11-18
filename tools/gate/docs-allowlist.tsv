@@ -28,11 +28,4 @@ crates/public/pxui/src/testing.rs	click	Panics
 crates/public/pxui/src/testing.rs	click_node	Panics
 crates/public/pxui/src/testing.rs	find	Allocates,Panics
 crates/public/pxui/src/testing.rs	frame	Allocates,Panics
-crates/public/pxui/src/testing.rs	key	Panics
-crates/public/pxui/src/theme_scope.rs	Theme::apply	example,Allocates,Panics
-crates/public/pxui/src/theme_scope.rs	Theme::from_tokens	example,Allocates,Panics
-crates/public/pxui/src/theme_scope.rs	Theme::load	example,Allocates,Panics
-crates/public/pxui/src/theme_scope.rs	Theme::set	example,Allocates,Panics,Identity
-crates/public/pxui/src/theme_scope.rs	Ui::themed	example,Allocates,Panics
-crates/public/pxui/src/theme_scope.rs	Ui::use_theme	example,Allocates,Panics
 crates/public/pxui/src/widgets.rs	pxui_ui_search_field	example,Allocates,Panics,Identity

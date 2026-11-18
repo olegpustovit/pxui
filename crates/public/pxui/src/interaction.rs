@@ -66,9 +66,9 @@ mod sys {
     #[link(name = "pxui")]
     unsafe extern "C" {
         // Gives keyboard focus to a live node.
-        pub fn pxui_ui_focus_box(ui:*mut PxuiUi,box_:*const PxuiBox)->i32;
+        pub(super) fn pxui_ui_focus_box(ui:*mut PxuiUi,box_:*const PxuiBox)->i32;
         // Writes whether a live node holds keyboard focus.
-        pub fn pxui_ui_focused(ui:*mut PxuiUi,box_:*const PxuiBox,out:*mut u8)->i32;
+        pub(super) fn pxui_ui_focused(ui:*mut PxuiUi,box_:*const PxuiBox,out:*mut u8)->i32;
         /// The C entry `Ui::state` calls: writes `box_`'s state slot to `out`, or `default` when never set; the stale code for a node that has gone.
         /// Allocates: never.
         /// Panics: never.

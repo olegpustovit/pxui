@@ -221,7 +221,7 @@ impl Rgba {
         if self.a == 255 { format!("#{:02x}{:02x}{:02x}", self.r, self.g, self.b) } else { format!("#{:02x}{:02x}{:02x}{:02x}", self.r, self.g, self.b, self.a) }
     }
 
-    /// The colour of `token` in the app's light/dark table (`Ui::set_colors`), resolved by the engine for the theme in effect when a
+    /// The colour of `token` in the active theme's palette, resolved by the engine when a
     /// look holding it is applied to a node (a node's look, `set_look`, `pressable`, a button's, icon button's, toggle's or segment's
     /// looks, `patch_look`, an animated look), so a theme or appearance switch needs no rebuild by the app.
     ///

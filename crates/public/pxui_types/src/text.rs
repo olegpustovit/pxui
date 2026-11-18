@@ -223,7 +223,7 @@ impl Label {
     /// ```
     #[inline]
     pub const fn pad(mut self, points: f32) -> Label { self.0.pad = Some(points); self }
-    /// This style in the app's colour `token` (`Ui::set_colors`), resolved when the label is built or painted.
+    /// Uses the active theme's colour `token` when building or painting the label.
     ///
     /// Allocates: never.
     /// Panics: never.
