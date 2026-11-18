@@ -465,12 +465,20 @@ pub mod hash {
         let mut hash = word(seed, bytes.len() as u64);
         let mut chunks = bytes.chunks_exact(8);
         for chunk in &mut chunks { hash = word(hash, u64::from_le_bytes(chunk.try_into().unwrap())); }
-        if !chunks.remainder().is_empty() {
-            let mut tail = [0; 8];
-            tail[..chunks.remainder().len()].copy_from_slice(chunks.remainder());
-            hash = word(hash, u64::from_le_bytes(tail));
-        }
+        if !chunks.remainder().is_empty() { hash = word(hash, tail(chunks.remainder())); }
         hash
+    }
+    /// `rest` (1 to 7 bytes) as the little-endian word it starts, zero above it, read with overlapping loads: a copy of a few bytes
+    /// into a zeroed word is a call to `memcpy`, and every node key ends here.
+    #[inline]
+    fn tail(rest: &[u8]) -> u64 {
+        let n = rest.len();
+        if n >= 4 {
+            let (lo, hi) = (u32::from_le_bytes([rest[0], rest[1], rest[2], rest[3]]), u32::from_le_bytes([rest[n - 4], rest[n - 3], rest[n - 2], rest[n - 1]]));
+            lo as u64 | (hi as u64) << (8 * (n - 4))
+        } else {
+            rest[0] as u64 | (rest[n / 2] as u64) << (8 * (n / 2)) | (rest[n - 1] as u64) << (8 * (n - 1))
+        }
     }
     /// Folds `value` into `hash`, a new 64-bit hash (as `i64`) that depends on both and on their order.
     ///

@@ -1321,6 +1321,17 @@ mod identity_vectors {
     }
 
     #[test]
+    fn every_tail_length_hashes_as_the_zero_padded_word() {
+        let text = b"abcdefghijklmnop\x80\xff";
+        for len in 0..=text.len() {
+            let bytes = &text[..len];
+            let mut expect = hash::mix(0x5eed, len as i64) as u64;
+            for chunk in bytes.chunks(8) { let mut word = [0u8; 8]; word[..chunk.len()].copy_from_slice(chunk); expect = hash::mix(expect as i64, u64::from_le_bytes(word) as i64) as u64; }
+            assert_eq!(hash::bytes(0x5eed, bytes), expect, "{len} bytes");
+        }
+    }
+
+    #[test]
     fn labels_and_integer_keys_match_the_published_vectors() {
         assert_eq!(key_of(ROOT_KEY, "panel"), 440531318097480381);
         assert_eq!(key_of(ROOT_KEY, ""), -6041832124274164334);

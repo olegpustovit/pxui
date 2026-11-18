@@ -1715,7 +1715,8 @@ pub fn hash_range(seed: i64, text: &str, first: usize, last: usize) -> i64 {
 ///
 /// A `marker` that has no `#` in it is never found.
 pub(crate) fn find_marker(text: &str, marker: &str) -> Option<usize> {
-    if text.contains('#') { text.find(marker) } else { None }
+    // a byte scan: `str::contains(char)` goes through the pattern searcher, which costs a short label more than the scan
+    if text.as_bytes().contains(&b'#') { text.find(marker) } else { None }
 }
 
 /// The key of the label `text` under the parent seed `seed`: the id after a `###` replaces the label's hash, otherwise all of `text`
