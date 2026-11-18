@@ -1,7 +1,7 @@
 //! SDL-to-widget-to-Metal diagnostic, with synthetic fingers and the original frame budget.
 use pxui::{
     Ui,
-    ui::{Node, Role, SectionList, SectionPart, Size},
+    ui::{Flags, Node, Role, SectionList, SectionPart, Size},
 };
 
 pub struct Probe {
@@ -55,8 +55,10 @@ impl Probe {
                 header_height: 0.0,
                 trailing_height: 0.0,
                 overlay_scrollbar: true,
-            },&|i| i as i64,
-            &mut |ui, part| {
+                measured: false,
+            },
+            &|i| i as i64,
+            &mut |ui, part, _| {
                 if let SectionPart::Row(_) = part {
                     self.rows += 1;
                     let row = ui.node(

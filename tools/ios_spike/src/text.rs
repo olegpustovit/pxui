@@ -13,7 +13,7 @@ impl Probe {
             checked: 0,
         }
     }
-    pub fn options(frame: usize) -> Options {
+    pub fn options(frame: usize) -> Options<'static> {
         if frame >= 32 {
             Options::SEARCH.action(pxui::ReturnKey::Done)
         } else {

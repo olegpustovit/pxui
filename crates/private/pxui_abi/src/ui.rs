@@ -990,6 +990,9 @@ mod tests {
     fn completed_file_drop_events_preserve_paths_order_and_warm_storage() {
         use super::*;
         use pxui_types::Event as Wire;
+        extern "C" fn mark_built(user: *mut c_void, _: *mut c_void) {
+            unsafe { user.cast::<bool>().write(true); }
+        }
         let ui = unsafe { pxui_ui_create(&PxuiUiDesc::default()) };
         let mut out = FrameOut::default();
         for (code, payload) in [(0, "/Music/名前.flac\0/Music/Björk.m4a"), (1, "transport limit exceeded"), (0, "")] {
@@ -1017,8 +1020,12 @@ mod tests {
             Wire { text: Str { ptr: bad_utf8.as_ptr(), len: 1 }, ..empty },
         ] {
             let frame = FrameIn { events: &invalid, event_count: 1, ..FrameIn::new(320.0, 240.0) };
+            let mut built = false;
             out.size = 777;
-            assert_eq!(unsafe { pxui_frame(ui, &frame, None, core::ptr::null_mut(), &mut out) }, PXUI_ERR_ARGUMENT);
+            assert_eq!(unsafe {
+                pxui_frame(ui, &frame, Some(mark_built), core::ptr::from_mut(&mut built).cast(), &mut out)
+            }, PXUI_ERR_ARGUMENT);
+            assert!(!built);
             assert_eq!(out.size, 777);
         }
         let frame = FrameIn { events: &empty, event_count: 1, ..FrameIn::new(320.0, 240.0) };

@@ -70,7 +70,8 @@ mod ios {
             let ui = pxui::Ui::new(&pxui::UiDesc::new(pxui::Platform::Apple).fonts(&[pxui::FontData(include_bytes!(
                     "../../../assets/fonts/Pragmasevka-Regular.ttf"
                 ))])).expect("pxui Ui");
-            let graphics = pxui_host::Graphics::open(window, &ui)?;
+            let graphics = pxui_host::Graphics::open(window, &ui)
+                .map_err(|error| error.to_string())?;
             Ok(Self {
                 ui,
                 preferences,
@@ -137,7 +138,8 @@ mod ios {
                     let frames = self.frames;
                     mem_sys::local_reset();
                     if self.graphics.can_draw()
-                        || self.graphics.draw(window, &self.ui, None)?
+                        || self.graphics.draw(window, &self.ui, None)
+                            .map_err(|error| error.to_string())?
                         || self.frames != frames
                         || mem_sys::local_alloc_count() != 0
                     {
@@ -175,7 +177,10 @@ mod ios {
                         self.background_reentrant = 2;
                         println!("PXUI_IOS_BACKGROUND_REENTRANT_OK frames={frames}");
                     }
-                    if self.graphics.can_draw() || self.graphics.draw(window, &self.ui, None)? {
+                    if self.graphics.can_draw()
+                        || self.graphics.draw(window, &self.ui, None)
+                            .map_err(|error| error.to_string())?
+                    {
                         return Err("Inactive control callback submitted a frame".into());
                     }
                     if self
@@ -258,7 +263,9 @@ mod ios {
                 }
                 if self.keyboard_check && !self.saw_hidden {
                     self.events.clear();
-                    if !self.platform.pump(window, &mut self.events)? {
+                    if !self.platform.pump(window, &mut self.events)
+                        .map_err(|error| error.to_string())?
+                    {
                         return Err("Window closed while hiding keyboard".into());
                     }
                     let k = self.platform.environment().keyboard_frame;
@@ -317,7 +324,9 @@ mod ios {
             self.events.clear();
             if let Some(touch) = &self.touch { touch.push(self.frames)?; }
             if let Some(text) = self.text.as_mut() {text.inject(self.frames)?;}
-            if !self.platform.pump(window, &mut self.events)? {
+            if !self.platform.pump(window, &mut self.events)
+                .map_err(|error| error.to_string())?
+            {
                 return Err("iOS gallery window closed during probe".into());
             }
             if let Some(error) = window.take_failure() {
@@ -425,9 +434,11 @@ mod ios {
             let built = mem_sys::local_alloc_count();
             if let Some(text) = &self.text {text.check(&self.ui,self.frames)?;}
             if let Some(touch) = self.touch.as_mut() { touch.check(&self.ui, self.frames)?; }
-            self.platform.apply(window, &self.ui)?;
+            self.platform.apply(window, &self.ui).map_err(|error| error.to_string())?;
             let output = mem_sys::local_alloc_count();
-            if !self.graphics.draw(window, &self.ui, None)? {
+            if !self.graphics.draw(window, &self.ui, None)
+                .map_err(|error| error.to_string())?
+            {
                 return Ok(Schedule::NextFrame);
             }
             let allocations = mem_sys::local_alloc_count();
@@ -485,7 +496,7 @@ mod ios {
                         && self.background_woke
                         && self.background_reentrant == 2
                         && self.background_timed));
-            self.graphics.close()?;
+            self.graphics.close().map_err(|error| error.to_string())?;
             if !complete {
                 return Err("iOS probe did not complete its frame/lifecycle/idle checks".into());
             }
