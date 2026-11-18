@@ -13,6 +13,15 @@ pub fn fallback_path(cluster:&str,locale:&str)->Option<PathBuf> {
     { let _=locale; None }
 }
 
+/// CoreText's ascent and descent in points of the face in `data` (font file bytes) at `size` points, for checks that compare a layout
+/// with the system's; `None` when CoreText does not read the face.
+pub fn ascent_descent(data:&[u8],size:f64)->Option<(f64,f64)> {
+    #[cfg(target_vendor="apple")]
+    { apple::ascent_descent(data,size) }
+    #[cfg(not(target_vendor="apple"))]
+    { let _=(data,size); None }
+}
+
 #[cfg(target_vendor="apple")]
 mod apple {
     use std::ffi::c_void;
@@ -40,6 +49,11 @@ mod apple {
         fn CFDictionaryCreate(alloc:Ref,keys:*const Ref,values:*const Ref,count:isize,key_callbacks:Ref,value_callbacks:Ref)->Ref;
         fn CFSetCreate(alloc:Ref,values:*const Ref,count:isize,callbacks:Ref)->Ref;
     }
+    #[link(name="CoreGraphics",kind="framework")]
+    unsafe extern "C" {
+        fn CGDataProviderCreateWithData(info:*mut c_void,data:*const c_void,size:usize,release:Ref)->Ref;
+        fn CGFontCreateWithDataProvider(provider:Ref)->Ref;
+    }
     #[link(name="CoreText",kind="framework")]
     unsafe extern "C" {
         fn CTFontCreateUIFontForLanguage(kind:u32,size:f64,language:Ref)->Ref;
@@ -51,6 +65,9 @@ mod apple {
         fn CTFontDescriptorCreateWithAttributes(attributes:Ref)->Ref;
         fn CTFontDescriptorCreateMatchingFontDescriptors(descriptor:Ref,mandatory:Ref)->Ref;
         fn CTFontCopyAttribute(font:Ref,attribute:Ref)->Ref;
+        fn CTFontCreateWithGraphicsFont(font:Ref,size:f64,matrix:Ref,attributes:Ref)->Ref;
+        fn CTFontGetAscent(font:Ref)->f64;
+        fn CTFontGetDescent(font:Ref)->f64;
         static kCTFontURLAttribute:Ref;
         static kCTFontCharacterSetAttribute:Ref;
     }
@@ -66,6 +83,14 @@ mod apple {
         }
     }
     impl Drop for Owned { fn drop(&mut self) { unsafe { CFRelease(self.raw()); } } }
+
+    pub fn ascent_descent(data:&[u8],size:f64)->Option<(f64,f64)> {
+        // the provider borrows `data` without a release callback; it and everything made from it are released before returning
+        let provider=Owned::new(unsafe { CGDataProviderCreateWithData(ptr::null_mut(),data.as_ptr().cast(),data.len(),ptr::null()) })?;
+        let graphics=Owned::new(unsafe { CGFontCreateWithDataProvider(provider.raw()) })?;
+        let font=Owned::new(unsafe { CTFontCreateWithGraphicsFont(graphics.raw(),size,ptr::null(),ptr::null()) })?;
+        Some(unsafe { (CTFontGetAscent(font.raw()),CTFontGetDescent(font.raw())) })
+    }
 
     fn path(font:&Owned)->Option<PathBuf> {
         let tables=Owned::new(unsafe { CTFontCopyAvailableTables(font.raw(),0) })?;
