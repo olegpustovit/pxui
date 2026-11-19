@@ -28,6 +28,26 @@ pub struct TreeNode {
 }
 
 pub use pxui_types::ui::{Dialog, DialogButton, Chosen, Segment, Segmented};
+
+/// The rows a tree shows, into `visible` (node indices, in order): every node, minus the subtrees of closed parents. Its count. A
+/// function of its own, out of line: the hot loop of a large tree keeps its slices in registers (inlined in `tree`, one was reloaded
+/// from the stack a node).
+#[inline(never)]
+fn flatten_tree(nodes: &[TreeNode], open: &[u8], visible: &mut [u32]) -> usize {
+    let (mut i, mut count) = (0, 0);
+    while i < nodes.len() {
+        visible[count] = i as u32;
+        count += 1;
+        let mut j = i + 1;
+        if nodes[i].children != 0 && open.get(i).copied().unwrap_or(0) == 0 {
+            while j < nodes.len() && nodes[j].depth > nodes[i].depth {
+                j += 1;
+            }
+        }
+        i = j;
+    }
+    count
+}
 use pxui_types::theme::BodyKind;
 
 pub use pxui_types::ui::{Checkbox, Dropdown, Slider, Toast};
@@ -992,21 +1012,7 @@ impl Ui {
     fn tree_label(&mut self, label: &str, nodes: &[TreeNode], open: &mut [u8], selected: &mut Option<usize>, visible: &mut [u32], cell: &mut dyn FnMut(&mut Ui, usize)) -> (Option<usize>, usize) {
         assert!(visible.len() >= nodes.len(), "tree: `visible` holds at least a row per node");
         // the visible rows are re-derived each build (specification/pxui.md, designed limits)
-        let flatten = |visible: &mut [u32], open: &[u8]| {
-            let (mut i, mut count) = (0, 0);
-            while i < nodes.len() {
-                visible[count] = i as u32;
-                count += 1;
-                let mut j = i + 1;
-                if nodes[i].children != 0 && open.get(i).copied().unwrap_or(0) == 0 {
-                    while j < nodes.len() && nodes[j].depth > nodes[i].depth {
-                        j += 1;
-                    }
-                }
-                i = j;
-            }
-            count
-        };
+        let flatten = |visible: &mut [u32], open: &[u8]| flatten_tree(nodes, open, visible);
         let mut rows_shown = flatten(visible, open);
         let rh = self.row_px() as f32;
         let frame = self.node_ref(label, &Node { flags: Flags::FOCUSABLE | Flags::CLIP, w: Size::Grow, h: Size::Grow, look: self.theme().scroll_view.idle, padding: Edges::all(1.0), ..Node::DEFAULT });
