@@ -29,7 +29,7 @@ The target public surface. **Rule:** a call not marked with a step keeps its HEA
 | Text | `label(&str, Label) -> Handle`, `label_fmt(Arguments, Label)`, `label_digits(Arguments, Label)`; `text(&Handle, &str)`; `text_spans`, `text_line_box` take `Label` | label | HEAD; spans U1b.3 |
 | Measure (D20) | `Ui::text_service() -> UiText<'_>` and `Paint::text_service() -> UiText<'_>`; `UiText::measure(&str, Label, max_w: Option<f32>) -> Result<TextMetrics, Error>`, `measure_spans`, `width`, `rasterize_rgba`, `quads`, `add_font`, `enable_system_fonts`; worker form `Text::measure(&str, &TextStyle, max_w)` | — | U1b.3 |
 | Text worker | `TextStyle`, `Text`, `TextWorker`, `PreparedText`, `RetiredText`, `UiText::fork/install`, `prewarm_text`, `set_text_worker`, `resolve(&Label) -> TextStyle` | — | HEAD (D20) |
-| Button | `button<K>(key, text: &str, &Button) -> Response` (D25: one name, no short form, no `_with`); `button_content<K, F>(key, &Button, f /* (ui, State) */) -> Response`. `Button`: icon, icon_size, detail, accessory, label(Label), selected, disabled, danger, align, pad, axis, variant, look | button | name + `disabled` U1b.6; `icon_size` U2b.7; body configs `ButtonConfig::icon()`/`IconButtonConfig::icon() -> Option<Icon>` (D18) U2b.7 |
+| Button | `button<K>(key, text: &str, &Button) -> Response` (D25: one name, no short form, no `_with`); `button_content<K, F>(key, &Button, f /* (ui, State) */) -> Response`. `Button`: icon, icon_size, detail, accessory, label(Label), selected, disabled, danger, align, pad, axis, variant, look | button | name + `disabled` U1b.6; `icon_size` U2b.7; body configs `ButtonConfig::icon()`/`IconButtonConfig::icon() -> Option<Icon>` (D18) U2b.7; `ButtonConfig::label()`/`detail_label()`/`accessory_label() -> Option<Label>` (the caller's styles, for a Rust body) U2b.4.1 |
 | Icon button | `icon_button<K>(key, Icon, name: &str, &IconButton) -> Response` | icon_button | HEAD |
 | Toggle | `toggle<K>(key, text, on: bool, &Toggle) -> Response` (D25) | toggle | U1b.6 |
 | Checkbox | `checkbox<K>(key, text, on: bool, &Checkbox) -> Response`; `Checkbox<'a>`: look (borrowed), size, disabled(bool), passive(bool), variant | checkbox | U2a.3 |
@@ -1583,7 +1583,10 @@ pxui::bodies::BodyConfig::text_of fn (&self, field: &Str) -> &str @HEAD
 pxui::bodies::ButtonConfig impl BodyConfig @HEAD
 pxui::bodies::ButtonConfig impl Deref @HEAD
 pxui::bodies::ButtonConfig struct (_) @HEAD
+pxui::bodies::ButtonConfig::accessory_label fn (&self) -> Option<Label> @U2b.4.1
+pxui::bodies::ButtonConfig::detail_label fn (&self) -> Option<Label> @U2b.4.1
 pxui::bodies::ButtonConfig::icon fn (&self) -> Option<Icon> @U2b.7
+pxui::bodies::ButtonConfig::label fn (&self) -> Option<Label> @U2b.4.1
 pxui::bodies::CheckboxConfig impl BodyConfig @HEAD
 pxui::bodies::CheckboxConfig impl Deref @HEAD
 pxui::bodies::CheckboxConfig struct (_) @HEAD

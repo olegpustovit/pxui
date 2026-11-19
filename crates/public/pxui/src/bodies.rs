@@ -244,6 +244,75 @@ impl ButtonConfig {
     pub fn icon(&self) -> Option<crate::Icon> {
         icon_of(self.text_of(&self.lead), self.lead_draw, self.lead_user, self.lead_word)
     }
+
+    /// The caller's text style (`Button::label`) as the `Label` it gave, so a registered body draws the text with `Ui::label` in it;
+    /// `None` without one (the body picks its own) or for a record no `Label` spells (a C caller's out-of-range value).
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::bodies::{BodyConfig, ButtonConfig};
+    /// fn button(ui: &mut pxui::Ui, config: &ButtonConfig) { if let Some(style) = config.label() { ui.label(config.text_of(&config.label), style); } }
+    /// ```
+    pub fn label(&self) -> Option<crate::Label> { label_of(self.has_label, &self.text_style, &self.text_box) }
+
+    /// The caller's detail style (`Button::detail_label`) as the `Label` it gave; `None` without one (the theme's label style) or for a
+    /// record no `Label` spells.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::bodies::{BodyConfig, ButtonConfig};
+    /// fn button(ui: &mut pxui::Ui, config: &ButtonConfig) { ui.label(config.text_of(&config.detail), config.detail_label().unwrap_or(pxui::Label::DEFAULT)); }
+    /// ```
+    pub fn detail_label(&self) -> Option<crate::Label> { label_of(self.has_detail_style, &self.detail_style, &self.detail_box) }
+
+    /// The caller's accessory style (`Button::accessory_label`) as the `Label` it gave; `None` without one (the theme's label style) or
+    /// for a record no `Label` spells.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::bodies::{BodyConfig, ButtonConfig};
+    /// fn button(ui: &mut pxui::Ui, config: &ButtonConfig) { ui.label(config.text_of(&config.accessory), config.accessory_label().unwrap_or(pxui::Label::DEFAULT)); }
+    /// ```
+    pub fn accessory_label(&self) -> Option<crate::Label> { label_of(self.has_accessory_style, &self.accessory_style, &self.accessory_box) }
+}
+
+/// The `Label` a body config's style and box records spell (built with the `Label` builders, field by field); `None` when `has` is
+/// 0 or a record holds a number no label has.
+fn label_of(has: u8, s: &pxui_types::ffi::PxuiLabelStyle, b: &pxui_types::ffi::PxuiLabelBox) -> Option<crate::Label> {
+    use pxui_types::{a11y::Role, ffi::{PxuiLabelBox as B, PxuiLabelStyle as S, PxuiSizeDesc as D, PxuiTextStyle}, text::TextAlign, Size};
+    if has == 0 { return None; }
+    let on = |bit: u32| s.set & bit != 0;
+    let mut l = crate::Label::DEFAULT;
+    if on(S::SET_FONT) { l = l.font(s.font); }
+    if on(S::SET_SIZE) { l = l.size(s.size_points); }
+    if on(S::SET_WEIGHT) { l = l.weight(s.weight); }
+    if on(S::SET_TRACKING) { l = l.tracking(s.tracking); }
+    if on(S::SET_CAPS) { l = l.caps(s.caps != 0); }
+    if on(S::SET_COLOR) { l = l.color(pxui_types::theme::ColorToken(s.color)); }
+    if on(S::SET_WIDTH) {
+        let v = s.width.value;
+        l = l.w(match s.width.kind { D::PX => Size::Px(v), D::PCT => Size::Pct(v), D::REL => Size::Rel(s.width.relative?), D::GROW => Size::Grow, D::FIT => Size::Fit, _ => return None });
+    }
+    if on(S::SET_LINE_HEIGHT) { l = l.line_height(s.line_height); }
+    if on(S::SET_PAD) { l = l.pad(s.pad); }
+    l = match s.wrap { 0 => l, 1 => l.wrap(), 2 => l.wrap_glyph(), 3 => l.wrap_spaces(), _ => return None };
+    l = match s.ellipsis { 0 => l, 1 => l.ellipsis(), 2 => l.ellipsis_middle(), 3 => l.ellipsis_head(), _ => return None };
+    l = l.lines(s.max_lines).align(match s.align { 0 => TextAlign::Start, 1 => TextAlign::Center, 2 => TextAlign::End, _ => return None });
+    if s.features & PxuiTextStyle::FEATURE_TABULAR_NUMBERS != 0 { l = l.tabular(); }
+    if b.set & B::SET_HEIGHT != 0 { l = l.h_px(b.height); }
+    if b.set & B::SET_ROLE != 0 {
+        if b.role > Role::Separator as u8 { return None; }
+        // checked against the last role above; `Role` is `repr(u8)` and its numbers are dense
+        l = l.role(unsafe { core::mem::transmute::<u8, Role>(b.role) });
+    }
+    if b.whole_pixels != 0 { l = l.whole_pixels(); }
+    Some(l)
 }
 
 impl IconButtonConfig {
@@ -321,6 +390,29 @@ mod tests {
         }
         drop(scope);
         assert!(mem_sys::take_reports().is_empty());
+    }
+
+    /// U2b.4.1: a registered button body reads the caller's text, detail and accessory styles back as the `Label`s it gave (every
+    /// field), `None` for those it did not give. Both link modes.
+    #[test]
+    fn a_button_body_reads_back_the_callers_labels() {
+        use pxui_types::{a11y::Role, text::TextAlign, theme::ColorToken};
+        thread_local! { static GOT: RefCell<Vec<Option<String>>> = const { RefCell::new(Vec::new()) }; }
+        fn button(_: &mut Ui, c: &ButtonConfig) {
+            GOT.with(|g| g.borrow_mut().extend([c.label(), c.detail_label(), c.accessory_label()].map(|l| l.map(|l| format!("{:?}", l.fields())))));
+        }
+        const TEXT: crate::Label = crate::Label::BODY.size(13.0).weight(500).tracking(-0.02).caps(true).color(ColorToken(7)).grow().line_height(18.0).pad(2.0)
+            .wrap_spaces().lines(2).ellipsis_middle().align(TextAlign::Center).h_px(20.0).whole_pixels().role(Role::Unknown);
+        const DETAIL: crate::Label = crate::Label::MONO.font(1).w_px(44.0).ellipsis_head();
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+        ui.register_button_body("b", button).unwrap();
+        ui.set_theme(&crate::ThemeHandle::parse("button.body = b").unwrap()).unwrap();
+        let mut build = |ui: &mut Ui| {
+            ui.button("full", "Full", &crate::Button::DEFAULT.label(TEXT).detail("d").detail_label(DETAIL).accessory("⌘K"));
+        };
+        crate::testing::frame(&mut ui, &[], &mut build);
+        let want = [Some(format!("{:?}", TEXT.fields())), Some(format!("{:?}", DETAIL.fields())), None];
+        assert_eq!(GOT.with(|g| g.borrow().clone()), want, "each style as the caller gave it; none for the unstyled accessory");
     }
 
     #[test]
