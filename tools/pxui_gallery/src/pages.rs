@@ -253,7 +253,8 @@ pub fn collections_page(ui: &mut Ui, s: &mut Gallery) {
             ui.within(&half, &mut |ui: &mut Ui| {
                 let top = node(ui, "tree-box", Node { h: Size::Grow, ..Node::DEFAULT });
                 ui.within(&top, &mut |ui: &mut Ui| {
-                    let _ = ui.tree("outline", &s.nodes, &mut s.open, &mut s.tree_sel, &mut s.visible, &mut |ui: &mut Ui, i: usize| names(i, &mut |t| ui.item_text(t)));
+                    // the outline's nodes never change and only the tree expands them: one revision keeps its rows
+                    let _ = ui.tree("outline", &s.nodes, &mut s.open, &mut s.tree_sel, &mut s.visible, Some(0), &mut |ui: &mut Ui, i: usize| names(i, &mut |t| ui.item_text(t)));
                 });
                 let bottom = node(ui, "table-box", Node { h: Size::Grow, ..Node::DEFAULT });
                 ui.within(&bottom, &mut |ui: &mut Ui| {

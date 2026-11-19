@@ -655,7 +655,7 @@ by `patch_rect`/`patch_look` between frames: no build, no allocation; reduced mo
 Down, Enter, Escape), `tooltip(&h, text)`, `scroll_view(key, w, h, f)` (both axes), `panel`/`popup`/`modal(key, &Overlay, f)` (one
 `Copy` overlay style: position, size, look, name),
 `selection_list(key, count, &mut [u8], &SelectionList, cell) -> ListResponse` (a flag a row, not 0: set), `tree(key, &[TreeNode], &mut open,
-&mut selected, &mut visible, cell) -> TreeResponse` (`visible`: a row per node, the shown rows written first), `table_view(key, titles,
+&mut selected, &mut visible, revision, cell) -> TreeResponse` (`visible`: a row per node, the shown rows written first; `revision`: kept rows), `table_view(key, titles,
 &mut widths, rows, &mut selected, &TableView, cell) -> TableResponse` (`TableView::text(rect)`: the fixed text table, its cells' text through `item_text`)
 (virtual through `ui.list`; the table's header stays, grips resize columns, a header click is the sort
 intent), `dialog(key, title, &[DialogButton], &Dialog, body) -> Chosen` (the key is a static string or an id, never the title), `toasts(key, &[Toast], seconds)` (each toast keyed by its id) (the lower end corner;
@@ -715,9 +715,10 @@ needs a measurement that shows it.
 - Text layouts are kept by age: one not laid out for `KEEP_FRAMES` (600) frames goes, found by an
   incremental sweep (1/64 of the layouts a frame). A view kept longer re-shapes its text when it
   next rebuilds; a byte budget would need cosmic-text's buffer sizes, which it does not report.
-- `Ui::tree` re-derives its visible rows each build it runs, O(nodes) at about a nanosecond a node:
-  it borrows the caller's preorder slice and open flags, so it cannot know they are unchanged; an
-  incremental list would need the tree to own its nodes or a change notice from the caller.
+- `Ui::tree` borrows the caller's preorder slice and open flags, so it cannot see them change: given the caller's
+  change notice (`revision`, U2b.4.17) it keeps its shown rows in `visible` while the revision, the slices and its own
+  expansions hold, and a warm frame walks no node; without one it re-derives them each build, O(nodes) at about a
+  nanosecond a node.
 - Accessibility: a frame that rebuilds a view copies kept views' published runs and walks only the
   rebuilt views' nodes (nested views in a copied run are relocated in one pass over the views), then
   compares the next tree with the published one, a flat memcmp of its nodes and strings (tens of

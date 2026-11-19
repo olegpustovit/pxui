@@ -62,7 +62,7 @@ PxuiU8MutSpan 16 8 0 8
 PxuiF32MutSpan 16 8 0 8
 PxuiU32MutSpan 16 8 0 8
 PxuiTreeNode 4 2 0 2
-PxuiTreeViewDesc 104 8 0 4 8 24 40 56 64 80 88 96
+PxuiTreeViewDesc 112 8 0 4 5 8 24 40 56 64 80 88 96 104
 PxuiNodeFields 192 8 0 4 8 160 176
 PxuiRange 16 8 0 8
 PxuiColorSpan 24 8 0 8 16 20

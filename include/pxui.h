@@ -18,7 +18,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 111u)
+#define PXUI_ABI_BUILT ((1u << 16) | 112u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 typedef struct { uint32_t autocorrect, capitalization, action; } PxuiTextInputOptions;
@@ -724,7 +724,7 @@ int32_t pxui_slot(PxuiUi *ui, PxuiSlot slot, uint8_t *out);
 enum PxuiPart { PXUI_PART_HIT=1, PXUI_PART_RAIL=2, PXUI_PART_THUMB=3, PXUI_PART_TRACK=4, PXUI_PART_BAR=5, PXUI_PART_TITLE=6, PXUI_PART_DISCLOSURE=7, PXUI_PART_CLEAR=8, PXUI_PART_EDITOR=9, PXUI_PART_DOT0=16 /* dot i: 16 + i, i < 256 */, PXUI_PART_BUTTON0=1024 /* dialog button i: 1024 + i, i < 256 */ };
 /* Collection flags (selected, open, a node's children) are bytes: not 0 is set; the library writes 0 or 1 and scans none.
    A tree writes its shown rows into the start of `visible` (at least a row per node) and their number to `visible_len`. */
-typedef struct { uint32_t size,reserved; PxuiStr label; const PxuiTreeNode *ptr; size_t len; PxuiU8MutSpan open; size_t *selected; PxuiU32MutSpan visible; size_t *visible_len; PxuiCellBuild build; void *user; } PxuiTreeViewDesc;
+typedef struct { uint32_t size; uint8_t has_revision /* 1.112 */, reserved[3]; PxuiStr label; const PxuiTreeNode *ptr; size_t len; PxuiU8MutSpan open; size_t *selected; PxuiU32MutSpan visible; size_t *visible_len; PxuiCellBuild build; void *user; uint64_t revision /* 1.112 */; } PxuiTreeViewDesc;
 int32_t pxui_ui_tree(PxuiUi *ui, const PxuiTreeViewDesc *desc, size_t *activated);
 /* ABI 1.49: from inside a selection list or tree row or a table cell callback, the kit's text of that item: a list
    row's row label, a tree row's (naming the row), a table cell's (naming the cell). Refused outside a collection item. */
@@ -1145,7 +1145,7 @@ _Static_assert(sizeof(PxuiU8MutSpan) == 16 && offsetof(PxuiU8MutSpan, ptr) == 0 
 _Static_assert(sizeof(PxuiF32MutSpan) == 16 && offsetof(PxuiF32MutSpan, ptr) == 0 && offsetof(PxuiF32MutSpan, len) == 8, "PxuiF32MutSpan layout");
 _Static_assert(sizeof(PxuiU32MutSpan) == 16 && offsetof(PxuiU32MutSpan, ptr) == 0 && offsetof(PxuiU32MutSpan, len) == 8, "PxuiU32MutSpan layout");
 _Static_assert(sizeof(PxuiTreeNode) == 4 && offsetof(PxuiTreeNode, depth) == 0 && offsetof(PxuiTreeNode, children) == 2, "PxuiTreeNode layout");
-_Static_assert(sizeof(PxuiTreeViewDesc) == 104 && offsetof(PxuiTreeViewDesc, size) == 0 && offsetof(PxuiTreeViewDesc, reserved) == 4 && offsetof(PxuiTreeViewDesc, label) == 8 && offsetof(PxuiTreeViewDesc, ptr) == 24 && offsetof(PxuiTreeViewDesc, open) == 40 && offsetof(PxuiTreeViewDesc, selected) == 56 && offsetof(PxuiTreeViewDesc, visible) == 64 && offsetof(PxuiTreeViewDesc, visible_len) == 80 && offsetof(PxuiTreeViewDesc, build) == 88 && offsetof(PxuiTreeViewDesc, user) == 96, "PxuiTreeViewDesc layout");
+_Static_assert(sizeof(PxuiTreeViewDesc) == 112 && offsetof(PxuiTreeViewDesc, size) == 0 && offsetof(PxuiTreeViewDesc, has_revision) == 4 && offsetof(PxuiTreeViewDesc, reserved) == 5 && offsetof(PxuiTreeViewDesc, label) == 8 && offsetof(PxuiTreeViewDesc, ptr) == 24 && offsetof(PxuiTreeViewDesc, open) == 40 && offsetof(PxuiTreeViewDesc, selected) == 56 && offsetof(PxuiTreeViewDesc, visible) == 64 && offsetof(PxuiTreeViewDesc, visible_len) == 80 && offsetof(PxuiTreeViewDesc, build) == 88 && offsetof(PxuiTreeViewDesc, user) == 96 && offsetof(PxuiTreeViewDesc, revision) == 104, "PxuiTreeViewDesc layout");
 _Static_assert(sizeof(PxuiNodeFields) == 192 && offsetof(PxuiNodeFields, size) == 0 && offsetof(PxuiNodeFields, reserved) == 4 && offsetof(PxuiNodeFields, look) == 8 && offsetof(PxuiNodeFields, mark) == 160 && offsetof(PxuiNodeFields, inset) == 176, "PxuiNodeFields layout");
 _Static_assert(sizeof(PxuiRange) == 16 && offsetof(PxuiRange, start) == 0 && offsetof(PxuiRange, end) == 8, "PxuiRange layout");
 _Static_assert(sizeof(PxuiColorSpan) == 24 && offsetof(PxuiColorSpan, start) == 0 && offsetof(PxuiColorSpan, end) == 8 && offsetof(PxuiColorSpan, color) == 16 && offsetof(PxuiColorSpan, reserved) == 20, "PxuiColorSpan layout");

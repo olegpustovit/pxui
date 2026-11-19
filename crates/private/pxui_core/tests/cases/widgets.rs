@@ -53,6 +53,8 @@ pub struct S {
     pub open: Vec<u8>,
     pub tree_sel: Option<usize>,
     pub visible: Vec<u32>,
+    /// the content revision of `nodes` and `open` the tree is told (`None`: rows re-derived every build)
+    pub tree_revision: Option<u64>,
     pub shown: usize,
     pub list_anchor: Option<usize>,
     pub widths: [pxui_types::ffi::PxuiColumnWidth; 3],
@@ -75,7 +77,7 @@ impl S {
         let nodes = (0..BIG).map(|i| TreeNode { depth: if i % 10 == 0 { 0 } else { 1 }, children: (i % 10 == 0) as u8 }).collect();
         S {
             check: false, radio: 0, slider: 0.25, tab: 0, seg: 0, drop: 0, picked: None, list: vec![0; BIG], multi: false, activated: None,
-            nodes, open: vec![0; BIG], tree_sel: None, visible: vec![0; BIG], shown: 0, list_anchor: None,
+            nodes, open: vec![0; BIG], tree_sel: None, visible: vec![0; BIG], tree_revision: None, shown: 0, list_anchor: None,
             widths: [0, 1, 2].map(|id| pxui_types::ffi::PxuiColumnWidth { id, w: 80.0, reserved: 0 }), table_flags: vec![0; BIG], table_anchor: None, sort: Some((0, true)),
             search: String::new(), icon: 0, toasts: 0, gone: None, busy: Vec::with_capacity(4), image: None, add: None, scroll: None, list_frame: None,
         }
@@ -168,7 +170,7 @@ pub fn body(ui: &mut Ui, s: &mut S) {
             });
             s.list_frame = ui.box_of_key(key_of(b.box_key, "List"));
             sized(ui, "tree-box", 120.0, &mut |ui| {
-                s.shown = { let r = ui.tree("Tree", &s.nodes, &mut s.open, &mut s.tree_sel, &mut s.visible, &mut |ui, i| names(i, &mut |t| ui.item_text(t))); (r.activated, r.shown) }.1;
+                s.shown = { let r = ui.tree("Tree", &s.nodes, &mut s.open, &mut s.tree_sel, &mut s.visible, s.tree_revision, &mut |ui, i| names(i, &mut |t| ui.item_text(t))); (r.activated, r.shown) }.1;
             });
             sized(ui, "table-box", 150.0, &mut |ui| {
                 let columns = [0, 1, 2].map(|id| pxui_core::ui_lists::ColumnSpec { id, share: 0.0, w: 80.0, grip: true, sortable: true });
@@ -579,6 +581,71 @@ fn widgets_tree() {
     ui.destroy();
 }
 
+/// What a tree shows: its rows, the expansions, the selection and its accessible rows (role, name, states, place).
+fn tree_facts(ui: &Ui, s: &S) -> (Vec<u32>, Vec<u8>, Option<usize>, Vec<(Role, String, u32, [i32; 4])>) {
+    let t = ui.output().a11y;
+    let rows = t.nodes.iter().filter(|n| matches!(n.role, Role::Tree | Role::TreeItem))
+        .map(|n| (n.role, t.str(n.name).to_owned(), n.states, [n.rect.x, n.rect.y, n.rect.w, n.rect.h].map(|v| v as i32))).collect();
+    (s.visible[..s.shown].to_vec(), s.open.clone(), s.tree_sel, rows)
+}
+
+/// GAP U2b.4.17: a tree told a revision keeps its shown rows. A warm frame walks no node (the rows-free tree walks all 100,000 a
+/// frame) and allocates nothing; clicks, keys, the tree's own expansions and the app's changes under a new revision leave it
+/// showing, selecting and exposing exactly what the tree that re-derives its rows every build does.
+fn widgets_tree_kept_rows() {
+    let (mut kept, mut fresh) = (S::new(), S::new());
+    kept.tree_revision = Some(1);
+    let (mut a, mut b) = (warm(&mut kept), warm(&mut fresh));
+    let same = |a: &Ui, kept: &S, b: &Ui, fresh: &S, what: &str| {
+        check(kept.shown == fresh.shown && tree_facts(a, kept) == tree_facts(b, fresh), &format!("{what}: the kept rows match a rebuild"));
+    };
+    same(&a, &kept, &b, &fresh, "warm");
+    let (wa, wb) = (a.tree_nodes_walked(), b.tree_nodes_walked());
+    mem_sys::local_reset();
+    let before = mem_sys::local_alloc_count();
+    for t in 0..10 {
+        a.frame(&at(0.3 + t as f64 * 0.01, vec![]), &mut |ui| all(ui, &mut kept));
+    }
+    let allocs = mem_sys::local_alloc_count() - before;
+    for t in 0..10 {
+        b.frame(&at(0.3 + t as f64 * 0.01, vec![]), &mut |ui| all(ui, &mut fresh));
+    }
+    check(a.tree_nodes_walked() == wa, &format!("a warm frame of the kept tree walked {} nodes", a.tree_nodes_walked() - wa));
+    check(b.tree_nodes_walked() - wb == 10 * BIG as u64, "the re-deriving tree walks every node every frame");
+    check(allocs == 0, &format!("the kept tree: {allocs} allocations in 10 warm frames"));
+    // the chevron of node 0, then a click on its child (selects and focuses), then the keys
+    let first = *a.output().a11y.nodes.iter().find(|n| n.role == Role::TreeItem).unwrap();
+    let chevron = ((first.rect.x + 12.0 + 5.0) as i64, centre(&first).1);
+    click(&mut a, &mut kept, 1.0, chevron);
+    click(&mut b, &mut fresh, 1.0, chevron);
+    check(kept.open[0] != 0 && kept.shown == BIG / 10 + 9, "the chevron opens node 0");
+    same(&a, &kept, &b, &fresh, "the chevron");
+    let child = centre(a.output().a11y.nodes.iter().filter(|n| n.role == Role::TreeItem).nth(1).unwrap());
+    click(&mut a, &mut kept, 2.0, child);
+    click(&mut b, &mut fresh, 2.0, child);
+    same(&a, &kept, &b, &fresh, "a click");
+    for (i, k) in [Key::ArrowDown, Key::ArrowLeft, Key::ArrowLeft, Key::ArrowDown, Key::ArrowRight, Key::ArrowRight, Key::Space, Key::End, Key::ArrowUp, Key::Home, Key::Space].into_iter().enumerate() {
+        keys(&mut a, &mut kept, 3.0 + i as f64, &[k]);
+        keys(&mut b, &mut fresh, 3.0 + i as f64, &[k]);
+        same(&a, &kept, &b, &fresh, &format!("{k:?}"));
+    }
+    // the app expands node 20 and makes node 30 a leaf: unseen while the revision holds (no walk), shown under a new one
+    for s in [&mut kept, &mut fresh] {
+        s.open[20] = 1;
+        s.nodes[30].children = 0;
+    }
+    let shown = kept.shown;
+    a.frame(&at(20.0, vec![]), &mut |ui| all(ui, &mut kept));
+    check(kept.shown == shown, "the held revision keeps the rows");
+    kept.tree_revision = Some(2);
+    a.frame(&at(20.1, vec![]), &mut |ui| all(ui, &mut kept));
+    b.frame(&at(20.1, vec![]), &mut |ui| all(ui, &mut fresh));
+    check(kept.shown == shown + 18, &format!("a new revision shows node 20's and node 30's children: {} rows", kept.shown));
+    same(&a, &kept, &b, &fresh, "the app's change");
+    a.destroy();
+    b.destroy();
+}
+
 fn widgets_table() {
     let mut s = S::new();
     let mut ui = warm(&mut s);
@@ -818,6 +885,7 @@ pub const CASES: &[(&str, fn())] = &[
     ("widgets_list", widgets_list),
     ("widgets_list_keys_multi", widgets_list_keys_multi),
     ("widgets_tree", widgets_tree),
+    ("widgets_tree_kept_rows", widgets_tree_kept_rows),
     ("widgets_table", widgets_table),
     ("widgets_dialog", widgets_dialog),
     ("widgets_dialog_danger", widgets_dialog_danger),

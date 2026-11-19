@@ -417,6 +417,11 @@ impl Ui {
     ///
     /// `open` holds one flag a node (not 0: expanded) and `selected` the selected node, both updated in place; the library writes the
     /// shown rows into the start of `visible` (at least a row a node).
+    ///
+    /// `revision` is the content revision of `nodes` and `open`, as `ListState::revision`: with `Some`, the shown rows stay in
+    /// `visible` between frames while it, the three slices (the same memory) and the tree's own expansions hold, so a frame walks
+    /// only the rows in view; change it whenever the app changes `nodes` or `open`, and keep `visible` as the tree left it. With
+    /// `None` the rows are re-derived every frame, a walk over every node.
     /// Allocates: never on a warm frame.
     /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); rows are keyed by index.
     /// Panics: when the library refuses the call (outside a frame, `open` or `visible` too short), or when `cell` panics. A key over 256 bytes panics (a programmer error). Display text past 64 KiB is clipped at a character boundary, never refused.
@@ -425,13 +430,14 @@ impl Ui {
     /// use pxui::TreeNode;
     /// let nodes = [TreeNode { depth: 0, children: 1 }, TreeNode { depth: 1, children: 0 }];
     /// let (mut open, mut selected, mut visible) = ([1u8, 0], None, [0u32; 2]);
-    /// pxui::doc::frames(1, &mut |ui| { assert_eq!(ui.tree("outline", &nodes, &mut open, &mut selected, &mut visible, &mut |ui, node| ui.item_text(["root", "leaf"][node])).shown, 2); });
+    /// pxui::doc::frames(1, &mut |ui| { assert_eq!(ui.tree("outline", &nodes, &mut open, &mut selected, &mut visible, Some(0), &mut |ui, node| ui.item_text(["root", "leaf"][node])).shown, 2); });
     /// assert_eq!(visible, [0, 1]);
     /// ```
+    #[allow(clippy::too_many_arguments)]
     #[inline]
     #[track_caller]
-    pub fn tree<K: Into<Key>>(&mut self, key: K, nodes: &[TreeNode], open: &mut [u8], selected: &mut Option<usize>, visible: &mut [u32], cell: &mut dyn FnMut(&mut Ui, usize)) -> TreeResponse {
-        self.tree_key(key.into(), nodes, open, selected, visible, cell)
+    pub fn tree<K: Into<Key>>(&mut self, key: K, nodes: &[TreeNode], open: &mut [u8], selected: &mut Option<usize>, visible: &mut [u32], revision: Option<u64>, cell: &mut dyn FnMut(&mut Ui, usize)) -> TreeResponse {
+        self.tree_key(key.into(), nodes, open, selected, visible, revision, cell)
     }
 
     /// Declares a virtual table filling its parent: a `Ui::table_head` of `columns` over `rows` rows; `cell(ui, row, column, cell)`
@@ -853,7 +859,7 @@ mod tests {
                 for (key, kind) in [("lists", 0), ("trees", 1), ("tables", 2), ("heads", 3)] {
                     ui.id(key, |ui| { ui.column(Node { h: Size::Px(80.0), ..Node::DEFAULT }, |ui| match kind {
                         0 => { ui.selection_list("list", 1, &|i| i as i64, &mut list, &SelectionList::DEFAULT, &mut |ui, part, _| if let SectionPart::Row(_) = part { ui.item_text("list row") }); }
-                        1 => { ui.tree("tree", &nodes, &mut open, &mut selected, &mut visible, &mut |ui, _| ui.item_text("tree row")); }
+                        1 => { ui.tree("tree", &nodes, &mut open, &mut selected, &mut visible, None, &mut |ui, _| ui.item_text("tree row")); }
                         2 => { ui.table("table", &COLUMNS, 1, &|i| i as i64, &mut table, &Table::DEFAULT, &mut |ui, _, _, _| ui.item_text("table cell")); }
                         _ => { ui.table_head("head", &[Column::new("Alone")], &mut heading, &TableHead::DEFAULT); }
                     }); });

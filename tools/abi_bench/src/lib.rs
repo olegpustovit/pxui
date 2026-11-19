@@ -233,8 +233,9 @@ pub mod shapes {
         pub fn drop_target(&mut self, b: &Handle) -> Option<DropRef<'_>> {
             self.0.drop_target_ref(b).map(|(dropped, p)| if dropped { DropRef::Dropped(p) } else { DropRef::Hover(p) })
         }
-        pub fn tree(&mut self, key: &str, nodes: &[TreeNode], open: &mut [u8], selected: &mut Option<usize>, visible: &mut [u32], f: &mut dyn FnMut(&mut Ui, usize)) -> TreeResponse {
-            self.0.tree(key, nodes, open, selected, visible, &mut |e: &mut Engine, i| f(Ui::of(e), i))
+        #[allow(clippy::too_many_arguments)]
+        pub fn tree(&mut self, key: &str, nodes: &[TreeNode], open: &mut [u8], selected: &mut Option<usize>, visible: &mut [u32], revision: Option<u64>, f: &mut dyn FnMut(&mut Ui, usize)) -> TreeResponse {
+            self.0.tree(key, nodes, open, selected, visible, revision, &mut |e: &mut Engine, i| f(Ui::of(e), i))
         }
         #[allow(clippy::too_many_arguments)]
         pub fn table(&mut self, key: &str, columns: &[Column], rows: usize, row_key: &dyn Fn(usize) -> i64, state: &mut TableState, table: &Table, f: &mut dyn FnMut(&mut Ui, usize, usize, CellState)) -> TableResponse {

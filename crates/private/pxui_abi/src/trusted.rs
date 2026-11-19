@@ -919,11 +919,11 @@ pub unsafe fn pxui_slot(ui: *mut PxuiUi, slot: pxui_types::ffi::PxuiSlot, out: *
 /// `tree` keyed by `key`: `cell(ui, node, 0)` builds the children of the row that shows tree node `node`.
 #[allow(clippy::too_many_arguments)]
 #[inline]
-pub unsafe fn tree(ui: *mut PxuiUi, key: &str, nodes: &[pxui_types::ffi::PxuiTreeNode], open: &mut [u8], selected: &mut Option<usize>, visible: &mut [u32], cell: &mut dyn FnMut(&mut Ui, usize), out: &mut (Option<usize>, usize)) -> i32 {
+pub unsafe fn tree(ui: *mut PxuiUi, key: &str, nodes: &[pxui_types::ffi::PxuiTreeNode], open: &mut [u8], selected: &mut Option<usize>, visible: &mut [u32], revision: Option<u64>, cell: &mut dyn FnMut(&mut Ui, usize), out: &mut (Option<usize>, usize)) -> i32 {
     enter!(ui);
     if bad_key(key) || nodes.len() > MAX_ITEMS || open.len() != nodes.len() || visible.len() < nodes.len() { return unsafe { fail(ui, "invalid tree descriptor") }; }
     let nodes = unsafe { core::slice::from_raw_parts(nodes.as_ptr().cast::<pxui_core::ui_widgets::TreeNode>(), nodes.len()) };
-    let r = unsafe { engine(ui) }.tree(key, nodes, open, selected, visible, cell);
+    let r = unsafe { engine(ui) }.tree(key, nodes, open, selected, visible, revision, cell);
     *out = (r.activated, r.shown);
     0
 }

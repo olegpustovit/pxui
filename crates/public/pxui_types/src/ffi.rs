@@ -1958,10 +1958,16 @@ pub type PxuiBodyFn = Option<extern "C" fn(*mut core::ffi::c_void, *mut core::ff
 pub type PxuiCellBuild = Option<extern "C" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, usize, usize)>;
 
 
+/// A tree for `pxui_ui_tree`: preorder `nodes`, one `open` flag a node, the selected node (`usize::MAX`: none) and the shown rows written
+/// into `visible`; with `has_revision` 1 the shown rows are kept in `visible` between builds while `revision`, the spans and the tree's
+/// own expansions hold (ABI 1.112). The caller sets `size`; a flag above 1 or non-zero `reserved` is refused.
 #[repr(C)]
 pub struct PxuiTreeViewDesc {
     pub size: u32,
-    pub reserved: u32,
+    /// 1 (ABI 1.112): `revision` is the content revision of `nodes` and `open`; the caller changes it when it changes either.
+    pub has_revision: u8,
+    /// Zero.
+    pub reserved: [u8; 3],
     pub label: Str,
     pub nodes: Slice<PxuiTreeNode>,
     pub open: PxuiU8MutSpan,
@@ -1970,6 +1976,8 @@ pub struct PxuiTreeViewDesc {
     pub visible_len: *mut usize,
     pub build: PxuiCellBuild,
     pub user: *mut core::ffi::c_void,
+    /// ABI 1.112: the content revision of `nodes` and `open` (read when `has_revision` is 1).
+    pub revision: u64,
 }
 
 
@@ -2304,7 +2312,7 @@ pub(crate) mod layout {
         check("PxuiU32MutSpan", size_of::<PxuiU32MutSpan>(), align_of::<PxuiU32MutSpan>(), &[("ptr", core::mem::offset_of!(PxuiU32MutSpan, ptr)), ("len", core::mem::offset_of!(PxuiU32MutSpan, len))]);
         check("PxuiTreeNode", size_of::<PxuiTreeNode>(), align_of::<PxuiTreeNode>(), &[("depth", core::mem::offset_of!(PxuiTreeNode, depth)), ("children", core::mem::offset_of!(PxuiTreeNode, children))]);
         check("PxuiSlot", size_of::<PxuiSlot>(), align_of::<PxuiSlot>(), &[("serial", core::mem::offset_of!(PxuiSlot, serial))]);
-        check("PxuiTreeViewDesc", size_of::<PxuiTreeViewDesc>(), align_of::<PxuiTreeViewDesc>(), &[("size", core::mem::offset_of!(PxuiTreeViewDesc, size)), ("reserved", core::mem::offset_of!(PxuiTreeViewDesc, reserved)), ("label", core::mem::offset_of!(PxuiTreeViewDesc, label)), ("nodes", core::mem::offset_of!(PxuiTreeViewDesc, nodes)), ("open", core::mem::offset_of!(PxuiTreeViewDesc, open)), ("selected", core::mem::offset_of!(PxuiTreeViewDesc, selected)), ("visible", core::mem::offset_of!(PxuiTreeViewDesc, visible)), ("visible_len", core::mem::offset_of!(PxuiTreeViewDesc, visible_len)), ("build", core::mem::offset_of!(PxuiTreeViewDesc, build)), ("user", core::mem::offset_of!(PxuiTreeViewDesc, user))]);
+        check("PxuiTreeViewDesc", size_of::<PxuiTreeViewDesc>(), align_of::<PxuiTreeViewDesc>(), &[("size", core::mem::offset_of!(PxuiTreeViewDesc, size)), ("has_revision", core::mem::offset_of!(PxuiTreeViewDesc, has_revision)), ("reserved", core::mem::offset_of!(PxuiTreeViewDesc, reserved)), ("label", core::mem::offset_of!(PxuiTreeViewDesc, label)), ("nodes", core::mem::offset_of!(PxuiTreeViewDesc, nodes)), ("open", core::mem::offset_of!(PxuiTreeViewDesc, open)), ("selected", core::mem::offset_of!(PxuiTreeViewDesc, selected)), ("visible", core::mem::offset_of!(PxuiTreeViewDesc, visible)), ("visible_len", core::mem::offset_of!(PxuiTreeViewDesc, visible_len)), ("build", core::mem::offset_of!(PxuiTreeViewDesc, build)), ("user", core::mem::offset_of!(PxuiTreeViewDesc, user)), ("revision", core::mem::offset_of!(PxuiTreeViewDesc, revision))]);
         check("PxuiNodeFields", size_of::<PxuiNodeFields>(), align_of::<PxuiNodeFields>(), &[("size", core::mem::offset_of!(PxuiNodeFields, size)), ("reserved", core::mem::offset_of!(PxuiNodeFields, reserved)), ("look", core::mem::offset_of!(PxuiNodeFields, look)), ("mark", core::mem::offset_of!(PxuiNodeFields, mark)), ("inset", core::mem::offset_of!(PxuiNodeFields, inset))]);
         check("PxuiRange", size_of::<PxuiRange>(), align_of::<PxuiRange>(), &[("start", core::mem::offset_of!(PxuiRange, start)), ("end", core::mem::offset_of!(PxuiRange, end))]);
         check("PxuiColorSpan", size_of::<PxuiColorSpan>(), align_of::<PxuiColorSpan>(), &[("start", core::mem::offset_of!(PxuiColorSpan, start)), ("end", core::mem::offset_of!(PxuiColorSpan, end)), ("color", core::mem::offset_of!(PxuiColorSpan, color)), ("reserved", core::mem::offset_of!(PxuiColorSpan, reserved))]);

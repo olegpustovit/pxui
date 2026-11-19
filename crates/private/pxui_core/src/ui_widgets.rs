@@ -29,6 +29,16 @@ pub struct TreeNode {
 
 pub use pxui_types::ui::{Dialog, DialogButton, Chosen, Segment, Segmented};
 
+/// A tree's shown rows kept between builds (`Ui::tree` with a revision): the tree's frame (slot, generation, key), the inputs they
+/// were derived from (the revision and the places and lengths of `nodes`, `open` and `visible`), their count and the cursor's row.
+#[derive(Clone, Copy)]
+pub(crate) struct TreeRows {
+    frame: Handle,
+    inputs: (u64, [usize; 6]),
+    shown: usize,
+    cursor: usize,
+}
+
 /// The rows a tree shows, into `visible` (node indices, in order): every node, minus the subtrees of closed parents. Its count. A
 /// function of its own, out of line: the hot loop of a large tree keeps its slices in registers (inlined in `tree`, one was reloaded
 /// from the stack a node).
@@ -1006,23 +1016,40 @@ impl Ui {
     /// `cell(ui, node)` builds the children of the row that shows tree node `node`, after the disclosure mark, inside the row node
     /// (`Ui::item`); `item_text` puts the kit's text there and names the row.
     /// Keyed by `key` (hashed under the parent's seed).
-    pub fn tree(&mut self, key: &str, nodes: &[TreeNode], open: &mut [u8], selected: &mut Option<usize>, visible: &mut [u32], cell: &mut dyn FnMut(&mut Ui, usize)) -> TreeResponse {
-        let (activated, shown) = self.tree_label(key, nodes, open, selected, visible, cell);
+    /// With `revision` (the content revision of `nodes` and `open`, as `ListState::revision`) the shown rows stay in `visible` between
+    /// builds while it, the slices and the tree's own expansions hold: a warm frame walks no node, only the rows in view. Without it
+    /// they are re-derived every build, a walk over every node. Change it when the app changes `nodes` or `open`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn tree(&mut self, key: &str, nodes: &[TreeNode], open: &mut [u8], selected: &mut Option<usize>, visible: &mut [u32], revision: Option<u64>, cell: &mut dyn FnMut(&mut Ui, usize)) -> TreeResponse {
+        let (activated, shown) = self.tree_label(key, nodes, open, selected, visible, revision, cell);
         TreeResponse { activated, shown }
     }
 
-    fn tree_label(&mut self, label: &str, nodes: &[TreeNode], open: &mut [u8], selected: &mut Option<usize>, visible: &mut [u32], cell: &mut dyn FnMut(&mut Ui, usize)) -> (Option<usize>, usize) {
+    /// Nodes the trees' row derivation walked since the UI began (a diagnostic: a tree with a held revision adds none).
+    pub fn tree_nodes_walked(&self) -> u64 {
+        self.tree_walked
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn tree_label(&mut self, label: &str, nodes: &[TreeNode], open: &mut [u8], selected: &mut Option<usize>, visible: &mut [u32], revision: Option<u64>, cell: &mut dyn FnMut(&mut Ui, usize)) -> (Option<usize>, usize) {
         assert!(visible.len() >= nodes.len(), "tree: `visible` holds at least a row per node");
-        // the visible rows are re-derived each build (specification/pxui.md, designed limits)
-        let flatten = |visible: &mut [u32], open: &[u8]| flatten_tree(nodes, open, visible);
-        let mut rows_shown = flatten(visible, open);
         let rh = self.row_px() as f32;
         let frame = self.node_ref(label, &Node { flags: Flags::FOCUSABLE | Flags::CLIP, w: Size::Grow, h: Size::Grow, look: self.theme().scroll_view.idle, padding: Edges::all(1.0), ..Node::DEFAULT });
+        // the rows kept from the last build: this tree's, derived from these inputs
+        let inputs = revision.map(|r| (r, [nodes.as_ptr() as usize, nodes.len(), open.as_ptr() as usize, open.len(), visible.as_ptr() as usize, visible.len()]));
+        let same = |t: &TreeRows| (t.frame.box_slot, t.frame.generation, t.frame.box_key) == (frame.box_slot, frame.generation, frame.box_key);
+        let hit = self.tree_rows.iter().find(|t| same(t)).copied().filter(|t| Some(t.inputs) == inputs);
+        let mut walked = 0u64;
+        let mut flatten = |visible: &mut [u32], open: &[u8]| { walked += nodes.len() as u64; flatten_tree(nodes, open, visible) };
+        let mut rows_shown = match hit { Some(t) => t.shown, None => flatten(visible, open) };
         let s = self.signal_owned(&frame);
         let focused = self.focused(&frame);
         let page = (self.rect(&frame).h / rh).floor().max(1.0) as i64;
         let cursor_node = self.state(&frame, 0).max(0) as usize;
-        let cursor = visible[..rows_shown].iter().position(|v| *v as usize == cursor_node).unwrap_or(0);
+        let cursor = match hit {
+            Some(t) if visible[..rows_shown].get(t.cursor).is_some_and(|v| *v as usize == cursor_node) => t.cursor,
+            _ => visible[..rows_shown].iter().position(|v| *v as usize == cursor_node).unwrap_or(0),
+        };
         let (mut c, enter, space) = self.list_keys(&s.keys, cursor, rows_shown, page);
         let mut activated = None;
         if let Some(&node) = visible[..rows_shown].get(c) {
@@ -1091,6 +1118,22 @@ impl Ui {
         }
         let cursor_node = visible[..rows_shown].get(c).copied().unwrap_or(0);
         self.set_state(&frame, cursor_node as i64);
+        self.tree_walked += walked;
+        // kept for the next build unless a click expanded or collapsed a node after the rows were derived; a new tree first drops
+        // the gone trees' rows (cold: the list grows only with the live trees); found again, a row's cell may have built a tree
+        let kept = self.tree_rows.iter().position(same);
+        let entry = inputs.filter(|_| toggled.is_none()).map(|inputs| TreeRows { frame, inputs, shown: rows_shown, cursor: c });
+        match (kept, entry) {
+            (Some(k), Some(t)) => self.tree_rows[k] = t,
+            (Some(k), None) => { self.tree_rows.swap_remove(k); }
+            (None, Some(t)) => {
+                let mut rows = core::mem::take(&mut self.tree_rows);
+                rows.retain(|t| self.live(&t.frame));
+                rows.push(t);
+                self.tree_rows = rows;
+            }
+            (None, None) => {}
+        }
         (activated, rows_shown)
     }
 

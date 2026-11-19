@@ -1551,7 +1551,7 @@ fn tree_build(ui: &mut Ui, c: &Cells) {
         (*open, *visible) = (vec![1, 0, 0, 0], vec![0; 4]);
     }
     let mut selected = c.row.get();
-    { let r = ui.tree("Tree", &NODES, &mut open, &mut selected, &mut visible, &mut |ui, node| ui.item_text(["root", "a", "b", "last"][node])); (r.activated, r.shown) };
+    { let r = ui.tree("Tree", &NODES, &mut open, &mut selected, &mut visible, None, &mut |ui, node| ui.item_text(["root", "a", "b", "last"][node])); (r.activated, r.shown) };
     c.row.set(selected);
     c.a.set(selected.map_or(0, |n| n as i64 + 1));
     c.b.set(open[0] as i64);

@@ -1331,6 +1331,10 @@ pub struct Ui {
     wake: f64,
     out: PlatformOut,
     destroyed: bool,
+    /// the shown rows of the trees built with a revision, kept between builds (`Ui::tree`), one a live tree
+    pub(crate) tree_rows: Vec<crate::ui_widgets::TreeRows>,
+    /// nodes the trees' row derivation walked (`Ui::tree_nodes_walked`)
+    pub(crate) tree_walked: u64,
     /// last, and `repr(C)` to keep it so: the 57 KB theme inline anywhere earlier puts every hot field past one aarch64
     /// load's reach (32 KB scaled, 4 KB for bytes), an address instruction per access (measured: see git log)
     theme: Theme,
@@ -1573,6 +1577,8 @@ impl Ui {
             wake: f64::INFINITY,
             out: PlatformOut::default(),
             destroyed: false,
+            tree_rows: Vec::new(),
+            tree_walked: 0,
         }
     }
 

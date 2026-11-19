@@ -33,7 +33,7 @@ export!(trusted pub unsafe fn pxui_ui_tree(ui: *mut PxuiUi, desc: *const PxuiTre
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if out.is_null() { return unsafe { fail(ui, "null tree argument") }; }
     let Some(desc) = sized!(desc) else { return unsafe { fail(ui, "invalid tree descriptor") }; };
-    if desc.nodes.len > MAX_ITEMS || (desc.nodes.len != 0 && desc.nodes.ptr.is_null()) || !valid_span(desc.open.ptr, desc.open.len, desc.nodes.len)
+    if desc.has_revision > 1 || desc.reserved != [0; 3] || desc.nodes.len > MAX_ITEMS || (desc.nodes.len != 0 && desc.nodes.ptr.is_null()) || !valid_span(desc.open.ptr, desc.open.len, desc.nodes.len)
         || !valid_output_span(desc.visible.ptr, desc.visible.len, desc.nodes.len) || desc.selected.is_null() || desc.visible_len.is_null() {
         return unsafe { fail(ui, "invalid tree descriptor") };
     }
@@ -43,7 +43,7 @@ export!(trusted pub unsafe fn pxui_ui_tree(ui: *mut PxuiUi, desc: *const PxuiTre
     let mut selected = (unsafe { *desc.selected } != usize::MAX).then_some(unsafe { *desc.selected });
     let visible: &mut [u32] = if desc.visible.len == 0 { &mut [] } else { unsafe { core::slice::from_raw_parts_mut(desc.visible.ptr, desc.visible.len) } };
     let mut result = (None, 0);
-    let rc = unsafe { crate::trusted::tree(ui, label, raw_nodes, open, &mut selected, visible, &mut |engine: &mut pxui_core::ui::Ui, node| if let Some(build) = desc.build { { let mut b = crate::state::Borrowed::new(engine, ui); let h = b.enter(); build(desc.user, h.cast(), node, 0) } }, &mut result) };
+    let rc = unsafe { crate::trusted::tree(ui, label, raw_nodes, open, &mut selected, visible, (desc.has_revision != 0).then_some(desc.revision), &mut |engine: &mut pxui_core::ui::Ui, node| if let Some(build) = desc.build { { let mut b = crate::state::Borrowed::new(engine, ui); let h = b.enter(); build(desc.user, h.cast(), node, 0) } }, &mut result) };
     if rc != 0 { return rc; }
     unsafe { *desc.visible_len = result.1; *desc.selected = selected.unwrap_or(usize::MAX); *out = result.0.unwrap_or(usize::MAX); }
     0
