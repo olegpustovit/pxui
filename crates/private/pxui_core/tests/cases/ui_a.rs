@@ -1106,7 +1106,43 @@ fn window_fitted_paint_matches_legacy_ellipsis_and_ascii_caps() {
     actual.destroy(); expected.destroy();
 }
 
+/// A focused node's first key in a frame reuses a warmed key list whichever recycled accumulator it is given: here a scroll target is
+/// served first and takes the accumulator that held the focused node's keys, and the key still allocates nothing (U4a.6: the songs
+/// list holding focus through a drag's Escape).
+fn window_focused_key_reuses_a_warmed_key_list() {
+    let mut ui = new_ui(Some(11));
+    let mut build = |ui: &mut Ui| {
+        let focused = ui.node("focused".into(), Node { w: Size::Px(100.0), h: Size::Px(40.0), flags: Flags::CLICKABLE | Flags::TAB_STOP, ..Node::DEFAULT });
+        ui.focus_box(&focused);
+        let _ = ui.signal(&focused);
+        let list = ui.node("list".into(), Node { w: Size::Px(100.0), h: Size::Px(80.0), flags: Flags::SCROLL | Flags::CLIP, scroll_step: 24.0, ..Node::DEFAULT });
+        ui.within(&list, &mut |ui| { ui.node("tall".into(), Node { w: Size::Grow, h: Size::Px(400.0), ..Node::DEFAULT }); });
+        let _ = ui.signal(&list);
+    };
+    let scroll = |step: f64| vec![Event::PointerMoved((50.0, 80.0)), Event::Scrolled((0.0, step))];
+    let mut time = 0.0;
+    let mut frame = |ui: &mut Ui, events: Vec<Event>| -> u64 {
+        time += 0.01;
+        let frame = frame_at(vec![], 1.0, time, events);
+        mem_sys::local_reset();
+        ui.frame(&frame, &mut build);
+        mem_sys::local_alloc_count()
+    };
+    // warm: the scroll frames (the pool's accumulators) and one key list, held by the focused node
+    for step in [-1.0, 1.0, -1.0, 1.0] { frame(&mut ui, scroll(step)); }
+    frame(&mut ui, vec![key_down(Key::ArrowDown)]);
+    frame(&mut ui, vec![]);
+    for (round, step) in [-1.0, 1.0, -1.0].into_iter().enumerate() {
+        frame(&mut ui, vec![key_down(Key::ArrowDown)]);
+        let mut events = scroll(step);
+        events.push(key_down(Key::ArrowDown));
+        assert_eq!(frame(&mut ui, events), 0, "a key after the scroll target took the pool's accumulator (round {round})");
+    }
+    ui.destroy();
+}
+
 pub const CASES: &[(&str, fn())] = &[
+    ("window_focused_key_reuses_a_warmed_key_list", window_focused_key_reuses_a_warmed_key_list),
     ("window_fitted_paint_matches_legacy_ellipsis_and_ascii_caps", window_fitted_paint_matches_legacy_ellipsis_and_ascii_caps),
     ("window_modal_input_and_fitted_labels_reuse_warm_storage", window_modal_input_and_fitted_labels_reuse_warm_storage),
     ("window_pxui_full_width_retained_state", window_pxui_full_width_retained_state),

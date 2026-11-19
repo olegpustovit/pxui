@@ -1249,6 +1249,8 @@ pub struct Ui {
     signals: HashMap<i64, Accumulator>,
     spare_signals: Vec<Accumulator>,
     spare_modifiers: Vec<Vec<Key>>,
+    /// Recycled accumulators' warmed key lists: a node taking keys reuses one, whichever accumulator the pool gave it.
+    spare_key_lists: Vec<Vec<(Event, Vec<Key>)>>,
     hits: Vec<HitRec>,
     hit_count: usize,
     chain_key: i64,
@@ -1515,6 +1517,7 @@ impl Ui {
             signals: HashMap::new(),
             spare_signals: Vec::new(),
             spare_modifiers: Vec::new(),
+            spare_key_lists: Vec::new(),
             hits: Vec::new(),
             hit_count: 0,
             chain_key: 0,
@@ -2806,6 +2809,7 @@ impl Ui {
     fn route(&mut self, frame: &rframe::Frame) {
         for (_, mut value) in self.signals.drain() {
             for (_, modifiers) in value.keys.drain(..) { self.spare_modifiers.push(modifiers); }
+            if value.keys.capacity() > 0 { self.spare_key_lists.push(std::mem::take(&mut value.keys)); }
             self.spare_signals.push(value);
         }
         self.out.cursor = None;
@@ -3112,7 +3116,11 @@ impl Ui {
                                 .unwrap_or_else(|| self.spare_modifiers.pop().unwrap_or_default());
                             mods.clear();
                             mods.extend_from_slice(&modifiers);
+                            // a focus taking its first key this frame takes a warmed key list (recycled accumulators hand theirs to
+                            // `spare_key_lists`, so whichever accumulator a node gets, a key it takes reuses one)
+                            let warmed = if self.signals.get(&focus).is_none_or(|a| a.keys.capacity() == 0) { self.spare_key_lists.pop() } else { None };
                             let value = self.accumulator(focus);
+                            if let Some(keys) = warmed { value.keys = keys; }
                             value.keys.push((event.clone(), mods));
                             if let Event::KeyPressed(Key::Enter) | Event::KeyPressed(Key::Space) | Event::KeyPressed(Key::KeyChar(' ')) = event {
                                 if !command {
@@ -8936,10 +8944,13 @@ impl Ui {
         let mut signals = std::mem::take(&mut self.signals);
         let mut spare_signals = std::mem::take(&mut self.spare_signals);
         let mut spare_modifiers = std::mem::take(&mut self.spare_modifiers);
+        let mut spare_key_lists = std::mem::take(&mut self.spare_key_lists);
         for (_, mut value) in signals.extract_if(|target, _| !self.belongs(*target, key, related)) {
             for (_, modifiers) in value.keys.drain(..) { spare_modifiers.push(modifiers); }
+            if value.keys.capacity() > 0 { spare_key_lists.push(std::mem::take(&mut value.keys)); }
             spare_signals.push(value);
         }
+        self.spare_key_lists = spare_key_lists;
         self.spare_signals = spare_signals;
         self.spare_modifiers = spare_modifiers;
         self.signals = signals;
