@@ -71,7 +71,7 @@ pub mod shapes {
     }
     fn cell_of(c: &ListCell) -> CellState { CellState { selected: c.selected, enabled: c.enabled, focused: c.focused, held: c.held, handle: c.handle, y: c.y } }
     fn abi(b: Handle) -> pxui_types::PxuiBox { pxui_types::PxuiBox { index: b.index as u64, box_key: b.box_key, box_slot: b.box_slot as u64, generation: b.generation } }
-    fn list_response(r: &ListResult) -> ListResponse { ListResponse { handle: abi(r.handle), activated: r.activated, selected: r.selected, secondary: r.secondary, row: r.row.map(abi), moved: r.moved, drop_at: r.drop_at, focused: r.focused } }
+    fn list_response(r: &ListResult) -> ListResponse { ListResponse { handle: abi(r.handle), activated: r.activated, selected: r.selected, secondary: r.secondary, row: r.row.map(abi), moved: r.moved, drop_at: r.drop_at } }
 
     #[repr(transparent)]
     pub struct Ui(Engine);
