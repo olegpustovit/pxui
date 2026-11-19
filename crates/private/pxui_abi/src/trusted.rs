@@ -17,6 +17,9 @@ use pxui_types::{Axis, FrameIn, FrameOut, Node, Size, ffi::Input, geom::Edges, l
 pub use crate::state::Borrowed;
 pub use pxui_core::ui::Ui as Engine;
 pub use pxui_core::ui_lists::ListCell;
+/// What a plain button, icon button or toggle entry reports (`#[repr(C)]`): the static wrapper reads it as it is, a C export as
+/// its `PxuiResponse` (`respond`).
+pub use pxui_core::ui::Response as EngineResponse;
 
 
 /// `value` as text the caller promises is UTF-8, at most `max` bytes (the role's cap the exports refuse above). Its pointer is never
@@ -142,12 +145,12 @@ pub unsafe fn pxui_toggle(ui: *mut PxuiUi, label: Str, on: u8, out: *mut u8) -> 
 /// The plain kit toggle (`Toggle::DEFAULT`) keyed by `key`, `pxui_ui_toggle_plain`'s body: the engine's own default options, nothing built or checked
 /// for them. A click is the flip of `on`, which the caller keeps.
 #[inline(always)]
-pub unsafe fn toggle_plain(ui: *mut PxuiUi, key: &str, text: &str, on: bool, out: &mut PxuiResponse) -> i32 {
+pub unsafe fn toggle_plain(ui: *mut PxuiUi, key: &str, text: &str, on: bool, out: &mut EngineResponse) -> i32 {
     enter!(ui);
     let text = clip(text);
     if bad_key(key) { return unsafe { fail(ui, "invalid toggle text") }; }
     let r = unsafe { engine(ui) }.toggle_opts(key, text, on, &ToggleOpts::DEFAULT);
-    respond(&r, out);
+    *out = r;
     0
 }
 
@@ -618,25 +621,25 @@ pub unsafe fn button_with(ui: *mut PxuiUi, key: &str, text: &str, name: Option<&
 /// The plain kit button (`Button::DEFAULT`) keyed by `key`, `pxui_ui_button_plain`'s body: `button_with` with the engine's own
 /// default options, so nothing is built or checked for them.
 #[inline(always)]
-pub unsafe fn button_plain(ui: *mut PxuiUi, key: &str, text: &str, out: &mut PxuiResponse) -> i32 {
+pub unsafe fn button_plain(ui: *mut PxuiUi, key: &str, text: &str, out: &mut EngineResponse) -> i32 {
     enter!(ui);
     let text = clip(text);
     if bad_key(key) { return unsafe { fail(ui, "invalid button text") }; }
     let r = unsafe { engine(ui) }.button_opts(key, text, None, &pxui_core::ui::ButtonOpts::DEFAULT, [""; 3], None, None);
-    respond(&r, out);
+    *out = r;
     0
 }
 
 /// The plain kit icon button (`IconButton::DEFAULT`) showing the glyph `glyph`, `pxui_ui_icon_button_plain`'s body: as
 /// `button_plain`.
 #[inline(always)]
-pub unsafe fn icon_button_plain(ui: *mut PxuiUi, key: &str, glyph: &str, name: &str, out: &mut PxuiResponse) -> i32 {
+pub unsafe fn icon_button_plain(ui: *mut PxuiUi, key: &str, glyph: &str, name: &str, out: &mut EngineResponse) -> i32 {
     enter!(ui);
     let glyph = clip(glyph);
     let name = clip(name);
     if bad_key(key) { return unsafe { fail(ui, "invalid icon button text") }; }
     let r = unsafe { engine(ui) }.icon_button_text(key, glyph, None, name, &pxui_core::ui::IconButton::DEFAULT, None);
-    respond(&r, out);
+    *out = r;
     0
 }
 

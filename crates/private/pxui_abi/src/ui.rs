@@ -319,12 +319,15 @@ fn valid_touches(events:&[pxui_types::Event])->bool {
 fn decode_events(out: &mut Vec<Event>, events: &[pxui_types::Event]) -> bool {
     let mut budget = crate::state::MAX_TOTAL_TEXT_BYTES;
     for raw in events {
+        // the commonest event of a frame, decoded in line (`translate_event` decodes it the same)
+        if raw.kind == pxui_types::Event::POINTER_MOVED && raw.x.is_finite() && raw.y.is_finite() && raw.value.is_finite() { out.push(Event::PointerMoved((raw.x, raw.y))); continue; }
         let Some(event) = translate_event(raw, &mut budget) else { return false };
         out.push(event);
     }
     true
 }
 
+#[inline]
 fn fold_input_edges(base: &mut input::Frame) {
     for event in &base.events {
         match event {
@@ -341,6 +344,7 @@ fn fold_input_edges(base: &mut input::Frame) {
 }
 
 /// Reuse input buffers. Retained keys and buttons change only after the batch has been validated.
+#[inline]
 unsafe fn take_input(ui: *mut PxuiUi, time: f64) -> Box<frame::Frame> {
     let mut base = unsafe { (*(*ui).shared).spare_input.take() }.unwrap_or_else(|| {
         let mut input=input::at_time(time);
@@ -391,7 +395,8 @@ fn valid_environment(value:&pxui_types::Environment)->bool {
         && (value.keyboard_started+value.keyboard_duration).is_finite() && value.keyboard_visible<=1
 }
 
-/// Runs one frame of `ui` over `frame`. Both frame entry points call it after decoding their input.
+/// Runs one frame of `ui` over `frame`. Both frame entry points call it after decoding their input (inline: one frame call fewer).
+#[inline(always)]
 unsafe fn run_frame(ui: *mut PxuiUi, frame: &frame::Frame, build: Inner, out: &mut FrameOut) -> i32 {
     // The callbacks reach the shared state through `shared`, so no `&mut Shared` is held across the build.
     let (engine, shared) = unsafe { ((*ui).engine, (*ui).shared) };
@@ -441,9 +446,9 @@ unsafe fn enter_frame(ui: *mut PxuiUi) -> Result<(), i32> {
 pub(crate) unsafe fn frame_body(ui: *mut PxuiUi, input: &FrameIn, build: Inner, out: &mut FrameOut) -> i32 {
     if !ui.is_null() { unsafe { crate::state::note_call((*ui).shared) }; }
     if let Err(code) = unsafe { enter_frame(ui) } { return code; }
-    // a size within 0..=MAX_SURFACE (NaN is outside every range)
+    // a size within 0..=MAX_SURFACE, a scale in (0, inf) and a finite time: NaN fails every compare, so each is a compare or two
     let surface = |v: f32| (0.0..=MAX_SURFACE as f32).contains(&v);
-    if !input.time.is_finite() || !input.scale.is_finite() || input.scale <= 0.0 || !surface(input.width) || !surface(input.height) { return unsafe { fail(ui, "invalid frame descriptor") }; }
+    if !(input.time.abs() < f64::INFINITY) || !(input.scale > 0.0 && input.scale < f32::INFINITY) || !surface(input.width) || !surface(input.height) { return unsafe { fail(ui, "invalid frame descriptor") }; }
     if input.event_count > 4096 || (input.event_count != 0 && input.events.is_null()) { return unsafe { fail(ui, "invalid frame event slice") }; }
     let legacy=core::mem::offset_of!(FrameIn,appearance) as u32;
     let previous=core::mem::offset_of!(FrameIn,environment) as u32;

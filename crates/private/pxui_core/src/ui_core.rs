@@ -3659,6 +3659,8 @@ impl Ui {
     }
 
     /// A node keyed by a label the caller holds (the C ABI's `pxui_ui_node`, the widgets' own labels); it is copied once, into the box.
+    /// Inline: a key and a call; libpxui's partitioning otherwise keeps it out of line where the static build folds it in.
+    #[inline]
     pub fn node_ref(&mut self, label: &str, node: &Node) -> Handle {
         self.require_building();
         let key = key_of(self.current_seed(), label);
@@ -8051,7 +8053,9 @@ impl Ui {
         }
     }
 
-    /// The blur records of the shown views, where their runs now sit.
+    /// The blur records of the shown views, where their runs now sit. Inline, as `refresh_views`: libpxui's partitioning otherwise
+    /// keeps both out of `end_frame` where the static build folds them in (abi_bench dynamic, every frame).
+    #[inline(always)]
     fn collect_blurs(&mut self) {
         self.blur_out.clear();
         for r in &self.views[1..] {
@@ -8235,6 +8239,7 @@ impl Ui {
 
     /// Recompose every shown view's entry into `view_out`; the damage gets each moved view's old
     /// and new rectangles. Whether any entry changed.
+    #[inline(always)]
     fn refresh_views(&mut self) -> bool {
         self.stamp += 1;
         let mut out = std::mem::take(&mut self.view_prev);

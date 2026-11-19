@@ -56,7 +56,10 @@ export!(trusted pub unsafe fn pxui_ui_button_plain(ui: *mut PxuiUi, key: Str, te
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short button response") } };
     let (Some(key), Some(text)) = (unsafe { crate::state::checked_key(key) }, unsafe { checked(text) }) else { return unsafe { fail(ui, "invalid button text") } };
-    unsafe { trusted::button_plain(ui, key, text, out) }
+    let mut r = trusted::EngineResponse::default();
+    let rc = unsafe { trusted::button_plain(ui, key, text, &mut r) };
+    if rc == 0 { trusted::respond(&r, out); }
+    rc
 });
 
 /// The checked `PxuiButtonDesc` behind `desc` (not null) through the trusted entry: what happened to `out`, the whole signal to
@@ -117,7 +120,10 @@ export!(trusted pub unsafe fn pxui_ui_icon_button_plain(ui: *mut PxuiUi, key: St
     state.shared().icon_word = 0;
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short icon button response") } };
     let (Some(key), Some(icon), Some(name)) = (unsafe { crate::state::checked_key(key) }, unsafe { checked(icon) }, unsafe { checked(name) }) else { return unsafe { fail(ui, "invalid icon button text") } };
-    unsafe { trusted::icon_button_plain(ui, key, icon, name, out) }
+    let mut r = trusted::EngineResponse::default();
+    let rc = unsafe { trusted::icon_button_plain(ui, key, icon, name, &mut r) };
+    if rc == 0 { trusted::respond(&r, out); }
+    rc
 });
 
 /// The checked `PxuiIconButtonDesc` behind `desc` (not null) through the trusted entry, as `button_call`.
@@ -168,7 +174,10 @@ export!(trusted pub unsafe fn pxui_ui_toggle_plain(ui: *mut PxuiUi, key: Str, te
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short toggle response") } };
     let (Some(key), Some(text)) = (unsafe { crate::state::checked_key(key) }, unsafe { checked(text) }) else { return unsafe { fail(ui, "invalid toggle text") } };
     if on > 1 { return unsafe { fail(ui, "invalid toggle value") }; }
-    unsafe { trusted::toggle_plain(ui, key, text, on != 0, out) }
+    let mut r = trusted::EngineResponse::default();
+    let rc = unsafe { trusted::toggle_plain(ui, key, text, on != 0, &mut r) };
+    if rc == 0 { trusted::respond(&r, out); }
+    rc
 });
 
 // ABI 1.51: the kit toggle with options, reporting into one `PxuiResponse`.

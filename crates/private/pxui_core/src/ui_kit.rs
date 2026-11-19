@@ -172,6 +172,7 @@ impl ButtonOpts {
 
 /// What happened to a button this frame, as the wrapper's `Response` says it.
 #[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
 pub struct Response {
     /// Pointer released over it after a press on it, or Enter/Space while focused.
     pub clicked: bool,

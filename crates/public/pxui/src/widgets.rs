@@ -63,7 +63,8 @@ impl Ui {
         #[cfg(not(feature = "static"))]
         let (chosen, secondary) = {
             let keyed = PxuiKeyedDesc::new(label, crate::clip(name));
-            let list = crate::PickItems::new(items);
+            let mut list = crate::PickItems::new();
+            list.fill(items);
             let mut result = pxui_types::ffi::PxuiSegmentedResult::EMPTY;
             let (has, at) = (selected.is_some() as u8, selected.unwrap_or(0));
             self.with_variant(body, variant, &mut |ui| check(ui, unsafe {

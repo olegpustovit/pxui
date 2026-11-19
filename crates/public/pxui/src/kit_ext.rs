@@ -71,6 +71,15 @@ fn keyframe(target: Target, curve: Curve) -> KeyframeDesc {
 /// The six looks of `states` (idle, hover, pressed, focus, disabled, checked) as the descriptors carry them.
 pub(crate) fn six(s: &pxui_types::theme::States) -> [pxui_types::ffi::PxuiLookDesc; 6] { [look(s.idle), look(s.hover), look(s.pressed), look(s.focus), look(s.disabled), look(s.checked)] }
 
+/// A plain entry's engine record as a `Response` (statically linked: no flag word between them).
+#[cfg(feature = "static")]
+#[inline(always)]
+pub(crate) fn engine_response(r: &pxui_abi_link::trusted::EngineResponse) -> Response {
+    let h = r.handle;
+    Response { clicked: r.clicked, hovered: r.hovered, held: r.held, focused: r.focused, activated: r.activated, changed: false, secondary: r.secondary,
+        handle: crate::Handle { index: h.index as u64, box_key: h.box_key, box_slot: h.box_slot as u64, generation: h.generation } }
+}
+
 /// The wrapper's `Response` of a button call's record.
 // Inline: out of line, the button bodies cost the abi_bench Overlays page 0.9% more retired instructions (static release, U1c.1: 1.0189 inline, 1.0277 not).
 #[inline]
@@ -115,9 +124,13 @@ impl Ui {
         let plain = button.look.is_none() && matches!((button.w, button.h), (Size::Fit, Size::Fit)) && button.enabled && button.press_scale == 1.0 && draw.is_none()
             && button.press.is_none() && button.selected.is_none();
         #[cfg(feature = "static")]
-        let rc = if plain {
-            unsafe { pxui_abi_link::trusted::icon_button_plain(self.0.as_ptr(), key, glyph, name, &mut out) }
-        } else {
+        if plain {
+            let mut r = pxui_abi_link::trusted::EngineResponse::default();
+            check(self, unsafe { pxui_abi_link::trusted::icon_button_plain(self.0.as_ptr(), key, glyph, name, &mut r) });
+            return engine_response(&r);
+        }
+        #[cfg(feature = "static")]
+        let rc = {
             unsafe { pxui_abi_link::trusted::icon_button_with(self.0.as_ptr(), key, glyph, draw, user, word, name, button.look, button.w, button.h, button.enabled, button.press_scale, button.press, button.selected, &mut out, None) }
         };
         #[cfg(not(feature = "static"))]
@@ -156,9 +169,13 @@ impl Ui {
             Some(Icon::Draw(f, word)) => ("", Some(crate::paint::icon_draw as extern "C" fn(*mut c_void, *mut c_void, Rect, Rgba, *const pxui_types::ffi::PxuiPaintInfo)), f as *mut c_void, word),
         };
         #[cfg(feature = "static")]
-        let rc = if plain {
-            unsafe { pxui_abi_link::trusted::button_plain(self.0.as_ptr(), key, text, &mut out) }
-        } else {
+        if plain {
+            let mut r = pxui_abi_link::trusted::EngineResponse::default();
+            check(self, unsafe { pxui_abi_link::trusted::button_plain(self.0.as_ptr(), key, text, &mut r) });
+            return engine_response(&r);
+        }
+        #[cfg(feature = "static")]
+        let rc = {
             let has_content = content.is_some();
             let mut inner = content;
             let outer = self.0.as_ptr();
@@ -211,9 +228,13 @@ impl Ui {
             && toggle.inset.is_none() && !toggle.press_row && toggle.label.is_none();
         let (switch_w, switch_h) = toggle.switch.unwrap_or((0.0, 0.0));
         #[cfg(feature = "static")]
-        let rc = if plain {
-            unsafe { pxui_abi_link::trusted::toggle_plain(self.0.as_ptr(), key, text, on, &mut out) }
-        } else {
+        if plain {
+            let mut r = pxui_abi_link::trusted::EngineResponse::default();
+            check(self, unsafe { pxui_abi_link::trusted::toggle_plain(self.0.as_ptr(), key, text, on, &mut r) });
+            return Response { changed: r.clicked, ..engine_response(&r) };
+        }
+        #[cfg(feature = "static")]
+        let rc = {
             unsafe { pxui_abi_link::trusted::toggle_with(self.0.as_ptr(), key, text, on, toggle.track, toggle.knob, toggle.row_h.unwrap_or(0.0), switch_w, switch_h,
                 toggle.inset.unwrap_or(0.0), toggle.press_row, toggle.detail, toggle.label.as_ref().map(|l| l.fields()), toggle.enabled, &mut out) }
         };
@@ -249,7 +270,8 @@ impl Ui {
         };
         #[cfg(not(feature = "static"))]
         let (chosen, secondary, rc) = {
-            let items = crate::PickItems::new(options);
+            let mut items = crate::PickItems::new();
+            items.fill(options);
             let states = segmented.look.map(six);
             let desc = pxui_types::ffi::PxuiSegmentedDesc {
                 size: core::mem::size_of::<pxui_types::ffi::PxuiSegmentedDesc>() as u32, enabled: segmented.enabled as u8, grow: segmented.grow as u8, reserved: [0; 2], h: segmented.h.unwrap_or(0.0),

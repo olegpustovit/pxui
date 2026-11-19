@@ -912,13 +912,17 @@ pub(crate) struct PickItems {
 }
 
 impl PickItems {
-    pub(crate) fn new(items:&[Segment])->Self {
+    /// An empty column: `fill` writes it where it lies (a filled 2 KiB column returned by value was copied, a memmove per pick).
+    #[inline(always)]
+    pub(crate) fn new()->Self { Self { stack:[const { core::mem::MaybeUninit::uninit() };32], heap:Vec::new(), len:0 } }
+    #[inline(always)]
+    pub(crate) fn fill(&mut self, items:&[Segment]) {
         let item=|s:&Segment| pxui_types::ffi::PxuiPickItem { has_id:s.id.is_some() as u8, id:s.id.unwrap_or(0), text:as_str(s.text), name:as_str(s.name.unwrap_or("")), detail:as_str(s.detail), ..Default::default() };
-        let mut list=Self { stack:[const { core::mem::MaybeUninit::uninit() };32], heap:Vec::new(), len:items.len() };
-        if items.len()<=32 { for (out,s) in list.stack.iter_mut().zip(items) { out.write(item(s)); } }
-        else { list.heap=items.iter().map(item).collect(); }
-        list
+        self.len=items.len();
+        if items.len()<=32 { for (out,s) in self.stack.iter_mut().zip(items) { out.write(item(s)); } }
+        else { self.heap=items.iter().map(item).collect(); }
     }
+    #[inline]
     pub(crate) fn span(&self)->pxui_types::ffi::Slice<pxui_types::ffi::PxuiPickItem> {
         // the first `len` stack slots are written when `len` is at most 32
         let ptr=if self.len<=32 { self.stack.as_ptr().cast() } else { self.heap.as_ptr() };
