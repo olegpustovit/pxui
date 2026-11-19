@@ -107,7 +107,9 @@ pub(crate) fn moved_index(k: usize, (from, to): (usize, usize)) -> usize {
 /// drag spends it; a plain held press leaves it to the selection; a carry's `cancel_carry` spends it before). The keys it handles are taken from the app's `key_pressed`.
 #[allow(clippy::type_complexity)]
 fn key_selection(this: &Ui, frame: &Handle, count: usize, page: i64, flags: &mut [u8], anchor: &mut Option<usize>, multi: bool, reorder: bool) -> (usize, usize, bool, Option<usize>, Option<(usize, usize)>) {
-    let cursor = (this.state(frame, 0).max(0) as usize).min(count.saturating_sub(1));
+    let mut cursor = (this.state(frame, 0).max(0) as usize).min(count.saturating_sub(1));
+    // a selection the app wrote (its anchor selected, the keyboard's row not) brings the keyboard's row to the anchor
+    if let Some(a) = *anchor && a < count && flags[a] & SELECTED != 0 && flags[cursor] & SELECTED == 0 { cursor = a; }
     let (mut c, mut enter, mut space, mut all, mut changed, mut moved) = (cursor, false, false, false, None, None);
     let mut clear = false;
     // Space selects on other platforms; on Apple it stays the app's (NSTableView takes no Space)
@@ -163,7 +165,8 @@ fn key_selection(this: &Ui, frame: &Handle, count: usize, page: i64, flags: &mut
         for f in flags.iter_mut() { if *f & DISABLED == 0 { *f |= SELECTED; } }
         changed = Some(c);
     }
-    (cursor, c, enter && count > 0 && flags[c] & DISABLED == 0, changed, moved)
+    // Enter activates the keyboard's row only while it is selected (a list with no selection activates nothing)
+    (cursor, c, enter && count > 0 && flags[c] & (DISABLED | SELECTED) == SELECTED, changed, moved)
 }
 
 /// The rows' shared state while a list or table builds.

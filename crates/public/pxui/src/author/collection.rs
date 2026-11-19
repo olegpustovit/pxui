@@ -384,9 +384,9 @@ impl Ui {
     /// Selection lives in the widget and the app-owned `state`: a click selects a row alone and sets the anchor; with
     /// `SelectionList::multi` Command (Ctrl) toggles one and Shift selects the run from the anchor; arrows, Page keys, Home and End move
     /// the keyboard's row (Shift extending), Space toggles it (not on Apple, where Space stays the app's as in NSTableView), Command-A
-    /// selects every enabled row; a focused list takes these keys, so `Ui::key_pressed` no longer reports them (Command chords other
-    /// than Command-A stay the app's, and Escape). A double click or Enter reports
-    /// `activated`, a secondary press (right click, Control-click, long press) `secondary`, both with the row's box in `row`. Rows the
+    /// selects every enabled row, Escape clears the selection (U2b.4.25); a focused list takes these keys, so `Ui::key_pressed` no
+    /// longer reports them (Command chords other than Command-A stay the app's). A selection the app writes brings the keyboard's
+    /// row to its anchor (U2b.4.26). A double click, or Enter on a selected keyboard row, reports `activated`, a secondary press (right click, Control-click, long press) `secondary`, both with the row's box in `row`. Rows the
     /// app flags `ListState::DISABLED` take no selection or presses and read as disabled. With `SelectionList::reorder` rows move as
     /// `SectionList::reorder` describes (`moved`, `drop_at`). One Tab stop.
     ///
@@ -1030,6 +1030,31 @@ mod tests {
             let apple = cfg!(any(target_os = "macos", target_os = "ios"));
             assert_eq!(seen.get().2, apple || !taken, "{role:?}: Space stays the app's on Apple");
         }
+    }
+
+    /// Enter activates the keyboard's row only while it is selected, and a selection the app writes (its anchor) brings the keyboard's
+    /// row there, so Enter activates the row the app selected.
+    #[test]
+    fn enter_activates_the_selected_keyboard_row_and_follows_an_app_selection() {
+        let state = RefCell::new(ListState::new());
+        let last = Cell::new(ListResponse::default());
+        let mut build = |ui: &mut Ui| {
+            let r = ui.selection_list("files", 3, &|i| i as i64, &mut state.borrow_mut(), &SelectionList::DEFAULT.multi(), &mut |ui, part, _| if let SectionPart::Row(row) = part { ui.item_text(["a", "b", "c"][row]) });
+            ui.focus_default(&r.handle);
+            last.set(r);
+        };
+        let mut ui = crate::doc::frames(2, &mut build);
+        press(&mut ui, 1.0, KeyCode::Enter, &[], &mut build);
+        assert_eq!(last.get().activated, None, "no selection: Enter activates nothing");
+        {
+            let mut s = state.borrow_mut();
+            s.rows = vec![0, 0, ListState::SELECTED];
+            s.anchor = Some(2);
+        }
+        press(&mut ui, 2.0, KeyCode::Enter, &[], &mut build);
+        assert_eq!(last.get().activated, Some(2), "the app's selection is the keyboard's row");
+        press(&mut ui, 3.0, KeyCode::ArrowUp, &[], &mut build);
+        assert_eq!(on(&state.borrow()), vec![1], "arrows go on from there");
     }
 
     /// Escape clears a focused multi-selection list's selection and is the list's; with nothing selected, in a single-selection list,
