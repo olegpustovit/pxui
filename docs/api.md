@@ -62,7 +62,7 @@ The target public surface. **Rule:** a call not marked with a step keeps its HEA
 | Getters | `keyboard()`, `environment()`, `text_traits()` (was `text_input_options`), `ime() -> Option<Ime>`, `platform()`, `now()`, `frame_index()`, `system_appearance() -> Appearance` | — | U1a.4 (appearance), U1b.2 |
 | Signals | `signal`, `signal_keys` → `Signal`: documented as the body/custom-control layer | — | HEAD |
 | Hover / press queries | `hovered(&Handle, within: bool) -> bool` replaces the `hovered_exactly`/`hovered_within` twin; `press_keys`, `last_press_within(&[Event], &[Key]) -> Option<Key>`, `context_at(&Handle) -> Option<Point>`, free `context_clicked` | — | U1b.2 |
-| Kept as HEAD (listed so the two-way check passes) | Build/retained: `set_at`, `to_front`, `node_layout`/`set_node_layout`, `node_mut` (made non-generic U1c.1), `cached_label`, `busy_step`, `set_dir`, `rtl`, `view_size() -> ViewSize` (width and height in logical points, U1b.3). Input/text: `captured`, `clipboard_request`, `paste_requested`, `passed_undo`, `text_input_focused`, `text_undo_bytes`, `unfocus`, `remember<K>(key, ..)` (key-first with `load_text_edit`, U1b.2), `event_text`, `dismiss_popup`. Frame/diagnostics: `request_frame`, `request_cursor`, `arranged_nodes`, `built_nodes`, `rebuilt_views`, `rebuilt_named`, `draw_calls`, `draw_revision`, `text_layout_count`, `verifying`, `abi_version`. A11y: `set_a11y`, `inject_a11y`. | — | HEAD unless noted |
+| Kept as HEAD (listed so the two-way check passes) | Build/retained: `set_at`, `to_front`, `node_layout`/`set_node_layout`, `node_mut` (made non-generic U1c.1), `cached_label`, `busy_step`, `set_dir`, `rtl`, `view_size() -> ViewSize` (width and height in logical points, U1b.3). Input/text: `captured`, `reordering` (a list row lifted by its handle, U2b.4.12), `clipboard_request`, `paste_requested`, `passed_undo`, `text_input_focused`, `text_undo_bytes`, `unfocus`, `remember<K>(key, ..)` (key-first with `load_text_edit`, U1b.2), `event_text`, `dismiss_popup`. Frame/diagnostics: `request_frame`, `request_cursor`, `arranged_nodes`, `built_nodes`, `rebuilt_views`, `rebuilt_named`, `draw_calls`, `draw_revision`, `text_layout_count`, `verifying`, `abi_version`. A11y: `set_a11y`, `inject_a11y`. | — | HEAD unless noted |
 | Testing | `testing::{frame, click, click_node, key, find}` | — | U1a.4 |
 | Extension set (no stability) | `pxui::ext::{inspector_*, footer, line_field, value_field, grip, field_drag, inspector_width, inspector_label_x}`: free functions taking the `Ui` first (`pxui::ext::inspector_toggle(ui, key, label, on)`); the inspector toggle and button are the toggle and button bodies' | through bodies | U1c.3 |
 | 2.0 additions | Error/diagnostics export and font list at create (C, U5.9); `pxui_supports` baseline (U5.8); surface registration (U5.2) | — | U5 |
@@ -1376,6 +1376,7 @@ pxui::Ui::register_value_field_body fn (&mut self, name: &str, body: fn(&mut Ui,
 pxui::Ui::register_window_body fn (&mut self, name: &str, body: fn(&mut Ui, &WindowConfig)) -> Result<BodyId, Error> @U1a.3
 -pxui::Ui::remember fn (&mut self, edit: &TextEdit, typing: bool) @U1b.2
 pxui::Ui::remember fn <K: Into<Key>>(&mut self, key: K, edit: &TextEdit, typing: bool) @U1b.2
+pxui::Ui::reordering fn (&self) -> bool @U2b.4.12
 pxui::Ui::repaint_after fn (&mut self, seconds: f64) @HEAD
 pxui::Ui::repaint_at fn (&self) -> Option<f64> @HEAD
 pxui::Ui::request_cursor fn (&mut self, shape: Cursor) @HEAD
@@ -2389,6 +2390,7 @@ pxui::ui::Ui::register_value_field_body fn (&mut self, name: &str, body: fn(&mut
 pxui::ui::Ui::register_window_body fn (&mut self, name: &str, body: fn(&mut Ui, &WindowConfig)) -> Result<BodyId, Error> @U1a.3
 -pxui::ui::Ui::remember fn (&mut self, edit: &TextEdit, typing: bool) @U1b.2
 pxui::ui::Ui::remember fn <K: Into<Key>>(&mut self, key: K, edit: &TextEdit, typing: bool) @U1b.2
+pxui::ui::Ui::reordering fn (&self) -> bool @U2b.4.12
 pxui::ui::Ui::repaint_after fn (&mut self, seconds: f64) @HEAD
 pxui::ui::Ui::repaint_at fn (&self) -> Option<f64> @HEAD
 pxui::ui::Ui::request_cursor fn (&mut self, shape: Cursor) @HEAD

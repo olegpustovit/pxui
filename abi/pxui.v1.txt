@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 104
+minor 105
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -157,6 +157,7 @@ function pxui_ui_progress int32_t pxui_ui_progress ( PxuiUi * ui , const PxuiKey
 function pxui_ui_rebuilt_named int32_t pxui_ui_rebuilt_named ( PxuiUi * ui , PxuiStr prefix , uint64_t * out ) ;
 function pxui_ui_rect int32_t pxui_ui_rect ( PxuiUi * ui , const PxuiBox * box , PxuiRect * out ) ;
 function pxui_ui_remember int32_t pxui_ui_remember ( PxuiUi * ui , int64_t key , PxuiStr text , uint64_t caret , uint64_t anchor , uint8_t typing ) ;
+function pxui_ui_reordering uint8_t pxui_ui_reordering ( PxuiUi * ui ) ;
 function pxui_ui_repaint_after int32_t pxui_ui_repaint_after ( PxuiUi * ui , double seconds ) ;
 function pxui_ui_request_cursor int32_t pxui_ui_request_cursor ( PxuiUi * ui , uint32_t shape ) ;
 function pxui_ui_request_frame int32_t pxui_ui_request_frame ( PxuiUi * ui ) ;

@@ -1002,6 +1002,29 @@ mod tests {
         assert_eq!(moved.get(), None);
     }
 
+    /// U2b.4.12: `Ui::reordering` is true while a row is lifted by its handle (from its press frame) and false once Escape puts it
+    /// back; a press elsewhere on the row lifts nothing.
+    #[test]
+    fn reordering_reports_a_lifted_row_only() {
+        let (items, cells, moved) = (RefCell::new((0..10).collect::<Vec<i64>>()), RefCell::new(Vec::new()), Cell::new(None));
+        let mut build = |ui: &mut Ui| handle_list(ui, &items, &cells, &moved);
+        let mut ui = crate::doc::frames(2, &mut build);
+        assert!(!ui.reordering());
+        let p = |kind, x, y| [Event::pointer(kind, 0, x, y)];
+        at(&mut ui, 1.0, &p(Event::POINTER_PRESSED, 310.0, 50.0), &mut build);
+        assert!(ui.reordering(), "a handle press lifts the row at once");
+        at(&mut ui, 1.1, &p(Event::POINTER_MOVED, 310.0, 90.0), &mut build);
+        assert!(ui.reordering() && ui.captured(), "the drag holds the pointer");
+        at(&mut ui, 1.2, &[key(Event::KEY_PRESSED, KeyCode::Escape)], &mut build);
+        at(&mut ui, 1.3, &[], &mut build);
+        assert!(!ui.reordering(), "Escape puts the row back");
+        at(&mut ui, 1.4, &p(Event::POINTER_RELEASED, 310.0, 90.0), &mut build);
+        assert_eq!(moved.get(), None, "a cancelled drag moves nothing");
+        at(&mut ui, 2.0, &p(Event::POINTER_PRESSED, 100.0, 50.0), &mut build);
+        assert!(!ui.reordering(), "a press elsewhere on the row lifts nothing");
+        at(&mut ui, 2.1, &p(Event::POINTER_RELEASED, 100.0, 50.0), &mut build);
+    }
+
     /// U4a.6 (found by LocalWave's songs list): a row dragged past either end of a short list (the lifted row held at the rows' edge)
     /// reaches the last and the first place; a row lifted onto another's middle elsewhere has not passed it.
     #[test]

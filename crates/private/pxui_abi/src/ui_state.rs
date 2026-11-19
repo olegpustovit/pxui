@@ -45,6 +45,7 @@ export!(pub unsafe fn pxui_ui_content_rect(ui:*mut PxuiUi,out:*mut pxui_types::g
 export!(pub unsafe fn pxui_ui_now(ui: *mut PxuiUi) -> f64 { unsafe { engine(ui) }.map_or(0.0, |e| e.now()) });
 export!(pub unsafe fn pxui_ui_frame_index(ui: *mut PxuiUi) -> u64 { unsafe { engine(ui) }.map_or(0, |e| e.frame_index()) });
 export!(pub unsafe fn pxui_ui_captured(ui: *mut PxuiUi) -> u8 { unsafe { engine(ui) }.is_some_and(|e| e.captured()) as u8 });
+export!(pub unsafe fn pxui_ui_reordering(ui: *mut PxuiUi) -> u8 { unsafe { engine(ui) }.is_some_and(|e| e.reordering()) as u8 });
 export!(pub unsafe fn pxui_ui_text_input_focused(ui: *mut PxuiUi) -> u8 { unsafe { engine(ui) }.is_some_and(|e| e.text_input_focused()) as u8 });
 export!(pub unsafe fn pxui_ui_verifying(ui: *mut PxuiUi) -> u8 { unsafe { engine(ui) }.is_some_and(|e| e.verifying()) as u8 });
 export!(pub unsafe fn pxui_ui_text_undo_bytes(ui: *mut PxuiUi) -> u64 { unsafe { engine(ui) }.map_or(0, |e| e.text_undo_bytes() as u64) });

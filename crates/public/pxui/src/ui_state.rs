@@ -16,6 +16,7 @@ library!(lib {
     fn pxui_ui_density(ui: *mut PxuiUi) -> i64;
     fn pxui_ui_frame_index(ui: *mut PxuiUi) -> u64;
     fn pxui_ui_captured(ui: *mut PxuiUi) -> u8;
+    fn pxui_ui_reordering(ui: *mut PxuiUi) -> u8;
     fn pxui_ui_text_input_focused(ui: *mut PxuiUi) -> u8;
     fn pxui_ui_verifying(ui: *mut PxuiUi) -> u8;
     fn pxui_ui_text_undo_bytes(ui: *mut PxuiUi) -> u64;
@@ -208,6 +209,10 @@ impl Ui {
     #[inline] pub fn now(&self) -> f64 { unsafe { lib::pxui_ui_now(self.0.as_ptr()) } }
     #[inline] pub fn frame_index(&self) -> u64 { unsafe { lib::pxui_ui_frame_index(self.0.as_ptr()) } }
     #[inline] pub fn captured(&self) -> bool { unsafe { lib::pxui_ui_captured(self.0.as_ptr()) != 0 } }
+    /// A reorderable list's row is lifted by its handle this frame (`SectionList::reorder`, `SelectionList::reorder`): the drag
+    /// Escape, a cancelled pointer or lost focus puts back. An app spends its own Escape on nothing else while it is true.
+    /// Allocates: never. Panics: never.
+    #[inline] pub fn reordering(&self) -> bool { unsafe { lib::pxui_ui_reordering(self.0.as_ptr()) != 0 } }
     #[inline] pub fn text_input_focused(&self) -> bool { unsafe { lib::pxui_ui_text_input_focused(self.0.as_ptr()) != 0 } }
     #[inline] pub fn verifying(&self) -> bool { unsafe { lib::pxui_ui_verifying(self.0.as_ptr()) != 0 } }
     #[inline] pub fn text_undo_bytes(&self) -> usize { unsafe { lib::pxui_ui_text_undo_bytes(self.0.as_ptr()) as usize } }

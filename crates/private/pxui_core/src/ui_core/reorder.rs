@@ -196,6 +196,12 @@ impl Ui {
         (r.list == body.box_key && r.from < count && !window.contains(&r.from)).then_some(r.from)
     }
 
+    /// A reorderable list's row is lifted by its handle this frame (its drag holds the pointer; Escape, a cancelled pointer or lost
+    /// focus puts it back).
+    pub fn reordering(&self) -> bool {
+        self.reorder.list != 0 && self.active == Some(self.reorder.handle)
+    }
+
     /// The node `Ui::part` builds as `part`: a reorderable row's handle is noted for its row (`rows_move_row`).
     pub fn note_part(&mut self, part: Part, b: Handle) {
         if part == Part::HANDLE { self.row_handle = Some(b); }
