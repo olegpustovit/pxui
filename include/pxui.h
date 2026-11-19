@@ -18,7 +18,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 96u)
+#define PXUI_ABI_BUILT ((1u << 16) | 97u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 typedef struct { uint32_t autocorrect, capitalization, action; } PxuiTextInputOptions;
@@ -50,7 +50,7 @@ typedef struct { uint32_t size; double time,dt; int64_t frame,tick; int64_t logi
 typedef struct { float x,y,w,h; } PxuiRect;
 typedef struct { float x,y; } PxuiPoint;
 typedef struct { uint8_t r,g,b,a; } PxuiColor;
-/* ABI 1.61, 1.91: a colour with a 0 and r 0x54 names colour token b of pxui_ui_set_colors drawn at opacity g (0x4b reads as 255 until
+/* ABI 1.61, 1.91: a colour with a 0 and r 0x54 names colour token b of the theme's palette (pxui_theme_set_color) drawn at opacity g (0x4b reads as 255 until
    2.0; D19); token 64 is the theme's accent, 65 and past are transparent. The library
    resolves it for the theme in effect where a look or swatch is applied (never on an interpolated look); bodies receive resolved looks.
    A paint call given a raw token paints nothing: resolve it with pxui_ui_color / pxui_paint_color. */
@@ -292,15 +292,15 @@ typedef struct { uint32_t size, flags; PxuiBox node; } PxuiResponse;
 /* ABI 1.71 (an 88-byte record is still read, without it): details, each button's line under its label (empty: none), as many as buttons or none. */
 typedef struct { uint32_t size; float width; PxuiStr key, title; PxuiStrSpan buttons; int64_t default_at, cancel_at; uint64_t danger, disabled; PxuiStrSpan details; } PxuiDialogDesc;
 typedef struct { uint32_t size; uint8_t has_chosen, dismissed, reserved[2]; uint64_t chosen; } PxuiDialogResult;
-/* ABI 1.67: what pxui_ui_segmented_result chose: chosen when has_chosen is 1 (0: no option is chosen), secondary the option a secondary
+/* ABI 1.67: what pxui_ui_segmented, pxui_ui_pick or pxui_ui_tabs chose: chosen when has_chosen is 1 (0: no option is chosen), secondary the option a secondary
    press began on this frame when has_secondary is 1 (a context-menu request; it never chooses). The caller sets size; shorter is refused. */
 typedef struct { uint32_t size; uint8_t has_chosen, has_secondary, reserved[2]; uint64_t chosen, secondary; } PxuiSegmentedResult;
 enum { PXUI_RESPONSE_CLICKED = 1, PXUI_RESPONSE_HOVERED = 2, PXUI_RESPONSE_HELD = 4, PXUI_RESPONSE_FOCUSED = 8, PXUI_RESPONSE_ACTIVATED = 16, PXUI_RESPONSE_SECONDARY = 32 };
-/* ABI 1.68: a widget's identity and its shown and accessible text, apart (every pxui_ui_*_keyed call): `key` is hashed under the parent's
+/* ABI 1.68: a widget's identity and its shown and accessible text, apart (every call taking a PxuiKeyedDesc): `key` is hashed under the parent's
    seed and is identity only (a static string, or an item id as Key::label writes it: a NUL and 16 hex digits); `name` is never parsed for
    a key (no `##`/`###` rule). Set `size` to sizeof(PxuiKeyedDesc); a shorter record or a non-zero `reserved` is refused. */
 typedef struct { uint32_t size, reserved; PxuiStr key, name; } PxuiKeyedDesc;
-/* ABI 1.68: pxui_ui_choice_keyed's kinds (2 is reserved). */
+/* pxui_ui_pick's kinds (2 is reserved). */
 enum { PXUI_CHOICE_RADIO = 0, PXUI_CHOICE_TABS = 1, PXUI_CHOICE_DROPDOWN = 3 };
 /* ABI 1.31: flags bit 0 preview, bit 1 commit, bit 2 held. Initialize size before calling. */
 typedef struct { uint32_t size, flags; PxuiBox node; float preview, commit; } PxuiScrubOut;
@@ -412,7 +412,7 @@ typedef struct { uint32_t size, flags; int64_t font_size; float fraction, tracki
    are refused (PXUI_ERR_STATE, and zero or null for a call that returns a value, SIZE_MAX or UINT32_MAX for the pxui_text_* calls whose
    zero is an answer; pxui_last_error says why) before the engine is touched.
    Between callbacks of a frame (the engine's own phases) no handle is usable. pxui_last_error, pxui_ui_output (which builds nothing in
-   a frame) and pxui_ui_destroy / pxui_frame / pxui_ui_set_theme (which refuse in a frame themselves) stay callable on the owner. Outside
+   a frame) and pxui_ui_destroy / pxui_frame / pxui_ui_use_theme (which refuse in a frame themselves) stay callable on the owner. Outside
    a frame the owner is the handle. A renderer's calls that reach the Ui (prepare, draw) are refused inside a frame too. */
 typedef void (*PxuiBuild)(void *user, PxuiUi *ui);
 typedef void (*PxuiPaintBuild)(void *user, PxuiPaint *paint, PxuiRect rect, const PxuiPaintInfo *info); /* info: valid during the call */
@@ -489,14 +489,14 @@ enum {
     PXUI_FEATURE_DISMISS = 17,           /* 1.41 */
     PXUI_FEATURE_LOOK_TOKENS = 18,       /* 1.61: look colours naming colour tokens */
     PXUI_FEATURE_ICON_WORD = 19,         /* 1.61: pxui_ui_icon_word / pxui_paint_icon_word */
-    PXUI_FEATURE_TEXT_WORKER = 20,       /* 1.62: pxui_text_worker_create/_destroy, pxui_ui_set_text_worker, pxui_text_prewarm */
-    PXUI_FEATURE_TEXT_FIELD_KEYED = 21,  /* 1.64: pxui_ui_text_field_keyed, pxui_ui_input_box */
+    PXUI_FEATURE_TEXT_WORKER = 20,       /* 1.62: pxui_text_worker_create/_destroy, pxui_ui_set_text_worker, pxui_ui_label_prewarm */
+    PXUI_FEATURE_TEXT_FIELD_KEYED = 21,  /* 1.64: PxuiTextFieldDesc (pxui_ui_text_field) */
     PXUI_FEATURE_LABEL_TEXT = 22,        /* 1.65: pxui_ui_label_text_spans/_text_line_box/_measure/_quads/_rasterize_rgba/_prewarm */
     PXUI_FEATURE_MENU_MAX_H = 23,        /* 1.67: PxuiMenuExtra.max_h */
-    PXUI_FEATURE_SEGMENTED_RESULT = 24,  /* 1.67: pxui_ui_segmented_result */
-    PXUI_FEATURE_WIDGETS_KEYED = 25,     /* 1.68: PxuiKeyedDesc and the pxui_ui_*_keyed widget and container calls */
+    PXUI_FEATURE_SEGMENTED_RESULT = 24,  /* 1.67: PxuiSegmentedResult (pxui_ui_segmented) */
+    PXUI_FEATURE_WIDGETS_KEYED = 25,     /* 1.68: PxuiKeyedDesc and the widget and container calls taking it */
     PXUI_FEATURE_SEGMENTED_STORED_FOCUS = 26, /* 1.69: PxuiSegmentedDesc.focus_on_click, PxuiSegmentConfig.stored */
-    PXUI_FEATURE_IMAGE_CHECKED = 27,     /* 1.70: pxui_ui_image_node, pxui_paint_image */
+    PXUI_FEATURE_IMAGE_CHECKED = 27,     /* 1.70: pxui_paint_image reports a refused image */
     PXUI_FEATURE_BUTTON_PARTS = 28,      /* 1.71: PxuiButtonDesc/Config lead, detail, accessory; PxuiIconButtonDesc.checkable/checked; PxuiDialogDesc/Config.details */
     PXUI_FEATURE_VIEW_KEYED = 29         /* 1.72: pxui_ui_view */
 };
@@ -590,17 +590,10 @@ uint8_t pxui_ui_box_of_key(PxuiUi *ui, int64_t key, PxuiBox *out);
 uint8_t pxui_ui_box_of_a11y(PxuiUi *ui, uint64_t id, PxuiBox *out);
 int32_t pxui_ui_text(PxuiUi *ui, const PxuiBox *box, PxuiStr value);
 int32_t pxui_ui_style(PxuiUi *ui, const PxuiBox *box, const PxuiLookDesc states[6], const PxuiStateDesc *state);
-float pxui_ui_text_width(PxuiUi *ui, uint8_t has_size, int64_t size, PxuiStr text);
 int32_t pxui_ui_draw(PxuiUi *ui, const PxuiBox *box, uint8_t over, PxuiPaintBuild build, void *user, PxuiPaintRelease release); /* a span must be committed (pxui_paint_span with at_least 0) before the callback returns; one left open, or a pxui_paint_* call made under an open span, is refused and the frame that ran the callback returns PXUI_ERR_STATE */
 int32_t pxui_within(PxuiUi *ui, const PxuiBox *box, PxuiBuild build, void *user);
-/* Legacy, cut at 2.0: pxui_scope and pxui_col are pxui_ui_node + pxui_within; kept for the append-only ABI. */
+/* Builds `build` under the id scope of `label` (the Rust ui.id). */
 int32_t pxui_scope(PxuiUi *ui, PxuiStr label, PxuiBuild build, void *user);
-/* Legacy: superseded by pxui_ui_label_node (ABI 1.54); kept for the append-only ABI. */
-/* Legacy since ABI 1.54: superseded by pxui_ui_label_node; kept for the append-only ABI.
-   ABI 1.45: a label in `style` through the label body (PxuiLabelConfig.style), keyed by its place among its siblings (as
-   pxui_label now is). A null or short style, unknown set bits, invalid UTF-8, a non-finite or non-positive size, an invalid
-   wrap, align, ellipsis, feature or width, or a font the Ui lacks is refused before anything is built. */
-int32_t pxui_ui_label(PxuiUi *ui, PxuiStr text, const PxuiLabelStyle *style);
 /* ABI 1.54: pxui_ui_label with the label's box (null for none) writing the label's node to `out` (for a fill, an accessible state or
    text laid into it); a null style is the theme's label, as pxui_label. A short box, unknown set bits, a non-finite height or an
    unknown role is refused. */
@@ -608,32 +601,20 @@ int32_t pxui_ui_label_node(PxuiUi *ui, PxuiStr text, const PxuiLabelStyle *style
 /* ABI 1.49: the PxuiTextStyle `style` shapes with, resolved against the Ui's theme label as pxui_ui_label resolves it (unset fields
    the theme label's, tracking in points); `digits` is ignored. Refused for a style pxui_ui_label would refuse. */
 int32_t pxui_ui_resolve_label(PxuiUi *ui, const PxuiLabelStyle *style, PxuiTextStyle *out);
-/* Legacy: pxui_text_field and pxui_text_field_with_options are superseded by pxui_ui_text_field_keyed (key, name); cut at 2.0. */
-/* ABI 1.64: a text field keyed by desc->key and named desc->name to a screen reader (empty: unnamed). changed receives the new text (borrowed
-   until the next call) when out_changed is 1. */
-/* ABI 1.64: the box of the text input (text field, line field, search field, text area or value field) the last such call built; PXUI_ERR_STATE
-   before the first call. Read its signal and focus for what happened to it. */
-/* ABI 1.82: each text input with what happened to its box in one call: `response` (size set by the caller; a shorter record is refused) takes
-   the box, hover, press, focus and click a caller would otherwise read with pxui_ui_input_box, pxui_ui_signal and pxui_ui_focused. The other
-   arguments are those of the call named before `_response`; `name` (search, line and value fields, text area) names the box to a screen reader. The value field
-   and text area forms follow pxui_ui_value_field. */
+/* A text field keyed by desc->key and named desc->name to a screen reader (empty: unnamed). changed receives the new text (borrowed
+   until the next call) when out_changed is 1; a refused call writes neither. Each text input reports what happened to its box in one call:
+   `response` (size set by the caller; a shorter record is refused) takes the box, hover, press, focus and click; `name` (search, line and
+   value fields, text area) names the box to a screen reader. */
 int32_t pxui_ui_text_field(PxuiUi *ui, const PxuiTextFieldDesc *desc, PxuiStr *changed, uint8_t *out_changed, PxuiResponse *response);
 /* action (ABI 1.91): the on-screen keyboard's return key, 0 Return, 1 Done, 2 Search (no autocorrection or capitalization). */
 int32_t pxui_ui_search_field(PxuiUi *ui, PxuiStr label, PxuiStr icon, PxuiStr value, PxuiStr placeholder, PxuiStr name, uint8_t action, uint8_t *changed, PxuiStr *out, PxuiResponse *response);
 int32_t pxui_ui_line_field(PxuiUi *ui, float x, float y, float w, float h, uint8_t grab, PxuiStr placeholder, PxuiStr label, PxuiStr value, PxuiStr name, PxuiStr *text, uint32_t *step, PxuiResponse *response);
-/* Legacy, cut at 2.0: pxui_ui_checkbox, _radio, _tabs, _dropdown, _slider, _progress, _spinner, _badge, pxui_panel, pxui_ui_popup, _modal,
-   _anchored, _scroll_view, _toasts, _table, _table_view_with and _picker key by a label that is also their text (`##`/`###` rules);
-   superseded by the pxui_ui_*_keyed calls (ABI 1.68), kept for the append-only ABI. */
 /* Caller-painted horizontal control: finite ordered range (equal ends are read-only), positive finite step. */
-/* Legacy (cut at 2.0): pxui_ui_search_field and pxui_ui_text_area_submit stay as they are; pxui_ui_search_field (ABI 1.82) also
-   names the field and reports its box. */
-/* Legacy, cut at 2.0: keys and names the image by one label (`##`/`###` rules); superseded by pxui_ui_image_node (ABI 1.70). */
 /* ABI 1.70: an image with no key (the n-th image among its siblings, as a label is), `name` its accessible name only (never parsed for a
    key). PXUI_ERR_ARGUMENT, nothing added, for an invalid descriptor (zero size, no native handle, a depth format, a short size), an
    unknown fit, a size or a name the library refuses. */
 /* ABI 1.77: an image keyed by `key` (as pxui_ui_node keys a label) and named `name` for accessibility only. */
 int32_t pxui_ui_image(PxuiUi *ui, PxuiStr key, PxuiStr name, const PxuiImage *image, uint32_t fit, PxuiSizeDesc width, PxuiSizeDesc height, PxuiBox *out);
-/* Legacy, cut at 2.0: superseded by pxui_ui_view (1.72); size the enclosing node instead of the view. */
 int32_t pxui_ui_tip(PxuiUi *ui, const PxuiBox *box, PxuiStr label);
 typedef struct { uint8_t has, reserved[3]; PxuiColor color; } PxuiSwatch;
 typedef struct { int64_t row, current; uint8_t has_current, reserved[7]; PxuiStrSpan rows; PxuiU8Span enabled; PxuiStrSpan keys; } PxuiSubmenu;
@@ -655,7 +636,7 @@ int32_t pxui_ui_context_menu(PxuiUi *ui, float x, float y, PxuiStr label, PxuiSt
 typedef uint8_t (*PxuiPickerMark)(void *user, int64_t row, PxuiColor *out);
 typedef uint8_t (*PxuiPickerOff)(void *user, int64_t row);
 /* Widget bodies: an app builds a widget kind's nodes itself. pxui_body_register names a body of kind `kind` (PxuiBodyKind, in the field order of
-   PxuiBodies; before 2.0 kinds are renumbered in place, so build against this header) `name`, for a theme's `KIND.body = NAME` (pxui_ui_set_theme, pxui_ui_theme_apply) and returns its id, 0 when refused
+   PxuiBodies; before 2.0 kinds are renumbered in place, so build against this header) `name`, for a theme's `KIND.body = NAME` (pxui_theme_parse, pxui_ui_use_theme) and writes its id to out, answering the refusal status
    (see pxui_last_error). A name has one id for the whole process, whichever Ui registers it, and is never released (65,535 names a kind at most, in the process; choose names statically, and register a name again to change its body: that keeps the id and uses none): a
    theme carried from the Ui that parsed it to another selects the body of that name there, or the built-in body where that Ui has none; the function is called as body(user, ui, config) with the kind's record below, `ui` borrowed and valid for the call.
    Records start with `size` and grow at the end. A body builds with the ordinary calls, finds the parts its widget's behaviour reads through
@@ -731,7 +712,7 @@ enum PxuiPart { PXUI_PART_HIT=1, PXUI_PART_RAIL=2, PXUI_PART_THUMB=3, PXUI_PART_
    A tree writes its shown rows into the start of `visible` (at least a row per node) and their number to `visible_len`. */
 typedef struct { uint32_t size,reserved; PxuiStr label; const PxuiTreeNode *ptr; size_t len; PxuiU8MutSpan open; size_t *selected; PxuiU32MutSpan visible; size_t *visible_len; PxuiCellBuild build; void *user; } PxuiTreeViewDesc;
 int32_t pxui_ui_tree(PxuiUi *ui, const PxuiTreeViewDesc *desc, size_t *activated);
-/* ABI 1.49: from inside a list_view/tree row or table_view cell callback of the _with calls, the kit's text of that item: a list
+/* ABI 1.49: from inside a selection list or tree row or a table cell callback, the kit's text of that item: a list
    row's row label, a tree row's (naming the row), a table cell's (naming the cell). Refused outside a collection item. */
 int32_t pxui_ui_item_text(PxuiUi *ui, PxuiStr text);
 typedef struct { int64_t start, end; } PxuiRange;
@@ -805,35 +786,31 @@ int32_t pxui_shaper_width(PxuiShaper *shaper, uint64_t key, PxuiStr value, const
 size_t pxui_shaper_rasterize_rgba(PxuiShaper *shaper, uint64_t key, PxuiStr value, const PxuiTextStyle *style, float max_width, float scale, uint8_t color_r, uint8_t color_g, uint8_t color_b, uint8_t color_a, uint32_t *width, uint32_t *height, uint8_t *out, size_t capacity);
 PxuiStr pxui_default_font(void); /* Pragmasevka, embedded: valid as long as the library */
 /* The text service of a Ui: its one font system and glyph atlas, for canvas text an app lays out itself (atlases: pxui_renderer_atlas).
-   pxui_text_add_font answers UINT32_MAX, pxui_text_quads and pxui_text_rasterize_rgba SIZE_MAX, for bad arguments and a refused call. */
+   pxui_text_add_font answers UINT32_MAX, pxui_ui_label_quads and pxui_ui_label_rasterize_rgba SIZE_MAX, for bad arguments and a refused call. */
 uint32_t pxui_text_add_font(PxuiUi *ui, PxuiStr font);
-int32_t pxui_text_width(PxuiUi *ui, uint64_t key, PxuiStr value, const PxuiTextStyle *style, float max_width, PxuiTextMetrics *out);
-size_t pxui_text_quads(PxuiUi *ui, uint64_t key, PxuiStr value, const PxuiTextStyle *style, float max_width, float x, float y, float scale, PxuiTextGlyph *out, size_t capacity);
 /* ABI 1.62 (PXUI_FEATURE_TEXT_WORKER): the prepare queue. A worker is one thread the host owns and attaches to any number of Uis; each attached Ui
    gets a lane: a fork of its fonts on the worker (font bytes shared) and fixed buffers (128 requests in flight, 16 KiB of text per
    flush, 32 installs per frame). Attached, a Ui's virtual lists request the unseen text of rows they build past the viewport; it is
    shaped on the worker and installed before a later frame builds, without shaping or allocating on the UI thread. A Ui without a
    worker shapes inline. pxui_text_worker_create answers null when no thread can start; destroying a worker waits for at most one
    shaping call, and the Uis still attached shape inline from then on. pxui_ui_set_text_worker (between frames; null detaches,
-   without waiting) keeps no pointer to the worker object. pxui_text_prewarm requests value in style within max_width points
+   without waiting) keeps no pointer to the worker object. pxui_ui_label_prewarm requests value in style within max_width points
    (0: unbounded): nothing without a worker or for cached or requested text, a full lane drops it; PXUI_ERR_ARGUMENT for a null
    style, a negative or non-finite width, invalid UTF-8 or text over 16 KiB.
    Lanes: a worker serves at most 64 Uis; pxui_ui_set_text_worker answers PXUI_ERR_STATE past that (the Ui is left detached) and
    inside a frame. A preparation that panics is delivered as a failure (shaped inline) and the lane's font fork is renewed.
    Threads: pxui_text_worker_create and pxui_text_worker_destroy may run on any thread; pxui_ui_set_text_worker and
-   pxui_text_prewarm run on the Ui's thread, like every pxui_ui_* call. Several threads may attach their Uis to one worker at once,
+   pxui_ui_label_prewarm run on the Ui's thread, like every pxui_ui_* call. Several threads may attach their Uis to one worker at once,
    but the host must not destroy a worker concurrently with pxui_ui_set_text_worker on it: serialize destroy against attach.
    Handles: the worker pointer is not validated (as a shaper's). It must be one pxui_text_worker_create returned and not destroyed;
    using it after pxui_text_worker_destroy is undefined. A Ui attached to a destroyed worker stays valid and shapes inline. */
 PxuiTextWorker *pxui_text_worker_create(void);
 void pxui_text_worker_destroy(PxuiTextWorker *worker);
 int32_t pxui_ui_set_text_worker(PxuiUi *ui, const PxuiTextWorker *worker);
-int32_t pxui_text_prewarm(PxuiUi *ui, PxuiStr value, const PxuiTextStyle *style, float max_width);
 /* ABI 1.65 (PXUI_FEATURE_LABEL_TEXT): the text calls on a label style, resolved against the Ui's theme as pxui_ui_resolve_label
-   resolves it, in the same call (no resolve round trip): each runs as its resolved-style twin (pxui_ui_text_spans,
-   pxui_ui_text_line_box, pxui_text_width or pxui_text_width_spans, pxui_text_quads, pxui_text_rasterize_rgba, pxui_text_prewarm)
-   with the content's layout key. The style's digits byte is ignored. A null, short or invalid label record (unknown set bits, wrap,
-   align or ellipsis numbers, feature bits) or one that does not resolve is refused as the twin refuses an invalid style.
+   resolves it, in the same call (no resolve round trip), with the content's layout key. The style's digits byte is ignored. A null,
+   short or invalid label record (unknown set bits, wrap, align or ellipsis numbers, feature bits) or one that does not resolve is
+   refused, as is a resolved style that is invalid.
    pxui_ui_label_measure's spans may be null (the plain measurement). */
 int32_t pxui_ui_label_text_spans(PxuiUi *ui, const PxuiBox *box_, PxuiStr value, const PxuiLabelStyle *style, const PxuiTextSpans *spans);
 int32_t pxui_ui_label_text_line_box(PxuiUi *ui, const PxuiBox *box_, PxuiStr value, const PxuiLabelStyle *style, const PxuiTextSpans *spans);
@@ -841,21 +818,11 @@ int32_t pxui_ui_label_measure(PxuiUi *ui, PxuiStr value, const PxuiLabelStyle *s
 size_t pxui_ui_label_quads(PxuiUi *ui, PxuiStr value, const PxuiLabelStyle *style, float max_width, float origin_x, float origin_y, float scale, PxuiTextGlyph *out, size_t capacity);
 size_t pxui_ui_label_rasterize_rgba(PxuiUi *ui, PxuiStr value, const PxuiLabelStyle *style, float max_width, float scale, uint8_t color_r, uint8_t color_g, uint8_t color_b, uint8_t color_a, uint32_t *width, uint32_t *height, uint8_t *out, size_t capacity);
 int32_t pxui_ui_label_prewarm(PxuiUi *ui, PxuiStr value, const PxuiLabelStyle *style, float max_width);
-size_t pxui_text_rasterize_rgba(PxuiUi *ui, uint64_t key, PxuiStr value, const PxuiTextStyle *style, float max_width, float scale, uint8_t color_r, uint8_t color_g, uint8_t color_b, uint8_t color_a, uint32_t *width, uint32_t *height, uint8_t *out, size_t capacity);
 /* ABI 1.14: bit 2 on plain, unstroked RECTs selects pixel-area coverage; no layout change. */
 int32_t pxui_paint_span(PxuiPaint *paint, size_t at_least, PxuiSpan *span); /* at_least 0 only commits; call it before any other pxui_paint_* call */
 float pxui_paint_icon(PxuiPaint *paint, float x, float y, uint16_t font, float size, uint32_t codepoint, PxuiColor color);
-void pxui_paint_text(PxuiPaint *paint, float x, float y, PxuiStr text);
-void pxui_paint_text_color(PxuiPaint *paint, float x, float y, PxuiColor color, PxuiStr text);
-void pxui_paint_text_size(PxuiPaint *paint, float x, float y, int64_t size, PxuiColor color, PxuiStr text);
-void pxui_paint_text_with(PxuiPaint *paint, float x, float y, uint8_t has_size, int64_t size, float tracking, uint8_t has_color, PxuiColor color, PxuiStr text);
-PxuiTextMetrics pxui_paint_text_styled(PxuiPaint *paint, float x, float y, const PxuiTextStyle *style, float width, uint8_t has_color, PxuiColor color, PxuiStr text);
-float pxui_paint_text_width(PxuiPaint *paint, uint8_t has_size, int64_t size, PxuiStr text);
-PxuiTextMetrics pxui_paint_text_metrics(PxuiPaint *paint, const PxuiTextStyle *style, float width, PxuiStr text);
 float pxui_paint_caret_x(PxuiPaint *paint, uint8_t has_size, int64_t size, PxuiStr text, size_t index);
 int32_t pxui_paint_selection(PxuiPaint *paint, uint8_t has_size, int64_t size, PxuiStr text, size_t a, size_t b, PxuiSpanBuild build, void *user);
-void pxui_paint_cap(PxuiPaint *paint, float x, float y, uint8_t has_color, PxuiColor color, PxuiStr text);
-float pxui_paint_cap_width(PxuiPaint *paint, PxuiStr text);
 void pxui_paint_ratio(PxuiPaint *paint, float x, float y, int64_t a, int64_t b);
 void pxui_paint_input_region(PxuiPaint *paint, float cursor, float x, float y, float w, float h);
 /* The scroll offset of the retained slot `slot` (a box handle's box_slot) as the painter reads it; 0 out of range. */
@@ -873,8 +840,7 @@ float pxui_paint_label_chars(PxuiPaint *paint, float x, float y, const PxuiLabel
    max_width (0: unbounded) with spans (NULL: none) without drawing, or drawn with spans. PXUI_ERR_ARGUMENT for invalid arguments. */
 int32_t pxui_paint_label_measure(PxuiPaint *paint, PxuiStr text, const PxuiLabelStyle *style, float max_width, const PxuiTextSpans *spans, PxuiTextMetrics *out);
 int32_t pxui_paint_label_spans(PxuiPaint *paint, float x, float y, const PxuiLabelStyle *style, float width, PxuiStr text, const PxuiTextSpans *spans, PxuiTextMetrics *out);
-/* Legacy, cut at 2.0: drops bad input silently; superseded by pxui_paint_image (ABI 1.70). */
-/* ABI 1.70: pxui_paint_image that reports a refusal: PXUI_ERR_ARGUMENT (nothing drawn) for a null painter or descriptor, an invalid
+/* ABI 1.70: an image drawn by the painter, reporting a refusal: PXUI_ERR_ARGUMENT (nothing drawn) for a null painter or descriptor, an invalid
    descriptor, an unknown fit or a non-finite rectangle; 0 when drawn. */
 int32_t pxui_paint_image(PxuiPaint *paint, const PxuiImage *image, float x, float y, float width, float height, uint32_t fit, PxuiColor tint);
 /* Shared GPU: the renderer records into the app's command buffers and passes and never submits, waits,
@@ -911,7 +877,7 @@ int64_t pxui_ui_density(PxuiUi *ui);
    pxui_body_register; the `variant` field every Pxui*Config record now ends with; 0 none). Set it just before the widget call and
    0 again after: only a body of that kind reads it, and a body's trampoline keeps it 0 while the body runs. A frame starts with it cleared. */
 int32_t pxui_ui_variant(PxuiUi *ui, uint32_t kind, uint16_t variant);
-/* ABI 1.61: the word the next pxui_ui_icon_button_with/_response call (ABI 1.71: or pxui_ui_button_with/_response/_content, for its leading icon) hands its drawing (read there with pxui_paint_icon_word), so one
+/* ABI 1.61: the word the next pxui_ui_icon_button call (or pxui_ui_button, for its leading icon) hands its drawing (read there with pxui_paint_icon_word), so one
    callback draws many icons by id; that call takes it (the call after reads 0 unless set again). A registered icon button body that calls
    `draw` itself from its own paint callback passes no word (pxui_paint_icon_word reads 0 there). */
 int32_t pxui_ui_icon_word(PxuiUi *ui, uint32_t word);
@@ -936,7 +902,6 @@ int32_t pxui_ui_unfocus(PxuiUi *ui);
 int32_t pxui_ui_dismiss_popup(PxuiUi *ui);
 int32_t pxui_ui_request_cursor(PxuiUi *ui, uint32_t shape); /* 1 horizontal resize, 2 vertical resize, 3 text */
 int32_t pxui_ui_repaint_after(PxuiUi *ui, double seconds);
-/* Legacy, cut at 2.0: verification is per Ui (pxui_ui_verify_views); 0 does nothing, 1 is refused (PXUI_ERR_STATE). */
 int32_t pxui_ui_verify_views(PxuiUi *ui, uint8_t on);
 int32_t pxui_ui_set_timing(PxuiUi *ui, uint8_t on);
 int32_t pxui_ui_phase_times(PxuiUi *ui, uint64_t *out, size_t len); /* nanoseconds, len must be 7 */
@@ -951,9 +916,6 @@ int32_t pxui_ui_expanded(PxuiUi *ui, PxuiStr key, uint8_t *out); /* 0 unknown, 1
 int32_t pxui_ui_hover_delay(PxuiUi *ui, PxuiStr key, uint8_t *out);
 /* ABI 1.77: the seed an authored key resolves under for a lookup (the active scope during a build, the root seed outside one). */
 int32_t pxui_ui_key_seed(PxuiUi *ui, int64_t *out);
-/* Legacy: the Rust wrapper's tooltip job is pxui_ui_tip (keyed by a box); kept for the append-only ABI. */
-int32_t pxui_ui_cap_width(PxuiUi *ui, PxuiStr text, float *out);
-float pxui_ui_text_top(PxuiUi *ui, uint8_t has_size, int64_t size, float y, float h);
 
 /* Boxes, patches, scroll and text state, carries, view transforms. */
 int32_t pxui_ui_set_at(PxuiUi *ui, const PxuiBox *box, float x, float y);
@@ -1000,7 +962,6 @@ int32_t pxui_ui_context_at(PxuiUi *ui, const PxuiBox *box, uint8_t *present, Pxu
 int32_t pxui_ui_hovered(PxuiUi *ui, const PxuiBox *box, uint8_t within, uint8_t *out);
 int32_t pxui_ui_press_keys(PxuiUi *ui, const PxuiBox *box, const uint32_t **ptr, size_t *len); /* key codes, borrowed until the next frame */
 int32_t pxui_ui_root_at(PxuiUi *ui, float x, float y, PxuiI64Span roots, uint8_t *present, int64_t *out);
-/* Legacy, cut at 2.0: superseded by pxui_ui_view (1.72); size the enclosing node instead of the view. */
 int32_t pxui_ui_view_offset(PxuiUi *ui, const PxuiBox *box, float dx, float dy);
 /* Per-instance alpha in [0,1], finite uniform centre scale (zero/negative allowed), and an additional
    window-point clip (NULL removes it). Use regular views with their own entries; no offscreen group opacity. */
@@ -1015,15 +976,12 @@ int32_t pxui_ui_view_backdrop_saturation(PxuiUi *ui, const PxuiBox *box, float s
 /* Kit and text widgets: styled buttons, grips, popups, inspector pieces, the line field. Text results are borrowed until the next frame. */
 int32_t pxui_ui_animate(PxuiUi *ui, const PxuiBox *box, const PxuiKeyframeDesc *key, uint8_t *out);
 int32_t pxui_ui_grip(PxuiUi *ui, PxuiStr label, uint32_t axis, uint8_t has_rect, PxuiRect rect, PxuiBox *out, PxuiSignal *signal);
-/* ABI 1.44: the kit button with options; build (when set) replaces its text inside the box. Reports the box, its signal and whether it has focus. */
-/* ABI 1.46: the icon button with options (PxuiIconButtonDesc); replaces pxui_ui_icon_button. */
-/* ABI 1.48: the same calls reporting one PxuiResponse instead of the box, the whole signal and the focus; the _plain forms are the
-   kit button keyed by key (the theme's look, the kit's size, at the start of its line) and the kit icon button showing the glyph
-   icon named name (the theme's look, the kit's square), with no descriptor. */
-/* Legacy: pxui_ui_button_response is superseded by pxui_ui_button; kept for the append-only ABI. */
+/* The kit button and icon button, each reporting one PxuiResponse; the _plain forms are the kit button keyed by key (the theme's look,
+   the kit's size, at the start of its line) and the kit icon button showing the glyph icon named name (the theme's look, the kit's
+   square), with no descriptor. */
 int32_t pxui_ui_button_plain(PxuiUi *ui, PxuiStr key, PxuiStr text, PxuiResponse *out);
-/* ABI 1.56: pxui_ui_button_response whose content callback is also given the button's interaction state (hovered, pressed, focused,
-   disabled, checked) this frame; build may be null for a text button. */
+/* The kit button with options (PxuiButtonDesc): build (when set) replaces its text inside the box and is given the button's interaction
+   state (hovered, pressed, focused, disabled, checked) this frame; build may be null for a text button. */
 int32_t pxui_ui_button(PxuiUi *ui, const PxuiButtonDesc *desc, PxuiButtonBuild build, void *user, PxuiResponse *out);
 int32_t pxui_ui_icon_button(PxuiUi *ui, const PxuiIconButtonDesc *desc, PxuiResponse *out);
 /* ABI 1.51: the kit toggle and segmented control, plain or with options, each reporting one PxuiResponse (a click on the toggle is the flip of `on`, which the caller keeps; the segmented control also reports the choice), and a scope in which every interactive node built is disabled (disabled 1; scopes nest by OR). */
@@ -1031,24 +989,19 @@ int32_t pxui_ui_toggle_plain(PxuiUi *ui, PxuiStr key, PxuiStr text, uint8_t on, 
 int32_t pxui_ui_toggle(PxuiUi *ui, const PxuiToggleDesc *desc, PxuiResponse *out);
 int32_t pxui_ui_disabled(PxuiUi *ui, uint8_t disabled, PxuiBuild build, void *user);
 int32_t pxui_ui_icon_button_plain(PxuiUi *ui, PxuiStr key, PxuiStr icon, PxuiStr name, PxuiResponse *out);
-/* ABI 1.53: pxui_ui_dialog with the buttons' default, cancel, danger and disabled flags, the sheet's key and width, and a PxuiDialogResult. */
+/* The modal dialog with the buttons' default, cancel, danger and disabled flags, the sheet's key and width, and a PxuiDialogResult. */
 int32_t pxui_ui_dialog(PxuiUi *ui, const PxuiDialogDesc *desc, PxuiBuild build, void *user, PxuiDialogResult *out);
-/* ABI 1.67: pxui_ui_segmented_response with no choice and the secondary press: desc->has_selected 0 is no choice, and result has the choice
-   (none until a press or key chooses) and the option a secondary press began on. From 1.67 every segmented call (pxui_ui_segmented,
-   _plain, _response, _result) is a radio group: every option focusable to assistive technology, one Tab stop (the chosen option, the
+/* The segmented control: desc->has_selected 0 is no choice, and result has the choice (none until a press or key chooses) and the
+   option a secondary press began on. It is a radio group: every option focusable to assistive technology, one Tab stop (the chosen option, the
    first with none); Left and Right on the focused option move the focus and the choice; the focus follows a choice that changes while an
    option holds it, and moves to the Tab stop (the strip with no option left) when its option goes. */
 int32_t pxui_ui_inspector_bar(PxuiUi *ui, PxuiHintSpan hints, int64_t count);
 int32_t pxui_ui_inspector_body(PxuiUi *ui, PxuiBuild build, void *user);
 int32_t pxui_ui_inspector_header(PxuiUi *ui, const PxuiHeaderDesc *desc, PxuiTextValid rename, void *user, PxuiHeadOut *out);
-/* Legacy: the Rust wrapper no longer calls pxui_ui_inspector_section_view or pxui_ui_inspector_toggle_value (pxui_ui_inspector_section and pxui_ui_inspector_toggle are the calls); kept for the append-only ABI. */
 int32_t pxui_ui_field_drag(PxuiUi *ui, const PxuiBox *box, uint8_t *present, PxuiPoint *out);
-/* ABI 1.68: the keyed forms, each widget's key and name apart in a PxuiKeyedDesc (the label-keyed exports they supersede are cut at 2.0).
-   A click on the checkbox is the flip of `on`, which the caller keeps; a choice (`kind`: PXUI_CHOICE_*) also reports the choice, a slider the
-   value held in [min, max]. A keyed popup or table takes no `desc->label` (it must be empty). Toast `i` is keyed by `ids.ptr[i]` (`ids.len`
-   equals `items.len`). The table is the virtual one, or with `text` non-null the fixed text table at that rectangle (each cell's text given to
-   pxui_ui_item_text; widths may be empty); `sort` is the clicked header, `row` the clicked text row, SIZE_MAX for none. */
-/* ABI 1.85: the kit checkbox with its style; a click flips on, which the caller keeps. pxui_ui_checkbox_keyed is legacy (cut at 2.0). */
+/* ABI 1.68: the keyed calls, each widget's key and name apart in a PxuiKeyedDesc. A keyed popup takes no `desc->label` (it must be
+   empty). Toast `i` is keyed by `ids.ptr[i]` (`ids.len` equals `items.len`). */
+/* ABI 1.85: the kit checkbox with its style; a click flips on, which the caller keeps. */
 int32_t pxui_ui_checkbox(PxuiUi *ui, const PxuiCheckboxDesc *desc, PxuiResponse *out);
 /* ABI 1.85: the section index strip (a focusable slider over letters, each checked once, at most 4096), named keyed->name; result: the letter chosen this frame (has_chosen 0: none moved it), never a secondary. */
 int32_t pxui_ui_section_index_result(PxuiUi *ui, const PxuiKeyedDesc *keyed, PxuiStrSpan letters, PxuiResponse *out, PxuiSegmentedResult *result);
@@ -1064,10 +1017,10 @@ int32_t pxui_ui_anchored(PxuiUi *ui, const PxuiKeyedDesc *keyed, const PxuiAncho
    thumbs, row scroll step and role, and insets the content one point inside the node's padding. */
 int32_t pxui_ui_scroll_view(PxuiUi *ui, const PxuiKeyedDesc *keyed, const PxuiNode *node, PxuiBuild build, void *user, PxuiBox *out);
 /* ABI 1.76: one result per call. pxui_ui_pick is a radio group (kind 0) or dropdown (3) of items, selected read when has_selected is 1,
-   reporting the choice (none for none) and the item a secondary press began on; pxui_ui_segmented is pxui_ui_segmented_result with
-   the options as items (desc->names empty). The slider and scrub results fill a PxuiScrubOut: flags 1
+   reporting the choice (none for none) and the item a secondary press began on; pxui_ui_segmented takes its options as items
+   (desc->names empty). The slider and scrub fill a PxuiScrubOut: flags 1
    a held preview, 2 a commit (a release, a key or an assistive SetValue, with preview equal to it), 4 held; a slider's preview is the value
-   shown. The _root forms also write the overlay's root (the empty box when it is dismissed). pxui_ui_split reports the grip's
+   shown. pxui_ui_panel and pxui_ui_popup also write the overlay's root (the empty box when it is dismissed). pxui_ui_split reports the grip's
    response (empty without a grip) and has_ratio 1 with the ratio under the pointer while the grip is held and on its release frame.
    pxui_ui_menu_bar sets dismissed to 1 when the menu open at the frame's start closed without a pick. */
 int32_t pxui_ui_segmented(PxuiUi *ui, const PxuiSegmentedDesc *desc, PxuiPickItemSpan items, PxuiResponse *out, PxuiSegmentedResult *result);
@@ -1092,7 +1045,6 @@ PxuiTheme *pxui_theme_create(const PxuiThemeTokens *tokens); /* tokens may be NU
 void pxui_theme_destroy(PxuiTheme *theme);
 PxuiStr pxui_theme_last_error(const PxuiTheme *theme); /* borrowed from the theme until its next call */
 int32_t pxui_ui_themed(PxuiUi *ui, const PxuiTheme *theme, PxuiBuild build, void *user);
-/* pxui_theme_set for a whole theme file: `KIND.body = NAME` names the bodies `ui` registered; an unregistered name is refused (pxui_theme_last_error). */
 /* Detached source. Root installation checks all named bodies in the destination Ui. Scopes use the built-in body for missing names. */
 int32_t pxui_theme_parse(PxuiTheme *theme, PxuiStr source);
 int32_t pxui_theme_set_color(PxuiTheme *theme, uint16_t token, PxuiColor color);
@@ -1111,11 +1063,7 @@ int32_t pxui_a11y_pump(PxuiA11y *a11y, PxuiA11yActionSpan *out);
 void pxui_a11y_stop(PxuiA11y *a11y);
 
 int32_t pxui_shaper_width_spans(PxuiShaper *shaper, uint64_t key, PxuiStr value, const PxuiTextStyle *style, float max_width, const PxuiTextSpans *spans, PxuiTextMetrics *out);
-int32_t pxui_text_width_spans(PxuiUi *ui, uint64_t key, PxuiStr value, const PxuiTextStyle *style, float max_width, const PxuiTextSpans *spans, PxuiTextMetrics *out);
-int32_t pxui_ui_text_spans(PxuiUi *ui, const PxuiBox *box_, PxuiStr value, const PxuiTextStyle *style, const PxuiTextSpans *spans);
 /* Positive line height; rounded primary-font metrics place CSS line-box baselines (ABI 1.17). */
-int32_t pxui_ui_text_line_box(PxuiUi *ui, const PxuiBox *box_, PxuiStr value, const PxuiTextStyle *style, const PxuiTextSpans *spans);
-int32_t pxui_paint_text_spans(PxuiPaint *p, float x, float y, const PxuiTextStyle *style, float width, uint8_t has_color, PxuiColor color, PxuiStr text, const PxuiTextSpans *spans, PxuiTextMetrics *out);
 
 /* Apple native fallback, cold discovery only. Ui must enable before its first frame.
    Explicit-font constructors remain deterministic. No provider: PXUI_ERR_STATE. */

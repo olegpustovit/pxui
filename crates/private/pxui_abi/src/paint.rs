@@ -3,9 +3,9 @@
 use core::ffi::c_void;
 use pxui_core::ui::Paint as EnginePaint;
 use crate::state::{Shared, finite};
-use crate::text::{metrics, read_style};
+use crate::text::metrics;
 use crate::{PXUI_ERR_ARGUMENT, PXUI_ERR_STATE};
-use pxui_types::{draw::Instance, geom::{Rect, Rgba}, PxuiBox, Span, Str, TextMetrics, ffi::{PxuiPaintInfo, PxuiTextStyle as TextStyle}};
+use pxui_types::{draw::Instance, geom::{Rect, Rgba}, PxuiBox, Span, Str, TextMetrics, ffi::PxuiPaintInfo};
 
 // A span asks for 1..=MAX_SPAN instances; the library gives at least MIN_SPAN so a drawing makes few calls.
 const MAX_SPAN: usize = 1 << 20;
@@ -88,19 +88,10 @@ pub(crate) fn icon_bridge(paint: &mut EnginePaint, rect: pxui_core::ui::Rect, in
 
 export!(pub unsafe fn pxui_paint_icon(p:*mut PxuiPaint,x:f32,y:f32,font:u16,size:f32,codepoint:u32,c:Rgba)->f32 { if !finite(&[x,y,size])||size<=0.0{return 0.0} let (Some(p),Some(ch))=(unsafe{value(p)},char::from_u32(codepoint)) else{return 0.0}; p.icon((x,y),font,size,ch,c) });
 
-export!(pub unsafe fn pxui_paint_text(p:*mut PxuiPaint,x:f32,y:f32,s:Str) { if finite(&[x,y]) { if let (Some(p),Some(s))=(unsafe{value(p)},unsafe{string(s)}) { p.text((x,y),s); } } });
-export!(pub unsafe fn pxui_paint_text_color(p:*mut PxuiPaint,x:f32,y:f32,c:Rgba,s:Str) { if finite(&[x,y]) { if let (Some(p),Some(s))=(unsafe{value(p)},unsafe{string(s)}) { p.text_c((x,y),c,s); } } });
-export!(pub unsafe fn pxui_paint_text_size(p:*mut PxuiPaint,x:f32,y:f32,size:i64,c:Rgba,s:Str) { if finite(&[x,y]) { if let (Some(p),Some(s))=(unsafe{value(p)},unsafe{string(s)}) { p.text_s((x,y),size,c,s); } } });
-export!(pub unsafe fn pxui_paint_text_with(p:*mut PxuiPaint,x:f32,y:f32,has_size:u8,size:i64,tracking:f32,has_color:u8,color:Rgba,s:Str) { if !finite(&[x,y,tracking])||has_size>1||has_color>1{return} if let (Some(p),Some(s))=(unsafe{value(p)},unsafe{string(s)}) { p.text_with((x,y),(has_size!=0).then_some(size),tracking,(has_color!=0).then_some(color),s); } });
-export!(pub unsafe fn pxui_paint_text_styled(p:*mut PxuiPaint,x:f32,y:f32,style_:*const TextStyle,width:f32,has_color:u8,color:Rgba,s:Str)->TextMetrics { if !finite(&[x,y,width])||has_color>1{return TextMetrics::default()} let (Some(p),false)=(unsafe{value(p)},style_.is_null()) else{return TextMetrics::default()}; let Some(s)=(unsafe{string(s)}) else{return TextMetrics::default()}; let Some(style)=(unsafe{read_style(style_)}) else{return TextMetrics::default()}; metrics(p.text_styled((x,y),&style,width,(has_color!=0).then_some(color),s)) });
 export!(pub unsafe fn pxui_paint_label(p:*mut PxuiPaint,x:f32,y:f32,style:*const pxui_types::ffi::PxuiLabelStyle,width:f32,s:Str)->TextMetrics { if !finite(&[x,y,width]){return TextMetrics::default()} let Some(p)=(unsafe{value(p)}) else{return TextMetrics::default()}; let (Some((label,_)),Some(s))=(crate::ui::label_style(style),unsafe{string(s)}) else{return TextMetrics::default()}; p.label((x,y),&label,width,s).map_or_else(TextMetrics::default,metrics) });
 export!(pub unsafe fn pxui_paint_label_chars(p:*mut PxuiPaint,x:f32,y:f32,style:*const pxui_types::ffi::PxuiLabelStyle,s:Str)->f32 { if !finite(&[x,y]){return 0.0} let Some(p)=(unsafe{value(p)}) else{return 0.0}; let (Some((label,_)),Some(s))=(crate::ui::label_style(style),unsafe{string(s)}) else{return 0.0}; p.label_chars((x,y),&label,s).unwrap_or(0.0) });
-export!(pub unsafe fn pxui_paint_text_width(p:*mut PxuiPaint,has_size:u8,size:i64,s:Str)->f32 { if has_size>1{return 0.0} let (Some(p),Some(s))=(unsafe{value(p)},unsafe{string(s)}) else{return 0.0}; p.text_width((has_size!=0).then_some(size),s) });
-export!(pub unsafe fn pxui_paint_text_metrics(p:*mut PxuiPaint,style_:*const TextStyle,width:f32,s:Str)->TextMetrics { if !width.is_finite(){return TextMetrics::default()} let (Some(p),false)=(unsafe{value(p)},style_.is_null()) else{return TextMetrics::default()}; let Some(s)=(unsafe{string(s)}) else{return TextMetrics::default()}; let Some(style)=(unsafe{read_style(style_)}) else{return TextMetrics::default()}; metrics(p.text_metrics(&style,width,s)) });
 export!(pub unsafe fn pxui_paint_caret_x(p:*mut PxuiPaint,has_size:u8,size:i64,s:Str,index:usize)->f32 { if has_size>1{return 0.0} let (Some(p),Some(s))=(unsafe{value(p)},unsafe{string(s)}) else{return 0.0}; if !s.is_char_boundary(index){return 0.0} p.caret_x((has_size!=0).then_some(size),s,index) });
 export!(pub unsafe fn pxui_paint_selection(p:*mut PxuiPaint,has_size:u8,size:i64,s:Str,a:usize,b:usize,build:SpanBuild,user:*mut c_void)->i32 { if has_size>1{return -1} let (Some(p),Some(s))=(unsafe{value(p)},unsafe{string(s)}) else{return -1}; if !s.is_char_boundary(a)||!s.is_char_boundary(b){return -1} if let Some(build)=build {p.selection((has_size!=0).then_some(size),s,a,b,&mut |x,w|build(user,x,w));} 0 });
-export!(pub unsafe fn pxui_paint_cap(p:*mut PxuiPaint,x:f32,y:f32,has_color:u8,color:Rgba,s:Str) { if !finite(&[x,y])||has_color>1{return} if let (Some(p),Some(s))=(unsafe{value(p)},unsafe{string(s)}) { p.cap((x,y),(has_color!=0).then_some(color),s); } });
-export!(pub unsafe fn pxui_paint_cap_width(p:*mut PxuiPaint,s:Str)->f32 { let (Some(p),Some(s))=(unsafe{value(p)},unsafe{string(s)}) else{return 0.0}; p.cap_width(s) });
 export!(pub unsafe fn pxui_paint_ratio(p:*mut PxuiPaint,x:f32,y:f32,a:i64,b:i64) { if finite(&[x,y]) { if let Some(p)=unsafe{value(p)} { p.ratio((x,y),a,b); } } });
 export!(pub unsafe fn pxui_paint_input_region(p:*mut PxuiPaint,cursor:f32,x:f32,y:f32,w:f32,h:f32) { if finite(&[cursor,x,y,w,h]) { if let Some(p)=unsafe{value(p)} { p.input_region(cursor,x,y,w,h); } } });
 
@@ -182,13 +173,5 @@ export!(pub unsafe fn pxui_paint_label_spans(p:*mut PxuiPaint,x:f32,y:f32,style:
     let (Some(p),Some((label,_)),Some(text),Some(spans))=(unsafe { value(p) },crate::ui::label_style(style),unsafe { string(text) },unsafe { crate::text::span_packet(spans) }) else { return PXUI_ERR_ARGUMENT };
     let Some(m)=p.label_spans((x,y),&label,width,text,spans.as_slice()) else { return PXUI_ERR_ARGUMENT };
     unsafe { out.write(metrics(m)); }
-    0
-});
-
-export!(pub unsafe fn pxui_paint_text_spans(p:*mut PxuiPaint,x:f32,y:f32,style_:*const TextStyle,width:f32,has_color:u8,color:Rgba,text:Str,spans:*const pxui_types::TextSpans,out:*mut TextMetrics)->i32 {
-    if !finite(&[x,y,width]) || has_color>1 || style_.is_null() || out.is_null() { return crate::PXUI_ERR_ARGUMENT; }
-    let (Some(p),Some(text),Some(style),Some(spans))=(unsafe { value(p) },unsafe { string(text) },unsafe { read_style(style_) },unsafe { crate::text::span_packet(spans) }) else { return crate::PXUI_ERR_ARGUMENT };
-    let Some(value)=p.text_spans((x,y),&style,width,(has_color!=0).then_some(color),text,spans.as_slice()) else { return crate::PXUI_ERR_ARGUMENT };
-    unsafe { out.write(metrics(value)); }
     0
 });

@@ -115,24 +115,24 @@ export!(object pub unsafe fn pxui_shaper_width_spans(shaper:*mut PxuiShaper,key:
     unsafe { measure_spans(&mut shaper.text,key,value,style_,max_width,spans,out) }
 });
 
-export!(pub unsafe fn pxui_text_width_spans(ui:*mut PxuiUi,key:u64,value:Str,style_:*const TextStyle,max_width:f32,spans:*const TextSpans,out:*mut TextMetrics)->i32 {
+pub(crate) unsafe fn text_width_spans(ui:*mut PxuiUi,key:u64,value:Str,style_:*const TextStyle,max_width:f32,spans:*const TextSpans,out:*mut TextMetrics)->i32 { if let Some(code) = unsafe { entered(ui) } { return code; }
     let Some(engine)=(unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT };
     unsafe { measure_spans(engine.text_mut(),key,value,style_,max_width,spans,out) }
-});
+}
 
-export!(pub unsafe fn pxui_ui_text_spans(ui:*mut PxuiUi,box_:*const crate::PxuiBox,value:Str,style_:*const TextStyle,spans:*const TextSpans)->i32 {
+pub(crate) unsafe fn ui_text_spans(ui:*mut PxuiUi,box_:*const crate::PxuiBox,value:Str,style_:*const TextStyle,spans:*const TextSpans)->i32 { if let Some(code) = unsafe { entered(ui) } { return code; }
     let Some(state)=(unsafe { crate::state::get(ui) }) else { return PXUI_ERR_ARGUMENT };
     if !state.shared().in_frame || box_.is_null() || style_.is_null() { return unsafe { crate::fail(ui,"text spans need a frame, a node and a style") }; }
     let (Some(value),Some(style),Some(spans),Some(box_))=(unsafe { crate::state::checked(value) },unsafe { read_style(style_) },unsafe { span_packet(spans) },crate::state::core_box(unsafe { *box_ })) else { return unsafe { crate::fail(ui,"invalid text spans") } };
     if !unsafe { &mut *state.engine }.text_spans(&box_,value,&style,spans.as_slice()) { return unsafe { crate::fail(ui,"invalid text span ranges or node") }; }
     0
-});
+}
 
-export!(pub unsafe fn pxui_ui_text_line_box(ui:*mut PxuiUi,box_:*const crate::PxuiBox,value:Str,style_:*const TextStyle,spans:*const TextSpans)->i32 {
+pub(crate) unsafe fn ui_text_line_box(ui:*mut PxuiUi,box_:*const crate::PxuiBox,value:Str,style_:*const TextStyle,spans:*const TextSpans)->i32 { if let Some(code) = unsafe { entered(ui) } { return code; }
     let Some(state)=(unsafe { crate::state::get(ui) }) else { return PXUI_ERR_ARGUMENT };
     if !state.shared().in_frame || box_.is_null() || style_.is_null() { return unsafe { crate::fail(ui,"line-box text needs a frame, a node and a style") }; }
     unsafe { write_line_box(ui, state, box_, value, read_style(style_), spans) }
-});
+}
 
 unsafe fn write_line_box(ui:*mut PxuiUi,state:&mut PxuiUi,box_:*const crate::PxuiBox,value:Str,style:Option<Style>,spans:*const TextSpans)->i32 {
     let (Some(value),Some(style),Some(count),Some(box_))=(unsafe { crate::state::checked(value) },style,unsafe { span_count(spans) },crate::state::core_box(unsafe { *box_ })) else { return unsafe { crate::fail(ui,"invalid line-box text") } };
@@ -268,7 +268,7 @@ mod prepared_tests {
             let layouts=engine(ui).unwrap().text_mut().layout_count();
             assert_eq!(pxui_text_install(ui,record),0);
             let mut actual=TextMetrics::default();
-            assert_eq!(pxui_text_width_spans(ui,0,value("prepared"),&style,200.0,&spans,&mut actual),0);
+            assert_eq!(crate::text::text_width_spans(ui,0,value("prepared"),&style,200.0,&spans,&mut actual),0);
             assert_eq!((actual.width,actual.height,actual.baseline,actual.lines),(measured.width,measured.height,measured.baseline,measured.lines));
             assert_eq!(engine(ui).unwrap().text_mut().layout_count(),layouts);
             assert_eq!(pxui_text_install(ui,record),crate::PXUI_ERR_STATE);
@@ -482,10 +482,10 @@ fn over(dst: &mut [u8], src: [u8; 4]) {
 
 // Measures `value` in the Ui's text service: the one font system and glyph atlas the Ui itself draws with. `key` names the
 // layout in the service's cache.
-export!(pub unsafe fn pxui_text_width(ui: *mut PxuiUi, key: u64, value: Str, style_: *const TextStyle, max_width: f32, out: *mut TextMetrics) -> i32 {
+pub(crate) unsafe fn text_width(ui: *mut PxuiUi, key: u64, value: Str, style_: *const TextStyle, max_width: f32, out: *mut TextMetrics) -> i32 { if let Some(code) = unsafe { entered(ui) } { return code; }
     let Some(engine) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
     unsafe { measure(engine.text_mut(), key, value, style_, max_width, out) }
-});
+}
 
 /// The prepare queue's worker: one thread the host owns, shaping for every `Ui` attached to it.
 pub struct PxuiTextWorker { worker: pxui_text::Worker }
@@ -512,30 +512,30 @@ export!(pub unsafe fn pxui_ui_set_text_worker(ui: *mut PxuiUi, worker: *const Px
 
 // Requests `value` in `style` within `max_width` points (0: unbounded) from the attached worker: shaped there and installed
 // before a later frame builds. Nothing without a worker, or when cached or already requested.
-export!(pub unsafe fn pxui_text_prewarm(ui: *mut PxuiUi, value: Str, style_: *const TextStyle, max_width: f32) -> i32 {
+pub(crate) unsafe fn text_prewarm(ui: *mut PxuiUi, value: Str, style_: *const TextStyle, max_width: f32) -> i32 { if let Some(code) = unsafe { entered(ui) } { return code; }
     if style_.is_null() { return PXUI_ERR_ARGUMENT; }
     let Some(engine) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
     let (Some(value), Some(style)) = (unsafe { utf8(value) }, unsafe { read_style(style_) }) else { return PXUI_ERR_ARGUMENT; };
     if engine.prewarm_text(value, &style, max_width) { 0 } else { PXUI_ERR_ARGUMENT }
-});
+}
 
 // The glyph quads of `value` in the Ui's text service, for an app pass that samples the atlases of `pxui_renderer_atlas`. Returns
 // the total glyph count, or `usize::MAX` for invalid arguments; when `capacity` is smaller only the first `capacity` are written.
-export!(failing(usize::MAX) pub unsafe fn pxui_text_quads(
+pub(crate) unsafe fn text_quads(
     ui: *mut PxuiUi, key: u64, value: Str, style_: *const TextStyle, max_width: f32, origin_x: f32, origin_y: f32, scale: f32, out: *mut TextGlyph, capacity: usize,
-) -> usize {
+) -> usize { if unsafe { entered(ui) }.is_some() { return usize::MAX; }
     let Some(engine) = (unsafe { engine(ui) }) else { return usize::MAX; };
     unsafe { quads(engine.text_mut(), key, value, style_, max_width, origin_x, origin_y, scale, out, capacity) }
-});
+}
 
-export!(failing(usize::MAX) pub unsafe fn pxui_text_rasterize_rgba(
+pub(crate) unsafe fn text_rasterize_rgba(
     ui: *mut PxuiUi, key: u64, value: Str, style_: *const TextStyle, max_width: f32, scale: f32,
     color_r: u8, color_g: u8, color_b: u8, color_a: u8, width: *mut u32, height: *mut u32, out: *mut u8, capacity: usize,
-) -> usize {
+) -> usize { if unsafe { entered(ui) }.is_some() { return usize::MAX; }
     let Some(state) = (unsafe { crate::state::get(ui) }) else { return usize::MAX; };
     let (engine, shared) = (unsafe { &mut *state.engine }, state.shared());
     unsafe { rasterize(engine.text_mut(), &mut shared.raster_glyphs, false, key, value, style_, max_width, scale, color_r, color_g, color_b, color_a, width, height, out, capacity) }
-});
+}
 
 #[cfg(test)]
 mod tests {
@@ -654,3 +654,12 @@ export!(pub unsafe fn pxui_ui_label_prewarm(ui: *mut PxuiUi, value: Str, style: 
     let Some((style, _)) = crate::ui::label_style(style) else { return PXUI_ERR_ARGUMENT };
     unsafe { crate::trusted::label_prewarm(ui, value, &style, max_width) }
 });
+
+/// What these bodies' export entry did before they ran (they were exports until U2c): count the call and refuse a handle that is not
+/// the current one (a poisoned `Ui` among them), so the static wrapper's trusted label calls refuse as the C ones do.
+#[inline(always)]
+unsafe fn entered(ui: *mut PxuiUi) -> Option<i32> {
+    let shared = <*mut PxuiUi as crate::state::Handle>::shared(ui);
+    unsafe { crate::state::note_call(shared) };
+    if <*mut PxuiUi as crate::state::Handle>::usable(ui, shared) { None } else { Some(unsafe { crate::state::refuse(shared) }) }
+}

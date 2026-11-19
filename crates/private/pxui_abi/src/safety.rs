@@ -1709,7 +1709,7 @@ mod sized_records {
             let p = p.cast::<pxui_types::ffi::PxuiTextStyle>();
             {
         let mut out = pxui_types::TextMetrics::default();
-        unsafe { pxui_text_width(ui, 0, Str::default(), p, 100.0, &mut out) }
+        unsafe { crate::text::text_width(ui, 0, Str::default(), p, 100.0, &mut out) }
     }
         });
         unsafe { pxui_ui_destroy(ui); }
@@ -1726,7 +1726,7 @@ mod sized_records {
         let fix: fn(&mut pxui_types::ffi::PxuiTextStyle) = |s| *s = pxui_types::ffi::PxuiTextStyle::default();
         fix(&mut value);
         four(ui, ((&value as *const pxui_types::ffi::PxuiTextStyle).cast(), size_of_val(&value), align_of_val(&value)), true, &mut |p| {
-            unsafe { pxui_text_prewarm(ui, Str { ptr: b"Song".as_ptr(), len: 4 }, p.cast::<pxui_types::ffi::PxuiTextStyle>(), 0.0) }
+            unsafe { crate::text::text_prewarm(ui, Str { ptr: b"Song".as_ptr(), len: 4 }, p.cast::<pxui_types::ffi::PxuiTextStyle>(), 0.0) }
         });
         let (style, title) = (pxui_types::ffi::PxuiTextStyle::default(), Str { ptr: b"Song title".as_ptr(), len: 10 });
         let long = vec![b'a'; pxui_core::text::QUEUE_BYTES + 1];
@@ -1736,19 +1736,19 @@ mod sized_records {
             for attached in [core::ptr::null(), worker.cast_const()] {
                 assert_eq!(pxui_ui_set_text_worker(ui, attached), 0);
                 assert_eq!(pxui_ui_set_text_worker(other, attached), 0);
-                assert_eq!(pxui_text_prewarm(core::ptr::null_mut(), title, &style, 0.0), PXUI_ERR_ARGUMENT);
-                assert_eq!(pxui_text_prewarm(ui, title, core::ptr::null(), 0.0), PXUI_ERR_ARGUMENT);
-                assert_eq!(pxui_text_prewarm(ui, title, &style, f32::NAN), PXUI_ERR_ARGUMENT);
-                assert_eq!(pxui_text_prewarm(ui, title, &style, -1.0), PXUI_ERR_ARGUMENT);
-                assert_eq!(pxui_text_prewarm(ui, Str { ptr: b"\xff".as_ptr(), len: 1 }, &style, 0.0), PXUI_ERR_ARGUMENT);
-                assert_eq!(pxui_text_prewarm(ui, Str { ptr: long.as_ptr(), len: long.len() }, &style, 0.0), PXUI_ERR_ARGUMENT);
-                assert_eq!(pxui_text_prewarm(ui, title, &style, 200.0), 0);
-                assert_eq!(pxui_text_prewarm(other, title, &style, 0.0), 0);
+                assert_eq!(crate::text::text_prewarm(core::ptr::null_mut(), title, &style, 0.0), PXUI_ERR_ARGUMENT);
+                assert_eq!(crate::text::text_prewarm(ui, title, core::ptr::null(), 0.0), PXUI_ERR_ARGUMENT);
+                assert_eq!(crate::text::text_prewarm(ui, title, &style, f32::NAN), PXUI_ERR_ARGUMENT);
+                assert_eq!(crate::text::text_prewarm(ui, title, &style, -1.0), PXUI_ERR_ARGUMENT);
+                assert_eq!(crate::text::text_prewarm(ui, Str { ptr: b"\xff".as_ptr(), len: 1 }, &style, 0.0), PXUI_ERR_ARGUMENT);
+                assert_eq!(crate::text::text_prewarm(ui, Str { ptr: long.as_ptr(), len: long.len() }, &style, 0.0), PXUI_ERR_ARGUMENT);
+                assert_eq!(crate::text::text_prewarm(ui, title, &style, 200.0), 0);
+                assert_eq!(crate::text::text_prewarm(other, title, &style, 0.0), 0);
             }
             assert_eq!(pxui_ui_set_text_worker(core::ptr::null_mut(), worker), PXUI_ERR_ARGUMENT);
             pxui_text_worker_destroy(worker);
             pxui_text_worker_destroy(core::ptr::null_mut());
-            assert_eq!(pxui_text_prewarm(ui, title, &style, 100.0), 0);
+            assert_eq!(crate::text::text_prewarm(ui, title, &style, 100.0), 0);
             assert_eq!(pxui_ui_set_text_worker(other, core::ptr::null()), 0);
             pxui_ui_destroy(ui);
             pxui_ui_destroy(other);
@@ -1765,7 +1765,7 @@ mod sized_records {
             let p = p.cast::<pxui_types::TextSpans>();
             {
         let (style, mut out) = (pxui_types::ffi::PxuiTextStyle::default(), pxui_types::TextMetrics::default());
-        unsafe { pxui_text_width_spans(ui, 0, Str::default(), &style, 100.0, p, &mut out) }
+        unsafe { crate::text::text_width_spans(ui, 0, Str::default(), &style, 100.0, p, &mut out) }
     }
         });
         unsafe { pxui_ui_destroy(ui); }
@@ -1876,15 +1876,15 @@ fn every_text_entry_refuses_text_over_the_cap() {
         let shaper = pxui_shaper_create(&font, 1);
         assert!(!shaper.is_null());
         assert_eq!(pxui_shaper_width(shaper, 0, over, &style, 100.0, &mut out), PXUI_ERR_ARGUMENT);
-        assert_eq!(pxui_text_width(ui, 0, over, &style, 100.0, &mut out), PXUI_ERR_ARGUMENT);
+        assert_eq!(crate::text::text_width(ui, 0, over, &style, 100.0, &mut out), PXUI_ERR_ARGUMENT);
         let spans = pxui_types::TextSpans::default();
         assert_eq!(pxui_shaper_width_spans(shaper, 0, over, &style, 100.0, &spans, &mut out), PXUI_ERR_ARGUMENT);
-        assert_eq!(pxui_text_width_spans(ui, 0, over, &style, 100.0, &spans, &mut out), PXUI_ERR_ARGUMENT);
-        assert_eq!(pxui_text_prewarm(ui, over, &style, 100.0), PXUI_ERR_ARGUMENT);
+        assert_eq!(crate::text::text_width_spans(ui, 0, over, &style, 100.0, &spans, &mut out), PXUI_ERR_ARGUMENT);
+        assert_eq!(crate::text::text_prewarm(ui, over, &style, 100.0), PXUI_ERR_ARGUMENT);
         let (mut w, mut h) = (0u32, 0u32);
         assert_eq!(pxui_shaper_rasterize_rgba(shaper, 0, over, &style, 100.0, 1.0, 0, 0, 0, 255, &mut w, &mut h, core::ptr::null_mut(), 0), usize::MAX);
-        assert_eq!(pxui_text_rasterize_rgba(ui, 0, over, &style, 100.0, 1.0, 0, 0, 0, 255, &mut w, &mut h, core::ptr::null_mut(), 0), usize::MAX);
-        assert_eq!(pxui_text_quads(ui, 0, over, &style, 100.0, 0.0, 0.0, 1.0, core::ptr::null_mut(), 0), usize::MAX);
+        assert_eq!(crate::text::text_rasterize_rgba(ui, 0, over, &style, 100.0, 1.0, 0, 0, 0, 255, &mut w, &mut h, core::ptr::null_mut(), 0), usize::MAX);
+        assert_eq!(crate::text::text_quads(ui, 0, over, &style, 100.0, 0.0, 0.0, 1.0, core::ptr::null_mut(), 0), usize::MAX);
         pxui_shaper_destroy(shaper);
         assert_eq!(pxui_ui_destroy(ui), 0);
     }
@@ -1902,7 +1902,7 @@ fn label_text_calls_resolve_in_the_same_call_and_refuse_bad_records() {
     assert_eq!(unsafe { crate::ui::pxui_ui_resolve_label(ui, &label, &mut resolved) }, 0);
     let (mut a, mut b) = (TextMetrics::default(), TextMetrics::default());
     assert_eq!(unsafe { pxui_ui_label_measure(ui, value, &label, 0.0, core::ptr::null(), &mut a) }, 0);
-    assert_eq!(unsafe { pxui_text_width(ui, 0, value, &resolved, 0.0, &mut b) }, 0);
+    assert_eq!(unsafe { crate::text::text_width(ui, 0, value, &resolved, 0.0, &mut b) }, 0);
     assert!(a == b && a.width > 0.0, "{a:?} {b:?}");
     let bad = [PxuiLabelStyle { wrap: 9, ..label }, PxuiLabelStyle { size: 8, ..label }, PxuiLabelStyle { set: PxuiLabelStyle::SET_SIZE, size_points: -1.0, ..label }];
     for bad in &bad { assert_eq!(unsafe { pxui_ui_label_measure(ui, value, bad, 0.0, core::ptr::null(), &mut a) }, PXUI_ERR_ARGUMENT, "{bad:?}"); }

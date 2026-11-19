@@ -1,5 +1,5 @@
 //! Queries and switches on the `Ui` as a whole: font and row size, focus, carries, timing and the frame counters.
-use crate::state::{PxuiUi, checked, engine, fail, finite, get};
+use crate::state::{PxuiUi, checked, engine, fail, get};
 use crate::ui::key;
 use crate::{PXUI_ERR_ARGUMENT, Str};
 use pxui_core::ui::{Cursor, UndoKind};
@@ -278,17 +278,4 @@ export!(pub unsafe fn pxui_ui_key_seed(ui: *mut PxuiUi, out: *mut i64) -> i32 {
     if out.is_null() { return unsafe { fail(ui, "null seed output") }; }
     unsafe { *out = e.lookup_seed(); }
     0
-});
-
-export!(pub unsafe fn pxui_ui_cap_width(ui: *mut PxuiUi, text: Str, out: *mut f32) -> i32 {
-    let Some(e) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    let Some(text) = (unsafe { checked(text) }) else { return unsafe { fail(ui, "invalid label") }; };
-    if out.is_null() { return unsafe { fail(ui, "null width output") }; }
-    unsafe { *out = e.cap_width(text); }
-    0
-});
-
-export!(pub unsafe fn pxui_ui_text_top(ui: *mut PxuiUi, has_size: u8, size: i64, y: f32, h: f32) -> f32 {
-    if has_size > 1 || !finite(&[y, h]) { return 0.0; }
-    unsafe { engine(ui) }.map_or(0.0, |e| e.text_top((has_size != 0).then_some(size), y, h))
 });

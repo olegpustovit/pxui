@@ -64,10 +64,10 @@ Since 1.66:
 | Input | Cap | Past it |
 | --- | --- | --- |
 | An identifier: a key (`PxuiKeyedDesc.key`), a node or container label used as identity, a body, theme-file or bridge name, a carry kind | 256 bytes (`MAX_KEY_BYTES`) | refused; the Rust wrapper panics (a programmer error: keys are `&'static str` or ids) |
-| Display text: labels, titles, accessible names (`PxuiKeyedDesc.name`) and values, tips, menu and list rows, hints, options; a node's text with spans or as a line box (`ui_text_spans`, `ui_text_line_box`, `ui_label_text_spans`, `ui_label_text_line_box`) | 64 KiB (`MAX_LABEL_BYTES`) | refused from C; the Rust wrapper clips it at a character boundary first (user data never panics) |
-| Editor text: a text field's or area's value, a splice, a paste, an edit, a theme source, text the text service measures or shapes (`text_width`/`_spans`, `text_quads`, `text_rasterize_rgba`, `ui_label_measure`, `ui_label_quads`, `ui_label_rasterize_rgba`, the shaper's); one event's text | 16 MiB (`MAX_TEXT_BYTES`) | refused |
+| Display text: labels, titles, accessible names (`PxuiKeyedDesc.name`) and values, tips, menu and list rows, hints, options; a node's text with spans or as a line box (`ui_label_text_spans`, `ui_label_text_line_box`) | 64 KiB (`MAX_LABEL_BYTES`) | refused from C; the Rust wrapper clips it at a character boundary first (user data never panics) |
+| Editor text: a text field's or area's value, a splice, a paste, an edit, a theme source, text the text service measures or shapes (`ui_label_measure`, `ui_label_quads`, `ui_label_rasterize_rgba`, the shaper's); one event's text | 16 MiB (`MAX_TEXT_BYTES`) | refused |
 | A text prepared off the UI thread (`shaper_prepare`) | 1 MiB (`pxui_text` `MAX_PREPARED_BYTES`) | refused |
-| `text_prewarm` / `ui_label_prewarm` text | 16 KiB | refused |
+| `ui_label_prewarm` text | 16 KiB | refused |
 | A font; fonts per text service; font bytes per text service (1.63) | 32 MiB; 64; 256 MiB | refused |
 | A call's string span (options, rows, titles, hints, a text area's messages and splices); one frame's event text (or one `ui_wants_frame` call's) | 16 MiB together (`MAX_TOTAL_TEXT_BYTES`) | refused |
 | Strings the library hands back between two frames (edited text, lent payloads, a picker query) | 4096 and 64 MiB (`MAX_RETURNED`, `MAX_RETURNED_BYTES`) | `PXUI_ERR_STATE` until the next frame |
@@ -148,14 +148,9 @@ shrink), or when the manifest gained a row without a later minor: editing `abi/p
 the appended row in `abi/pxui.v1.txt` (and `abi/layout.v1.txt` for a new record); the row in the table below; the
 `ABI_VERSION` bump with the `minor` line. Then run the `abi-header` and `abi-snapshot` gates.
 
-**Cut at 2.0.** Kept through 1.x under the promise, removed when the major becomes 2 (each has a replacement):
-
-- `pxui_ui_image` (keyed and named by one label) and `pxui_paint_image` (drops bad input silently): replaced by `pxui_ui_image_node` and
-  `pxui_paint_image_checked` (1.70).
-
-- `pxui_ui_segmented` (the C choice call's segmented kind, `trusted::choice` kind 2), `pxui_ui_segmented_plain`, `pxui_ui_segmented_response`
-  and the library-internal `trusted::segmented_plain`: replaced by `pxui_ui_segmented_result` (1.67), which alone reports no choice and the
-  secondary option.
+**Superseded exports (D28).** Before 2.0 a superseded export is deleted in the step that supersedes it and its successor takes the
+plain name; U2c (1.93-1.97) deleted the twins accumulated through 1.x. `tools/dx/abi_drop.py` (LocalWave) lists exports with no caller
+beyond pxui_abi and tests; `--check` fails on any but its reviewed keep list (C-only calls with no successor).
 
 **Deprecation.** A deprecated call is kept forever and keeps its behaviour. Mark it in its docs row (and `#[deprecated]` on the
 wrapper) and name the replacement; nothing is removed from the manifest.
@@ -261,6 +256,7 @@ wrapper) and name the replacement; nothing is removed from the manifest.
 | 1.94 | Changed in place (D28, U2c.3): deleted `pxui_panel`, `ui_panel_keyed`, `ui_popup` (label), `ui_popup_keyed`, `ui_modal` (label), `ui_modal_keyed`, `ui_modal_root`, `ui_anchored` (label, any `PxuiSizeDesc`), `ui_tooltip` (text-keyed wait; `ui_tip` is the call), `ui_scroll_view` (two sizes), `ui_scroll_view_keyed`, `ui_view`/`ui_view_flat` (label, explicit sizes), `ui_split` (no response), `ui_menu_bar` (no dismissal), `pxui_col`, `ui_box` (`PxuiBoxDesc`, `PxuiHit`, `PxuiRelease`), `ui_enter`/`ui_leave` (`PxuiSaved`; `pxui_within` builds inside a box), `ui_list_measured` (label), `ui_image` (label), `ui_image_node`; ext `ui_inspector_section_view`, `ui_inspector_toggle_value`. Renamed to the plain name: `ui_panel_root` -> `ui_panel`, `ui_popup_root` -> `ui_popup`, `ui_modal_sheet` -> `ui_modal`, `ui_anchored_keyed` -> `ui_anchored`, `ui_scroll_view_node` -> `ui_scroll_view`, `ui_view_keyed` -> `ui_view`, `ui_split_result` -> `ui_split`, `ui_menu_bar_result` -> `ui_menu_bar`, `ui_image_keyed` -> `ui_image`. The engine's `tooltip_legacy`, `anchored_legacy`, label-keyed image and `inspector_section_view` bodies go with them. | Every superseded container, overlay and image export goes; survivors unchanged. |
 | 1.95 | Changed in place (D28, U2c.4): deleted `pxui_text_field`, `pxui_text_field_with_options`, `ui_text_field_keyed`, `ui_search_field`, `ui_value_field`, `ui_text_area_submit`, `ui_text_area_node` (the forms without a response), `ui_input_box` (each text input reports its box in its response since 1.82), `ui_remember` (the active editor); ext `ui_line_field` (no response). Renamed to the plain name: `ui_text_field_response` -> `ui_text_field`, `ui_search_field_response` -> `ui_search_field`, `ui_line_field_response` -> `ui_line_field`, `ui_value_field_response` -> `ui_value_field`, `ui_text_area_response` -> `ui_text_area`, `ui_remember_key` -> `ui_remember`. | Every superseded text input export goes; survivors unchanged. |
 | 1.96 | Changed in place (D28, U2c.5): deleted `ui_theme` (the integer projection of the snapshot), `ui_set_theme` (`PxuiThemeSource`), `ui_set_colors`, `theme_set`, `theme_load`, `ui_theme_apply` (`theme_parse`, `theme_set_color` and `ui_use_theme` are the calls), `ui_set_look` (`ui_style`), `ui_font_size`, `ui_row_height`, `ui_set_font_size` (the `_points` calls), `verify_new_views` (`ui_verify_views`), and the unchecked `paint_image`, `renderer_create`, `body_register`, `ui_a11y_name`, `ui_a11y_number`. Renamed to the plain name: `ui_theme_exact` -> `ui_theme` (token text sizes are `float` in the low half of each 8-byte slot of `PxuiThemeSnapshot`), `paint_image_checked` -> `paint_image`, `renderer_create_checked` -> `renderer_create`, `body_register_checked` -> `body_register`, `ui_a11y_name_checked` -> `ui_a11y_name`, `ui_a11y_number_checked` -> `ui_a11y_number`. | Every superseded theme, unit, constructor and setter export goes; survivors unchanged. |
+| 1.97 | Changed in place (D28, U2c.6): deleted the resolved-style text twins `text_width`, `text_width_spans`, `text_quads`, `text_rasterize_rgba`, `text_prewarm`, `ui_text_spans`, `ui_text_line_box` (the `ui_label_*` calls run the same bodies), the 1.x paint text calls `paint_text`, `_color`, `_size`, `_with`, `_styled`, `_width`, `_metrics`, `_spans`, `paint_cap`, `paint_cap_width` (`paint_label`, `_chars`, `_measure`, `_spans`), `ui_text_width`, `ui_cap_width`, `ui_text_top` (`ui_label_measure`), and `ui_label` (no box out; `ui_label_node`). | Every superseded text export goes; survivors unchanged. |
 
 Frame extensions retain the frozen 48/56/128-byte prefixes. Validate leading sizes, active
 records, flags and UTF-8 boundaries before mutation; partial tails never justify reading

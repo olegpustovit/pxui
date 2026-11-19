@@ -642,13 +642,6 @@ export!(trusted pub unsafe fn pxui_ui_panel(ui: *mut PxuiUi, keyed: *const pxui_
     unsafe { self::panel(ui, key, name, panel, build, user, &mut *root) }
 });
 
-export!(trusted pub unsafe fn pxui_ui_label(ui: *mut PxuiUi, text: Str, style: *const pxui_types::ffi::PxuiLabelStyle) -> i32 {
-    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
-    let (Some(text), false) = (unsafe { checked(text) }, style.is_null()) else { return unsafe { fail(ui, "invalid label arguments") } };
-    let Some((style, digits)) = label_style(style) else { return unsafe { fail(ui, "invalid label style") } };
-    let mut out = PxuiBox::default();
-    unsafe { trusted::pxui_ui_label(ui, pair(text), &style, digits, &mut out) }
-});
 
 // ABI 1.54: `pxui_ui_label` with the label's box (`label_box`, null for none) writing the label's node to `out`; a null `style` is
 // the theme's label (`pxui_label`).

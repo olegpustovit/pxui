@@ -945,28 +945,28 @@ unsafe fn resolved(ui: *mut PxuiUi, style: &LabelFields) -> Option<PxuiTextStyle
 #[inline(always)]
 pub unsafe fn label_text_spans(ui: *mut PxuiUi, box_: *const PxuiBox, value: Str, style: &LabelFields, spans: *const TextSpans) -> i32 {
     let Some(style) = (unsafe { resolved(ui, style) }) else { return unsafe { fail(ui, "label style does not resolve") } };
-    unsafe { crate::text::pxui_ui_text_spans(ui, box_, value, &style, spans) }
+    unsafe { crate::text::ui_text_spans(ui, box_, value, &style, spans) }
 }
 
 #[inline(always)]
 pub unsafe fn label_text_line_box(ui: *mut PxuiUi, box_: *const PxuiBox, value: Str, style: &LabelFields, spans: *const TextSpans) -> i32 {
     let Some(style) = (unsafe { resolved(ui, style) }) else { return unsafe { fail(ui, "label style does not resolve") } };
-    unsafe { crate::text::pxui_ui_text_line_box(ui, box_, value, &style, spans) }
+    unsafe { crate::text::ui_text_line_box(ui, box_, value, &style, spans) }
 }
 
 /// `spans` null: the plain measurement (`pxui_text_width`); else `pxui_text_width_spans`.
 #[inline(always)]
 pub unsafe fn label_measure(ui: *mut PxuiUi, value: Str, style: &LabelFields, max_width: f32, spans: *const TextSpans, out: *mut TextMetrics) -> i32 {
     let Some(style) = (unsafe { resolved(ui, style) }) else { return crate::PXUI_ERR_ARGUMENT };
-    if spans.is_null() { unsafe { crate::text::pxui_text_width(ui, 0, value, &style, max_width, out) } }
-    else { unsafe { crate::text::pxui_text_width_spans(ui, 0, value, &style, max_width, spans, out) } }
+    if spans.is_null() { unsafe { crate::text::text_width(ui, 0, value, &style, max_width, out) } }
+    else { unsafe { crate::text::text_width_spans(ui, 0, value, &style, max_width, spans, out) } }
 }
 
 #[allow(clippy::too_many_arguments)]
 #[inline(always)]
 pub unsafe fn label_quads(ui: *mut PxuiUi, value: Str, style: &LabelFields, max_width: f32, x: f32, y: f32, scale: f32, out: *mut TextGlyph, capacity: usize) -> usize {
     let Some(style) = (unsafe { resolved(ui, style) }) else { return usize::MAX };
-    unsafe { crate::text::pxui_text_quads(ui, 0, value, &style, max_width, x, y, scale, out, capacity) }
+    unsafe { crate::text::text_quads(ui, 0, value, &style, max_width, x, y, scale, out, capacity) }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -974,13 +974,13 @@ pub unsafe fn label_quads(ui: *mut PxuiUi, value: Str, style: &LabelFields, max_
 pub unsafe fn label_rasterize_rgba(ui: *mut PxuiUi, value: Str, style: &LabelFields, max_width: f32, scale: f32, color_r: u8, color_g: u8, color_b: u8,
     color_a: u8, width: *mut u32, height: *mut u32, out: *mut u8, capacity: usize) -> usize {
     let Some(style) = (unsafe { resolved(ui, style) }) else { return usize::MAX };
-    unsafe { crate::text::pxui_text_rasterize_rgba(ui, 0, value, &style, max_width, scale, color_r, color_g, color_b, color_a, width, height, out, capacity) }
+    unsafe { crate::text::text_rasterize_rgba(ui, 0, value, &style, max_width, scale, color_r, color_g, color_b, color_a, width, height, out, capacity) }
 }
 
 #[inline(always)]
 pub unsafe fn label_prewarm(ui: *mut PxuiUi, value: Str, style: &LabelFields, max_width: f32) -> i32 {
     let Some(style) = (unsafe { resolved(ui, style) }) else { return crate::PXUI_ERR_ARGUMENT };
-    unsafe { crate::text::pxui_text_prewarm(ui, value, &style, max_width) }
+    unsafe { crate::text::text_prewarm(ui, value, &style, max_width) }
 }
 
 // ---- U2b.1: selection list, table and heading, section list with its trailer (one validation pass each, the whole result in one record)
