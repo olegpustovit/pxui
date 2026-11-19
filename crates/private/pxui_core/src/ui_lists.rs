@@ -103,8 +103,8 @@ pub(crate) fn moved_index(k: usize, (from, to): (usize, usize)) -> usize {
 }
 
 /// The frame's keys on a focused list: the keyboard row before and after, Enter, the row whose selection a key changed and, in a
-/// reorderable list, the keyboard row's move (Alt with Up or Down). Escape clears a multi-selection (not while a press is held: a
-/// drag, a carry or a lifted row spends it). The keys it handles are taken from the app's `key_pressed`.
+/// reorderable list, the keyboard row's move (Alt with Up or Down). Escape clears a multi-selection (not while a row is lifted, whose
+/// drag spends it; a plain held press leaves it to the selection; a carry's `cancel_carry` spends it before). The keys it handles are taken from the app's `key_pressed`.
 #[allow(clippy::type_complexity)]
 fn key_selection(this: &Ui, frame: &Handle, count: usize, page: i64, flags: &mut [u8], anchor: &mut Option<usize>, multi: bool, reorder: bool) -> (usize, usize, bool, Option<usize>, Option<(usize, usize)>) {
     let cursor = (this.state(frame, 0).max(0) as usize).min(count.saturating_sub(1));
@@ -134,7 +134,7 @@ fn key_selection(this: &Ui, frame: &Handle, count: usize, page: i64, flags: &mut
             Key::Enter if !command => { enter = true; None }
             Key::Space | Key::KeyChar(' ') if space_selects && !command => { space = true; None }
             Key::KeyChar('a' | 'A') if multi && command => { all = true; None }
-            Key::Escape if multi && !command && !this.captured() && flags.iter().any(|f| *f & SELECTED != 0) => { clear = true; None }
+            Key::Escape if multi && !command && !this.reordering() && flags.iter().any(|f| *f & SELECTED != 0) => { clear = true; None }
             _ => continue,
         };
         this.take_key(*key);

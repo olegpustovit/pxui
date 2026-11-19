@@ -1059,6 +1059,14 @@ mod tests {
         assert_eq!((on(&state.borrow()), esc.get()), (vec![], false), "Escape clears the selection and is the list's");
         press(&mut ui, 4.0, KeyCode::Escape, &[], &mut build);
         assert!(esc.get(), "with nothing selected Escape stays the app's");
+        // a plain held press (a button's macOS semantics) leaves Escape to the selection
+        press(&mut ui, 4.5, KeyCode::Char('a'), &[KeyCode::Meta], &mut build);
+        let row = items(&ui, Role::ListItem)[1].rect;
+        let (x, y) = ((row.x + row.w / 2.0) as f64, (row.y + row.h / 2.0) as f64);
+        at(&mut ui, 4.6, &[Event::pointer(Event::POINTER_PRESSED, 0, x, y)], &mut build);
+        press(&mut ui, 4.7, KeyCode::Escape, &[], &mut build);
+        assert!(on(&state.borrow()).is_empty(), "a held press leaves Escape to the selection");
+        at(&mut ui, 4.8, &[Event::pointer(Event::POINTER_RELEASED, 0, x, y)], &mut build);
         multi.set(false);
         press(&mut ui, 5.0, KeyCode::ArrowDown, &[], &mut build);
         press(&mut ui, 6.0, KeyCode::Escape, &[], &mut build);
