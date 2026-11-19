@@ -994,7 +994,7 @@ fn geometry_ok(count: usize, row: f32, parts: [f32; 3]) -> bool {
     count <= MAX_ITEMS && row.is_finite() && row > 0.0 && total.is_finite() && parts.iter().all(|v| v.is_finite() && *v >= 0.0)
 }
 
-/// The library-written cell record of `c`: the engine's own bytes (the layouts are one, checked below), lent for the callback.
+/// The library-written cell record of `c`: the engine's row record follows `PxuiCellState`'s layout (checked below), lent for the callback.
 #[inline(always)]
 pub(crate) fn cell_state(c: &ListCell) -> *const PxuiCellState { (c as *const ListCell).cast() }
 const _: () = {
@@ -1003,7 +1003,7 @@ const _: () = {
     type C = PxuiCellState;
     assert!(size_of::<C>() == size_of::<ListCell>() && align_of::<C>() == align_of::<ListCell>() && size_of::<B>() == size_of::<pxui_core::ui::UiBox>());
     assert!(offset_of!(C, selected) == offset_of!(ListCell, selected) && offset_of!(C, enabled) == offset_of!(ListCell, enabled) && offset_of!(C, focused) == offset_of!(ListCell, focused) && offset_of!(C, held) == offset_of!(ListCell, held));
-    assert!(offset_of!(C, reserved) == offset_of!(ListCell, reserved) && offset_of!(C, handle) == offset_of!(ListCell, handle) && offset_of!(C, y) == offset_of!(ListCell, y) && offset_of!(C, reserved_tail) == offset_of!(ListCell, reserved_tail));
+    assert!(offset_of!(C, size) == offset_of!(ListCell, size) && offset_of!(C, handle) == offset_of!(ListCell, handle) && offset_of!(C, y) == offset_of!(ListCell, y) && offset_of!(C, reserved) == offset_of!(ListCell, reserved));
     assert!(offset_of!(B, index) == offset_of!(pxui_core::ui::UiBox, index) && offset_of!(B, box_key) == offset_of!(pxui_core::ui::UiBox, box_key) && offset_of!(B, box_slot) == offset_of!(pxui_core::ui::UiBox, box_slot) && offset_of!(B, generation) == offset_of!(pxui_core::ui::UiBox, generation));
 };
 

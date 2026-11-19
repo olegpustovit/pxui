@@ -550,7 +550,9 @@ fn section_list_validates_before_callbacks_and_builds_every_part() {
     type Seen = (usize, [bool; 3]);
     extern "C" fn part(user: *mut c_void, raw: *mut c_void, index: usize, cell: *const pxui_types::ffi::PxuiCellState) {
         let (seen, cell) = (unsafe { &mut *user.cast::<Seen>() }, unsafe { &*cell });
-        assert!(cell.y.is_finite() && cell.enabled == 1 && cell.reserved == 0 && cell.reserved_tail == 0);
+        assert!(cell.y.is_finite() && cell.enabled == 1 && cell.reserved == 0);
+        // 1.119: the record is size-prefixed
+        assert_eq!(cell.size as usize, core::mem::size_of::<pxui_types::ffi::PxuiCellState>(), "part {index}");
         // 1.103: a row is told its box, the other parts the empty box
         assert_eq!(index < usize::MAX - 2, cell.handle.index != 0, "part {index}");
         if index >= usize::MAX - 2 { seen.1[usize::MAX - index] = true; }
@@ -606,8 +608,9 @@ fn list_and_table_rows_key_by_item_id() {
         node.box_key
     }
     extern "C" fn part(user: *mut c_void, raw: *mut c_void, index: usize, _: *const pxui_types::ffi::PxuiCellState) { let s = unsafe { &mut *user.cast::<State>() }; if index < 3 { s.1[0][index] = child(raw); } }
-    extern "C" fn cell(user: *mut c_void, raw: *mut c_void, index: usize, _: *const pxui_types::ffi::PxuiCellState) { let s = unsafe { &mut *user.cast::<State>() }; if index < 3 { s.1[1][index] = child(raw); } }
-    extern "C" fn table_cell(user: *mut c_void, raw: *mut c_void, row: usize, _: usize, _: *const pxui_types::ffi::PxuiCellState) { let s = unsafe { &mut *user.cast::<State>() }; s.1[2][row] = child(raw); }
+    // 1.119: a selection list's and a table's records are size-prefixed too
+    extern "C" fn cell(user: *mut c_void, raw: *mut c_void, index: usize, c: *const pxui_types::ffi::PxuiCellState) { assert_eq!(unsafe { (*c).size }, 48); let s = unsafe { &mut *user.cast::<State>() }; if index < 3 { s.1[1][index] = child(raw); } }
+    extern "C" fn table_cell(user: *mut c_void, raw: *mut c_void, row: usize, _: usize, c: *const pxui_types::ffi::PxuiCellState) { assert_eq!(unsafe { (*c).size }, 48); let s = unsafe { &mut *user.cast::<State>() }; s.1[2][row] = child(raw); }
     extern "C" fn key(user: *mut c_void, row: usize) -> i64 { unsafe { (*user.cast::<State>()).0[row] } }
     extern "C" fn build(user: *mut c_void, raw: *mut c_void) {
         let (ui, state) = (raw.cast::<PxuiUi>(), unsafe { &mut *user.cast::<State>() });

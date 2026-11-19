@@ -22,21 +22,27 @@ pub const LIVE: u8 = 4;
 /// The most columns a table or heading takes.
 pub const MAX_COLUMNS: usize = 64;
 
-/// What a selection list or table row's builder is told about the row. It crosses as its bytes: `PxuiCellState` is this layout,
-/// so a C builder reads the library's own record (every byte written: the reserved words are 0).
-#[derive(Clone, Copy, Debug, Default)]
+/// What a selection list or table row's builder is told about the row. It follows `pxui_types::ffi::PxuiCellState`'s layout (that
+/// record owns it; pxui_abi checks the two agree), so a C builder reads it as written: `size` set, the flags 0 or 1, `reserved` 0.
+#[derive(Clone, Copy, Debug)]
 #[repr(C)]
 pub struct ListCell {
+    pub size: u32,
     pub selected: bool,
     pub enabled: bool,
     pub focused: bool,
     pub held: bool,
-    pub reserved: u32,
     /// The row's box (the empty box for the lead-in, heading and trailer).
     pub handle: Handle,
     /// The part's logical content Y.
     pub y: f32,
-    pub reserved_tail: u32,
+    pub reserved: u32,
+}
+
+impl Default for ListCell {
+    fn default() -> ListCell {
+        ListCell { size: core::mem::size_of::<ListCell>() as u32, selected: false, enabled: false, focused: false, held: false, handle: Handle::default(), y: 0.0, reserved: 0 }
+    }
 }
 
 /// What a selection list or table's rows report this frame.

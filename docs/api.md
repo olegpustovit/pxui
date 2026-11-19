@@ -4328,9 +4328,8 @@ pxui_types::ffi::PxuiCellState::focused field u8 @U2b.1
 pxui_types::ffi::PxuiCellState::handle field PxuiBox @U2b.1
 pxui_types::ffi::PxuiCellState::held field u8 @U2b.1
 pxui_types::ffi::PxuiCellState::reserved field u32 @U2b.1
-pxui_types::ffi::PxuiCellState::reserved_tail field u32 @U4a.6
 pxui_types::ffi::PxuiCellState::selected field u8 @U2b.1
--pxui_types::ffi::PxuiCellState::size field u32 @U4a.6
+pxui_types::ffi::PxuiCellState::size field u32 @U4a.6
 pxui_types::ffi::PxuiCellState::y field f32 @U2b.1
 pxui_types::ffi::PxuiCheckConfig impl Clone @HEAD
 pxui_types::ffi::PxuiCheckConfig impl Copy @HEAD

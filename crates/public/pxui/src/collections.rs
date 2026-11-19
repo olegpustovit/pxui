@@ -153,34 +153,21 @@ pub(crate) fn part_of(index: usize) -> SectionPart {
     match index { usize::MAX => SectionPart::Leading, i if i == usize::MAX - 1 => SectionPart::Header, i if i == usize::MAX - 2 => SectionPart::Trailing, i => SectionPart::Row(i) }
 }
 
-/// The library's cell record as the row's `CellState`.
-/// The engine's row record as the wrapper's: the same bytes (`#[repr(C)]` both, checked below), read as they are.
+/// The engine's row record as the row's `CellState`, field by field.
 #[cfg(feature = "static")]
 #[inline(always)]
-pub(crate) fn cell_from(c: &pxui_abi_link::trusted::ListCell) -> CellState { unsafe { *(c as *const pxui_abi_link::trusted::ListCell).cast::<CellState>() } }
-#[cfg(feature = "static")]
-const _: () = {
-    use core::mem::{align_of, offset_of, size_of};
-    use pxui_abi_link::trusted::ListCell as L;
-    assert!(size_of::<CellState>() == size_of::<L>() && align_of::<CellState>() == align_of::<L>());
-    assert!(offset_of!(CellState, selected) == offset_of!(L, selected) && offset_of!(CellState, enabled) == offset_of!(L, enabled) && offset_of!(CellState, focused) == offset_of!(L, focused) && offset_of!(CellState, held) == offset_of!(L, held) && offset_of!(CellState, y) == offset_of!(L, y));
-    assert!(offset_of!(CellState, handle.index) == offset_of!(L, handle.index) && offset_of!(CellState, handle.box_key) == offset_of!(L, handle.box_key) && offset_of!(CellState, handle.box_slot) == offset_of!(L, handle.box_slot) && offset_of!(CellState, handle.generation) == offset_of!(L, handle.generation));
-    assert!(size_of::<usize>() == size_of::<u64>());
-};
+pub(crate) fn cell_from(c: &pxui_abi_link::trusted::ListCell) -> CellState {
+    let h = c.handle;
+    let handle = crate::Handle { index: h.index as u64, box_key: h.box_key, box_slot: h.box_slot as u64, generation: h.generation };
+    CellState { selected: c.selected, enabled: c.enabled, focused: c.focused, held: c.held, handle, y: c.y }
+}
 
-/// The library's cell record as the row's `CellState`: the library lends its own row record (flags 0 or 1, `PxuiCellState` is
-/// `CellState`'s layout with named padding, checked below), read as it is.
+/// The library's cell record as the row's `CellState`: its flags read as `!= 0` (a byte is never taken as a `bool`).
 #[cfg(not(feature = "static"))]
 #[inline(always)]
-fn cell_of(c: &PxuiCellState) -> CellState { unsafe { *(c as *const PxuiCellState).cast::<CellState>() } }
-#[cfg(not(feature = "static"))]
-const _: () = {
-    use core::mem::{align_of, offset_of, size_of};
-    type C = PxuiCellState;
-    assert!(size_of::<CellState>() == size_of::<C>() && align_of::<CellState>() == align_of::<C>());
-    assert!(offset_of!(CellState, selected) == offset_of!(C, selected) && offset_of!(CellState, enabled) == offset_of!(C, enabled) && offset_of!(CellState, focused) == offset_of!(C, focused) && offset_of!(CellState, held) == offset_of!(C, held));
-    assert!(offset_of!(CellState, handle) == offset_of!(C, handle) && offset_of!(CellState, y) == offset_of!(C, y));
-};
+fn cell_of(c: &PxuiCellState) -> CellState {
+    CellState { selected: c.selected != 0, enabled: c.enabled != 0, focused: c.focused != 0, held: c.held != 0, handle: c.handle, y: c.y }
+}
 
 /// The library's list record as a `ListResponse`.
 pub(crate) fn list_response(out: &PxuiListResult) -> ListResponse {
