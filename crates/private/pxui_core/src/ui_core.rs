@@ -633,6 +633,8 @@ struct Piece {
 /// the slot's generation. The slot and generation are stable while the node lives; a handle to a
 /// node that is gone is stale, and the engine checks it before touching the slot.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+// C layout: the wrapper's handle (`PxuiBox`) byte for byte
+#[repr(C)]
 pub struct UiBox {
     pub index: usize,
     pub box_key: i64,

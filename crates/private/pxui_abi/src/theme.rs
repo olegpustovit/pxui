@@ -1,4 +1,4 @@
-use crate::state::{Build, PxuiUi, call_build, checked, fail, get};
+use crate::state::{Build, PxuiUi, checked, fail, get};
 use crate::{PXUI_ERR_ARGUMENT, Str};
 use core::ffi::c_void;
 use pxui_core::{Theme, ui::Ui};
@@ -190,7 +190,7 @@ export!(build pub unsafe fn pxui_ui_themed(ui: *mut PxuiUi, theme: *const PxuiTh
     let engine = unsafe { &mut *state.engine };
     let body = theme.bodies_in_ui(engine, false).expect("a scope falls back to the built-in body");
     let resolved = Theme { body, ..theme.theme };
-    engine.themed_with_palette(&resolved, theme.palette.as_ref(), &mut |engine: &mut Ui| call_build(shared, engine, build, user));
+    engine.themed_with_palette(&resolved, theme.palette.as_ref(), &mut |engine: &mut Ui| unsafe { crate::state::call_build_seeing(shared, engine, core::ptr::null(), build, user) });
     0
 });
 

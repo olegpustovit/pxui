@@ -9,6 +9,7 @@ use crate::node::look;
 use crate::{as_str, check, Signal, Ui};
 use core::ffi::c_void;
 use pxui_types::{geom::{Point, Rect, Rgba}, ffi::{PxuiButtonDesc, PxuiDialogDesc, PxuiDialogResult, PxuiIconButtonDesc, PxuiResponse, PxuiHeadActionDesc, PxuiHeadOut, PxuiHeaderDesc, PxuiSignal, Slice}, theme::{Curve, Look, State}, Axis, PxuiBox, Str};
+#[cfg(not(feature = "static"))]
 use pxui_types::Size;
 use crate::Response;
 use pxui_types::ui::{Dialog, DialogButton, Chosen, Head, HeadAction, Target};
@@ -75,10 +76,29 @@ pub(crate) fn six(s: &pxui_types::theme::States) -> [pxui_types::ffi::PxuiLookDe
 #[cfg(feature = "static")]
 #[inline(always)]
 pub(crate) fn engine_response(r: &pxui_abi_link::trusted::EngineResponse) -> Response {
-    let h = r.handle;
-    Response { clicked: r.clicked, hovered: r.hovered, held: r.held, focused: r.focused, activated: r.activated, changed: false, secondary: r.secondary,
-        handle: crate::Handle { index: h.index as u64, box_key: h.box_key, box_slot: h.box_slot as u64, generation: h.generation } }
+    const { assert!(SAME_RESPONSE) };
+    // the engine's record is `Response` byte for byte but `changed`, which sits in its padding: copied whole, then `changed` written
+    let mut out = core::mem::MaybeUninit::<Response>::uninit();
+    unsafe {
+        core::ptr::copy_nonoverlapping((r as *const pxui_abi_link::trusted::EngineResponse).cast::<u8>(), out.as_mut_ptr().cast::<u8>(), core::mem::size_of::<Response>());
+        core::ptr::addr_of_mut!((*out.as_mut_ptr()).changed).write(false);
+        out.assume_init()
+    }
 }
+
+/// Whether the engine's response record is `Response` with `changed` in its padding (both C layout).
+#[cfg(feature = "static")]
+const SAME_RESPONSE: bool = {
+    use core::mem::{offset_of, size_of};
+    use pxui_abi_link::trusted::EngineResponse as E;
+    size_of::<E>() == size_of::<Response>() && offset_of!(E, clicked) == offset_of!(Response, clicked) && offset_of!(E, hovered) == offset_of!(Response, hovered)
+        && offset_of!(E, held) == offset_of!(Response, held) && offset_of!(E, focused) == offset_of!(Response, focused) && offset_of!(E, activated) == offset_of!(Response, activated)
+        && offset_of!(E, secondary) == offset_of!(Response, secondary) && offset_of!(E, handle) == offset_of!(Response, handle)
+        && offset_of!(Response, changed) == offset_of!(E, secondary) + 1 && offset_of!(Response, changed) < offset_of!(E, handle)
+        && size_of::<pxui_abi_link::trusted::EngineBox>() == size_of::<crate::Handle>() && offset_of!(pxui_abi_link::trusted::EngineBox, index) == offset_of!(crate::Handle, index)
+        && offset_of!(pxui_abi_link::trusted::EngineBox, box_key) == offset_of!(crate::Handle, box_key) && offset_of!(pxui_abi_link::trusted::EngineBox, box_slot) == offset_of!(crate::Handle, box_slot)
+        && offset_of!(pxui_abi_link::trusted::EngineBox, generation) == offset_of!(crate::Handle, generation)
+};
 
 /// The wrapper's `Response` of a button call's record.
 // Inline: out of line, the button bodies cost the abi_bench Overlays page 0.9% more retired instructions (static release, U1c.1: 1.0189 inline, 1.0277 not).
@@ -108,6 +128,43 @@ impl Ui {
         let rc = unsafe { lib::pxui_ui_animate(self.0.as_ptr(), b, &keyframe(target, curve), &mut out) };
         crate::live(self, rc) && out != 0
     }
+    /// A plain button keyed by an authored label (`Button::DEFAULT`'s options): the library's plain entry, which linked statically
+    /// reports the engine's record as it is.
+    #[track_caller]
+    #[inline]
+    pub(crate) fn button_plain_label(&mut self, label: &'static str, text: &str) -> Response {
+        #[cfg(feature = "static")]
+        {
+            let mut r = pxui_abi_link::trusted::EngineResponse::default();
+            check(self, unsafe { pxui_abi_link::trusted::button_plain(self.0.as_ptr(), label, text, &mut r) });
+            engine_response(&r)
+        }
+        #[cfg(not(feature = "static"))]
+        {
+            let mut out = PxuiResponse::EMPTY;
+            check(self, unsafe { lib::pxui_ui_button_plain(self.0.as_ptr(), as_str(label), as_str(text), &mut out) });
+            response(&out)
+        }
+    }
+    /// A plain icon button of `glyph` keyed by an authored label (as `button_plain_label`).
+    #[track_caller]
+    #[inline]
+    pub(crate) fn icon_button_plain_label(&mut self, label: &'static str, glyph: char, name: &str) -> Response {
+        let mut buf = [0u8; 4];
+        let glyph = glyph.encode_utf8(&mut buf);
+        #[cfg(feature = "static")]
+        {
+            let mut r = pxui_abi_link::trusted::EngineResponse::default();
+            check(self, unsafe { pxui_abi_link::trusted::icon_button_plain(self.0.as_ptr(), label, glyph, name, &mut r) });
+            engine_response(&r)
+        }
+        #[cfg(not(feature = "static"))]
+        {
+            let mut out = PxuiResponse::EMPTY;
+            check(self, unsafe { lib::pxui_ui_icon_button_plain(self.0.as_ptr(), as_str(label), as_str(glyph), as_str(name), &mut out) });
+            response(&out)
+        }
+    }
     /// The one body of `icon_button`: linked statically, the library's trusted entry with the options as they are; else the plain call
     /// for `IconButton::DEFAULT` with a glyph, or the options as a descriptor. One `PxuiResponse` comes back either way.
     #[track_caller]
@@ -121,8 +178,7 @@ impl Ui {
             Icon::Draw(f, word) => ("", Some(crate::paint::icon_draw as extern "C" fn(*mut c_void, *mut c_void, Rect, Rgba, *const pxui_types::ffi::PxuiPaintInfo)), f as *mut c_void, word),
         };
         let mut out = PxuiResponse::EMPTY;
-        let plain = button.look.is_none() && matches!((button.w, button.h), (Size::Fit, Size::Fit)) && button.enabled && button.press_scale == 1.0 && draw.is_none()
-            && button.press.is_none() && button.selected.is_none();
+        let plain = button.plain() && draw.is_none();
         #[cfg(feature = "static")]
         if plain {
             let mut r = pxui_abi_link::trusted::EngineResponse::default();
@@ -180,8 +236,9 @@ impl Ui {
             let mut inner = content;
             let outer = self.0.as_ptr();
             let mut run = |engine: &mut pxui_abi_link::trusted::Engine, state: State| if let Some(f) = inner.as_mut() {
-                let mut borrowed = unsafe { pxui_abi_link::trusted::Borrowed::new(engine, outer) };
-                let mut ui = core::mem::ManuallyDrop::new(Ui(unsafe { core::ptr::NonNull::new_unchecked(borrowed.enter()) }));
+                let mut slot = None;
+                let handle = unsafe { pxui_abi_link::trusted::Borrowed::handle(engine, outer, &mut slot) };
+                let mut ui = core::mem::ManuallyDrop::new(Ui(unsafe { core::ptr::NonNull::new_unchecked(handle) }));
                 f(&mut ui, state)
             };
             unsafe { pxui_abi_link::trusted::button_with(self.0.as_ptr(), key, text, button.name, button.look, button.w, button.h, button.align, button.pad,
@@ -260,16 +317,17 @@ impl Ui {
     /// The one body of `segmented`, as `toggle_keyed`: the strip's response, the choice and the option a secondary press began on.
     #[track_caller]
     pub(crate) fn segmented_keyed(&mut self, key: &str, name: &str, options: &[Segment], selected: Option<usize>, segmented: &Segmented) -> PickResponse {
-        let mut out = PxuiResponse::EMPTY;
         #[cfg(feature = "static")]
-        let (chosen, secondary, rc) = {
-            let (mut chosen, mut secondary) = (None, None);
+        let (mut response, chosen, secondary) = {
+            let (mut out, mut chosen, mut secondary) = (pxui_abi_link::trusted::EngineResponse::default(), None, None);
             let rc = unsafe { pxui_abi_link::trusted::segmented(self.0.as_ptr(), key, name, options, selected, segmented.enabled, segmented.h.unwrap_or(0.0), segmented.grow,
                 segmented.look, segmented.w.unwrap_or(0.0), segmented.padding, segmented.min_segment, segmented.focus_on_click, &mut out, &mut chosen, &mut secondary) };
-            (chosen, secondary, rc)
+            check(self, rc);
+            (engine_response(&out), chosen, secondary)
         };
         #[cfg(not(feature = "static"))]
-        let (chosen, secondary, rc) = {
+        let (mut response, chosen, secondary) = {
+            let mut out = PxuiResponse::EMPTY;
             let mut items = crate::PickItems::new();
             items.fill(options);
             let states = segmented.look.map(six);
@@ -280,11 +338,9 @@ impl Ui {
                 names: Slice { ptr: core::ptr::null(), len: 0 }, has_selected: selected.is_some() as u8, reserved3: [0; 7], focus_on_click: segmented.focus_on_click as u8, reserved4: [0; 7],
             };
             let mut result = pxui_types::ffi::PxuiSegmentedResult::EMPTY;
-            let rc = unsafe { lib::pxui_ui_segmented_items(self.0.as_ptr(), &desc, items.span(), &mut out, &mut result) };
-            ((result.has_chosen != 0).then_some(result.chosen as usize), (result.has_secondary != 0).then_some(result.secondary as usize), rc)
+            check(self, unsafe { lib::pxui_ui_segmented_items(self.0.as_ptr(), &desc, items.span(), &mut out, &mut result) });
+            (response(&out), (result.has_chosen != 0).then_some(result.chosen as usize), (result.has_secondary != 0).then_some(result.secondary as usize))
         };
-        check(self, rc);
-        let mut response = response(&out);
         response.changed = chosen != selected.filter(|_| !options.is_empty()).map(|i| i.min(options.len() - 1));
         PickResponse { response, chosen, chosen_id: chosen.and_then(|i| options.get(i)?.id), secondary }
     }

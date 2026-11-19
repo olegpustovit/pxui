@@ -19,7 +19,9 @@ impl Hasher for FixedHasher {
     fn write_isize(&mut self, value: isize) { self.write(&(value as i64).to_le_bytes()) }
 }
 
-/// Runs `f` on a fresh hasher and returns its result: the one non-generic body of `hash_of`.
+/// Runs `f` on a fresh hasher and returns its result: the one non-generic body of `hash_of` (inline: a small input's hash is a few
+/// multiplies, less than the call).
+#[inline]
 fn hash_run(f: &mut dyn FnMut(&mut FixedHasher)) -> u64 {
     let mut hasher = FixedHasher(0xcbf2_9ce4_8422_2325);
     f(&mut hasher);

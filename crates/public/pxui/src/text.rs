@@ -489,6 +489,7 @@ impl Ui {
     /// entry with the style as it is; else `pxui_ui_label_node` with no record for `Label::DEFAULT` (every field unset: the C label), or
     /// the style as its record and, when it sets one, its box as a `PxuiLabelBox`.
     #[track_caller]
+    #[inline(always)]
     pub(crate) fn label_call(&mut self, text: &str, style: &pxui_types::Label, digits: bool) -> crate::Handle {
         let mut out = crate::Handle::default();
         let variant = style.body_variant();

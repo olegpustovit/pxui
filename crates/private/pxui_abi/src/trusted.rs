@@ -20,6 +20,8 @@ pub use pxui_core::ui_lists::ListCell;
 /// What a plain button, icon button or toggle entry reports (`#[repr(C)]`): the static wrapper reads it as it is, a C export as
 /// its `PxuiResponse` (`respond`).
 pub use pxui_core::ui::Response as EngineResponse;
+/// The engine's handle inside `EngineResponse` (`#[repr(C)]`, the wrapper's `Handle` byte for byte).
+pub use pxui_core::ui::UiBox as EngineBox;
 
 
 /// `value` as text the caller promises is UTF-8, at most `max` bytes (the role's cap the exports refuse above). Its pointer is never
@@ -185,8 +187,9 @@ pub unsafe fn toggle_with(ui: *mut PxuiUi, key: &str, text: &str, on: bool, trac
 /// (`selected` clamped to `options`, moved by a press or a key); `options` are within the engine's limits (`segments_ok`).
 #[inline(always)]
 pub unsafe fn segmented_plain(ui: *mut PxuiUi, key: &str, name: &str, options: &[Segment], selected: usize, out: &mut PxuiResponse, chosen: &mut usize) -> i32 {
-    let (mut at, mut secondary) = (None, None);
-    let rc = unsafe { segmented(ui, key, name, options, Some(selected), true, 0.0, false, None, 0.0, 8.0, 0.0, false, out, &mut at, &mut secondary) };
+    let (mut at, mut secondary, mut r) = (None, None, EngineResponse::default());
+    let rc = unsafe { segmented(ui, key, name, options, Some(selected), true, 0.0, false, None, 0.0, 8.0, 0.0, false, &mut r, &mut at, &mut secondary) };
+    if rc == 0 { respond(&r, out); }
     *chosen = at.unwrap_or(0);
     rc
 }
@@ -198,17 +201,37 @@ pub unsafe fn segmented_plain(ui: *mut PxuiUi, key: &str, name: &str, options: &
 #[allow(clippy::too_many_arguments)]
 #[inline(always)]
 pub unsafe fn segmented(ui: *mut PxuiUi, key: &str, name: &str, options: &[Segment], selected: Option<usize>, enabled: bool, h: f32, grow: bool, states: Option<&States>,
-    w: f32, padding: f32, min_segment: f32, focus_on_click: bool, out: &mut PxuiResponse, chosen: &mut Option<usize>, secondary: &mut Option<usize>) -> i32 {
+    w: f32, padding: f32, min_segment: f32, focus_on_click: bool, out: &mut EngineResponse, chosen: &mut Option<usize>, secondary: &mut Option<usize>) -> i32 {
     enter!(ui);
     let name = clip(name);
     let mut spare = Vec::new();
     let (options, ok) = checked_segments(options, &mut spare);
     if bad_key(key) || !ok { return unsafe { fail(ui, "invalid widget strings") }; }
+    unsafe { segmented_body(ui, key, name, options.len(), &|i| options[i], selected, enabled, h, grow, states, w, padding, min_segment, focus_on_click, out, chosen, secondary) }
+}
+
+/// `segmented` for `pxui_ui_segmented_items`, which has checked the key, the name and every item as C hands them over (`checked_key`,
+/// `checked`, `checked_items`): only the handle and the numbers are checked here. `item(i)` reads item `i` where it lies.
+#[allow(clippy::too_many_arguments)]
+#[inline]
+pub(crate) unsafe fn segmented_checked<'a>(ui: *mut PxuiUi, key: &str, name: &str, count: usize, item: &dyn Fn(usize) -> Segment<'a>, selected: Option<usize>, enabled: bool, h: f32, grow: bool,
+    states: Option<&States>, w: f32, padding: f32, min_segment: f32, focus_on_click: bool, out: &mut PxuiResponse, chosen: &mut Option<usize>, secondary: &mut Option<usize>) -> i32 {
+    enter!(ui);
+    let mut r = EngineResponse::default();
+    let rc = unsafe { segmented_body(ui, key, name, count, item, selected, enabled, h, grow, states, w, padding, min_segment, focus_on_click, &mut r, chosen, secondary) };
+    if rc == 0 { respond(&r, out); }
+    rc
+}
+
+#[allow(clippy::too_many_arguments)]
+#[inline(always)]
+unsafe fn segmented_body<'a>(ui: *mut PxuiUi, key: &str, name: &str, count: usize, item: &dyn Fn(usize) -> Segment<'a>, selected: Option<usize>, enabled: bool, h: f32, grow: bool,
+    states: Option<&States>, w: f32, padding: f32, min_segment: f32, focus_on_click: bool, out: &mut EngineResponse, chosen: &mut Option<usize>, secondary: &mut Option<usize>) -> i32 {
     if ![h, w, padding, min_segment].iter().all(|v| (0.0..=f32::MAX).contains(v)) { return unsafe { fail(ui, "invalid segmented descriptor") }; }
     let mut opts = SegmentedOpts { enabled, h: (h > 0.0).then_some(h), grow, states: None, w: (w > 0.0).then_some(w), padding, min_segment, focus_on_click };
     if let Some(states) = states { opts.states = Some(*states); }
-    let (r, at, pressed) = unsafe { engine(ui) }.segmented_opts(key, name, options, selected, &opts);
-    respond(&r, out);
+    let (r, at, pressed) = unsafe { engine(ui) }.segmented_options(key, name, count, item, selected, &opts);
+    *out = r;
     (*chosen, *secondary) = (at, pressed);
     0
 }
@@ -420,14 +443,13 @@ fn segments_ok(options: &[Segment]) -> bool {
 /// The kit checkbox keyed by `key`, showing and named `text`, its style's variant given to the body; a click is the flip of `on`,
 /// which the caller keeps.
 #[inline]
-pub unsafe fn checkbox(ui: *mut PxuiUi, key: &str, text: &str, on: bool, checkbox: &Checkbox, out: &mut PxuiResponse) -> i32 {
+pub unsafe fn checkbox(ui: *mut PxuiUi, key: &str, text: &str, on: bool, checkbox: &Checkbox, out: &mut EngineResponse) -> i32 {
     enter!(ui);
     let text = clip(text);
     if bad_key(key) { return unsafe { fail(ui, "invalid checkbox text") }; }
     // finite and not negative: NaN and infinity fail the compare
     if checkbox.size.is_some_and(|side| !(0.0..=f32::MAX).contains(&side)) { return unsafe { fail(ui, "invalid checkbox size") }; }
-    let r = unsafe { engine(ui) }.checkbox(key, text, on, checkbox);
-    respond(&r, out);
+    *out = unsafe { engine(ui) }.checkbox(key, text, on, checkbox);
     0
 }
 
@@ -459,8 +481,8 @@ pub unsafe fn choice(ui: *mut PxuiUi, kind: u32, key: &str, name: &str, options:
 /// press on a tab focus the bar), 3 a dropdown (`name` its shown and accessible text); an item with an id is keyed by it. `chosen` is
 /// the choice (none: none), `secondary` the item a secondary press began on. Any other kind is refused.
 #[allow(clippy::too_many_arguments)]
-#[inline]
-pub unsafe fn pick(ui: *mut PxuiUi, kind: u32, key: &str, name: &str, items: &[Segment], selected: Option<usize>, focus: bool, out: &mut PxuiResponse, chosen: &mut Option<usize>, secondary: &mut Option<usize>) -> i32 {
+#[inline(always)]
+pub unsafe fn pick(ui: *mut PxuiUi, kind: u32, key: &str, name: &str, items: &[Segment], selected: Option<usize>, focus: bool, out: &mut EngineResponse, chosen: &mut Option<usize>, secondary: &mut Option<usize>) -> i32 {
     enter!(ui);
     let name = clip(name);
     let mut spare = Vec::new();
@@ -475,12 +497,15 @@ pub unsafe fn pick(ui: *mut PxuiUi, kind: u32, key: &str, name: &str, items: &[S
 #[inline]
 pub(crate) unsafe fn pick_checked<'a>(ui: *mut PxuiUi, kind: u32, key: &str, name: &str, count: usize, item: &dyn Fn(usize) -> Segment<'a>, selected: Option<usize>, focus: bool, out: &mut PxuiResponse, chosen: &mut Option<usize>, secondary: &mut Option<usize>) -> i32 {
     enter!(ui);
-    unsafe { pick_body(ui, kind, key, name, count, item, selected, focus, out, chosen, secondary) }
+    let mut r = EngineResponse::default();
+    let rc = unsafe { pick_body(ui, kind, key, name, count, item, selected, focus, &mut r, chosen, secondary) };
+    if rc == 0 { respond(&r, out); }
+    rc
 }
 
 #[allow(clippy::too_many_arguments)]
 #[inline(always)]
-unsafe fn pick_body<'a>(ui: *mut PxuiUi, kind: u32, key: &str, name: &str, count: usize, item: &dyn Fn(usize) -> Segment<'a>, selected: Option<usize>, focus: bool, out: &mut PxuiResponse, chosen: &mut Option<usize>, secondary: &mut Option<usize>) -> i32 {
+unsafe fn pick_body<'a>(ui: *mut PxuiUi, kind: u32, key: &str, name: &str, count: usize, item: &dyn Fn(usize) -> Segment<'a>, selected: Option<usize>, focus: bool, out: &mut EngineResponse, chosen: &mut Option<usize>, secondary: &mut Option<usize>) -> i32 {
     let engine = unsafe { engine(ui) };
     let (r, at, pressed) = match kind {
         0 => engine.pick_radio(key, name, count, item, selected, 0),
@@ -488,8 +513,22 @@ unsafe fn pick_body<'a>(ui: *mut PxuiUi, kind: u32, key: &str, name: &str, count
         3 => engine.pick_dropdown(key, name, count, item, selected, 0),
         _ => return unsafe { fail(ui, "invalid pick kind") },
     };
-    respond(&r, out);
+    *out = r;
     (*chosen, *secondary) = (at, pressed);
+    0
+}
+
+/// What the engine's slider reports: its response, its value, the held preview and the commit.
+pub type SliderResult = (EngineResponse, f32, Option<f32>, Option<f32>);
+
+/// The kit slider, reporting the engine's own record (`slider_result`'s body; the static wrapper reads it as it is).
+#[allow(clippy::too_many_arguments)]
+#[inline(always)]
+pub unsafe fn slider_engine(ui: *mut PxuiUi, key: &str, text: &str, value: f32, min: f32, max: f32, slider: &Slider, out: &mut SliderResult) -> i32 {
+    enter!(ui);
+    let text = clip(text);
+    if !value.is_finite() || !min.is_finite() || !max.is_finite() || min > max || bad_key(key) { return unsafe { fail(ui, "invalid slider arguments") }; }
+    *out = unsafe { engine(ui) }.slider_result(key, text, value, min..=max, slider);
     0
 }
 
@@ -497,10 +536,10 @@ unsafe fn pick_body<'a>(ui: *mut PxuiUi, kind: u32, key: &str, name: &str, count
 #[allow(clippy::too_many_arguments)]
 #[inline]
 pub unsafe fn slider_result(ui: *mut PxuiUi, key: &str, text: &str, value: f32, min: f32, max: f32, slider: &Slider, out: &mut PxuiResponse, scrub: &mut pxui_types::ffi::PxuiScrubOut) -> i32 {
-    enter!(ui);
-    let text = clip(text);
-    if !value.is_finite() || !min.is_finite() || !max.is_finite() || min > max || bad_key(key) { return unsafe { fail(ui, "invalid slider arguments") }; }
-    let (r, v, preview, commit) = unsafe { engine(ui) }.slider_result(key, text, value, min..=max, slider);
+    let mut result = SliderResult::default();
+    let rc = unsafe { slider_engine(ui, key, text, value, min, max, slider, &mut result) };
+    if rc != 0 { return rc; }
+    let (r, v, preview, commit) = result;
     respond(&r, out);
     *scrub = pxui_types::ffi::PxuiScrubOut { flags: u32::from(preview.is_some()) | u32::from(commit.is_some()) << 1 | u32::from(r.held) << 2, node: to_abi_box(r.handle),
         preview: preview.unwrap_or(v), commit: commit.unwrap_or_default(), ..Default::default() };
@@ -834,10 +873,12 @@ pub unsafe fn footer(ui: *mut PxuiUi, right: Option<&str>, hints: &[(&str, &str)
 // ---- containers with options
 
 /// Whether every number of `overlay` is finite (and its width, height and padding not negative).
+/// Every value is tested and the answers and-ed, no branch each (NaN fails every compare).
+#[inline(always)]
 fn overlay_ok(overlay: &Overlay) -> bool {
-    [overlay.at.0, overlay.at.1, overlay.max_h.unwrap_or_default()].iter().all(|v| v.is_finite())
-        && [overlay.w.unwrap_or_default(), overlay.h.unwrap_or_default(), overlay.padding, overlay.dismiss.fraction.unwrap_or_default(), overlay.dismiss.velocity.unwrap_or_default()]
-            .iter().all(|v| (0.0..=f32::MAX).contains(v))
+    [overlay.at.0, overlay.at.1, overlay.max_h.unwrap_or_default()].iter().fold(true, |ok, v| ok & v.is_finite())
+        & [overlay.w.unwrap_or_default(), overlay.h.unwrap_or_default(), overlay.padding, overlay.dismiss.fraction.unwrap_or_default(), overlay.dismiss.velocity.unwrap_or_default()]
+            .iter().fold(true, |ok, v| ok & (*v >= 0.0) & (*v <= f32::MAX))
 }
 
 /// A panel keyed by `key`, placed, dressed and named by `overlay`.

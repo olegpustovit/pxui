@@ -122,6 +122,7 @@ impl Ui {
 
     /// The one body of `label`, `label_fmt` and `label_digits`, through the label body.
     #[track_caller]
+    #[inline(always)]
     fn label_body(&mut self, text: &str, style: &Label, digits: bool) -> Handle {
         self.label_call(text, style, digits)
     }

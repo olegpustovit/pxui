@@ -346,7 +346,7 @@ impl Ui {
     #[inline]
     #[track_caller]
     pub fn button<K: Into<Key>>(&mut self, key: K, text: &str, button: &Button<'_>) -> Response {
-        self.button_key(key.into(), text, button, None)
+        self.button_text_key(key.into(), text, button)
     }
 
     /// Declares a kit button as `button` does, with `f` building its contents instead of a text.
@@ -375,6 +375,15 @@ impl Ui {
     #[track_caller]
     pub fn button_content<K: Into<Key>, F: FnMut(&mut Ui, State)>(&mut self, key: K, button: &Button<'_>, mut f: F) -> Response {
         self.button_key(key.into(), "", button, Some(&mut f))
+    }
+
+    /// The body of `button`: a plain labelled button is the library's plain entry, in line (`button_plain_label`);
+    /// any other is `button_key`'s.
+    #[track_caller]
+    #[inline]
+    fn button_text_key(&mut self, key: Key, text: &str, button: &Button<'_>) -> Response {
+        if let (Key::Label(label), true, 0) = (key, button.plain, button.variant) { return self.button_plain_label(label, text); }
+        self.button_key(key, text, button, None)
     }
 
     /// The one body of `button` and `button_content`: the key's label, then the engine call (`text` is empty for contents).

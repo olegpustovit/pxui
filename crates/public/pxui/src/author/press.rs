@@ -13,6 +13,8 @@ use pxui_types::Flags;
 /// the widget adds (focus, keyboard activation, an edited value, a context request). `ui.signal(&response.handle)` reads the rest of the
 /// raw record (drag, wheel, pinch, press points, click count). A one-off choice (`menu`, `dialog`) answers with `Chosen` instead.
 #[derive(Clone, Copy, Debug)]
+// C layout, the engine's own record (`trusted::EngineResponse`) with `changed` in its padding: the static wrapper copies it whole
+#[repr(C)]
 pub struct Response {
     /// The node was clicked: the primary button released over it after a press on it, or keyboard activation (Enter or Space) while focused.
     pub clicked: bool,
@@ -24,12 +26,12 @@ pub struct Response {
     pub focused: bool,
     /// The click came from the keyboard (Enter or Space on the focused node), not the pointer; implies `clicked`.
     pub activated: bool,
-    /// The value the widget edits changed this frame: a toggle flipped, a segmented control's choice moved. Always false for a button
-    /// or a pressable node, which hold no value.
-    pub changed: bool,
     /// A secondary press (the right button, or the two-finger or control click the platform reports as one) began on the node this
     /// frame: the request for its context menu. It never clicks; `ui.signal(&handle).press_point` is where it landed.
     pub secondary: bool,
+    /// The value the widget edits changed this frame: a toggle flipped, a segmented control's choice moved. Always false for a button
+    /// or a pressable node, which hold no value.
+    pub changed: bool,
     /// The node, valid this frame: style it, read more of its signal.
     pub handle: Handle,
 }

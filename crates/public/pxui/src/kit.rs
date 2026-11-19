@@ -234,8 +234,9 @@ impl Ui {
         {
             let outer = self.0.as_ptr();
             let mut invoke = |engine: &mut pxui_abi_link::trusted::Engine, index, y| {
-                let mut borrowed = unsafe { pxui_abi_link::trusted::Borrowed::new(engine, outer) };
-                let mut ui = ManuallyDrop::new(unsafe { Ui(NonNull::new_unchecked(borrowed.enter())) });
+                let mut slot = None;
+                let handle = unsafe { pxui_abi_link::trusted::Borrowed::handle(engine, outer, &mut slot) };
+                let mut ui = ManuallyDrop::new(unsafe { Ui(NonNull::new_unchecked(handle)) });
                 build(&mut ui, crate::collections::part_of(index), y)
             };
             check(self, unsafe { pxui_abi_link::trusted::section_list(outer, label, &desc, Some(id), &mut invoke, &mut out) });
@@ -262,8 +263,9 @@ impl Ui {
         let outer = self.0.as_ptr();
         #[cfg(feature = "static")]
         check(self, unsafe { pxui_abi_link::trusted::grid_list(outer, label, count, cell_w, cell_h, &mut |engine: &mut pxui_abi_link::trusted::Engine, index: usize| {
-            let mut borrowed = pxui_abi_link::trusted::Borrowed::new(engine, outer);
-            build(&mut ManuallyDrop::new(Ui(NonNull::new_unchecked(borrowed.enter()))), index)
+            let mut slot = None;
+            let handle = pxui_abi_link::trusted::Borrowed::handle(engine, outer, &mut slot);
+            build(&mut ManuallyDrop::new(Ui(NonNull::new_unchecked(handle))), index)
         }, &mut out) });
         #[cfg(not(feature = "static"))]
         {
@@ -329,7 +331,9 @@ impl Ui {
         let desc = MenuBarDesc { size: core::mem::size_of::<MenuBarDesc>() as u32, reserved: 0, label: as_str(label), menus: Slice { ptr: descs.as_ptr(), len: descs.len() } };
         let mut out = MenuOut { size: core::mem::size_of::<MenuOut>() as u32, reserved: 0, menu: usize::MAX, item: usize::MAX };
         let mut dismissed = 0u8;
-        self.with_variant(pxui_types::theme::BodyKind::menu_bar, bar.variant, &mut |ui| check(ui, unsafe { sys::pxui_ui_menu_bar_result(ui.0.as_ptr(), &desc, &mut out, &mut dismissed) }));
+        self.variant_on(pxui_types::theme::BodyKind::menu_bar, bar.variant);
+        check(self, unsafe { sys::pxui_ui_menu_bar_result(self.0.as_ptr(), &desc, &mut out, &mut dismissed) });
+        self.variant_off(pxui_types::theme::BodyKind::menu_bar, bar.variant);
         let picked = menus.get(out.menu).and_then(|menu| Some((menu.items.get(out.item)?, out.item)));
         let chosen = picked.map(|(_, item)| menus[..out.menu].iter().map(|menu| menu.items.len()).sum::<usize>() + item);
         crate::Chosen { chosen, chosen_id: picked.and_then(|(item, _)| item.id), dismissed: dismissed != 0 }

@@ -316,6 +316,7 @@ fn valid_touches(events:&[pxui_types::Event])->bool {
 }
 
 /// Decode the whole batch before any edge changes retained input.
+#[inline(always)]
 fn decode_events(out: &mut Vec<Event>, events: &[pxui_types::Event]) -> bool {
     let mut budget = crate::state::MAX_TOTAL_TEXT_BYTES;
     for raw in events {
@@ -327,7 +328,7 @@ fn decode_events(out: &mut Vec<Event>, events: &[pxui_types::Event]) -> bool {
     true
 }
 
-#[inline]
+#[inline(always)]
 fn fold_input_edges(base: &mut input::Frame) {
     for event in &base.events {
         match event {
@@ -344,7 +345,7 @@ fn fold_input_edges(base: &mut input::Frame) {
 }
 
 /// Reuse input buffers. Retained keys and buttons change only after the batch has been validated.
-#[inline]
+#[inline(always)]
 unsafe fn take_input(ui: *mut PxuiUi, time: f64) -> Box<frame::Frame> {
     let mut base = unsafe { (*(*ui).shared).spare_input.take() }.unwrap_or_else(|| {
         let mut input=input::at_time(time);
@@ -394,6 +395,16 @@ fn valid_environment(value:&pxui_types::Environment)->bool {
         && value.keyboard_started.is_finite() && value.keyboard_duration.is_finite() && value.keyboard_duration>=0.0
         && (value.keyboard_started+value.keyboard_duration).is_finite() && value.keyboard_visible<=1
 }
+
+/// A changed host environment, given to the engine out of line: a frame that repeats it (the most) keeps none of it in registers.
+#[cold]
+#[inline(never)]
+fn set_environment(engine: &mut Ui, environment: &pxui_types::Environment) { engine.set_environment(*environment); }
+
+/// A changed keyboard geometry, given to the engine out of line (as `set_environment`).
+#[cold]
+#[inline(never)]
+fn set_keyboard(engine: &mut Ui, keyboard: &pxui_types::Keyboard) { engine.set_keyboard(*keyboard); }
 
 /// Runs one frame of `ui` over `frame`. Both frame entry points call it after decoding their input (inline: one frame call fewer).
 #[inline(always)]
@@ -479,8 +490,8 @@ pub(crate) unsafe fn frame_body(ui: *mut PxuiUi, input: &FrameIn, build: Inner, 
     frame.buttons.clear();
     fold_input_edges(frame);
     unsafe { &mut *(*ui).engine }.set_system_preferences(appearance,reduced!=0);
-    if environment_changed { engine.set_environment(*environment); }
-    if keyboard_changed { engine.set_keyboard(*keyboard); }
+    if environment_changed { set_environment(engine, environment); }
+    if keyboard_changed { set_keyboard(engine, keyboard); }
     (base.pixel_scale, base.fps, base.mouse_delta) = ((input.scale as f64, input.scale as f64), 60.0, (0.0, 0.0));
     let rc = unsafe { run_frame(ui, &base, build, out) };
     unsafe { restore_input(ui, base); }
@@ -511,7 +522,9 @@ export!(pub unsafe fn pxui_ui_system_appearance(ui:*mut PxuiUi,out:*mut u32)->i3
 export!(trusted frame pub unsafe fn pxui_frame(ui: *mut PxuiUi, input: *const FrameIn, build: Build, user: *mut c_void, out: *mut FrameOut) -> i32 {
     if input.is_null() || out.is_null() { return unsafe { fail(ui, "null frame argument") }; }
     let shared = <*mut PxuiUi as crate::state::Handle>::shared(ui);
-    let mut build = |engine: &mut Ui| crate::state::call_build(shared, engine, build, user);
+    // the frame's callback sees the owner's theme (the `Ui`'s own: no scope is open)
+    let theme = if ui.is_null() { core::ptr::null() } else { unsafe { (*ui).theme } };
+    let mut build = |engine: &mut Ui| unsafe { crate::state::call_build_seeing(shared, engine, theme, build, user) };
     // a whole record is read where it lies (`frame_body` reads it before the build runs, so the caller cannot change it under the
     // engine); an older, shorter one is copied over the defaults
     if unsafe { input.cast::<u32>().read_unaligned() } as usize >= core::mem::size_of::<FrameIn>() { return unsafe { frame_body(ui, &*input, &mut build, &mut *out) }; }
@@ -557,7 +570,7 @@ pub(crate) unsafe fn input_frame_body(ui: *mut PxuiUi, input: &Input, build: Inn
 export!(trusted frame pub unsafe fn pxui_ui_frame(ui: *mut PxuiUi, input: *const Input, build: Build, user: *mut c_void, out: *mut FrameOut) -> i32 {
     if input.is_null() || out.is_null() { return unsafe { fail(ui, "null frame argument") }; }
     let Some(input) = read_desc!(input, Input) else { return unsafe { fail(ui, "invalid input frame") }; };
-    unsafe { input_frame_body(ui, &input, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, build, user), &mut *out) }
+    unsafe { let theme = if ui.is_null() { core::ptr::null() } else { (*ui).theme }; input_frame_body(ui, &input, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build_seeing((*ui).shared, engine, theme, build, user), &mut *out) }
 });
 
 // The frame's input as the engine routed it to `owner` (a viewport's root key; none: the app's), for the app's own content: the

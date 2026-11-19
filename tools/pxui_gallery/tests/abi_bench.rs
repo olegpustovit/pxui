@@ -91,13 +91,18 @@ fn pointer() -> Event {
 
 use pxui_gallery::gpu::allocations;
 
-struct Wrapped { ui: pxui::Ui, state: Gallery, events: [Event; 1], moved: bool }
+/// Each side keeps its input record across frames and sets only the time and the events (`direct`'s `frame`, `wrapped`'s `input`).
+struct Wrapped { ui: pxui::Ui, state: Gallery, _events: Box<[Event; 1]>, input: FrameIn<'static>, moved: bool }
 struct Direct { ui: abi_bench::Engine, state: direct_pages::Gallery, frame: Frame, moved: bool }
 
 fn wrapped() -> Wrapped {
     let mut ui = pxui::Ui::new(&pxui::UiDesc::new(pxui::Platform::Apple).fonts(&[pxui::FontData(DEPARTURE_MONO)])).expect("pxui Ui");
     ui.set_theme(&pxui::ThemeHandle::default()).expect("default theme");
-    Wrapped { ui, state: Gallery::new(), events: [pointer()], moved: true }
+    let events = Box::new([pointer()]);
+    let mut input = FrameIn::new(PAGE_W as f32, PAGE_H as f32).scale(1.0);
+    // the events live in the box, which moves with `Wrapped` but stays where it is
+    input.wire.events = events.as_ptr();
+    Wrapped { ui, state: Gallery::new(), _events: events, input, moved: true }
 }
 
 fn direct() -> Direct {
@@ -111,22 +116,19 @@ fn direct() -> Direct {
 
 /// One frame of page `index` whose view has revision `revision` (a new one rebuilds the page, the same one settles).
 fn wrapped_frame(w: &mut Wrapped, index: usize, revision: u64, count: u64) {
-    let input = {
-        let mut frame = FrameIn::new(PAGE_W as f32, PAGE_H as f32).scale(1.0).time(count as f64 / 60.0);
-        frame.wire.events = w.events.as_ptr();
-        frame.wire.event_count = w.moved as usize;
-        frame
-    };
+    w.input.wire.time = count as f64 / 60.0;
+    w.input.wire.event_count = w.moved as usize;
     let state = &mut w.state;
-    w.ui.frame(&input, &mut |ui: &mut pxui::Ui| { ui.view_of("page", &revision, |ui: &mut pxui::Ui| page(ui, state, index)); }).expect("frame");
+    w.ui.frame(&w.input, &mut |ui: &mut pxui::Ui| { ui.view_of("page", &revision, |ui: &mut pxui::Ui| page(ui, state, index)); }).expect("frame");
 }
 
+/// The engine's `view_of`, as the wrapper's frame above calls it (sized by its parent), so both sides build the same view.
 fn direct_frame(d: &mut Direct, index: usize, revision: u64, count: u64) {
     d.frame.input.t = count as f64 / 60.0;
     d.frame.input.events.clear();
     if d.moved { d.frame.input.events.push(HostEvent::PointerMoved((-100.0, -100.0))); }
     let state = &mut d.state;
-    d.ui.frame(&d.frame, &mut |ui: &mut abi_bench::Engine| { ui.view("page", revision, Size::Grow, Size::Grow, &mut |ui: &mut abi_bench::Engine| direct_pages::page(engine::Ui::of(ui), state, index)); });
+    d.ui.frame(&d.frame, &mut |ui: &mut abi_bench::Engine| { ui.view_of("page", &revision, &mut |ui: &mut abi_bench::Engine| direct_pages::page(engine::Ui::of(ui), state, index)); });
 }
 
 /// Retired instructions per forced rebuild, the fewest of `INSTRUCTION_ROUNDS` rounds of `INSTRUCTION_FRAMES` (the process's count, so

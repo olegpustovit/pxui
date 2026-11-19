@@ -69,6 +69,12 @@ pub struct IconButton<'a> {
 }
 
 impl<'a> IconButton<'a> {
+    /// Whether these are the plain button's options (whatever its variant): the library's plain entry draws it.
+    #[inline(always)]
+    pub(crate) fn plain(&self) -> bool {
+        self.look.is_none() && matches!((self.w, self.h), (Size::Fit, Size::Fit)) && self.enabled && self.press_scale == 1.0 && self.press.is_none() && self.selected.is_none()
+    }
+
     /// The plain kit icon button.
     pub const DEFAULT: IconButton<'a> = IconButton {
         w: Size::Fit, h: Size::Fit, look: None, enabled: true, press_scale: 1.0, press: None, variant: 0, selected: None,
@@ -192,12 +198,21 @@ impl Ui {
     /// ```
     #[inline]
     #[track_caller]
-    pub fn icon_button<K: Into<Key>>(&mut self, key: K, icon: Icon, name: &str, button: &IconButton<'_>) -> Response { self.icon_button_key(key.into(), icon, name, button) }
+    pub fn icon_button<K: Into<Key>>(&mut self, key: K, icon: Icon, name: &str, button: &IconButton<'_>) -> Response { self.icon_button_body(key.into(), icon, name, button) }
+
+    /// The body of `icon_button`: a plain labelled glyph button is the library's plain entry, in line
+    /// (`icon_button_plain_label`); any other is `icon_button_key`'s.
+    #[track_caller]
+    #[inline]
+    fn icon_button_body(&mut self, key: Key, icon: Icon, name: &str, button: &IconButton<'_>) -> Response {
+        if let (Key::Label(label), Icon::Glyph(glyph), true) = (key, icon, button.variant == 0 && button.plain()) { return self.icon_button_plain_label(label, glyph, name); }
+        self.icon_button_key(key, icon, name, button)
+    }
 
     /// The one body of `icon_button`: the key's label and the glyph's text, then the engine call.
     #[track_caller]
-    // Inline: out of line, the button bodies cost the abi_bench Overlays page 0.9% more retired instructions (static release, U1c.1: 1.0189 inline, 1.0277 not).
-    #[inline]
+    // Out of line: the plain labelled glyph button (the most) takes its own entry before this (`icon_button_body`), which stays small enough to inline.
+    #[inline(never)]
     fn icon_button_key(&mut self, key: Key, icon: Icon, name: &str, button: &IconButton<'_>) -> Response {
         let mut id_label = [0u8; 17];
         let label = key.label(&mut id_label);

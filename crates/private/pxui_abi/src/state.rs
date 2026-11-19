@@ -202,7 +202,31 @@ impl Borrowed {
     /// # Safety
     /// `outer` is the live handle whose call is running the callback; `enter` is called before the value is dropped.
     #[inline(always)]
-    pub unsafe fn new(engine: &mut Ui, outer: *mut PxuiUi) -> Self { Self { handle: PxuiUi::borrowed(engine, unsafe { (*outer).shared }), prev: core::ptr::null_mut() } }
+    /// It sees `outer`'s theme (and takes its cached pointer, so its first theme read is a load, not a call): no static wrapper
+    /// callback is a `themed` scope's, which builds through a handle of its own.
+    pub unsafe fn new(engine: &mut Ui, outer: *mut PxuiUi) -> Self {
+        let mut handle = PxuiUi::borrowed(engine, unsafe { (*outer).shared });
+        handle.theme = unsafe { (*outer).theme };
+        Self { handle, prev: core::ptr::null_mut() }
+    }
+    /// The handle a static wrapper callback on `engine` builds through: `outer` itself when it is the building handle of `engine`
+    /// (every container's callback: the call on `outer` runs it, and Rust keeps `outer`'s own `Ui` borrowed meanwhile), so nothing is
+    /// made or restored; else (the frame's own callback, which no handle builds before) a borrowed one `slot` holds, current until
+    /// `slot` is dropped. `building` and `current` are set together (`enter`, `Current::set`, `run_frame`), so `outer` is current too.
+    /// # Safety
+    /// `outer` is the live handle whose call is running the callback; `slot` stays where it is until dropped.
+    #[inline(always)]
+    pub unsafe fn handle(engine: &mut Ui, outer: *mut PxuiUi, slot: &mut Option<Borrowed>) -> *mut PxuiUi {
+        if unsafe { Self::reusable(engine, outer) } { return outer; }
+        unsafe { slot.insert(Self::new(engine, outer)).enter() }
+    }
+    /// Whether a callback on `engine` that a call on `outer` runs builds through `outer` itself (`handle`).
+    /// # Safety
+    /// As `handle`.
+    #[inline(always)]
+    pub unsafe fn reusable(engine: &Ui, outer: *mut PxuiUi) -> bool {
+        unsafe { (*(*outer).shared).building == outer && core::ptr::eq((*outer).engine, engine) }
+    }
     /// Makes the handle current and returns it.
     /// # Safety
     /// Called once, before the callback uses the handle; the value does not move until it is dropped.
@@ -274,10 +298,25 @@ pub(crate) unsafe fn outside_frame(shared: *mut Shared) -> i32 {
 }
 
 
-/// Calls `build` with a borrowed handle over `engine`.
+/// Calls `build` with a borrowed handle over `engine`. The handle sees the theme of the call running it (the current handle), so it
+/// takes that handle's cached theme pointer (`call_build_seeing`).
 #[inline(always)]
 pub(crate) fn call_build(shared: *mut Shared, engine: &mut Ui, build: Build, user: *mut c_void) {
-    if let Some(build) = build { let mut borrowed = PxuiUi::borrowed(engine, shared); let handle: *mut PxuiUi = &mut borrowed; let _current = Current::set(shared, handle); build(user, handle.cast()); }
+    let current = unsafe { (*shared).current };
+    unsafe { call_build_seeing(shared, engine, if current.is_null() { core::ptr::null() } else { (*current).theme }, build, user) }
+}
+
+/// `call_build` whose handle starts with `theme` cached: the theme it sees, or null to read it on first use (a `themed` scope's
+/// callback; the frame's own callback gives the owner's).
+/// # Safety
+/// `theme` is null or the theme in effect while `build` runs.
+#[inline(always)]
+pub(crate) unsafe fn call_build_seeing(shared: *mut Shared, engine: &mut Ui, theme: *const pxui_types::theme::ThemeSnapshot, build: Build, user: *mut c_void) {
+    if let Some(build) = build {
+        let mut borrowed = PxuiUi::borrowed(engine, shared);
+        borrowed.theme = theme;
+        let handle: *mut PxuiUi = &mut borrowed; let _current = Current::set(shared, handle); build(user, handle.cast());
+    }
 }
 
 pub use pxui_types::ffi::UiBuild as Build;

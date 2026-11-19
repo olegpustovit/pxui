@@ -89,6 +89,7 @@ impl Ui {
     /// The one body of `panel`: linked statically, the library's trusted entry with the overlay; else the overlay as the panel record of
     /// the keyed export.
     #[track_caller]
+    #[inline]
     pub(crate) fn panel_key(&mut self, key: Key, overlay: &Overlay<'_>, mut f: &mut dyn FnMut(&mut Ui)) -> OverlayResponse {
         let mut id_label = [0u8; 17];
         let key = key.label(&mut id_label);
@@ -125,6 +126,7 @@ impl Ui {
 
     /// The one body of `view_of`: the view keyed by `key` under the parent, sized by its parent, kept while `revision` is unchanged.
     #[track_caller]
+    #[inline]
     pub(crate) fn view_key(&mut self, key: Key, revision: u64, mut build: &mut dyn FnMut(&mut Ui)) -> Handle {
         let mut id_label = [0u8; 17];
         let key = key.label(&mut id_label);

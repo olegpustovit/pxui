@@ -208,7 +208,10 @@ export!(trusted pub unsafe fn pxui_ui_checkbox_response(ui: *mut PxuiUi, desc: *
     let (Some(key), Some(text)) = (unsafe { crate::state::checked_key(d.key) }, unsafe { checked(d.text) }) else { return unsafe { fail(ui, "invalid checkbox text") } };
     let Ok(look) = (unsafe { looks(d.look) }) else { return unsafe { fail(ui, "invalid checkbox looks") } };
     let style = pxui_types::ui::Checkbox { variant: 0, size: (d.box_size > 0.0).then_some(d.box_size), look: look.as_ref(), disabled: d.disabled != 0, passive: d.passive != 0 };
-    unsafe { trusted::checkbox(ui, key, text, d.on != 0, &style, out) }
+    let mut r = trusted::EngineResponse::default();
+    let rc = unsafe { trusted::checkbox(ui, key, text, d.on != 0, &style, &mut r) };
+    if rc == 0 { trusted::respond(&r, out); }
+    rc
 });
 
 // ABI 1.51: the plain kit segmented control (`Segmented::DEFAULT`) keyed by `key`, named `name`; `chosen` receives the choice.
@@ -283,6 +286,14 @@ unsafe fn segmented_desc(ui: *mut PxuiUi, desc: *const PxuiSegmentedDesc, option
     if d.enabled > 1 || d.grow > 1 || d.reserved != [0; 2] || (grown && d.reserved2 != 0) || d.has_selected > 1 || d.reserved3 != [0; 7] || d.focus_on_click > 1 || d.reserved4 != [0; 7] { return unsafe { fail(ui, "invalid segmented descriptor") }; }
     if d.has_selected == 0 && !none { return unsafe { fail(ui, "no segmented choice: use pxui_ui_segmented_result") }; }
     let Ok(states) = (unsafe { looks(d.states) }) else { return unsafe { fail(ui, "invalid segmented looks") } };
+    let selected = (d.has_selected == 1).then_some(d.selected);
+    // 1.76 items (options none, names empty): checked once, then read where they lie
+    if items.len != 0 {
+        let names_given = grown && d.names.len != 0;
+        let (Some(key), Some(name)) = (unsafe { crate::state::checked_key(d.key) }, unsafe { checked(d.name) }) else { return unsafe { fail(ui, "invalid segmented strings") } };
+        let Some(items) = (unsafe { checked_items(items) }).filter(|_| options.len == 0 && !names_given) else { return unsafe { fail(ui, "invalid segmented items") } };
+        return unsafe { trusted::segmented_checked(ui, key, name, items.len(), &|i| segment_of(&items[i]), selected, d.enabled != 0, d.h, d.grow != 0, states.as_ref(), d.w, d.padding, d.min_segment, d.focus_on_click != 0, out, chosen, secondary) };
+    }
     let mut list = state.shared().take_strs();
     let (Some(key), Some(name), true) = (unsafe { crate::state::checked_key(d.key) }, unsafe { checked(d.name) }, unsafe { crate::state::strings(options, trusted::MAX_OPTIONS, &mut list) }) else {
         state.shared().put_strs(list);
@@ -298,36 +309,13 @@ unsafe fn segmented_desc(ui: *mut PxuiUi, desc: *const PxuiSegmentedDesc, option
     }
     let mut segments = state.shared().take_segments();
     segments.extend(list.iter().enumerate().map(|(i, text)| pxui_types::ui::Segment { name: names.get(i).copied().filter(|n| !n.is_empty()), ..pxui_types::ui::Segment::new(text) }));
-    // 1.76 items stand for the options and names, which are then empty
-    if items.len != 0 && (!list.is_empty() || !names.is_empty() || !unsafe { pick_items(items, &mut segments) }) {
-        state.shared().put_segments(segments);
-        state.shared().put_strs(names);
-        state.shared().put_strs(list);
-        return unsafe { fail(ui, "invalid segmented items") };
-    }
-    let selected = (d.has_selected == 1).then_some(d.selected);
-    let rc = unsafe { trusted::segmented(ui, key, name, &segments, selected, d.enabled != 0, d.h, d.grow != 0, states.as_ref(), d.w, d.padding, d.min_segment, d.focus_on_click != 0, out, chosen, secondary) };
+    let mut r = trusted::EngineResponse::default();
+    let rc = unsafe { trusted::segmented(ui, key, name, &segments, selected, d.enabled != 0, d.h, d.grow != 0, states.as_ref(), d.w, d.padding, d.min_segment, d.focus_on_click != 0, &mut r, chosen, secondary) };
+    if rc == 0 { trusted::respond(&r, out); }
     state.shared().put_segments(segments);
     state.shared().put_strs(names);
     state.shared().put_strs(list);
     rc
-}
-
-/// Appends `items` to `out` (cleared first): at most `MAX_OPTIONS`, `has_id` 0 or 1 with `reserved` zero, every string checked and
-/// all of them within `MAX_TOTAL_TEXT_BYTES`; false refuses them.
-unsafe fn pick_items(items: Slice<PxuiPickItem>, out: &mut Vec<pxui_types::ui::Segment<'static>>) -> bool {
-    out.clear();
-    if items.len > trusted::MAX_OPTIONS || (items.len != 0 && items.ptr.is_null()) { return false; }
-    let items = if items.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(items.ptr, items.len) } };
-    let mut total = 0usize;
-    for item in items {
-        total = total.saturating_add(item.text.len).saturating_add(item.name.len).saturating_add(item.detail.len);
-        let (Some(text), Some(name), Some(detail)) = (unsafe { checked(item.text) }, unsafe { checked(item.name) }, unsafe { checked(item.detail) }) else { return false };
-        if item.has_id > 1 || item.reserved != [0; 7] || total > MAX_TOTAL_TEXT_BYTES { return false; }
-        let segment = pxui_types::ui::Segment { name: (!name.is_empty()).then_some(name), detail, ..pxui_types::ui::Segment::new(text) };
-        out.push(if item.has_id == 1 { segment.id(item.id) } else { segment });
-    }
-    true
 }
 
 /// `items` checked once, in one pass before the call (at most `MAX_OPTIONS`, `has_id` 0 or 1 with `reserved` zero, every string UTF-8

@@ -262,7 +262,7 @@ impl Ui {
     #[inline]
     #[track_caller]
     pub fn radio<K: Into<Key>>(&mut self, key: K, items: &[Segment<'_>], selected: Option<usize>, radio: &Radio<'_>) -> PickResponse {
-        self.pick_one_key(0, key.into(), radio.name, items, selected, radio.variant, false)
+        self.radio_key(key.into(), radio.name, items, selected, radio.variant)
     }
 
     /// Builds a kit tab bar (`items` side by side, the one in use underlined) and reports the bar's response and the tab in use.
@@ -298,7 +298,7 @@ impl Ui {
     #[inline]
     #[track_caller]
     pub fn tabs<K: Into<Key>>(&mut self, key: K, items: &[Segment<'_>], selected: Option<usize>, tabs: &Tabs<'_>) -> PickResponse {
-        self.pick_one_key(1, key.into(), tabs.name, items, selected, tabs.variant, tabs.focus_on_click)
+        self.tabs_key(key.into(), tabs.name, items, selected, tabs.variant, tabs.focus_on_click)
     }
 
     /// Builds a vertical section index (the A–Z strip beside a long list) and reports the strip's response and the letter chosen this
@@ -379,7 +379,7 @@ impl Ui {
     #[inline]
     #[track_caller]
     pub fn dropdown<K: Into<Key>>(&mut self, key: K, text: &str, items: &[Segment<'_>], selected: Option<usize>, dropdown: &Dropdown) -> PickResponse {
-        self.pick_one_key(3, key.into(), text, items, selected, dropdown.variant, false)
+        self.dropdown_key(key.into(), text, items, selected, dropdown.variant)
     }
 
     /// Builds a slider and reports the resulting value and interaction.

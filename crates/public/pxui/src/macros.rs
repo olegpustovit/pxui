@@ -24,13 +24,17 @@ macro_rules! library {
 }
 
 /// The closure the static wrapper hands a trusted container entry for its children, which the engine calls itself: it makes the
-/// borrowed handle of the call on `$outer` (current while `$f` runs) a wrapper `Ui` for `$f`. One closure a callback, as the engine's
+/// handle `$f` builds through (`$outer` itself, or the borrowed handle of the call, current while `$f` runs) a wrapper `Ui` for `$f`. One closure a callback, as the engine's
 /// own callers; no trampoline, no catch: a panic of `$f` unwinds through the library to the app.
 #[cfg(feature = "static")]
 macro_rules! inner {
     ($outer:ident, $f:expr) => { &mut |engine: &mut pxui_abi_link::trusted::Engine| {
-        let mut borrowed = pxui_abi_link::trusted::Borrowed::new(engine, $outer);
-        let mut ui = core::mem::ManuallyDrop::new(Ui(core::ptr::NonNull::new_unchecked(borrowed.enter())));
-        $f(&mut ui)
+        // a container's callback builds through the call's own handle (`Borrowed::reusable`); the frame's own, through a borrowed one
+        if pxui_abi_link::trusted::Borrowed::reusable(engine, $outer) {
+            $f(&mut core::mem::ManuallyDrop::new(Ui(core::ptr::NonNull::new_unchecked($outer))))
+        } else {
+            let mut borrowed = pxui_abi_link::trusted::Borrowed::new(engine, $outer);
+            $f(&mut core::mem::ManuallyDrop::new(Ui(core::ptr::NonNull::new_unchecked(borrowed.enter()))))
+        }
     } };
 }

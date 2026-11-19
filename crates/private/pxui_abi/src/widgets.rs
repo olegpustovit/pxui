@@ -161,9 +161,9 @@ export!(trusted pub unsafe fn pxui_ui_checkbox(ui: *mut PxuiUi, label: Str, valu
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if out.is_null() || value > 1 { return unsafe { fail(ui, "invalid checkbox arguments") }; }
     let Some(label) = (unsafe { crate::state::checked_label(label) }) else { return unsafe { fail(ui, "invalid checkbox label") }; };
-    let mut r = PxuiResponse::EMPTY;
+    let mut r = trusted::EngineResponse::default();
     let rc = unsafe { trusted::checkbox(ui, label, shown(label), value != 0, &Checkbox::DEFAULT, &mut r) };
-    unsafe { *out = (value != 0) as u8 ^ (r.flags & PxuiResponse::CLICKED != 0) as u8; }
+    unsafe { *out = (value != 0) as u8 ^ r.clicked as u8; }
     rc
 });
 
@@ -207,7 +207,10 @@ export!(trusted pub unsafe fn pxui_ui_checkbox_keyed(ui: *mut PxuiUi, keyed: *co
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short checkbox response") } };
     let Some((key, text)) = (unsafe { read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
     if on > 1 { return unsafe { fail(ui, "invalid checkbox value") }; }
-    unsafe { trusted::checkbox(ui, key, text, on != 0, &Checkbox::DEFAULT, out) }
+    let mut r = trusted::EngineResponse::default();
+    let rc = unsafe { trusted::checkbox(ui, key, text, on != 0, &Checkbox::DEFAULT, &mut r) };
+    if rc == 0 { trusted::respond(&r, out); }
+    rc
 });
 
 // ABI 1.68: a radio group (`kind` 0), tabs (1) or a dropdown (3) keyed by `keyed.key` and named `keyed.name`, reporting into one

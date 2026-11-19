@@ -215,8 +215,9 @@ impl Ui {
         let outer = self.0.as_ptr();
         #[cfg(feature = "static")]
         check(self, unsafe { pxui_abi_link::trusted::selection_list(outer, label, &desc, Some(row_key), &mut |engine: &mut pxui_abi_link::trusted::Engine, index, c| {
-            let mut borrowed = pxui_abi_link::trusted::Borrowed::new(engine, outer);
-            cell(&mut *core::mem::ManuallyDrop::new(Ui(core::ptr::NonNull::new_unchecked(borrowed.enter()))), part_of(index), cell_from(c))
+            let mut slot = None;
+            let handle = pxui_abi_link::trusted::Borrowed::handle(engine, outer, &mut slot);
+            cell(&mut *core::mem::ManuallyDrop::new(Ui(core::ptr::NonNull::new_unchecked(handle))), part_of(index), cell_from(c))
         }, &mut out) });
         #[cfg(not(feature = "static"))]
         self.selection_list_c(label, &desc, &mut link::ListRows { cell, id: row_key }, &mut out);
@@ -237,8 +238,9 @@ impl Ui {
             let nodes = unsafe { core::slice::from_raw_parts(nodes.as_ptr().cast::<TreeNodeDesc>(), nodes.len()) };
             let outer = self.0.as_ptr();
             check(self, unsafe { pxui_abi_link::trusted::tree(outer, label, nodes, open, selected, visible, &mut |engine: &mut pxui_abi_link::trusted::Engine, node| {
-                let mut borrowed = pxui_abi_link::trusted::Borrowed::new(engine, outer);
-                (&mut *cell)(&mut *core::mem::ManuallyDrop::new(Ui(core::ptr::NonNull::new_unchecked(borrowed.enter()))), node)
+                let mut slot = None;
+                let handle = pxui_abi_link::trusted::Borrowed::handle(engine, outer, &mut slot);
+                (&mut *cell)(&mut *core::mem::ManuallyDrop::new(Ui(core::ptr::NonNull::new_unchecked(handle))), node)
             }, &mut out) });
             out
         };
@@ -267,8 +269,9 @@ impl Ui {
         let outer = self.0.as_ptr();
         #[cfg(feature = "static")]
         check(self, unsafe { pxui_abi_link::trusted::table(outer, label, &desc, Some(row_key), &mut |engine: &mut pxui_abi_link::trusted::Engine, row, column, c| {
-            let mut borrowed = pxui_abi_link::trusted::Borrowed::new(engine, outer);
-            cell(&mut *core::mem::ManuallyDrop::new(Ui(core::ptr::NonNull::new_unchecked(borrowed.enter()))), row, column, cell_from(c))
+            let mut slot = None;
+            let handle = pxui_abi_link::trusted::Borrowed::handle(engine, outer, &mut slot);
+            cell(&mut *core::mem::ManuallyDrop::new(Ui(core::ptr::NonNull::new_unchecked(handle))), row, column, cell_from(c))
         }, &mut out) });
         #[cfg(not(feature = "static"))]
         self.table_c(label, &desc, &mut link::TableRows { cell, id: row_key }, &mut out);
