@@ -132,10 +132,13 @@ impl Ui {
     /// so the app's new order shows at once.
     pub(crate) fn rows_move_end(&mut self, m: &mut RowsMove, body: &Handle) {
         let (slow, now, active) = (f64::from(self.theme().tokens.motion.slow), self.now, self.active);
+        // a cancelled pointer, lost focus or Escape puts the lifted row back
+        let cancelled = self.reorder.list == m.list
+            && self.frame_events().iter().any(|e| matches!(e, Event::PointerCancelled(_) | Event::FocusLost | Event::KeyPressed(Key::Escape)));
         let r = &mut self.reorder;
-        let dropped = r.list == m.list && active != Some(r.handle);
+        let dropped = r.list == m.list && (cancelled || active != Some(r.handle));
         if dropped {
-            if r.to != r.from { m.moved = m.moved.or(Some((r.from, r.to))); }
+            if r.to != r.from && !cancelled { m.moved = m.moved.or(Some((r.from, r.to))); }
             (r.list, r.row, r.handle) = (0, 0, 0);
         }
         // the dropped row settles from where it was let go, the moved rows from where they showed
@@ -183,6 +186,13 @@ impl Ui {
     pub(crate) fn signal_move(&self, b: &Handle) -> i8 {
         if !self.live(b) { return 0; }
         self.signals.get(&b.box_key).map_or(0, |a| a.a11y_move)
+    }
+
+    /// The lifted row of list `body` when it is outside the rows in view `window`: it is built too, so a drag outlives scrolling
+    /// its row out of the virtual window.
+    pub(crate) fn lifted_row(&self, body: &Handle, count: usize, window: core::ops::Range<usize>) -> Option<usize> {
+        let r = &self.reorder;
+        (r.list == body.box_key && r.from < count && !window.contains(&r.from)).then_some(r.from)
     }
 
     /// The node `Ui::part` builds as `part`: a reorderable row's handle is noted for its row (`rows_move_row`).

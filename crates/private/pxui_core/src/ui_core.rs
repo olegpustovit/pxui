@@ -7708,7 +7708,8 @@ impl Ui {
         self.text_mut().list_window(body.box_key as u64,first,last);
         let (outer,mut line)=(self.ahead,None);
         let mut moves=(section.reorder|core::mem::take(&mut self.row_moves)).then(|| self.rows_move_begin(&body,&extent,rows_h,section.count));
-        for index in first..last {
+        let lifted=self.lifted_row(&body,section.count,first..last);
+        for index in (first..last).chain(lifted) {
             self.ahead_row(outer,&(top..bottom),index);
             let at=index as f32*section.row_height;
             let node=Node {w:Size::Grow,h:Size::Px(section.row_height),at:Some((0.0,at)).into(),role:Role::ListItem,..Node::DEFAULT};
@@ -7842,7 +7843,8 @@ impl Ui {
         self.text_mut().list_window(body.box_key as u64,first,last);
         let (outer,mut line)=(self.ahead,None);
         let mut moves=(section.reorder|core::mem::take(&mut self.row_moves)).then(|| self.rows_move_begin(&body,&extent,rows_h,section.count));
-        for index in first..last {
+        let lifted=self.lifted_row(&body,section.count,first..last);
+        for index in (first..last).chain(lifted) {
             // measured rows: only rows below the viewport, whose heights do not move the rows in view
             self.ahead_row(outer,&(0..bottom),index);
             let at=cache.tops[index];
@@ -8151,6 +8153,8 @@ impl Ui {
     pub(crate) fn build_again(&mut self, b: &Handle) {
         if self.live(b) {
             self.mark_view(self.slots[b.box_slot].owner);
+            // the view building `b` keeps the mark past its own build, so the settling build rebuilds it
+            self.escape();
             self.settle = true;
         }
     }

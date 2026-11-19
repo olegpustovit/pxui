@@ -973,6 +973,45 @@ mod tests {
         assert_eq!(moved.get(), None);
     }
 
+    /// U4a.5 (found by LocalWave's queue): inside a kept view (`view_of`; a debug build verifies every kept view) the lifted row
+    /// follows the pointer and the release's new order shows; a drag outlives its row's place scrolling out of the virtual window; a
+    /// cancelled pointer, lost focus or Escape puts the row back.
+    #[test]
+    fn a_drag_in_a_kept_view_survives_scrolling_and_cancels() {
+        let (items, cells, moved) = (RefCell::new((0..100).collect::<Vec<i64>>()), RefCell::new(Vec::new()), Cell::new(None));
+        let mut build = |ui: &mut Ui| {
+            let order = crate::hash_of(&*items.borrow());
+            ui.view_of("rows", &order, |ui| handle_list(ui, &items, &cells, &moved));
+        };
+        let mut ui = crate::doc::frames(2, &mut build);
+        at(&mut ui, 0.5, &[], &mut build);
+        let p = |kind, y| [Event::pointer(kind, 0, 300.0, y)];
+        at(&mut ui, 0.9, &p(Event::POINTER_MOVED, 50.0), &mut build);
+        at(&mut ui, 1.0, &p(Event::POINTER_PRESSED, 50.0), &mut build);
+        at(&mut ui, 1.1, &p(Event::POINTER_MOVED, 90.0), &mut build);
+        assert_eq!(cell_y(&cells, &ui, 2), 80.0, "the lifted row follows the pointer in the kept view");
+        for i in 0..8 {
+            at(&mut ui, 1.2 + f64::from(i) * 0.05, &[Event { kind: Event::SCROLLED, y: -30.0, ..Default::default() }], &mut build);
+        }
+        for t in [1.8, 2.5, 2.51] { at(&mut ui, t, &[], &mut build); }
+        assert!(cells.borrow().iter().all(|c| c.0 == 2 || c.0 > 2 + 10), "row 2's place scrolled out of the window");
+        assert_eq!(cell_y(&cells, &ui, 2), 80.0, "the lifted row is still built under the pointer");
+        at(&mut ui, 2.6, &p(Event::POINTER_RELEASED, 90.0), &mut build);
+        let (from, to) = moved.get().expect("the drag survived the scroll");
+        assert!(from == 2 && to > 12, "it lands where the pointer is in the scrolled rows: {to}");
+        assert_eq!(items.borrow()[to], 2);
+        for (t, cancel) in [(3.0, Event::new(Event::POINTER_CANCELLED)), (4.0, Event::new(Event::FOCUS_LOST)), (5.0, key(Event::KEY_PRESSED, KeyCode::Escape))] {
+            moved.set(None);
+            let before = items.borrow().clone();
+            at(&mut ui, t - 0.1, &p(Event::POINTER_MOVED, 50.0), &mut build);
+            at(&mut ui, t, &p(Event::POINTER_PRESSED, 50.0), &mut build);
+            at(&mut ui, t + 0.1, &p(Event::POINTER_MOVED, 150.0), &mut build);
+            at(&mut ui, t + 0.2, &[cancel], &mut build);
+            at(&mut ui, t + 0.3, &p(Event::POINTER_RELEASED, 150.0), &mut build);
+            assert_eq!((moved.get(), &*items.borrow()), (None, &before), "a cancelled drag moves nothing ({})", cancel.kind);
+        }
+    }
+
     /// U2b.3: with the theme's move animation on, the passed rows slide to their new places along `motion.slow` instead of jumping.
     #[test]
     fn passed_rows_slide_with_the_theme_motion() {
