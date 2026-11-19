@@ -1307,6 +1307,11 @@ fn search_field_body(this: &mut Ui, label: &str, icon: &str, value: &str, placeh
                     (e.caret, e.anchor) = (0, 0);
                 } else {
                     ui.edit_text_event(false, &mut e, &|_| true, &modifiers, &event);
+                    // Done ends editing, as a text field's does
+                    if traits.return_key() == pxui_types::ReturnKey::Done && event == Event::KeyPressed(Key::Enter)
+                        && !ui.command_modifiers(&modifiers) && ui.composition().is_empty() {
+                        ui.unfocus();
+                    }
                 }
             }
             ui.save_text_edit(&e);

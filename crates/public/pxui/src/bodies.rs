@@ -393,6 +393,22 @@ mod tests {
         assert!(mem_sys::take_reports().is_empty());
     }
 
+    /// U4a.2: `SearchField::action(ReturnKey::Done)` ends editing on Return, as `TextField::action` does; the Search key keeps focus.
+    /// Both link modes.
+    #[test]
+    fn a_search_field_with_done_ends_editing_on_return() {
+        for (traits, kept) in [(crate::SearchField::DEFAULT.name("Find").action(crate::ReturnKey::Done), false), (crate::SearchField::DEFAULT.name("Find"), true)] {
+            let mut build = |ui: &mut Ui| { ui.search_field("find", "q", &traits); };
+            let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+            crate::testing::frame(&mut ui, &[], &mut build);
+            crate::testing::key(&mut ui, crate::KeyCode::Tab, &mut build);
+            assert!(ui.ime().is_some(), "Tab focuses the field");
+            crate::testing::key(&mut ui, crate::KeyCode::Enter, &mut build);
+            crate::testing::frame(&mut ui, &[], &mut build);
+            assert_eq!(ui.ime().is_some(), kept, "Return with Done ends editing; with Search it does not");
+        }
+    }
+
     /// U2b.4.4: a search field body that builds `Part::EDITOR` before its editor slot edits on that node: the one text field in the
     /// accessibility tree, focus reported to the body, its look kept, the caret placed in the node's look font (26 points here), Escape
     /// clears; warm focused frames allocate nothing. Both link modes.
