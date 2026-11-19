@@ -2119,6 +2119,9 @@ configs! {
         press: *const crate::Curve,
         /// ABI 1.91: the word of the icon's drawing (`Icon::Draw`'s, D18; 0 for a glyph), so a body draws the app's icon by id.
         draw_word: u32,
+        /// ABI 1.101: the kit's built-in icon button body for this config, run with `pxui_slot` (the Rust `Ui::slot`): a registered body
+        /// that does not style a config draws the kit's icon button exactly as an unregistered theme would.
+        built_in: PxuiSlot,
     }
     /// A checkbox or a radio option.
     PxuiCheckConfig { state: PxuiStateDesc, on: u8, row: PxuiBox, label: Str } @variant {

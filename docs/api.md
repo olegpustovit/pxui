@@ -30,7 +30,7 @@ The target public surface. **Rule:** a call not marked with a step keeps its HEA
 | Measure (D20) | `Ui::text_service() -> UiText<'_>` and `Paint::text_service() -> UiText<'_>`; `UiText::measure(&str, Label, max_w: Option<f32>) -> Result<TextMetrics, Error>`, `measure_spans`, `width`, `rasterize_rgba`, `quads`, `add_font`, `enable_system_fonts`; worker form `Text::measure(&str, &TextStyle, max_w)` | — | U1b.3 |
 | Text worker | `TextStyle`, `Text`, `TextWorker`, `PreparedText`, `RetiredText`, `UiText::fork/install`, `prewarm_text`, `set_text_worker`, `resolve(&Label) -> TextStyle` | — | HEAD (D20) |
 | Button | `button<K>(key, text: &str, &Button) -> Response` (D25: one name, no short form, no `_with`); `button_content<K, F>(key, &Button, f /* (ui, State) */) -> Response`. `Button`: icon, icon_size, detail, accessory, label(Label), selected, disabled, danger, align, pad, axis, variant, look | button | name + `disabled` U1b.6; `icon_size` U2b.7; body configs `ButtonConfig::icon()`/`IconButtonConfig::icon() -> Option<Icon>` (D18) U2b.7; `ButtonConfig::label()`/`detail_label()`/`accessory_label() -> Option<Label>` (the caller's styles, for a Rust body) U2b.4.1; `PxuiButtonConfig.built_in` (a slot: `ui.slot(config.built_in)` draws the kit's built-in button, so a registered body styles only its own variants) U2b.4.2 |
-| Icon button | `icon_button<K>(key, Icon, name: &str, &IconButton) -> Response` | icon_button | HEAD |
+| Icon button | `icon_button<K>(key, Icon, name: &str, &IconButton) -> Response`; `PxuiIconButtonConfig.built_in` (a slot: `ui.slot(config.built_in)` draws the kit's icon button, so a registered body styles only its own variants, as the button's U2b.4.2) | icon_button | HEAD; built_in U2b.4.6 |
 | Toggle | `toggle<K>(key, text, on: bool, &Toggle) -> Response` (D25) | toggle | U1b.6 |
 | Checkbox | `checkbox<K>(key, text, on: bool, &Checkbox) -> Response`; `Checkbox<'a>`: look (borrowed), size, disabled(bool), passive(bool), variant | checkbox | U2a.3 |
 | Pick one (D4) | `segmented<K>(key, &[Segment], selected: Option<usize>, &Segmented) -> PickResponse`; `tabs<K>(key, &[Segment], Option<usize>, &Tabs) -> PickResponse`; `radio<K>(key, &[Segment], Option<usize>, &Radio) -> PickResponse`; `dropdown<K>(key, text, &[Segment], Option<usize>, &Dropdown) -> PickResponse`; `Segment::new(text).id(i64).detail(&str).name(&str)` | segmented / tabs / radio / dropdown | U1b.1 (segmented, radio, dropdown); U2a.2 (tabs) |
@@ -4628,6 +4628,7 @@ pxui_types::ffi::PxuiHintDesc::value field Str @HEAD
 pxui_types::ffi::PxuiIconButtonConfig impl Clone @HEAD
 pxui_types::ffi::PxuiIconButtonConfig impl Copy @HEAD
 pxui_types::ffi::PxuiIconButtonConfig struct @HEAD
+pxui_types::ffi::PxuiIconButtonConfig::built_in field PxuiSlot @U2b.4.6
 pxui_types::ffi::PxuiIconButtonConfig::draw field PxuiIconDraw @HEAD
 pxui_types::ffi::PxuiIconButtonConfig::draw_user field *mut c_void @HEAD
 pxui_types::ffi::PxuiIconButtonConfig::draw_word field u32 @U2b.7

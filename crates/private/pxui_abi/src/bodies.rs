@@ -173,12 +173,26 @@ mod tramps {
         if variant != 0 { ui.set_variant(BodyKind::button as u32, variant); }
         unsafe { (*sh).bodies.slots.truncate(mark) };
     }
-    tramp!(icon_button, |ui, sh, c: &IconButtonConfig, states: &States, label: &str, icon: &str| PxuiIconButtonConfig {
+    // the icon button's trampoline, as the button's (U2b.4.6): its record carries the kit's built-in body as a slot
+    pub(super) fn icon_button(ui: &mut Ui, c: &IconButtonConfig, states: &States, label: &str, icon: &str) {
+        let id = ui.theme().body.icon_button;
+        let sh = shared(ui);
+        if sh.is_null() { return }
+        let mark = unsafe { (*sh).bodies.slots.len() };
+        let variant = ui.variant_of(BodyKind::icon_button as u32);
+        let mut kit = |ui: &mut Ui| pxui_core::ui_widgets::default_icon_button(ui, c, states, label, icon);
+        let cfg = PxuiIconButtonConfig {
+        size: core::mem::size_of::<PxuiIconButtonConfig>() as u32,
         state: st(c.state), node: bx(c.node), label: pair(label), icon: pair(icon), states: states,
         w_kind: size_kind(c.w).0, h_kind: size_kind(c.h).0, reserved: 0, w: size_kind(c.w).1, h: size_kind(c.h).1, press_scale: c.press_scale,
         draw: foreign_draw(c.draw).0, draw_user: foreign_draw(c.draw).1, ink: c.ink, press: c.press.map_or(core::ptr::null(), |p| p.as_ptr()),
-        draw_word: draw_word(c.draw)
-    });
+        draw_word: draw_word(c.draw), built_in: content(sh, &mut kit), variant
+        };
+        if variant != 0 { ui.set_variant(0, 0); }
+        invoke(ui, sh, BodyKind::icon_button, id, (&cfg as *const PxuiIconButtonConfig).cast());
+        if variant != 0 { ui.set_variant(BodyKind::icon_button as u32, variant); }
+        unsafe { (*sh).bodies.slots.truncate(mark) };
+    }
     tramp!(checkbox, |ui, sh, c: &CheckConfig, label: &str| PxuiCheckConfig { state: st(c.state), on: c.on as u8, row: bx(c.row), label: pair(label), states: &c.states, box_size: c.size, passive: c.passive as u8, reserved2: [0; 3] });
     tramp!(radio, |ui, sh, c: &CheckConfig, label: &str| PxuiCheckConfig { state: st(c.state), on: c.on as u8, row: bx(c.row), label: pair(label), states: &c.states, box_size: c.size, passive: c.passive as u8, reserved2: [0; 3] });
     tramp!(spinner, |ui, sh, c: &SpinnerConfig, label: &str| PxuiSpinnerConfig { node: bx(c.node), label: pair(label) });

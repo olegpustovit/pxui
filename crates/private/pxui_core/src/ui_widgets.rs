@@ -1458,7 +1458,7 @@ pub const PRESS_OUT: Curve = Curve::Spring { omega: 20.0 };
 
 /// The built-in icon button: a square (the kit's 20 points, or the caller's size), the glyph centred. With a press scale below or above
 /// 1 the plate and glyph sit in a view that springs to that scale while the button is held and back on release.
-pub(crate) fn default_icon_button(this: &mut Ui, c: &IconButtonConfig, states: &States, _label: &str, icon: &str) {
+pub fn default_icon_button(this: &mut Ui, c: &IconButtonConfig, states: &States, _label: &str, icon: &str) {
     let ch = this.control_h();
     let tw = this.text_width(None, icon);
     let size = |s: Size| match s { Size::Fit => Size::Px(ch), s => s };

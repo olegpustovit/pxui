@@ -220,8 +220,8 @@ impl Ui {
         self.part_box(owner, part).map(|b| self.rect(&b)).filter(|r| r.w > 0.0 && r.h > 0.0)
     }
 
-    /// Runs a config's slot (the caller's content, built where the body calls this; a button config's `built_in`, the kit's own button
-    /// body for that config, so a registered body draws the kit's button for configs it does not style); for a search field's editor slot
+    /// Runs a config's slot (the caller's content, built where the body calls this; a button or icon button config's `built_in`, the
+    /// kit's own body for that config, so a registered body draws the kit's widget for configs it does not style); for a search field's editor slot
     /// the answer is whether the query is not empty, otherwise false. A slot is valid only during the body call that received it, and not inside its own content or a nested body: else this panics.
     #[track_caller]
     pub fn slot(&mut self, slot: PxuiSlot) -> bool {
@@ -488,6 +488,37 @@ mod tests {
             mem_sys::local_reset();
             crate::testing::frame(&mut bodied, &[], &mut build);
             assert_eq!(mem_sys::local_alloc_count(), 0, "a warm frame of built-in slots allocated (round {round})");
+        }
+        drop(scope);
+        assert!(mem_sys::take_reports().is_empty());
+    }
+
+    /// U2b.4.6: a registered icon button body that runs its config's `built_in` slot draws exactly what the kit's body draws (instances
+    /// and accessibility) for glyph, drawn, sized, pressed-scale, selected and disabled icon buttons; warm frames allocate nothing. Both
+    /// link modes.
+    #[test]
+    fn an_icon_button_body_running_built_in_draws_the_kit_icon_button() {
+        fn kit(ui: &mut Ui, c: &IconButtonConfig) { ui.slot(c.built_in); }
+        fn draw(p: &mut crate::Paint<'_>, r: Rect, ink: pxui_types::geom::Rgba, _: u32) { p.fill(r, crate::Fill::new(ink)); }
+        let mut build = |ui: &mut Ui| {
+            use crate::{Icon, IconButton};
+            ui.icon_button("glyph", Icon::glyph('?'), "Glyph", &IconButton::DEFAULT);
+            ui.icon_button("drawn", Icon::Draw(draw, 3), "Drawn", &IconButton::sized(44.0, 40.0).selected(true));
+            ui.icon_button("dip", Icon::Draw(draw, 4), "Dip", &IconButton::sized(36.0, 36.0).press_scale(0.96));
+            ui.icon_button("off", Icon::glyph('x'), "Off", &IconButton::DEFAULT.disabled(true));
+        };
+        let draw_of = |ui: &Ui| (format!("{:?}", ui.layers().flat_map(|l| l.instances.iter()).collect::<Vec<_>>()), ui.a11y_nodes().iter().map(|n| (n.role, n.states, ui.a11y_name_of(n).to_owned())).collect::<Vec<_>>());
+        let (mut plain, mut bodied) = (Ui::new(&crate::UiDesc::DEFAULT).unwrap(), Ui::new(&crate::UiDesc::DEFAULT).unwrap());
+        bodied.register_icon_button_body("kit", kit).unwrap();
+        bodied.set_theme(&crate::ThemeHandle::parse("icon_button.body = kit").unwrap()).unwrap();
+        for ui in [&mut plain, &mut bodied] { ui.set_a11y(true); for _ in 0..2 { crate::testing::frame(ui, &[], &mut build); } }
+        assert_eq!(draw_of(&bodied), draw_of(&plain), "the built-in slot draws the kit's icon button");
+        mem_sys::set_peer(crate::library_counter);
+        let scope = mem_sys::warm_scope();
+        for round in 0..3 {
+            mem_sys::local_reset();
+            crate::testing::frame(&mut bodied, &[], &mut build);
+            assert_eq!(mem_sys::local_alloc_count(), 0, "a warm frame of icon button built-in slots allocated (round {round})");
         }
         drop(scope);
         assert!(mem_sys::take_reports().is_empty());
