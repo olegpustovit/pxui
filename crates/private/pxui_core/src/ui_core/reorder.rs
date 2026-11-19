@@ -118,10 +118,10 @@ impl Ui {
             if row.box_key == r.row {
                 target = r.y;
                 self.node_mut(row).z = 1;
-            // a centre on a row's middle has passed it: a lifted row held at the rows' end (its place clamped) reaches the end place
-            } else if index > r.from && c >= mid {
+            // a lifted row held at the rows' end (its place clamped, its centre on the end row's middle) has passed the end row
+            } else if index > r.from && (c > mid || (index + 1 == m.count && r.y + r.h >= top + h)) {
                 (target, r.to) = (top - r.h, r.to.max(index));
-            } else if index < r.from && c <= mid {
+            } else if index < r.from && (c < mid || (index == 0 && r.y <= top)) {
                 (target, r.to) = (top + r.h, r.to.min(index));
             }
         }

@@ -980,7 +980,7 @@ mod tests {
     }
 
     /// U4a.6 (found by LocalWave's songs list): a row dragged past either end of a short list (the lifted row held at the rows' edge)
-    /// reaches the last and the first place.
+    /// reaches the last and the first place; a row lifted onto another's middle elsewhere has not passed it.
     #[test]
     fn a_row_dragged_past_the_ends_reaches_the_first_and_last_places() {
         let (items, cells, moved) = (RefCell::new((0..3).collect::<Vec<i64>>()), RefCell::new(Vec::new()), Cell::new(None));
@@ -995,6 +995,15 @@ mod tests {
             assert_eq!(moved.take(), Some(expect), "dragged from {from} to {to}");
         }
         assert_eq!(*items.borrow(), [0, 1, 2], "to the end and back to the start");
+        // grabbed 10 below its top and let go 40 lower: its centre on row 2's middle, short of passing it, so it lands at 1
+        let (items, cells, moved) = (RefCell::new((0..5).collect::<Vec<i64>>()), RefCell::new(Vec::new()), Cell::new(None));
+        let mut build = |ui: &mut Ui| handle_list(ui, &items, &cells, &moved);
+        let mut ui = crate::doc::frames(2, &mut build);
+        at(&mut ui, 1.0, &p(Event::POINTER_MOVED, 10.0), &mut build);
+        at(&mut ui, 1.1, &p(Event::POINTER_PRESSED, 10.0), &mut build);
+        at(&mut ui, 1.2, &p(Event::POINTER_MOVED, 50.0), &mut build);
+        at(&mut ui, 1.3, &p(Event::POINTER_RELEASED, 50.0), &mut build);
+        assert_eq!(moved.take(), Some((0, 1)));
     }
 
     /// U4a.5 (found by LocalWave's queue): inside a kept view (`view_of`; a debug build verifies every kept view) the lifted row
@@ -1163,7 +1172,7 @@ mod tests {
             }
         };
         for round in 0..4 { drag(&mut ui, 1.0 + round as f64 * 2.0, round % 2 == 0, false); }
-        // up from row 9 to the top edge: the lifted centre stops on row 0's, which takes the first place (U4a.6; it stopped short before)
+        // up from row 9 to the top edge: the lifted row held at the rows' top takes the first place (U4a.6; it stopped short before)
         assert_eq!(moved.get(), Some((9, 0)), "the last warm-up moved a row up 9 places");
         let scope = mem_sys::warm_scope();
         drag(&mut ui, 20.0, true, true);
