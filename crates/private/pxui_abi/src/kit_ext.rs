@@ -321,22 +321,39 @@ unsafe fn pick_items(items: Slice<PxuiPickItem>, out: &mut Vec<pxui_types::ui::S
     true
 }
 
-/// The body of `pxui_ui_pick` and `pxui_ui_tabs_result`: every argument checked once (`kind` is the caller's to check), then one engine call.
+/// `items` checked once, in one pass before the call (at most `MAX_OPTIONS`, `has_id` 0 or 1 with `reserved` zero, every string UTF-8
+/// and all of them within `MAX_TOTAL_TEXT_BYTES`), as a slice the engine then reads in place: None refuses them.
+unsafe fn checked_items<'a>(items: Slice<PxuiPickItem>) -> Option<&'a [PxuiPickItem]> {
+    if items.len > trusted::MAX_OPTIONS || (items.len != 0 && items.ptr.is_null()) { return None; }
+    let items = if items.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(items.ptr, items.len) } };
+    let mut total = 0usize;
+    for item in items {
+        total = total.saturating_add(item.text.len).saturating_add(item.name.len).saturating_add(item.detail.len);
+        let strings = unsafe { checked(item.text).is_some() && checked(item.name).is_some() && checked(item.detail).is_some() };
+        if !strings || item.has_id > 1 || item.reserved != [0; 7] || total > MAX_TOTAL_TEXT_BYTES { return None; }
+    }
+    Some(items)
+}
+
+/// Item `i` of items `checked_items` passed, as the engine's segment (its strings were checked: read as they are).
+fn segment_of(item: &PxuiPickItem) -> pxui_types::ui::Segment<'_> {
+    let text = |s: Str| if s.len == 0 { "" } else { unsafe { core::str::from_utf8_unchecked(core::slice::from_raw_parts(s.ptr, s.len)) } };
+    let (name, detail) = (text(item.name), text(item.detail));
+    pxui_types::ui::Segment { text: text(item.text), id: (item.has_id == 1).then_some(item.id), detail, name: (!name.is_empty()).then_some(name) }
+}
+
+/// The body of `pxui_ui_pick` and `pxui_ui_tabs_result`: every argument checked once (`kind` is the caller's to check), then one engine
+/// call that reads the items where they lie.
 #[allow(clippy::too_many_arguments)]
 unsafe fn pick_export(ui: *mut PxuiUi, keyed: *const pxui_types::ffi::PxuiKeyedDesc, kind: u32, items: Slice<PxuiPickItem>, has_selected: u8, selected: usize, focus: u8, out: *mut PxuiResponse, result: *mut PxuiSegmentedResult) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short pick response") } };
     let Some(result) = sized_mut!(result) else { return unsafe { fail(ui, "null or short pick result") } };
     let Some((key, name)) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
     if has_selected > 1 || focus > 1 { return unsafe { fail(ui, "invalid pick arguments") }; }
-    let mut segments = state.shared().take_segments();
-    if !unsafe { pick_items(items, &mut segments) } {
-        state.shared().put_segments(segments);
-        return unsafe { fail(ui, "invalid pick items") };
-    }
+    let Some(items) = (unsafe { checked_items(items) }) else { return unsafe { fail(ui, "invalid pick items") } };
     let (mut at, mut secondary) = (None, None);
-    let rc = unsafe { trusted::pick_checked(ui, kind, key, name, &segments, (has_selected == 1).then_some(selected), focus == 1, out, &mut at, &mut secondary) };
-    state.shared().put_segments(segments);
+    let rc = unsafe { trusted::pick_checked(ui, kind, key, name, items.len(), &|i| segment_of(&items[i]), (has_selected == 1).then_some(selected), focus == 1, out, &mut at, &mut secondary) };
     if rc == 0 {
         (result.has_chosen, result.chosen, result.has_secondary, result.secondary) = (at.is_some() as u8, at.unwrap_or(0) as u64, secondary.is_some() as u8, secondary.unwrap_or(0) as u64);
         result.reserved = [0; 2];

@@ -434,26 +434,26 @@ pub unsafe fn pick(ui: *mut PxuiUi, kind: u32, key: &str, name: &str, items: &[S
     let mut spare = Vec::new();
     let items = clip_segments(items, &mut spare);
     if bad_key(key) || !segments_ok(items) { return unsafe { fail(ui, "invalid widget strings") }; }
-    unsafe { pick_body(ui, kind, key, name, items, selected, focus, out, chosen, secondary) }
+    unsafe { pick_body(ui, kind, key, name, items.len(), &|i| items[i], selected, focus, out, chosen, secondary) }
 }
 
 /// `pick` for `pxui_ui_pick` and `pxui_ui_tabs_result`, which has checked the key, the name and every item as C hands them over (`checked_key`, `checked`,
-/// `pick_items`): only the handle is checked here, so nothing is checked twice.
+/// `checked_items`): only the handle is checked here, so nothing is checked twice. `item(i)` reads item `i` where it lies.
 #[allow(clippy::too_many_arguments)]
 #[inline]
-pub(crate) unsafe fn pick_checked(ui: *mut PxuiUi, kind: u32, key: &str, name: &str, items: &[Segment], selected: Option<usize>, focus: bool, out: &mut PxuiResponse, chosen: &mut Option<usize>, secondary: &mut Option<usize>) -> i32 {
+pub(crate) unsafe fn pick_checked<'a>(ui: *mut PxuiUi, kind: u32, key: &str, name: &str, count: usize, item: &dyn Fn(usize) -> Segment<'a>, selected: Option<usize>, focus: bool, out: &mut PxuiResponse, chosen: &mut Option<usize>, secondary: &mut Option<usize>) -> i32 {
     enter!(ui);
-    unsafe { pick_body(ui, kind, key, name, items, selected, focus, out, chosen, secondary) }
+    unsafe { pick_body(ui, kind, key, name, count, item, selected, focus, out, chosen, secondary) }
 }
 
 #[allow(clippy::too_many_arguments)]
 #[inline(always)]
-unsafe fn pick_body(ui: *mut PxuiUi, kind: u32, key: &str, name: &str, items: &[Segment], selected: Option<usize>, focus: bool, out: &mut PxuiResponse, chosen: &mut Option<usize>, secondary: &mut Option<usize>) -> i32 {
+unsafe fn pick_body<'a>(ui: *mut PxuiUi, kind: u32, key: &str, name: &str, count: usize, item: &dyn Fn(usize) -> Segment<'a>, selected: Option<usize>, focus: bool, out: &mut PxuiResponse, chosen: &mut Option<usize>, secondary: &mut Option<usize>) -> i32 {
     let engine = unsafe { engine(ui) };
     let (r, at, pressed) = match kind {
-        0 => engine.pick_radio(key, name, items.len(), &|i| items[i], selected, 0),
-        1 => engine.tabs(key, name, items.len(), &|i| items[i], selected, 0, focus),
-        3 => engine.pick_dropdown(key, name, items.len(), &|i| items[i], selected, 0),
+        0 => engine.pick_radio(key, name, count, item, selected, 0),
+        1 => engine.tabs(key, name, count, item, selected, 0, focus),
+        3 => engine.pick_dropdown(key, name, count, item, selected, 0),
         _ => return unsafe { fail(ui, "invalid pick kind") },
     };
     respond(&r, out);
