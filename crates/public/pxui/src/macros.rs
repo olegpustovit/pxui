@@ -23,9 +23,14 @@ macro_rules! library {
     };
 }
 
-/// The closure the static wrapper hands a trusted container entry for its children: the borrowed handle becomes a wrapper `Ui` for
-/// `$f`. No trampoline, no catch: a panic of `$f` unwinds through the library to the app.
+/// The closure the static wrapper hands a trusted container entry for its children, which the engine calls itself: it makes the
+/// borrowed handle of the call on `$outer` (current while `$f` runs) a wrapper `Ui` for `$f`. One closure a callback, as the engine's
+/// own callers; no trampoline, no catch: a panic of `$f` unwinds through the library to the app.
 #[cfg(feature = "static")]
 macro_rules! inner {
-    ($f:expr) => { &mut |raw: *mut crate::sys::PxuiUi| { let mut ui = core::mem::ManuallyDrop::new(Ui(core::ptr::NonNull::new_unchecked(raw))); $f(&mut ui) } };
+    ($outer:ident, $f:expr) => { &mut |engine: &mut pxui_abi_link::trusted::Engine| {
+        let mut borrowed = pxui_abi_link::trusted::Borrowed::new(engine, $outer);
+        let mut ui = core::mem::ManuallyDrop::new(Ui(core::ptr::NonNull::new_unchecked(borrowed.enter())));
+        $f(&mut ui)
+    } };
 }

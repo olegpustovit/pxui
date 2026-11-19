@@ -42,6 +42,7 @@ impl ListState {
 
 /// What a cell callback is told about the row it builds (`Ui::selection_list`, `Ui::table`), a `Copy` value.
 #[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
 pub struct CellState {
     /// The row is selected (its `ListState::SELECTED` flag).
     pub selected: bool,

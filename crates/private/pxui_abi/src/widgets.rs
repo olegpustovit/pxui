@@ -266,7 +266,7 @@ export!(build pub unsafe fn pxui_ui_disclosure(ui: *mut PxuiUi, keyed: *const Px
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short disclosure response") } };
     if open > 1 { return unsafe { fail(ui, "invalid disclosure arguments") }; }
     let Some((key, text)) = (unsafe { read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
-    unsafe { trusted::disclosure(ui, key, text, open != 0, &mut |ui| if let Some(build) = build { build(user, ui.cast()) }, out) }
+    unsafe { trusted::disclosure(ui, key, text, open != 0, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, build, user), out) }
 });
 
 // Legacy (cut at 2.0): keyed by its label, shown up to a `##`; `pxui_ui_progress_keyed` keys apart.

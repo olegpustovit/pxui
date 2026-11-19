@@ -13,8 +13,8 @@ export!(trusted pub unsafe fn pxui_ui_list_measured(ui:*mut PxuiUi,label:Str,cou
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if out.is_null() { return unsafe { fail(ui,"null measured list output") }; }
     let Some(label)=(unsafe { crate::state::checked_key(label) }) else { return unsafe { fail(ui,"invalid measured list label") }; };
-    unsafe { crate::trusted::list_measured(ui,label,count,estimate_h,&mut |ui,index| {
-        if let Some(build)=build { build(user,ui.cast(),index); }
+    unsafe { crate::trusted::list_measured(ui,label,count,estimate_h,&mut |engine:&mut pxui_core::ui::Ui,index| {
+        if let Some(build)=build { { let mut b = crate::state::Borrowed::new(engine, ui); let h = b.enter(); build(user,h.cast(),index) }; }
     },&mut *out) }
 });
 
@@ -119,7 +119,7 @@ export!(trusted pub unsafe fn pxui_ui_grid_list(ui: *mut PxuiUi, desc: *const Px
     let Some(desc) = sized!(desc) else { return unsafe { fail(ui, "invalid grid list descriptor") }; };
     let Some(label) = (unsafe { crate::state::checked_key(desc.label) }) else { return unsafe { fail(ui, "invalid grid list label") }; };
     let (shared, build, user) = (unsafe { (*ui).shared }, desc.build, desc.user);
-    unsafe { crate::trusted::grid_cells(ui, label, desc.count, desc.cell_w, desc.cell_h, &mut |engine: &mut pxui_core::ui::Ui, index| {
+    unsafe { crate::trusted::grid_list(ui, label, desc.count, desc.cell_w, desc.cell_h, &mut |engine: &mut pxui_core::ui::Ui, index| {
         let mut borrowed = PxuiUi::borrowed(engine, shared);
         let _current = crate::state::Current::set(shared, &mut borrowed);
         if let Some(build) = build { build(user, (&mut borrowed as *mut PxuiUi).cast(), index) }
@@ -254,7 +254,7 @@ unsafe fn split(ui: *mut PxuiUi, desc: *const PxuiSplitDesc, response: &mut Pxui
     let axis = if desc.axis == 0 { Axis::Row } else { Axis::Column };
     let (mut moved, mut at) = (false, None);
     let rc = unsafe { crate::trusted::split(ui, label, axis, desc.ratio, desc.min_a, desc.min_b,
-        &mut |ui| if let Some(build) = desc.build_a { build(desc.user_a, ui.cast()) }, &mut |ui| if let Some(build) = desc.build_b { build(desc.user_b, ui.cast()) }, response, &mut moved, &mut at) };
+        &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, desc.build_a, desc.user_a), &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, desc.build_b, desc.user_b), response, &mut moved, &mut at) };
     let at = at.filter(|_| moved || !moved_only);
     unsafe { *changed = at.is_some() as u8; *ratio = at.unwrap_or_default(); }
     rc
@@ -330,7 +330,7 @@ export!(trusted pub unsafe fn pxui_ui_inspector_section(ui: *mut PxuiUi, desc: *
     let (Some(key), Some(label)) = (unsafe { crate::state::checked_key(desc.key) }, unsafe { checked(desc.label) }) else { return unsafe { fail(ui, "invalid inspector section text") }; };
     let (build, user) = (desc.build, desc.user);
     let mut open = false;
-    let rc = unsafe { crate::trusted::inspector_section(ui, key, desc.expanded != 0, (desc.has_set != 0).then_some(desc.set_expanded != 0), label, &mut |ui| if let Some(build) = build { build(user, ui.cast()) }, &mut open) };
+    let rc = unsafe { crate::trusted::inspector_section(ui, key, desc.expanded != 0, (desc.has_set != 0).then_some(desc.set_expanded != 0), label, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, build, user), &mut open) };
     desc.out_open = open as u8;
     rc
 });

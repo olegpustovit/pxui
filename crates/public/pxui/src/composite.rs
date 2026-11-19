@@ -70,7 +70,7 @@ impl Ui {
         let key = key.label(&mut id_label);
         let mut handle = Handle::default();
         #[cfg(feature = "static")]
-        { let mut open = false; check(self, unsafe { pxui_abi_link::trusted::modal(self.0.as_ptr(), key, overlay, inner!(|ui: &mut Ui| build(ui)), &mut open, &mut handle) }); OverlayResponse { handle, open } }
+        { let mut open = false; check(self, unsafe { let outer = self.0.as_ptr(); pxui_abi_link::trusted::modal(outer, key, overlay, inner!(outer, |ui: &mut Ui| build(ui)), &mut open, &mut handle) }); OverlayResponse { handle, open } }
         #[cfg(not(feature = "static"))]
         {
             let keyed = PxuiKeyedDesc::new(key, crate::clip(overlay.name.unwrap_or("")));
@@ -94,7 +94,7 @@ impl Ui {
         let key = key.label(&mut id_label);
         let mut handle = Handle::default();
         #[cfg(feature = "static")]
-        let rc = unsafe { pxui_abi_link::trusted::panel(self.0.as_ptr(), key, overlay, inner!(|ui: &mut Ui| f(ui)), &mut handle) };
+        let rc = unsafe { let outer = self.0.as_ptr(); pxui_abi_link::trusted::panel(outer, key, overlay, inner!(outer, |ui: &mut Ui| f(ui)), &mut handle) };
         #[cfg(not(feature = "static"))]
         let rc = {
             // the options a panel usually has are written as they are; each optional part only when it is there
@@ -117,7 +117,7 @@ impl Ui {
         let key = key.label(&mut id_label);
         let mut out = Handle::default();
         #[cfg(feature = "static")]
-        check(self, unsafe { pxui_abi_link::trusted::scroll_view(self.0.as_ptr(), key, "", &node, inner!(|ui: &mut Ui| build(ui)), &mut out) });
+        check(self, unsafe { let outer = self.0.as_ptr(); pxui_abi_link::trusted::scroll_view(outer, key, "", &node, inner!(outer, |ui: &mut Ui| build(ui)), &mut out) });
         #[cfg(not(feature = "static"))]
         check(self, unsafe { keyed_sys::pxui_ui_scroll_view_node(self.0.as_ptr(), &PxuiKeyedDesc::new(key, ""), &node, Some(call), &mut build as *mut _ as *mut c_void, &mut out) });
         out
@@ -130,7 +130,7 @@ impl Ui {
         let key = key.label(&mut id_label);
         let mut out = Handle::default();
         #[cfg(feature = "static")]
-        check(self, unsafe { pxui_abi_link::trusted::view_of(self.0.as_ptr(), key, revision, inner!(|ui: &mut Ui| build(ui)), &mut out) });
+        check(self, unsafe { let outer = self.0.as_ptr(); pxui_abi_link::trusted::view_of(outer, key, revision, inner!(outer, |ui: &mut Ui| build(ui)), &mut out) });
         #[cfg(not(feature = "static"))]
         check(self, unsafe { keyed_sys::pxui_ui_view_keyed(self.0.as_ptr(), &PxuiKeyedDesc::new(key, ""), revision, Some(call), &mut build as *mut _ as *mut c_void, &mut out) });
         out
@@ -143,7 +143,7 @@ impl Ui {
         let key = key.label(&mut id_label);
         let mut out = Handle::default();
         #[cfg(feature = "static")]
-        check(self, unsafe { pxui_abi_link::trusted::anchored(self.0.as_ptr(), key, anchor, overlay, inner!(|ui: &mut Ui| build(ui)), &mut out) });
+        check(self, unsafe { let outer = self.0.as_ptr(); pxui_abi_link::trusted::anchored(outer, key, anchor, overlay, inner!(outer, |ui: &mut Ui| build(ui)), &mut out) });
         #[cfg(not(feature = "static"))]
         {
             let mut descriptor = encode_placement(overlay.place);

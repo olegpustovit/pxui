@@ -24,7 +24,7 @@ export!(trusted pub unsafe fn pxui_ui_button_with(ui: *mut PxuiUi, desc: *const 
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if desc.is_null() || out.is_null() || signal.is_null() || focused.is_null() { return unsafe { fail(ui, "null button argument") }; }
     let mut response = PxuiResponse::EMPTY;
-    let mut content = |ui: *mut PxuiUi, _: State| if let Some(build) = build { build(user, ui.cast()) };
+    let mut content = |engine: &mut pxui_core::ui::Ui, _: State| if let Some(build) = build { { let mut b = unsafe { crate::state::Borrowed::new(engine, ui) }; let h = unsafe { b.enter() }; build(user, h.cast()) } };
     let rc = unsafe { button_call(ui, desc, if build.is_some() { Some(&mut content) } else { None }, &mut response, Some(&mut *signal)) };
     if rc == 0 { unsafe { (*out, *focused) = (response.node, (response.flags & PxuiResponse::FOCUSED != 0) as u8); } }
     rc
@@ -35,7 +35,7 @@ export!(trusted pub unsafe fn pxui_ui_button_response(ui: *mut PxuiUi, desc: *co
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if desc.is_null() { return unsafe { fail(ui, "null button argument") }; }
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short button response") } };
-    let mut content = |ui: *mut PxuiUi, _: State| if let Some(build) = build { build(user, ui.cast()) };
+    let mut content = |engine: &mut pxui_core::ui::Ui, _: State| if let Some(build) = build { { let mut b = unsafe { crate::state::Borrowed::new(engine, ui) }; let h = unsafe { b.enter() }; build(user, h.cast()) } };
     unsafe { button_call(ui, desc, if build.is_some() { Some(&mut content) } else { None }, out, None) }
 });
 
@@ -44,9 +44,9 @@ export!(trusted pub unsafe fn pxui_ui_button_content(ui: *mut PxuiUi, desc: *con
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if desc.is_null() { return unsafe { fail(ui, "null button argument") }; }
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short button response") } };
-    let mut content = |ui: *mut PxuiUi, s: State| if let Some(build) = build {
+    let mut content = |engine: &mut pxui_core::ui::Ui, s: State| if let Some(build) = build {
         let state = PxuiStateDesc { hovered: s.hovered as u8, pressed: s.pressed as u8, focused: s.focused as u8, disabled: s.disabled as u8, checked: s.checked as u8, reserved: [0; 3] };
-        build(user, ui.cast(), &state)
+        { let mut b = unsafe { crate::state::Borrowed::new(engine, ui) }; let h = unsafe { b.enter() }; build(user, h.cast(), &state) }
     };
     unsafe { button_call(ui, desc, if build.is_some() { Some(&mut content) } else { None }, out, None) }
 });
@@ -61,7 +61,7 @@ export!(trusted pub unsafe fn pxui_ui_button_plain(ui: *mut PxuiUi, key: Str, te
 
 /// The checked `PxuiButtonDesc` behind `desc` (not null) through the trusted entry: what happened to `out`, the whole signal to
 /// `signal` when given.
-unsafe fn button_call(ui: *mut PxuiUi, desc: *const PxuiButtonDesc, content: Option<&mut dyn FnMut(*mut PxuiUi, State)>, out: &mut PxuiResponse, signal: Option<&mut PxuiSignal>) -> i32 {
+unsafe fn button_call(ui: *mut PxuiUi, desc: *const PxuiButtonDesc, content: Option<&mut dyn FnMut(&mut pxui_core::ui::Ui, State)>, out: &mut PxuiResponse, signal: Option<&mut PxuiSignal>) -> i32 {
     // a word set for this call goes to the leading icon's drawing; the next call reads 0
     let word = core::mem::take(&mut unsafe { &*ui }.shared().icon_word);
     // the 96-byte record of 1.48, the 104-byte one of 1.54, the 192-byte one of 1.56 and the whole one: no other size; the fields the
@@ -405,7 +405,7 @@ unsafe fn popup(ui: *mut PxuiUi, key: &str, name: &str, d: &PxuiPopupDesc, build
         stroke: (d.has_stroke != 0).then_some(d.stroke), dismiss_initial: d.dismiss_initial != 0, attached: d.attached != 0, name: Some(name), ..pxui_types::ui::Overlay::DEFAULT };
     let mut open = false;
     let mut node = PxuiBox::default();
-    let rc = unsafe { crate::trusted::popup(ui, key, &overlay, &mut |ui| if let Some(build) = build { build(user, ui.cast()) }, &mut open, &mut node) };
+    let rc = unsafe { crate::trusted::popup(ui, key, &overlay, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, build, user), &mut open, &mut node) };
     unsafe { *out = open as u8; }
     if let Some(root) = root { *root = node; }
     rc

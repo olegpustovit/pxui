@@ -161,8 +161,10 @@ impl Ui {
         } else {
             let has_content = content.is_some();
             let mut inner = content;
-            let mut run = |raw: *mut crate::sys::PxuiUi, state: State| if let Some(f) = inner.as_mut() {
-                let mut ui = core::mem::ManuallyDrop::new(Ui(unsafe { core::ptr::NonNull::new_unchecked(raw) }));
+            let outer = self.0.as_ptr();
+            let mut run = |engine: &mut pxui_abi_link::trusted::Engine, state: State| if let Some(f) = inner.as_mut() {
+                let mut borrowed = unsafe { pxui_abi_link::trusted::Borrowed::new(engine, outer) };
+                let mut ui = core::mem::ManuallyDrop::new(Ui(unsafe { core::ptr::NonNull::new_unchecked(borrowed.enter()) }));
                 f(&mut ui, state)
             };
             unsafe { pxui_abi_link::trusted::button_with(self.0.as_ptr(), key, text, button.name, button.look, button.w, button.h, button.align, button.pad,
@@ -276,7 +278,7 @@ impl Ui {
         #[cfg(feature = "static")]
         {
             let mut out = Chosen::default();
-            check(self, unsafe { pxui_abi_link::trusted::dialog(self.0.as_ptr(), key, title, buttons, style, inner!(|ui: &mut Ui| body(ui)), &mut out) });
+            check(self, unsafe { let outer = self.0.as_ptr(); pxui_abi_link::trusted::dialog(outer, key, title, buttons, style, inner!(outer, |ui: &mut Ui| body(ui)), &mut out) });
             out
         }
         #[cfg(not(feature = "static"))]

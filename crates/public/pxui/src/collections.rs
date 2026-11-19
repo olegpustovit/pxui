@@ -1,6 +1,8 @@
 use crate::{check, Ui};
 use pxui_types::ui::{Key, ListResponse, SectionPart, SelectionList, TreeResponse};
-use pxui_types::ffi::{PxuiCellState, PxuiColumn, PxuiColumnWidth, PxuiColumnWidthSpan, PxuiHeadResult, PxuiListResult, PxuiResponse, PxuiSelectionListDesc, PxuiTableHeadDesc, PxuiTableDesc, PxuiTableResult, PxuiU8MutSpan, Slice};
+#[cfg(not(feature = "static"))]
+use pxui_types::ffi::PxuiCellState;
+use pxui_types::ffi::{PxuiColumn, PxuiColumnWidth, PxuiColumnWidthSpan, PxuiHeadResult, PxuiListResult, PxuiResponse, PxuiSelectionListDesc, PxuiTableHeadDesc, PxuiTableDesc, PxuiTableResult, PxuiU8MutSpan, Slice};
 use pxui_types::theme::BodyKind;
 use crate::author::{CellState, Column, HeadResponse, ListState, Sort, Table, TableHead, TableResponse, TableState};
 #[cfg(not(feature = "static"))]
@@ -143,6 +145,21 @@ pub(crate) fn part_of(index: usize) -> SectionPart {
 }
 
 /// The library's cell record as the row's `CellState`.
+/// The engine's row record as the wrapper's: the same bytes (`#[repr(C)]` both, checked below), read as they are.
+#[cfg(feature = "static")]
+#[inline(always)]
+fn cell_from(c: &pxui_abi_link::trusted::ListCell) -> CellState { unsafe { *(c as *const pxui_abi_link::trusted::ListCell).cast::<CellState>() } }
+#[cfg(feature = "static")]
+const _: () = {
+    use core::mem::{align_of, offset_of, size_of};
+    use pxui_abi_link::trusted::ListCell as L;
+    assert!(size_of::<CellState>() == size_of::<L>() && align_of::<CellState>() == align_of::<L>());
+    assert!(offset_of!(CellState, selected) == offset_of!(L, selected) && offset_of!(CellState, enabled) == offset_of!(L, enabled) && offset_of!(CellState, focused) == offset_of!(L, focused) && offset_of!(CellState, held) == offset_of!(L, held) && offset_of!(CellState, y) == offset_of!(L, y));
+    assert!(offset_of!(CellState, handle.index) == offset_of!(L, handle.index) && offset_of!(CellState, handle.box_key) == offset_of!(L, handle.box_key) && offset_of!(CellState, handle.box_slot) == offset_of!(L, handle.box_slot) && offset_of!(CellState, handle.generation) == offset_of!(L, handle.generation));
+    assert!(size_of::<usize>() == size_of::<u64>());
+};
+
+#[cfg(not(feature = "static"))]
 fn cell_of(c: &PxuiCellState) -> CellState {
     CellState { selected: c.selected != 0, enabled: c.enabled != 0, focused: c.focused != 0, held: c.held != 0, handle: c.handle, y: c.y }
 }
@@ -195,7 +212,12 @@ impl Ui {
         let mut out = PxuiListResult::EMPTY;
         if list.variant != 0 { self.set_variant(BodyKind::selection_list, list.variant); }
         #[cfg(feature = "static")]
-        check(self, unsafe { pxui_abi_link::trusted::selection_list(self.0.as_ptr(), label, &desc, Some(row_key), &mut |raw, index, c| cell(&mut *core::mem::ManuallyDrop::new(Ui(core::ptr::NonNull::new_unchecked(raw))), part_of(index), cell_of(c)), &mut out) });
+        let outer = self.0.as_ptr();
+        #[cfg(feature = "static")]
+        check(self, unsafe { pxui_abi_link::trusted::selection_list(outer, label, &desc, Some(row_key), &mut |engine: &mut pxui_abi_link::trusted::Engine, index, c| {
+            let mut borrowed = pxui_abi_link::trusted::Borrowed::new(engine, outer);
+            cell(&mut *core::mem::ManuallyDrop::new(Ui(core::ptr::NonNull::new_unchecked(borrowed.enter()))), part_of(index), cell_from(c))
+        }, &mut out) });
         #[cfg(not(feature = "static"))]
         self.selection_list_c(label, &desc, &mut link::ListRows { cell, id: row_key }, &mut out);
         if list.variant != 0 { self.set_variant(BodyKind::selection_list, 0); }
@@ -213,7 +235,11 @@ impl Ui {
         let (activated, shown) = {
             let mut out = (None, 0);
             let nodes = unsafe { core::slice::from_raw_parts(nodes.as_ptr().cast::<TreeNodeDesc>(), nodes.len()) };
-            check(self, unsafe { pxui_abi_link::trusted::tree(self.0.as_ptr(), label, nodes, open, selected, visible, &mut |raw, node, _| (&mut *cell)(&mut *core::mem::ManuallyDrop::new(Ui(core::ptr::NonNull::new_unchecked(raw))), node), &mut out) });
+            let outer = self.0.as_ptr();
+            check(self, unsafe { pxui_abi_link::trusted::tree(outer, label, nodes, open, selected, visible, &mut |engine: &mut pxui_abi_link::trusted::Engine, node| {
+                let mut borrowed = pxui_abi_link::trusted::Borrowed::new(engine, outer);
+                (&mut *cell)(&mut *core::mem::ManuallyDrop::new(Ui(core::ptr::NonNull::new_unchecked(borrowed.enter()))), node)
+            }, &mut out) });
             out
         };
         #[cfg(not(feature = "static"))]
@@ -238,7 +264,12 @@ impl Ui {
         let mut out = PxuiTableResult { size: core::mem::size_of::<PxuiTableResult>() as u32, reserved: 0, rows: PxuiListResult::EMPTY, head: HEAD_EMPTY };
         if table.variant != 0 { self.set_variant(BodyKind::table_row, table.variant); }
         #[cfg(feature = "static")]
-        check(self, unsafe { pxui_abi_link::trusted::table(self.0.as_ptr(), label, &desc, Some(row_key), &mut |raw, row, column, c| cell(&mut *core::mem::ManuallyDrop::new(Ui(core::ptr::NonNull::new_unchecked(raw))), row, column, cell_of(c)), &mut out) });
+        let outer = self.0.as_ptr();
+        #[cfg(feature = "static")]
+        check(self, unsafe { pxui_abi_link::trusted::table(outer, label, &desc, Some(row_key), &mut |engine: &mut pxui_abi_link::trusted::Engine, row, column, c| {
+            let mut borrowed = pxui_abi_link::trusted::Borrowed::new(engine, outer);
+            cell(&mut *core::mem::ManuallyDrop::new(Ui(core::ptr::NonNull::new_unchecked(borrowed.enter()))), row, column, cell_from(c))
+        }, &mut out) });
         #[cfg(not(feature = "static"))]
         self.table_c(label, &desc, &mut link::TableRows { cell, id: row_key }, &mut out);
         if table.variant != 0 { self.set_variant(BodyKind::table_row, 0); }

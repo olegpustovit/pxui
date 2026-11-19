@@ -232,8 +232,13 @@ impl Ui {
         let mut out = pxui_types::ffi::PxuiListResult::EMPTY;
         #[cfg(feature = "static")]
         {
-            let mut invoke = |raw: *mut crate::sys::PxuiUi, index, y| { let mut ui = ManuallyDrop::new(unsafe { Ui(NonNull::new_unchecked(raw)) }); build(&mut ui, crate::collections::part_of(index), y) };
-            check(self, unsafe { pxui_abi_link::trusted::section_list(self.0.as_ptr(), label, &desc, Some(id), &mut invoke, &mut out) });
+            let outer = self.0.as_ptr();
+            let mut invoke = |engine: &mut pxui_abi_link::trusted::Engine, index, y| {
+                let mut borrowed = unsafe { pxui_abi_link::trusted::Borrowed::new(engine, outer) };
+                let mut ui = ManuallyDrop::new(unsafe { Ui(NonNull::new_unchecked(borrowed.enter())) });
+                build(&mut ui, crate::collections::part_of(index), y)
+            };
+            check(self, unsafe { pxui_abi_link::trusted::section_list(outer, label, &desc, Some(id), &mut invoke, &mut out) });
         }
         #[cfg(not(feature = "static"))]
         {
@@ -254,7 +259,12 @@ impl Ui {
         let label = key.label(&mut id_label);
         let mut out = Handle::default();
         #[cfg(feature = "static")]
-        check(self, unsafe { pxui_abi_link::trusted::grid_list(self.0.as_ptr(), label, count, cell_w, cell_h, &mut |raw: *mut crate::sys::PxuiUi, index: usize| { let mut ui = ManuallyDrop::new(Ui(NonNull::new_unchecked(raw))); build(&mut ui, index) }, &mut out) });
+        let outer = self.0.as_ptr();
+        #[cfg(feature = "static")]
+        check(self, unsafe { pxui_abi_link::trusted::grid_list(outer, label, count, cell_w, cell_h, &mut |engine: &mut pxui_abi_link::trusted::Engine, index: usize| {
+            let mut borrowed = pxui_abi_link::trusted::Borrowed::new(engine, outer);
+            build(&mut ManuallyDrop::new(Ui(NonNull::new_unchecked(borrowed.enter()))), index)
+        }, &mut out) });
         #[cfg(not(feature = "static"))]
         {
             let mut build = build;
@@ -277,7 +287,7 @@ impl Ui {
         #[cfg(feature = "static")]
         let at = {
             let (mut moved, mut at) = (false, None);
-            check(self, unsafe { pxui_abi_link::trusted::split(self.0.as_ptr(), label, axis, ratio, min_a, min_b, inner!(|ui: &mut Ui| a(ui)), inner!(|ui: &mut Ui| b(ui)), &mut out, &mut moved, &mut at) });
+            check(self, unsafe { let outer = self.0.as_ptr(); pxui_abi_link::trusted::split(outer, label, axis, ratio, min_a, min_b, inner!(outer, |ui: &mut Ui| a(ui)), inner!(outer, |ui: &mut Ui| b(ui)), &mut out, &mut moved, &mut at) });
             at
         };
         #[cfg(not(feature = "static"))]
@@ -389,7 +399,7 @@ impl Ui {
 #[inline]
 #[track_caller] pub fn inspector_section(ui: &mut Ui, key: &str, expanded: bool, set_expanded: Option<bool>, label: &str, build: &mut dyn FnMut(&mut Ui)) -> bool {
     #[cfg(feature = "static")]
-    { let mut out = false; check(ui, unsafe { pxui_abi_link::trusted::inspector_section(ui.0.as_ptr(), key, expanded, set_expanded, label, inner!(|ui: &mut Ui| build(ui)), &mut out) }); out }
+    { let mut out = false; check(ui, unsafe { let outer = ui.0.as_ptr(); pxui_abi_link::trusted::inspector_section(outer, key, expanded, set_expanded, label, inner!(outer, |ui: &mut Ui| build(ui)), &mut out) }); out }
     #[cfg(not(feature = "static"))]
     {
         let mut build = build;

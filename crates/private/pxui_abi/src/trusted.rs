@@ -5,13 +5,18 @@
 //! stale box, a number that is not finite). Each entry counts itself as one call into the library. A builder entry is refused outside a
 //! frame (`enter!`).
 use crate::node::declare;
-use crate::state::{get, Inner, MAX_KEY_BYTES, MAX_LABEL_BYTES, MAX_TEXT_BYTES, MAX_TOTAL_TEXT_BYTES, PxuiUi, boxed, call_inner, fail, note_call, to_abi_box};
+use crate::state::{get, Inner, MAX_KEY_BYTES, MAX_LABEL_BYTES, MAX_TEXT_BYTES, MAX_TOTAL_TEXT_BYTES, PxuiUi, boxed, fail, note_call, to_abi_box};
 use crate::{PxuiBox, PxuiSignal, Str};
 use pxui_types::ffi::{PxuiResponse, PxuiTextStyle};
 use pxui_types::{text::LabelFields, TextGlyph, TextMetrics, TextSpans};
 use pxui_core::ui::{Segment, SegmentedOpts, ToggleOpts, Ui};
 use pxui_types::ui::{Checkbox, Overlay, Slider};
 use pxui_types::{Axis, FrameIn, FrameOut, Node, Size, ffi::Input, geom::Edges, layout::{Along, Justify}, theme::{State, States, ThemeSnapshot}};
+/// What the static wrapper's callbacks are given and build their handle from (`Borrowed`): the engine of the callback, and a
+/// selection list or table row's record (`#[repr(C)]`, the wrapper's `CellState` byte for byte).
+pub use crate::state::Borrowed;
+pub use pxui_core::ui::Ui as Engine;
+pub use pxui_core::ui_lists::ListCell;
 
 
 /// `value` as text the caller promises is UTF-8, at most `max` bytes (the role's cap the exports refuse above). Its pointer is never
@@ -30,6 +35,10 @@ pub unsafe fn pxui_ui_node(ui: *mut PxuiUi, label: Str, desc: &Node, out: *mut P
     unsafe { node(ui, label, desc, out) }
 }
 
+/// `Transition::valid`, out of line: a node without a transition (the most) pays one compare in its inline entry.
+#[inline(never)]
+fn valid_curve(curve: &pxui_types::node::Transition) -> bool { curve.valid() }
+
 /// `pxui_ui_node` of a Rust label (`Key::label`): UTF-8 by its type, so only its length is checked (the static wrapper's entry).
 #[inline(always)]
 pub unsafe fn node_str(ui: *mut PxuiUi, label: &str, desc: &Node, out: *mut PxuiBox) -> i32 {
@@ -38,9 +47,20 @@ pub unsafe fn node_str(ui: *mut PxuiUi, label: &str, desc: &Node, out: *mut Pxui
 }
 
 /// `node_str` of a label the static wrapper checked (`authored`: never below 0x20, so never a resolved key's form): only its length.
+/// Inline, the common node (a live building handle, no transition) is one compare and the engine's call; anything else takes
+/// `node_label_checked`'s way, out of line.
 #[inline(always)]
 pub unsafe fn node_label(ui: *mut PxuiUi, label: &str, desc: &Node, out: *mut PxuiBox) -> i32 {
-    if label.len() > MAX_KEY_BYTES { unsafe { note_call((*ui).shared) }; return unsafe { fail(ui, "invalid node label") } }
+    if ui.is_null() || label.len() > MAX_KEY_BYTES || unsafe { (*(*ui).shared).building } != ui || desc.transition.is_some() { return unsafe { node_label_checked(ui, label, desc, out) } }
+    unsafe { (*(*ui).shared).calls = (*(*ui).shared).calls.wrapping_add(1) };
+    declare(unsafe { engine(ui) }, Some(label), 0, desc, unsafe { &mut *out });
+    0
+}
+
+/// `node_label` with every check and refusal.
+#[inline(never)]
+unsafe fn node_label_checked(ui: *mut PxuiUi, label: &str, desc: &Node, out: *mut PxuiBox) -> i32 {
+    if !ui.is_null() && label.len() > MAX_KEY_BYTES { unsafe { note_call((*ui).shared) }; return unsafe { fail(ui, "invalid node label") } }
     unsafe { node(ui, label, desc, out) }
 }
 
@@ -48,7 +68,7 @@ pub unsafe fn node_label(ui: *mut PxuiUi, label: &str, desc: &Node, out: *mut Px
 #[inline(always)]
 pub(crate) unsafe fn node(ui: *mut PxuiUi, label: &str, desc: &Node, out: *mut PxuiBox) -> i32 {
     enter!(ui);
-    if let pxui_types::node::OptTransition::Some(curve) = &desc.transition { if !curve.valid() { return unsafe { fail(ui, "invalid transition curve") }; } }
+    if let pxui_types::node::OptTransition::Some(curve) = &desc.transition { if !valid_curve(curve) { return unsafe { fail(ui, "invalid transition curve") }; } }
     declare(unsafe { engine(ui) }, Some(label), 0, desc, unsafe { &mut *out });
     0
 }
@@ -57,7 +77,7 @@ pub(crate) unsafe fn node(ui: *mut PxuiUi, label: &str, desc: &Node, out: *mut P
 #[inline]
 pub unsafe fn layout_node(ui: *mut PxuiUi, desc: &Node, out: *mut PxuiBox) -> i32 {
     enter!(ui);
-    if let pxui_types::node::OptTransition::Some(curve) = &desc.transition { if !curve.valid() { return unsafe { fail(ui, "invalid transition curve") }; } }
+    if let pxui_types::node::OptTransition::Some(curve) = &desc.transition { if !valid_curve(curve) { return unsafe { fail(ui, "invalid transition curve") }; } }
     declare(unsafe { engine(ui) }, None, 0, desc, unsafe { &mut *out });
     0
 }
@@ -66,7 +86,7 @@ pub unsafe fn layout_node(ui: *mut PxuiUi, desc: &Node, out: *mut PxuiBox) -> i3
 pub unsafe fn pxui_ui_node_keyed(ui: *mut PxuiUi, key: i64, desc: &Node, out: *mut PxuiBox) -> i32 {
     enter!(ui);
     if key == 0 || key == 1 { return unsafe { fail(ui, "reserved node key; derive integer keys with int_key") }; }
-    if let pxui_types::node::OptTransition::Some(curve) = &desc.transition { if !curve.valid() { return unsafe { fail(ui, "invalid transition curve") }; } }
+    if let pxui_types::node::OptTransition::Some(curve) = &desc.transition { if !valid_curve(curve) { return unsafe { fail(ui, "invalid transition curve") }; } }
     declare(unsafe { engine(ui) }, None, key, desc, unsafe { &mut *out });
     0
 }
@@ -289,8 +309,7 @@ pub unsafe fn pxui_ui_theme(ui: *mut PxuiUi) -> *const ThemeSnapshot {
 pub unsafe fn within(ui: *mut PxuiUi, box_: *const PxuiBox, f: Inner) -> i32 {
     enter!(ui);
     let (e, b) = match unsafe { boxed(ui, box_) } { Ok(v) => v, Err(code) => return code };
-    let shared = unsafe { (*ui).shared };
-    e.within(&b, &mut |engine: &mut Ui| call_inner(shared, engine, f));
+    e.within(&b, f);
     0
 }
 
@@ -298,8 +317,7 @@ pub unsafe fn within(ui: *mut PxuiUi, box_: *const PxuiBox, f: Inner) -> i32 {
 pub unsafe fn scope(ui: *mut PxuiUi, label: &str, f: Inner) -> i32 {
     enter!(ui);
     if bad_key(label) { return unsafe { fail(ui, "invalid scope label") }; }
-    let shared = unsafe { (*ui).shared };
-    unsafe { engine(ui) }.scope(label, &mut |engine: &mut Ui| call_inner(shared, engine, f));
+    unsafe { engine(ui) }.scope(label, f);
     0
 }
 
@@ -307,8 +325,7 @@ pub unsafe fn scope(ui: *mut PxuiUi, label: &str, f: Inner) -> i32 {
 pub unsafe fn col(ui: *mut PxuiUi, padding: f32, label: &str, f: Inner) -> i32 {
     enter!(ui);
     if bad_key(label) || !padding.is_finite() { return unsafe { fail(ui, "invalid column arguments") }; }
-    let shared = unsafe { (*ui).shared };
-    unsafe { engine(ui) }.col(padding, label, &mut |engine: &mut Ui| call_inner(shared, engine, f));
+    unsafe { engine(ui) }.col(padding, label, f);
     0
 }
 
@@ -316,10 +333,8 @@ pub unsafe fn col(ui: *mut PxuiUi, padding: f32, label: &str, f: Inner) -> i32 {
 pub unsafe fn view(ui: *mut PxuiUi, label: &str, revision: u64, width: Size, height: Size, flat: bool, f: Inner, out: *mut PxuiBox) -> i32 {
     enter!(ui);
     if bad_key(label) || !finite(width) || !finite(height) { return unsafe { fail(ui, "invalid view arguments") }; }
-    let shared = unsafe { (*ui).shared };
     let engine = unsafe { engine(ui) };
-    let mut build = |engine: &mut Ui| call_inner(shared, engine, f);
-    let handle = if flat { engine.view_flat(label, revision, width, height, &mut build) } else { engine.view(label, revision, width, height, &mut build) };
+    let handle = if flat { engine.view_flat(label, revision, width, height, f) } else { engine.view(label, revision, width, height, f) };
     unsafe { *out = to_abi_box(handle); }
     0
 }
@@ -329,8 +344,7 @@ pub unsafe fn view(ui: *mut PxuiUi, label: &str, revision: u64, width: Size, hei
 pub unsafe fn view_of(ui: *mut PxuiUi, key: &str, revision: u64, f: Inner, out: *mut PxuiBox) -> i32 {
     enter!(ui);
     if bad_key(key) { return unsafe { fail(ui, "invalid view arguments") }; }
-    let shared = unsafe { (*ui).shared };
-    let handle = unsafe { engine(ui) }.view_of(key, &revision, &mut |engine: &mut Ui| call_inner(shared, engine, f));
+    let handle = unsafe { engine(ui) }.view_of(key, &revision, f);
     unsafe { *out = to_abi_box(handle); }
     0
 }
@@ -509,8 +523,7 @@ pub unsafe fn disclosure(ui: *mut PxuiUi, key: &str, text: &str, open: bool, f: 
     enter!(ui);
     let text = clip(text);
     if bad_key(key) { return unsafe { fail(ui, "invalid disclosure text") }; }
-    let shared = unsafe { (*ui).shared };
-    let r = unsafe { engine(ui) }.disclosure(key, text, open, &mut |engine: &mut Ui| call_inner(shared, engine, f));
+    let r = unsafe { engine(ui) }.disclosure(key, text, open, f);
     respond(&r, out);
     0
 }
@@ -572,7 +585,7 @@ pub unsafe fn button_with(ui: *mut PxuiUi, key: &str, text: &str, name: Option<&
     enabled: bool, selected: bool, danger: bool, centered: bool, label: Option<&pxui_types::text::LabelFields>, axis: Option<Axis>, gap: f32, content_align: Option<Along>, focus_on_click: bool,
     lead: &str, lead_draw: pxui_types::ffi::PxuiIconDraw, lead_user: *mut core::ffi::c_void, lead_word: u32, icon_size: f32, detail: &str, accessory: &str,
     detail_label: Option<&pxui_types::text::LabelFields>, accessory_label: Option<&pxui_types::text::LabelFields>,
-    content: Option<&mut dyn FnMut(*mut PxuiUi, State)>, out: &mut PxuiResponse, signal: Option<&mut PxuiSignal>) -> i32 {
+    content: Option<&mut dyn FnMut(&mut Ui, State)>, out: &mut PxuiResponse, signal: Option<&mut PxuiSignal>) -> i32 {
     enter!(ui);
     let text = clip(text);
     let name = name.map(clip);
@@ -588,8 +601,7 @@ pub unsafe fn button_with(ui: *mut PxuiUi, key: &str, text: &str, name: Option<&
         lead_draw, icon_size, detail_label: detail_label.copied(), accessory_label: accessory_label.copied() };
     if let Some(states) = states { opts.states = Some(*states); }
     if let Some(label) = label { opts.label = Some(*label); }
-    let mut run = content.map(|f| move |engine: &mut Ui, state: State| call_inner(shared, engine, &mut |raw| f(raw, state)));
-    let body = run.as_mut().map(|f| f as &mut dyn FnMut(&mut Ui, State));
+    let body = content;
     let r = match signal {
         None => e.button_opts(key, text, name, &opts, parts, body, None),
         Some(signal) => {
@@ -786,8 +798,7 @@ pub unsafe fn inspector_section(ui: *mut PxuiUi, key: &str, expanded: bool, set_
     enter!(ui);
     let label = clip(label);
     if bad_key(key) { return unsafe { fail(ui, "invalid inspector section text") }; }
-    let shared = unsafe { (*ui).shared };
-    *out = unsafe { engine(ui) }.inspector_section(key, expanded, set_expanded, label, &mut |engine: &mut Ui| call_inner(shared, engine, f));
+    *out = unsafe { engine(ui) }.inspector_section(key, expanded, set_expanded, label, f);
     0
 }
 
@@ -817,8 +828,7 @@ pub unsafe fn panel(ui: *mut PxuiUi, key: &str, overlay: &Overlay, f: Inner, roo
     enter!(ui);
     let overlay = &Overlay { name: overlay.name.map(clip), ..*overlay };
     if bad_key(key) || !overlay_ok(overlay) { return unsafe { fail(ui, "invalid panel descriptor") }; }
-    let shared = unsafe { (*ui).shared };
-    *root = to_abi_box(unsafe { engine(ui) }.panel_root(key, overlay, &mut |engine: &mut Ui| call_inner(shared, engine, f)));
+    *root = to_abi_box(unsafe { engine(ui) }.panel_root(key, overlay, f));
     0
 }
 
@@ -828,8 +838,7 @@ pub unsafe fn popup(ui: *mut PxuiUi, key: &str, overlay: &Overlay, f: Inner, out
     enter!(ui);
     let overlay = &Overlay { name: overlay.name.map(clip), ..*overlay };
     if bad_key(key) || !overlay_ok(overlay) { return unsafe { fail(ui, "invalid popup descriptor") }; }
-    let shared = unsafe { (*ui).shared };
-    let open = unsafe { engine(ui) }.popup_root(key, overlay, &mut |engine: &mut Ui| call_inner(shared, engine, f));
+    let open = unsafe { engine(ui) }.popup_root(key, overlay, f);
     (*out, *root) = (open.is_some(), open.map_or_else(PxuiBox::default, to_abi_box));
     0
 }
@@ -841,9 +850,8 @@ pub unsafe fn scroll_view(ui: *mut PxuiUi, key: &str, name: &str, node: &Node, f
     let name = clip(name);
     let bad_curve = matches!(&node.transition, pxui_types::node::OptTransition::Some(curve) if !curve.valid());
     if bad_key(key) || !finite(node.w) || !finite(node.h) || node.grid.is_some() || bad_curve { return unsafe { fail(ui, "invalid scroll view arguments") }; }
-    let shared = unsafe { (*ui).shared };
     let engine = unsafe { engine(ui) };
-    let b = engine.scroll_view(key, *node, &mut |engine: &mut Ui| call_inner(shared, engine, f));
+    let b = engine.scroll_view(key, *node, f);
     if !name.is_empty() { engine.a11y_name(&b, name); }
     *out = to_abi_box(b);
     0
@@ -882,31 +890,17 @@ pub unsafe fn tree_text(ui: *mut PxuiUi, label: &str, nodes: &[pxui_types::ffi::
 
 /// Measured rows share the existing borrowed-handle callback protocol with virtual grids.
 #[inline]
-pub unsafe fn list_measured(ui:*mut PxuiUi,label:&str,count:usize,estimate_h:f32,f:&mut dyn FnMut(*mut PxuiUi,usize),out:&mut PxuiBox)->i32 {
+pub unsafe fn list_measured(ui:*mut PxuiUi,label:&str,count:usize,estimate_h:f32,f:&mut dyn FnMut(&mut Ui,usize),out:&mut PxuiBox)->i32 {
     enter!(ui);
-    if !unsafe { (*(*ui).shared).in_frame } { return crate::PXUI_ERR_STATE; }
     if bad_key(label) || count>MAX_ITEMS || !estimate_h.is_finite() || estimate_h<=0.0 || !(count as f32*estimate_h).is_finite() { return unsafe { fail(ui,"invalid measured list arguments") }; }
-    let shared=unsafe { (*ui).shared };
-    *out=to_abi_box(unsafe { engine(ui) }.list_measured(label,count,estimate_h,&mut |engine:&mut Ui,index| {
-        let mut borrowed=PxuiUi::borrowed(engine,shared);
-        let _current=crate::state::Current::set(shared,&mut borrowed);
-        f(&mut borrowed,index);
-    }));
+    *out=to_abi_box(unsafe { engine(ui) }.list_measured(label,count,estimate_h,f));
     0
 }
 
 
-/// A grid of `count` cells, built on demand: `f` gets the borrowed handle and the cell's index.
+/// A grid of `count` cells, built on demand: `cell` gets the engine and the cell's index, and makes its own borrowed handle.
 #[inline]
-pub unsafe fn grid_list(ui: *mut PxuiUi, label: &str, count: usize, cell_w: f32, cell_h: f32, f: &mut dyn FnMut(*mut PxuiUi, usize), out: &mut PxuiBox) -> i32 {
-    let shared = unsafe { (*ui).shared };
-    unsafe { grid_cells(ui, label, count, cell_w, cell_h, &mut |engine: &mut Ui, index| { let mut borrowed = PxuiUi::borrowed(engine, shared); let _current = crate::state::Current::set(shared, &mut borrowed); f(&mut borrowed, index) }, out) }
-}
-
-/// `grid_list` with the engine's own cell closure: the export's makes the borrowed handle and calls C's callback itself, one
-/// indirect call a cell fewer than through `f`.
-#[inline(always)]
-pub(crate) unsafe fn grid_cells(ui: *mut PxuiUi, label: &str, count: usize, cell_w: f32, cell_h: f32, cell: &mut dyn FnMut(&mut Ui, usize), out: &mut PxuiBox) -> i32 {
+pub unsafe fn grid_list(ui: *mut PxuiUi, label: &str, count: usize, cell_w: f32, cell_h: f32, cell: &mut dyn FnMut(&mut Ui, usize), out: &mut PxuiBox) -> i32 {
     enter!(ui);
     if bad_key(label) || count > MAX_ITEMS || !cell_w.is_finite() || !cell_h.is_finite() || cell_w <= 0.0 || cell_h <= 0.0 { return unsafe { fail(ui, "invalid grid list descriptor") }; }
     *out = to_abi_box(unsafe { engine(ui) }.grid_list(label, count, cell_w, cell_h, cell));
@@ -920,8 +914,7 @@ pub(crate) unsafe fn grid_cells(ui: *mut PxuiUi, label: &str, count: usize, cell
 pub unsafe fn split(ui: *mut PxuiUi, label: &str, axis: pxui_types::Axis, ratio: f32, min_a: f32, min_b: f32, a: Inner, b: Inner, response: &mut PxuiResponse, moved: &mut bool, out: &mut Option<f32>) -> i32 {
     enter!(ui);
     if bad_key(label) || ![ratio, min_a, min_b].iter().all(|v| v.is_finite()) || min_a < 0.0 || min_b < 0.0 || axis == pxui_types::Axis::Stack { return unsafe { fail(ui, "invalid split descriptor") }; }
-    let shared = unsafe { (*ui).shared };
-    let (r, m, at) = unsafe { engine(ui) }.split_result(label, axis, ratio, min_a, min_b, &mut |engine: &mut Ui| call_inner(shared, engine, a), &mut |engine: &mut Ui| call_inner(shared, engine, b));
+    let (r, m, at) = unsafe { engine(ui) }.split_result(label, axis, ratio, min_a, min_b, a, b);
     respond(&r, response);
     (*moved, *out) = (m, at);
     0
@@ -935,8 +928,7 @@ pub unsafe fn anchored(ui: *mut PxuiUi, key: &str, anchor: pxui_types::geom::Rec
     let placement = overlay.place;
     if bad_key(key) || !overlay_ok(overlay) || anchor.w < 0.0 || anchor.h < 0.0 || placement.margin < 0.0
         || ![anchor.x, anchor.y, anchor.w, anchor.h, placement.gap, placement.margin].iter().all(|v| v.is_finite()) { return unsafe { fail(ui, "invalid anchored arguments") }; }
-    let shared = unsafe { (*ui).shared };
-    *out = to_abi_box(unsafe { engine(ui) }.anchored(key, anchor, overlay, &mut |engine: &mut Ui| call_inner(shared, engine, f)));
+    *out = to_abi_box(unsafe { engine(ui) }.anchored(key, anchor, overlay, f));
     0
 }
 
@@ -946,8 +938,7 @@ pub unsafe fn modal(ui: *mut PxuiUi, key: &str, overlay: &Overlay, f: Inner, out
     enter!(ui);
     let overlay = &Overlay { name: overlay.name.map(clip), ..*overlay };
     if bad_key(key) || !overlay_ok(overlay) { return unsafe { fail(ui, "invalid modal arguments") }; }
-    let shared = unsafe { (*ui).shared };
-    let open = unsafe { engine(ui) }.modal_root(key, overlay, &mut |engine: &mut Ui| call_inner(shared, engine, f));
+    let open = unsafe { engine(ui) }.modal_root(key, overlay, f);
     (*out, *root) = (open.is_some(), open.map_or_else(PxuiBox::default, to_abi_box));
     0
 }
@@ -971,8 +962,7 @@ pub unsafe fn dialog(ui: *mut PxuiUi, key: &str, title: &str, buttons: &[pxui_ty
     let mut spare = Vec::new();
     let buttons = if buttons.iter().all(|b| !long(b.text) && !long(b.detail)) { buttons } else { spare.extend(buttons.iter().map(|b| pxui_types::ui::DialogButton { text: clip(b.text), detail: clip(b.detail), ..*b })); &spare[..] };
     if bad_key(key) || buttons.len() > 64 || !style.w.is_finite() || style.w < 0.0 { return unsafe { fail(ui, "invalid dialog arguments") }; }
-    let shared = unsafe { (*ui).shared };
-    *out = unsafe { engine(ui) }.dialog(key, title, buttons, style, &mut |engine: &mut Ui| call_inner(shared, engine, f));
+    *out = unsafe { engine(ui) }.dialog(key, title, buttons, style, f);
     0
 }
 
@@ -994,12 +984,11 @@ pub unsafe fn pxui_slot(ui: *mut PxuiUi, slot: pxui_types::ffi::PxuiSlot, out: *
 /// `tree` keyed by `key`: `cell(ui, node, 0)` builds the children of the row that shows tree node `node`.
 #[allow(clippy::too_many_arguments)]
 #[inline]
-pub unsafe fn tree(ui: *mut PxuiUi, key: &str, nodes: &[pxui_types::ffi::PxuiTreeNode], open: &mut [u8], selected: &mut Option<usize>, visible: &mut [u32], cell: &mut dyn FnMut(*mut PxuiUi, usize, usize), out: &mut (Option<usize>, usize)) -> i32 {
+pub unsafe fn tree(ui: *mut PxuiUi, key: &str, nodes: &[pxui_types::ffi::PxuiTreeNode], open: &mut [u8], selected: &mut Option<usize>, visible: &mut [u32], cell: &mut dyn FnMut(&mut Ui, usize), out: &mut (Option<usize>, usize)) -> i32 {
     enter!(ui);
     if bad_key(key) || nodes.len() > MAX_ITEMS || open.len() != nodes.len() || visible.len() < nodes.len() { return unsafe { fail(ui, "invalid tree descriptor") }; }
     let nodes = unsafe { core::slice::from_raw_parts(nodes.as_ptr().cast::<pxui_core::ui_widgets::TreeNode>(), nodes.len()) };
-    let shared = unsafe { (*ui).shared };
-    let r = unsafe { engine(ui) }.tree(key, nodes, open, selected, visible, &mut |engine, node| { let mut borrowed = PxuiUi::borrowed(engine, shared); let _current = crate::state::Current::set(shared, &mut borrowed); cell(&mut borrowed, node, 0) });
+    let r = unsafe { engine(ui) }.tree(key, nodes, open, selected, visible, cell);
     *out = (r.activated, r.shown);
     0
 }
@@ -1060,7 +1049,7 @@ pub unsafe fn label_prewarm(ui: *mut PxuiUi, value: Str, style: &LabelFields, ma
 
 // ---- U2b.1: selection list, table and heading, section list with its trailer (one validation pass each, the whole result in one record)
 
-use pxui_core::ui_lists::{ColumnSpec, ListCell, ListResult, MAX_COLUMNS};
+use pxui_core::ui_lists::{ColumnSpec, ListResult, MAX_COLUMNS};
 use pxui_types::ffi::{PxuiCellState, PxuiColumn, PxuiColumnWidth, PxuiHeadResult, PxuiSectionListDesc, PxuiListResult, PxuiSelectionListDesc, PxuiTableHeadDesc, PxuiTableDesc, PxuiTableResult};
 
 /// A section geometry the engine takes: a positive finite row height, finite non-negative part heights, a finite total, at most
@@ -1071,7 +1060,7 @@ fn geometry_ok(count: usize, row: f32, parts: [f32; 3]) -> bool {
 }
 
 /// The library-written cell record of `c`.
-fn cell_state(c: &ListCell) -> PxuiCellState {
+pub(crate) fn cell_state(c: &ListCell) -> PxuiCellState {
     PxuiCellState { size: core::mem::size_of::<PxuiCellState>() as u32, selected: c.selected as u8, enabled: c.enabled as u8, focused: c.focused as u8, held: c.held as u8, handle: to_abi_box(c.handle), y: c.y, reserved: 0 }
 }
 
@@ -1120,17 +1109,12 @@ fn write_head(h: &pxui_core::ui_lists::HeadResult, sort: Option<(i64, bool)>, ou
 
 /// `pxui_ui_section_list`'s body (and the static wrapper's `section_list`): `desc` checked, then the list keyed by `key` with
 /// its trailer; `f` gets the borrowed handle, the part's index (`usize::MAX - 2` the trailer) and its logical content Y.
-pub unsafe fn section_list(ui: *mut PxuiUi, key: &str, desc: &PxuiSectionListDesc, ids: Option<&dyn Fn(usize) -> i64>, f: &mut dyn FnMut(*mut PxuiUi, usize, f32), out: &mut PxuiListResult) -> i32 {
+pub unsafe fn section_list(ui: *mut PxuiUi, key: &str, desc: &PxuiSectionListDesc, ids: Option<&dyn Fn(usize) -> i64>, f: &mut dyn FnMut(&mut Ui, usize, f32), out: &mut PxuiListResult) -> i32 {
     enter!(ui);
     if bad_key(key) || desc.overlay_scrollbar > 1 || desc.measured > 1 || desc.reorder > 1 || desc.reserved != 0
         || !geometry_ok(desc.count, desc.row_height, [desc.leading_height, desc.header_height, desc.trailing_height]) { return unsafe { fail(ui, "invalid section list descriptor") }; }
     let section = pxui_types::ui::SectionList { count: desc.count, row_height: desc.row_height, leading_height: desc.leading_height, header_height: desc.header_height, trailing_height: desc.trailing_height, overlay_scrollbar: desc.overlay_scrollbar != 0, measured: desc.measured != 0, reorder: desc.reorder != 0 };
-    let shared = unsafe { (*ui).shared };
-    let body = unsafe { engine(ui) }.section_list(key, &section, ids, true, &mut |engine: &mut Ui, index, y| {
-        let mut borrowed = PxuiUi::borrowed(engine, shared);
-        let _current = crate::state::Current::set(shared, &mut borrowed);
-        f(&mut borrowed, index, y);
-    });
+    let body = unsafe { engine(ui) }.section_list(key, &section, ids, true, f);
     let (drop_at, moved) = { let e = unsafe { engine(ui) }; (e.list_dropped(), e.list_moved()) };
     write_list(&ListResult { handle: body, drop_at, moved, ..ListResult::default() }, None, out);
     0
@@ -1138,7 +1122,7 @@ pub unsafe fn section_list(ui: *mut PxuiUi, key: &str, desc: &PxuiSectionListDes
 
 /// `pxui_ui_selection_list`'s body (and the static wrapper's `selection_list`): `desc` checked (flags, geometry, a flag span of
 /// `count` bytes at least), then the list keyed by `key`; `cell` gets the borrowed handle, the part's index and its cell record.
-pub unsafe fn selection_list(ui: *mut PxuiUi, key: &str, desc: &PxuiSelectionListDesc, ids: Option<&dyn Fn(usize) -> i64>, cell: &mut dyn FnMut(*mut PxuiUi, usize, &PxuiCellState), out: &mut PxuiListResult) -> i32 {
+pub unsafe fn selection_list(ui: *mut PxuiUi, key: &str, desc: &PxuiSelectionListDesc, ids: Option<&dyn Fn(usize) -> i64>, cell: &mut dyn FnMut(&mut Ui, usize, &ListCell), out: &mut PxuiListResult) -> i32 {
     enter!(ui);
     let drop_look = if desc.has_drop_look == 1 { crate::style::decode_look(desc.drop_look) } else { None };
     if bad_key(key) || [desc.multi, desc.fit, desc.open_on_click, desc.overlay_scrollbar, desc.measured, desc.reorder, desc.has_drop_look].iter().any(|f| *f > 1) || desc.reserved != 0
@@ -1150,12 +1134,7 @@ pub unsafe fn selection_list(ui: *mut PxuiUi, key: &str, desc: &PxuiSelectionLis
     let list = pxui_types::ui::SelectionList { multi: desc.multi != 0, row_height: desc.row_height, leading_height: desc.leading_height, header_height: desc.header_height, trailing_height: desc.trailing_height,
         overlay_scrollbar: desc.overlay_scrollbar != 0, measured: desc.measured != 0, fit: desc.fit != 0, open_on_click: desc.open_on_click != 0,
         reorder: desc.reorder != 0, drop_look, ..pxui_types::ui::SelectionList::DEFAULT };
-    let shared = unsafe { (*ui).shared };
-    let r = unsafe { engine(ui) }.selection_rows(key, desc.count, ids.unwrap_or(&|i| i as i64), flags, &mut anchor, &list, &mut |engine, index, c| {
-        let mut borrowed = PxuiUi::borrowed(engine, shared);
-        let _current = crate::state::Current::set(shared, &mut borrowed);
-        cell(&mut borrowed, index, &cell_state(c));
-    });
+    let r = unsafe { engine(ui) }.selection_rows(key, desc.count, ids.unwrap_or(&|i| i as i64), flags, &mut anchor, &list, cell);
     write_list(&r, anchor, out);
     0
 }
@@ -1176,7 +1155,7 @@ pub unsafe fn table_head(ui: *mut PxuiUi, key: &str, desc: &PxuiTableHeadDesc, o
 
 /// `pxui_ui_table`'s body (and the static wrapper's `table`): the columns read in one pass, widths, flags and geometry checked, then
 /// the table keyed by `key`; `cell` gets the borrowed handle, the row, the column and the row's cell record.
-pub unsafe fn table(ui: *mut PxuiUi, key: &str, desc: &PxuiTableDesc, ids: Option<&dyn Fn(usize) -> i64>, cell: &mut dyn FnMut(*mut PxuiUi, usize, usize, &PxuiCellState), out: &mut PxuiTableResult) -> i32 {
+pub unsafe fn table(ui: *mut PxuiUi, key: &str, desc: &PxuiTableDesc, ids: Option<&dyn Fn(usize) -> i64>, cell: &mut dyn FnMut(&mut Ui, usize, usize, &ListCell), out: &mut PxuiTableResult) -> i32 {
     enter!(ui);
     let (mut columns, mut titles) = ([ColumnSpec::default(); MAX_COLUMNS], [""; MAX_COLUMNS]);
     let positive = |v: f32| v.is_finite() && v > 0.0;
@@ -1187,12 +1166,7 @@ pub unsafe fn table(ui: *mut PxuiUi, key: &str, desc: &PxuiTableDesc, ids: Optio
     let flags: &mut [u8] = if desc.rows == 0 { &mut [] } else { unsafe { core::slice::from_raw_parts_mut(desc.flags.ptr, desc.rows) } };
     let mut anchor = (desc.anchor < desc.rows).then_some(desc.anchor);
     let mut sort = (desc.has_sort != 0).then_some((desc.sort_id, desc.ascending != 0)).filter(|(id, _)| columns[..n].iter().any(|c| c.id == *id));
-    let shared = unsafe { (*ui).shared };
-    let (r, h) = unsafe { engine(ui) }.table(key, &columns[..n], &titles[..n], widths, &mut sort, desc.rows, ids.unwrap_or(&|i| i as i64), flags, &mut anchor, desc.multi != 0, desc.row_h, desc.head_h, desc.head_variant, &mut |engine, row, column, c| {
-        let mut borrowed = PxuiUi::borrowed(engine, shared);
-        let _current = crate::state::Current::set(shared, &mut borrowed);
-        cell(&mut borrowed, row, column, &cell_state(c));
-    });
+    let (r, h) = unsafe { engine(ui) }.table(key, &columns[..n], &titles[..n], widths, &mut sort, desc.rows, ids.unwrap_or(&|i| i as i64), flags, &mut anchor, desc.multi != 0, desc.row_h, desc.head_h, desc.head_variant, cell);
     out.reserved = 0;
     out.rows.size = core::mem::size_of::<PxuiListResult>() as u32;
     write_list(&r, anchor, &mut out.rows);

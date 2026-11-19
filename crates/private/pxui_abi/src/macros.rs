@@ -152,20 +152,19 @@ macro_rules! sized_mut {
 /// `Ui` has none of) before the engine is touched, with the status `state::refuse` gives, or `$refused` for an entry that returns a value.
 /// A builder (the default) is refused outside a frame too, with `PXUI_ERR_STATE` (`state::outside_frame`): the engine declares nodes only
 /// while it builds, and the owner handle is usable between frames. `any` is an entry that also runs between frames (a query).
+/// A builder's checks are one compare (`Shared::building`); the refusal sorts out which it was, out of line.
 macro_rules! enter {
     ($ui:expr) => {
         if $ui.is_null() { return $crate::PXUI_ERR_ARGUMENT; }
         let shared = unsafe { (*$ui).shared };
-        unsafe { $crate::state::note_call(shared) };
-        if !unsafe { $crate::state::usable($ui) } { return unsafe { $crate::state::refuse(shared) }; }
-        if !unsafe { (*shared).in_frame } { return unsafe { $crate::state::outside_frame(shared) }; }
+        if unsafe { (*shared).building } != $ui { return unsafe { $crate::state::not_building($ui) }; }
+        unsafe { (*shared).calls = (*shared).calls.wrapping_add(1) };
     };
     ($ui:expr, $refused:expr) => {
         if $ui.is_null() { return $refused; }
         let shared = unsafe { (*$ui).shared };
-        unsafe { $crate::state::note_call(shared) };
-        if !unsafe { $crate::state::usable($ui) } { unsafe { $crate::state::refuse(shared); } return $refused; }
-        if !unsafe { (*shared).in_frame } { unsafe { $crate::state::outside_frame(shared); } return $refused; }
+        if unsafe { (*shared).building } != $ui { unsafe { $crate::state::not_building($ui); } return $refused; }
+        unsafe { (*shared).calls = (*shared).calls.wrapping_add(1) };
     };
     (any $ui:expr) => {
         if $ui.is_null() { return $crate::PXUI_ERR_ARGUMENT; }

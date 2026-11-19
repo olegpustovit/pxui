@@ -27,7 +27,7 @@ unsafe fn modal(ui: *mut PxuiUi, key: &str, name: &str, has_width: u8, width: f3
     if out.is_null() || has_width > 1 { return unsafe { fail(ui, "invalid modal arguments") }; }
     let overlay = Overlay { w: (has_width != 0).then_some(width), name: Some(name), ..Overlay::DEFAULT };
     let (mut open, mut node) = (false, PxuiBox::default());
-    let rc = unsafe { crate::trusted::modal(ui, key, &overlay, &mut |ui| if let Some(callback) = callback { callback(user, ui.cast()) }, &mut open, &mut node) };
+    let rc = unsafe { crate::trusted::modal(ui, key, &overlay, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, callback, user), &mut open, &mut node) };
     unsafe { *out = open as u8; }
     if let Some(root) = root { *root = node; }
     rc
@@ -65,7 +65,7 @@ export!(trusted pub unsafe fn pxui_ui_modal_sheet(ui: *mut PxuiUi, keyed: *const
     let dismiss = DismissOpts { fraction: (sheet.dismiss_fraction > 0.0).then_some(sheet.dismiss_fraction), velocity: (sheet.dismiss_velocity > 0.0).then_some(sheet.dismiss_velocity) };
     let overlay = Overlay { w: (sheet.has_width != 0).then_some(sheet.width), at: (0.0, sheet.top), max_h: (sheet.max_h > 0.0).then_some(sheet.max_h), name: Some(name), present, dismiss, ..Overlay::DEFAULT };
     let mut open = false;
-    let rc = unsafe { crate::trusted::modal(ui, key, &overlay, &mut |ui| if let Some(callback) = callback { callback(user, ui.cast()) }, &mut open, &mut *root) };
+    let rc = unsafe { crate::trusted::modal(ui, key, &overlay, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, callback, user), &mut open, &mut *root) };
     unsafe { *out = open as u8; }
     rc
 });
@@ -82,7 +82,7 @@ export!(trusted pub unsafe fn pxui_ui_modal_root(ui: *mut PxuiUi, keyed: *const 
 unsafe fn scroll_view(ui: *mut PxuiUi, key: &str, name: &str, width: PxuiSizeDesc, height: PxuiSizeDesc, callback: Build, user: *mut c_void, out: *mut PxuiBox) -> i32 {
     if out.is_null() { return unsafe { fail(ui, "null scroll view output") }; }
     let (Some(w), Some(h)) = (size(width), size(height)) else { return unsafe { fail(ui, "invalid scroll view arguments") }; };
-    unsafe { crate::trusted::scroll_view(ui, key, name, &Node { w, h, ..Node::DEFAULT }, &mut |ui| if let Some(callback) = callback { callback(user, ui.cast()) }, &mut *out) }
+    unsafe { crate::trusted::scroll_view(ui, key, name, &Node { w, h, ..Node::DEFAULT }, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, callback, user), &mut *out) }
 }
 
 // Legacy (cut at 2.0): keyed by its label, named up to a `##`; `pxui_ui_scroll_view_keyed` keys apart.
@@ -106,7 +106,7 @@ export!(trusted pub unsafe fn pxui_ui_scroll_view_node(ui: *mut PxuiUi, keyed: *
     let Some((key, name)) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
     let Some(node) = (unsafe { crate::node::checked_node(node) }) else { return unsafe { fail(ui, "invalid scroll view node") } };
     if out.is_null() { return unsafe { fail(ui, "null scroll view output") }; }
-    unsafe { crate::trusted::scroll_view(ui, key, name, node, &mut |ui| if let Some(callback) = callback { callback(user, ui.cast()) }, &mut *out) }
+    unsafe { crate::trusted::scroll_view(ui, key, name, node, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, callback, user), &mut *out) }
 });
 
 unsafe fn view_with(ui: *mut PxuiUi, label: Str, revision: u64, width: PxuiSizeDesc, height: PxuiSizeDesc, callback: Build, user: *mut c_void, out: *mut PxuiBox, flat: bool) -> i32 {
@@ -115,7 +115,7 @@ unsafe fn view_with(ui: *mut PxuiUi, label: Str, revision: u64, width: PxuiSizeD
     let (Some(label), Some(width), Some(height)) = (unsafe { crate::state::checked_key(label) }, size(width), size(height)) else {
         return unsafe { fail(ui, "invalid view arguments") };
     };
-    unsafe { crate::trusted::view(ui, label, revision, width, height, flat, &mut |ui| if let Some(callback) = callback { callback(user, ui.cast()) }, out) }
+    unsafe { crate::trusted::view(ui, label, revision, width, height, flat, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, callback, user), out) }
 }
 
 export!(trusted pub unsafe fn pxui_ui_view(ui: *mut PxuiUi, label: Str, revision: u64, width: PxuiSizeDesc, height: PxuiSizeDesc, callback: Build, user: *mut c_void, out: *mut PxuiBox) -> i32 {
@@ -133,7 +133,7 @@ export!(trusted pub unsafe fn pxui_ui_view_keyed(ui: *mut PxuiUi, keyed: *const 
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if out.is_null() { return unsafe { fail(ui, "null view output") }; }
     let Some((key, "")) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
-    unsafe { crate::trusted::view_of(ui, key, revision, &mut |ui| if let Some(callback) = callback { callback(user, ui.cast()) }, out) }
+    unsafe { crate::trusted::view_of(ui, key, revision, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, callback, user), out) }
 });
 
 /// `anchor`'s placement, or `None` for an invalid descriptor. `align` 3 and 4 (PXUI_ALIGN_STRETCH, _BASELINE) are accepted for 1.x
@@ -170,7 +170,7 @@ export!(trusted pub unsafe fn pxui_ui_anchored_keyed(ui: *mut PxuiUi, keyed: *co
     let anchor = unsafe { *anchor };
     let Some(place) = placement(&anchor) else { return unsafe { fail(ui, "invalid anchor descriptor") }; };
     let overlay = Overlay { w, h, place, name: (!name.is_empty()).then_some(name), ..Overlay::DEFAULT };
-    unsafe { crate::trusted::anchored(ui, key, anchor.rect, &overlay, &mut |ui| if let Some(callback) = callback { callback(user, ui.cast()) }, &mut *out) }
+    unsafe { crate::trusted::anchored(ui, key, anchor.rect, &overlay, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, callback, user), &mut *out) }
 });
 
 // A dialog with the plain buttons of its labels: the last is the default, none cancels, the sheet is keyed by the title.
@@ -190,7 +190,7 @@ export!(trusted pub unsafe fn pxui_ui_dialog(ui: *mut PxuiUi, title: Str, button
         return unsafe { fail(ui, "invalid dialog arguments") };
     };
     let mut result = Chosen { chosen: None, chosen_id: None, dismissed: false };
-    let rc = unsafe { crate::trusted::dialog(ui, title, title, buttons, &Dialog::DEFAULT, &mut |ui| if let Some(callback) = callback { callback(user, ui.cast()) }, &mut result) };
+    let rc = unsafe { crate::trusted::dialog(ui, title, title, buttons, &Dialog::DEFAULT, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, callback, user), &mut result) };
     state.shared().put_strs(list);
     if rc == 0 {
         unsafe { *out = match result { Chosen { chosen: Some(index), .. } => PxuiDialogOut { tag: 2, index }, Chosen { dismissed: true, .. } => PxuiDialogOut { tag: 1, index: 0 }, _ => PxuiDialogOut { tag: 0, index: 0 } }; }
@@ -218,7 +218,7 @@ export!(trusted pub unsafe fn pxui_ui_dialog_response(ui: *mut PxuiUi, desc: *co
         return unsafe { fail(ui, "invalid dialog descriptor") };
     };
     let mut result = Chosen { chosen: None, chosen_id: None, dismissed: false };
-    let rc = unsafe { crate::trusted::dialog(ui, key, title, buttons, &Dialog::DEFAULT.w_px(d.width), &mut |ui| if let Some(callback) = callback { callback(user, ui.cast()) }, &mut result) };
+    let rc = unsafe { crate::trusted::dialog(ui, key, title, buttons, &Dialog::DEFAULT.w_px(d.width), &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, callback, user), &mut result) };
     state.shared().put_strs(list);
     if rc == 0 {
         (out.has_chosen, out.chosen, out.dismissed) = (result.chosen.is_some() as u8, result.chosen.unwrap_or(0) as u64, result.dismissed as u8);

@@ -40,6 +40,8 @@ pub(crate) struct Shared {
     /// engine it holds is the live `&mut Ui` of that callback), or null while no callback runs. Any other handle reaches the engine
     /// through a pointer the live `&mut Ui` was not derived from, so every export refuses it (`usable`).
     pub current: *mut PxuiUi,
+    /// `current` while a frame builds, else null: the handle a builder call (`enter!`) may use, so its checks are one compare
+    pub building: *mut PxuiUi,
     pub in_frame: bool,
     pub poisoned: bool,
     /// a paint call was refused (a span left open, a library call under an open span): the frame that ran the callback reports it
@@ -128,7 +130,7 @@ impl Shared {
     pub fn put_segments(&mut self, mut segments: Vec<pxui_types::ui::Segment<'static>>) { segments.clear(); self.segments.push(segments); }
     pub fn new() -> Self {
         Self {
-            error: String::new(), poisoned: false, calls: 0, paint_error: false, icon_word: 0, in_frame: false, current: core::ptr::null_mut(), frame_ended: false, draw_acknowledged: false, renderers: 0, returned: Vec::new(), area: Default::default(), area_ad: None, lent: Vec::new(), lent_used: 0, returned_bytes: 0,
+            error: String::new(), poisoned: false, calls: 0, paint_error: false, icon_word: 0, in_frame: false, current: core::ptr::null_mut(), building: core::ptr::null_mut(), frame_ended: false, draw_acknowledged: false, renderers: 0, returned: Vec::new(), area: Default::default(), area_ad: None, lent: Vec::new(), lent_used: 0, returned_bytes: 0,
             grid_tracks: HashMap::new(), grid_shared: HashMap::new(), grid_retired: Vec::new(), output: Output::default(), nodes: Vec::new(),
             layers: Vec::new(), dirty: Vec::new(), last_children: Vec::new(), chunks: Vec::new(), chunks_used: 0, spare_input: None, wants: Vec::new(), key_codes: Vec::new(), menu: Vec::new(), menu_sub: Vec::new(), routed: None, routed_events: Vec::new(), routed_text: Vec::new(),routed_touches:Vec::new(), routed_keys: Vec::new(), routed_buttons: Vec::new(),
             hints: Vec::new(), hits: Vec::new(), actions: Vec::new(), rename: None, strs: Vec::new(), segments: Vec::new(), raster_glyphs: Vec::new(), menus: Vec::new(), bodies: Default::default(), images: crate::image::Handles::new(), legacy_theme: None,
@@ -187,18 +189,50 @@ unsafe fn room(ui: &PxuiUi, shared: &mut Shared, len: usize) -> Result<(), i32> 
     Ok(())
 }
 
-/// What a trusted entry runs for a container's children: it gets the borrowed handle of the engine being built. The C exports wrap
-/// their `Build` and user pointer in one (`|ui| build(user, ui.cast())`); the static wrapper passes its own closure.
-pub type Inner<'a> = &'a mut dyn FnMut(*mut PxuiUi);
+/// What a trusted entry runs for a container's children: the engine's own closure, passed through unchanged, which makes the
+/// borrowed handle of the engine being built itself. The C exports run their `Build` and user pointer in one (`call_build`); the
+/// static wrapper makes its handle with `Borrowed`, one closure a callback as the engine's own callers.
+pub type Inner<'a> = &'a mut dyn FnMut(&mut Ui);
+
+/// The borrowed handle of a callback the static wrapper runs itself (`Inner`): `enter` makes it current (and building) until it is
+/// dropped, also when the callback unwinds. It stays where it is from `enter` on.
+pub struct Borrowed { handle: PxuiUi, prev: *mut PxuiUi }
+impl Borrowed {
+    /// A handle over `engine`, the engine of a callback that a call on the handle `outer` runs (its state is `outer`'s).
+    /// # Safety
+    /// `outer` is the live handle whose call is running the callback; `enter` is called before the value is dropped.
+    #[inline(always)]
+    pub unsafe fn new(engine: &mut Ui, outer: *mut PxuiUi) -> Self { Self { handle: PxuiUi::borrowed(engine, unsafe { (*outer).shared }), prev: core::ptr::null_mut() } }
+    /// Makes the handle current and returns it.
+    /// # Safety
+    /// Called once, before the callback uses the handle; the value does not move until it is dropped.
+    #[inline(always)]
+    pub unsafe fn enter(&mut self) -> *mut PxuiUi {
+        let (handle, shared): (*mut PxuiUi, _) = (&mut self.handle, self.handle.shared);
+        unsafe { (*shared).building = handle; self.prev = core::mem::replace(&mut (*shared).current, handle); }
+        handle
+    }
+}
+// as `Current`: a poisoned `Ui` keeps no current handle
+impl Drop for Borrowed { #[inline(always)] fn drop(&mut self) { let shared = self.handle.shared; unsafe { if !(*shared).poisoned { (*shared).current = self.prev; (*shared).building = self.prev; } } } }
 
 /// Makes a handle the current one (`Shared::current`) until dropped, then restores the previous: also when a callback unwinds.
 pub(crate) struct Current { shared: *mut Shared, prev: *mut PxuiUi }
 impl Current {
+    /// Makes `handle` current (and the building one) for a callback of the frame being built.
     #[inline(always)]
-    pub fn set(shared: *mut Shared, handle: *mut PxuiUi) -> Self { Self { shared, prev: unsafe { core::mem::replace(&mut (*shared).current, handle) } } }
+    pub fn set(shared: *mut Shared, handle: *mut PxuiUi) -> Self {
+        unsafe { (*shared).building = handle; }
+        Self { shared, prev: unsafe { core::mem::replace(&mut (*shared).current, handle) } }
+    }
 }
-// a poisoned `Ui` stays without a current handle until its next frame (`panicked` cleared it): every call takes `refuse`'s way out
-impl Drop for Current { #[inline(always)] fn drop(&mut self) { unsafe { if !(*self.shared).poisoned { (*self.shared).current = self.prev; } } } }
+// a poisoned `Ui` stays without a current handle until its next frame (`panicked` cleared it): every call takes `refuse`'s way out.
+// In a frame `building` is `current`, so it follows it back.
+impl Drop for Current { #[inline(always)] fn drop(&mut self) { unsafe { if !(*self.shared).poisoned { (*self.shared).current = self.prev; (*self.shared).building = self.prev; } } } }
+/// No handle current between frames (a renderer callback), where none builds (`building` stays null) until it is dropped.
+pub(crate) struct NoCurrent { shared: *mut Shared, prev: *mut PxuiUi }
+impl NoCurrent { pub fn set(shared: *mut Shared) -> Self { Self { shared, prev: unsafe { core::mem::replace(&mut (*shared).current, core::ptr::null_mut()) } } } }
+impl Drop for NoCurrent { fn drop(&mut self) { unsafe { if !(*self.shared).poisoned { (*self.shared).current = self.prev; } } } }
 
 /// Whether `ui` is the handle an export may use now (one load and compare; see `Shared::current`).
 #[inline(always)]
@@ -218,6 +252,16 @@ pub(crate) unsafe fn refuse(shared: *mut Shared) -> i32 {
     crate::PXUI_ERR_STATE
 }
 
+/// What a builder call (`enter!`) on a handle that is not `Shared::building` returns, the call counted: `refuse`'s answer for a handle
+/// that is not the current one, else `outside_frame`'s.
+#[cold]
+#[inline(never)]
+pub(crate) unsafe fn not_building(ui: *mut PxuiUi) -> i32 {
+    let shared = unsafe { (*ui).shared };
+    unsafe { note_call(shared) };
+    if unsafe { usable(ui) } { unsafe { outside_frame(shared) } } else { unsafe { refuse(shared) } }
+}
+
 /// What a builder call (`enter!`) on the usable handle outside a frame returns: `PXUI_ERR_STATE`, the reason recorded. A builder
 /// declares nodes of the frame being built, so it runs only in a frame callback.
 #[cold]
@@ -229,17 +273,11 @@ pub(crate) unsafe fn outside_frame(shared: *mut Shared) -> i32 {
     crate::PXUI_ERR_STATE
 }
 
-/// Calls `f` with a borrowed handle over `engine`.
-pub(crate) fn call_inner(shared: *mut Shared, engine: &mut Ui, f: Inner) {
-    let mut borrowed = PxuiUi::borrowed(engine, shared);
-    let handle: *mut PxuiUi = &mut borrowed;
-    let _current = Current::set(shared, handle);
-    f(handle);
-}
 
 /// Calls `build` with a borrowed handle over `engine`.
+#[inline(always)]
 pub(crate) fn call_build(shared: *mut Shared, engine: &mut Ui, build: Build, user: *mut c_void) {
-    if let Some(build) = build { call_inner(shared, engine, &mut |ui| build(user, ui.cast())); }
+    if let Some(build) = build { let mut borrowed = PxuiUi::borrowed(engine, shared); let handle: *mut PxuiUi = &mut borrowed; let _current = Current::set(shared, handle); build(user, handle.cast()); }
 }
 
 pub use pxui_types::ffi::UiBuild as Build;
@@ -278,6 +316,7 @@ pub(crate) unsafe fn panicked(shared: *mut Shared, payload: Box<dyn core::any::A
     let shared = unsafe { &mut *shared };
     shared.poisoned = true;
     shared.current = core::ptr::null_mut();
+    shared.building = core::ptr::null_mut();
     if leave_frame { shared.in_frame = false; }
     let message = payload.downcast_ref::<&str>().copied().or_else(|| payload.downcast_ref::<String>().map(String::as_str)).unwrap_or("non-string panic payload");
     shared.error.clear();

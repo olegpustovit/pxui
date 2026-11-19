@@ -21,6 +21,7 @@ pub const MAX_COLUMNS: usize = 64;
 
 /// What a selection list or table row's builder is told about the row.
 #[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
 pub struct ListCell {
     pub selected: bool,
     pub enabled: bool,

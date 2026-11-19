@@ -605,7 +605,8 @@ impl Ui {
         let mut out = FrameOut::default();
         #[cfg(feature = "static")]
         let rc = unsafe {
-            let build: &mut dyn FnMut(*mut sys::PxuiUi) = inner!(|ui: &mut Ui| build(ui));
+            let outer = self.0.as_ptr();
+            let build: &mut dyn FnMut(&mut pxui_abi_link::trusted::Engine) = inner!(outer, |ui: &mut Ui| build(ui));
             match input.snapshot {
                 Some(snapshot) => pxui_abi_link::trusted::input_frame(self.0.as_ptr(), snapshot, build, &mut out),
                 None => pxui_abi_link::trusted::frame(self.0.as_ptr(), &input.wire, build, &mut out),
@@ -871,7 +872,7 @@ impl Ui {
     #[track_caller]
     pub fn within(&mut self, box_: &Handle, mut f: &mut dyn FnMut(&mut Ui)) {
         #[cfg(feature = "static")]
-        let rc = unsafe { pxui_abi_link::trusted::within(self.0.as_ptr(), box_, inner!(|ui: &mut Ui| f(ui))) };
+        let rc = unsafe { let outer = self.0.as_ptr(); pxui_abi_link::trusted::within(outer, box_, inner!(outer, |ui: &mut Ui| f(ui))) };
         #[cfg(not(feature = "static"))]
         let rc = unsafe { sys::pxui_within(self.0.as_ptr(), box_, Some(composite::call), &mut f as *mut _ as *mut c_void) };
         check(self, rc)
@@ -884,7 +885,7 @@ impl Ui {
         let mut id_label = [0u8; 17];
         let label = key.label(&mut id_label);
         #[cfg(feature = "static")]
-        let rc = unsafe { pxui_abi_link::trusted::scope(self.0.as_ptr(), label, inner!(|ui: &mut Ui| f(ui))) };
+        let rc = unsafe { let outer = self.0.as_ptr(); pxui_abi_link::trusted::scope(outer, label, inner!(outer, |ui: &mut Ui| f(ui))) };
         #[cfg(not(feature = "static"))]
         let rc = unsafe { sys::pxui_scope(self.0.as_ptr(), as_text(label), Some(composite::call), &mut f as *mut _ as *mut c_void) };
         check(self, rc)

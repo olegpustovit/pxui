@@ -145,7 +145,7 @@ impl Ui {
         let label = key.label(&mut id_label);
         let mut out = PxuiResponse::EMPTY;
         #[cfg(feature = "static")]
-        self.with_variant(BodyKind::inspector_section, variant, &mut |ui| check(ui, unsafe { pxui_abi_link::trusted::disclosure(ui.0.as_ptr(), label, text, open, inner!(|ui: &mut Ui| f(ui)), &mut out) }));
+        self.with_variant(BodyKind::inspector_section, variant, &mut |ui| check(ui, unsafe { let outer = ui.0.as_ptr(); pxui_abi_link::trusted::disclosure(outer, label, text, open, inner!(outer, |ui: &mut Ui| f(ui)), &mut out) }));
         #[cfg(not(feature = "static"))]
         {
             let keyed = PxuiKeyedDesc::new(label, crate::clip(text));

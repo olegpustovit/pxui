@@ -5,7 +5,7 @@
 //!
 //! The `Ui` lifecycle, the two frame entry points, theme and platform calls, and the first widgets.
 use crate::trusted;
-use crate::state::{Build, Inner, PxuiUi, Shared, boxed, call_inner, checked, fail, fail_code, get, pair, text};
+use crate::state::{Build, Inner, PxuiUi, Shared, boxed, checked, fail, fail_code, get, pair, text};
 use crate::{PXUI_ERR_ARGUMENT, PXUI_ERR_PANIC, PXUI_ERR_STATE, FrameIn, FrameOut, PxuiBox, PxuiPanel, PxuiUiDesc, Str};
 use core::ffi::c_void;
 use input::{Event, Key, MouseButton, Platform, frame};
@@ -406,13 +406,14 @@ unsafe fn run_frame(ui: *mut PxuiUi, frame: &frame::Frame, build: Inner, out: &m
         s.in_frame = true;
         // no handle is usable until the build callback runs: the engine is mid-frame (its own phases run between callbacks)
         s.current = core::ptr::null_mut();
+        s.building = core::ptr::null_mut();
     }
     // a panic of the build unwinds past this (the static wrapper's callbacks run without a catch): the `Ui` leaves the frame
     struct Leave(*mut Shared, *mut PxuiUi);
-    impl Drop for Leave { fn drop(&mut self) { unsafe { (*self.0).in_frame = false; (*self.0).current = self.1; } } }
+    impl Drop for Leave { fn drop(&mut self) { unsafe { (*self.0).in_frame = false; (*self.0).current = self.1; (*self.0).building = core::ptr::null_mut(); } } }
     let _leave = Leave(shared, ui);
     // a panic of the build (the static wrapper's callbacks run without a catch) leaves the engine mid-frame: it is reset, then the panic goes on
-    let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe { (&mut *engine).frame(frame, &mut |engine: &mut Ui| call_inner(shared, engine, build)) }));
+    let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe { (&mut *engine).frame(frame, build) }));
     let output = match built { Ok(output) => output, Err(panic) => {
         unsafe { (&mut *engine).abandon_frame(); (*shared).frame_ended = true; }
         std::panic::resume_unwind(panic)
@@ -504,7 +505,8 @@ export!(pub unsafe fn pxui_ui_system_appearance(ui:*mut PxuiUi,out:*mut u32)->i3
 
 export!(trusted frame pub unsafe fn pxui_frame(ui: *mut PxuiUi, input: *const FrameIn, build: Build, user: *mut c_void, out: *mut FrameOut) -> i32 {
     if input.is_null() || out.is_null() { return unsafe { fail(ui, "null frame argument") }; }
-    let mut build = |ui: *mut PxuiUi| if let Some(build) = build { build(user, ui.cast()) };
+    let shared = <*mut PxuiUi as crate::state::Handle>::shared(ui);
+    let mut build = |engine: &mut Ui| crate::state::call_build(shared, engine, build, user);
     // a whole record is read where it lies (`frame_body` reads it before the build runs, so the caller cannot change it under the
     // engine); an older, shorter one is copied over the defaults
     if unsafe { input.cast::<u32>().read_unaligned() } as usize >= core::mem::size_of::<FrameIn>() { return unsafe { frame_body(ui, &*input, &mut build, &mut *out) }; }
@@ -550,7 +552,7 @@ pub(crate) unsafe fn input_frame_body(ui: *mut PxuiUi, input: &Input, build: Inn
 export!(trusted frame pub unsafe fn pxui_ui_frame(ui: *mut PxuiUi, input: *const Input, build: Build, user: *mut c_void, out: *mut FrameOut) -> i32 {
     if input.is_null() || out.is_null() { return unsafe { fail(ui, "null frame argument") }; }
     let Some(input) = read_desc!(input, Input) else { return unsafe { fail(ui, "invalid input frame") }; };
-    unsafe { input_frame_body(ui, &input, &mut |ui| if let Some(build) = build { build(user, ui.cast()) }, &mut *out) }
+    unsafe { input_frame_body(ui, &input, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, build, user), &mut *out) }
 });
 
 // The frame's input as the engine routed it to `owner` (a viewport's root key; none: the app's), for the app's own content: the
@@ -608,19 +610,19 @@ export!(pub unsafe fn pxui_ui_layer_drawn(ui: *mut PxuiUi, layer: u64) -> i32 {
 
 export!(trusted pub unsafe fn pxui_within(ui: *mut PxuiUi, box_: *const PxuiBox, build: Build, user: *mut c_void) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
-    unsafe { trusted::within(ui, box_, &mut |ui| if let Some(build) = build { build(user, ui.cast()) }) }
+    unsafe { trusted::within(ui, box_, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, build, user)) }
 });
 
 export!(trusted pub unsafe fn pxui_scope(ui: *mut PxuiUi, label: Str, build: Build, user: *mut c_void) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     let Some(label) = (unsafe { crate::state::checked_key(label) }) else { return unsafe { fail(ui, "invalid scope label") }; };
-    unsafe { trusted::scope(ui, label, &mut |ui| if let Some(build) = build { build(user, ui.cast()) }) }
+    unsafe { trusted::scope(ui, label, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, build, user)) }
 });
 
 export!(trusted pub unsafe fn pxui_col(ui: *mut PxuiUi, padding: f32, label: Str, build: Build, user: *mut c_void) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     let Some(label) = (unsafe { crate::state::checked_key(label) }) else { return unsafe { fail(ui, "invalid column arguments") }; };
-    unsafe { trusted::col(ui, padding, label, &mut |ui| if let Some(build) = build { build(user, ui.cast()) }) }
+    unsafe { trusted::col(ui, padding, label, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, build, user)) }
 });
 
 /// The panel of `panel`'s record keyed by `key` and named `name`, the body of `pxui_panel` and `pxui_ui_panel_keyed`.
@@ -634,7 +636,7 @@ unsafe fn panel(ui: *mut PxuiUi, key: &str, name: &str, panel: *const PxuiPanel,
         max_h: (panel.has_max_height != 0).then_some(panel.max_height), window: panel.window != 0, padding, name: Some(name), ..pxui_types::ui::Overlay::DEFAULT };
     if panel.has_stroke != 0 { overlay.stroke = Some(panel.stroke); }
     if panel.has_look != 0 { let Some(look) = crate::style::decode_look(panel.look) else { return unsafe { fail(ui, "invalid panel look") }; }; overlay.look = Some(look); }
-    unsafe { trusted::panel(ui, key, &overlay, &mut |ui| if let Some(build) = build { build(user, ui.cast()) }, root) }
+    unsafe { trusted::panel(ui, key, &overlay, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, build, user), root) }
 }
 
 // Legacy (cut at 2.0): keyed by its label, named up to a `##`; `pxui_ui_panel_keyed` keys apart.

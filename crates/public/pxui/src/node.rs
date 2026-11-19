@@ -24,7 +24,7 @@ impl Ui {
         let mut out=core::mem::MaybeUninit::<Handle>::uninit();
         let rc=match key {
             crate::Key::Label(label)=>{ crate::authored(label); self.node_call_label(label,&node,out.as_mut_ptr()) },
-            key=>{ let mut id_label=[0u8;17]; self.node_call(key.label(&mut id_label),&node,out.as_mut_ptr()) }
+            key=>self.node_call_key(key,&node,out.as_mut_ptr()),
         };
         check(self,rc);
         unsafe { out.assume_init() }
@@ -52,6 +52,10 @@ impl Ui {
         #[cfg(not(feature="static"))]
         self.node_call(label,node,out)
     }
+
+    /// `node_call` of an id key's label, out of line: the label node stays the inline one.
+    #[inline(never)]
+    fn node_call_key(&mut self,key:crate::Key,node:&Node,out:*mut Handle)->i32 { let mut id_label=[0u8;17]; self.node_call(key.label(&mut id_label),node,out) }
 
     /// The library call of `node`. Static: a Rust label is UTF-8 by its type, so the trusted entry checks only its length.
     fn node_call(&mut self,label:&str,node:&Node,out:*mut Handle)->i32 {

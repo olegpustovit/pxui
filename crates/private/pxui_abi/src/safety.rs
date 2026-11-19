@@ -350,11 +350,25 @@ fn the_current_handle_is_restored_when_a_callback_unwinds() {
     let ui = create();
     // the callback panics on another thread (the gate allows no catch_unwind here); the state is plain data the thread reaches by address
     let shared = unsafe { (*ui).shared };
-    let address = shared as usize;
+    let address = ui as usize;
+    // the static wrapper's and a C export's callback handle (`Borrowed`) and `call_build`'s (`Current`): each restores the owner when its callback unwinds
     let guard = std::thread::spawn(move || {
-        let shared = address as *mut crate::state::Shared;
+        let ui = address as *mut PxuiUi;
         let mut engine = pxui_core::ui::Ui::create(input::Platform::Other, None, pxui_core::text::Text::new(&[pxui_core::text::PRAGMASEVKA]));
-        crate::state::call_inner(shared, &mut engine, &mut |_| panic!("callback"));
+        let mut borrowed = unsafe { crate::state::Borrowed::new(&mut engine, ui) };
+        let handle = unsafe { borrowed.enter() };
+        assert_eq!(unsafe { ((*(*ui).shared).current, (*(*ui).shared).building) }, (handle, handle));
+        panic!("callback");
+    }).join();
+    assert!(guard.is_err());
+    assert_eq!(unsafe { (*shared).current }, ui, "the owner is current again");
+    let guard = std::thread::spawn(move || {
+        let ui = address as *mut PxuiUi;
+        let mut engine = pxui_core::ui::Ui::create(input::Platform::Other, None, pxui_core::text::Text::new(&[pxui_core::text::PRAGMASEVKA]));
+        let shared = unsafe { (*ui).shared };
+        let mut handle = PxuiUi::borrowed(&mut engine, shared);
+        let _current = crate::state::Current::set(shared, &mut handle);
+        panic!("callback");
     }).join();
     assert!(guard.is_err());
     assert_eq!(unsafe { (*shared).current }, ui, "the owner is current again");
