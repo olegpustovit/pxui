@@ -113,7 +113,7 @@ fn str_of<'a>(field: &Str) -> &'a str {
 fn inside((start, len): (usize, usize), at: usize, size: usize) -> bool { at >= start && at + size <= start + len }
 
 library!(sys {
-    fn pxui_body_register_checked(ui: *mut PxuiUi, kind: u32, name: Str, body: PxuiBodyFn, user: *mut c_void, out: *mut u16) -> i32;
+    fn pxui_body_register(ui: *mut PxuiUi, kind: u32, name: Str, body: PxuiBodyFn, user: *mut c_void, out: *mut u16) -> i32;
     fn pxui_part(ui: *mut PxuiUi, part: u32, node: *const Node, out: *mut PxuiBox) -> i32;
     fn pxui_part_box(ui: *mut PxuiUi, owner: i64, part: u32, out: *mut PxuiBox) -> i32;
     #[trusted] fn pxui_slot(ui: *mut PxuiUi, slot: PxuiSlot, out: *mut u8) -> i32;
@@ -166,7 +166,7 @@ pxui_types::body_kinds!(typed);
 impl Ui {
     fn register_body(&mut self, kind: BodyKind, name: &str, entry: extern "C" fn(*mut c_void, *mut c_void, *const c_void), user: *mut c_void) -> Result<BodyId, Error> {
         let mut id = 0;
-        status(unsafe { sys::pxui_body_register_checked(self.0.as_ptr(), kind as u32, as_text(name), Some(entry), user, &mut id) })?;
+        status(unsafe { sys::pxui_body_register(self.0.as_ptr(), kind as u32, as_text(name), Some(entry), user, &mut id) })?;
         Ok(BodyId(id))
     }
 

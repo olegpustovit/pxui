@@ -26,7 +26,7 @@ pub use pxui_types::{draw, geom};
 pub use pxui_types::a11y::Role;
 pub use pxui_types::geom::{Point, Rect, Rgba};
 pub use pxui_types::{Flags, Size};
-pub use pxui_types::ffi::{A11yAction, A11yNode, Input, Output, PlatformOut, ThemeSource};
+pub use pxui_types::ffi::{A11yAction, A11yNode, Input, Output, PlatformOut};
 
 pub use pxui_types::theme;
 pub mod images;
@@ -136,7 +136,7 @@ pub use pxui_types::Node;
 mod sys {
     pub use pxui_abi_link::*;
     // what the library's trusted entries replace: this wrapper's arguments are valid Rust values (see `pxui_abi::trusted`)
-    pub use pxui_abi_link::trusted::{pxui_ui_text, pxui_ui_theme as pxui_ui_theme_exact};
+    pub use pxui_abi_link::trusted::{pxui_ui_text, pxui_ui_theme};
 }
 
 #[cfg(not(feature = "static"))]
@@ -161,7 +161,7 @@ mod sys {
         pub fn pxui_ui_create(desc:*const PxuiUiDesc) -> *mut PxuiUi;
         pub fn pxui_ui_create_with_fonts(desc:*const PxuiUiDesc,fonts:*const Str,count:usize)->*mut PxuiUi;
         pub fn pxui_ui_output(ui:*mut PxuiUi)->*const pxui_types::ffi::Output;
-        pub fn pxui_ui_theme_exact(ui:*mut PxuiUi)->*const pxui_types::theme::ThemeSnapshot;
+        pub fn pxui_ui_theme(ui:*mut PxuiUi)->*const pxui_types::theme::ThemeSnapshot;
         pub fn pxui_ui_view_size(ui:*mut PxuiUi,out:*mut pxui_types::geom::Point)->i32;
         pub fn pxui_ui_layer_drawn(ui:*mut PxuiUi,layer:u64)->i32;
         pub fn pxui_ui_frame(ui:*mut PxuiUi,input:*const Input,build:pxui_types::ffi::UiBuild,user:*mut c_void,out:*mut FrameOut)->i32;
@@ -193,7 +193,7 @@ mod sys {
 }
 
 library!(renderer_lib {
-    fn pxui_renderer_create_checked(ui: *mut PxuiUi, gpu: *const Gpu, target: *const PxuiTargetDesc, out: *mut *mut sys::PxuiRenderer) -> i32;
+    fn pxui_renderer_create(ui: *mut PxuiUi, gpu: *const Gpu, target: *const PxuiTargetDesc, out: *mut *mut sys::PxuiRenderer) -> i32;
 });
 
 #[derive(Clone, Copy, Default)]
@@ -227,7 +227,7 @@ impl Renderer {
         }
         let desc=sys::PxuiTargetDesc { format:target.format,samples:target.samples,..sys::PxuiTargetDesc::default() };
         let mut raw = core::ptr::null_mut();
-        status(unsafe { renderer_lib::pxui_renderer_create_checked(ui.0.as_ptr(), &gpu, &desc, &mut raw) })?;
+        status(unsafe { renderer_lib::pxui_renderer_create(ui.0.as_ptr(), &gpu, &desc, &mut raw) })?;
         NonNull::new(raw).map(|raw| Self { raw }).ok_or(Error::Engine)
     }
     /// Errors: InvalidInput for a frame serial that repeats, regresses or runs more than the in-flight frames past `completed`; Gpu when recording fails.
@@ -773,7 +773,7 @@ impl Ui {
     #[track_caller]
     fn theme_read(&self) -> *const pxui_types::theme::Theme {
         // the 1.x `pxui_ui_theme` lends the legacy integer layout, which this type no longer matches
-        let theme = unsafe { sys::pxui_ui_theme_exact(self.0.as_ptr()) };
+        let theme = unsafe { sys::pxui_ui_theme(self.0.as_ptr()) };
         if theme.is_null() { refused(self, pxui_types::PXUI_ERR_PANIC) }
         theme
     }

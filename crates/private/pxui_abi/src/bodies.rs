@@ -268,16 +268,7 @@ pxui_types::body_kinds!(registrars);
 /// A body name a theme file can select: 1 to `MAX_BODY_NAME` (64) bytes, not `default`, no space and none of `=` or `#`.
 pub(crate) fn name_ok(name: &str) -> bool { !name.is_empty() && name.len() <= MAX_BODY_NAME && name != "default" && !name.contains(|c: char| c.is_whitespace() || c.is_control() || c == '=' || c == '#') }
 
-// Registers `body` (called as `body(user, ui, config)`, the config the record of `kind`, a `BodyKind` number) as the body of `kind`
-// called `name`, for a theme's `KIND.body = NAME`; returns its id, or 0 with `pxui_last_error` set when it is refused (an unknown kind,
-// a name that is empty, longer than 64 bytes, `default` or holds a space, `=` or `#`, a null function, or a call inside a frame).
-// Registering a name again replaces its function and keeps its id. Ids are this `Ui`'s (a theme used in another `Ui` is resolved there
-// by name). Register at start-up: `user` must outlive the `Ui`.
-export!(pub unsafe fn pxui_body_register(ui: *mut PxuiUi, kind: u32, name: Str, body: PxuiBodyFn, user: *mut c_void) -> u16 {
-    unsafe { register_body(ui, kind, name, body, user) }.unwrap_or(0)
-});
-
-export!(pub unsafe fn pxui_body_register_checked(ui: *mut PxuiUi, kind: u32, name: Str, body: PxuiBodyFn, user: *mut c_void, out: *mut u16) -> i32 {
+export!(pub unsafe fn pxui_body_register(ui: *mut PxuiUi, kind: u32, name: Str, body: PxuiBodyFn, user: *mut c_void, out: *mut u16) -> i32 {
     if out.is_null() { return unsafe { fail(ui, "null body id output") }; }
     match unsafe { register_body(ui, kind, name, body, user) } {
         Ok(id) => { unsafe { out.write(id); } 0 }
@@ -349,9 +340,8 @@ export!(trusted pub unsafe fn pxui_slot(ui: *mut PxuiUi, slot: PxuiSlot, out: *m
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{FrameIn, FrameOut, PXUI_ERR_ARGUMENT, PxuiUiDesc, pxui_frame, pxui_last_error, pxui_ui_create, pxui_ui_destroy, pxui_ui_set_theme};
+    use crate::{FrameIn, FrameOut, PXUI_ERR_ARGUMENT, PxuiUiDesc, pxui_frame, pxui_last_error, pxui_ui_create, pxui_ui_destroy};
     use core::cell::{Cell, RefCell};
-    use pxui_types::ffi::ThemeSource;
 
     thread_local! {
         static TOGGLE: RefCell<Vec<(u32, String, u8, i32, i32, i32)>> = const { RefCell::new(Vec::new()) };
@@ -373,7 +363,7 @@ mod tests {
         let mut found = PxuiBox::default();
         let again = unsafe { pxui_part_box(ui, c.row.box_key, Part::HIT.0, &mut found) } + 10 * unsafe { pxui_part_box(ui, c.row.box_key, Part::TRACK.0, &mut found) };
         TOGGLE.with(|t| t.borrow_mut().push((c.size, label, c.on, hit, bad, again)));
-        REGISTERED_IN_FRAME.with(|r| r.set(unsafe { pxui_body_register(ui, BodyKind::toggle as u32, text("late"), Some(toggle_body), core::ptr::null_mut()) }));
+        REGISTERED_IN_FRAME.with(|r| r.set(unsafe { reg_id(ui, BodyKind::toggle as u32, text("late"), Some(toggle_body), core::ptr::null_mut()) }));
     }
 
     extern "C" fn toggle_frame(_: *mut c_void, ui: *mut c_void) {
@@ -385,8 +375,20 @@ mod tests {
         assert_eq!(unsafe { pxui_frame(ui, &FrameIn { width: 200.0, height: 100.0, ..FrameIn::default() }, Some(build), core::ptr::null_mut(), &mut out) }, 0);
     }
 
+    /// The body id `ui` registers `name` under (0 when refused).
+    unsafe fn reg_id(ui: *mut PxuiUi, kind: u32, name: Str, body: PxuiBodyFn, user: *mut c_void) -> u16 {
+        let mut id = 0;
+        unsafe { pxui_body_register(ui, kind, name, body, user, &mut id) };
+        id
+    }
+
+    /// Installs a theme parsed from `source` as `ui`'s root theme.
     fn theme(ui: *mut PxuiUi, source: &str) -> i32 {
-        unsafe { pxui_ui_set_theme(ui, &ThemeSource { size: core::mem::size_of::<ThemeSource>() as u32, flags: 0, source: text(source) }) }
+        let theme = unsafe { crate::theme::pxui_theme_create(core::ptr::null()) };
+        let mut rc = unsafe { crate::theme::pxui_theme_parse(theme, text(source)) };
+        if rc == 0 { rc = unsafe { crate::theme::pxui_ui_use_theme(ui, theme) }; }
+        unsafe { crate::theme::pxui_theme_destroy(theme) };
+        rc
     }
 
     /// A C body gets the toggle's record (its size, label and value), builds `Part::HIT` through `pxui_part`, refuses a number that names no
@@ -396,7 +398,7 @@ mod tests {
     fn a_c_body_gets_its_record_and_builds_a_part_and_bad_names_are_errors() {
         let ui = unsafe { pxui_ui_create(&PxuiUiDesc::default()) };
         let user = core::ptr::null_mut();
-        let register = |kind: u32, name: &str, body: PxuiBodyFn| unsafe { pxui_body_register(ui, kind, text(name), body, user) };
+        let register = |kind: u32, name: &str, body: PxuiBodyFn| unsafe { reg_id(ui, kind, text(name), body, user) };
         assert_eq!(register(BodyKind::toggle as u32, "probe", Some(toggle_body)), 1);
         assert_eq!(register(BodyKind::toggle as u32, "probe", Some(toggle_body)), 1, "a name again keeps its id");
         assert_eq!(register(BodyKind::toggle as u32, "other", Some(toggle_body)), 2);
@@ -443,7 +445,7 @@ mod tests {
     #[test]
     fn a_slot_runs_the_callers_content_and_is_stale_after_the_body_returns() {
         let ui = unsafe { pxui_ui_create(&PxuiUiDesc::default()) };
-        assert_eq!(unsafe { pxui_body_register(ui, BodyKind::scroll_view as u32, text("probe"), Some(scroll_body), core::ptr::null_mut()) }, 1);
+        assert_eq!(unsafe { reg_id(ui, BodyKind::scroll_view as u32, text("probe"), Some(scroll_body), core::ptr::null_mut()) }, 1);
         assert_eq!(theme(ui, "scroll_view.body = probe"), 0);
         frame(ui, scroll_frame);
         assert_eq!(CONTENT.with(Cell::get), 1, "the content ran once, through the slot");
@@ -480,7 +482,7 @@ mod tests {
     #[test]
     fn a_slot_is_refused_inside_its_own_content() {
         let ui = unsafe { pxui_ui_create(&PxuiUiDesc::default()) };
-        assert_eq!(unsafe { pxui_body_register(ui, BodyKind::scroll_view as u32, text("own"), Some(own_slot_body), core::ptr::null_mut()) }, 1);
+        assert_eq!(unsafe { reg_id(ui, BodyKind::scroll_view as u32, text("own"), Some(own_slot_body), core::ptr::null_mut()) }, 1);
         assert_eq!(theme(ui, "scroll_view.body = own"), 0);
         frame(ui, reentering_frame);
         assert_eq!((RUNS.with(Cell::get), AGAIN.with(Cell::get)), (1, PXUI_ERR_STATE), "{}", error(ui));
@@ -509,7 +511,7 @@ mod tests {
     fn a_slot_of_another_ui_is_stale() {
         let (a, b) = unsafe { (pxui_ui_create(&PxuiUiDesc::default()), pxui_ui_create(&PxuiUiDesc::default())) };
         for ui in [a, b] {
-            assert_eq!(unsafe { pxui_body_register(ui, BodyKind::scroll_view as u32, text("foreign"), Some(foreign_body), core::ptr::null_mut()) }, 1);
+            assert_eq!(unsafe { reg_id(ui, BodyKind::scroll_view as u32, text("foreign"), Some(foreign_body), core::ptr::null_mut()) }, 1);
             assert_eq!(theme(ui, "scroll_view.body = foreign"), 0);
             frame(ui, scroll_frame);
         }
@@ -523,7 +525,7 @@ mod tests {
     fn a_name_again_keeps_its_id_and_consumes_none() {
         let kind = BodyKind::tabs as u32;
         let (a, b) = unsafe { (pxui_ui_create(&PxuiUiDesc::default()), pxui_ui_create(&PxuiUiDesc::default())) };
-        let register = |ui, name| unsafe { pxui_body_register(ui, kind, text(name), Some(toggle_body), core::ptr::null_mut()) };
+        let register = |ui, name| unsafe { reg_id(ui, kind, text(name), Some(toggle_body), core::ptr::null_mut()) };
         let kept = register(a, "kept_name");
         assert_ne!(kept, 0);
         assert_eq!(register(b, "other_name"), 1, "b numbers its own names");
@@ -533,7 +535,7 @@ mod tests {
         }
         assert_eq!(register(a, "next_name"), kept + 1, "the repeats used up no ids");
         let long = "n".repeat(65);
-        let register_long = |len| unsafe { pxui_body_register(a, kind, text(&long[..len]), Some(toggle_body), core::ptr::null_mut()) };
+        let register_long = |len| unsafe { reg_id(a, kind, text(&long[..len]), Some(toggle_body), core::ptr::null_mut()) };
         assert_eq!(register_long(64), kept + 2);
         assert_eq!(register_long(65), 0, "a name past 64 bytes is refused");
         assert_eq!(unsafe { pxui_ui_destroy(a) } | unsafe { pxui_ui_destroy(b) }, 0);
@@ -550,13 +552,13 @@ mod tests {
         for id in 1..=u16::MAX {
             name.clear();
             name.push_str(&id.to_string());
-            assert_eq!(unsafe { pxui_body_register(ui, kind, text(&name), Some(toggle_body), core::ptr::null_mut()) }, id);
+            assert_eq!(unsafe { reg_id(ui, kind, text(&name), Some(toggle_body), core::ptr::null_mut()) }, id);
         }
-        assert_eq!(unsafe { pxui_body_register(ui, kind, text("one_more"), Some(other), core::ptr::null_mut()) }, 0);
-        assert_eq!(unsafe { pxui_body_register(ui, kind, text("and_another"), Some(other), core::ptr::null_mut()) }, 0);
+        assert_eq!(unsafe { reg_id(ui, kind, text("one_more"), Some(other), core::ptr::null_mut()) }, 0);
+        assert_eq!(unsafe { reg_id(ui, kind, text("and_another"), Some(other), core::ptr::null_mut()) }, 0);
         let first = unsafe { (&(*(*ui).shared).bodies.table)[kind as usize][0].expect("body 1") };
         assert_eq!(first.0 as *const () as usize, toggle_body as *const () as usize, "body 1 is still its own");
-        assert_eq!(unsafe { pxui_body_register(ui, kind, text("7"), Some(other), core::ptr::null_mut()) }, 7, "a name again keeps its id at the limit");
+        assert_eq!(unsafe { reg_id(ui, kind, text("7"), Some(other), core::ptr::null_mut()) }, 7, "a name again keeps its id at the limit");
         assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
     }
 
@@ -620,7 +622,7 @@ mod tests {
     fn nested_dialogs_with_registered_bodies_allocate_nothing_once_settled() {
         use mem_sys as _;
         let ui = unsafe { pxui_ui_create(&PxuiUiDesc::default()) };
-        assert_eq!(unsafe { pxui_body_register(ui, BodyKind::dialog as u32, text("probe"), Some(dialog_body), core::ptr::null_mut()) }, 1);
+        assert_eq!(unsafe { reg_id(ui, BodyKind::dialog as u32, text("probe"), Some(dialog_body), core::ptr::null_mut()) }, 1);
         assert_eq!(theme(ui, "dialog.body = probe"), 0);
         let mut depth = 3u32;
         let mut run = || {
@@ -649,13 +651,14 @@ mod tests {
     #[test]
     fn a_theme_applied_against_one_ui_never_selects_another_uis_body() {
         let (a, b) = (unsafe { pxui_ui_create(&PxuiUiDesc::default()) }, unsafe { pxui_ui_create(&PxuiUiDesc::default()) });
-        let reg = |ui, name: &str, body: PxuiBodyFn| unsafe { pxui_body_register(ui, BodyKind::toggle as u32, text(name), body, core::ptr::null_mut()) };
+        let reg = |ui, name: &str, body: PxuiBodyFn| unsafe { reg_id(ui, BodyKind::toggle as u32, text(name), body, core::ptr::null_mut()) };
         let (alpha, beta) = (reg(a, "alpha", Some(toggle_body)), reg(a, "beta", Some(toggle_body)));
         let (gamma, delta) = (reg(b, "gamma", Some(wrong_body)), reg(b, "delta", Some(wrong_body)));
         assert_eq!((alpha, beta, gamma, delta), (1, 2, 1, 2), "ids are per Ui");
         let theme = unsafe { crate::theme::pxui_theme_create(core::ptr::null()) };
-        assert_eq!(unsafe { crate::theme::pxui_ui_theme_apply(a, theme, text("toggle.body = beta")) }, 0, "{}", error(a));
-        assert_eq!(unsafe { crate::theme::pxui_ui_theme_apply(b, theme, text("toggle.body = beta")) }, PXUI_ERR_ARGUMENT, "b registered no beta");
+        assert_eq!(unsafe { crate::theme::pxui_theme_parse(theme, text("toggle.body = beta")) }, 0);
+        assert_eq!(unsafe { crate::theme::pxui_ui_use_theme(a, theme) }, 0, "{}", error(a));
+        assert_eq!(unsafe { crate::theme::pxui_ui_use_theme(b, theme) }, PXUI_ERR_ARGUMENT, "b registered no beta");
         let mut out = FrameOut::default();
         assert_eq!(unsafe { pxui_frame(b, &FrameIn { width: 200.0, height: 100.0, ..FrameIn::default() }, Some(themed_toggle_frame), theme.cast(), &mut out) }, 0, "{}", error(b));
         assert_eq!(WRONG.with(Cell::get), 0, "a body of another Ui ran");

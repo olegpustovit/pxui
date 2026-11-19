@@ -10,7 +10,7 @@ use crate::{PXUI_ERR_ARGUMENT, PXUI_ERR_PANIC, PXUI_ERR_STATE, FrameIn, FrameOut
 use core::ffi::c_void;
 use input::{Event, Key, MouseButton, Platform, frame};
 use pxui_core::ui::Ui;
-use pxui_types::ffi::{A11yNode, A11yTree, Damage, Input, Output, PlatformOut, Slice, ThemeSource};
+use pxui_types::ffi::{A11yNode, A11yTree, Damage, Input, Output, PlatformOut, Slice};
 
 fn platform() -> Platform {
     #[cfg(any(target_os = "macos", target_os = "ios"))] { Platform::Apple }
@@ -207,23 +207,6 @@ export!(bare pub unsafe fn pxui_ui_output(ui: *mut PxuiUi) -> *const Output {
     let shared = state.shared();
     if !shared.in_frame { let nodes = core::mem::take(&mut shared.frame_ended); build_output(shared, unsafe { &*state.engine }, nodes); }
     &shared.output
-});
-
-export!(pub unsafe fn pxui_ui_set_theme(ui: *mut PxuiUi, source: *const ThemeSource) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    if !state.owner || state.shared().in_frame { return PXUI_ERR_STATE; }
-    if source.is_null() { return unsafe { fail(ui, "null theme source") }; }
-    let Some(source) = read_desc!(source, ThemeSource) else { return unsafe { fail(ui, "invalid theme descriptor") }; };
-    if source.flags & !3 != 0 { return unsafe { fail(ui, "invalid theme descriptor") }; }
-    let parsed: Result<pxui_core::Theme, Vec<pxui_core::theme::ThemeError>> = if source.source.len == 0 { Ok(pxui_core::Theme::default()) } else {
-        let Some(text) = (unsafe { crate::state::checked_text(source.source) }) else { return unsafe { fail(ui, "invalid theme UTF-8 or length") }; };
-        unsafe { &*state.engine }.parse_theme(text, &pxui_core::Theme::default())
-    };
-    let mut theme = match parsed { Ok(theme) => theme, Err(errors) => return unsafe { fail(ui, &errors.iter().map(|e| format!("line {}: {}", e.line, e.message)).collect::<Vec<_>>().join("\n")) } };
-    theme.tokens.density = if source.flags & ThemeSource::COMPACT != 0 { 0.84 } else { 1.0 };
-    theme.tokens.reduced_motion = source.flags & ThemeSource::REDUCED_MOTION != 0;
-    unsafe { (&mut *state.engine).set_theme(theme); }
-    0
 });
 
 export!(pub unsafe fn pxui_ui_set_dir(ui: *mut PxuiUi, dir: u32) -> i32 {

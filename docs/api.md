@@ -1136,7 +1136,7 @@ pxui::ThemeHandle::from_tokens fn (tokens: Tokens) -> ThemeHandle @U1a.2
 pxui::ThemeHandle::parse fn (source: &str) -> Result<ThemeHandle, Error> @U1a.2
 pxui::ThemeHandle::reduced_motion fn (&mut self, on: bool) @U1a.2
 pxui::ThemeHandle::set_color fn (&mut self, token: ColorToken, color: Rgba) @U1a.2
-pxui::ThemeSource use pxui_types::ffi::ThemeSource @HEAD
+-pxui::ThemeSource use pxui_types::ffi::ThemeSource @U2c.5
 pxui::Toast use pxui_types::ui::Toast @HEAD
 pxui::Toggle impl Clone @HEAD
 pxui::Toggle impl Copy @HEAD
@@ -5655,7 +5655,7 @@ pxui_types::ffi::PxuiTextStyle::size_points field f32 @HEAD
 pxui_types::ffi::PxuiTextStyle::tracking field f32 @HEAD
 pxui_types::ffi::PxuiTextStyle::weight field u16 @HEAD
 pxui_types::ffi::PxuiTextStyle::wrap field u32 @HEAD
-pxui_types::ffi::PxuiThemeSource type = ThemeSource @HEAD
+-pxui_types::ffi::PxuiThemeSource type = ThemeSource @U2c.5
 pxui_types::ffi::PxuiThemeTokens type = ThemeTokens @HEAD
 pxui_types::ffi::PxuiTipConfig impl Clone @HEAD
 pxui_types::ffi::PxuiTipConfig impl Copy @HEAD
@@ -5826,16 +5826,16 @@ pxui_types::ffi::Slice impl From<&'static [u8]> @U1b.5
 pxui_types::ffi::Slice struct <T> @HEAD
 pxui_types::ffi::Slice::len field usize @HEAD
 pxui_types::ffi::Slice::ptr field *const T @HEAD
-pxui_types::ffi::ThemeSource impl Clone @HEAD
-pxui_types::ffi::ThemeSource impl Copy @HEAD
-pxui_types::ffi::ThemeSource impl Debug @HEAD
-pxui_types::ffi::ThemeSource impl Default @HEAD
-pxui_types::ffi::ThemeSource struct @HEAD
-pxui_types::ffi::ThemeSource::COMPACT const u32 @HEAD
-pxui_types::ffi::ThemeSource::REDUCED_MOTION const u32 @HEAD
-pxui_types::ffi::ThemeSource::flags field u32 @HEAD
-pxui_types::ffi::ThemeSource::size field u32 @HEAD
-pxui_types::ffi::ThemeSource::source field Str @HEAD
+-pxui_types::ffi::ThemeSource impl Clone @U2c.5
+-pxui_types::ffi::ThemeSource impl Copy @U2c.5
+-pxui_types::ffi::ThemeSource impl Debug @U2c.5
+-pxui_types::ffi::ThemeSource impl Default @U2c.5
+-pxui_types::ffi::ThemeSource struct @U2c.5
+-pxui_types::ffi::ThemeSource::COMPACT const u32 @U2c.5
+-pxui_types::ffi::ThemeSource::REDUCED_MOTION const u32 @U2c.5
+-pxui_types::ffi::ThemeSource::flags field u32 @U2c.5
+-pxui_types::ffi::ThemeSource::size field u32 @U2c.5
+-pxui_types::ffi::ThemeSource::source field Str @U2c.5
 pxui_types::ffi::ThemeTokens impl Clone @HEAD
 pxui_types::ffi::ThemeTokens impl Copy @HEAD
 pxui_types::ffi::ThemeTokens impl Debug @HEAD

@@ -3,7 +3,7 @@ use crate::{Ui};
 
 #[cfg(feature = "static")]
 mod sys {
-    pub use pxui_abi_link::{pxui_ui_a11y_number_checked, pxui_ui_set_role};
+    pub use pxui_abi_link::{pxui_ui_a11y_number, pxui_ui_set_role};
 }
 #[cfg(not(feature = "static"))]
 mod sys {
@@ -19,7 +19,7 @@ mod sys {
         /// ```
         /// pxui::doc::frames(1, &mut |ui| { let b = ui.node("vol", pxui::Node::DEFAULT); assert!(ui.a11y_number(&b, 5.0, 0.0, 10.0, 1.0).unwrap()); });
         /// ```
-        pub fn pxui_ui_a11y_number_checked(ui: *mut PxuiUi, box_: *const PxuiBox, now: f64, min: f64, max: f64, step: f64) -> i32;
+        pub fn pxui_ui_a11y_number(ui: *mut PxuiUi, box_: *const PxuiBox, now: f64, min: f64, max: f64, step: f64) -> i32;
         /// The C entry `Ui::set_role` calls: sets a box's accessibility role and state bits; an error code for a null box or a role past
         /// the last `Role`, and the stale code for a dead box.
         ///
@@ -124,7 +124,7 @@ impl Ui {
     /// ```
     #[inline]
     pub fn a11y_number(&mut self, box_: &Handle, now: f64, min: f64, max: f64, step: f64) -> Result<bool, crate::Error> {
-        let rc = unsafe { sys::pxui_ui_a11y_number_checked(self.0.as_ptr(), box_, now, min, max, step) };
+        let rc = unsafe { sys::pxui_ui_a11y_number(self.0.as_ptr(), box_, now, min, max, step) };
         if rc == pxui_types::PXUI_ERR_STALE { Ok(false) } else { crate::status(rc).map(|()| true) }
     }
     /// Sets the node's role and state flags in the accessibility tree.

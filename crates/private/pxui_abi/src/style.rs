@@ -31,14 +31,6 @@ unsafe fn decode_args<'a>(ui:*mut PxuiUi,box_:*const PxuiBox,state_:*const PxuiS
     Ok((ui,box_,state))
 }
 
-export!(pub unsafe fn pxui_ui_set_look(ui:*mut PxuiUi,box_:*const PxuiBox,look_:*const PxuiLookDesc,state_:*const PxuiStateDesc)->i32 {
-    let (ui,box_,state)=match unsafe{decode_args(ui,box_,state_)} {Ok(v)=>v,Err(rc)=>return rc};
-    if look_.is_null(){return unsafe{fail(ui,"null look descriptor")};}
-    let Some(look)=decode_look(unsafe{*look_}) else{return unsafe{fail(ui,"invalid look descriptor")};};
-    unsafe{(&mut *ui.engine).set_look(&box_,look,state);}
-    0
-});
-
 export!(pub unsafe fn pxui_ui_style(ui:*mut PxuiUi,box_:*const PxuiBox,states_:*const PxuiLookDesc,state_:*const PxuiStateDesc)->i32 {
     let (ui,box_,state)=match unsafe{decode_args(ui,box_,state_)} {Ok(v)=>v,Err(rc)=>return rc};
     if states_.is_null(){return unsafe{fail(ui,"null states descriptor")};}

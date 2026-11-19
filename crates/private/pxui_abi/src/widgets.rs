@@ -200,7 +200,7 @@ export!(trusted pub unsafe fn pxui_ui_badge(ui: *mut PxuiUi, keyed: *const PxuiK
 });
 
 // ABI 1.82: `pxui_ui_search_field` that also names the field `name` to a screen reader and reports what happened to its box in `response`,
-// the result a caller would otherwise read with `pxui_ui_input_box`, `pxui_ui_a11y_name_checked`, `pxui_ui_signal` and `pxui_ui_focused`.
+// the result a caller would otherwise read with `pxui_ui_input_box`, `pxui_ui_a11y_name`, `pxui_ui_signal` and `pxui_ui_focused`.
 export!(trusted pub unsafe fn pxui_ui_search_field(ui: *mut PxuiUi, label: Str, icon: Str, value: Str, placeholder: Str, name: Str, action: u8, changed: *mut u8, out: *mut Str, response: *mut PxuiResponse) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if changed.is_null() || out.is_null() { return unsafe { fail(ui, "null search field output") }; }

@@ -4,11 +4,7 @@ use crate::ui::key;
 use crate::{PXUI_ERR_ARGUMENT, Str};
 use pxui_core::ui::{Cursor, UndoKind};
 
-export!(pub unsafe fn pxui_ui_font_size(ui: *mut PxuiUi) -> i64 { unsafe { engine(ui) }.map_or(0, |e| e.font_px()) });
-export!(pub unsafe fn pxui_ui_row_height(ui: *mut PxuiUi) -> i64 { unsafe { engine(ui) }.map_or(0, |e| e.row_px()) });
-
-// ABI 1.78: the body size and kit row exactly as created or set, fractions kept (`pxui_ui_font_size`/`_row_height` report them
-// rounded to whole points).
+// The body size and kit row in points exactly as created or set, fractions kept.
 export!(pub unsafe fn pxui_ui_font_points(ui: *mut PxuiUi, out: *mut f32) -> i32 {
     let Some(e) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if out.is_null() { return unsafe { fail(ui, "null font size output") }; }
@@ -117,15 +113,8 @@ export!(pub unsafe fn pxui_ui_icon_word(ui: *mut PxuiUi, word: u32) -> i32 {
     ui.shared().icon_word = word;
     0
 });
-export!(pub unsafe fn pxui_ui_set_font_size(ui: *mut PxuiUi, size: i64) -> i32 {
-    let Some(e) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    if !(1..=1024).contains(&size) { return unsafe { fail(ui, "font size out of range") }; }
-    e.set_font_size(size as f32);
-    0
-});
 
-// ABI 1.78: `pxui_ui_set_font_size` in points, fractions kept: finite, at least 0.5 (it rounds to a whole point of at least 1) and at
-// most 1024.
+// Sets the body size in points, fractions kept: finite, at least 0.5 (it rounds to a whole point of at least 1) and at most 1024.
 export!(pub unsafe fn pxui_ui_set_font_points(ui: *mut PxuiUi, points: f32) -> i32 {
     let Some(e) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if !(points.is_finite() && (0.5..=1024.0).contains(&points)) { return unsafe { fail(ui, "font size out of range") }; }
@@ -158,12 +147,6 @@ export!(pub unsafe fn pxui_ui_repaint_after(ui: *mut PxuiUi, seconds: f64) -> i3
     if !seconds.is_finite() { return unsafe { fail(ui, "repaint time is not finite") }; }
     e.repaint_after(seconds);
     0
-});
-
-// Legacy (cut at 2.0): view verification is per `Ui` (`pxui_ui_verify_views`), with no process-wide flag (U1c.2, OS-grade criterion 2):
-// 0 has nothing to turn off, 1 is refused.
-export!(bare pub unsafe fn pxui_verify_new_views(on: u8) -> i32 {
-    match on { 0 => 0, 1 => crate::PXUI_ERR_STATE, _ => PXUI_ERR_ARGUMENT }
 });
 
 export!(pub unsafe fn pxui_ui_verify_views(ui: *mut PxuiUi, on: u8) -> i32 {

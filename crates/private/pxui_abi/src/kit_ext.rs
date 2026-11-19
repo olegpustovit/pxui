@@ -383,7 +383,7 @@ export!(build pub unsafe fn pxui_ui_inspector_header(ui: *mut PxuiUi, desc: *con
 });
 
 // ABI 1.82: `pxui_ui_line_field` that also names the field `name` to a screen reader and reports what happened to its box in `response`,
-// the result a caller would otherwise read with `pxui_ui_input_box`, `pxui_ui_a11y_name_checked`, `pxui_ui_signal` and `pxui_ui_focused`.
+// the result a caller would otherwise read with `pxui_ui_input_box`, `pxui_ui_a11y_name`, `pxui_ui_signal` and `pxui_ui_focused`.
 export!(build pub unsafe fn pxui_ui_line_field(ui: *mut PxuiUi, x: f32, y: f32, w: f32, h: f32, grab: u8, placeholder: Str, label: Str, value: Str, name: Str, text: *mut Str, step: *mut u32, response: *mut PxuiResponse) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     let Some(response) = sized_mut!(response) else { return unsafe { fail(ui, "null or short line field response") } };

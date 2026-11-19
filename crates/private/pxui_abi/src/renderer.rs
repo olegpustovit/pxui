@@ -114,13 +114,7 @@ unsafe fn make(ui: &mut PxuiUi, gpu: pxui_types::Gpu, target: PxuiTargetDesc, mu
     Ok(PxuiRenderer { painter, queue, device, textures:std::collections::HashMap::new(), blur_sources:std::collections::HashMap::new(), engine:ui.engine, shared:ui.shared, format, samples:i64::from(target.samples), frame_serial:0, completed:0, atlas_initialized:[false;4], prepared:None, drawn:None, split_points:Vec::new(), breaks:Vec::new(), blur_commands:None })
 }
 
-// Makes a renderer for the owner `Ui` (never a callback's borrowed handle) outside a frame; null, with the reason in
-// `pxui_last_error`, when it cannot be made.
-export!(pub unsafe fn pxui_renderer_create(ui:*mut PxuiUi, gpu:*const pxui_types::Gpu, target:*const PxuiTargetDesc) -> *mut PxuiRenderer {
-    unsafe { create(ui, gpu, target) }.unwrap_or(core::ptr::null_mut())
-});
-
-export!(bare pub unsafe fn pxui_renderer_create_checked(ui:*mut PxuiUi, gpu:*const pxui_types::Gpu, target:*const PxuiTargetDesc, out:*mut *mut PxuiRenderer) -> i32 {
+export!(bare pub unsafe fn pxui_renderer_create(ui:*mut PxuiUi, gpu:*const pxui_types::Gpu, target:*const PxuiTargetDesc, out:*mut *mut PxuiRenderer) -> i32 {
     let shared = ui.shared();
     unsafe { crate::state::note_call(shared); }
     // A complete GPU record transfers its lease before the Ui/target checks. The legacy call keeps its original order.
@@ -151,16 +145,6 @@ unsafe fn renderer_owner<'a>(ui:*mut PxuiUi, descriptors:bool) -> Result<&'a mut
         return Err(unsafe { fail_code(ui, "a renderer needs the owner Ui outside a frame, a gpu and a target", code) });
     }
     Ok(state)
-}
-
-unsafe fn create(ui:*mut PxuiUi, gpu:*const pxui_types::Gpu, target:*const PxuiTargetDesc) -> Result<*mut PxuiRenderer, i32> {
-    let state = unsafe { renderer_owner(ui, !gpu.is_null() && !target.is_null()) }?;
-    // sizes are checked before the records are read: a shorter record is refused, never over-read (the lease of a gpu record that short is not released: its fields are not there)
-    let (Some(gpu), Some(target))=(read_desc!(gpu, pxui_types::Gpu), read_desc!(target, PxuiTargetDesc)) else {
-        return Err(unsafe { fail(ui, "invalid gpu or target descriptor") });
-    };
-    let lease = GpuLease::new(&gpu);
-    unsafe { create_renderer(ui, state, gpu, target, lease) }
 }
 
 unsafe fn create_renderer(ui:*mut PxuiUi, state:&mut PxuiUi, gpu:pxui_types::Gpu, target:PxuiTargetDesc, lease:GpuLease) -> Result<*mut PxuiRenderer, i32> {

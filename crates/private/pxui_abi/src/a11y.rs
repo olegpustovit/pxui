@@ -2,10 +2,6 @@ use crate::state::{PxuiUi, checked, core_box, fail, get};
 use crate::{PXUI_ERR_ARGUMENT, PxuiBox, Str};
 
 export!(pub unsafe fn pxui_ui_a11y_name(ui: *mut PxuiUi, box_: *const PxuiBox, name: Str) -> i32 {
-    unsafe { set_name(ui, box_, name, false) }
-});
-
-export!(pub unsafe fn pxui_ui_a11y_name_checked(ui: *mut PxuiUi, box_: *const PxuiBox, name: Str) -> i32 {
     unsafe { set_name(ui, box_, name, true) }
 });
 

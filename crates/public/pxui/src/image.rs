@@ -3,7 +3,7 @@
 //! One rule for a descriptor PXUI cannot sample (`Image::valid` is false: a zero size, no native handle, a depth format, a short
 //! `size`): the call draws nothing and returns `Error::InvalidInput`, in `Ui::image` and `Paint::image` alike. An `Image` is host data
 //! that can go bad between frames, so it is never a panic. The check is the library's (`pxui_ui_image_node`,
-//! `pxui_paint_image_checked`).
+//! `pxui_paint_image`).
 use crate::sys::PxuiPaint as RawPaint;
 use crate::node::size;
 use crate::{as_str, Error, Handle, Key, Paint, Ui};
@@ -11,7 +11,7 @@ use pxui_types::{draw::Fit, ffi::PxuiSizeDesc, geom::{Rect, Rgba}, Image, PxuiBo
 
 library!(lib {
     fn pxui_ui_image(ui: *mut PxuiUi, key: Str, name: Str, image: *const Image, fit: u32, width: PxuiSizeDesc, height: PxuiSizeDesc, out: *mut PxuiBox) -> i32;
-    fn pxui_paint_image_checked(paint: *mut RawPaint, image: *const Image, x: f32, y: f32, width: f32, height: f32, fit: u32, tint: Rgba) -> i32;
+    fn pxui_paint_image(paint: *mut RawPaint, image: *const Image, x: f32, y: f32, width: f32, height: f32, fit: u32, tint: Rgba) -> i32;
 });
 
 #[inline]
@@ -133,7 +133,7 @@ impl Paint<'_> {
     /// ```
     #[inline]
     pub fn image(&mut self, rect: Rect, image: &Image, style: &ImageStyle) -> Result<(), Error> {
-        let rc = unsafe { lib::pxui_paint_image_checked(self.raw(), image, rect.x, rect.y, rect.w, rect.h, fit(style.fit), style.tint) };
+        let rc = unsafe { lib::pxui_paint_image(self.raw(), image, rect.x, rect.y, rect.w, rect.h, fit(style.fit), style.tint) };
         if rc == 0 { Ok(()) } else { Err(Error::from_code(rc)) }
     }
 }

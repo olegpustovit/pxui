@@ -77,7 +77,7 @@ mod tests {
     /// The image calls validate everything before they touch the native-image table. `pxui_ui_image`: a short record (read
     /// after its `size`), an invalid descriptor, an unknown fit or size kind and a NaN size are refused with PXUI_ERR_ARGUMENT and
     /// register nothing; a valid call is keyed by its key, not by its name (`##`/`###` in a name are ordinary text).
-    /// `pxui_paint_image_checked` under a live painter: a short record, an invalid descriptor, an unknown fit and a NaN rectangle are
+    /// `pxui_paint_image` under a live painter: a short record, an invalid descriptor, an unknown fit and a NaN rectangle are
     /// refused and register nothing, a valid call registers one native image; with a null painter it is refused.
     #[test]
     fn image_and_checked_paint_refuse_bad_input_before_registering_anything() {
@@ -114,10 +114,10 @@ mod tests {
                 let good = pxui_types::Image { mtl_texture: 0x10 as *mut _, width: 8, height: 4, format: 1, ..Default::default() };
                 let before = images();
                 for (image, fit, x) in [(pxui_types::Image { size: 8, ..good }, 1, rect.x), (pxui_types::Image { width: 0, ..good }, 1, rect.x), (good, 9, rect.x), (good, 1, f32::NAN)] {
-                    let rc = unsafe { super::pxui_paint_image_checked(raw, &image, x, rect.y, 4.0, 4.0, fit, white) };
+                    let rc = unsafe { super::pxui_paint_image(raw, &image, x, rect.y, 4.0, 4.0, fit, white) };
                     PAINTED.with(|p| p.borrow_mut().push((rc, images() - before)));
                 }
-                let rc = unsafe { super::pxui_paint_image_checked(raw, &good, rect.x, rect.y, 4.0, 4.0, 1, white) };
+                let rc = unsafe { super::pxui_paint_image(raw, &good, rect.x, rect.y, 4.0, 4.0, 1, white) };
                 PAINTED.with(|p| p.borrow_mut().push((rc, images() - before)));
             }
             assert_eq!(unsafe { crate::paint::pxui_ui_draw(ui, &out, 0, Some(paint), core::ptr::null_mut(), None) }, 0);
@@ -131,7 +131,7 @@ mod tests {
             "a short record, an invalid descriptor, an unknown fit and a NaN rectangle are refused and register nothing; a valid call registers one");
         // the checked paint call outside a painter, and with bad input, is refused the same way
         let good = pxui_types::Image { mtl_texture: std::ptr::dangling_mut(), width: 8, height: 4, format: 1, ..Default::default() };
-        assert_eq!(unsafe { super::pxui_paint_image_checked(core::ptr::null_mut(), &good, 0.0, 0.0, 4.0, 4.0, 1, pxui_types::geom::Rgba::rgb(255, 255, 255)) }, PXUI_ERR_ARGUMENT);
+        assert_eq!(unsafe { super::pxui_paint_image(core::ptr::null_mut(), &good, 0.0, 0.0, 4.0, 4.0, 1, pxui_types::geom::Rgba::rgb(255, 255, 255)) }, PXUI_ERR_ARGUMENT);
         assert_eq!(unsafe { crate::pxui_ui_destroy(ui) }, 0);
     }
     #[test]
@@ -176,16 +176,10 @@ export!(build pub unsafe fn pxui_ui_image(ui: *mut crate::PxuiUi, key: Str, name
     0
 });
 
-export!(pub unsafe fn pxui_paint_image(paint: *mut crate::paint::PxuiPaint, raw: *const pxui_types::Image, x: f32, y: f32, width: f32, height: f32, fit_code: u32, tint: Rgba) {
-    if raw.is_null() || paint.is_null() || !finite(&[x, y, width, height]) { return; }
-    let (Some(image), Some(fit), Some(paint)) = (unsafe { image(*raw, &mut (*(*paint).shared).images) }, fit(fit_code), unsafe { crate::paint::value(paint) }) else { return; };
-    paint.image_fit(x, y, width, height, &image, fit, tint);
-});
-
 // ABI 1.70: `pxui_paint_image` that reports a refusal: PXUI_ERR_ARGUMENT (nothing drawn, nothing registered) for a null painter or
 // descriptor, a short or invalid descriptor (`Image::valid`, read after its `size`), an unknown fit or a non-finite rectangle; 0 when
 // drawn. `pxui_paint_image` is cut at 2.0.
-export!(pub unsafe fn pxui_paint_image_checked(paint: *mut crate::paint::PxuiPaint, raw: *const pxui_types::Image, x: f32, y: f32, width: f32, height: f32, fit_code: u32, tint: Rgba) -> i32 {
+export!(pub unsafe fn pxui_paint_image(paint: *mut crate::paint::PxuiPaint, raw: *const pxui_types::Image, x: f32, y: f32, width: f32, height: f32, fit_code: u32, tint: Rgba) -> i32 {
     if raw.is_null() || paint.is_null() || !finite(&[x, y, width, height]) { return crate::PXUI_ERR_ARGUMENT; }
     let (Some(record), Some(fit)) = (read_desc!(raw, pxui_types::Image), fit(fit_code)) else { return crate::PXUI_ERR_ARGUMENT; };
     if !valid(record) { return crate::PXUI_ERR_ARGUMENT; }

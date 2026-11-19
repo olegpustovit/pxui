@@ -181,15 +181,6 @@ impl Default for Output {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug)]
-pub struct ThemeSource {
-    pub size: u32,
-    pub flags: u32,
-    pub source: Str,
-}
-impl Default for ThemeSource { fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, flags: 0, source: Str::default() } } }
-
-#[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct PxuiMotion {
     pub fast: f32,
@@ -886,7 +877,6 @@ pub type PxuiA11yAction = A11yAction;
 /// A span of actions, as `pxui_a11y_pump` hands them out.
 pub type A11yActionSpan = Slice<A11yAction>;
 pub type PxuiA11yTree = A11yTree;
-pub type PxuiThemeSource = ThemeSource;
 pub type PxuiThemeTokens = ThemeTokens;
 
 /// What a paint callback needs to know about its painter, read once per callback: the sizes, the clip and the theme tokens.
@@ -1496,10 +1486,6 @@ pub struct PxuiHeadOut {
     pub chosen: i64,
 }
 
-impl ThemeSource {
-    pub const COMPACT: u32 = 1;
-    pub const REDUCED_MOTION: u32 = 2;
-}
 
 
 /// A build callback of a container descriptor: `(user, ui)`, the `ui` a borrowed `PxuiUi` valid for the call.
@@ -2308,7 +2294,6 @@ pub(crate) mod layout {
         check("Output", size_of::<Output>(), align_of::<Output>(), &[("size", core::mem::offset_of!(Output, size)), ("reserved", core::mem::offset_of!(Output, reserved)), ("draw_revision", core::mem::offset_of!(Output, draw_revision)), ("repaint_at", core::mem::offset_of!(Output, repaint_at)), ("built_nodes", core::mem::offset_of!(Output, built_nodes)), ("rebuilt_views", core::mem::offset_of!(Output, rebuilt_views)), ("arranged_nodes", core::mem::offset_of!(Output, arranged_nodes)), ("platform", core::mem::offset_of!(Output, platform)), ("damage", core::mem::offset_of!(Output, damage)), ("a11y", core::mem::offset_of!(Output, a11y)), ("layers", core::mem::offset_of!(Output, layers))]);
         check("PxuiLayerInfo", size_of::<PxuiLayerInfo>(), align_of::<PxuiLayerInfo>(), &[("key", core::mem::offset_of!(PxuiLayerInfo, key)), ("id", core::mem::offset_of!(PxuiLayerInfo, id)), ("breaks", core::mem::offset_of!(PxuiLayerInfo, breaks)), ("instances", core::mem::offset_of!(PxuiLayerInfo, instances)), ("dirty", core::mem::offset_of!(PxuiLayerInfo, dirty))]);
         check("PxuiDirty", size_of::<PxuiDirty>(), align_of::<PxuiDirty>(), &[("start", core::mem::offset_of!(PxuiDirty, start)), ("end", core::mem::offset_of!(PxuiDirty, end))]);
-        check("ThemeSource", size_of::<ThemeSource>(), align_of::<ThemeSource>(), &[("size", core::mem::offset_of!(ThemeSource, size)), ("flags", core::mem::offset_of!(ThemeSource, flags)), ("source", core::mem::offset_of!(ThemeSource, source))]);
         check("PxuiMotion", size_of::<PxuiMotion>(), align_of::<PxuiMotion>(), &[("fast", core::mem::offset_of!(PxuiMotion, fast)), ("normal", core::mem::offset_of!(PxuiMotion, normal)), ("slow", core::mem::offset_of!(PxuiMotion, slow)), ("ease", core::mem::offset_of!(PxuiMotion, ease))]);
         check("PxuiThemeTokens", size_of::<ThemeTokens>(), align_of::<ThemeTokens>(), &[("size", core::mem::offset_of!(ThemeTokens, size)), ("panel", core::mem::offset_of!(ThemeTokens, panel)), ("foreground", core::mem::offset_of!(ThemeTokens, foreground)), ("control", core::mem::offset_of!(ThemeTokens, control)), ("input", core::mem::offset_of!(ThemeTokens, input)), ("track", core::mem::offset_of!(ThemeTokens, track)), ("accent", core::mem::offset_of!(ThemeTokens, accent)), ("ink_ground", core::mem::offset_of!(ThemeTokens, ink_ground)), ("has_ink_ground", core::mem::offset_of!(ThemeTokens, has_ink_ground)), ("reserved", core::mem::offset_of!(ThemeTokens, reserved)), ("space", core::mem::offset_of!(ThemeTokens, space)), ("radius", core::mem::offset_of!(ThemeTokens, radius)), ("display_size", core::mem::offset_of!(ThemeTokens, display_size)), ("title_size", core::mem::offset_of!(ThemeTokens, title_size)), ("font_size", core::mem::offset_of!(ThemeTokens, font_size)), ("label_size", core::mem::offset_of!(ThemeTokens, label_size)), ("motion", core::mem::offset_of!(ThemeTokens, motion)), ("reduced_motion", core::mem::offset_of!(ThemeTokens, reduced_motion)), ("reserved_tail", core::mem::offset_of!(ThemeTokens, reserved_tail)), ("density", core::mem::offset_of!(ThemeTokens, density))]);
         check("PxuiSizeDesc", size_of::<PxuiSizeDesc>(), align_of::<PxuiSizeDesc>(), &[("kind", core::mem::offset_of!(PxuiSizeDesc, kind)), ("value", core::mem::offset_of!(PxuiSizeDesc, value)), ("relative", core::mem::offset_of!(PxuiSizeDesc, relative))]);

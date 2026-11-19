@@ -3,7 +3,7 @@ use crate::{Str, Ui};
 
 #[cfg(feature = "static")]
 mod sys {
-    pub use pxui_abi_link::{pxui_a11y_fd, pxui_a11y_pump, pxui_a11y_start, pxui_a11y_stop, pxui_a11y_update, pxui_ui_a11y_name_checked, pxui_ui_a11y_value, PxuiA11y};
+    pub use pxui_abi_link::{pxui_a11y_fd, pxui_a11y_pump, pxui_a11y_start, pxui_a11y_stop, pxui_a11y_update, pxui_ui_a11y_name, pxui_ui_a11y_value, PxuiA11y};
 }
 
 #[cfg(not(feature = "static"))]
@@ -76,7 +76,7 @@ mod sys {
         /// ```
         /// pxui::doc::frames(1, &mut |ui| { let b = ui.node("play", pxui::Node::DEFAULT.role(pxui::Role::Button)); ui.a11y_name(&b, "Play"); });
         /// ```
-        pub fn pxui_ui_a11y_name_checked(ui: *mut PxuiUi, box_: *const PxuiBox, name: Str) -> i32;
+        pub fn pxui_ui_a11y_name(ui: *mut PxuiUi, box_: *const PxuiBox, name: Str) -> i32;
         /// The C entry `Ui::a11y_value` calls: sets a box's accessible text `value` and selection (`anchor`, `caret` as UTF-8 byte offsets,
         /// stored as character offsets); a stale box returns the stale code, a split character or invalid text an argument error.
         ///
@@ -128,7 +128,7 @@ impl Ui {
     /// ```
     #[inline]
     #[track_caller] pub fn a11y_name(&mut self, box_: &Handle, name: &str) -> bool {
-        let rc = unsafe { sys::pxui_ui_a11y_name_checked(self.0.as_ptr(), box_, crate::as_str(name)) };
+        let rc = unsafe { sys::pxui_ui_a11y_name(self.0.as_ptr(), box_, crate::as_str(name)) };
         crate::live(self, rc)
     }
 }

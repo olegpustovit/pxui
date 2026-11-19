@@ -141,7 +141,7 @@ pub(crate) fn area_adapters() -> AreaAdapters {
 }
 
 // ABI 1.82: `pxui_ui_text_area_node` that also names the area `name` to a screen reader and reports what happened to its box in `response`,
-// the result a caller would otherwise read with `pxui_ui_input_box`, `pxui_ui_a11y_name_checked`, `pxui_ui_signal` and `pxui_ui_focused`.
+// the result a caller would otherwise read with `pxui_ui_input_box`, `pxui_ui_a11y_name`, `pxui_ui_signal` and `pxui_ui_focused`.
 export!(build pub unsafe fn pxui_ui_text_area(
     ui: *mut PxuiUi, desc: *const PxuiTextAreaDesc, node: *const Node, cbs: *const PxuiAreaCallbacks, name: Str,
     out_text: *mut Str, out_changed: *mut u8, out_submitted: *mut u8, response: *mut PxuiResponse,
@@ -234,7 +234,7 @@ unsafe fn field_desc(ui: *mut PxuiUi, desc: *const PxuiValueFieldDesc) -> Result
 }
 
 // ABI 1.82: `pxui_ui_value_field` that also names the field `name` to a screen reader and reports what happened to its box in `response`,
-// the result a caller would otherwise read with `pxui_ui_input_box`, `pxui_ui_a11y_name_checked`, `pxui_ui_signal` and `pxui_ui_focused`.
+// the result a caller would otherwise read with `pxui_ui_input_box`, `pxui_ui_a11y_name`, `pxui_ui_signal` and `pxui_ui_focused`.
 export!(build pub unsafe fn pxui_ui_value_field(
     ui: *mut PxuiUi, desc: *const PxuiValueFieldDesc, valid: TextValid, slide: SlideText, scrub: ScrubText, user: *mut c_void, name: Str,
     out_text: *mut Str, out_changed: *mut u8, out_editing: *mut u8, response: *mut PxuiResponse,

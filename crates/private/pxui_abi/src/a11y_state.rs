@@ -7,10 +7,6 @@ fn valid_number(now: f64, min: f64, max: f64, step: f64) -> bool {
 }
 
 export!(pub unsafe fn pxui_ui_a11y_number(ui: *mut PxuiUi, box_: *const PxuiBox, now: f64, min: f64, max: f64, step: f64) -> i32 {
-    unsafe { set_number(ui, box_, [now, min, max, step], false) }
-});
-
-export!(pub unsafe fn pxui_ui_a11y_number_checked(ui: *mut PxuiUi, box_: *const PxuiBox, now: f64, min: f64, max: f64, step: f64) -> i32 {
     unsafe { set_number(ui, box_, [now, min, max, step], true) }
 });
 

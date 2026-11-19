@@ -95,24 +95,20 @@ fn a_callback_cannot_start_a_frame_replace_the_theme_or_free_the_ui() {
         let borrowed = borrowed.cast::<PxuiUi>();
         let owner = user.cast::<PxuiUi>();
         let mut out = FrameOut::default();
-        let theme = ThemeSource::default();
         unsafe {
             for ui in [borrowed, owner] {
                 assert_eq!(pxui_frame(ui, &frame_in(), Some(nothing), core::ptr::null_mut(), &mut out), PXUI_ERR_STATE);
-                assert_eq!(pxui_ui_set_theme(ui, &theme), PXUI_ERR_STATE);
                 assert_eq!(pxui_ui_use_theme(ui, core::ptr::null()), PXUI_ERR_STATE);
                 assert_eq!(pxui_ui_destroy(ui), PXUI_ERR_STATE);
                 assert!(!pxui_ui_output(ui).is_null());
             }
-            assert!(pxui_renderer_create(borrowed, &pxui_types::Gpu::default(), &PxuiTargetDesc::default()).is_null());
+            let mut renderer = core::ptr::null_mut(); assert_ne!(pxui_renderer_create(borrowed, &pxui_types::Gpu::default(), &PxuiTargetDesc::default(), &mut renderer), 0); assert!(renderer.is_null());
         }
     }
-    use pxui_types::ffi::ThemeSource;
     let ui = create();
     assert_eq!(run(ui, Some(reenter), ui.cast()), 0, "{}", error(ui));
     // after the frame the owner works again
     assert_eq!(run(ui, Some(nothing), core::ptr::null_mut()), 0);
-    assert_eq!(unsafe { pxui_ui_set_theme(ui, &ThemeSource::default()) }, 0);
     assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
 }
 
@@ -173,20 +169,20 @@ fn checked_constructors_leave_outputs_untouched_on_refusal() {
     let name = crate::state::pair("body");
     let kind = pxui_types::theme::BodyKind::toggle as u32;
     unsafe {
-        assert_eq!(pxui_renderer_create_checked(ui, (&short as *const u32).cast(), &PxuiTargetDesc::default(), &mut renderer), PXUI_ERR_ARGUMENT);
+        assert_eq!(pxui_renderer_create(ui, (&short as *const u32).cast(), &PxuiTargetDesc::default(), &mut renderer), PXUI_ERR_ARGUMENT);
         assert_eq!(renderer, core::ptr::dangling_mut::<PxuiRenderer>());
-        assert_eq!(pxui_renderer_create_checked(ui, &pxui_types::Gpu::default(), &PxuiTargetDesc::default(), core::ptr::null_mut()), PXUI_ERR_ARGUMENT);
-        assert_eq!(pxui_body_register_checked(ui, kind, name, Some(body), core::ptr::null_mut(), core::ptr::null_mut()), PXUI_ERR_ARGUMENT);
-        assert_eq!(pxui_body_register_checked(ui, u32::MAX, name, Some(body), core::ptr::null_mut(), &mut id), PXUI_ERR_ARGUMENT);
+        assert_eq!(pxui_renderer_create(ui, &pxui_types::Gpu::default(), &PxuiTargetDesc::default(), core::ptr::null_mut()), PXUI_ERR_ARGUMENT);
+        assert_eq!(pxui_body_register(ui, kind, name, Some(body), core::ptr::null_mut(), core::ptr::null_mut()), PXUI_ERR_ARGUMENT);
+        assert_eq!(pxui_body_register(ui, u32::MAX, name, Some(body), core::ptr::null_mut(), &mut id), PXUI_ERR_ARGUMENT);
         assert_eq!(id, 77);
-        assert_eq!(pxui_body_register_checked(ui, kind, name, Some(body), core::ptr::null_mut(), &mut id), 0);
+        assert_eq!(pxui_body_register(ui, kind, name, Some(body), core::ptr::null_mut(), &mut id), 0);
         assert_eq!(id, 1);
         assert_eq!(pxui_ui_destroy(ui), 0);
     }
 }
 
 #[test]
-fn legacy_accessibility_setters_keep_success_for_a_recycled_slot() {
+fn accessibility_setters_on_a_recycled_slot_report_it_stale() {
     extern "C" fn node(user: *mut c_void, raw: *mut c_void) {
         let handle = unsafe { &mut *user.cast::<PxuiBox>() };
         assert_eq!(unsafe { pxui_ui_node_keyed(raw.cast(), handle.box_key, &pxui_types::Node::DEFAULT, handle) }, 0);
@@ -201,11 +197,9 @@ fn legacy_accessibility_setters_keep_success_for_a_recycled_slot() {
     assert_ne!(live.generation, retired.generation);
     let name = crate::state::pair("retired");
     unsafe {
-        assert_eq!(pxui_ui_a11y_name(ui, &retired, name), 0);
-        assert_eq!(pxui_ui_a11y_number(ui, &retired, 0.0, 0.0, 1.0, 0.0), 0);
         assert_eq!(pxui_ui_set_role(ui, &retired, pxui_types::a11y::Role::Button as u32, 0), 0);
-        assert_eq!(pxui_ui_a11y_name_checked(ui, &retired, name), PXUI_ERR_STALE);
-        assert_eq!(pxui_ui_a11y_number_checked(ui, &retired, 0.0, 0.0, 1.0, 0.0), PXUI_ERR_STALE);
+        assert_eq!(pxui_ui_a11y_name(ui, &retired, name), PXUI_ERR_STALE);
+        assert_eq!(pxui_ui_a11y_number(ui, &retired, 0.0, 0.0, 1.0, 0.0), PXUI_ERR_STALE);
         assert_eq!(pxui_ui_a11y_value(ui, &retired, name, 0, 0), PXUI_ERR_STALE);
         assert_eq!(pxui_ui_destroy(ui), 0);
     }
@@ -213,16 +207,14 @@ fn legacy_accessibility_setters_keep_success_for_a_recycled_slot() {
 
 #[test]
 fn default_descriptors_carry_their_size() {
-    use pxui_types::{Commands, Gpu, Pass, ffi::{Input, ThemeSource}};
+    use pxui_types::{Commands, Gpu, Pass, ffi::Input};
     assert_eq!(FrameIn::default().size as usize, core::mem::size_of::<FrameIn>());
     assert_eq!(Input::default().size as usize, core::mem::size_of::<Input>());
     assert_eq!(Gpu::default().size as usize, core::mem::size_of::<Gpu>());
     assert_eq!(Pass::default().size as usize, core::mem::size_of::<Pass>());
     assert_eq!(Commands::default().size as usize, core::mem::size_of::<Commands>());
-    assert_eq!(ThemeSource::default().size as usize, core::mem::size_of::<ThemeSource>());
     // and the library accepts the defaults it is given
     let ui = create();
-    assert_eq!(unsafe { pxui_ui_set_theme(ui, &ThemeSource::default()) }, 0);
     let mut out = FrameOut::default();
     let input = Input { logical_size: [320, 240], ..Input::default() };
     assert_eq!(unsafe { pxui_ui_frame(ui, &input, Some(nothing), core::ptr::null_mut(), &mut out) }, 0);
@@ -917,7 +909,7 @@ fn a_poisoned_shaper_or_theme_fails_its_calls_and_is_still_freed() {
     unsafe { pxui_shaper_destroy(shaper); }
     let theme = unsafe { pxui_theme_create(core::ptr::null()) };
     unsafe { (*theme).poisoned = true; }
-    assert_eq!(unsafe { pxui_theme_set(theme, str_of(b"tokens.accent"), str_of(b"#ff0000")) }, PXUI_ERR_PANIC);
+    assert_eq!(unsafe { pxui_theme_parse(theme, str_of(b"tokens.accent = #ff0000")) }, PXUI_ERR_PANIC);
     unsafe { pxui_theme_destroy(theme); }
 }
 
@@ -1088,19 +1080,6 @@ mod sized_records {
         let font = Str { ptr: pxui_core::text::PRAGMASEVKA.as_ptr(), len: pxui_core::text::PRAGMASEVKA.len() };
         created(unsafe { pxui_ui_create_with_fonts(p, &font, 1) })
     }
-        });
-        unsafe { pxui_ui_destroy(ui); }
-    }
-
-    #[test]
-    fn theme_source() {
-        let ui = create();
-        let mut value: ThemeSource = unsafe { core::mem::zeroed() };
-        let fix: fn(&mut ThemeSource) = |_| {};
-        fix(&mut value);
-        four(ui, ((&value as *const ThemeSource).cast(), size_of_val(&value), align_of_val(&value)), true, &mut |p| {
-            let p = p.cast::<ThemeSource>();
-            unsafe { pxui_ui_set_theme(ui, p) }
         });
         unsafe { pxui_ui_destroy(ui); }
     }
@@ -1878,8 +1857,10 @@ fn fonts_and_renderer_records_are_validated() {
         assert_eq!(pxui_ui_destroy(made), 0);
         // a gpu or target record shorter than its type is refused before it is read
         let short = 4u32;
-        assert!(pxui_renderer_create(ui, (&short as *const u32).cast(), &PxuiTargetDesc::default()).is_null());
-        assert!(pxui_renderer_create(ui, &pxui_types::Gpu::default(), (&short as *const u32).cast()).is_null());
+        let mut renderer = core::ptr::null_mut();
+        assert_ne!(pxui_renderer_create(ui, (&short as *const u32).cast(), &PxuiTargetDesc::default(), &mut renderer), 0);
+        assert_ne!(pxui_renderer_create(ui, &pxui_types::Gpu::default(), (&short as *const u32).cast(), &mut renderer), 0);
+        assert!(renderer.is_null());
         assert_eq!(pxui_ui_destroy(ui), 0);
     }
 }

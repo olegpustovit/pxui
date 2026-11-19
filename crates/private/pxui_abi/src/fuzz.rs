@@ -93,7 +93,7 @@ arg!(span: Str, u8, i64, Event, A11yAction, PxuiHintDesc, PxuiKeyframeDesc, pxui
 arg!(sized: PxuiTextFieldDesc, Environment, Gpu, Keyboard, Pass, pxui_text::TextSpans, Commands, A11yAction, Input, PxuiButtonDesc, PxuiDialogDesc, PxuiDialogResult, PxuiSegmentedResult,
     PxuiDismissIn, PxuiDismissOut, PxuiFooterDesc, PxuiGestureIn, PxuiGestureOut, PxuiGridListDesc, PxuiHeaderDesc, PxuiHeadOut, PxuiIconButtonDesc,
     PxuiInspectorRowDesc, PxuiInspectorSectionDesc, PxuiInspectorTextDesc, PxuiInspectorValueDesc, PxuiKeyframeDesc, PxuiLabelStyle, PxuiLookDesc, PxuiMenuBarDesc, PxuiMenuExtra, PxuiMenuOut, PxuiNodeFields, PxuiPopupDesc, PxuiResponse,
-    PxuiScrubOut, PxuiSignal, PxuiSplitDesc, PxuiStateDesc, PxuiSwipeIn, PxuiTreeViewDesc, PxuiValueFieldDesc, ThemeSource, ThemeTokens, FrameIn, FrameOut, Image, Node, PxuiPanel,
+    PxuiScrubOut, PxuiSignal, PxuiSplitDesc, PxuiStateDesc, PxuiSwipeIn, PxuiTreeViewDesc, PxuiValueFieldDesc, ThemeTokens, FrameIn, FrameOut, Image, Node, PxuiPanel,
     PxuiTargetDesc, PxuiUiDesc, TextMetrics, PxuiTextStyle, PxuiAnchorDesc, PxuiAreaCallbacks, PxuiLabelBox, PxuiMarkDesc, PxuiSegmentedDesc,
     PxuiTextAreaDesc, PxuiTextInputOptions, PxuiToggleDesc, PxuiCheckboxDesc, PxuiSheetDesc, Span, TextGlyph,
     PxuiSectionListDesc, PxuiListResult, PxuiSelectionListDesc, PxuiTableHeadDesc, PxuiHeadResult, PxuiTableDesc, PxuiTableResult);
@@ -217,16 +217,16 @@ macro_rules! fuzz {
 fuzz!(
     pxui_ui_inspector_bar/3, pxui_ui_inspector_body/3, pxui_ui_inspector_button/4, pxui_ui_inspector_header/5, pxui_ui_inspector_label_x/1,
     pxui_ui_inspector_message/2, pxui_ui_inspector_readout/2, pxui_ui_inspector_row/2, pxui_ui_inspector_section/2, pxui_ui_inspector_toggle/5, pxui_ui_inspector_width/1, pxui_ui_layout_node/3, pxui_ui_line_field/13, pxui_ui_menu_bar/4, pxui_ui_modal/7, pxui_ui_panel/6, pxui_ui_pick/8, pxui_ui_tabs/8, pxui_ui_popup/7, pxui_ui_scrub/8, pxui_ui_slider/7, pxui_ui_split/5, pxui_ui_value_field/11,
-    pxui_a11y_fd/1, pxui_a11y_pump/2, pxui_a11y_update/2, pxui_abi_version/0, pxui_body_register/5, pxui_body_register_checked/6, pxui_counter/1, pxui_default_font/0, pxui_frame/5, pxui_last_error/1, pxui_paint_cap/6, pxui_paint_cap_width/2, pxui_paint_caret_x/5,
-    pxui_paint_color/2, pxui_paint_icon/7, pxui_paint_icon_word/1, pxui_paint_image/8, pxui_paint_image_checked/8, pxui_paint_input_region/6, pxui_paint_label/6, pxui_paint_label_chars/5, pxui_paint_label_measure/6, pxui_paint_label_spans/8,
+    pxui_a11y_fd/1, pxui_a11y_pump/2, pxui_a11y_update/2, pxui_abi_version/0, pxui_body_register/6, pxui_counter/1, pxui_default_font/0, pxui_frame/5, pxui_last_error/1, pxui_paint_cap/6, pxui_paint_cap_width/2, pxui_paint_caret_x/5,
+    pxui_paint_color/2, pxui_paint_icon/7, pxui_paint_icon_word/1, pxui_paint_image/8, pxui_paint_input_region/6, pxui_paint_label/6, pxui_paint_label_chars/5, pxui_paint_label_measure/6, pxui_paint_label_spans/8,
     pxui_paint_ratio/5, pxui_paint_scroll_y/2, pxui_paint_selection/8, pxui_paint_span/3, pxui_paint_text/4, pxui_paint_text_color/5, pxui_paint_text_metrics/4,
     pxui_paint_text_size/6, pxui_paint_text_spans/10, pxui_paint_text_styled/8, pxui_paint_text_width/4, pxui_paint_text_with/9, pxui_part/4,
-    pxui_part_box/4, pxui_renderer_atlas/3, pxui_renderer_create_checked/4, pxui_renderer_draw/2,
+    pxui_part_box/4, pxui_renderer_atlas/3, pxui_renderer_create/4, pxui_renderer_draw/2,
     pxui_renderer_draw_calls/1, pxui_renderer_forget_image/3, pxui_renderer_prepare/4, pxui_renderer_resize/3, pxui_scope/4, pxui_shaper_add_font/2,
     pxui_shaper_prepare/7, pxui_shaper_rasterize_rgba/14, pxui_shaper_system_fonts/1, pxui_shaper_width/6,
     pxui_shaper_width_spans/7, pxui_slot/3, pxui_supports/1, pxui_text_add_font/2, pxui_text_install/2, pxui_text_prewarm/4, pxui_text_quads/10, pxui_text_rasterize_rgba/14, pxui_text_system_fonts/1, pxui_text_width/6,
-    pxui_text_width_spans/7, pxui_theme_density/2, pxui_theme_last_error/1, pxui_theme_load/2, pxui_theme_parse/2,
-    pxui_theme_reduced_motion/2, pxui_theme_set/3, pxui_theme_set_color/3, pxui_ui_a11y_name/3, pxui_ui_a11y_name_checked/3, pxui_ui_a11y_number/6, pxui_ui_a11y_number_checked/6, pxui_ui_a11y_value/5, pxui_ui_animate/4,
+    pxui_text_width_spans/7, pxui_theme_density/2, pxui_theme_last_error/1, pxui_theme_parse/2,
+    pxui_theme_reduced_motion/2, pxui_theme_set_color/3, pxui_ui_a11y_name/3, pxui_ui_a11y_number/6, pxui_ui_a11y_value/5, pxui_ui_animate/4,
     pxui_ui_animate_keys/4, pxui_ui_animate_keys_repeat/7, pxui_ui_box_of_a11y/3, pxui_ui_box_of_key/3, pxui_ui_busy_step/4,
     pxui_ui_button/5, pxui_ui_button_plain/4, pxui_ui_bytes/3,
     pxui_ui_cached_label/5, pxui_ui_calls/1, pxui_ui_cancel_carry/1, pxui_ui_cap_width/3, pxui_ui_captured/1, pxui_ui_carry/5, pxui_ui_carrying/4, pxui_ui_progress/5, pxui_ui_spinner/3,
@@ -235,20 +235,20 @@ fuzz!(
     pxui_ui_color/2, pxui_ui_content_rect/2, pxui_ui_context_at/4, pxui_ui_context_menu/13, pxui_ui_density/1,
     pxui_ui_dialog/5, pxui_ui_disabled/4, pxui_ui_dismiss/4, pxui_ui_dismiss_popup/1, pxui_ui_draw/6,
     pxui_ui_drop_target/5, pxui_ui_environment/2, pxui_ui_expanded/3, pxui_ui_field_drag/4, pxui_ui_focus_box/2,
-    pxui_ui_focused/3, pxui_ui_font_points/2, pxui_ui_font_size/1, pxui_ui_footer/2, pxui_ui_frame/5, pxui_ui_frame_index/1, pxui_ui_gesture/5, pxui_ui_grid_list/3, pxui_ui_grip/7,
+    pxui_ui_focused/3, pxui_ui_font_points/2, pxui_ui_footer/2, pxui_ui_frame/5, pxui_ui_frame_index/1, pxui_ui_gesture/5, pxui_ui_grid_list/3, pxui_ui_grip/7,
     pxui_ui_hover_delay/3, pxui_ui_key_seed/2, pxui_ui_hovered/4, pxui_ui_icon_button_plain/5, pxui_ui_icon_button/3, pxui_ui_icon_word/2, pxui_ui_image/8, pxui_ui_inject_a11y/3, pxui_ui_input/4, pxui_ui_item_text/2, pxui_ui_key_down/3, pxui_ui_key_pressed/4, pxui_ui_keyboard/2, pxui_ui_label/3, pxui_ui_label_node/5, pxui_ui_label_text_spans/5, pxui_ui_label_text_line_box/5, pxui_ui_label_measure/6,
     pxui_ui_label_quads/9, pxui_ui_label_rasterize_rgba/13, pxui_ui_label_prewarm/4, pxui_ui_layer_drawn/2, pxui_ui_load_text_edit/6, pxui_ui_local_rect/3, pxui_ui_node/4,
     pxui_ui_node_fields/3, pxui_ui_node_keyed/4, pxui_ui_node_layout/3, pxui_ui_now/1, pxui_ui_output/1, pxui_ui_passed_undo/1, pxui_ui_patch_field/5,
     pxui_ui_patch_look/4, pxui_ui_patch_mark/4, pxui_ui_patch_rect/4, pxui_ui_patch_text/4, pxui_ui_phase_cpu_times/3, pxui_ui_phase_times/3, pxui_ui_platform/1,
     pxui_ui_press_keys/4, pxui_ui_rebuilt_named/3, pxui_ui_rect/3, pxui_ui_remember/6,
-    pxui_ui_repaint_after/2, pxui_ui_request_cursor/2, pxui_ui_request_frame/1, pxui_ui_resolve_label/3, pxui_ui_reveal/3, pxui_ui_root_at/6, pxui_ui_row_height/1, pxui_ui_row_points/2,
+    pxui_ui_repaint_after/2, pxui_ui_request_cursor/2, pxui_ui_request_frame/1, pxui_ui_resolve_label/3, pxui_ui_reveal/3, pxui_ui_root_at/6, pxui_ui_row_points/2,
     pxui_ui_scroll_offset/4, pxui_ui_search_field/10, pxui_ui_section_list/7, pxui_ui_selection_list/7, pxui_ui_table_head/4, pxui_ui_table/7,
-    pxui_ui_segmented/5, pxui_ui_set_a11y/2, pxui_ui_set_at/4, pxui_ui_set_colors/4, pxui_ui_set_dir/2,
-    pxui_ui_set_font_points/2, pxui_ui_set_font_size/2, pxui_ui_set_look/4, pxui_ui_set_node_fields/3, pxui_ui_set_node_layout/3, pxui_ui_set_role/4, pxui_ui_set_scroll_offset/3,
-    pxui_ui_set_state/3, pxui_ui_set_text_state/4, pxui_ui_set_text_worker/2, pxui_ui_set_theme/2, pxui_ui_set_timing/2, pxui_ui_signal/3, pxui_ui_state/4, pxui_ui_style/4, pxui_ui_swipe_actions/3, pxui_ui_system_appearance/2,
+    pxui_ui_segmented/5, pxui_ui_set_a11y/2, pxui_ui_set_at/4, pxui_ui_set_dir/2,
+    pxui_ui_set_font_points/2, pxui_ui_set_node_fields/3, pxui_ui_set_node_layout/3, pxui_ui_set_role/4, pxui_ui_set_scroll_offset/3,
+    pxui_ui_set_state/3, pxui_ui_set_text_state/4, pxui_ui_set_text_worker/2, pxui_ui_set_timing/2, pxui_ui_signal/3, pxui_ui_state/4, pxui_ui_style/4, pxui_ui_swipe_actions/3, pxui_ui_system_appearance/2,
     pxui_ui_text/3, pxui_ui_text_area/9, pxui_ui_text_field/5, pxui_ui_text_input_focused/1,
     pxui_ui_text_input_options/2, pxui_ui_text_layout_count/2, pxui_ui_text_line_box/5, pxui_ui_text_spans/5, pxui_ui_text_state/4, pxui_ui_text_top/5,
-    pxui_ui_text_undo_bytes/1, pxui_ui_text_width/4, pxui_ui_theme/1, pxui_ui_theme_exact/1, pxui_ui_theme_apply/3, pxui_ui_themed/4, pxui_ui_tip/3, pxui_ui_to_front/3, pxui_ui_toggle_plain/5, pxui_ui_toggle/3, pxui_ui_transfer_carry/3, pxui_ui_tree/3, pxui_ui_unfocus/1,
+    pxui_ui_text_undo_bytes/1, pxui_ui_text_width/4, pxui_ui_theme/1, pxui_ui_themed/4, pxui_ui_tip/3, pxui_ui_to_front/3, pxui_ui_toggle_plain/5, pxui_ui_toggle/3, pxui_ui_transfer_carry/3, pxui_ui_tree/3, pxui_ui_unfocus/1,
     pxui_ui_use_theme/2, pxui_ui_variant/3, pxui_ui_verify_views/2, pxui_ui_verifying/1, pxui_ui_view_backdrop_blur/3,
     pxui_ui_view_backdrop_saturation/3, pxui_ui_view_clip/3, pxui_ui_view_offset/4, pxui_ui_view_opacity/3, pxui_ui_view_scale/3,
     pxui_ui_view_size/2, pxui_ui_view_transform_about/6, pxui_ui_wants_frame/4, pxui_within/4,
@@ -257,8 +257,8 @@ fuzz!(
 /// The exports that make or free an object, or switch a process-wide setting: each is called on objects it may free (null and a
 /// fresh one), and what it makes is freed.
 const SPECIAL: &[&str] = &["pxui_ui_create", "pxui_ui_create_with_fonts", "pxui_ui_destroy", "pxui_shaper_create", "pxui_shaper_destroy", "pxui_text_fork",
-    "pxui_theme_create", "pxui_theme_destroy", "pxui_prepared_destroy", "pxui_text_worker_create", "pxui_text_worker_destroy", "pxui_renderer_create",
-    "pxui_renderer_destroy", "pxui_a11y_start", "pxui_a11y_stop", "pxui_verify_new_views"];
+    "pxui_theme_create", "pxui_theme_destroy", "pxui_prepared_destroy", "pxui_text_worker_create", "pxui_text_worker_destroy",
+    "pxui_renderer_destroy", "pxui_a11y_start", "pxui_a11y_stop"];
 
 fn special() {
     for k in 0..VARIANTS {
@@ -279,13 +279,9 @@ fn special() {
             pxui_theme_destroy(theme);
             pxui_prepared_destroy(core::ptr::null_mut());
             pxui_renderer_destroy(core::ptr::null_mut());
-            let renderer = pxui_renderer_create(Arg::arg(k), Arg::arg(k + 1), Arg::arg(k + 2));
-            if !renderer.is_null() { pxui_renderer_destroy(renderer); }
             pxui_a11y_stop(core::ptr::null_mut());
             // a name that is refused before any bus is reached
             assert!(pxui_a11y_start(Str { ptr: core::ptr::null(), len: 5 }).is_null());
-            pxui_verify_new_views(0);
-            assert_eq!(pxui_verify_new_views(1), crate::PXUI_ERR_STATE, "verification is per Ui: no process-wide flag");
         }
         check("special", &0i32, panics);
     }
@@ -303,8 +299,8 @@ fn special() {
             assert_eq!(pxui_shaper_width(shaper, Arg::arg(k), Arg::arg(k + 1), Arg::arg(k + 2), Arg::arg(k + 3), Arg::arg(k + 4)), PXUI_ERR_PANIC);
             assert_eq!(pxui_shaper_add_font(shaper, font), u32::MAX);
             assert_eq!(pxui_shaper_system_fonts(shaper), PXUI_ERR_PANIC);
-            assert_eq!(pxui_theme_set(theme, Str { ptr: b"tokens.accent".as_ptr(), len: 13 }, Str { ptr: b"#ff0000".as_ptr(), len: 7 }), PXUI_ERR_PANIC);
-            assert_eq!(pxui_theme_load(theme, Arg::arg(k)), PXUI_ERR_PANIC);
+            assert_eq!(pxui_theme_parse(theme, Str { ptr: b"tokens.accent = #ff0000".as_ptr(), len: 23 }), PXUI_ERR_PANIC);
+            assert_eq!(pxui_theme_parse(theme, Arg::arg(k)), PXUI_ERR_PANIC);
         }
         check("a poisoned shaper or theme", &0i32, panics);
     }

@@ -18,7 +18,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 95u)
+#define PXUI_ABI_BUILT ((1u << 16) | 96u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 typedef struct { uint32_t autocorrect, capitalization, action; } PxuiTextInputOptions;
@@ -64,7 +64,6 @@ typedef struct { uint64_t id; uint32_t action_code,reserved; double payload; uin
 typedef struct { const PxuiA11yNode *ptr; size_t len; } PxuiA11yNodeSpan;
 typedef struct { const PxuiA11yAction *ptr; size_t len; } PxuiA11yActionSpan;
 typedef struct { PxuiA11yNodeSpan nodes; PxuiStr strings; uint64_t revision; uint32_t first_child,child_count; PxuiA11yActionSpan actions; } PxuiA11yTree;
-typedef struct { uint32_t size,flags; PxuiStr source; } PxuiThemeSource;
 typedef struct { float l,t,r,b; } PxuiEdges;
 typedef struct { uint32_t kind; float value; float (*relative)(float); } PxuiSizeDesc;
 typedef struct { uint8_t has_anchor,reserved[3]; PxuiRect rect; uint32_t side,align; float gap,margin; uint8_t flip,reserved_tail[3]; } PxuiAnchorDesc;
@@ -127,7 +126,7 @@ typedef struct { PxuiLook idle,hover,pressed,focus,disabled,checked; } PxuiState
 /* The body each widget kind builds with: 0 the built-in, n the nth body registered for the kind. */
 typedef struct { uint16_t toggle,slider,progress,button,icon_button,checkbox,radio,spinner,badge,label,footer,grip,panel,window,popup,modal,dialog,inspector_section,inspector_row,split,scroll_view,toast,tip,tab,segment,dropdown,menu_bar,menu_item,context_menu,list_view,tree,table_view,table_head,picker,search_field,text_field,line_field,value_field,picker_field,section_index; } PxuiBodies;
 typedef struct { PxuiTokens tokens; float row_h,control_h; PxuiRing ring; float scrollbar_w,scrollbar_gap; PxuiStates parts[PXUI_THEME_PARTS]; PxuiBodies bodies; } PxuiThemeSnapshot;
-/* ABI 1.92: a handle's public head. theme is the theme in effect for this handle as pxui_ui_theme_exact lends it, NULL until a theme
+/* ABI 1.92: a handle's public head. theme is the theme in effect for this handle as pxui_ui_theme lends it, NULL until a theme
    read on the handle fills it; then read the field in place of the call. The library maintains it: the caller must not write it. It stays valid while the handle does and cannot change while
    the handle is usable (a theme swap is refused in a frame; a themed scope builds through a handle of its own). The rest of the
    record is private: never allocate, copy or size a PxuiUi. */
@@ -497,7 +496,7 @@ enum {
     PXUI_FEATURE_SEGMENTED_RESULT = 24,  /* 1.67: pxui_ui_segmented_result */
     PXUI_FEATURE_WIDGETS_KEYED = 25,     /* 1.68: PxuiKeyedDesc and the pxui_ui_*_keyed widget and container calls */
     PXUI_FEATURE_SEGMENTED_STORED_FOCUS = 26, /* 1.69: PxuiSegmentedDesc.focus_on_click, PxuiSegmentConfig.stored */
-    PXUI_FEATURE_IMAGE_CHECKED = 27,     /* 1.70: pxui_ui_image_node, pxui_paint_image_checked */
+    PXUI_FEATURE_IMAGE_CHECKED = 27,     /* 1.70: pxui_ui_image_node, pxui_paint_image */
     PXUI_FEATURE_BUTTON_PARTS = 28,      /* 1.71: PxuiButtonDesc/Config lead, detail, accessory; PxuiIconButtonDesc.checkable/checked; PxuiDialogDesc/Config.details */
     PXUI_FEATURE_VIEW_KEYED = 29         /* 1.72: pxui_ui_view */
 };
@@ -528,11 +527,9 @@ int32_t pxui_ui_layer_drawn(PxuiUi *ui, uint64_t layer);
 const PxuiOutput *pxui_ui_output(PxuiUi *ui); /* borrowed from the Ui until its next frame */
 /* The theme in effect, lent: valid until the Ui next changes it (a theme swap, a themed scope) or is freed. NULL when the call is refused
    (a poisoned Ui, a handle that is not the current one): see pxui_last_error. */
+/* The theme as the engine keeps it: each PxuiTokens text size is a float in the low half of its int64_t slot (the other half 0),
+   fonts carry a fractional size in PxuiFont's tail padding. ABI 1.92: it also records the theme in the handle's head (PxuiUi.theme). */
 const PxuiThemeSnapshot *pxui_ui_theme(PxuiUi *ui);
-/* ABI 1.78: the theme as the engine keeps it: each PxuiTokens text size is a float in the low half of its int64_t slot (the other
-   half 0), fonts carry a fractional size in PxuiFont's tail padding. pxui_ui_theme lends the integer projection of it. ABI 1.92: it
-   also records the theme in the handle's head (PxuiUi.theme). */
-const PxuiThemeSnapshot *pxui_ui_theme_exact(PxuiUi *ui);
 /* Measured virtual rows: count <= 1,000,000, finite positive estimate and finite estimated total.
    Called inside a frame; build may repeat while measured heights settle. The returned box scrolls the list. */
 int32_t pxui_ui_grid_list(PxuiUi *ui, const PxuiGridListDesc *desc, PxuiBox *out);
@@ -563,19 +560,15 @@ int32_t pxui_ui_use_theme(PxuiUi *ui, const PxuiTheme *theme);
 /* ABI 1.43: app colour tokens. set_colors installs light[i]/dark[i] as token i between frames (count at most 64, 0 clears;
    a changed table rebuilds every view once). color reads a token for the theme in effect: the dark entry while that theme
    is dark (panel channel sum below 384), else the light one; transparent past the table or on a dead handle. */
-int32_t pxui_ui_set_colors(PxuiUi *ui, const PxuiColor *light, const PxuiColor *dark, size_t count);
 PxuiColor pxui_ui_color(PxuiUi *ui, uint16_t token);
-int32_t pxui_ui_set_theme(PxuiUi *ui, const PxuiThemeSource *source);
 int32_t pxui_ui_set_dir(PxuiUi *ui, uint32_t dir);
 int32_t pxui_ui_set_a11y(PxuiUi *ui, uint8_t on);
 /* action_code: one bit, 1 press, 2 focus, 4 set value, 8 scroll, 16 expand, 32 collapse, 64 select, 128 move up, 256 move down
    (ABI 1.89: a reorderable list row). */
 int32_t pxui_ui_inject_a11y(PxuiUi *ui, const PxuiA11yAction *actions, size_t count);
 int32_t pxui_ui_a11y_name(PxuiUi *ui, const PxuiBox *box, PxuiStr name);
-int32_t pxui_ui_a11y_name_checked(PxuiUi *ui, const PxuiBox *box, PxuiStr name);
 int32_t pxui_ui_a11y_value(PxuiUi *ui, const PxuiBox *box, PxuiStr value, uint32_t anchor, uint32_t caret);
 int32_t pxui_ui_a11y_number(PxuiUi *ui, const PxuiBox *box, double now, double min, double max, double step);
-int32_t pxui_ui_a11y_number_checked(PxuiUi *ui, const PxuiBox *box, double now, double min, double max, double step);
 int32_t pxui_ui_set_role(PxuiUi *ui, const PxuiBox *box, uint32_t role, uint32_t states);
 int32_t pxui_ui_focus_box(PxuiUi *ui, const PxuiBox *box);
 int32_t pxui_ui_focused(PxuiUi *ui, const PxuiBox *box, uint8_t *out);
@@ -596,7 +589,6 @@ uint8_t pxui_ui_box_of_key(PxuiUi *ui, int64_t key, PxuiBox *out);
 /* ABI 1.30: 1 and the live box, or 0 without changing out for a retired/unknown identity. */
 uint8_t pxui_ui_box_of_a11y(PxuiUi *ui, uint64_t id, PxuiBox *out);
 int32_t pxui_ui_text(PxuiUi *ui, const PxuiBox *box, PxuiStr value);
-int32_t pxui_ui_set_look(PxuiUi *ui, const PxuiBox *box, const PxuiLookDesc *look, const PxuiStateDesc *state);
 int32_t pxui_ui_style(PxuiUi *ui, const PxuiBox *box, const PxuiLookDesc states[6], const PxuiStateDesc *state);
 float pxui_ui_text_width(PxuiUi *ui, uint8_t has_size, int64_t size, PxuiStr text);
 int32_t pxui_ui_draw(PxuiUi *ui, const PxuiBox *box, uint8_t over, PxuiPaintBuild build, void *user, PxuiPaintRelease release); /* a span must be committed (pxui_paint_span with at_least 0) before the callback returns; one left open, or a pxui_paint_* call made under an open span, is refused and the frame that ran the callback returns PXUI_ERR_STATE */
@@ -727,8 +719,7 @@ typedef struct { uint32_t size; PxuiStateDesc state; PxuiBox row; PxuiStr label;
 typedef struct { uint32_t size; PxuiStateDesc state; uint8_t empty; PxuiBox field; PxuiStr text; uint16_t variant; } PxuiLineFieldConfig;
 typedef struct { uint32_t size; PxuiStateDesc state; uint8_t invalid; float w; float h; PxuiBox field; PxuiValueFieldDesc opts; PxuiStr text; uint16_t variant; } PxuiValueFieldConfig;
 typedef struct { uint32_t size; PxuiStateDesc state; uint8_t empty; uint8_t slash; float prefix; float inset; PxuiBox search; PxuiStr placeholder; uint16_t variant; } PxuiPickerFieldConfig;
-uint16_t pxui_body_register(PxuiUi *ui, uint32_t kind, PxuiStr name, PxuiBodyFn body, void *user);
-int32_t pxui_body_register_checked(PxuiUi *ui, uint32_t kind, PxuiStr name, PxuiBodyFn body, void *user, uint16_t *out);
+int32_t pxui_body_register(PxuiUi *ui, uint32_t kind, PxuiStr name, PxuiBodyFn body, void *user, uint16_t *out);
 /* Builds a node as part `part` (PXUI_PART_*) of the widget whose body is running; PXUI_ERR_STATE outside a body call. */
 int32_t pxui_part(PxuiUi *ui, uint32_t part, const PxuiNode *node, PxuiBox *out);
 /* The box of `part` of the widget keyed `owner` as the last build left it: 0 and the box in `out`, 1 when it was not built. */
@@ -882,11 +873,10 @@ float pxui_paint_label_chars(PxuiPaint *paint, float x, float y, const PxuiLabel
    max_width (0: unbounded) with spans (NULL: none) without drawing, or drawn with spans. PXUI_ERR_ARGUMENT for invalid arguments. */
 int32_t pxui_paint_label_measure(PxuiPaint *paint, PxuiStr text, const PxuiLabelStyle *style, float max_width, const PxuiTextSpans *spans, PxuiTextMetrics *out);
 int32_t pxui_paint_label_spans(PxuiPaint *paint, float x, float y, const PxuiLabelStyle *style, float width, PxuiStr text, const PxuiTextSpans *spans, PxuiTextMetrics *out);
-/* Legacy, cut at 2.0: drops bad input silently; superseded by pxui_paint_image_checked (ABI 1.70). */
-void pxui_paint_image(PxuiPaint *paint, const PxuiImage *image, float x, float y, float width, float height, uint32_t fit, PxuiColor tint);
+/* Legacy, cut at 2.0: drops bad input silently; superseded by pxui_paint_image (ABI 1.70). */
 /* ABI 1.70: pxui_paint_image that reports a refusal: PXUI_ERR_ARGUMENT (nothing drawn) for a null painter or descriptor, an invalid
    descriptor, an unknown fit or a non-finite rectangle; 0 when drawn. */
-int32_t pxui_paint_image_checked(PxuiPaint *paint, const PxuiImage *image, float x, float y, float width, float height, uint32_t fit, PxuiColor tint);
+int32_t pxui_paint_image(PxuiPaint *paint, const PxuiImage *image, float x, float y, float width, float height, uint32_t fit, PxuiColor tint);
 /* Shared GPU: the renderer records into the app's command buffers and passes and never submits, waits,
  * presents or destroys what the app created. create takes the lease in gpu->owner_token (also on failure).
  * prepare(commands, frame, completed): frame grows by at least 1 per call; completed (the last frame the app
@@ -895,9 +885,8 @@ int32_t pxui_paint_image_checked(PxuiPaint *paint, const PxuiImage *image, float
  * rebind everything after it (OGPU: ogpu_core::backend::invalidate_state). PxuiImage: Vulkan views stay in
  * VK_IMAGE_LAYOUT_GENERAL while frames sampling them run; PXUI only samples them. destroy: the app has
  * finished every frame it prepared; a teardown failure is the Ui's last error. */
-PxuiRenderer *pxui_renderer_create(PxuiUi *ui, const PxuiGpu *gpu, const PxuiTargetDesc *target);
 /* Writes out on success. With a valid out pointer, a complete GPU record transfers its device lease even on failure. */
-int32_t pxui_renderer_create_checked(PxuiUi *ui, const PxuiGpu *gpu, const PxuiTargetDesc *target, PxuiRenderer **out);
+int32_t pxui_renderer_create(PxuiUi *ui, const PxuiGpu *gpu, const PxuiTargetDesc *target, PxuiRenderer **out);
 int32_t pxui_renderer_prepare(PxuiRenderer *renderer, const PxuiCommands *commands, uint64_t frame, uint64_t completed);
 /* Prepare blur storage at startup/resize, outside frame recording. Nonzero drawable-pixel dimensions. */
 int32_t pxui_renderer_resize(PxuiRenderer *renderer, uint32_t width, uint32_t height);
@@ -914,8 +903,6 @@ int32_t pxui_renderer_atlas(PxuiRenderer *renderer, uint32_t kind, PxuiImage *ou
 void pxui_renderer_destroy(PxuiRenderer *renderer);
 
 /* Queries and switches on the Ui as a whole. Text results are borrowed until the next frame. */
-int64_t pxui_ui_font_size(PxuiUi *ui);
-int64_t pxui_ui_row_height(PxuiUi *ui);
 /* Monotonic host frame time, shared by cached views (ABI 1.16). */
 double pxui_ui_now(PxuiUi *ui);
 /* Integer rendering density shared with Paint: host scale rounded to at least one (ABI 1.19). */
@@ -941,7 +928,6 @@ int32_t pxui_ui_key_down(PxuiUi *ui, uint32_t code, uint8_t *out);
 /* ABI 1.23: raw press query with Shift/Ctrl/Alt/Meta held at the event, including same-frame release. */
 /* Match all requested modifiers on one press (Shift=1, Ctrl=2, Alt=4, Meta=8). 0 requires none and 16 accepts any. */
 int32_t pxui_ui_key_pressed(PxuiUi *ui, uint32_t code, uint32_t modifiers, uint8_t *out);
-int32_t pxui_ui_set_font_size(PxuiUi *ui, int64_t size);
 /* ABI 1.78: the body size and kit row exactly (pxui_ui_font_size/_row_height round them); the setter keeps fractions (0.5..=1024). */
 int32_t pxui_ui_font_points(PxuiUi *ui, float *out);
 int32_t pxui_ui_row_points(PxuiUi *ui, float *out);
@@ -951,7 +937,6 @@ int32_t pxui_ui_dismiss_popup(PxuiUi *ui);
 int32_t pxui_ui_request_cursor(PxuiUi *ui, uint32_t shape); /* 1 horizontal resize, 2 vertical resize, 3 text */
 int32_t pxui_ui_repaint_after(PxuiUi *ui, double seconds);
 /* Legacy, cut at 2.0: verification is per Ui (pxui_ui_verify_views); 0 does nothing, 1 is refused (PXUI_ERR_STATE). */
-int32_t pxui_verify_new_views(uint8_t on);
 int32_t pxui_ui_verify_views(PxuiUi *ui, uint8_t on);
 int32_t pxui_ui_set_timing(PxuiUi *ui, uint8_t on);
 int32_t pxui_ui_phase_times(PxuiUi *ui, uint64_t *out, size_t len); /* nanoseconds, len must be 7 */
@@ -1105,12 +1090,9 @@ int32_t pxui_ui_picker(PxuiUi *ui, const PxuiKeyedDesc *keyed, int64_t limit, ui
    its base: a tokens.* key re-derives every look from the new tokens, so set tokens before the keys that restyle single looks. */
 PxuiTheme *pxui_theme_create(const PxuiThemeTokens *tokens); /* tokens may be NULL for the defaults; NULL result: the tokens are invalid (not finite, a size or density at or below zero, a flag above 1, reserved bytes set) */
 void pxui_theme_destroy(PxuiTheme *theme);
-int32_t pxui_theme_set(PxuiTheme *theme, PxuiStr key, PxuiStr value);
-int32_t pxui_theme_load(PxuiTheme *theme, PxuiStr path);
 PxuiStr pxui_theme_last_error(const PxuiTheme *theme); /* borrowed from the theme until its next call */
 int32_t pxui_ui_themed(PxuiUi *ui, const PxuiTheme *theme, PxuiBuild build, void *user);
 /* pxui_theme_set for a whole theme file: `KIND.body = NAME` names the bodies `ui` registered; an unregistered name is refused (pxui_theme_last_error). */
-int32_t pxui_ui_theme_apply(PxuiUi *ui, PxuiTheme *theme, PxuiStr text);
 /* Detached source. Root installation checks all named bodies in the destination Ui. Scopes use the built-in body for missing names. */
 int32_t pxui_theme_parse(PxuiTheme *theme, PxuiStr source);
 int32_t pxui_theme_set_color(PxuiTheme *theme, uint16_t token, PxuiColor color);
@@ -1167,7 +1149,6 @@ _Static_assert(sizeof(PxuiA11yNode) == 128 && offsetof(PxuiA11yNode, id) == 0 &&
 _Static_assert(sizeof(PxuiA11yAction) == 32 && offsetof(PxuiA11yAction, id) == 0 && offsetof(PxuiA11yAction, action_code) == 8 && offsetof(PxuiA11yAction, reserved) == 12 && offsetof(PxuiA11yAction, payload) == 16 && offsetof(PxuiA11yAction, end) == 24 && offsetof(PxuiA11yAction, reserved_tail) == 28, "A11yAction layout");
 _Static_assert(sizeof(PxuiA11yTree) == 64 && offsetof(PxuiA11yTree, nodes) == 0 && offsetof(PxuiA11yTree, strings) == 16 && offsetof(PxuiA11yTree, revision) == 32 && offsetof(PxuiA11yTree, first_child) == 40 && offsetof(PxuiA11yTree, child_count) == 44 && offsetof(PxuiA11yTree, actions) == 48 && offsetof(PxuiA11yTree, actions.len) == 56, "A11yTree layout");
 _Static_assert(sizeof(PxuiOutput) == 240 && offsetof(PxuiOutput, size) == 0 && offsetof(PxuiOutput, reserved) == 4 && offsetof(PxuiOutput, draw_revision) == 8 && offsetof(PxuiOutput, repaint_at) == 16 && offsetof(PxuiOutput, built_nodes) == 24 && offsetof(PxuiOutput, rebuilt_views) == 32 && offsetof(PxuiOutput, arranged_nodes) == 40 && offsetof(PxuiOutput, platform) == 48 && offsetof(PxuiOutput, damage) == 136 && offsetof(PxuiOutput, a11y) == 160 && offsetof(PxuiOutput, layers) == 224, "Output layout");
-_Static_assert(sizeof(PxuiThemeSource) == 24 && offsetof(PxuiThemeSource, size) == 0 && offsetof(PxuiThemeSource, flags) == 4 && offsetof(PxuiThemeSource, source) == 8, "ThemeSource layout");
 _Static_assert(sizeof(PxuiMotion) == 28 && offsetof(PxuiMotion, fast) == 0 && offsetof(PxuiMotion, normal) == 4 && offsetof(PxuiMotion, slow) == 8 && offsetof(PxuiMotion, ease) == 12, "PxuiMotion layout");
 _Static_assert(sizeof(PxuiThemeTokens) == 136 && offsetof(PxuiThemeTokens, size) == 0 && offsetof(PxuiThemeTokens, panel) == 4 && offsetof(PxuiThemeTokens, foreground) == 8 && offsetof(PxuiThemeTokens, control) == 12 && offsetof(PxuiThemeTokens, input) == 16 && offsetof(PxuiThemeTokens, track) == 20 && offsetof(PxuiThemeTokens, accent) == 24 && offsetof(PxuiThemeTokens, ink_ground) == 28 && offsetof(PxuiThemeTokens, has_ink_ground) == 32 && offsetof(PxuiThemeTokens, reserved) == 33 && offsetof(PxuiThemeTokens, space) == 36 && offsetof(PxuiThemeTokens, radius) == 52 && offsetof(PxuiThemeTokens, display_size) == 64 && offsetof(PxuiThemeTokens, title_size) == 72 && offsetof(PxuiThemeTokens, font_size) == 80 && offsetof(PxuiThemeTokens, label_size) == 88 && offsetof(PxuiThemeTokens, motion) == 96 && offsetof(PxuiThemeTokens, reduced_motion) == 124 && offsetof(PxuiThemeTokens, reserved_tail) == 125 && offsetof(PxuiThemeTokens, density) == 128, "PxuiThemeTokens layout");
 _Static_assert(sizeof(PxuiSizeDesc) == 16 && offsetof(PxuiSizeDesc, kind) == 0 && offsetof(PxuiSizeDesc, value) == 4 && offsetof(PxuiSizeDesc, relative) == 8, "PxuiSizeDesc layout");
