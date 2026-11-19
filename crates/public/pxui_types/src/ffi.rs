@@ -955,7 +955,7 @@ pub struct PxuiPopupDesc {
 }
 
 /// A kit button with options (`button_with`): its arguments beside the build callback that replaces its text. Kinds 0, 1, 2 are
-/// the kit's size, `Px` and `Grow`; `justify` 0, 1, 2 is start, centre, end; `states` null is the theme's button, else six looks (idle, hover, pressed, focus, disabled, checked) as `pxui_ui_style` takes them.
+/// the kit's size, `Px` and `Grow`; `justify` 0, 1, 2 is start, centre, end; `states` null is the theme's button, else six looks (idle, hover, pressed, focus, disabled, checked), each checked as `pxui_ui_style` checks its look.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct PxuiButtonDesc {
@@ -1239,7 +1239,7 @@ impl PxuiSegmentedResult {
 pub type PxuiIconDraw = Option<extern "C" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, Rect, Rgba, *const PxuiPaintInfo)>;
 
 /// An icon button with options (`icon_button`): kinds 0, 1, 2 are the kit's square, `Px` and `Grow`; `states` null is the theme's
-/// `icon_button`, else six looks (idle, hover, pressed, focus, disabled, checked) as `pxui_ui_style` takes them.
+/// `icon_button`, else six looks (idle, hover, pressed, focus, disabled, checked), each checked as `pxui_ui_style` checks its look.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct PxuiIconButtonDesc {

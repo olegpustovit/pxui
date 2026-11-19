@@ -10,7 +10,7 @@ mod sys {
     use crate::sys::PxuiUi;
     #[link(name="pxui")]
     unsafe extern "C" {
-        pub fn pxui_ui_style(ui:*mut PxuiUi,box_:*const PxuiBox,states:*const PxuiLookDesc,state:*const PxuiStateDesc)->i32;
+        pub fn pxui_ui_style(ui:*mut PxuiUi,box_:*const PxuiBox,look:*const PxuiLookDesc,state:*const PxuiStateDesc)->i32;
     }
 }
 
@@ -22,10 +22,10 @@ impl Ui {
     ///
     /// The engine resolves named colours under the active theme and keeps the node's state for transitions.
     /// Use States::of for one look in every state, and patch_look for a retained update between builds. Stale handles are ignored.
-    /// All six looks are validated before any is applied, including looks for states the node is not in, so an invalid value in an
-    /// inactive look still refuses the call and leaves the node unchanged.
+    /// Only the look `state` picks (`States::pick`) crosses to the library, which checks and applies it; the other five are not read,
+    /// so an invalid value in a look for a state the node is not in has no effect.
     /// Allocates: never.
-    /// Panics: any of the six looks contains an invalid value.
+    /// Panics: the look `state` picks contains an invalid value.
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
@@ -36,8 +36,8 @@ impl Ui {
     #[inline]
     #[track_caller]
     pub fn style(&mut self, box_: &Handle, states: &States, state: State) {
-        let values = [node::look(states.idle), node::look(states.hover), node::look(states.pressed), node::look(states.focus), node::look(states.disabled), node::look(states.checked)];
+        let look = node::look(*states.pick(state));
         let state = encode_state(state);
-        check(self, unsafe { sys::pxui_ui_style(self.0.as_ptr(), box_, values.as_ptr(), &state) })
+        check(self, unsafe { sys::pxui_ui_style(self.0.as_ptr(), box_, &look, &state) })
     }
 }
