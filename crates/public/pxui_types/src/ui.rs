@@ -263,7 +263,8 @@ impl SelectionList {
 
     /// Shows `look` on a row in place of its state look while a carried payload is over the row (a sidebar list a song is dragged
     /// onto; the app takes the drop with `Ui::drop_target(&cell.handle)`). The look is the list style's, so no per-row style call and
-    /// no per-frame look swap; the row body is told the same through its config (`drop` 3). In a reorderable list the payload lands
+    /// no per-frame look swap; it wins over the look a row body gave the row, and the body is told through its config (`drop` 3). A row
+    /// flagged `ListState::NO_DROP` takes no payload and keeps its look (U2b.4.21). In a reorderable list the payload lands
     /// between rows instead, and this look draws the insertion line.
     /// Allocates: never.
     /// Panics: never.

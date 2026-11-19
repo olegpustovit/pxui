@@ -899,7 +899,7 @@ pub mod feature {
 }
 
 /// The ABI version this crate's records describe (`major << 16 | minor`); an app states it as `PxuiUiDesc::abi_built`.
-pub const ABI_BUILT: u32 = 1 << 16 | 119;
+pub const ABI_BUILT: u32 = 1 << 16 | 120;
 impl Default for PxuiUiDesc { fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, platform: 0, font_size: 0, abi_built: ABI_BUILT } } }
 
 #[cfg(test)]

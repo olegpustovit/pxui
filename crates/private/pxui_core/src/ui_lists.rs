@@ -19,6 +19,8 @@ pub const DISABLED: u8 = 2;
 /// A row flag the caller writes: a retained list rebuilds the row every frame (content that changes with the frame, such as an
 /// animation that follows the row's place on screen).
 pub const LIVE: u8 = 4;
+/// A row flag the caller writes: the row takes no carried payload (a list with a drop look leaves it no drop zone, in its own look).
+pub const NO_DROP: u8 = 8;
 /// The most columns a table or heading takes.
 pub const MAX_COLUMNS: usize = 64;
 
@@ -217,7 +219,7 @@ fn mix(hash: u64, value: u64) -> u64 { (hash ^ value).wrapping_mul(0x0000_0100_0
 fn build_row(ui: &mut Ui, r: &mut Rows, flags: &mut [u8], anchor: &mut Option<usize>, i: usize, y: f32, content: &mut dyn FnMut(&mut Ui, usize, &ListCell)) {
     let n = ui.entered();
     let enabled = flags[i] & DISABLED == 0;
-    let (over, side) = (drop_over(ui, r, &n, i), r.side);
+    let (over, side) = (drop_over(ui, r, &n, i, flags[i]), r.side);
     let Some(revision) = r.revision else {
         // the list's size and place stay (`h` is its row height, or `Fit` for measured rows); the row's own layout joins them
         let node = ui.node_new(&n);
@@ -245,11 +247,12 @@ fn build_row(ui: &mut Ui, r: &mut Rows, flags: &mut [u8], anchor: &mut Option<us
 }
 
 /// The payload over row `i` (box `n`) this frame: 1 or 2 a reorderable list's insertion line above or below it, 3 a payload over a
-/// list that takes drops on its rows (shown in the drop look), else 0. Asked every frame, so the box is a drop zone while it shows.
-fn drop_over(ui: &mut Ui, r: &Rows, n: &Handle, i: usize) -> u8 {
+/// list that takes drops on its rows (shown in the drop look; not a `NO_DROP` row), else 0. Asked every frame, so the box is a drop
+/// zone while it shows.
+fn drop_over(ui: &mut Ui, r: &Rows, n: &Handle, i: usize, flags: u8) -> u8 {
     if !ui.drop_pending() { return 0; }
     let over = if r.reorder { ui.drop_side(n, i).map(|(after, dropped)| if dropped { 0 } else if after { 2 } else { 1 }) }
-        else if r.drop_look.is_some() { ui.drop_target_ref(n).map(|_| 3) } else { None };
+        else if r.drop_look.is_some() && flags & NO_DROP == 0 { ui.drop_target_ref(n).map(|_| 3) } else { None };
     over.unwrap_or(0)
 }
 
@@ -290,13 +293,14 @@ fn row_in(ui: &mut Ui, r: &mut Rows, flags: &mut [u8], anchor: &mut Option<usize
         let to = i as i64 + i64::from(ui.signal_move(&n));
         if to != i as i64 && to >= 0 && (to as usize) < flags.len() { r.moved = Some((i, to as usize)); }
     }
-    if let (3, Some(look)) = (drop, r.drop_look) { ui.node_mut(&n).look = look; }
     let cell = ListCell { selected: on, enabled, focused, held: s.held && enabled, handle: n, y, ..ListCell::default() };
     let config = RowConfig { state, index: i, row: n, drop, line: r.line };
     let body = if r.kind == ITEM_TABLE { body_of!(ui, table_row) } else { body_of!(ui, selection_list) };
     let outer = (core::mem::replace(&mut ui.bodies.item, n), core::mem::replace(&mut ui.bodies.item_kind, r.kind));
     in_item!(ui, body, n.box_key, n, default_row(&config, &mut |ui| content(ui, i, &cell)));
     (ui.bodies.item, ui.bodies.item_kind) = outer;
+    // the list's drop look is the row's while a payload is over it, over any look its body gave the row (U2b.4.21)
+    if let (3, Some(look)) = (drop, r.drop_look) { ui.node_mut(&n).look = ui.resolve_look(&look).unwrap_or(look); }
 }
 
 /// Every part of `section` built in a column that fits its content (no scrolling, no virtual window): `f(ui, index, y)` as

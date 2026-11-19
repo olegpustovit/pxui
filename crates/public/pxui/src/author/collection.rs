@@ -39,6 +39,9 @@ impl ListState {
     /// The row is rebuilt every frame while the list keeps its rows (`revision`): content that changes on its own, such as an
     /// animation that pauses while its row is out of view.
     pub const LIVE: u8 = 4;
+    /// The row takes no carried payload: a list with a drop look (`SelectionList::drop_look`) makes it no drop zone and leaves it in
+    /// its own look, so only the rows that take a payload light (a sidebar's playlists among other lists). Written by the app.
+    pub const NO_DROP: u8 = 8;
 
     /// No rows, no anchor, no revision.
     /// Allocates: never (the first frame that sees rows sizes `rows` to them; later frames only when the count grows).
@@ -1307,7 +1310,9 @@ mod tests {
         assert_eq!(dropped.get(), Some(2), "over row 2's upper half: inserted at 2");
 
         thread_local! { static DROPS: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) }; }
-        fn drop_row(ui: &mut Ui, c: &SelectionListConfig) { DROPS.with(|d| d.borrow_mut().push(c.drop)); ui.slot(c.content); }
+        // the body styles its row itself (as LocalWave's sidebar body does): the list's drop look still wins while a payload is over it
+        const OWN: crate::theme::States = crate::theme::States::of(crate::theme::Look::NONE.fill(crate::Rgba::rgb(9, 9, 9)));
+        fn drop_row(ui: &mut Ui, c: &SelectionListConfig) { DROPS.with(|d| d.borrow_mut().push(c.drop)); ui.style(&c.row, &OWN, crate::theme::State::default()); ui.slot(c.content); }
         let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
         ui.set_a11y(true);
         ui.register_selection_list_body("drops", drop_row).unwrap();
@@ -1325,12 +1330,22 @@ mod tests {
         };
         for n in 0..2 { at(&mut ui, n as f64, &[], &mut build); }
         DROPS.with(|d| d.borrow_mut().clear());
-        drag_to(&mut ui, 2.0, 50.0, 41.0 + 20.0 + 10.0, &mut build, &mut |_, _| {});
+        let fill = |ui: &Ui, c: [u8; 4]| ui.layers().flat_map(|l| l.instances.iter()).any(|i| i.color == c);
+        let lit = Cell::new(false);
+        drag_to(&mut ui, 2.0, 50.0, 41.0 + 20.0 + 10.0, &mut build, &mut |ui, done| if !done { lit.set(lit.get() | fill(ui, [0, 128, 255, 255])) });
         assert_eq!(took.get(), Some(1), "the app took the drop on row 1's box");
         assert!(DROPS.with(|d| d.borrow().contains(&3)), "the row body was told the payload is over the row");
+        assert!(lit.get(), "U2b.4.21: the drop look wins over the body's own row look");
+        // U2b.4.21: a NO_DROP row is no drop zone and keeps its look
+        state.borrow_mut().rows[1] |= ListState::NO_DROP;
+        (took.set(None), lit.set(false));
+        DROPS.with(|d| d.borrow_mut().clear());
+        drag_to(&mut ui, 3.0, 50.0, 41.0 + 20.0 + 10.0, &mut build, &mut |ui, done| if !done { lit.set(lit.get() | fill(ui, [0, 128, 255, 255])) });
+        assert!(!DROPS.with(|d| d.borrow().contains(&3)) && !lit.get(), "a NO_DROP row neither lights nor is told of the payload");
+        state.borrow_mut().rows[1] &= !ListState::NO_DROP;
         mode.set(1);
         DROPS.with(|d| d.borrow_mut().clear());
-        drag_to(&mut ui, 4.0, 50.0, 41.0 + 20.0 + 15.0, &mut build, &mut |_, _| {});
+        drag_to(&mut ui, 5.0, 50.0, 41.0 + 20.0 + 15.0, &mut build, &mut |_, _| {});
         assert_eq!(took.get(), Some(102), "a reorderable selection list reports the insertion index");
         assert!(DROPS.with(|d| d.borrow().contains(&2)), "the row body was told the payload lands after the row");
     }

@@ -18,7 +18,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 119u)
+#define PXUI_ABI_BUILT ((1u << 16) | 120u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 typedef struct { uint32_t autocorrect, capitalization, action; } PxuiTextInputOptions;
@@ -439,7 +439,7 @@ typedef void (*PxuiListCell)(void *user, void *ui, size_t index, const PxuiCellS
 typedef void (*PxuiTableCellBuild)(void *user, void *ui, size_t row, size_t column, const PxuiCellState *cell);
 typedef struct { uint32_t size; uint8_t overlay_scrollbar, measured, reorder /* 1.88 */, reserved; size_t count; float row_height, leading_height, header_height, trailing_height; } PxuiSectionListDesc;
 typedef struct { uint32_t size, reserved; PxuiBox handle, row; size_t activated, selected, secondary, anchor, drop_at /* 1.88 */, moved_from, moved_to /* 1.89 */; } PxuiListResult;
-/* rows: one flag byte a row (1 selected, written by the list; 2 disabled and 4 live, written by the caller), at least count; anchor SIZE_MAX: none.
+/* rows: one flag byte a row (1 selected, written by the list; 2 disabled, 4 live and 8 no drop (1.120: with has_drop_look the row is no drop zone and keeps its look), written by the caller), at least count; anchor SIZE_MAX: none.
    1.106: with has_revision 1 a row is kept (its body and cells not built) while revision, its key and its selected, disabled and focused state hold;
    a pointer, key or action reaching it rebuilds it; a live row and every row of a reorderable list rebuild every frame.
    1.107: a kept row past the viewport (culled) keeps its build until it scrolls into view, a reorderable list's too. */
