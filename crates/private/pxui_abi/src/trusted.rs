@@ -202,8 +202,8 @@ pub unsafe fn segmented(ui: *mut PxuiUi, key: &str, name: &str, options: &[Segme
     enter!(ui);
     let name = clip(name);
     let mut spare = Vec::new();
-    let options = clip_segments(options, &mut spare);
-    if bad_key(key) || !segments_ok(options) { return unsafe { fail(ui, "invalid widget strings") }; }
+    let (options, ok) = checked_segments(options, &mut spare);
+    if bad_key(key) || !ok { return unsafe { fail(ui, "invalid widget strings") }; }
     if ![h, w, padding, min_segment].iter().all(|v| (0.0..=f32::MAX).contains(v)) { return unsafe { fail(ui, "invalid segmented descriptor") }; }
     let mut opts = SegmentedOpts { enabled, h: (h > 0.0).then_some(h), grow, states: None, w: (w > 0.0).then_some(w), padding, min_segment, focus_on_click };
     if let Some(states) = states { opts.states = Some(*states); }
@@ -385,6 +385,21 @@ fn clip_segments<'a>(list: &'a [Segment<'a>], spare: &'a mut Vec<Segment<'a>>) -
     spare.extend(list.iter().map(|o| Segment { text: clip(o.text), name: o.name.map(clip), detail: clip(o.detail), ..*o }));
     spare
 }
+/// `overlay` with its name clipped (`clip`): the overlay itself unless its name is past the cap (a rare caller, which pays one copy).
+#[inline(always)]
+fn clipped_overlay<'a>(overlay: &'a Overlay<'a>, spare: &'a mut Option<Overlay<'a>>) -> &'a Overlay<'a> {
+    if !overlay.name.is_some_and(long) { return overlay; }
+    spare.insert(Overlay { name: overlay.name.map(clip), ..*overlay })
+}
+/// Segments as `clip_segments` gives them and whether `segments_ok` holds, in one pass when their texts together are within one
+/// text's cap (then none is past it).
+#[inline(always)]
+fn checked_segments<'a>(list: &'a [Segment<'a>], spare: &'a mut Vec<Segment<'a>>) -> (&'a [Segment<'a>], bool) {
+    let total = list.iter().fold(0usize, |total, o| total.saturating_add(o.text.len()).saturating_add(o.name.map_or(0, str::len)).saturating_add(o.detail.len()));
+    if total <= MAX_LABEL_BYTES { return (list, list.len() <= MAX_OPTIONS); }
+    let list = clip_segments(list, spare);
+    (list, segments_ok(list))
+}
 /// Whether an identifier is refused: past its cap (`MAX_KEY_BYTES`), or a 0x01-led label that is not a usable resolved key.
 #[inline]
 fn bad_key(value: &str) -> bool { value.len() > MAX_KEY_BYTES || crate::state::unusable(value) }
@@ -449,8 +464,8 @@ pub unsafe fn pick(ui: *mut PxuiUi, kind: u32, key: &str, name: &str, items: &[S
     enter!(ui);
     let name = clip(name);
     let mut spare = Vec::new();
-    let items = clip_segments(items, &mut spare);
-    if bad_key(key) || !segments_ok(items) { return unsafe { fail(ui, "invalid widget strings") }; }
+    let (items, ok) = checked_segments(items, &mut spare);
+    if bad_key(key) || !ok { return unsafe { fail(ui, "invalid widget strings") }; }
     unsafe { pick_body(ui, kind, key, name, items.len(), &|i| items[i], selected, focus, out, chosen, secondary) }
 }
 
@@ -829,7 +844,8 @@ fn overlay_ok(overlay: &Overlay) -> bool {
 #[inline]
 pub unsafe fn panel(ui: *mut PxuiUi, key: &str, overlay: &Overlay, f: Inner, root: &mut PxuiBox) -> i32 {
     enter!(ui);
-    let overlay = &Overlay { name: overlay.name.map(clip), ..*overlay };
+    let mut clipped = None;
+    let overlay = clipped_overlay(overlay, &mut clipped);
     if bad_key(key) || !overlay_ok(overlay) { return unsafe { fail(ui, "invalid panel descriptor") }; }
     *root = to_abi_box(unsafe { engine(ui) }.panel_root(key, overlay, f));
     0
@@ -839,7 +855,8 @@ pub unsafe fn panel(ui: *mut PxuiUi, key: &str, overlay: &Overlay, f: Inner, roo
 #[inline]
 pub unsafe fn popup(ui: *mut PxuiUi, key: &str, overlay: &Overlay, f: Inner, out: &mut bool, root: &mut PxuiBox) -> i32 {
     enter!(ui);
-    let overlay = &Overlay { name: overlay.name.map(clip), ..*overlay };
+    let mut clipped = None;
+    let overlay = clipped_overlay(overlay, &mut clipped);
     if bad_key(key) || !overlay_ok(overlay) { return unsafe { fail(ui, "invalid popup descriptor") }; }
     let open = unsafe { engine(ui) }.popup_root(key, overlay, f);
     (*out, *root) = (open.is_some(), open.map_or_else(PxuiBox::default, to_abi_box));
@@ -927,7 +944,8 @@ pub unsafe fn split(ui: *mut PxuiUi, label: &str, axis: pxui_types::Axis, ratio:
 #[inline]
 pub unsafe fn anchored(ui: *mut PxuiUi, key: &str, anchor: pxui_types::geom::Rect, overlay: &Overlay, f: Inner, out: &mut PxuiBox) -> i32 {
     enter!(ui);
-    let overlay = &Overlay { name: overlay.name.map(clip), ..*overlay };
+    let mut clipped = None;
+    let overlay = clipped_overlay(overlay, &mut clipped);
     let placement = overlay.place;
     if bad_key(key) || !overlay_ok(overlay) || anchor.w < 0.0 || anchor.h < 0.0 || placement.margin < 0.0
         || ![anchor.x, anchor.y, anchor.w, anchor.h, placement.gap, placement.margin].iter().all(|v| v.is_finite()) { return unsafe { fail(ui, "invalid anchored arguments") }; }
@@ -939,7 +957,8 @@ pub unsafe fn anchored(ui: *mut PxuiUi, key: &str, anchor: pxui_types::geom::Rec
 #[inline]
 pub unsafe fn modal(ui: *mut PxuiUi, key: &str, overlay: &Overlay, f: Inner, out: &mut bool, root: &mut PxuiBox) -> i32 {
     enter!(ui);
-    let overlay = &Overlay { name: overlay.name.map(clip), ..*overlay };
+    let mut clipped = None;
+    let overlay = clipped_overlay(overlay, &mut clipped);
     if bad_key(key) || !overlay_ok(overlay) { return unsafe { fail(ui, "invalid modal arguments") }; }
     let open = unsafe { engine(ui) }.modal_root(key, overlay, f);
     (*out, *root) = (open.is_some(), open.map_or_else(PxuiBox::default, to_abi_box));
@@ -1176,4 +1195,27 @@ pub unsafe fn table(ui: *mut PxuiUi, key: &str, desc: &PxuiTableDesc, ids: Optio
     out.head.size = core::mem::size_of::<PxuiHeadResult>() as u32;
     write_head(&h, sort, &mut out.head);
     0
+}
+
+#[cfg(test)]
+mod segment_tests {
+    use super::{MAX_LABEL_BYTES, MAX_OPTIONS, Segment, checked_segments};
+
+    /// Short segments pass as they are in one pass; one past the display cap takes the clipping pass (clipped, still accepted); more
+    /// than `MAX_OPTIONS` are refused.
+    #[test]
+    fn segments_are_checked_in_one_pass_and_clipped_only_when_long() {
+        let short = [Segment::new("a"), Segment::new("b")];
+        let mut spare = Vec::new();
+        let (list, ok) = checked_segments(&short, &mut spare);
+        assert!(ok && core::ptr::eq(list, &short[..]));
+        let long = "é".repeat(MAX_LABEL_BYTES);
+        let one = [Segment::new(&long)];
+        let mut spare = Vec::new();
+        let (list, ok) = checked_segments(&one, &mut spare);
+        assert!(ok && list[0].text.len() <= MAX_LABEL_BYTES && long.starts_with(list[0].text));
+        let many = vec![Segment::new("x"); MAX_OPTIONS + 1];
+        let mut spare = Vec::new();
+        assert!(!checked_segments(&many, &mut spare).1);
+    }
 }
