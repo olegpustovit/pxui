@@ -108,11 +108,11 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, (mark, off_fn, image_fn): crate::o
     if this.focus_key() == 0 || this.slot_rw(search.box_slot) == 0.0 {
         this.focus_box(&search);
     }
-    let search_signal = this.signal_owned(&search);
+    // the scalars only: the key events are read in place below (a keystroke copies no list)
+    let search_signal = this.signal(&search);
     if search_signal.hovered {
         this.request_cursor(Cursor::Text);
     }
-    let keys = this.key_events(&search);
     let clamp = |cursor: i64, count: usize| if count == 0 { 0 } else { 0.max((count as i64 - 1).min(cursor)) };
     let mut cursor = clamp(this.state(&search, 0), rows.len());
     let mut armed = this.box_of_key(int_key(search.box_key, 0)).map_or(-1, |frame| this.state(&frame, -1));
@@ -138,10 +138,10 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, (mark, off_fn, image_fn): crate::o
         }
         None => this.point_text_caret(None, &mut edit, &search_signal, shift, (sx + 4 + prefix) as f32 + inset, (sx + sw - 4 - 2) as f32),
     }
-    for (event, modifiers) in keys {
+    this.with_key_events(&search, &mut |this, keys| for (event, modifiers) in keys {
         let count = rows.len() as i64;
         if result == Pick::None {
-            match &event {
+            match event {
                 Event::KeyPressed(Key::Backspace) if edit.text.is_empty() => result = Pick::Back,
                 Event::KeyPressed(Key::ArrowLeft) if edit.text.is_empty() => result = Pick::Back,
                 Event::KeyPressed(Key::ArrowDown) if count > 0 => {
@@ -169,7 +169,7 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, (mark, off_fn, image_fn): crate::o
                 }
                 Event::KeyPressed(Key::Escape) => result = Pick::Cancel,
                 event => {
-                    this.edit_text_event(false, &mut edit, &|_| true, &modifiers, event);
+                    this.edit_text_event(false, &mut edit, &|_| true, modifiers, event);
                     if edit.text != query {
                         query.clone_from(&edit.text);
                         rows.clear();
@@ -181,7 +181,7 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, (mark, off_fn, image_fn): crate::o
                 }
             }
         }
-    }
+    });
     this.save_text_edit(&edit);
     let count = rows.len() as i64;
     let moved = refilled || cursor != this.state(&search, 0);
@@ -192,6 +192,8 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, (mark, off_fn, image_fn): crate::o
     let resting = at_rest && edit.text.is_empty();
     let state = State { focused: !resting, ..State::default() };
     let field = *t.field.pick(state);
+    // the query is a search: no autocorrect or capitalisation, the Search key (as `search_field` by default)
+    if this.focused(&search) { this.text_input_options = pxui_types::TextTraits::SEARCH; }
     this.set_role(&search, Role::TextField, crate::a11y::state::EDITABLE);
     this.a11y_name(&search, placeholder);
     this.a11y_value(&search, &edit.text, (edit.text[..edit.anchor.min(edit.text.len())].chars().count() as u32, edit.text[..edit.caret.min(edit.text.len())].chars().count() as u32));
@@ -249,7 +251,8 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, (mark, off_fn, image_fn): crate::o
     let config = PickerFieldConfig { state, empty: edit.text.is_empty(), slash, prefix: prefix as f32, inset, search, list };
     in_body!(this, search.box_key, search, picker_field, default_picker_field(&config, placeholder));
     {
-        let marks = if edit.text.is_empty() { None } else { Some((field.selection, field.caret)) };
+        // the caret shows while the field has the keyboard, empty or not, unless it sits at rest (`at_rest`, nothing typed)
+        let marks = (!resting && (this.focused(&search) || !edit.text.is_empty())).then_some((field.selection, field.caret));
         let (caret, anchor) = (edit.caret, edit.anchor);
         // the focused search's edit text and composition travel in the painter (`paint_begin`), as a text field's do: no copy. An
         // unfocused search (another node took the focus) paints a copy of its own.

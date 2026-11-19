@@ -121,8 +121,8 @@ impl Ui {
     ///
     /// Indices in `Pick` refer to the rows of the returned query. `Pick::Pick` comes on Enter or a row click, `Submit` on Enter with no
     /// rows, `Delete` on a second Delete over the same armed row, `Back` on Backspace or Left with an empty query, `Cancel` on Escape.
-    /// `placeholder` shows while the query is empty and names the field. The query is lent until the next call on `ui`. Build it inside
-    /// a panel or `modal`.
+    /// `placeholder` shows while the query is empty and names the field; focused, the field asks for the search keyboard
+    /// (`TextTraits::SEARCH`). The query is lent until the next call on `ui`. Build it inside a panel or `modal`.
     ///
     /// Fill contract: `fill` runs every frame the picker is built and copies rows the app already has; it does no search, sort,
     /// formatting or I/O. An app whose matches come from a worker sends the query as an intent when `query` changes, keeps the worker's
@@ -258,6 +258,36 @@ mod tests {
         ARTS.with(|a| a.borrow_mut().clear());
         ui.frame(&FrameIn::new(400.0, 400.0), &mut build).unwrap();
         assert_eq!(ARTS.with(|a| a.borrow().clone()), [ROWS[0].art, None, ROWS[2].art]);
+    }
+
+    /// The picker's query is a search: focused, it asks for the search keyboard (no autocorrect or capitalisation, the Search key), as
+    /// `search_field` does by default. Both link modes.
+    #[test]
+    fn a_focused_picker_asks_for_the_search_keyboard() {
+        let mut build = |ui: &mut Ui| { ui.picker("find", "Search", "", &Picker::DEFAULT, &mut fill); };
+        let ui = crate::doc::frames(2, &mut build);
+        assert!(ui.text_input_focused());
+        assert_eq!(ui.text_traits(), crate::TextTraits::SEARCH);
+    }
+
+    /// Moving the picker's keyboard row reads the frame's keys in place: warm arrow-key frames allocate nothing (a scrolling,
+    /// wrapping cursor). Both link modes.
+    #[test]
+    fn warm_picker_arrow_keys_allocate_nothing() {
+        mem_sys::set_peer(crate::library_counter);
+        const NAMES: [&str; 24] = ["P00", "P01", "P02", "P03", "P04", "P05", "P06", "P07", "P08", "P09", "P10", "P11", "P12", "P13", "P14",
+            "P15", "P16", "P17", "P18", "P19", "P20", "P21", "P22", "P23"];
+        let mut build = |ui: &mut Ui| { ui.picker("find", "Search", "", &Picker::DEFAULT.limit(5), &mut |_, rows| for n in NAMES { rows.push(crate::PickRow::new(n)) }); };
+        let mut ui = crate::doc::frames(2, &mut build);
+        for _ in 0..30 { testing::key(&mut ui, crate::KeyCode::ArrowDown, &mut build); }
+        let scope = mem_sys::warm_scope();
+        for round in 0..30 {
+            mem_sys::local_reset();
+            testing::key(&mut ui, crate::KeyCode::ArrowDown, &mut build);
+            assert_eq!(mem_sys::local_alloc_count(), 0, "a warm picker arrow-key frame allocated (round {round})");
+        }
+        drop(scope);
+        assert!(mem_sys::take_reports().is_empty());
     }
 
     /// U2b.6 fill contract (#82): a picker with a typed query, filled every frame from a worker's last result (owned strings the app
