@@ -1757,7 +1757,13 @@ impl Ui {
     pub fn input_response(&mut self, name: Option<&str>) -> Option<crate::ui_kit::Response> {
         let b = self.input_box.filter(|b| self.live(b))?;
         if let Some(name) = name { self.a11y_name(&b, name); }
-        Some(crate::ui_kit::Response::of(&self.signal(&b), self.focused(&b), b))
+        // `Response::of(&self.signal(&b), ..)` reading only the parts a response keeps, not the whole signal
+        let key = b.box_key;
+        let held = key != 0 && self.active == Some(key);
+        let hovered = key != 0 && self.hot == key && !self.touches.using_touch;
+        let (clicked, released, pressed, button) = match self.signals.get(&key).filter(|_| key != 0) { Some(v) => (v.clicked, v.released, v.pressed, v.button), None => (false, false, false, None) };
+        let button = button.or(if held { Some(self.active_button) } else { None });
+        Some(crate::ui_kit::Response { clicked, hovered, held, focused: self.focus == key, activated: clicked && !released, secondary: pressed && button == Some(input::MouseButton::RightButton), handle: b })
     }
     pub fn text_input_options(&self) -> pxui_types::TextTraits {
         if self.text_input_focused() {self.text_input_options} else {pxui_types::TextTraits::default()}

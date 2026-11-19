@@ -142,6 +142,11 @@ pub fn body(ui: &mut Ui, s: &mut S) {
             if let Some(q) = ui.search_field("Search", "/", &s.search, "Search", pxui_types::TextTraits::SEARCH) {
                 s.search = q.to_owned();
             }
+            // the field's response is what its whole signal says (`input_response` reads only the parts it keeps)
+            let r = ui.input_response(None).expect("the search field's response");
+            let signal = ui.signal(&r.handle);
+            assert_eq!((r.clicked, r.hovered, r.held, r.focused, r.activated, r.secondary),
+                (signal.clicked, signal.hovered, signal.held, ui.focused(&r.handle), signal.clicked && !signal.released, signal.pressed && signal.button == Some(input::MouseButton::RightButton)));
             s.scroll = Some(ui.scroll_view("Scroll", Node::DEFAULT.h_px(60.0), &mut |ui| {
                 for name in NAMES {
                     let n = ui.node_ref(name, &Node { w: Size::Px(400.0), h: Size::Px(24.0), ..Node::DEFAULT });

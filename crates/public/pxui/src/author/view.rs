@@ -4,19 +4,45 @@ use core::hash::{Hash, Hasher};
 use crate::Ui;
 use super::Key;
 
-/// FNV-1a 64: fixed seed, std only, no allocation, so a hash is the same on every run and platform (std's own hashers promise neither).
+/// FNV-1a 64 over bytes, an integer folded in as one 64-bit word: fixed seed, std only, no allocation, so a hash is the same on every
+/// run and platform (std's own hashers promise neither).
 struct FixedHasher(u64);
+
+const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
+
+impl FixedHasher {
+    /// One FNV-1a step over a whole word: a single integer (a view's revision) costs a multiply, not eight. Each step is a bijection
+    /// of the state, so two different integers never hash alike.
+    #[inline]
+    fn word(&mut self, value: u64) { self.0 = (self.0 ^ value).wrapping_mul(FNV_PRIME); }
+}
 
 impl Hasher for FixedHasher {
     #[inline]
     fn finish(&self) -> u64 { self.0 }
     #[inline]
-    fn write(&mut self, bytes: &[u8]) { for byte in bytes { self.0 = (self.0 ^ *byte as u64).wrapping_mul(0x0000_0100_0000_01b3); } }
-    // A pointer-width integer hashes as 64 bits, so 32 and 64-bit targets agree.
+    fn write(&mut self, bytes: &[u8]) { for byte in bytes { self.0 = (self.0 ^ *byte as u64).wrapping_mul(FNV_PRIME); } }
+    // Every integer up to 64 bits is one word, sign-extended; a pointer-width one too, so 32 and 64-bit targets agree.
     #[inline]
-    fn write_usize(&mut self, value: usize) { self.write(&(value as u64).to_le_bytes()) }
+    fn write_u8(&mut self, value: u8) { self.word(value as u64) }
     #[inline]
-    fn write_isize(&mut self, value: isize) { self.write(&(value as i64).to_le_bytes()) }
+    fn write_u16(&mut self, value: u16) { self.word(value as u64) }
+    #[inline]
+    fn write_u32(&mut self, value: u32) { self.word(value as u64) }
+    #[inline]
+    fn write_u64(&mut self, value: u64) { self.word(value) }
+    #[inline]
+    fn write_usize(&mut self, value: usize) { self.word(value as u64) }
+    #[inline]
+    fn write_i8(&mut self, value: i8) { self.word(value as i64 as u64) }
+    #[inline]
+    fn write_i16(&mut self, value: i16) { self.word(value as i64 as u64) }
+    #[inline]
+    fn write_i32(&mut self, value: i32) { self.word(value as i64 as u64) }
+    #[inline]
+    fn write_i64(&mut self, value: i64) { self.word(value as u64) }
+    #[inline]
+    fn write_isize(&mut self, value: isize) { self.word(value as i64 as u64) }
 }
 
 /// Runs `f` on a fresh hasher and returns its result: the one non-generic body of `hash_of` (inline: a small input's hash is a few
@@ -30,8 +56,10 @@ fn hash_run(f: &mut dyn FnMut(&mut FixedHasher)) -> u64 {
 
 /// Hashes `value` with a fixed-seed FNV-1a 64 hasher: the same value gives the same number on every run and platform.
 ///
-/// Integers hash as their little-endian bytes (`usize` as 64 bits); everything else as its `Hash` impl feeds the hasher, so the number
-/// is stable only while the type's `Hash` impl is. Use it as the `revision` of a view.
+/// Bytes (a `str`'s, a slice's) hash one FNV-1a step each; an integer of up to 64 bits one step of its whole value as a 64-bit word
+/// (signed ones sign-extended, `usize` as 64 bits), so two different integers never hash alike. Anything else hashes as its `Hash`
+/// impl feeds the hasher, so the number is stable only while the type's `Hash` impl is. The numbers are for comparing within a run;
+/// nothing should persist them. Use it as the `revision` of a view.
 /// Allocates: never.
 /// Panics: never (unless `T::hash` does).
 ///
@@ -90,6 +118,10 @@ mod tests {
         assert_eq!(hash_of(&("a", 1u32)), hash_of(&("a", 1u32)));
         assert_ne!(hash_of(&("a", 1u32)), hash_of(&("a", 2u32)));
         assert_eq!(hash_of(&7usize), hash_of(&7u64));
+        // an integer is one step of its whole 64-bit word (signed ones sign-extended)
+        assert_eq!(hash_of(&0x0102_0304_0506_0708u64), (0xcbf2_9ce4_8422_2325u64 ^ 0x0102_0304_0506_0708).wrapping_mul(0x0000_0100_0000_01b3));
+        assert_eq!(hash_of(&-1i8), hash_of(&u64::MAX));
+        assert_eq!(hash_of(&5u16), hash_of(&5u32));
     }
 
     /// The body runs once across equal inputs, again when one input changes, and kept frames allocate nothing.
