@@ -140,30 +140,9 @@ pub(crate) fn area_adapters() -> AreaAdapters {
     }
 }
 
-// A text area with its options. `cbs` (may be null) holds the app's closures: they run only during this call, with `cbs.user`.
-export!(build pub unsafe fn pxui_ui_text_area_submit(
-    ui: *mut PxuiUi, desc: *const PxuiTextAreaDesc, cbs: *const PxuiAreaCallbacks,
-    out_text: *mut Str, out_changed: *mut u8, out_submitted: *mut u8,
-) -> i32 {
-    unsafe { text_area(ui, desc, None, cbs, out_text, out_changed, out_submitted) }
-});
-
-// ABI 1.80: `pxui_ui_text_area_submit` laid out by the checked `node` under the current parent (no grid) instead of the descriptor's
-// x, y, width and height, which are ignored. The wrap width is the node's `Px` width, else the area's width from the last layout.
-export!(build pub unsafe fn pxui_ui_text_area_node(
-    ui: *mut PxuiUi, desc: *const PxuiTextAreaDesc, node: *const Node, cbs: *const PxuiAreaCallbacks,
-    out_text: *mut Str, out_changed: *mut u8, out_submitted: *mut u8,
-) -> i32 {
-    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
-    let Some(node) = (unsafe { crate::node::checked_node(node) }) else { return unsafe { fail(ui, "invalid text area node") } };
-    let bad_curve = matches!(&node.transition, pxui_types::node::OptTransition::Some(curve) if !curve.valid());
-    if node.grid.is_some() || bad_curve { return unsafe { fail(ui, "invalid text area node") }; }
-    unsafe { text_area(ui, desc, Some(*node), cbs, out_text, out_changed, out_submitted) }
-});
-
 // ABI 1.82: `pxui_ui_text_area_node` that also names the area `name` to a screen reader and reports what happened to its box in `response`,
 // the result a caller would otherwise read with `pxui_ui_input_box`, `pxui_ui_a11y_name_checked`, `pxui_ui_signal` and `pxui_ui_focused`.
-export!(build pub unsafe fn pxui_ui_text_area_response(
+export!(build pub unsafe fn pxui_ui_text_area(
     ui: *mut PxuiUi, desc: *const PxuiTextAreaDesc, node: *const Node, cbs: *const PxuiAreaCallbacks, name: Str,
     out_text: *mut Str, out_changed: *mut u8, out_submitted: *mut u8, response: *mut PxuiResponse,
 ) -> i32 {
@@ -254,19 +233,9 @@ unsafe fn field_desc(ui: *mut PxuiUi, desc: *const PxuiValueFieldDesc) -> Result
     Ok((d, [display, placeholder, lead, trail, label, value]))
 }
 
-// A value field with its options. `valid` says whether typed text may commit (null: all may); `slide` and `scrub` turn a
-// pointer position into the field's text (they write the text, borrowed from the caller until its next callback). All three
-// are called only during this call, with `user`.
-export!(build pub unsafe fn pxui_ui_value_field(
-    ui: *mut PxuiUi, desc: *const PxuiValueFieldDesc, valid: TextValid, slide: SlideText, scrub: ScrubText, user: *mut c_void,
-    out_text: *mut Str, out_changed: *mut u8, out_editing: *mut u8,
-) -> i32 {
-    unsafe { value_field(ui, desc, valid, slide, scrub, user, out_text, out_changed, out_editing, None) }
-});
-
 // ABI 1.82: `pxui_ui_value_field` that also names the field `name` to a screen reader and reports what happened to its box in `response`,
 // the result a caller would otherwise read with `pxui_ui_input_box`, `pxui_ui_a11y_name_checked`, `pxui_ui_signal` and `pxui_ui_focused`.
-export!(build pub unsafe fn pxui_ui_value_field_response(
+export!(build pub unsafe fn pxui_ui_value_field(
     ui: *mut PxuiUi, desc: *const PxuiValueFieldDesc, valid: TextValid, slide: SlideText, scrub: ScrubText, user: *mut c_void, name: Str,
     out_text: *mut Str, out_changed: *mut u8, out_editing: *mut u8, response: *mut PxuiResponse,
 ) -> i32 {
@@ -337,23 +306,12 @@ export!(pub unsafe fn pxui_ui_load_text_edit(ui: *mut PxuiUi, key: i64, text: St
 
 // ABI 1.77: `pxui_ui_remember` for the field keyed `key` (a resolved box key): the active editor's history when `key` owns it, the
 // shelved history of that key otherwise (a key with no history is left alone); the active editor never changes.
-export!(pub unsafe fn pxui_ui_remember_key(ui: *mut PxuiUi, key: i64, text: Str, caret: u64, anchor: u64, typing: u8) -> i32 {
+export!(pub unsafe fn pxui_ui_remember(ui: *mut PxuiUi, key: i64, text: Str, caret: u64, anchor: u64, typing: u8) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     let Some(text) = (unsafe { checked_text(text) }) else { return unsafe { fail(ui, "invalid edit text") }; };
     let at = |offset: u64| usize::try_from(offset).ok().filter(|offset| text.is_char_boundary(*offset));
     let (Some(caret), Some(anchor)) = (at(caret), at(anchor)) else { return unsafe { fail(ui, "caret and anchor must sit on characters of the text") }; };
     if typing > 1 { return unsafe { fail(ui, "invalid typing flag") }; }
     unsafe { (&mut *state.engine).remember_key(key, &pxui_core::ui_text::TextEdit { text: text.to_owned(), caret, anchor }, typing != 0); }
-    0
-});
-
-// Snapshots `text` with its caret and anchor for undo; `typing` joins consecutive typing into one step.
-export!(pub unsafe fn pxui_ui_remember(ui: *mut PxuiUi, text: Str, caret: u64, anchor: u64, typing: u8) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    let Some(text) = (unsafe { checked_text(text) }) else { return unsafe { fail(ui, "invalid edit text") }; };
-    let at = |offset: u64| usize::try_from(offset).ok().filter(|offset| text.is_char_boundary(*offset));
-    let (Some(caret), Some(anchor)) = (at(caret), at(anchor)) else { return unsafe { fail(ui, "caret and anchor must sit on characters of the text") }; };
-    if typing > 1 { return unsafe { fail(ui, "invalid typing flag") }; }
-    unsafe { (&mut *state.engine).remember(&pxui_core::ui_text::TextEdit { text: text.to_owned(), caret, anchor }, typing != 0); }
     0
 });

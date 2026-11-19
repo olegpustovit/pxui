@@ -199,22 +199,9 @@ export!(trusted pub unsafe fn pxui_ui_badge(ui: *mut PxuiUi, keyed: *const PxuiK
     unsafe { trusted::badge(ui, key, name, value, &mut *out) }
 });
 
-export!(trusted pub unsafe fn pxui_ui_search_field(ui: *mut PxuiUi, label: Str, icon: Str, value: Str, placeholder: Str, changed: *mut u8, out: *mut Str) -> i32 {
-    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
-    if changed.is_null() || out.is_null() { return unsafe { fail(ui, "null search field output") }; }
-    unsafe { *changed = 0; *out = Str::default(); }
-    let (Some(label), Some(icon), Some(value), Some(placeholder)) = (
-        unsafe { crate::state::checked_label(label) }, unsafe { checked(icon) }, unsafe { crate::state::checked_text(value) }, unsafe { checked(placeholder) },
-    ) else { return unsafe { fail(ui, "invalid search field text") }; };
-    let mut found = None;
-    let rc = unsafe { trusted::search_field(ui, label, icon, value, placeholder, pxui_types::TextTraits::SEARCH, &mut found, None) };
-    if let Some(value) = found { unsafe { *changed = 1; *out = value; } }
-    rc
-});
-
 // ABI 1.82: `pxui_ui_search_field` that also names the field `name` to a screen reader and reports what happened to its box in `response`,
 // the result a caller would otherwise read with `pxui_ui_input_box`, `pxui_ui_a11y_name_checked`, `pxui_ui_signal` and `pxui_ui_focused`.
-export!(trusted pub unsafe fn pxui_ui_search_field_response(ui: *mut PxuiUi, label: Str, icon: Str, value: Str, placeholder: Str, name: Str, action: u8, changed: *mut u8, out: *mut Str, response: *mut PxuiResponse) -> i32 {
+export!(trusted pub unsafe fn pxui_ui_search_field(ui: *mut PxuiUi, label: Str, icon: Str, value: Str, placeholder: Str, name: Str, action: u8, changed: *mut u8, out: *mut Str, response: *mut PxuiResponse) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if changed.is_null() || out.is_null() { return unsafe { fail(ui, "null search field output") }; }
     let Some(traits) = pxui_types::TextTraits::from_numbers(0, 0, u32::from(action)) else { return unsafe { fail(ui, "invalid search field return key") } };

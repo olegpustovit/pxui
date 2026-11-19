@@ -12,9 +12,8 @@ function pxui_ui_inspector_row int32_t pxui_ui_inspector_row ( PxuiUi * ui , Pxu
 function pxui_ui_inspector_section int32_t pxui_ui_inspector_section ( PxuiUi * ui , PxuiInspectorSectionDesc * desc ) ;
 function pxui_ui_inspector_toggle int32_t pxui_ui_inspector_toggle ( PxuiUi * ui , PxuiStr key , PxuiStr label , uint8_t value , uint8_t * out ) ;
 function pxui_ui_inspector_width float pxui_ui_inspector_width ( PxuiUi * ui ) ;
-function pxui_ui_line_field int32_t pxui_ui_line_field ( PxuiUi * ui , float x , float y , float w , float h , uint8_t grab , PxuiStr placeholder , PxuiStr label , PxuiStr value , PxuiStr * text , uint32_t * step ) ;
 function pxui_ui_picker int32_t pxui_ui_picker ( PxuiUi * ui , const PxuiKeyedDesc * keyed , int64_t limit , uint8_t slash , uint8_t at_rest , PxuiStr query , PxuiPickerRows rows , PxuiPickerMark mark , PxuiPickerOff off , void * user , PxuiStr * out_query , uint32_t * out_tag , int64_t * out_index ) ;
-function pxui_ui_value_field int32_t pxui_ui_value_field ( PxuiUi * ui , const PxuiValueFieldDesc * desc , PxuiTextValid valid , PxuiSlideText slide , PxuiScrubText scrub , void * user , PxuiStr * out_text , uint8_t * out_changed , uint8_t * out_editing ) ;
+function pxui_ui_value_field int32_t pxui_ui_value_field ( PxuiUi * ui , const PxuiValueFieldDesc * desc , PxuiTextValid valid , PxuiSlideText slide , PxuiScrubText scrub , void * user , PxuiStr name , PxuiStr * out_text , uint8_t * out_changed , uint8_t * out_editing , PxuiResponse * response ) ;
 layout PxuiHeadOut 32 8 0 4 5 6 8 24
 layout PxuiHeaderDesc 144 8 0 4 5 6 7 8 9 16 32 48 64 80 96 112 128
 layout PxuiInspectorRowConfig 80 8 0 4 12 13 16 24 56 72

@@ -861,7 +861,9 @@ fn strings_are_capped_by_role() {
         assert_eq!(unsafe { pxui_ui_text(ui, &b, str_of(&long)) }, PXUI_ERR_ARGUMENT);
         // a text field's value is editor text: past the label cap is fine
         let (mut changed, mut flag) = (Str::default(), 0u8);
-        assert_eq!(unsafe { pxui_text_field(ui, str_of(b"f"), str_of(&long), &mut changed, &mut flag) }, 0, "{}", error(ui));
+        let field = pxui_types::ffi::PxuiTextFieldDesc { size: core::mem::size_of::<pxui_types::ffi::PxuiTextFieldDesc>() as u32, autocorrect: 0, capitalization: 0, action: 0, reserved: 0,
+            key: str_of(b"f"), name: Str::default(), value: str_of(&long) };
+        assert_eq!(unsafe { pxui_ui_text_field(ui, &field, &mut changed, &mut flag, &mut { pxui_types::ffi::PxuiResponse::EMPTY }) }, 0, "{}", error(ui));
     }
     let ui = create();
     assert_eq!(run(ui, Some(build), core::ptr::null_mut()), 0, "{}", error(ui));
@@ -1479,7 +1481,7 @@ mod sized_records {
             let p = p.cast::<PxuiValueFieldDesc>();
             in_frame(ui, &mut |ui| {
         let (mut text, mut changed, mut editing) = (Str::default(), 0u8, 0u8);
-        unsafe { pxui_ui_value_field(ui, p, None, None, None, core::ptr::null_mut(), &mut text, &mut changed, &mut editing) }
+        unsafe { pxui_ui_value_field(ui, p, None, None, None, core::ptr::null_mut(), Str::default(), &mut text, &mut changed, &mut editing, &mut { pxui_types::ffi::PxuiResponse::EMPTY }) }
     })
         });
         unsafe { pxui_ui_destroy(ui); }

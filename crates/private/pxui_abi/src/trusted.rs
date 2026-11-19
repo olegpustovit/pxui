@@ -215,18 +215,8 @@ unsafe fn segmented_body<'a>(ui: *mut PxuiUi, key: &str, name: &str, count: usiz
     0
 }
 
-/// A text field: `out_changed` says whether the user changed the text, `changed` then holds the new text (borrowed until the next frame).
-#[inline]
-pub unsafe fn pxui_text_field(ui: *mut PxuiUi, label: Str, value: Str, changed: *mut Str, out_changed: *mut u8) -> i32 {
-    enter!(ui);
-    let (Some(label), Some(value)) = (unsafe { utf8(label, usize::MAX) }.map(clip), unsafe { utf8(value, MAX_TEXT_BYTES) }) else { return unsafe { fail(ui, "invalid text field arguments") } };
-    unsafe { *out_changed = 0; *changed = Str::default(); }
-    if let Some(value) = unsafe { engine(ui) }.text_field(label, value) { let Ok(value) = (unsafe { &*ui }).give(value) else { return crate::PXUI_ERR_STATE }; unsafe { *changed = value; *out_changed = 1; } }
-    0
-}
-
 /// A text field keyed by `key`, named `name` (unnamed when empty), `traits` its keyboard: `changed` takes the new text (borrowed until the
-/// next frame) when the user changed it; `out` what happened to its box. `pxui_ui_text_field_response`'s body; the key is the caller's checked one.
+/// next frame) when the user changed it; `out` what happened to its box. `pxui_ui_text_field`'s body; the key is the caller's checked one.
 #[inline]
 pub unsafe fn text_field(ui: *mut PxuiUi, key: &str, name: &str, value: &str, traits: pxui_types::TextTraits, changed: &mut Option<Str>, out: &mut PxuiResponse) -> i32 {
     enter!(ui);
@@ -245,7 +235,7 @@ unsafe fn lent<'a>(value: Str) -> &'a str {
     if value.len == 0 { "" } else { unsafe { core::str::from_utf8_unchecked(core::slice::from_raw_parts(value.ptr, value.len)) } }
 }
 
-/// `pxui_ui_value_field_response` for the static wrapper: the descriptor's strings are Rust `&str`s (UTF-8 by their type, display text
+/// `pxui_ui_value_field` for the static wrapper: the descriptor's strings are Rust `&str`s (UTF-8 by their type, display text
 /// clipped by the wrapper) and the callbacks Rust closures the engine calls directly. `changed` takes the new text (the engine's, borrowed
 /// until the next call on the `Ui`), `editing` whether a text editor is open, `out` what happened to the field's box.
 #[allow(clippy::too_many_arguments)]
@@ -267,7 +257,7 @@ pub unsafe fn value_field(ui: *mut PxuiUi, d: &pxui_types::ffi::PxuiValueFieldDe
 /// Whether a text input's label (its identity, display-text sized: `checked_label`) is refused.
 fn bad_label(label: &str) -> bool { label.len() > MAX_LABEL_BYTES || crate::state::unusable(label) }
 
-/// `pxui_ui_text_area_response` for the static wrapper: the descriptor's strings are Rust `&str`s and its spans Rust slices (UTF-8 and in
+/// `pxui_ui_text_area` for the static wrapper: the descriptor's strings are Rust `&str`s and its spans Rust slices (UTF-8 and in
 /// bounds by their types; their contents are checked as the export checks them), `node` a Rust value. `changed` takes the new text (the
 /// engine's, borrowed until the next call on the `Ui`), `submitted` whether it was submitted, `out` what happened to the area's box.
 #[allow(clippy::too_many_arguments)]

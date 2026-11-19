@@ -23,4 +23,4 @@ crates/public/pxui/src/testing.rs	click	Panics
 crates/public/pxui/src/testing.rs	click_node	Panics
 crates/public/pxui/src/testing.rs	find	Allocates,Panics
 crates/public/pxui/src/testing.rs	frame	Allocates,Panics
-crates/public/pxui/src/widgets.rs	pxui_ui_search_field_response	example,Allocates,Panics,Identity
+crates/public/pxui/src/widgets.rs	pxui_ui_search_field	example,Allocates,Panics,Identity

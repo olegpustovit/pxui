@@ -24,7 +24,7 @@ mod sys {
     use crate::sys::PxuiUi;
     #[link(name = "pxui")]
     unsafe extern "C" {
-    pub fn pxui_ui_search_field_response(ui: *mut PxuiUi, label: Str, icon: Str, value: Str, placeholder: Str, name: Str, action: u8, changed: *mut u8, out: *mut Str, response: *mut pxui_types::ffi::PxuiResponse) -> i32;
+    pub fn pxui_ui_search_field(ui: *mut PxuiUi, label: Str, icon: Str, value: Str, placeholder: Str, name: Str, action: u8, changed: *mut u8, out: *mut Str, response: *mut pxui_types::ffi::PxuiResponse) -> i32;
     }
 }
 
@@ -316,7 +316,7 @@ impl Ui {
         let changed = {
             let mut changed = 0;
             let mut out = Str::default();
-            check(self, unsafe { sys::pxui_ui_search_field_response(self.0.as_ptr(), as_str(label), as_str(field.icon), as_str(value), as_str(field.placeholder), as_str(field.name), field.traits.return_key() as u8, &mut changed, &mut out, &mut response) });
+            check(self, unsafe { sys::pxui_ui_search_field(self.0.as_ptr(), as_str(label), as_str(field.icon), as_str(value), as_str(field.placeholder), as_str(field.name), field.traits.return_key() as u8, &mut changed, &mut out, &mut response) });
             (changed != 0).then_some(out)
         };
         self.variant_off(BodyKind::search_field, field.variant);

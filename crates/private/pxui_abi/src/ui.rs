@@ -750,48 +750,10 @@ pub(crate) fn label_style(style: *const pxui_types::ffi::PxuiLabelStyle) -> Opti
     Some((l, r.digits != 0))
 }
 
-export!(trusted pub unsafe fn pxui_text_field(ui: *mut PxuiUi, label: Str, value: Str, changed: *mut Str, out_changed: *mut u8) -> i32 {
-    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
-    if changed.is_null() || out_changed.is_null() { return unsafe { fail(ui, "null text field output") }; }
-    let (Some(label), Some(value)) = (unsafe { crate::state::checked_label(label) }, unsafe { crate::state::checked_text(value) }) else { return unsafe { fail(ui, "invalid text field arguments") } };
-    unsafe { trusted::pxui_text_field(ui, pair(label), pair(value), changed, out_changed) }
-});
-
-export!(build pub unsafe fn pxui_text_field_with_options(ui: *mut PxuiUi, label: Str, value: Str, options: *const pxui_types::PxuiTextInputOptions, changed: *mut Str, out_changed: *mut u8) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    if options.is_null() || changed.is_null() || out_changed.is_null() { return unsafe { fail(ui,"null text field options or output") }; }
-    let (Some(label),Some(value))=(unsafe { crate::state::checked_label(label) },unsafe { crate::state::checked_text(value) }) else { return unsafe { fail(ui,"invalid text field text") }; };
-    let o=unsafe { *options };
-    let Some(options)=pxui_types::TextTraits::from_numbers(o.autocorrect,o.capitalization,o.action) else { return unsafe { fail(ui,"invalid text input options") }; };
-    unsafe { *out_changed=0; *changed=Str::default(); }
-    if let Some(value) = unsafe { &mut *state.engine }.text_field_keyed(label,label,value,options) {
-        let Ok(value)=state.give(value) else { return PXUI_ERR_STATE };
-        unsafe { *changed=value; *out_changed=1; }
-    }
-    0
-});
-
-// ABI 1.64: a text field keyed by `desc.key` and named `desc.name` to a screen reader (unnamed when empty); `changed` takes the new text when
-// `out_changed` is 1. The record is size-prefixed: a shorter one, an out-of-range trait or text that is not UTF-8 is refused before the widget runs.
-export!(build pub unsafe fn pxui_ui_text_field_keyed(ui: *mut PxuiUi, desc: *const pxui_types::ffi::PxuiTextFieldDesc, changed: *mut Str, out_changed: *mut u8) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    if desc.is_null() || changed.is_null() || out_changed.is_null() { return unsafe { fail(ui, "null text field descriptor or output") }; }
-    if unsafe { (*desc).size } < core::mem::size_of::<pxui_types::ffi::PxuiTextFieldDesc>() as u32 { return unsafe { fail(ui, "invalid text field descriptor") }; }
-    let d = unsafe { *desc };
-    let (Some(key), Some(name), Some(value)) = (unsafe { crate::state::checked_key(d.key) }, unsafe { checked(d.name) }, unsafe { crate::state::checked_text(d.value) }) else { return unsafe { fail(ui, "invalid text field text") }; };
-    let Some(traits) = pxui_types::TextTraits::from_numbers(d.autocorrect as u32, d.capitalization as u32, d.action as u32).filter(|_| d.reserved == 0) else { return unsafe { fail(ui, "invalid text input options") }; };
-    unsafe { *out_changed = 0; *changed = Str::default(); }
-    if let Some(text) = unsafe { &mut *state.engine }.text_field_keyed(key, name, value, traits) {
-        let Ok(text) = state.give(text) else { return PXUI_ERR_STATE };
-        unsafe { *changed = text; *out_changed = 1; }
-    }
-    0
-});
-
 // ABI 1.82: `pxui_ui_text_field_keyed` that also reports what happened to the field's box in `response`, the result a caller would otherwise
 // read with `pxui_ui_input_box`, `pxui_ui_signal` and `pxui_ui_focused`. The descriptor and outputs are checked as that export checks them; the
 // trusted entry checks the handle (once: the export does not count the call itself).
-export!(trusted pub unsafe fn pxui_ui_text_field_response(ui: *mut PxuiUi, desc: *const pxui_types::ffi::PxuiTextFieldDesc, changed: *mut Str, out_changed: *mut u8, response: *mut pxui_types::ffi::PxuiResponse) -> i32 {
+export!(trusted pub unsafe fn pxui_ui_text_field(ui: *mut PxuiUi, desc: *const pxui_types::ffi::PxuiTextFieldDesc, changed: *mut Str, out_changed: *mut u8, response: *mut pxui_types::ffi::PxuiResponse) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if desc.is_null() || changed.is_null() || out_changed.is_null() { return unsafe { fail(ui, "null text field descriptor or output") }; }
     let Some(response) = sized_mut!(response) else { return unsafe { fail(ui, "null or short text field response") } };
@@ -799,21 +761,11 @@ export!(trusted pub unsafe fn pxui_ui_text_field_response(ui: *mut PxuiUi, desc:
     let d = unsafe { *desc };
     let (Some(key), Some(name), Some(value)) = (unsafe { crate::state::checked_key(d.key) }, unsafe { checked(d.name) }, unsafe { crate::state::checked_text(d.value) }) else { return unsafe { fail(ui, "invalid text field text") }; };
     let Some(traits) = pxui_types::TextTraits::from_numbers(d.autocorrect as u32, d.capitalization as u32, d.action as u32).filter(|_| d.reserved == 0) else { return unsafe { fail(ui, "invalid text input options") }; };
-    unsafe { *out_changed = 0; *changed = Str::default(); }
     let mut text = None;
     let rc = unsafe { trusted::text_field(ui, key, name, value, traits, &mut text, response) };
-    if let Some(text) = text { unsafe { *changed = text; *out_changed = 1; } }
+    // a refused call (outside a frame among them) leaves the outputs alone
+    if rc == 0 { unsafe { (*changed, *out_changed) = text.map_or((Str::default(), 0), |text| (text, 1)); } }
     rc
-});
-
-// ABI 1.64: the box of the text input the last text field, line field, search field, text area or value field call built.
-export!(pub unsafe fn pxui_ui_input_box(ui: *mut PxuiUi, out: *mut PxuiBox) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    if out.is_null() { return unsafe { fail(ui, "null text input box output") }; }
-    match unsafe { &*state.engine }.input_box() {
-        Some(b) if unsafe { &*state.engine }.live(&b) => { unsafe { *out = crate::state::to_abi_box(b); } 0 }
-        _ => PXUI_ERR_STATE,
-    }
 });
 
 #[cfg(test)]
@@ -852,27 +804,23 @@ mod tests {
         ];
         let mut changed=Str {ptr:b"sentinel".as_ptr(),len:8};
         let mut flag=77;
+        let mut r=pxui_types::ffi::PxuiResponse::EMPTY;
         // outside a frame the builder is refused before its descriptor is read
-        assert_eq!(unsafe {pxui_ui_text_field_keyed(ui,&good,&mut changed,&mut flag)},PXUI_ERR_STATE);
+        assert_eq!(unsafe {pxui_ui_text_field(ui,&good,&mut changed,&mut flag,&mut r)},PXUI_ERR_STATE);
         in_frame(ui,&mut |ui| {
             let built=unsafe {&*(*ui).engine}.built_nodes();
             for (i,desc) in cases.iter().enumerate() {
                 // a refused call must not leave the Ui poisoned or with a node
-                assert_eq!(unsafe {pxui_ui_text_field_keyed(ui,desc,&mut changed,&mut flag)},PXUI_ERR_ARGUMENT,"case {i}");
+                assert_eq!(unsafe {pxui_ui_text_field(ui,desc,&mut changed,&mut flag,&mut r)},PXUI_ERR_ARGUMENT,"case {i}");
                 assert_eq!((changed.len,flag),(8,77),"case {i} left its output alone");
                 assert_eq!(unsafe {&*(*ui).engine}.built_nodes(),built,"case {i} built nothing");
             }
-            assert_eq!(unsafe {pxui_ui_text_field_keyed(ui,core::ptr::null(),&mut changed,&mut flag)},PXUI_ERR_ARGUMENT);
-            assert_eq!(unsafe {pxui_ui_text_field_keyed(ui,&good,core::ptr::null_mut(),&mut flag)},PXUI_ERR_ARGUMENT);
-            assert_eq!(unsafe {pxui_ui_text_field_keyed(ui,&good,&mut changed,core::ptr::null_mut())},PXUI_ERR_ARGUMENT);
+            assert_eq!(unsafe {pxui_ui_text_field(ui,core::ptr::null(),&mut changed,&mut flag,&mut r)},PXUI_ERR_ARGUMENT);
+            assert_eq!(unsafe {pxui_ui_text_field(ui,&good,core::ptr::null_mut(),&mut flag,&mut r)},PXUI_ERR_ARGUMENT);
+            assert_eq!(unsafe {pxui_ui_text_field(ui,&good,&mut changed,core::ptr::null_mut(),&mut r)},PXUI_ERR_ARGUMENT);
         });
-        assert_eq!(unsafe {pxui_ui_text_field_keyed(core::ptr::null_mut(),&good,&mut changed,&mut flag)},PXUI_ERR_ARGUMENT);
+        assert_eq!(unsafe {pxui_ui_text_field(core::ptr::null_mut(),&good,&mut changed,&mut flag,&mut r)},PXUI_ERR_ARGUMENT);
         assert_eq!((changed.len,flag),(8,77));
-        // no input has been built yet, and a null output is refused
-        let mut raw=PxuiBox::default();
-        assert_eq!(unsafe {pxui_ui_input_box(ui,&mut raw)},PXUI_ERR_STATE);
-        assert_eq!(unsafe {pxui_ui_input_box(ui,core::ptr::null_mut())},PXUI_ERR_ARGUMENT);
-        assert_eq!(unsafe {pxui_ui_input_box(core::ptr::null_mut(),&mut raw)},PXUI_ERR_ARGUMENT);
         assert_eq!(unsafe {pxui_ui_destroy(ui)},0);
     }
 
@@ -881,9 +829,9 @@ mod tests {
     #[test]
     fn text_input_response_exports_report_their_box_in_one_call() {
         use super::*;
-        use crate::kit_ext::pxui_ui_line_field_response;
-        use crate::text_inputs::{pxui_ui_text_area_response, pxui_ui_value_field_response};
-        use crate::widgets::pxui_ui_search_field_response;
+        use crate::kit_ext::pxui_ui_line_field;
+        use crate::text_inputs::{pxui_ui_text_area, pxui_ui_value_field};
+        use crate::widgets::pxui_ui_search_field;
         use pxui_types::ffi::{PxuiResponse, PxuiTextAreaDesc, PxuiTextFieldDesc, PxuiValueFieldDesc};
         let s=|t: &'static str| Str {ptr:t.as_ptr(),len:t.len()};
         let ui=unsafe {pxui_ui_create(&PxuiUiDesc::default())};
@@ -893,11 +841,11 @@ mod tests {
         for frame in 0..2 {
             in_frame(ui,&mut |ui| {
                 let calls: [&dyn Fn(*mut PxuiResponse)->i32; 5]=[
-                    &|r| unsafe {pxui_ui_text_field_response(ui,&field,&mut Str::default(),&mut 0,r)},
-                    &|r| unsafe {pxui_ui_search_field_response(ui,s("s"),s("/"),s("q"),s(""),s("Find"),2,&mut 0,&mut Str::default(),r)},
-                    &|r| unsafe {pxui_ui_line_field_response(ui,0.0,30.0,80.0,20.0,0,s(""),s("l"),s("x"),s("Line"),&mut Str::default(),&mut 0,r)},
-                    &|r| unsafe {pxui_ui_value_field_response(ui,&value,None,None,None,core::ptr::null_mut(),s("Scale"),&mut Str::default(),&mut 0,&mut 0,r)},
-                    &|r| unsafe {pxui_ui_text_area_response(ui,&area,&pxui_types::Node::DEFAULT.w_px(80.0).h_px(40.0),core::ptr::null(),s("Notes"),&mut Str::default(),&mut 0,&mut 0,r)},
+                    &|r| unsafe {pxui_ui_text_field(ui,&field,&mut Str::default(),&mut 0,r)},
+                    &|r| unsafe {pxui_ui_search_field(ui,s("s"),s("/"),s("q"),s(""),s("Find"),2,&mut 0,&mut Str::default(),r)},
+                    &|r| unsafe {pxui_ui_line_field(ui,0.0,30.0,80.0,20.0,0,s(""),s("l"),s("x"),s("Line"),&mut Str::default(),&mut 0,r)},
+                    &|r| unsafe {pxui_ui_value_field(ui,&value,None,None,None,core::ptr::null_mut(),s("Scale"),&mut Str::default(),&mut 0,&mut 0,r)},
+                    &|r| unsafe {pxui_ui_text_area(ui,&area,&pxui_types::Node::DEFAULT.w_px(80.0).h_px(40.0),core::ptr::null(),s("Notes"),&mut Str::default(),&mut 0,&mut 0,r)},
                 ];
                 for (i,call) in calls.iter().enumerate() {
                     let built=unsafe {&*(*ui).engine}.built_nodes();
@@ -906,11 +854,9 @@ mod tests {
                     assert_eq!(unsafe {&*(*ui).engine}.built_nodes(),built,"input {i}: refused before the widget runs");
                     let mut out=PxuiResponse::EMPTY;
                     assert_eq!(call(&mut out),0,"input {i}");
-                    let (mut raw,mut signal,mut focused)=(PxuiBox::default(),crate::PxuiSignal::default(),7u8);
-                    assert_eq!(unsafe {pxui_ui_input_box(ui,&mut raw)},0);
-                    assert_eq!(unsafe {crate::interaction::pxui_ui_signal(ui,&raw,&mut signal)},0);
-                    assert_eq!(unsafe {crate::interaction::pxui_ui_focused(ui,&raw,&mut focused)},0);
-                    assert_eq!((out.node.box_key,out.node.generation),(raw.box_key,raw.generation),"input {i}, frame {frame}: its own box");
+                    let (mut signal,mut focused)=(crate::PxuiSignal::default(),7u8);
+                    assert_eq!(unsafe {crate::interaction::pxui_ui_signal(ui,&out.node,&mut signal)},0,"input {i}, frame {frame}: its own box is live");
+                    assert_eq!(unsafe {crate::interaction::pxui_ui_focused(ui,&out.node,&mut focused)},0);
                     let hovered=signal.flags&crate::PxuiSignal::HOVERED!=0;
                     assert_eq!((out.flags&PxuiResponse::HOVERED!=0,out.flags&PxuiResponse::FOCUSED!=0),(hovered,focused!=0),"input {i}");
                 }
@@ -942,7 +888,7 @@ mod tests {
         in_frame(ui,&mut |ui| {
             let built=unsafe {&*(*ui).engine}.built_nodes();
             for (i,desc) in cases.iter().enumerate() {
-                assert_eq!(unsafe {crate::text_inputs::pxui_ui_text_area_submit(ui,desc,core::ptr::null(),&mut out,&mut changed,&mut submitted)},PXUI_ERR_ARGUMENT,"case {i}");
+                assert_eq!(unsafe {crate::text_inputs::pxui_ui_text_area(ui,desc,&pxui_types::Node::DEFAULT,core::ptr::null(),Str::default(),&mut out,&mut changed,&mut submitted,&mut { pxui_types::ffi::PxuiResponse::EMPTY })},PXUI_ERR_ARGUMENT,"case {i}");
                 assert_eq!(unsafe {&*(*ui).engine}.built_nodes(),built,"case {i} built nothing");
             }
         });
@@ -950,33 +896,9 @@ mod tests {
     }
 
     #[test]
-    fn text_input_options_reject_invalid_calls_before_output_or_widget_mutation() {
+    fn text_input_options_query_refuses_null_arguments_without_writing() {
         use super::*;
-        extern "C" fn invalid(_: *mut c_void, ui: *mut c_void) {
-            let ui=ui.cast::<PxuiUi>();
-            let mut changed=Str {ptr:b"sentinel".as_ptr(),len:8};
-            let mut flag=77;
-            let built=unsafe {&*(*ui).engine}.built_nodes();
-            for options in [
-                pxui_types::PxuiTextInputOptions {autocorrect:2,..Default::default()},
-                pxui_types::PxuiTextInputOptions {capitalization:4,..Default::default()},
-                pxui_types::PxuiTextInputOptions {action:3,..Default::default()},
-            ] {
-                assert_eq!(unsafe {pxui_text_field_with_options(ui,Str::default(),Str::default(),&options,&mut changed,&mut flag)},PXUI_ERR_ARGUMENT);
-                assert_eq!(changed.len,8); assert_eq!(flag,77);
-                assert_eq!(unsafe {&*(*ui).engine}.built_nodes(),built);
-            }
-            assert_eq!(unsafe {pxui_text_field_with_options(ui,Str::default(),Str::default(),core::ptr::null(),&mut changed,&mut flag)},PXUI_ERR_ARGUMENT);
-            assert_eq!(changed.len,8); assert_eq!(flag,77);
-        }
         let ui=unsafe {pxui_ui_create(&PxuiUiDesc::default())};
-        // outside a frame the builder is refused before its arguments are read
-        let (mut changed,mut flag)=(Str {ptr:b"sentinel".as_ptr(),len:8},77);
-        let options=pxui_types::PxuiTextInputOptions::default();
-        assert_eq!(unsafe {pxui_text_field_with_options(ui,Str::default(),Str::default(),&options,&mut changed,&mut flag)},PXUI_ERR_STATE);
-        assert_eq!(changed.len,8); assert_eq!(flag,77);
-        let mut out=crate::FrameOut::default();
-        assert_eq!(unsafe {pxui_frame(ui,&FrameIn {width:320.0,height:240.0,..Default::default()},Some(invalid),core::ptr::null_mut(),&mut out)},0);
         assert_eq!(unsafe {crate::ui_state::pxui_ui_text_input_options(ui,core::ptr::null_mut())},PXUI_ERR_ARGUMENT);
         let mut options=pxui_types::PxuiTextInputOptions::from(pxui_types::TextTraits::SEARCH);
         assert_eq!(unsafe {crate::ui_state::pxui_ui_text_input_options(core::ptr::null_mut(),&mut options)},PXUI_ERR_ARGUMENT);
