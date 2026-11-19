@@ -769,6 +769,31 @@ mod tests {
         assert!(fill(&ui, 2), "hovered and off: the hover look");
     }
 
+    /// U2b.4.20: one look priority for every kit widget (`States::pick`): a selected button keeps its checked look while hovered and
+    /// held, as the icon button does; disabled wins over checked. Fails with the old order (hovered before checked). Both link modes.
+    #[test]
+    fn a_selected_button_keeps_its_checked_look_and_disabled_wins() {
+        use crate::theme::{Look, States};
+        const LOOKS: States = States::of(Look::NONE.fill(crate::Rgba::rgb(1, 1, 1))).hover(Look::NONE.fill(crate::Rgba::rgb(2, 2, 2)))
+            .pressed(Look::NONE.fill(crate::Rgba::rgb(3, 3, 3))).checked(Look::NONE.fill(crate::Rgba::rgb(4, 4, 4)))
+            .disabled(Look::NONE.fill(crate::Rgba::rgb(5, 5, 5)));
+        let off = Cell::new(false);
+        let mut build = |ui: &mut Ui| { ui.button("key", "Key", &crate::Button::sized(80.0, 40.0).look(&LOOKS).selected(true).disabled(off.get())); };
+        let fill = |ui: &Ui, c: u8| ui.layers().flat_map(|l| l.instances.iter()).any(|i| i.color == [c, c, c, 255]);
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+        crate::testing::frame(&mut ui, &[], &mut build);
+        let over = crate::Event { kind: crate::Event::POINTER_MOVED, x: 20.0, y: 20.0, ..Default::default() };
+        crate::testing::frame(&mut ui, &[over], &mut build);
+        assert!(fill(&ui, 4) && !fill(&ui, 2), "hovered and selected: the checked look");
+        crate::testing::frame(&mut ui, &[crate::Event { kind: crate::Event::POINTER_PRESSED, ..over }], &mut build);
+        crate::testing::frame(&mut ui, &[], &mut build);
+        assert!(fill(&ui, 4) && !fill(&ui, 3), "held and selected: the checked look");
+        crate::testing::frame(&mut ui, &[crate::Event { kind: crate::Event::POINTER_RELEASED, ..over }], &mut build);
+        off.set(true);
+        crate::testing::frame(&mut ui, &[], &mut build);
+        assert!(fill(&ui, 5) && !fill(&ui, 4), "disabled and selected: the disabled look");
+    }
+
     #[test]
     fn icon_of_only_trusts_the_wrappers_trampoline() {
         extern "C" fn foreign(_: *mut c_void, _: *mut c_void, _: Rect, _: pxui_types::geom::Rgba, _: *const pxui_types::ffi::PxuiPaintInfo) {}

@@ -1249,7 +1249,7 @@ impl Ui {
         let state = State { hovered: s.hovered, pressed: s.held, focused, disabled: !enabled, checked: button.selected == Some(true) };
         self.a11y_name(&b, shown(name));
         let states = match button.states { Some(mut states) => { self.resolve_states(&mut states); states }, None => self.theme().icon_button };
-        let ink = icon_look(&states, state).text;
+        let ink = states.pick(state).text;
         let config = IconButtonConfig { state, node: b, w: button.w, h: button.h, press_scale: button.press_scale, ink, draw, press: button.press };
         in_body!(flat; self, b.box_key, b, icon_button, default_icon_button(&config, &states, name, glyph));
         self.node_new(&b).state.disabled = !enabled;
@@ -1522,14 +1522,6 @@ impl Ui {
 pub const PRESS_IN: Curve = Curve::Spring { omega: 60.0 };
 pub const PRESS_OUT: Curve = Curve::Spring { omega: 20.0 };
 
-/// An icon button's look for `state`: a selected (checked) button keeps its checked look while hovered or held, as a toolbar's toggled
-/// key does (U2b.4.9); otherwise `States::pick` (disabled wins). Out of line: inlined, the direct engine and the wrapper's copy took it
-/// apart differently (abi_bench Overlays).
-#[inline(never)]
-fn icon_look(states: &States, state: State) -> &Look {
-    if state.checked && !state.disabled { &states.checked } else { states.pick(state) }
-}
-
 /// The built-in icon button: a square (the kit's 20 points, or the caller's size), the glyph centred. With a press scale below or above
 /// 1 the plate and glyph sit in a view that springs to that scale while the button is held and back on release.
 pub fn default_icon_button(this: &mut Ui, c: &IconButtonConfig, states: &States, _label: &str, icon: &str) {
@@ -1538,7 +1530,7 @@ pub fn default_icon_button(this: &mut Ui, c: &IconButtonConfig, states: &States,
     let size = |s: Size| match s { Size::Fit => Size::Px(ch), s => s };
     let n = this.node_new(&c.node);
     (n.w, n.h) = (size(c.w), size(c.h));
-    let look = *icon_look(states, c.state);
+    let look = *states.pick(c.state);
     let width = match c.w { Size::Px(w) => w, _ => ch };
     let inset = Edges { l: ((width - tw) / 2.0).floor(), ..Edges::ZERO };
     if c.press_scale == 1.0 {

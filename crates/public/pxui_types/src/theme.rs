@@ -1760,28 +1760,32 @@ impl States {
         self.checked = look;
         self
     }
-    /// The look for state `s`: disabled, else pressed, hovered, checked, focused, idle, whichever holds first.
+    /// The look for state `s`, the one priority of every kit widget (U2b.4.20): disabled, else checked, pressed, hovered, focused, idle,
+    /// whichever holds first.
     ///
-    /// So a focused and checked widget shows `checked`, and a hovered and pressed one shows `pressed`.
+    /// So a checked (on, selected) widget keeps `checked` while hovered or held, as a toolbar's toggled key does; a disabled one shows
+    /// `disabled` even when checked; a hovered and pressed one shows `pressed`.
     /// Allocates: never.
     /// Panics: never.
     ///
     /// ```
     /// use pxui_types::{theme::{State, States}, Look};
-    /// let mut states = States::of(Look::NONE);
+    /// let mut states = States::of(Look::NONE).checked(Look::NONE.radius(4.0)).disabled(Look::NONE.radius(8.0));
     /// states.pressed = Look::NONE.radius(2.0);
     /// let both = State { hovered: true, pressed: true, ..Default::default() };
     /// assert_eq!(states.pick(both).radius, [2.0; 4]);
+    /// assert_eq!(states.pick(State { checked: true, ..both }).radius, [4.0; 4]);
+    /// assert_eq!(states.pick(State { checked: true, disabled: true, ..both }).radius, [8.0; 4]);
     /// ```
     pub fn pick(&self, s: State) -> &Look {
         if s.disabled {
             &self.disabled
+        } else if s.checked {
+            &self.checked
         } else if s.pressed {
             &self.pressed
         } else if s.hovered {
             &self.hover
-        } else if s.checked {
-            &self.checked
         } else if s.focused {
             &self.focus
         } else {

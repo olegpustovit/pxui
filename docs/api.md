@@ -51,7 +51,7 @@ The target public surface. **Rule:** a call not marked with a step keeps its HEA
 | Keys (D23) | `key_pressed(KeyCode, Mods) -> bool` (U2b.4.18: a press a focused widget handled is not reported; a text editor's keys are, gated by `text_input_focused`), `key_down(KeyCode) -> bool`, `testing::key(KeyCode)` | — | U1a.4, U2b.4.18 |
 | Local state | `state/set_state(&Handle, ..)`, `text_state/set_text_state`, `expanded<K>(key) -> Option<bool>`, `hover_delay<K>(key) -> bool`, `load_text_edit<K>(key, ..)`, `box_of_key<K>(key)`, `root_at(Point, &[Key]) -> Option<Key>` (innermost candidate), `part_box/part_rect(&Handle, ..)`. Authored keys resolve under the current seed. Already-resolved keys use `Key::Resolved` | — | U1b.2 |
 | Paint | `canvas/canvas_over(&Handle, f)`; Paint shapes Rect + Fill/Stroke; `Paint::text/text_chars/text_spans` take `Point` and `Label`. Measurement is on `text_service()`; `Paint::image(Rect, &Image, &ImageStyle)` with a tint builder on `ImageStyle` | — | U1b.3 (text), U1b.2 (image) |
-| Looks | `style(&Handle, &States, State)` (`set_look` folded in, `States::of(Look)`; the wrapper picks the state's look and C `pxui_ui_style` takes that one `PxuiLookDesc`, U4a.6 fix, ABI 1.108); `patch_*` family; a node's own `Node::transition` (declared, or carried by `set_node_layout`) runs its changes of state instead of the theme's, also under a theme that does not move (U2b.4.5) | — | U1b.4; U2b.4.5; U4a.6 fix (C one look) |
+| Looks | `style(&Handle, &States, State)` (`set_look` folded in, `States::of(Look)`; the wrapper picks the state's look and C `pxui_ui_style` takes that one `PxuiLookDesc`, U4a.6 fix, ABI 1.108); `patch_*` family; a node's own `Node::transition` (declared, or carried by `set_node_layout`) runs its changes of state instead of the theme's, also under a theme that does not move (U2b.4.5); `States::pick` is the one state→look priority of every kit widget and body: disabled > checked (on, selected) > pressed > hovered > focused > idle (U2b.4.20, ABI 1.118 behaviour) | — | U1b.4; U2b.4.5; U4a.6 fix (C one look); U2b.4.20 |
 | Animation | `animate(&Handle, Target, Curve)`, `animate_keys(&Handle, &[Keyframe], &Keyframes)` (two jobs) | — | HEAD |
 | Images | `image<K>(key, name, &Image, &ImageStyle) -> Result<Handle, Error>`; `Image::rgba8(width, height, vk_image_view, mtl_texture)` describes native storage; `images::{Want, Request}`, `Images::store/get/requests` | — | U1b.2; builder U1b.5 |
 | A11y | `a11y_name(&Handle, &str) -> bool` with UTF-8-safe display clipping; `a11y_value/a11y_number(&Handle, ..) -> Result<bool, Error>`; `set_role(&Handle, Role, A11yStates)`; `a11y_tree() -> A11yTree<'_>` (borrowed strings, revision and first child); `a11y_nodes`, `a11y_name_of`, `a11y_value_of`, `box_of_a11y` | — | U1a.3 (rule), U1b.4 (types) |
@@ -3678,7 +3678,7 @@ pxui_types::States::hover fn const (self, look: Look) -> States @HEAD
 pxui_types::States::idle field Look @HEAD
 pxui_types::States::idle fn const (self, look: Look) -> States @HEAD
 pxui_types::States::of fn const (look: Look) -> States @U1b.4
-pxui_types::States::pick fn (&self, s: State) -> &Look @HEAD
+pxui_types::States::pick fn (&self, s: State) -> &Look @U2b.4.20
 pxui_types::States::pressed field Look @HEAD
 pxui_types::States::pressed fn const (self, look: Look) -> States @HEAD
 pxui_types::Str impl Clone @HEAD
@@ -6814,7 +6814,7 @@ pxui_types::theme::States::hover fn const (self, look: Look) -> States @HEAD
 pxui_types::theme::States::idle field Look @HEAD
 pxui_types::theme::States::idle fn const (self, look: Look) -> States @HEAD
 pxui_types::theme::States::of fn const (look: Look) -> States @U1b.4
-pxui_types::theme::States::pick fn (&self, s: State) -> &Look @HEAD
+pxui_types::theme::States::pick fn (&self, s: State) -> &Look @U2b.4.20
 pxui_types::theme::States::pressed field Look @HEAD
 pxui_types::theme::States::pressed fn const (self, look: Look) -> States @HEAD
 pxui_types::theme::TITLE_SIZE const i64 @HEAD
