@@ -457,6 +457,9 @@ pub struct SearchFieldConfig {
     pub state: State,
     pub well: Handle,
     pub key: i64,
+    /// The field's line (the kit's row: the control height, `space(2)` at each side), which a body sizes with `set_node_layout` as a
+    /// button body sizes its `line` (U2b.4.8).
+    pub line: Handle,
 }
 
 pub type SearchFieldBody = fn(&mut Ui, &SearchFieldConfig, &str, &mut dyn FnMut(&mut Ui) -> bool);

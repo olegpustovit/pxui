@@ -130,7 +130,7 @@ PxuiMenuRowConfig 112 8 0 4 12 13 14 15 16 20 24 32 36 40 72 88 104 108
 PxuiRowConfig 72 8 0 4 16 24 56 64 66
 PxuiTreeRowConfig 88 8 0 4 12 13 16 24 32 40 72 80
 PxuiTableHeadConfig 80 8 0 4 12 13 16 24 56 72
-PxuiSearchFieldConfig 88 8 0 4 16 24 56 72 80
+PxuiSearchFieldConfig 120 8 0 4 16 24 56 72 80 88
 PxuiTextFieldConfig 88 8 0 4 16 48 64 80
 PxuiLineFieldConfig 72 8 0 4 12 16 48 64
 PxuiSlot 8 8 0

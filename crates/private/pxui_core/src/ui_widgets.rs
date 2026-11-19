@@ -1365,7 +1365,7 @@ fn search_field_body(this: &mut Ui, label: &str, icon: &str, value: &str, placeh
         filled
     };
     let focus = this.focus_key();
-    let config = SearchFieldConfig { state: State { focused: focus == int_key(key, 1) || bodied && focus == part_key(key, Part::EDITOR), ..State::default() }, well, key };
+    let config = SearchFieldConfig { state: State { focused: focus == int_key(key, 1) || bodied && focus == part_key(key, Part::EDITOR), ..State::default() }, well, key, line: row };
     in_body!(this, key, well, search_field, default_search_field(&config, icon, &mut editor));
     if let Some(clear) = this.part_built(key, Part::CLEAR) {
         this.set_role(&clear, Role::Button, 0);

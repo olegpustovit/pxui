@@ -2236,7 +2236,11 @@ configs! {
     }
     /// `editor` is a slot that builds the editing surface and returns whether the query is not empty (`pxui_slot`'s `out`); a
     /// `Part::EDITOR` the body built before it is that surface, edited in its look's font (U2b.4.4). Behaviour reads `Part::CLEAR`.
-    PxuiSearchFieldConfig { state: PxuiStateDesc, key: i64, well: PxuiBox, icon: Str, editor: PxuiSlot }
+    PxuiSearchFieldConfig { state: PxuiStateDesc, key: i64, well: PxuiBox, icon: Str, editor: PxuiSlot } @variant {
+        /// ABI 1.102: the field's line (the kit's row: the control height, `space(2)` at each side, `well` inside it), which a body
+        /// sizes with `pxui_ui_set_node_layout` as a button body sizes `PxuiButtonConfig.line`.
+        line: PxuiBox,
+    }
     PxuiTextFieldConfig { state: PxuiStateDesc, row: PxuiBox, label: Str, value: Str }
     PxuiLineFieldConfig { state: PxuiStateDesc, empty: u8, field: PxuiBox, text: Str }
     /// `opts` holds the caller's options (its strings borrowed for the call); its place, label and value are unset.

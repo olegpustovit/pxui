@@ -259,7 +259,7 @@ mod tramps {
         art: match c.art { None => 0, Some(pxui_types::ui::PickArt::Glyph(c)) => c as u64, Some(pxui_types::ui::PickArt::Image(id)) => id as u64 }
     });
     tramp!(search_field, |ui, sh, c: &SearchFieldConfig, icon: &str, body: &mut dyn FnMut(&mut Ui) -> bool| PxuiSearchFieldConfig {
-        state: st(c.state), key: c.key, well: bx(c.well), icon: pair(icon), editor: editor(sh, body)
+        state: st(c.state), key: c.key, well: bx(c.well), icon: pair(icon), editor: editor(sh, body), line: bx(c.line)
     });
     tramp!(text_field, |ui, sh, c: &TextFieldConfig, label: &str, value: &str| PxuiTextFieldConfig { state: st(c.state), row: bx(c.row), label: pair(label), value: pair(value) });
     tramp!(line_field, |ui, sh, c: &LineFieldConfig, text: &str| PxuiLineFieldConfig { state: st(c.state), empty: c.empty as u8, field: bx(c.field), text: pair(text) });

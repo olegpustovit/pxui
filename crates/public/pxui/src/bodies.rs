@@ -439,7 +439,7 @@ mod tests {
         }
     }
 
-    /// U2b.4.4: a search field body that builds `Part::EDITOR` before its editor slot edits on that node: the one text field in the
+    /// U2b.4.4: a search field body that builds `Part::EDITOR` before its editor slot edits on that node (in a line it sized, U2b.4.8): the one text field in the
     /// accessibility tree, focus reported to the body, its look kept, the caret placed in the node's look font (26 points here), Escape
     /// clears; warm focused frames allocate nothing. Both link modes.
     #[test]
@@ -449,6 +449,7 @@ mod tests {
         const EDITOR: crate::theme::Look = crate::theme::Look::NONE.font(crate::theme::Font::BODY.size(26.0)).fill(crate::Rgba::rgb(1, 2, 3));
         fn search(ui: &mut Ui, c: &SearchFieldConfig) {
             FOCUSED.with(|f| f.set(c.state.focused != 0));
+            ui.set_node_layout(&c.line, &Node::row().w(Size::Grow).h_px(56.0).align(pxui_types::layout::Align::Center));
             ui.part(Part::EDITOR, Node::DEFAULT.w_px(200.0).h_px(40.0).look(EDITOR));
             ui.slot(c.editor);
         }
@@ -465,6 +466,7 @@ mod tests {
         assert_eq!(fields(&ui), 1, "the body's editor is the only text field");
         let editor = crate::testing::find(&ui, Role::TextField, "Find").expect("the editor part carries the field's name");
         assert_eq!((editor.w, editor.h), (200.0, 40.0), "the body's editor part is the field");
+        assert_eq!((editor.x, editor.y), (0.0, 8.0), "the body sized the line (U2b.4.8): 56 high from the window's edge, the editor centred in it");
         assert!(ui.layers().flat_map(|l| l.instances.iter()).any(|i| i.color == [1, 2, 3, 255]), "the editor keeps the body's look");
         // past the text's end: the caret lands after "query", wherever that is in the field's font
         crate::testing::click(&mut ui, f64::from(editor.x + 150.0), f64::from(editor.y + editor.h / 2.0), &mut build);
