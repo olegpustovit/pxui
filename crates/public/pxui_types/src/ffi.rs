@@ -2243,6 +2243,17 @@ configs! {
         /// Zero.
         reserved3: [u8; 7],
         art: u64,
+        /// ABI 1.110 (U2b.4.15): 1 when the picker gave the row an image (`image`, which the built-in body draws in the art slot).
+        has_image: u8,
+        /// ABI 1.110 (U2b.4.15): 1 when the row starts a group: `head` is its heading, a box above the row that behaviour made (its
+        /// text, the heading role and name), which the body lays out (`pxui_ui_set_node_layout`) and styles as a button body its `line`.
+        has_head: u8,
+        /// Zero.
+        reserved4: [u8; 6],
+        /// The row's image (`has_image`): the descriptor the picker's image callback gave.
+        image: crate::Image,
+        /// The group heading's box (`has_head`).
+        head: PxuiBox,
     }
     /// `editor` is a slot that builds the editing surface and returns whether the query is not empty (`pxui_slot`'s `out`); a
     /// `Part::EDITOR` the body built before it is that surface, edited in its look's font (U2b.4.4). Behaviour reads `Part::CLEAR`.

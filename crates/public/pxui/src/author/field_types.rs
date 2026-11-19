@@ -792,12 +792,14 @@ pub struct Picker<'a> {
     pub(crate) at_rest: bool,
     pub(crate) mark: Option<&'a dyn Fn(usize) -> Option<Rgba>>,
     pub(crate) off: Option<&'a dyn Fn(usize) -> bool>,
+    pub(crate) image: Option<&'a dyn Fn(usize) -> Option<crate::Image>>,
 }
 
 impl<'a> Picker<'a> {
     /// The plain picker: ten rows, the `/`, no marks.
-    pub const DEFAULT: Picker<'a> = Picker { limit: 10, slash: true, at_rest: false, mark: None, off: None };
-    /// Sets the most rows windowed around the cursor (10 by default).
+    pub const DEFAULT: Picker<'a> = Picker { limit: 10, slash: true, at_rest: false, mark: None, off: None, image: None };
+    /// Sets how many rows of the kit's height the results show before they scroll (10 by default; wheel, trackpad and the keyboard
+    /// scroll them, the keyboard's row kept in view).
     /// Allocates: never.
     /// Panics: never.
     ///
@@ -842,6 +844,17 @@ impl<'a> Picker<'a> {
     /// let _ = pxui::Picker::DEFAULT.off(&f);
     /// ```
     pub const fn off(mut self, f: &'a dyn Fn(usize) -> bool) -> Picker<'a> { self.off = Some(f); self }
+    /// Sets `f(row)`: row `row`'s image, or none (U2b.4.15). The built-in row draws it in its art slot (a row-high square, cover fit);
+    /// a registered row body gets it as `PickerConfig.image` (`has_image`). Call-scoped like `mark`: `f` runs for each row built this
+    /// frame and only looks the image up (an `Images::get`), it does no decoding.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let f = |_row: usize| None;
+    /// let _ = pxui::Picker::DEFAULT.image(&f);
+    /// ```
+    pub const fn image(mut self, f: &'a dyn Fn(usize) -> Option<crate::Image>) -> Picker<'a> { self.image = Some(f); self }
 }
 
 /// How `Ui::scrub` builds the caller-painted scrubber's behaviour, as a `Copy` value built with `const fn` builders from `Scrubber::DEFAULT`.

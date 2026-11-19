@@ -227,7 +227,7 @@ fn text_with_nul_crosses_as_ordinary_text() {
         let ui = ui.cast::<PxuiUi>();
         let query = Str { ptr: b"a\0b".as_ptr(), len: 3 };
         let (mut returned, mut tag, mut index) = (Str::default(), 0u32, 0i64);
-        let rc = unsafe { pxui_ui_picker(ui, &pxui_types::ffi::PxuiKeyedDesc::new("pick", ""), 5, 0, 0, query, None, None, None, core::ptr::null_mut(), &mut returned, &mut tag, &mut index) };
+        let rc = unsafe { pxui_ui_picker(ui, &pxui_types::ffi::PxuiKeyedDesc::new("pick", ""), 5, 0, 0, query, None, None, None, None, core::ptr::null_mut(), &mut returned, &mut tag, &mut index) };
         assert_eq!(rc, 0, "{}", error(ui));
         assert_eq!(unsafe { core::slice::from_raw_parts(returned.ptr, returned.len) }, b"a\0b");
         unsafe { *user.cast::<u32>() += 1; }
@@ -255,7 +255,7 @@ fn picker_rows_are_checked_and_old_str_fills_are_refused_unread() {
     let pick = |fill: &mut Fill| in_frame(ui, &mut |ui| {
         let (mut query, mut tag, mut index) = (Str::default(), 0u32, 0i64);
         let keyed = pxui_types::ffi::PxuiKeyedDesc::new("pick", "Search");
-        unsafe { pxui_ui_picker(ui, &keyed, 5, 0, 1, Str { ptr: b"s".as_ptr(), len: 1 }, Some(rows), None, None, (fill as *mut Fill).cast(), &mut query, &mut tag, &mut index) }
+        unsafe { pxui_ui_picker(ui, &keyed, 5, 0, 1, Str { ptr: b"s".as_ptr(), len: 1 }, Some(rows), None, None, None, (fill as *mut Fill).cast(), &mut query, &mut tag, &mut index) }
     });
     let row = PxuiPickRow { art_kind: 1, art: 0x266B, heading: Str { ptr: b"S".as_ptr(), len: 1 }, ..PxuiPickRow::new("Song", "Artist") };
     let good = [row, PxuiPickRow { art_kind: 2, art: 7, ..PxuiPickRow::new("Album", "") }];

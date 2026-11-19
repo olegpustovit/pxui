@@ -103,7 +103,7 @@ pub fn window_pxui_keyboard() {
     let mut picker = |ui: &mut Ui| {
         ui.modal_root("picker", &pxui_core::ui::Overlay::DEFAULT.name("picker"), &mut |ui| {
             let rows = |_: &str| vec![("One".to_owned(), String::new()), ("Two".to_owned(), String::new())];
-            *picked.borrow_mut() = Some({ let r = ui.picker("Search", "Search", "", &pxui_core::ui::PickerOpts::default(), &mut |q: &str, out: &mut pxui_core::ui::PickRows| for (a, b) in rows(q) { out.push(pxui_types::ui::PickRow::new(&a).detail(&b)) }); (r.query.to_owned(), r.pick) });
+            *picked.borrow_mut() = Some({ let r = ui.picker("Search", "Search", "", &pxui_core::ui::PickerOpts::default(), (None, None, None), &mut |q: &str, out: &mut pxui_core::ui::PickRows| for (a, b) in rows(q) { out.push(pxui_types::ui::PickRow::new(&a).detail(&b)) }); (r.query.to_owned(), r.pick) });
         });
     };
     ui.frame(&keyboard_frame(vec![], vec![]), &mut picker);

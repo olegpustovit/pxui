@@ -2,7 +2,6 @@ use crate::state::{MAX_TOTAL_TEXT_BYTES, PxuiUi, checked, core_box, fail, finite
 use crate::{PXUI_ERR_ARGUMENT, PxuiBox, Str};
 use core::{cell::Cell, ffi::c_void};
 use pxui_core::ui_text::{Menu, MenuItem, Chosen, Pick, PickerOpts, PickRows};
-use std::rc::Rc;
 use pxui_types::{ffi::PxuiKeyedDesc, ui::Toast};
 use pxui_types::ui::Key as NodeKey;
 use pxui_types::ffi::{PxuiMenuExtra, Slice};
@@ -12,6 +11,8 @@ const MAX_ROWS: usize = 4096;
 pub type PickerRows = Option<extern "C" fn(*mut c_void, Str, *mut Slice<pxui_types::ffi::PxuiPickRow>)>;
 pub type PickerMark = Option<extern "C" fn(*mut c_void, i64, *mut pxui_types::geom::Rgba) -> u8>;
 pub type PickerOff = Option<extern "C" fn(*mut c_void, i64) -> u8>;
+/// Row `row`'s image into `out` (1) or none (0) (ABI 1.110).
+pub type PickerImage = Option<extern "C" fn(*mut c_void, i64, *mut pxui_types::Image) -> u8>;
 
 export!(trusted pub unsafe fn pxui_ui_tip(ui: *mut PxuiUi, box_: *const PxuiBox, label: Str) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
@@ -199,7 +200,7 @@ unsafe fn decode_extra(extra: &PxuiMenuExtra, size: usize, menu: &mut [MenuItem<
 #[allow(clippy::too_many_arguments)]
 unsafe fn picker(
     ui: *mut PxuiUi, limit: i64, slash: u8, at_rest: u8, key: &str, placeholder: &str, query: Str,
-    rows_cb: PickerRows, mark_cb: PickerMark, off_cb: PickerOff, user: *mut c_void, out_query: *mut Str, out_tag: *mut u32, out_index: *mut i64,
+    rows_cb: PickerRows, mark_cb: PickerMark, off_cb: PickerOff, image_cb: PickerImage, user: *mut c_void, out_query: *mut Str, out_tag: *mut u32, out_index: *mut i64,
 ) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if out_query.is_null() || out_tag.is_null() || out_index.is_null() || !(1..=1024).contains(&limit) || slash > 1 || at_rest > 1 {
@@ -237,10 +238,23 @@ unsafe fn picker(
 
     // the closures run only during this call, so they may hold `user`
     let user_addr = user as usize;
-    let mark = mark_cb.map(|cb| Rc::new(move |row: i64| { let mut c = pxui_types::geom::Rgba::default(); (cb(user_addr as *mut c_void, row, &mut c) != 0).then_some(c) }) as Rc<dyn Fn(i64) -> Option<pxui_types::geom::Rgba>>);
-    let off = off_cb.map(|cb| Rc::new(move |row: i64| cb(user_addr as *mut c_void, row) != 0) as Rc<dyn Fn(i64) -> bool>);
-    let opts = PickerOpts { limit, slash: slash != 0, at_rest: at_rest != 0, mark, off };
-    let r = unsafe { (&mut *state.engine).picker(key, placeholder, query, &opts, &mut fill) };
+    let mark = mark_cb.map(|cb| move |row: i64| { let mut c = pxui_types::geom::Rgba::default(); (cb(user_addr as *mut c_void, row, &mut c) != 0).then_some(c) });
+    let off = off_cb.map(|cb| move |row: i64| cb(user_addr as *mut c_void, row) != 0);
+    // a row's image: the caller's descriptor checked, then the `Ui`'s identity for it (a kept handle: nothing allocated once seen); an
+    // invalid descriptor refuses the call
+    let shared = state.shared;
+    let invalid_image = &invalid;
+    let image = image_cb.map(|cb| move |row: i64| {
+        let mut raw = pxui_types::Image::default();
+        if cb(user_addr as *mut c_void, row, &mut raw) == 0 { return None; }
+        let image = crate::image::core_image(raw, unsafe { &mut (*shared).images });
+        if image.is_none() { invalid_image.set(true); }
+        image
+    });
+    let opts = PickerOpts { limit, slash: slash != 0, at_rest: at_rest != 0 };
+    let fns = (mark.as_ref().map(|f| f as &dyn Fn(i64) -> Option<pxui_types::geom::Rgba>), off.as_ref().map(|f| f as &dyn Fn(i64) -> bool),
+        image.as_ref().map(|f| f as &dyn Fn(i64) -> Option<pxui_core::ui::Image>));
+    let r = unsafe { (&mut *state.engine).picker(key, placeholder, query, &opts, fns, &mut fill) };
     let (tag, index) = match r.pick { Pick::None => (0, -1), Pick::Pick(index) => (1, index), Pick::Delete(index) => (2, index), Pick::Submit => (3, -1), Pick::Back => (4, -1), Pick::Cancel => (5, -1) };
     if invalid.get() { return unsafe { fail(ui, "invalid picker rows") }; }
     // lent from a buffer reused next frame: no per-frame copy of the query (#82)
@@ -253,9 +267,9 @@ unsafe fn picker(
 // ABI 1.68: the picker keyed by `keyed.key`, `keyed.name` its placeholder and accessible name.
 export!(build pub unsafe fn pxui_ui_picker(
     ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, limit: i64, slash: u8, at_rest: u8, query: Str,
-    rows_cb: PickerRows, mark_cb: PickerMark, off_cb: PickerOff, user: *mut c_void, out_query: *mut Str, out_tag: *mut u32, out_index: *mut i64,
+    rows_cb: PickerRows, mark_cb: PickerMark, off_cb: PickerOff, image_cb: PickerImage, user: *mut c_void, out_query: *mut Str, out_tag: *mut u32, out_index: *mut i64,
 ) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     let Some((key, placeholder)) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
-    unsafe { picker(ui, limit, slash, at_rest, key, placeholder, query, rows_cb, mark_cb, off_cb, user, out_query, out_tag, out_index) }
+    unsafe { picker(ui, limit, slash, at_rest, key, placeholder, query, rows_cb, mark_cb, off_cb, image_cb, user, out_query, out_tag, out_index) }
 });

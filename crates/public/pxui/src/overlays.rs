@@ -24,6 +24,7 @@ mod raw {
     pub type PickerRows = Option<extern "C" fn(*mut c_void, Str, *mut Slice<pxui_types::ffi::PxuiPickRow>)>;
     pub type PickerMark = Option<extern "C" fn(*mut c_void, i64, *mut pxui_types::geom::Rgba) -> u8>;
     pub type PickerOff = Option<extern "C" fn(*mut c_void, i64) -> u8>;
+    pub type PickerImage = Option<extern "C" fn(*mut c_void, i64, *mut crate::Image) -> u8>;
     #[link(name = "pxui")]
     unsafe extern "C" {
     /// The C entry `Ui::tooltip` calls: shows the tooltip `label` for `box_` while the pointer rests on it; an error code for a stale box or invalid text.
@@ -73,7 +74,7 @@ mod raw {
     ///     ui.picker("find", "Search", "", &pxui::Picker::DEFAULT, &mut |_query, rows| rows.push(pxui::PickRow::new("Song").detail("Artist")));
     /// });
     /// ```
-    pub fn pxui_ui_picker(ui:*mut PxuiUi,keyed:*const PxuiKeyedDesc,limit:i64,slash:u8,at_rest:u8,query:Str,rows:PickerRows,mark:PickerMark,off:PickerOff,user:*mut c_void,out_query:*mut Str,out_tag:*mut u32,out_index:*mut i64)->i32;
+    pub fn pxui_ui_picker(ui:*mut PxuiUi,keyed:*const PxuiKeyedDesc,limit:i64,slash:u8,at_rest:u8,query:Str,rows:PickerRows,mark:PickerMark,off:PickerOff,image:PickerImage,user:*mut c_void,out_query:*mut Str,out_tag:*mut u32,out_index:*mut i64)->i32;
     }
 }
 
@@ -117,6 +118,16 @@ extern "C" fn off(user: *mut c_void, row: i64) -> u8 {
     let ctx = unsafe { &*user.cast::<Rows>() };
     let Some(off) = ctx.options.off else { return 0 };
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| off(row.max(0) as usize))) { Ok(v) => v as u8, Err(panic) => { defer_callback_panic(panic); 0 } }
+}
+extern "C" fn image(user: *mut c_void, row: i64, out: *mut crate::Image) -> u8 {
+    if user.is_null() || out.is_null() || deferred() { return 0; }
+    let ctx = unsafe { &*user.cast::<Rows>() };
+    let Some(image) = ctx.options.image else { return 0 };
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| image(row.max(0) as usize))) {
+        Ok(Some(found)) => { unsafe { *out = found; } 1 }
+        Ok(None) => 0,
+        Err(panic) => { defer_callback_panic(panic); 0 }
+    }
 }
 extern "C" fn rows(user: *mut c_void, query: Str, out: *mut Slice<pxui_types::ffi::PxuiPickRow>) {
     if user.is_null() || out.is_null() || deferred() { return; }
@@ -293,7 +304,8 @@ impl Ui {
         let mut index: i64 = -1;
         check(self, unsafe { raw::pxui_ui_picker(
             self.0.as_ptr(), &keyed, i64::try_from(options.limit).expect("pxui: a picker row limit over i64::MAX"), options.slash as u8, options.at_rest as u8,
-            as_str(query), Some(rows), options.mark.map(|_| mark as extern "C" fn(*mut c_void, i64, *mut pxui_types::geom::Rgba) -> u8), options.off.map(|_| off as extern "C" fn(*mut c_void, i64) -> u8), &mut rows_ctx as *mut _ as *mut c_void,
+            as_str(query), Some(rows), options.mark.map(|_| mark as extern "C" fn(*mut c_void, i64, *mut pxui_types::geom::Rgba) -> u8), options.off.map(|_| off as extern "C" fn(*mut c_void, i64) -> u8),
+            options.image.map(|_| image as extern "C" fn(*mut c_void, i64, *mut crate::Image) -> u8), &mut rows_ctx as *mut _ as *mut c_void,
             &mut out_query, &mut tag, &mut index,
         ) });
         let Rows { mut owned, mut raw, .. } = rows_ctx;

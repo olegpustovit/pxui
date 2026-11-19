@@ -284,7 +284,7 @@ pub mod inputs {
         }
     }
     pub fn presets(ui: &mut Ui, rows: &mut dyn FnMut(&str, &mut pxui_types::ui::PickRows)) -> Pick {
-        ui.picker("presets-search", "Search presets", "", &PickerOpts { limit: 4, ..PickerOpts::default() }, rows).pick
+        ui.picker("presets-search", "Search presets", "", &PickerOpts { limit: 4, ..PickerOpts::default() }, (None, None, None), rows).pick
     }
 }
 

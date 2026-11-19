@@ -170,17 +170,20 @@ impl Default for TextAreaOpts {
     }
 }
 
-#[derive(Clone)]
+/// A picker's options (its row functions are `PickerRowFns`, borrowed for the call).
+#[derive(Clone, Copy)]
 pub struct PickerOpts {
     pub limit: i64,
-    pub mark: Option<Rc<dyn Fn(i64) -> Option<Rgba>>>,
-    pub off: Option<Rc<dyn Fn(i64) -> bool>>,
     pub slash: bool,
     pub at_rest: bool,
 }
 
 impl Default for PickerOpts {
-    fn default() -> PickerOpts {
-        PickerOpts { limit: 10, mark: None, off: None, slash: true, at_rest: false }
+    fn default() -> Self {
+        PickerOpts { limit: 10, slash: true, at_rest: false }
     }
 }
+
+/// A picker's row functions, borrowed for the call (nothing kept, nothing allocated): `mark` a row's colour square, `off` a row that
+/// cannot be picked, `image` a row's image (U2b.4.15: `PickerRowConfig::image`, drawn in the art slot).
+pub type PickerRowFns<'a> = (Option<&'a dyn Fn(i64) -> Option<Rgba>>, Option<&'a dyn Fn(i64) -> bool>, Option<&'a dyn Fn(i64) -> Option<crate::ui_core::Image>>);

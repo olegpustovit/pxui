@@ -89,15 +89,15 @@ impl Ui {
     /// Keyed by `key` (hashed under the parent's seed), `placeholder` its placeholder and accessible name. The picker asks for its rows
     /// by `fill(query, rows)` pushing them into `rows`, which it keeps between frames, so a settled picker copies no row into new
     /// storage; the edited query is lent until the next call.
-    pub fn picker(&mut self, key: &str, placeholder: &str, query: &str, o: &PickerOpts, fill: &mut dyn FnMut(&str, &mut PickRows)) -> PickerResponse<'_> {
-        let (query, pick) = picker_body(self, o, key, placeholder, query, fill);
+    pub fn picker(&mut self, key: &str, placeholder: &str, query: &str, o: &PickerOpts, fns: crate::opts::PickerRowFns, fill: &mut dyn FnMut(&str, &mut PickRows)) -> PickerResponse<'_> {
+        let (query, pick) = picker_body(self, o, fns, key, placeholder, query, fill);
         self.returned = query;
         PickerResponse { query: &self.returned, pick }
     }
 }
 
-fn picker_body(this: &mut Ui, o: &PickerOpts, label: &str, placeholder: &str, query: &str, fill: &mut dyn FnMut(&str, &mut PickRows)) -> (String, Pick) {
-    let off = |i: i64| o.off.as_ref().map(|f| f(i)).unwrap_or(false);
+fn picker_body(this: &mut Ui, o: &PickerOpts, (mark, off_fn, image_fn): crate::opts::PickerRowFns, label: &str, placeholder: &str, query: &str, fill: &mut dyn FnMut(&str, &mut PickRows)) -> (String, Pick) {
+    let off = |i: i64| off_fn.map(|f| f(i)).unwrap_or(false);
     let mut rows = core::mem::take(&mut this.picker_rows);
     rows.clear();
     fill(query, &mut rows);
@@ -108,7 +108,6 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, label: &str, placeholder: &str, qu
     if this.focus_key() == 0 || this.slot_rw(search.box_slot) == 0.0 {
         this.focus_box(&search);
     }
-    let list = this.box_keyed(int_key(search.box_key, 0), BoxOpts::default().w(Size::Grow).h(Size::Fit).axis(Axis::Column));
     let search_signal = this.signal_owned(&search);
     if search_signal.hovered {
         this.request_cursor(Cursor::Text);
@@ -116,7 +115,8 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, label: &str, placeholder: &str, qu
     let keys = this.key_events(&search);
     let clamp = |cursor: i64, count: usize| if count == 0 { 0 } else { 0.max((count as i64 - 1).min(cursor)) };
     let mut cursor = clamp(this.state(&search, 0), rows.len());
-    let mut armed = this.state(&list, -1);
+    let mut armed = this.box_of_key(int_key(search.box_key, 0)).map_or(-1, |frame| this.state(&frame, -1));
+    let mut refilled = false;
     // the query and the edit live in kept buffers (the last call's lent query, the frame's edit text): no per-frame copy (#82)
     let mut kept = core::mem::take(&mut this.returned);
     if kept.as_ptr() != query.as_ptr() || kept.len() != query.len() { kept.clear(); kept.push_str(query); }
@@ -129,7 +129,15 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, label: &str, placeholder: &str, qu
     // the slash is 6.5 wide and 6 of gap: the query starts 14.5 in from the field's edge
     let inset = if o.slash { 14.5 - prefix as f32 } else { 2.0 };
     let shift = this.press_shift(&search);
-    this.point_text_caret(None, &mut edit, &search_signal, shift, (sx + 4 + prefix) as f32 + inset, (sx + sw - 4 - 2) as f32);
+    // a body's `Part::EDITOR` as last laid out is where a press places the caret, in its font (U2b.4.15)
+    let laid = this.part_box(search.box_key, crate::theme::Part::EDITOR).map(|b| (this.rect(&b), this.kept_font(&b))).filter(|(r, _)| r.w > 0.0);
+    match laid {
+        Some((r, font)) => {
+            let size = (font.size != 0).then(|| crate::ui_core::font_px(&font, this.font_px()));
+            this.point_text_caret(size, &mut edit, &search_signal, shift, r.x + 2.0, r.x + r.w - 2.0)
+        }
+        None => this.point_text_caret(None, &mut edit, &search_signal, shift, (sx + 4 + prefix) as f32 + inset, (sx + sw - 4 - 2) as f32),
+    }
     for (event, modifiers) in keys {
         let count = rows.len() as i64;
         if result == Pick::None {
@@ -168,6 +176,7 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, label: &str, placeholder: &str, qu
                         fill(&query, &mut rows);
                         cursor = 0;
                         armed = -1;
+                        refilled = true;
                     }
                 }
             }
@@ -175,8 +184,7 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, label: &str, placeholder: &str, qu
     }
     this.save_text_edit(&edit);
     let count = rows.len() as i64;
-    let length = o.limit.min(count);
-    let start = if length == count { 0 } else { 0.max((count - length).min(cursor - length / 2)) };
+    let moved = refilled || cursor != this.state(&search, 0);
     let font_size = this.font_px();
     let (slash, at_rest) = (o.slash, o.at_rest);
     let t = this.theme();
@@ -187,7 +195,6 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, label: &str, placeholder: &str, qu
     this.set_role(&search, Role::TextField, crate::a11y::state::EDITABLE);
     this.a11y_name(&search, placeholder);
     this.a11y_value(&search, &edit.text, (edit.text[..edit.anchor.min(edit.text.len())].chars().count() as u32, edit.text[..edit.caret.min(edit.text.len())].chars().count() as u32));
-    this.set_role(&list, Role::List, 0);
     let config = PickerFieldConfig { state, empty: edit.text.is_empty(), slash, prefix: prefix as f32, inset, search };
     in_body!(this, search.box_key, search, picker_field, default_picker_field(&config, placeholder));
     {
@@ -196,44 +203,57 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, label: &str, placeholder: &str, qu
         // the focused search's edit text and composition travel in the painter (`paint_begin`), as a text field's do: no copy. An
         // unfocused search (another node took the focus) paints a copy of its own.
         let own = (!this.focused(&search)).then(|| (edit.text.clone(), this.composition().to_owned()));
-        this.canvas_over(&search, move |paint, rect| {
+        // a body's own `Part::EDITOR` is the editing surface: the query painted on it, 2 points in, in its look's font (U2b.4.15)
+        let editor = this.part_built(search.box_key, crate::theme::Part::EDITOR).map(|part| {
+            let font = this.node_at(part.index).look.font;
+            (part, (font.size != 0).then(|| crate::ui_core::font_px(&font, font_size)))
+        });
+        let (target, size, inset, prefix) = match editor { Some((part, size)) => (part, size, 2.0, 0), None => (search, None, inset, prefix) };
+        let line = size.unwrap_or(font_size);
+        this.canvas_over(&target, move |paint, rect| {
             let (cx, cy, cw, ch) = ints(rect);
             let control = (cx + prefix, cy, 1.max(cw - prefix), ch);
-            let y = label_y(font_size, cy, ch);
+            let y = label_y(line, cy, ch);
             match &own {
-                Some((text, composition)) => paint_text_edit_ref(paint, None, false, inset, marks, control, y, composition, text, caret, anchor),
+                Some((text, composition)) => paint_text_edit_ref(paint, size, false, inset, marks, control, y, composition, text, caret, anchor),
                 None => {
                     let (text, composition) = (std::mem::take(&mut paint.edit_text), std::mem::take(&mut paint.composition));
-                    paint_text_edit_ref(paint, None, false, inset, marks, control, y, &composition, &text, caret, anchor);
+                    paint_text_edit_ref(paint, size, false, inset, marks, control, y, &composition, &text, caret, anchor);
                     (paint.edit_text, paint.composition) = (text, composition);
                 }
             }
         });
         this.edit_work = edit.text;
     }
-    let saved = this.enter(&list);
-    let row_height = this.row_px();
+    // the results: a measured list that scrolls (wheel, trackpad, keyboard), `limit` rows of the kit's height high at most, its rows
+    // as high as their bodies make them (U2b.4.15)
+    let frame = this.box_keyed(int_key(search.box_key, 0), BoxOpts::default().w(Size::Grow).h(Size::Fit).axis(Axis::Column));
+    let saved = this.enter(&frame);
+    let row_height = this.row_px() as f32;
     let body = body_of!(this, picker);
-    for visible in 0..length {
-        let index = start + visible;
-        let pick = rows.get(index as usize).unwrap_or(pxui_types::ui::PickRow::new(""));
-        if !pick.heading.is_empty() {
-            // the heading of the group this row starts: a caption above it, not a row (no press, focus or index)
-            let head = this.box_keyed(int_key(list.box_key, -1 - visible), BoxOpts::default().w(Size::Grow).h(Size::Px(row_height as f32)));
-            let look = this.theme().hint.idle;
-            this.set_look(&head, look, State::default());
-            this.node_mut(&head).inset = Edges { l: this.space(2), ..Edges::default() };
+    let rows_ref = &rows;
+    let section = pxui_types::ui::SectionList::new(rows.len()).row_h(row_height).measured();
+    let list = this.section_list("rows", &section, None, false, &mut |this, index, _| {
+        let Some(pick) = rows_ref.get(index) else { return };
+        let index = index as i64;
+        // the section's row holds the heading and the pick: a plain column (the pick is the list item)
+        let column = this.entered();
+        this.set_role(&column, Role::Unknown, 0);
+        // the heading of the group this row starts: a box above it, not a row (no press, focus or index), which the row body styles
+        let head = (!pick.heading.is_empty()).then(|| {
+            let head = this.box_keyed(int_key(column.box_key, 1), BoxOpts::default().w(Size::Grow));
             this.text(&head, pick.heading);
             this.set_role(&head, Role::Heading, 0);
             this.a11y_name(&head, pick.heading);
-        }
+            head
+        });
         // a row that cannot be picked leaves the keyboard with the search field
         let row = this.box_keyed(
-            int_key(list.box_key, visible),
+            int_key(column.box_key, 0),
             BoxOpts::default()
                 .flags(Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | if off(index) { Flags::KEEP_FOCUS } else { Flags::NONE })
                 .w(Size::Grow)
-                .h(Size::Px(row_height as f32)),
+                .h(Size::Px(row_height)),
         );
         let row_signal = this.signal_owned(&row);
         if result == Pick::None && row_signal.clicked && !off(index) {
@@ -243,17 +263,22 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, label: &str, placeholder: &str, qu
         let doomed = index == armed;
         let unavailable = off(index);
         let (text, detail) = (pick.label, pick.detail);
-        let swatch = o.mark.as_ref().and_then(|m| m(index)).map(|c| this.resolve_color(c));
+        let swatch = mark.and_then(|m| m(index)).map(|c| this.resolve_color(c));
+        let image = image_fn.and_then(|f| f(index));
         // the keyboard cursor is the control fill; a row armed for deletion reads in the error colour
         let state = State { hovered: row_signal.hovered, checked: current, ..State::default() };
         this.set_role(&row, Role::ListItem, if current { crate::a11y::state::SELECTED } else { 0 });
         this.a11y_name(&row, text);
-        let config = PickerRowConfig { state, index, current, doomed, unavailable, marked: o.mark.is_some(), swatch, art: pick.art, row };
+        let config = PickerRowConfig { state, index, current, doomed, unavailable, marked: mark.is_some(), swatch, art: pick.art, row, image, head };
         in_item!(this, body, row.box_key, row, default_picker_row(&config, text, detail, &query));
-    }
+    });
+    let n = this.node_mut(&list);
+    (n.h, n.max_h) = (Size::Fit, o.limit as f32 * row_height);
+    this.set_role(&list, Role::List, 0);
+    if moved && count > 0 { this.reveal(&list, cursor as usize); }
     this.leave(saved);
     this.set_state(&search, cursor);
-    this.set_state(&list, armed);
+    this.set_state(&frame, armed);
     this.picker_rows = rows;
     (query, result)
 }
@@ -274,9 +299,10 @@ pub(crate) fn default_picker_field(this: &mut Ui, c: &PickerFieldConfig, placeho
     }
 }
 
-/// The built-in picker row: the list look for its state (the error one when `doomed`), the swatch, the art slot (a row-high square: a
-/// glyph drawn in it, an image id's left for a registered body), the label cut to leave room for the detail with the query's letters in
-/// the accent, the detail, and the Enter hint on the keyboard's row.
+/// The built-in picker row: the heading above it in the hint look (a row high, `space(2)` in), the list look for its state (the error
+/// one when `doomed`), the swatch, the art slot (a row-high square: the image covering it, else a glyph drawn in it; an image id with
+/// no image is left for a registered body), the label cut to leave room for the detail with the query's letters in the accent, the
+/// detail, and the Enter hint on the keyboard's row.
 pub(crate) fn default_picker_row(this: &mut Ui, c: &PickerRowConfig, text: &str, detail: &str, query: &str) {
     let (row, current, doomed, unavailable, swatch, state) = (c.row, c.current, c.doomed, c.unavailable, c.swatch, c.state);
     let (font_size, row_height) = (this.font_px(), this.row_px());
@@ -284,13 +310,23 @@ pub(crate) fn default_picker_row(this: &mut Ui, c: &PickerRowConfig, text: &str,
     let ink3 = t.placeholder.idle.text;
     let look = if doomed { t.row_doomed.idle } else { *t.list.pick(state) };
     let ink = if doomed { look.text } else if unavailable { t.list.disabled.text } else { t.list.idle.text };
-    let (matched, key_look, detail_look) = (t.matched.idle.text, t.key.idle, if unavailable { t.placeholder.idle } else { t.hint.idle });
+    let (matched, key_look, detail_look, hint) = (t.matched.idle.text, t.key.idle, if unavailable { t.placeholder.idle } else { t.hint.idle }, t.hint.idle);
     this.set_look(&row, look, state);
     let width = this.width_of(&row);
     let rk = |n: i64| int_key(row.box_key, n);
     let rh = row_height as f32;
+    if let Some(head) = c.head {
+        this.set_look(&head, hint, State::default());
+        let inset = Edges { l: this.space(2), ..Edges::default() };
+        let n = this.node_mut(&head);
+        (n.h, n.inset) = (Size::Px(rh), inset);
+    }
     let art_x = if !c.marked { this.space(2) } else { this.space(2) + 16.0 };
-    let text_x = if c.art.is_some() { art_x + rh } else { art_x };
+    let text_x = if c.art.is_some() || c.image.is_some() { art_x + rh } else { art_x };
+    if let Some(image) = c.image.clone() {
+        let art = this.placed(rk(4), (art_x, 0.0), Size::Px(rh), rh, Look::NONE, Edges::default(), "");
+        this.canvas(&art, move |paint, rect| paint.image_fit(rect.x, rect.y, rect.w, rect.h, &image, pxui_types::draw::Fit::Cover, Rgba::WHITE));
+    }
     // a label that would run into the detail is cut with an ellipsis
     let key_size = crate::ui_core::font_px(&key_look.font, font_size);
     let key_text = "\u{21b5}";
@@ -303,7 +339,7 @@ pub(crate) fn default_picker_row(this: &mut Ui, c: &PickerRowConfig, text: &str,
         let fill = if unavailable { ink3 } else { color };
         this.placed(rk(0), (this.space(2), ((row_height - 8) / 2) as f32), Size::Px(8.0), 8.0, Look { fill, ..Look::NONE }, Edges::default(), "");
     }
-    if let Some(pxui_types::ui::PickArt::Glyph(glyph)) = c.art {
+    if let (Some(pxui_types::ui::PickArt::Glyph(glyph)), None) = (c.art, &c.image) {
         let mut buf = [0u8; 4];
         this.placed(rk(3), (art_x, 0.0), Size::Px(rh), rh, Look { text: ink, ..Look::NONE }, Edges::default(), glyph.encode_utf8(&mut buf));
     }

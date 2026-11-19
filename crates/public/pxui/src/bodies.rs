@@ -488,6 +488,120 @@ mod tests {
         assert_eq!(changed.borrow().as_deref(), Some(""), "Escape clears the query on the body's editor");
     }
 
+    /// U2b.4.15: a picker field body that builds `Part::EDITOR` gets the query painted on that part in its look's font, 2 points in;
+    /// warm frames with the body's editor allocate nothing. Both link modes.
+    #[test]
+    fn a_picker_field_body_paints_the_query_on_its_editor_part_in_its_font() {
+        use pxui_types::{a11y::Role, draw::kind};
+        const EDITOR: crate::theme::Look = crate::theme::Look::NONE.font(crate::theme::Font::BODY.size(26.0));
+        fn field(ui: &mut Ui, _: &PickerFieldConfig) {
+            let part = ui.part(Part::EDITOR, Node::DEFAULT.w_px(200.0).h_px(40.0).look(EDITOR).role(Role::Image));
+            ui.a11y_name(&part, "editor");
+        }
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+        ui.set_a11y(true);
+        ui.register_picker_field_body("f", field).unwrap();
+        ui.set_theme(&crate::ThemeHandle::parse("picker_field.body = f").unwrap()).unwrap();
+        let mut build = |ui: &mut Ui| { let _ = ui.picker("pick", "Search", "query", &crate::Picker::DEFAULT, &mut |_, _| {}); };
+        for _ in 0..2 { crate::testing::frame(&mut ui, &[], &mut build); }
+        let editor = crate::testing::find(&ui, Role::Image, "editor").expect("the body's editor part");
+        // the query's glyphs: those inside the editor part
+        let end = ui.layers().flat_map(|l| l.instances.iter()).filter(|i| i.kind == kind::MASK && i.rect[0] >= editor.x && i.rect[2] <= editor.x + editor.w
+            && i.rect[1] >= editor.y && i.rect[3] <= editor.y + editor.h).map(|i| i.rect[2]).fold(f32::MIN, f32::max);
+        let (big, small) = (ui.text_service().width("query", crate::Label::BODY.size(26.0), None).unwrap(), ui.text_service().width("query", crate::Label::BODY.size(15.0), None).unwrap());
+        assert!((end - (editor.x + 2.0 + big)).abs() <= 3.0, "the query ends where the 26-point font puts it: {end} vs {}", editor.x + 2.0 + big);
+        assert!(end > editor.x + 2.0 + small + 10.0, "not in the kit's font");
+        mem_sys::set_peer(crate::library_counter);
+        let scope = mem_sys::warm_scope();
+        for round in 0..3 {
+            mem_sys::local_reset();
+            crate::testing::frame(&mut ui, &[], &mut build);
+            assert_eq!(mem_sys::local_alloc_count(), 0, "a warm picker frame with the body's editor allocated (round {round})");
+        }
+        drop(scope);
+        assert!(mem_sys::take_reports().is_empty());
+    }
+
+    /// U2b.4.15: a picker row body gets the row's image (`Picker::image`) and, on a row that starts a group, the heading box, which it
+    /// lays out; it sets its own row height and the results stack the measured rows. The built-in body draws the image (a texture
+    /// break) and gives the heading a row's height. Warm frames allocate nothing. Both link modes.
+    #[test]
+    fn a_picker_row_body_gets_its_image_and_heading_and_sets_its_height() {
+        use pxui_types::a11y::Role;
+        thread_local! { static GOT: RefCell<Vec<(i64, u8, u32, u8)>> = const { RefCell::new(Vec::new()) }; }
+        const IMAGE: crate::Image = crate::Image { mtl_texture: core::ptr::dangling_mut(), width: 8, height: 4, format: crate::Image::FORMAT_RGBA8, ..crate::Image::rgba8(8, 4, core::ptr::null_mut(), core::ptr::null_mut()) };
+        fn row(ui: &mut Ui, c: &PickerConfig) {
+            GOT.with(|g| g.borrow_mut().push((c.index, c.has_image, c.image.width, c.has_head)));
+            ui.set_node_layout(&c.row, &Node::row().w(Size::Grow).h_px(44.0));
+            if c.has_head == 1 { ui.set_node_layout(&c.head, &Node::row().w(Size::Grow).h_px(30.0)); }
+        }
+        let labels = ["R0", "R1", "R2"];
+        let heads = ["Songs", "", "Albums"];
+        let image = |i: usize| (i == 1).then_some(IMAGE);
+        let picker = crate::Picker::DEFAULT.image(&image);
+        let mut build = |ui: &mut Ui| {
+            let _ = ui.picker("pick", "Search", "", &picker, &mut |_, rows| for i in 0..3 { rows.push(crate::PickRow::new(labels[i]).heading(heads[i])) });
+        };
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+        ui.set_a11y(true);
+        for _ in 0..3 { crate::testing::frame(&mut ui, &[], &mut build); }
+        let breaks: usize = ui.layers().map(|l| l.breaks).sum();
+        assert!(breaks > 0, "the built-in row draws the image");
+        let kit_row = crate::testing::find(&ui, Role::ListItem, "R0").unwrap().h;
+        assert_eq!(crate::testing::find(&ui, Role::Heading, "Songs").unwrap().h, kit_row, "the built-in body gives a heading a row's height");
+        ui.register_picker_body("r", row).unwrap();
+        ui.set_theme(&crate::ThemeHandle::parse("picker.body = r").unwrap()).unwrap();
+        for _ in 0..3 { GOT.with(|g| g.borrow_mut().clear()); crate::testing::frame(&mut ui, &[], &mut build); }
+        assert_eq!(GOT.with(|g| g.borrow().clone()), [(0, 0, 0, 1), (1, 1, 8, 0), (2, 0, 0, 1)], "image and heading per row");
+        let at = |role, name| crate::testing::find(&ui, role, name).unwrap();
+        let (songs, r0, r1, albums, r2) = (at(Role::Heading, "Songs"), at(Role::ListItem, "R0"), at(Role::ListItem, "R1"), at(Role::Heading, "Albums"), at(Role::ListItem, "R2"));
+        assert_eq!((songs.h, r0.h, r1.h, albums.h, r2.h), (30.0, 44.0, 44.0, 30.0, 44.0), "the body's heights");
+        assert_eq!((r0.y, r1.y, albums.y, r2.y), (songs.y + 30.0, r0.y + 44.0, r1.y + 44.0, albums.y + 30.0), "the measured rows stack");
+        mem_sys::set_peer(crate::library_counter);
+        let scope = mem_sys::warm_scope();
+        for round in 0..3 {
+            mem_sys::local_reset();
+            crate::testing::frame(&mut ui, &[], &mut build);
+            assert_eq!(mem_sys::local_alloc_count(), 0, "a warm picker frame with images and headings allocated (round {round})");
+        }
+        drop(scope);
+        assert!(mem_sys::take_reports().is_empty());
+    }
+
+    /// U2b.4.15: the picker's results scroll: `limit` rows of the kit's height show, the wheel scrolls the rest into view, and the
+    /// keyboard's row is kept in view. Both link modes.
+    #[test]
+    fn picker_results_scroll_with_the_wheel_and_follow_the_keyboard() {
+        use pxui_types::a11y::Role;
+        use crate::Event;
+        const NAMES: [&str; 30] = ["P00", "P01", "P02", "P03", "P04", "P05", "P06", "P07", "P08", "P09", "P10", "P11", "P12", "P13", "P14",
+            "P15", "P16", "P17", "P18", "P19", "P20", "P21", "P22", "P23", "P24", "P25", "P26", "P27", "P28", "P29"];
+        let mut build = |ui: &mut Ui| { let _ = ui.picker("pick", "Search", "", &crate::Picker::DEFAULT.limit(5), &mut |_, rows| for n in NAMES { rows.push(crate::PickRow::new(n)) }); };
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+        ui.set_a11y(true);
+        let mut time = 0.0;
+        let mut step = |ui: &mut Ui, events: &[Event]| {
+            time += 1.0 / 60.0;
+            let mut input = FrameIn::new(320.0, 240.0).time(time);
+            (input.wire.events, input.wire.event_count) = (events.as_ptr(), events.len());
+            ui.frame(&input, &mut build).unwrap();
+        };
+        for _ in 0..3 { step(&mut ui, &[]); }
+        let list = ui.a11y_nodes().iter().find(|n| n.role == Role::List as u32).map(|n| n.rect).expect("the results list");
+        let row = crate::testing::find(&ui, Role::ListItem, "P00").unwrap();
+        assert_eq!(list.h, 5.0 * row.h, "limit rows of the kit's height show");
+        let first = row.y;
+        let over = (f64::from(list.x + 10.0), f64::from(list.y + 10.0));
+        step(&mut ui, &[Event { kind: Event::POINTER_MOVED, x: over.0, y: over.1, ..Default::default() }]);
+        step(&mut ui, &[Event { kind: Event::SCROLLED, y: -3.0 * f64::from(row.h), ..Default::default() }]);
+        for _ in 0..30 { step(&mut ui, &[]); }
+        assert!(crate::testing::find(&ui, Role::ListItem, "P00").is_none_or(|r| r.y < first), "the wheel scrolled the results");
+        for _ in 0..20 { step(&mut ui, &[Event { kind: Event::KEY_PRESSED, code: crate::KeyCode::ArrowDown.wire(), ..Default::default() }]); step(&mut ui, &[]); }
+        for _ in 0..10 { step(&mut ui, &[]); }
+        let current = crate::testing::find(&ui, Role::ListItem, "P20").expect("the keyboard's row is built");
+        assert!(current.y >= list.y - 0.5 && current.y + current.h <= list.y + list.h + 0.5, "the keyboard's row is in view: {current:?} in {list:?}");
+    }
+
     /// U2b.4.1: a registered button body reads the caller's text, detail and accessory styles back as the `Label`s it gave (every
     /// field), `None` for those it did not give. Both link modes.
     #[test]

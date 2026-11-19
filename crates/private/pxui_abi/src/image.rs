@@ -11,6 +11,12 @@ fn fit(value: u32) -> Option<Fit> {
     Some(match value { 0 => Fit::Fill, 1 => Fit::Contain, 2 => Fit::Cover, 3 => Fit::None, _ => return None })
 }
 
+/// The engine's image for a caller's descriptor (checked; `None` when invalid), one identity per native image.
+pub(crate) fn core_image(raw: pxui_types::Image, handles: &mut Handles) -> Option<CoreImage> { image(raw, handles) }
+
+/// The caller's descriptor behind an image `core_image` made.
+pub(crate) fn raw_image(image: &CoreImage) -> Option<pxui_types::Image> { image.handle.downcast_ref::<ForeignImage>().map(|f| f.0) }
+
 fn image(raw: pxui_types::Image, handles: &mut Handles) -> Option<CoreImage> {
     if !valid(raw) { return None; }
     Some(CoreImage { handle: handles.get(raw), width: i64::from(raw.width), height: i64::from(raw.height) })

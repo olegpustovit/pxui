@@ -4368,6 +4368,11 @@ impl Ui {
         self.nd(index)
     }
 
+    /// The font of the look a live box was last declared with (a body's part as last laid out).
+    pub(crate) fn kept_font(&self, b: &UiBox) -> pxui_types::theme::Font {
+        self.slots[b.box_slot].node.look.font
+    }
+
     pub(crate) fn box_parent(&self, index: usize) -> usize {
         self.boxes[index].parent
     }

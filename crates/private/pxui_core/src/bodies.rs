@@ -428,7 +428,10 @@ pub type TableHeadBody = fn(&mut Ui, &TableHeadConfig, &str);
 /// entered: a clickable row of the kit's height with the list-item role and its name; behaviour reads its click. The body gives it the
 /// look for `state` (`checked`: the keyboard's row; `hovered`), with `doomed` (armed for deletion) and `unavailable` (cannot be
 /// picked) its looks, and builds the label (the query's letters in the accent), the detail, the colour `swatch` when the picker marks
-/// rows (`marked`) and the Enter hint on the keyboard's row.
+/// rows (`marked`) and the Enter hint on the keyboard's row. It may lay the row out with `set_node_layout` (its height: the results
+/// measure their rows). `head` (U2b.4.15) is the heading of the group the row starts (`PickRow::heading`): a box above the row that
+/// behaviour made (its text, the heading role and name), which the body lays out and styles as a button body its `line`. `image`
+/// (U2b.4.15) is the row's image (`Picker::image`), drawn in the art slot.
 pub struct PickerRowConfig {
     pub state: State,
     pub index: i64,
@@ -441,6 +444,8 @@ pub struct PickerRowConfig {
     /// image id's square empty; a registered body draws either. A row without art has no slot.
     pub art: Option<pxui_types::ui::PickArt>,
     pub row: Handle,
+    pub image: Option<crate::ui_core::Image>,
+    pub head: Option<Handle>,
 }
 
 pub type PickerRowBody = fn(&mut Ui, &PickerRowConfig, &str, &str, &str);
@@ -507,7 +512,9 @@ pub type ValueFieldBody = fn(&mut Ui, &ValueFieldConfig, &ValueFieldOpts, &str);
 /// presses and keys and is the editing surface: the body gives it its look for `state` (`focused`; a field `resting` has the hairline
 /// and no caret) and builds the `/` prefix when `slash` and, while `empty`, the placeholder. Editing places the query `prefix` points
 /// in from the box's start plus `inset` more (behaviour paints it, the caret and the selection, over the body's nodes): the body
-/// leaves that room.
+/// leaves that room. A body that builds `Part::EDITOR` gets that node as the editing surface instead (U2b.4.15, as a search field
+/// body's, U2b.4.4): behaviour paints the query, the caret and the selection on it in its look's font, 2 points in, and places the
+/// caret by its rectangle as last laid out; the box keeps the keyboard, the presses and the text field role.
 pub struct PickerFieldConfig {
     pub state: State,
     pub empty: bool,

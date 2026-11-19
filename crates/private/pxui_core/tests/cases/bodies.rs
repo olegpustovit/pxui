@@ -1701,7 +1701,7 @@ pub fn picker_label_body() {
             let mut fill = |_: &str, rows: &mut pxui_core::ui::PickRows| {
                 for (a, b) in [("Alpha", "one"), ("Beta", "two"), ("Gamma", "three")] { rows.push(pxui_types::ui::PickRow::new(a).detail(b)); }
             };
-            if let (_, Pick::Pick(i)) = { let r = ui.picker("Find", "Find", "", &pxui_core::ui::PickerOpts::default(), &mut fill); (r.query.to_owned(), r.pick) } {
+            if let (_, Pick::Pick(i)) = { let r = ui.picker("Find", "Find", "", &pxui_core::ui::PickerOpts::default(), (None, None, None), &mut fill); (r.query.to_owned(), r.pick) } {
                 c.a.set(i + 1);
             }
         });
@@ -1908,7 +1908,7 @@ fn picker_build(ui: &mut Ui, c: &Cells) {
         let mut fill = |q: &str, rows: &mut pxui_core::ui::PickRows| {
             for r in ["Alpha", "Beta", "Gamma"].iter().filter(|r| r.to_lowercase().contains(q)) { rows.push(pxui_types::ui::PickRow::new(r)); }
         };
-        let (q, pick) = { let r = ui.picker("Find", "Find", &now, &pxui_core::ui::PickerOpts::default(), &mut fill); (r.query.to_owned(), r.pick) };
+        let (q, pick) = { let r = ui.picker("Find", "Find", &now, &pxui_core::ui::PickerOpts::default(), (None, None, None), &mut fill); (r.query.to_owned(), r.pick) };
         keep_text(c, &q);
         if let Pick::Pick(i) = pick {
             c.row.set(Some(i as usize));

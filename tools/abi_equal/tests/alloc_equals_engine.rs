@@ -26,7 +26,7 @@ fn engine_allocations() -> u64 {
         let mut measured = 0;
         ui.frame(&frame, &mut |ui| { ui.panel("panel", &Overlay::DEFAULT, &mut |ui| {
             let before = mem_sys::local_alloc_count();
-            let _ = ui.picker("filter", "filter", "", &PickerOpts::default(), &mut fill);
+            let _ = ui.picker("filter", "filter", "", &PickerOpts::default(), (None, None, None), &mut fill);
             let _ = ui.inspector_header("head", Some("kind"), None, Some("1"), Some(Rc::clone(&rename)), &actions, Some("reset"), true, "Title", "detail");
             measured = mem_sys::local_alloc_count() - before;
         }); });

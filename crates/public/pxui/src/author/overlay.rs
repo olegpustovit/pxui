@@ -191,6 +191,8 @@ mod tests {
         ui.register_picker_field_body("c", picker).unwrap();
         let text = "panel.body = c\npopup.body = c\nmodal.body = c\nscroll_view.body = c\ntoasts.body = c\npicker_field.body = c";
         ui.set_theme(&crate::ThemeHandle::parse(&text).unwrap()).unwrap();
+        // the picker's results measure their rows (U2b.4.15): the first frame builds again once their heights are known
+        ui.frame(&FrameIn::new(400.0, 400.0), &mut build).unwrap();
         SEEN.with(|s| s.borrow_mut().clear());
         ui.frame(&FrameIn::new(400.0, 400.0), &mut build).unwrap();
         let got = SEEN.with(|s| s.borrow().clone());
@@ -251,6 +253,8 @@ mod tests {
         let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
         ui.register_picker_body("c", picker_row).unwrap();
         ui.set_theme(&crate::ThemeHandle::parse("picker.body = c").unwrap()).unwrap();
+        // the results measure their rows (U2b.4.15): the first frame builds them again once their heights are known
+        ui.frame(&FrameIn::new(400.0, 400.0), &mut build).unwrap();
         ARTS.with(|a| a.borrow_mut().clear());
         ui.frame(&FrameIn::new(400.0, 400.0), &mut build).unwrap();
         assert_eq!(ARTS.with(|a| a.borrow().clone()), [ROWS[0].art, None, ROWS[2].art]);

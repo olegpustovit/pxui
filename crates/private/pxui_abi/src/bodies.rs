@@ -256,7 +256,9 @@ mod tramps {
         state: st(c.state), current: c.current as u8, doomed: c.doomed as u8, unavailable: c.unavailable as u8, marked: c.marked as u8, has_swatch: c.swatch.is_some() as u8,
         swatch: c.swatch.unwrap_or_default(), index: c.index, row: bx(c.row), label: pair(label), detail: pair(detail), query: pair(query),
         art_kind: match c.art { None => 0, Some(pxui_types::ui::PickArt::Glyph(_)) => 1, Some(pxui_types::ui::PickArt::Image(_)) => 2 }, reserved3: [0; 7],
-        art: match c.art { None => 0, Some(pxui_types::ui::PickArt::Glyph(c)) => c as u64, Some(pxui_types::ui::PickArt::Image(id)) => id as u64 }
+        art: match c.art { None => 0, Some(pxui_types::ui::PickArt::Glyph(c)) => c as u64, Some(pxui_types::ui::PickArt::Image(id)) => id as u64 },
+        has_image: c.image.is_some() as u8, has_head: c.head.is_some() as u8, reserved4: [0; 6],
+        image: c.image.as_ref().and_then(crate::image::raw_image).unwrap_or_default(), head: c.head.map(bx).unwrap_or_default()
     });
     tramp!(search_field, |ui, sh, c: &SearchFieldConfig, icon: &str, body: &mut dyn FnMut(&mut Ui) -> bool| PxuiSearchFieldConfig {
         state: st(c.state), key: c.key, well: bx(c.well), icon: pair(icon), editor: editor(sh, body), line: bx(c.line)

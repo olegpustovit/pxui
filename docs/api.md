@@ -45,7 +45,7 @@ The target public surface. **Rule:** a call not marked with a step keeps its HEA
 | Selection list | `selection_list<K>(key, count, row_key, state: &mut ListState, &SelectionList, cell: &mut dyn FnMut(&mut Ui, SectionPart, CellState)) -> ListResponse`; `ListState { rows: Vec<u8> /* SELECTED, DISABLED, LIVE flags */, anchor: Option<usize>, revision: Option<u64> }`, `ListState::new()` (`revision`, U2b.4.13: the rows' content revision, as `view_of`'s inputs: `Some` keeps each row's build (body, cells) while it, the row's key and its selected, disabled and focused state hold, moved on scroll; a pointer, key or action reaching a row rebuilds it; `LIVE` rows, and a reorderable list's in view, rebuild every frame; a kept row past the viewport keeps its build until it scrolls into view (U2b.4.14, ABI 1.107); a table's rows also when a column's width changes; C `has_revision`/`revision` in `PxuiSelectionListDesc` and `PxuiTableDesc`, row flag 4, ABI 1.106); `CellState { selected, enabled, focused, held, handle, y }`; `SelectionList` carries the `SectionList` geometry (`row_h`, `lead`, `header`, `trail`, `measured`, `overlay_scrollbar`) plus `multi`, `reorder(bool)`, `variant(u16)`, `fit()` (as tall as its rows, no scroll), `drop_look(Look)` (a row's look while a payload hovers its drop target), `bare()` (no frame look and no 1-point inset; U2b.4.3); selection semantics (click, Meta-toggle, Shift-range, double-click, keyboard, Command-A) in the widget | selection_list | U2a.1 (row_key), U2b.1 (rest; reorder U2b.3); U2b.4.13 (kept rows), U2b.4.14 (kept rows past the viewport) |
 | Table | `table<K>(key, &[Column], rows, row_key, state: &mut TableState, &Table, cell: &mut dyn FnMut(&mut Ui, usize, usize, CellState)) -> TableResponse { rows: ListResponse, head: HeadResponse }`; `table_head<K>(key, &[Column], state: &mut TableState, &TableHead) -> HeadResponse { response, sorted: bool, resized: bool }` (also a `selection_list` heading: it writes `TableState::widths`); `Column::new(title).sortable(bool).share(f32).w_px(f32).grip(bool).id(i64)` (every column stays in the slice; `w_px(0.0)` hides one; without a grip `w_px` holds every frame); `TableState { widths: Vec<(i64, f32)>, sort: Option<(i64, Sort)>, selection: ListState }` (keyed by column id), `TableState::new()`; `Table::DEFAULT.multi().row_h(f32).head(TableHead).variant(u16)`; `TableHead::DEFAULT.h_px(f32).variant(u16)`; `Sort::{Ascending, Descending}`, `None` = original order; `TableView` and the fixed text table deleted | table_row / table_head (`table_cell` deleted with the text table) | U2b.1 |
 | Tree | `tree<K>(key, &[TreeNode], open: &mut [u8], selected: &mut Option<usize>, visible: &mut [u32], cell) -> TreeResponse`; `TreeNode::new(depth, has_children)` | tree | HEAD; builder U1b.5 |
-| Picker | `picker<K>(key, placeholder, query, &Picker, fill: &mut dyn FnMut(&str, &mut PickRows)) -> PickerResponse`; `PickRows::push(PickRow)`; `PickRow::new(label).detail(..).art(PickArt).heading(..)`; `PickerOpts` → `Picker` | picker | U1b.1 (rename); U2a.4 (rows) |
+| Picker | `picker<K>(key, placeholder, query, &Picker, fill: &mut dyn FnMut(&str, &mut PickRows)) -> PickerResponse`; `PickRows::push(PickRow)`; `PickRow::new(label).detail(..).art(PickArt).heading(..)`; `PickerOpts` → `Picker`; `Picker::image(&dyn Fn(usize) -> Option<Image>)` (resolved as `Picker::mark`; a row body's `PickerConfig.image`, `has_image`; the built-in row draws it in the art slot); `PickerConfig.head` (`has_head`): the heading box of the group the row starts, which the row body lays out and styles (the `line` pattern); a picker field body's `Part::EDITOR` is the editing surface, the query painted in its look's font (as the search field's, U2b.4.4); the results scroll (wheel, trackpad, the keyboard's row kept in view), `Picker::limit` rows of the kit's height high at most, rows as high as their body sets them (U2b.4.15; C `PxuiPickerImage`, `PxuiPickerRowConfig.has_image`/`has_head`/`image`/`head`, ABI 1.110) | picker | U1b.1 (rename); U2a.4 (rows); U2b.4.15 |
 | Text input | `text_field<K>(key, value: &str, &TextField) -> TextFieldResponse`; `search_field<K>(key, value, &SearchField) -> SearchFieldResponse` (`SearchField::variant(u16)`, `SearchField::action(ReturnKey)` with `TextTraits::SEARCH` by default; a search field body's `Part::EDITOR`, built before its editor slot, is the editing node, edited and painted in its look's font, U2b.4.4; `SearchFieldConfig.line` / `PxuiSearchFieldConfig.line`, the field's line a body sizes with `set_node_layout` as `ButtonConfig.line`, U2b.4.8); `text_area<K>(key, value, node: Node, &TextArea, &AreaCallbacks) -> TextAreaResponse` | text_field / search_field | HEAD; text_area U1b.5; SearchField U2b.7 |
 | Gestures, drag, drop | `gesture`, `gesture_state`, `close_swipe`, `end_refresh`, `carry`, `carrying`, `transfer_carry`, `cancel_carry`, `drop_target` (any node, no pressable needed; a plain node's drop look is the app's pick of two theme `States` consts on hover, list rows take `SelectionList::drop_look`; `States` gains nothing); `GestureOpts`, `SwipeActions`, `DismissOpts` | — | HEAD; drop U2b.2 |
 | Keys (D23) | `key_pressed(KeyCode, Mods) -> bool`, `key_down(KeyCode) -> bool`, `testing::key(KeyCode)` | — | U1a.4 |
@@ -734,6 +734,7 @@ pxui::Picker::DEFAULT const Picker<'a> @U1b.1
 pxui::Picker::at_rest fn const (self, on: bool) -> Picker<'a> @U1b.1
 pxui::Picker::limit fn const (self, rows: usize) -> Picker<'a> @U1b.1
 pxui::Picker::mark fn const (self, f: &'a dyn Fn(usize) -> Option<Rgba>) -> Picker<'a> @U1b.1
+pxui::Picker::image fn const (self, f: &'a dyn Fn(usize) -> Option<Image>) -> Picker<'a> @U2b.4.15
 pxui::Picker::off fn const (self, f: &'a dyn Fn(usize) -> bool) -> Picker<'a> @U1b.1
 pxui::Picker::slash fn const (self, on: bool) -> Picker<'a> @U1b.1
 -pxui::PickerOpts impl Clone @U1b.1
@@ -5095,6 +5096,10 @@ pxui_types::ffi::PxuiPickerRowConfig::art field u64 @U2a.4
 pxui_types::ffi::PxuiPickerRowConfig::art_kind field u8 @U2a.4
 pxui_types::ffi::PxuiPickerRowConfig::current field u8 @HEAD
 pxui_types::ffi::PxuiPickerRowConfig::detail field Str @HEAD
+pxui_types::ffi::PxuiPickerRowConfig::has_head field u8 @U2b.4.15
+pxui_types::ffi::PxuiPickerRowConfig::has_image field u8 @U2b.4.15
+pxui_types::ffi::PxuiPickerRowConfig::head field PxuiBox @U2b.4.15
+pxui_types::ffi::PxuiPickerRowConfig::image field Image @U2b.4.15
 pxui_types::ffi::PxuiPickerRowConfig::doomed field u8 @HEAD
 pxui_types::ffi::PxuiPickerRowConfig::has_swatch field u8 @HEAD
 pxui_types::ffi::PxuiPickerRowConfig::index field i64 @HEAD
@@ -5102,6 +5107,7 @@ pxui_types::ffi::PxuiPickerRowConfig::label field Str @HEAD
 pxui_types::ffi::PxuiPickerRowConfig::marked field u8 @HEAD
 pxui_types::ffi::PxuiPickerRowConfig::query field Str @HEAD
 pxui_types::ffi::PxuiPickerRowConfig::reserved3 field [u8; 7] @U2a.4
+pxui_types::ffi::PxuiPickerRowConfig::reserved4 field [u8; 6] @U2b.4.15
 pxui_types::ffi::PxuiPickerRowConfig::row field PxuiBox @HEAD
 pxui_types::ffi::PxuiPickerRowConfig::size field u32 @HEAD
 pxui_types::ffi::PxuiPickerRowConfig::state field PxuiStateDesc @HEAD
