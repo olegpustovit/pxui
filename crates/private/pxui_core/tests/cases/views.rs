@@ -624,6 +624,46 @@ pub fn window_pxui_list_text_survives_idle() {
     ui.destroy();
 }
 
+/// A new view record has room for a list row's nodes and hits: a view that grows from one node to 25 (8 of
+/// them clickable) while a sibling shrinks by as much allocates nothing on its warm frames. Without the room
+/// its node, kept-node and hit buffers grow as it does.
+pub fn window_pxui_new_view_grows_within_its_room() {
+    let grow = Cell::new(1usize);
+    let mut ui = new_ui(None);
+    let frame = |ui: &mut Ui, warm: bool| {
+        let n = grow.get();
+        // the first frame declares as many nodes and hits as any later one, outside the views
+        if !warm {
+            for i in 0..33 {
+                ui.node_keyed(int_key(9, i), Node { flags: Flags::CLICKABLE, w: Size::Px(4.0), h: Size::Px(4.0), ..Node::DEFAULT });
+            }
+        }
+        for (name, count, first) in [("grow", n, 0), ("spare", 33 - n, n)] {
+            ui.view(name, n as u64, Size::Px(300.0), Size::Px(200.0), &mut |ui| {
+                for i in first..first + count {
+                    let flags = if i < 8 || i >= 25 { Flags::CLICKABLE } else { Flags::NONE };
+                    ui.node_keyed(int_key(7, i as i64), Node { flags, w: Size::Px(4.0), h: Size::Px(4.0), ..Node::DEFAULT });
+                }
+            });
+        }
+    };
+    let mut t = 0.0;
+    for warm in [false, true, true] {
+        t += 1.0 / 60.0;
+        ui.frame(&at(t, vec![]), &mut |ui| frame(ui, warm));
+    }
+    let n = allocs(&mut || {
+        while grow.get() < 25 {
+            grow.set(grow.get() + 1);
+            t += 1.0 / 60.0;
+            ui.frame(&at(t, vec![]), &mut |ui| frame(ui, true));
+        }
+    });
+    check(ui.rebuilt_views() == 2, &format!("{} views rebuilt on the last frame", ui.rebuilt_views()));
+    check(n == 0, &format!("{n} allocations while a new view grew to 25 nodes and 8 hits"));
+    ui.destroy();
+}
+
 /// A kept view's text outside any list: 700 frames with no input keep the view (its text is never
 /// laid out, so age alone would drop it), then the view rebuilds with the same text: no re-shape.
 pub fn window_pxui_kept_view_text_survives_idle() {
@@ -1266,6 +1306,7 @@ pub const CASES: &[(&str, fn())] = &[
     ("window_pxui_fling_shaping_stays_under_its_ceiling", window_pxui_fling_shaping_stays_under_its_ceiling),
     ("window_pxui_prewarmed_natural_text_is_the_layout_drawn_at_a_wider_width", window_pxui_prewarmed_natural_text_is_the_layout_drawn_at_a_wider_width),
     ("window_pxui_kept_view_text_survives_idle", window_pxui_kept_view_text_survives_idle),
+    ("window_pxui_new_view_grows_within_its_room", window_pxui_new_view_grows_within_its_room),
     ("window_pxui_view_rebuilds_one", window_pxui_view_rebuilds_one),
     ("window_pxui_shrunk_layer_clips_dirty", window_pxui_shrunk_layer_clips_dirty),
     ("window_pxui_view_nested", window_pxui_view_nested),
