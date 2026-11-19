@@ -1471,7 +1471,9 @@ pub const PRESS_IN: Curve = Curve::Spring { omega: 60.0 };
 pub const PRESS_OUT: Curve = Curve::Spring { omega: 20.0 };
 
 /// An icon button's look for `state`: a selected (checked) button keeps its checked look while hovered or held, as a toolbar's toggled
-/// key does (U2b.4.9); otherwise `States::pick` (disabled wins).
+/// key does (U2b.4.9); otherwise `States::pick` (disabled wins). Out of line: inlined, the direct engine and the wrapper's copy took it
+/// apart differently (abi_bench Overlays).
+#[inline(never)]
 fn icon_look(states: &States, state: State) -> &Look {
     if state.checked && !state.disabled { &states.checked } else { states.pick(state) }
 }
