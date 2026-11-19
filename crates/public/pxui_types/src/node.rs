@@ -263,7 +263,8 @@ pub struct Node {
     pub inset: Edges,
     pub mark: Mark,
     pub bar: OptBar,
-    /// the transition `style` picked for a change of state, started when the node is painted
+    /// the node's own transition: declared, it runs each change of the node's state (`style`) instead of the theme's, under a theme
+    /// that does not move too (U2b.4.5); else the one `style` picked from the theme for a change of state
     pub transition: OptTransition,
 }
 
@@ -280,9 +281,11 @@ impl Node {
     /// ```
     pub const fn state(self, state: State) -> Node { Node { state, ..self } }
 
-    /// Sets or clears the node's transition.
+    /// Sets or clears the node's own transition.
     ///
-    /// The curve is checked when the node is built.
+    /// A node declared with one moves to its new look over it whenever `style` gives it another state than it was painted in, as the
+    /// theme's transition would: it wins over the theme's motion tokens and runs while the theme does not move (U2b.4.5); reduced
+    /// motion still settles it at once. The curve is checked when the node is built.
     /// Allocates: never.
     /// Panics: never.
     ///

@@ -3887,3 +3887,51 @@ fn tooltip_body_reads_text_at() {
     }
     assert_eq!(TIP_LINES.with(|l| l.borrow().clone()), ["Reveal in Finder", ""], "the body read the line, and none past the end");
 }
+
+/// U2b.4.5: under a theme that does not move, a node's own transition (`Node::transition`, or one `set_node_layout` carries) runs a
+/// `style` state change and keeps it, then idles; an unchanged node starts nothing and an undeclared node changes at once. Warm frames
+/// allocate nothing.
+#[test]
+fn a_nodes_own_transition_runs_under_a_still_theme_and_survives_style_and_layout() {
+    use pxui_types::{node::Transition, theme::{Look, State, States}};
+    const FADE: Transition = Transition::Bezier { duration: 0.14, points: [0.0, 0.0, 1.0, 1.0] };
+    const LOOKS: States = States::of(Look::NONE.fill(crate::Rgba::rgb(10, 10, 10))).hover(Look::NONE.fill(crate::Rgba::rgb(200, 200, 200)));
+    const LIT: [u8; 4] = [200, 200, 200, 255];
+    let hovered = core::cell::Cell::new(false);
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+    assert!(!ui.tokens().moves(), "the kit theme does not move");
+    let mut build = |ui: &mut Ui| {
+        let state = State::default().hovered(hovered.get());
+        let own = ui.node("own", Node::DEFAULT.w_px(40.0).h_px(40.0).transition(Some(FADE)));
+        ui.style(&own, &LOOKS, state);
+        let laid = ui.node("laid", Node::DEFAULT.w_px(40.0).h_px(40.0));
+        ui.set_node_layout(&laid, &Node::DEFAULT.w_px(40.0).h_px(40.0).transition(Some(FADE)));
+        ui.style(&laid, &LOOKS, state);
+        let plain = ui.node("plain", Node::DEFAULT.w_px(40.0).h_px(40.0));
+        ui.style(&plain, &LOOKS, state);
+    };
+    let lit = |ui: &Ui| ui.layers().flat_map(|l| l.instances.iter()).filter(|i| i.color == LIT).count();
+    for t in [0.0, 0.5] {
+        ui.frame(&input().time(t), &mut build).unwrap();
+        assert!(ui.repaint_at().is_none(), "an unchanged declared node starts nothing ({t})");
+    }
+    hovered.set(true);
+    ui.frame(&input().time(1.0), &mut build).unwrap();
+    assert_eq!(lit(&ui), 1, "only the undeclared node changes at once");
+    assert!(ui.repaint_at().is_some(), "the two declared nodes fade");
+    ui.frame(&input().time(1.07), &mut build).unwrap();
+    assert_eq!(lit(&ui), 1, "half way through the 140 ms fade");
+    ui.frame(&input().time(1.2), &mut build).unwrap();
+    assert_eq!(lit(&ui), 3, "the fades land");
+    assert!(ui.repaint_at().is_none(), "and idle");
+    mem_sys::set_peer(crate::library_counter);
+    let scope = mem_sys::warm_scope();
+    for (round, t) in [1.3, 1.4, 1.5].into_iter().enumerate() {
+        hovered.set(round % 2 == 0);
+        mem_sys::local_reset();
+        ui.frame(&input().time(t), &mut build).unwrap();
+        assert_eq!(mem_sys::local_alloc_count(), 0, "a warm declared-transition frame allocated (round {round})");
+    }
+    drop(scope);
+    assert!(mem_sys::take_reports().is_empty());
+}

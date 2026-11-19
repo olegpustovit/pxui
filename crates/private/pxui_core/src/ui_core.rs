@@ -699,6 +699,9 @@ struct Slot {
     clip_radius: f32,
     painted: i64,
     look_needs_snapshot: bool,
+    /// the node declared its own transition (`Node::transition`, or `set_node_layout`'s): its changes of state run on it, not the
+    /// theme's, and its painted look and state are tracked even while no theme moves
+    declares: bool,
     /// the view that declares the node, and the view the node holds (`NO_VIEW`)
     owner: u32,
     view: u32,
@@ -760,6 +763,7 @@ impl Slot {
             clip_radius: 0.0,
             painted: -1,
             look_needs_snapshot: false,
+            declares: false,
             owner: 0,
             view: NO_VIEW,
             row_of: (0, 0),
@@ -3618,6 +3622,7 @@ impl Ui {
         b.over = arena::EMPTY;
         let s = &mut self.slots[b.slot];
         s.node = *node;
+        s.declares = node.transition.is_some();
         s.text.clear();
         s.a11y_name.clear();
         s.a11y_value.clear();
@@ -3725,6 +3730,13 @@ impl Ui {
             if names_token(&look) {
                 resolve_with(&mut look, self.palette(), self.theme().tokens.accent);
             }
+            let s = &mut self.slots[b.box_slot];
+            // a node's own transition wins over the theme's: it stays, and paint runs it on a change of state
+            if s.declares {
+                if s.touched <= s.painted { s.look_needs_snapshot = true; }
+                (s.node.look, s.node.state) = (look, state);
+                return;
+            }
             let s = &self.slots[b.box_slot];
             // a node shown last frame in another state moves to this look over the theme's transition
             let transition = if self.motion && s.seen_state != state && self.range_valid(b.box_slot) {
@@ -3735,6 +3747,14 @@ impl Ui {
             let s = &mut self.slots[b.box_slot];
             if s.touched <= s.painted { s.look_needs_snapshot = true; }
             (s.node.look, s.node.state, s.node.transition) = (look, state, transition.into());
+        }
+    }
+
+    /// Gives a node declared this frame its own transition, as `Node::transition` declares it (`set_node_layout` carries one).
+    pub fn declare_transition(&mut self, b: &Handle, transition: Transition) {
+        if self.live(b) {
+            let s = &mut self.slots[b.box_slot];
+            (s.node.transition, s.declares) = (Some(transition).into(), true);
         }
     }
 
@@ -6142,7 +6162,11 @@ impl Ui {
         let s = &self.slots[slot];
         let swap = self.swap_frame == self.frame_number && s.painted >= 0 && s.seen != s.node.look;
         let swap = swap.then(|| Curve::Bezier { duration: self.theme.tokens.motion.normal, points: self.theme.tokens.motion.ease });
-        if let Some(curve) = core::mem::take(&mut self.slots[slot].node.transition).get().map(Transition::curve).or(swap).filter(|_|!self.system_reduced_motion) {
+        // a declared transition runs on a change of state since the node was last painted (as the theme's would), unless motion is reduced
+        let declares = s.declares;
+        let declared = declares && s.painted >= 0 && s.seen_state != s.node.state && !self.theme.tokens.reduced_motion;
+        let own = core::mem::take(&mut self.slots[slot].node.transition).get().filter(|_| declared || !declares);
+        if let Some(curve) = own.map(Transition::curve).or(swap).filter(|_|!self.system_reduced_motion) {
             let from = match self.tween_of(slot) {
                 Some(_) => self.pose(slot).0,
                 None => Pose { look: self.slots[slot].seen, ..self.rest(slot) },
@@ -6179,7 +6203,7 @@ impl Ui {
         if deferred.is_some_and(|before| paint.text.queue_counts().0 != before) { self.mark_view(self.slots[slot].owner); }
         paint.ahead = false;
         let s = &mut self.slots[slot];
-        if self.motion {
+        if self.motion || s.declares {
             (s.seen, s.seen_state) = (s.node.look, s.node.state);
         } else {
             s.look_needs_snapshot = true;

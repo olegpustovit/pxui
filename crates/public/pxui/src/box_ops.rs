@@ -840,7 +840,9 @@ impl Ui {
     }
     /// Sets the layout of a node its widget declared this frame, as a body sizes the node it was given.
     ///
-    /// Only `node`'s axis, justify, align, wrap, size, minimum and maximum, grow, shrink, aspect, padding, margin, gaps, own alignment and offset are taken; its other fields are ignored (behaviour keeps the flags and role, the look is `node_mut`'s).
+    /// Only `node`'s axis, justify, align, wrap, size, minimum and maximum, grow, shrink, aspect, padding, margin, gaps, own alignment and offset are taken,
+    /// and its transition when it has one (the node's own, as `Node::transition` declares it, so a body fades the node it was given; U2b.4.5); its
+    /// other fields are ignored (behaviour keeps the flags and role, the look is `node_mut`'s).
     /// Allocates: never.
     /// Panics: when the library refuses the call (a stale handle, or a layout field that is not finite).
     ///

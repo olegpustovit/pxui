@@ -927,7 +927,7 @@ int32_t pxui_ui_patch_mark(PxuiUi *ui, const PxuiBox *box, const PxuiMarkDesc *v
 typedef struct { uint32_t size, reserved; PxuiLookDesc look; PxuiMarkDesc mark; PxuiEdges inset; } PxuiNodeFields;
 int32_t pxui_ui_node_fields(PxuiUi *ui, const PxuiBox *box, PxuiNodeFields *out);
 int32_t pxui_ui_set_node_fields(PxuiUi *ui, const PxuiBox *box, const PxuiNodeFields *fields);
-/* The node a widget declared this frame as the engine holds it (written whole to out, refused when out->size is shorter), and the layout of a node the frame being built declared (axis, justify, align, wrap, size, minimum and maximum, grow, shrink, aspect, padding, margin, gaps, own alignment, offset) set from `node`'s same fields, the others ignored: how a widget body sizes the node it was given. */
+/* The node a widget declared this frame as the engine holds it (written whole to out, refused when out->size is shorter), and the layout of a node the frame being built declared (axis, justify, align, wrap, size, minimum and maximum, grow, shrink, aspect, padding, margin, gaps, own alignment, offset) set from `node`'s same fields, and its transition when it has one (the node's own, which runs its changes of state instead of the theme's; U2b.4.5), the others ignored: how a widget body sizes the node it was given. */
 int32_t pxui_ui_node_layout(PxuiUi *ui, const PxuiBox *box, PxuiNode *out);
 int32_t pxui_ui_set_node_layout(PxuiUi *ui, const PxuiBox *box, const PxuiNode *node);
 int32_t pxui_ui_local_rect(PxuiUi *ui, const PxuiBox *box, PxuiRect *out);

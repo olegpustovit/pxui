@@ -269,6 +269,8 @@ export!(pub unsafe fn pxui_ui_set_node_layout(ui: *mut PxuiUi, box_: *const Pxui
     let n = e.node_mut(&b);
     (n.axis, n.justify, n.align, n.wrap, n.w, n.h, n.min_w, n.min_h, n.max_w, n.max_h) = (d.axis, d.justify, d.align, d.wrap, d.w, d.h, d.min_w, d.min_h, d.max_w, d.max_h);
     (n.grow, n.shrink, n.aspect, n.padding, n.margin, n.gap, n.row_gap, n.align_self, n.at) = (d.grow, d.shrink, d.aspect, d.padding, d.margin, d.gap, d.row_gap, d.align_self, d.at);
+    // a transition the body declares is the node's own (U2b.4.5); none keeps the node's
+    if let Some(transition) = d.transition.get() { e.declare_transition(&b, transition); }
     0
 });
 
