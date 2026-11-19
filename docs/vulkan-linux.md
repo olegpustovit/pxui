@@ -43,7 +43,7 @@ changes with the `PixelSizeChanged` the host announces, so the resized swapchain
 
 ## The PXUI gallery on each platform
 
-`tools/pxui_gallery` shows every PXUI widget on four pages (Kit, Controls, Collections, Overlays) under the Rays theme
+`tools/pxui_gallery` shows every PXUI widget on six pages (Kit, Controls, Collections, Overlays, Layout, Lists) under the Rays theme
 and `assets/themes/dusk.theme` (reloaded when the file changes). It builds a frame only for input, a due repaint,
 a toast's expiry or the once-a-second theme poll, and sleeps in the host's wait otherwise.
 

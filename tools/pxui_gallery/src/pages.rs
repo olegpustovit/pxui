@@ -4,7 +4,8 @@ use pxui::{Dialog, DialogButton, Handle, Image, Menu, MenuItem, Overlay, Pick, T
 use pxui::theme::Look;
 use pxui_types::{a11y::Role, geom::Edges, layout::{Align, Along, Cell, Grid, Justify, Placement, Side, Track}, Axis, Flags, Node, Size};
 use pxui_types::theme::{Curve, Font};
-use pxui_types::ui::{Key, Keyframe, Keyframes};
+use pxui_types::theme::Part;
+use pxui_types::ui::{Key, Keyframe, Keyframes, Presentation, SectionList, SectionPart};
 use std::fmt::Write;
 
 /// The page area every page is laid out for (the goldens render it at this size).
@@ -14,10 +15,10 @@ pub const PAGE_H: i64 = 464;
 pub const WINDOW_W: i64 = PAGE_W;
 pub const CHROME_H: f32 = 48.0;
 pub const WINDOW_H: i64 = 24 + CHROME_H as i64 + PAGE_H + 24;
-pub const PAGES: [&str; 5] = ["Kit", "Controls", "Collections", "Overlays", "Layout"];
+pub const PAGES: [&str; 6] = ["Kit", "Controls", "Collections", "Overlays", "Layout", "Lists"];
 const FILE_ITEMS: [pxui::MenuItem; 3] = [pxui::MenuItem::new("Reload theme"), pxui::MenuItem::new("Toast"), pxui::MenuItem::new("Quit")];
-const PAGE_TABS: [pxui::Segment; 5] = [pxui::Segment::new(PAGES[0]), pxui::Segment::new(PAGES[1]), pxui::Segment::new(PAGES[2]), pxui::Segment::new(PAGES[3]), pxui::Segment::new(PAGES[4])];
-const PAGE_ITEMS: [pxui::MenuItem; 5] = [pxui::MenuItem::new(PAGES[0]), pxui::MenuItem::new(PAGES[1]), pxui::MenuItem::new(PAGES[2]), pxui::MenuItem::new(PAGES[3]), pxui::MenuItem::new(PAGES[4])];
+const PAGE_TABS: [pxui::Segment; 6] = [pxui::Segment::new(PAGES[0]), pxui::Segment::new(PAGES[1]), pxui::Segment::new(PAGES[2]), pxui::Segment::new(PAGES[3]), pxui::Segment::new(PAGES[4]), pxui::Segment::new(PAGES[5])];
+const PAGE_ITEMS: [pxui::MenuItem; 6] = [pxui::MenuItem::new(PAGES[0]), pxui::MenuItem::new(PAGES[1]), pxui::MenuItem::new(PAGES[2]), pxui::MenuItem::new(PAGES[3]), pxui::MenuItem::new(PAGES[4]), pxui::MenuItem::new(PAGES[5])];
 pub const MENUS: [pxui::MenuBarMenu; 2] = [pxui::MenuBarMenu::new("File", &FILE_ITEMS), pxui::MenuBarMenu::new("View", &PAGE_ITEMS)];
 const NAMES: [&str; 12] = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta", "iota", "kappa", "lambda", "mu"];
 pub const ROWS: usize = 100_000;
@@ -82,6 +83,11 @@ pub struct Gallery {
     /// the busy widgets of the last build of the page (for `busy_step`) and the readout
     pub busy: Vec<Handle>,
     pub readout: Option<Handle>,
+    // lists page: the queue's order (indices into the names), the playlists' selection, the top-anchored palette and the drops taken
+    pub queue: Vec<usize>,
+    pub playlists: pxui::ListState,
+    pub palette: bool,
+    pub dropped: &'static str,
 }
 
 impl Gallery {
@@ -103,6 +109,7 @@ impl Gallery {
             list: pxui::ListState::new(), nodes: (0..ROWS).map(|i| TreeNode { depth: [0, 1, 2, 2, 1, 2][i % 6], children: matches!(i % 6, 0 | 1 | 4) as u8 }).collect(),
             open: (0..ROWS).map(|i| (i < 6) as u8).collect(), tree_sel: Some(2), visible: vec![0; ROWS], table: Gallery::points(), old_table: pxui::TableState::new(), split: 0.34,
             dialog: false, menu_at: None, picker: false, said: "", bounce: false, toasts: Vec::with_capacity(8), toasted: 0, busy: Vec::with_capacity(4), readout: None,
+            queue: (0..8).collect(), playlists: pxui::ListState::new(), palette: false, dropped: "",
         }
     }
 
@@ -487,6 +494,71 @@ pub fn layout_page(ui: &mut Ui, s: &mut Gallery) {
     });
 }
 
+/// The lists page: a queue whose rows move by their handles (and take a dragged name between rows), a plain node that takes a drop,
+/// playlists (virtual over 100,000) that take a drop between rows, and a palette in a top-anchored modal.
+pub fn lists_page(ui: &mut Ui, s: &mut Gallery) {
+    let pad = node(ui, "lists", Node { w: Size::Grow, h: Size::Grow, axis: Axis::Row, padding: Edges::all(12.0), gap: 12.0, ..Node::DEFAULT });
+    let ink = Look { text: ui.theme().value.idle.text, ..Look::NONE };
+    let grip = Look { border: ui.theme().field.idle.border, border_w: 1.0, radius: [2.0; 4], ..Look::NONE };
+    ui.within(&pad, &mut |ui: &mut Ui| {
+        let left = node(ui, "queue-box", Node { w: Size::Px(220.0), h: Size::Grow, ..Node::DEFAULT });
+        ui.within(&left, &mut |ui: &mut Ui| {
+            let queue = &s.queue;
+            let r = ui.section_list("queue", &SectionList::new(queue.len()).row_h(24.0).reorder(true), &|i| queue[i] as i64, &mut |ui: &mut Ui, part, _| if let SectionPart::Row(i) = part {
+                let row = node(ui, "row", Node { w: Size::Grow, h: Size::Grow, axis: Axis::Row, align: Align::Center, ..Node::DEFAULT });
+                ui.within(&row, &mut |ui: &mut Ui| {
+                    // the handle: a small ridged box (no text, so a row is three library nodes and one text)
+                    ui.part(Part::HANDLE, Node { w: Size::Px(12.0), h: Size::Px(12.0), margin: Edges { l: 4.0, r: 8.0, ..Edges::ZERO }, look: grip, ..Node::DEFAULT });
+                    let name = node(ui, "name", Node { w: Size::Grow, h: Size::Px(18.0), look: ink, ..Node::DEFAULT });
+                    let _ = ui.text(&name, NAMES[queue[i] % NAMES.len()]);
+                });
+            });
+            if let Some((from, to)) = r.moved {
+                let item = s.queue.remove(from);
+                s.queue.insert(to, item);
+            }
+            if let Some(at) = r.drop_at {
+                s.queue.insert(at, s.queue.len());
+            }
+        });
+        let right = node(ui, "drops", Node { w: Size::Grow, h: Size::Grow, gap: 8.0, ..Node::DEFAULT });
+        ui.within(&right, &mut |ui: &mut Ui| {
+            s.palette = ui.toggle("palette", "Palette", s.palette, &pxui::Toggle::DEFAULT).changed != s.palette;
+            let field = ui.theme().field.idle;
+            let chip = node(ui, "chip", Node { flags: Flags::CLICKABLE, h: Size::Px(24.0), look: field, inset: Edges { l: 8.0, ..Edges::ZERO }, ..Node::DEFAULT });
+            let _ = ui.text(&chip, "Drag me to a list or the bin");
+            if ui.signal(&chip).held {
+                ui.carry(Some(&chip), "name", "omega");
+            }
+            let bin = node(ui, "bin", Node { h: Size::Px(48.0), look: Look { border: field.border, border_w: 1.0, ..ink }, inset: Edges { l: 8.0, t: 4.0, ..Edges::ZERO }, ..Node::DEFAULT });
+            let _ = ui.text(&bin, if s.dropped.is_empty() { "Bin: any node takes a drop" } else { s.dropped });
+            if let Some(pxui::DropRef::Dropped(_)) = ui.drop_target(&bin) {
+                s.dropped = "Dropped in the bin";
+            }
+            let lists = node(ui, "playlists-box", Node { h: Size::Grow, ..Node::DEFAULT });
+            ui.within(&lists, &mut |ui: &mut Ui| {
+                if ui.selection_list("playlists", ROWS, &|i| i as i64, &mut s.playlists, &pxui::SelectionList::DEFAULT.reorder(true), &mut |ui: &mut Ui, part, _| if let SectionPart::Row(i) = part {
+                    names(i, &mut |t| ui.item_text(t));
+                }).drop_at.is_some() {
+                    s.dropped = "Added to the playlists";
+                }
+            });
+        });
+    });
+    if s.palette {
+        const PALETTE: Overlay = Overlay::DEFAULT.name("Palette").w_px(280.0).at(pxui_types::geom::Point::new(0.0, 244.0)).max_h_px(160.0).present(Presentation::Top);
+        // a press outside closes it
+        let open = ui.modal("palette", &PALETTE, &mut |ui: &mut Ui| {
+            ui.label("Go to", pxui::Label::DEFAULT);
+            for name in &NAMES[..4] {
+                let n = node(ui, name, Node { h: Size::Px(22.0), look: ink, inset: Edges { l: 12.0, ..Edges::ZERO }, ..Node::DEFAULT });
+                let _ = ui.text(&n, name);
+            }
+        }).open;
+        s.palette = open;
+    }
+}
+
 /// Page `i` (wraps).
 pub fn page(ui: &mut Ui, s: &mut Gallery, i: usize) {
     match i % PAGES.len() {
@@ -494,7 +566,8 @@ pub fn page(ui: &mut Ui, s: &mut Gallery, i: usize) {
         1 => controls_page(ui, s),
         2 => collections_page(ui, s),
         3 => overlays_page(ui, s),
-        _ => layout_page(ui, s),
+        4 => layout_page(ui, s),
+        _ => lists_page(ui, s),
     }
 }
 

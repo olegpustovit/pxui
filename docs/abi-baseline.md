@@ -61,8 +61,8 @@ Before this round: static +4.3, +7.8, +14.1, +7.1, +7.0%; dynamic +9.6, +12.6, +
 | --- | --- | --- |
 | Frame build, static vs direct | under 1% | FAIL: +1.0% to +5.3% (see the residual below) |
 | Frame build, dynamic vs direct | under 3% and 5 µs per 1,000 widgets | FAIL: +1.3% to +5.5%, 5.5 to 16.4 µs per 1,000 nodes |
-| Allocations per settled frame | 0 in all three | PASS on Kit, Controls, Collections, Overlays; Layout allocates 80 in all three (its popup is a root box, so the engine rebuilds the view every frame; the wrapper matches the engine). A settled frame's `Renderer::prepare` and `Renderer::draw` allocate nothing (draw was 14), pinned by `renderer_draw_settled` |
-| Draw calls | identical | PASS: 1, 2, 1, 1, 1 in both modes; static also compares the layers' instances: identical bytes on all five pages |
+| Allocations per settled frame | 0 in all three | PASS on Kit, Controls, Collections, Overlays, Lists; Layout allocates 80 in all three (its popup is a root box, so the engine rebuilds the view every frame; the wrapper matches the engine). A settled frame's `Renderer::prepare` and `Renderer::draw` allocate nothing (draw was 14), pinned by `renderer_draw_settled` |
+| Draw calls | identical | PASS: 1, 2, 1, 1, 1, 1 in both modes; static also compares the layers' instances: identical bytes on all six pages (Lists added in U2b.10) |
 | Submits per frame | the app's own | PASS: one per render |
 | Idle frame | no library call | PASS: 0 calls over the two seconds after the gallery settles |
 | Paint closure of N shapes, no text | at most N / span + 1 calls | PASS: 2, 4 and 6 calls over an empty closure for 100, 1,000 and 10,000 shapes |

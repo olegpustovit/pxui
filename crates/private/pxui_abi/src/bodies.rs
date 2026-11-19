@@ -24,7 +24,7 @@ pub(crate) struct BodyState {
     /// while it is here and runs only at that depth (not from a nested body, not inside its own content)
     slots: Vec<(u64, u32, Slot)>,
     /// body calls and running slots in progress (`pxui_part` is refused outside a body call)
-    depth: u32,
+    pub(crate) depth: u32,
     /// the spans a dialog's, a tip's and a footer's records point at: a pool, one taken while a body runs and given back after, so a body
     /// nested in another takes its own and nothing allocates once the pool has grown to the deepest nesting
     strs: Vec<Vec<Str>>,

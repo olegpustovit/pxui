@@ -119,8 +119,10 @@ export!(trusted pub unsafe fn pxui_ui_selection_list(ui: *mut PxuiUi, keyed: *co
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "invalid list result") } };
     let Some((label, name)) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
     let Some(desc) = sized!(desc) else { return unsafe { fail(ui, "invalid selection list descriptor") } };
+    let drop_look = match desc.has_drop_look { 0 => None, 1 => crate::style::decode_look(desc.drop_look), _ => None };
+    if desc.has_drop_look > 1 || (desc.has_drop_look == 1 && drop_look.is_none()) { enter!(ui); return unsafe { fail(ui, "invalid selection list descriptor") } }
     let ids = key.map(|key| move |row| key(user, row));
-    let rc = unsafe { crate::trusted::selection_list(ui, label, desc, ids.as_ref().map(|ids| ids as &dyn Fn(usize) -> i64), &mut |engine: &mut pxui_core::ui::Ui, index, c| if let Some(cell) = cell { { let mut b = crate::state::Borrowed::new(engine, ui); let h = b.enter(); cell(user, h.cast(), index, &crate::trusted::cell_state(c)) } }, out) };
+    let rc = unsafe { crate::trusted::selection_list(ui, label, desc, drop_look, ids.as_ref().map(|ids| ids as &dyn Fn(usize) -> i64), &mut |engine: &mut pxui_core::ui::Ui, index, c| if let Some(cell) = cell { { let mut b = crate::state::Borrowed::new(engine, ui); let h = b.enter(); cell(user, h.cast(), index, &crate::trusted::cell_state(c)) } }, out) };
     if rc == 0 { unsafe { name_box(ui, &out.handle, name) }; }
     rc
 });

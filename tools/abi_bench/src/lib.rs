@@ -9,7 +9,7 @@ pub mod pxui {
     pub mod collections { pub use pxui_core::ui_widgets::TreeNode; }
     pub use pxui_types::theme;
     pub use pxui_core::ui::Handle;
-    pub use super::shapes::{Badge, Button, GridList, MenuBar, MenuBarMenu, OverlayResponse, PickResponse, Progress, Radio, SliderResponse, Spinner, Split, SplitResponse, Tabs, Toggle, Ui, ListState, TableState, Column, Table, TableHead, Sort, CellState, TableResponse, HeadResponse};
+    pub use super::shapes::{Badge, Button, DropRef, GridList, MenuBar, MenuBarMenu, OverlayResponse, PickResponse, Progress, Radio, SliderResponse, Spinner, Split, SplitResponse, Tabs, Toggle, Ui, ListState, TableState, Column, Table, TableHead, Sort, CellState, TableResponse, HeadResponse};
     /// The extension set as the wrapper names it (`pxui::ext`): free functions over the engine's own calls.
     pub mod ext {
         use super::{Handle, Ui};
@@ -71,7 +71,7 @@ pub mod shapes {
     }
     fn cell_of(c: &ListCell) -> CellState { CellState { selected: c.selected, enabled: c.enabled, focused: c.focused, held: c.held, handle: c.handle, y: c.y } }
     fn abi(b: Handle) -> pxui_types::PxuiBox { pxui_types::PxuiBox { index: b.index as u64, box_key: b.box_key, box_slot: b.box_slot as u64, generation: b.generation } }
-    fn list_response(r: &ListResult) -> ListResponse { ListResponse { handle: abi(r.handle), activated: r.activated, selected: r.selected, secondary: r.secondary, row: r.row.map(abi), ..ListResponse::default() } }
+    fn list_response(r: &ListResult) -> ListResponse { ListResponse { handle: abi(r.handle), activated: r.activated, selected: r.selected, secondary: r.secondary, row: r.row.map(abi), moved: r.moved, drop_at: r.drop_at } }
 
     #[repr(transparent)]
     pub struct Ui(Engine);
@@ -127,6 +127,9 @@ pub mod shapes {
     }
     #[derive(Clone, Copy, Debug)] pub struct MenuBarMenu { title: &'static str, items: &'static [MenuItem<'static>] }
     impl MenuBarMenu { pub const fn new(title: &'static str, items: &'static [MenuItem<'static>]) -> MenuBarMenu { MenuBarMenu { title, items } } }
+
+    /// The wrapper's drop report: the payload hovering or dropped on a target, borrowed (the engine's `Drop` holds a copy).
+    #[derive(Clone, Copy, Debug)] pub enum DropRef<'a> { Hover(&'a pxui_core::ui::Payload), Dropped(&'a pxui_core::ui::Payload) }
 
     /// The wrapper's button and toggle styles as the pages use them (`DEFAULT` only).
     #[derive(Clone, Copy, Debug)] pub struct Button;
@@ -218,6 +221,13 @@ pub mod shapes {
             let r = self.0.selection_rows(key, count, row_key, &mut state.rows, &mut state.anchor, list, &mut |e: &mut Engine, i, c| f(Ui::of(e), part_of(i), cell_of(c)));
             if list.variant != 0 { self.0.set_variant(BodyKind::selection_list as u32, 0); }
             list_response(&r)
+        }
+        pub fn section_list(&mut self, key: &str, section: &pxui_types::ui::SectionList, row_key: &dyn Fn(usize) -> i64, f: &mut dyn FnMut(&mut Ui, SectionPart, f32)) -> ListResponse {
+            let handle = self.0.section_list(key, section, Some(row_key), true, &mut |e: &mut Engine, i, y| f(Ui::of(e), part_of(i), y));
+            list_response(&ListResult { handle, drop_at: self.0.list_dropped(), moved: self.0.list_moved(), ..ListResult::default() })
+        }
+        pub fn drop_target(&mut self, b: &Handle) -> Option<DropRef<'_>> {
+            self.0.drop_target_ref(b).map(|(dropped, p)| if dropped { DropRef::Dropped(p) } else { DropRef::Hover(p) })
         }
         pub fn tree(&mut self, key: &str, nodes: &[TreeNode], open: &mut [u8], selected: &mut Option<usize>, visible: &mut [u32], f: &mut dyn FnMut(&mut Ui, usize)) -> TreeResponse {
             self.0.tree(key, nodes, open, selected, visible, &mut |e: &mut Engine, i| f(Ui::of(e), i))

@@ -4173,10 +4173,15 @@ impl Ui {
         self.drop_target_ref(b).map(|(dropped, payload)| if dropped { Drop::Dropped(payload.clone()) } else { Drop::Hover(payload.clone()) })
     }
 
+    /// Whether a payload is carried or was dropped this frame: without one no box is a drop target (`drop_target_ref` answers `None`
+    /// before it looks at the box).
+    #[inline]
+    pub fn drop_pending(&self) -> bool { self.dropped.is_some() || self.payload.is_some() }
+
     /// A drop remains readable by the target and its ancestors throughout this frame.
     /// Asking makes `b` a drop zone for this frame's hit tree, so a plain node (no input flags) takes the drop too.
     pub fn drop_target_ref(&mut self, b: &UiBox) -> Option<(bool, &Payload)> {
-        if self.dropped.is_none() && self.payload.is_none() { return None; }
+        if !self.drop_pending() { return None; }
         if self.live(b) { (self.slots[b.box_slot].drop_zone, self.drop_zones) = (self.frame_number, self.frame_number); }
         let hot = self.dropped.as_ref().map_or(self.hot, |(_, hot)| *hot);
         if hot == 0 || !self.hit_within(hot, b.box_key) { return None; }

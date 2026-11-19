@@ -205,16 +205,21 @@ impl Ui {
         state.rows.resize(count, 0);
         let mut id_label = [0u8; 17];
         let label = key.label(&mut id_label);
+        // linked statically the drop look goes to the library as it is, never encoded
+        #[cfg(feature = "static")]
+        let drop_look = pxui_types::ffi::PxuiLookDesc::default();
+        #[cfg(not(feature = "static"))]
+        let drop_look = crate::node::look(list.drop_look.unwrap_or(crate::theme::Look::NONE));
         let desc = PxuiSelectionListDesc { size: core::mem::size_of::<PxuiSelectionListDesc>() as u32, multi: list.multi as u8, fit: list.fit as u8, open_on_click: list.open_on_click as u8,
             overlay_scrollbar: list.overlay_scrollbar as u8, measured: list.measured as u8, reorder: list.reorder as u8, has_drop_look: list.drop_look.is_some() as u8, reserved: 0, count, row_height: list.row_height, leading_height: list.leading_height,
             header_height: list.header_height, trailing_height: list.trailing_height, rows: PxuiU8MutSpan { ptr: state.rows.as_mut_ptr(), len: count }, anchor: state.anchor.unwrap_or(usize::MAX),
-            drop_look: crate::node::look(list.drop_look.unwrap_or(crate::theme::Look::NONE)) };
+            drop_look };
         let mut out = PxuiListResult::EMPTY;
         if list.variant != 0 { self.set_variant(BodyKind::selection_list, list.variant); }
         #[cfg(feature = "static")]
         let outer = self.0.as_ptr();
         #[cfg(feature = "static")]
-        check(self, unsafe { pxui_abi_link::trusted::selection_list(outer, label, &desc, Some(row_key), &mut |engine: &mut pxui_abi_link::trusted::Engine, index, c| {
+        check(self, unsafe { pxui_abi_link::trusted::selection_list(outer, label, &desc, list.drop_look, Some(row_key), &mut |engine: &mut pxui_abi_link::trusted::Engine, index, c| {
             let mut slot = None;
             let handle = pxui_abi_link::trusted::Borrowed::handle(engine, outer, &mut slot);
             cell(&mut *core::mem::ManuallyDrop::new(Ui(core::ptr::NonNull::new_unchecked(handle))), part_of(index), cell_from(c))

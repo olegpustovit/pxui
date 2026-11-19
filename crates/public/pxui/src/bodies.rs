@@ -174,8 +174,13 @@ impl Ui {
     /// for the parts its widget reads). Only inside a body, or, for `Part::HANDLE`, inside a reorderable list's row (`SectionList::reorder`,
     /// `SelectionList::reorder`).
     #[track_caller]
+    // Inline: out of line, the 600-byte node is copied once more per part (abi_bench Lists page, static release).
+    #[inline]
     pub fn part(&mut self, part: Part, node: Node) -> Handle {
         let mut out = Handle::default();
+        #[cfg(feature = "static")]
+        check(self, unsafe { pxui_abi_link::trusted::part(self.0.as_ptr(), part.0, &node, &mut out) });
+        #[cfg(not(feature = "static"))]
         check(self, unsafe { sys::pxui_part(self.0.as_ptr(), part.0, &node, &mut out) });
         out
     }

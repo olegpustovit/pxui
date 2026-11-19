@@ -72,7 +72,7 @@ const GATE_PRIVATE_TOLERANCE_KIB: f64 = 512.0;
 /// Measured +848 KiB in two runs and +1,392 KiB in a third under load 22 (resident pages come and go with the page cache); the worst plus 25%.
 const GATE_CLEAN_DELTA_KIB: f64 = 1_750.0;
 /// Draw calls per page at 1x in the default theme: the A0 baseline (the engine's, before the migration).
-const DRAW_CALLS: [u64; 5] = [1, 2, 1, 1, 1];
+const DRAW_CALLS: [u64; 6] = [1, 2, 1, 1, 1, 1];
 
 fn slow() -> bool {
     let on = std::env::var("RAYS_SLOW").as_deref() == Ok("1");
@@ -347,11 +347,13 @@ fn abi_bench_bodies() {
     // own work (its base is the measured count too, so a later regression there is gated at 1%). docs/abi.md 1.39.
     // Kit re-measured (orchestrator, U2b.10) the same way, the default-body count at the commit that changed the page: U2b.1
     // (29bd1fcb) replaced the 1,000-row text table with the column `table`; Kit there retired 554,596 (370,767 before, its old page).
-    const BEFORE_B1: [f64; 5] = [554_596.0, 293_038.0, 1_652_127.0, 67_433.0, 891_351.0];
+    // Lists (U2b.10: the reorder, drop zone and top-anchored modal entries) has no before: its reference is measured the same way,
+    // the default-body count at the commit that added the page (343,680 to 343,682 over four static release runs).
+    const BEFORE_B1: [f64; 6] = [554_596.0, 293_038.0, 1_652_127.0, 67_433.0, 891_351.0, 343_681.0];
     const PLAN_DEFAULT_VS_BEFORE: f64 = 1.01;
     const PLAN_OVERRIDDEN_RATIO: f64 = 1.02;
     // Measured overridden/default instruction ratio per page (rounded up to 0.001) where the plan's value is missed; else the plan's.
-    const GATE_OVERRIDDEN_RATIO: [f64; 5] = [PLAN_OVERRIDDEN_RATIO; 5];
+    const GATE_OVERRIDDEN_RATIO: [f64; 6] = [PLAN_OVERRIDDEN_RATIO; 6];
     let kinds = pxui_types::theme::Bodies::KINDS.len();
     let size = core::mem::size_of::<pxui_types::theme::Bodies>();
     println!("PXUI abi_bench bodies Bodies size={size} bytes for {kinds} kinds");

@@ -96,6 +96,34 @@ pub unsafe fn pxui_ui_node_keyed(ui: *mut PxuiUi, key: i64, desc: &Node, out: *m
     0
 }
 
+/// `pxui_part` of a node the caller's type vouches for (the static wrapper's `part`): the part's checks as the export makes them (a body
+/// is running, or a `Part::HANDLE` in a reorderable row; a known part), then the node declared under the part's key as
+/// `pxui_ui_node_keyed` declares one, counted as one call. The export keeps its own way for a C record (checked, grid tracks copied).
+#[inline]
+pub unsafe fn part(ui: *mut PxuiUi, part: u32, desc: &Node, out: *mut PxuiBox) -> i32 {
+    use pxui_types::theme::Part;
+    enter!(ui);
+    let e = unsafe { engine(ui) };
+    if unsafe { (*ui).shared() }.bodies.depth == 0 && !(part == Part::HANDLE.0 && e.in_movable_row()) { return unsafe { crate::state::fail_code(ui, "a part is built inside a body", crate::PXUI_ERR_STATE) } }
+    if !Part::valid(part) { return unsafe { fail(ui, "invalid part number") } }
+    if let pxui_types::node::OptTransition::Some(curve) = &desc.transition { if !valid_curve(curve) { return unsafe { fail(ui, "invalid transition curve") }; } }
+    let key = e.own_part_key(Part(part));
+    if key == 0 || key == 1 { return unsafe { fail(ui, "reserved node key; derive integer keys with int_key") }; }
+    declare(e, None, key, desc, unsafe { &mut *out });
+    if let Some(b) = crate::state::core_box(unsafe { *out }) { e.note_part(Part(part), b) }
+    0
+}
+
+/// `pxui_ui_drop_target`'s answer when nothing is carried or dropped this frame (the static wrapper's `drop_target` asks first): `false`
+/// is that answer, no target, counted as the call, as the engine answers before it looks at the box; `true` (or a `Ui` that is not
+/// usable) sends the caller to the export, which checks the box and lends the payload.
+#[inline]
+pub unsafe fn drop_pending(ui: *mut PxuiUi) -> bool {
+    if ui.is_null() || !unsafe { crate::state::usable(ui) } || unsafe { engine(ui) }.drop_pending() { return true; }
+    unsafe { note_call((*ui).shared) };
+    false
+}
+
 #[inline]
 pub unsafe fn pxui_ui_text(ui: *mut PxuiUi, box_: *const PxuiBox, value: Str) -> i32 {
     let Some(value) = (unsafe { utf8(value, usize::MAX) }).map(clip) else { unsafe { note_call((*ui).shared) }; return unsafe { fail(ui, "invalid text") } };
@@ -1187,11 +1215,11 @@ pub unsafe fn section_list(ui: *mut PxuiUi, key: &str, desc: &PxuiSectionListDes
 
 /// `pxui_ui_selection_list`'s body (and the static wrapper's `selection_list`): `desc` checked (flags, geometry, a flag span of
 /// `count` bytes at least), then the list keyed by `key`; `cell` gets the borrowed handle, the part's index and its cell record.
-pub unsafe fn selection_list(ui: *mut PxuiUi, key: &str, desc: &PxuiSelectionListDesc, ids: Option<&dyn Fn(usize) -> i64>, cell: &mut dyn FnMut(&mut Ui, usize, &ListCell), out: &mut PxuiListResult) -> i32 {
+/// `drop_look` is the record's drop look as a typed value (the export decodes and checks `has_drop_look` and the look; the static
+/// wrapper passes its own, so it is never encoded and decoded).
+pub unsafe fn selection_list(ui: *mut PxuiUi, key: &str, desc: &PxuiSelectionListDesc, drop_look: Option<pxui_types::theme::Look>, ids: Option<&dyn Fn(usize) -> i64>, cell: &mut dyn FnMut(&mut Ui, usize, &ListCell), out: &mut PxuiListResult) -> i32 {
     enter!(ui);
-    let drop_look = if desc.has_drop_look == 1 { crate::style::decode_look(desc.drop_look) } else { None };
-    if bad_key(key) || [desc.multi, desc.fit, desc.open_on_click, desc.overlay_scrollbar, desc.measured, desc.reorder, desc.has_drop_look].iter().any(|f| *f > 1) || desc.reserved != 0
-        || (desc.has_drop_look == 1 && drop_look.is_none())
+    if bad_key(key) || [desc.multi, desc.fit, desc.open_on_click, desc.overlay_scrollbar, desc.measured, desc.reorder].iter().any(|f| *f > 1) || desc.reserved != 0
         || !geometry_ok(desc.count, desc.row_height, [desc.leading_height, desc.header_height, desc.trailing_height])
         || desc.rows.len < desc.count || (desc.count > 0 && desc.rows.ptr.is_null()) { return unsafe { fail(ui, "invalid selection list descriptor") }; }
     let flags: &mut [u8] = if desc.count == 0 { &mut [] } else { unsafe { core::slice::from_raw_parts_mut(desc.rows.ptr, desc.count) } };
