@@ -775,6 +775,62 @@ mod tests {
         }
     }
 
+    /// U4a.6 fix: a kept list's row box is its row view's box, so a kept row costs one node more than a rebuilt one (its row node),
+    /// not two. A kept reorderable list lifts a row by its handle, the row follows the pointer, the release moves it, the app's new
+    /// order shows, and its accessibility tree equals a rebuilt list's through the drag and after the move. Both link modes.
+    #[test]
+    fn a_kept_list_row_is_its_box_and_moves_as_a_rebuilt_one() {
+        let run = |kept: bool| {
+            let (state, items, moved) = (RefCell::new(ListState::new()), RefCell::new((0..10).collect::<Vec<i64>>()), Cell::new(None));
+            let mut build = |ui: &mut Ui| {
+                ui.column(Node { h: Size::Px(200.0), ..Node::DEFAULT }, |ui| {
+                    let mut s = state.borrow_mut();
+                    s.revision = kept.then_some(3);
+                    let n = items.borrow().len();
+                    let r = ui.selection_list("rows", n, &|i| items.borrow()[i], &mut s, &SelectionList::DEFAULT.row_h(20.0).reorder(true), &mut |ui, part, _| if let SectionPart::Row(i) = part {
+                        ui.row(Node { h: Size::Grow, ..Node::DEFAULT }, |ui| {
+                            ui.item_text(NAMES[items.borrow()[i] as usize]);
+                            ui.part(crate::Part::HANDLE, Node { w: Size::Px(20.0), h: Size::Grow, ..Node::DEFAULT });
+                        });
+                    });
+                    drop(s);
+                    if let Some((from, to)) = r.moved {
+                        moved.set(r.moved);
+                        let mut v = items.borrow_mut();
+                        let item = v.remove(from);
+                        v.insert(to, item);
+                    }
+                });
+            };
+            let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+            ui.set_a11y(true);
+            at(&mut ui, 1.0, &[], &mut build);
+            let fresh = ui.built_nodes();
+            at(&mut ui, 2.0, &[], &mut build);
+            let tree = |ui: &Ui| ui.a11y_nodes().iter().map(|n| (n.role, ui.a11y_name_of(n).to_string(), n.states, n.actions, n.rect)).collect::<Vec<_>>();
+            let handle = self::items(&ui, Role::Button)[2].rect;
+            let (x, y) = ((handle.x + handle.w / 2.0) as f64, (handle.y + handle.h / 2.0) as f64);
+            let p = |kind, dy: f64| [Event::pointer(kind, 0, x, y + dy)];
+            at(&mut ui, 3.0, &p(Event::POINTER_MOVED, 0.0), &mut build);
+            at(&mut ui, 3.1, &p(Event::POINTER_PRESSED, 0.0), &mut build);
+            let mut trees = Vec::new();
+            for (i, dy) in [20.0, 40.0, 62.0].into_iter().enumerate() {
+                at(&mut ui, 3.2 + i as f64 * 0.05, &p(Event::POINTER_MOVED, dy), &mut build);
+                trees.push(tree(&ui));
+            }
+            at(&mut ui, 3.5, &p(Event::POINTER_RELEASED, 62.0), &mut build);
+            for t in [4.0, 5.0] { at(&mut ui, t, &[], &mut build); }
+            trees.push(tree(&ui));
+            (fresh, moved.get(), items.borrow().clone(), trees)
+        };
+        let (kept, rebuilt) = (run(true), run(false));
+        assert_eq!(rebuilt.1, Some((2, 5)), "the lifted row moved");
+        assert_eq!((kept.1, &kept.2), (rebuilt.1, &rebuilt.2), "a kept list moves a row as a rebuilt one");
+        assert_eq!(kept.3, rebuilt.3, "a kept list reads as a rebuilt one while a row is dragged and after it moved");
+        // the 1-point inset and 20-point rows: rows 0..10 all show in the 200-point column
+        assert_eq!(kept.0 - rebuilt.0, 10, "a kept row adds its row node to its box, nothing more: {} vs {}", kept.0, rebuilt.0);
+    }
+
     /// The collections are built through their bodies: with a registered body for each kind, the custom structure is in the tree, the
     /// caller's cells run through the row bodies' slots, and a heading body is told its title and sort; a standalone heading too.
     #[test]

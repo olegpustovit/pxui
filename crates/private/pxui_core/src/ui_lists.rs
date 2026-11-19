@@ -209,7 +209,8 @@ fn build_row(ui: &mut Ui, r: &mut Rows, flags: &mut [u8], anchor: &mut Option<us
     let mut key = mix(mix(mix(revision, u64::from(flags[i] & (SELECTED | DISABLED))), u64::from(focused)), over as u64);
     // a reorderable row's handle registers every frame while it shows (out of view nothing can lift it)
     if flags[i] & LIVE != 0 || (r.reorder && !ui.out_of_view()) { key = mix(key, ui.frame_no() as u64); }
-    ui.view_entry("row", key, Size::Grow, h, true, &mut |ui| {
+    // the list's row box holds the row's view: no box of its own between them
+    ui.view_in(n, "row", key, true, true, &mut |ui| {
         let row = ui.node_ref("row", &Node { flags: if enabled { ROW_FLAGS } else { Flags::NONE }, w: Size::Grow, h, axis: Axis::Row, align: Align::Center, padding: Edges { l: r.inset, r: side, ..Edges::ZERO }, gap: r.gap, ..Node::DEFAULT });
         let saved = ui.enter(&row);
         row_in(ui, r, flags, anchor, i, y, row, over, content);

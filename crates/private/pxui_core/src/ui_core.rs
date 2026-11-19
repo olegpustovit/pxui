@@ -6288,9 +6288,10 @@ impl Ui {
                 vw > 0.0 && vh > 0.0
             }
         };
-        // a view box is painted wherever it is, so its output can be kept and scrolled into view
+        // a view box is painted wherever it is, so its output can be kept and scrolled into view; a virtual list's row box that holds
+        // its row's view is culled as any row (past the viewport its text goes to the prepare queue, its view keeps its build)
         let view = self.boxes[index].view;
-        let visible = visible || (view != NO_VIEW && w > 0.0 && h > 0.0);
+        let visible = visible || (view != NO_VIEW && w > 0.0 && h > 0.0 && self.slots[slot].row_of.0 == 0);
         let flags = self.nd(index).flags;
         // a gesture node is findable by touch arbitration without being interactive itself
         let has_hit = (flags.any(HIT_FLAGS) || self.gestures[slot].kinds != 0 || (self.drop_zones == self.frame_number && self.slots[slot].drop_zone == self.frame_number)) && hw > 0.0 && hh > 0.0;
@@ -7550,6 +7551,12 @@ impl Ui {
 
     pub(crate) fn view_entry(&mut self, label: &str, revision: u64, w: Size, h: Size, entry: bool, f: &mut dyn FnMut(&mut Ui)) -> Handle {
         let b = self.node_ref(label, &Node { w, h, ..Node::DEFAULT });
+        self.view_in(b, label, revision, entry, false, f)
+    }
+
+    /// `view_entry` on the box `b` the caller declared this frame (a list's row box): the box holds the view (`label` names its record);
+    /// with `entered` the caller has entered `b` already, so `f` builds in it as it is.
+    pub(crate) fn view_in(&mut self, b: Handle, label: &str, revision: u64, entry: bool, entered: bool, f: &mut dyn FnMut(&mut Ui)) -> Handle {
         let parent = self.view_cur;
         let v = match self.slots[b.box_slot].view {
             NO_VIEW => {
@@ -7618,9 +7625,13 @@ impl Ui {
         r.nodes.clear();
         self.a11y_dirty = true;
         self.view_cur = v;
-        let saved = self.enter(&b);
-        f(self);
-        self.leave(saved);
+        if entered {
+            f(self);
+        } else {
+            let saved = self.enter(&b);
+            f(self);
+            self.leave(saved);
+        }
         self.view_cur = parent;
         let r = &mut self.views[v as usize];
         (r.revision, r.epoch, r.theme, r.built) = (revision, self.epoch, self.theme_id, self.frame_number);
