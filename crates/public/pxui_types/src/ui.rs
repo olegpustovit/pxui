@@ -311,6 +311,10 @@ pub struct ListResponse {
     /// frame only; read the payload with `Ui::drop_target(&response.handle)` on the same frame. A move of the list's own row is
     /// `moved`, never `drop_at`.
     pub drop_at: Option<usize>,
+    /// The list holds keyboard focus this frame (`Ui::selection_list`, `Ui::table`), as `Response::focused`: its keys (arrows,
+    /// Return, Space, Command-A) are the list's, so an app reads it to keep its own list shortcuts while the list is focused. A
+    /// section list's rows are app content: always false.
+    pub focused: bool,
 }
 
 /// What `Ui::tree` reports this frame.

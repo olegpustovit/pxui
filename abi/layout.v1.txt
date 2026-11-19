@@ -173,7 +173,7 @@ PxuiCheckboxDesc 56 8 0 4 5 6 7 8 16 24 40
 PxuiSheetDesc 28 4 0 4 5 6 8 12 16
 PxuiPickRow 64 8 0 4 5 8 16 32 48
 PxuiCellState 48 8 0 4 5 6 7 8 40 44
-PxuiListResult 128 8 0 4 8 40 72 80 88 96
+PxuiListResult 128 8 0 4 5 8 40 72 80 88 96
 PxuiSelectionListDesc 216 8 0 4 5 6 7 8 11 16 24 28 32 36 40 56
 PxuiColumn 40 8 0 4 5 6 7 8 24 32 36
 PxuiColumnWidth 16 8 0 8 12

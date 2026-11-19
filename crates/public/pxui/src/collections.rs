@@ -177,7 +177,7 @@ pub(crate) fn list_response(out: &PxuiListResult) -> ListResponse {
     let at = |i: usize| (i != usize::MAX).then_some(i);
     let row = (out.activated != usize::MAX || out.secondary != usize::MAX).then_some(out.row);
     let moved = (out.moved_from != usize::MAX && out.moved_to != usize::MAX).then_some((out.moved_from, out.moved_to));
-    ListResponse { handle: out.handle, activated: at(out.activated), selected: at(out.selected), secondary: at(out.secondary), row, moved, drop_at: at(out.drop_at) }
+    ListResponse { handle: out.handle, activated: at(out.activated), selected: at(out.selected), secondary: at(out.secondary), row, moved, drop_at: at(out.drop_at), focused: out.focused != 0 }
 }
 
 /// The columns as C records (on the stack) and `state`'s widths by id, one a column (more than 64 columns panic: the library refuses them).

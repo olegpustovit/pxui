@@ -45,6 +45,8 @@ pub struct ListResult {
     pub drop_at: Option<usize>,
     /// A row moved this frame (a reorderable list): `(from, to)`, `to` the final index.
     pub moved: Option<(usize, usize)>,
+    /// The list holds keyboard focus this frame.
+    pub focused: bool,
 }
 
 /// One table column as the engine takes it (validated by the caller; its title travels beside it in a `titles` slice): `share` > 0
@@ -376,7 +378,7 @@ impl Ui {
         let (cursor, c, enter, changed, key_moved) = key_selection(self, &frame, count, page, flags, anchor, list.multi, list.reorder);
         let h = if list.measured { Size::Fit } else { Size::Px(list.row_height) };
         self.list_drop = None;
-        let mut rows = Rows { reorder: list.reorder, drop_look: list.drop_look, late: false, multi: list.multi, open_on_click: list.open_on_click, focused, c, moved: None, out: ListResult { selected: changed, activated: enter.then_some(c), ..ListResult::default() }, kind: ITEM_LIST, role: Role::ListItem, inset: self.space(2), gap: 4.0, h, states: self.theme().listbox, line: list.drop_look.unwrap_or(Look { fill: self.theme().tokens.accent, ..Look::NONE }) };
+        let mut rows = Rows { reorder: list.reorder, drop_look: list.drop_look, late: false, multi: list.multi, open_on_click: list.open_on_click, focused, c, moved: None, out: ListResult { selected: changed, activated: enter.then_some(c), focused, ..ListResult::default() }, kind: ITEM_LIST, role: Role::ListItem, inset: self.space(2), gap: 4.0, h, states: self.theme().listbox, line: list.drop_look.unwrap_or(Look { fill: self.theme().tokens.accent, ..Look::NONE }) };
         // the rows take drops themselves (their body draws the line), so the section draws none
         let section = SectionList { count, row_height: list.row_height, leading_height: list.leading_height, header_height: list.header_height, trailing_height: list.trailing_height, overlay_scrollbar: list.overlay_scrollbar, measured: list.measured, reorder: false };
         let saved = self.enter(&frame);
@@ -440,7 +442,7 @@ impl Ui {
         let head_out = head_row(self, head, columns, titles, widths, sort);
         (self.bodies.variant, self.bodies.variant_kind) = rows_variant;
         let widths = &*widths;
-        let mut rows = Rows { reorder: false, drop_look: None, late: false, multi, open_on_click: false, focused, c, moved: None, out: ListResult { selected: changed, activated: enter.then_some(c), ..ListResult::default() }, kind: ITEM_TABLE, role: Role::Row, inset: 0.0, gap: 1.0, h: Size::Px(row_h), states: self.theme().listbox, line: Look { fill: self.theme().tokens.accent, ..Look::NONE } };
+        let mut rows = Rows { reorder: false, drop_look: None, late: false, multi, open_on_click: false, focused, c, moved: None, out: ListResult { selected: changed, activated: enter.then_some(c), focused, ..ListResult::default() }, kind: ITEM_TABLE, role: Role::Row, inset: 0.0, gap: 1.0, h: Size::Px(row_h), states: self.theme().listbox, line: Look { fill: self.theme().tokens.accent, ..Look::NONE } };
         let mut cells = |ui: &mut Ui, row: usize, info: &ListCell| {
             let n = info.handle;
             for (col, (spec, w)) in columns.iter().zip(widths).enumerate() {

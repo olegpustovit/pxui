@@ -690,6 +690,29 @@ mod tests {
         assert_eq!(last.get().activated, Some(0), "a double click activates");
     }
 
+    /// `ListResponse::focused` tells whether the list holds keyboard focus (its keys are the list's): false until a click focuses a
+    /// selection list or a table, then true on the frames after; a section list's rows are app content, so it never reports focus.
+    #[test]
+    fn lists_report_keyboard_focus() {
+        let (state, table) = (RefCell::new(ListState::new()), RefCell::new(TableState::new()));
+        let focused = Cell::new(false);
+        const COLUMNS: [Column; 1] = [Column::new("Title").share(1.0)];
+        let cases: [&dyn Fn(&mut Ui) -> ListResponse; 3] = [
+            &|ui| ui.selection_list("files", 3, &|i| i as i64, &mut state.borrow_mut(), &SelectionList::DEFAULT, &mut |ui, part, _| if let SectionPart::Row(row) = part { ui.item_text(["a", "b", "c"][row]) }),
+            &|ui| ui.table("songs", &COLUMNS, 3, &|i| i as i64, &mut table.borrow_mut(), &Table::DEFAULT, &mut |ui, row, _, _| ui.item_text(["a", "b", "c"][row])).rows,
+            &|ui| ui.section_list("plain", &SectionList::new(3).row_h(24.0), &|i| i as i64, &mut |ui, part, _| if let SectionPart::Row(_) = part { ui.node("r", Node { h: Size::Grow, ..Node::DEFAULT }); }),
+        ];
+        for (case, (role, want)) in cases.iter().zip([(Role::ListItem, true), (Role::Row, true), (Role::Unknown, false)]) {
+            let mut build = |ui: &mut Ui| focused.set(case(ui).focused);
+            let mut ui = crate::doc::frames(2, &mut build);
+            assert!(!focused.get(), "an untouched list is not focused");
+            let rect = if role == Role::Unknown { crate::geom::Rect { x: 0.0, y: 24.0, w: 200.0, h: 24.0 } } else { items(&ui, role)[1].rect };
+            click_at(&mut ui, 1.0, rect, &[], false, &mut build);
+            at(&mut ui, 2.0, &[], &mut build);
+            assert_eq!(focused.get(), want, "{role:?}: a click focuses a selection list or a table, never a section list");
+        }
+    }
+
     /// Rows the app flags DISABLED take no selection or presses and read as disabled; `open_on_click` makes a click activate while arrows
     /// only select; a lead-in, heading and trailer reach the cell builder as their `SectionPart`s.
     #[test]

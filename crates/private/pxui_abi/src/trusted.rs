@@ -1002,7 +1002,7 @@ pub(crate) fn cell_state(c: &ListCell) -> PxuiCellState {
 /// `r` and `anchor` written to `out` (its size already checked by the caller).
 fn write_list(r: &ListResult, anchor: Option<usize>, out: &mut PxuiListResult) {
     let none = usize::MAX;
-    (out.reserved, out.handle, out.row) = (0, to_abi_box(r.handle), r.row.map_or(PxuiBox::default(), to_abi_box));
+    (out.focused, out.reserved, out.handle, out.row) = (r.focused as u8, [0; 3], to_abi_box(r.handle), r.row.map_or(PxuiBox::default(), to_abi_box));
     (out.activated, out.selected, out.secondary, out.anchor) = (r.activated.unwrap_or(none), r.selected.unwrap_or(none), r.secondary.unwrap_or(none), anchor.unwrap_or(none));
     out.drop_at = r.drop_at.unwrap_or(none);
     (out.moved_from, out.moved_to) = r.moved.unwrap_or((none, none));
