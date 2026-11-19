@@ -2231,8 +2231,8 @@ configs! {
         reserved3: [u8; 7],
         art: u64,
     }
-    /// `editor` is a slot that builds the editing surface and returns whether the query is not empty (`pxui_slot`'s `out`). Behaviour
-    /// reads `Part::CLEAR`.
+    /// `editor` is a slot that builds the editing surface and returns whether the query is not empty (`pxui_slot`'s `out`); a
+    /// `Part::EDITOR` the body built before it is that surface, edited in its look's font (U2b.4.4). Behaviour reads `Part::CLEAR`.
     PxuiSearchFieldConfig { state: PxuiStateDesc, key: i64, well: PxuiBox, icon: Str, editor: PxuiSlot }
     PxuiTextFieldConfig { state: PxuiStateDesc, row: PxuiBox, label: Str, value: Str }
     PxuiLineFieldConfig { state: PxuiStateDesc, empty: u8, field: PxuiBox, text: Str }

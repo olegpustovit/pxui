@@ -450,7 +450,9 @@ pub type PickerRowBody = fn(&mut Ui, &PickerRowConfig, &str, &str, &str);
 /// the editing surface (it calls `editor` once, which builds the editing node, runs the editing and returns whether the query is not
 /// empty) and, when it is not, the clear button. `key` is the field's own. Behaviour reads one part: the node built as `Part::CLEAR`
 /// (a press on it clears the query; behaviour gives it the button role and the name Clear). Caret, selection, undo and the
-/// accessible text are the editing node's, which behaviour made.
+/// accessible text are the editing node's, which behaviour made. A body that builds `Part::EDITOR` before calling `editor` gets that
+/// node as the editing node (U2b.4.4, as a text field body's): behaviour makes it focusable with the text field role, keeps its look
+/// (a body restyles it for the placeholder after `editor` answers empty) and places the caret and paints focused text in its font.
 pub struct SearchFieldConfig {
     pub state: State,
     pub well: Handle,

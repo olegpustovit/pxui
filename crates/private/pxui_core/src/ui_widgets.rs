@@ -1271,7 +1271,22 @@ fn search_field_body(this: &mut Ui, label: &str, icon: &str, value: &str, placeh
     let well = this.node_keyed(int_key(key, 0), Node::DEFAULT);
     let mut changed = false;
     let mut editor = |ui: &mut Ui| -> bool {
-        let field = ui.node_keyed(int_key(key, 1), Node { flags: Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | Flags::FOCUS_MARK, h: Size::Grow, inset: Edges { l: 2.0, ..Edges::ZERO }, role: Role::TextField, a11y: st::EDITABLE, ..Node::DEFAULT });
+        let editing = Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | Flags::FOCUS_MARK;
+        // a body's own `Part::EDITOR`, built before this slot, is the editing node: it keeps the body's look and its font sizes the text
+        let body_editor = ui.part_built(key, Part::EDITOR);
+        let field = match body_editor {
+            Some(part) => {
+                let n = ui.node_mut(&part);
+                n.flags = n.flags | editing;
+                (n.role, n.a11y) = (Role::TextField, st::EDITABLE);
+                part
+            }
+            None => ui.node_keyed(int_key(key, 1), Node { flags: editing, h: Size::Grow, inset: Edges { l: 2.0, ..Edges::ZERO }, role: Role::TextField, a11y: st::EDITABLE, ..Node::DEFAULT }),
+        };
+        let size = body_editor.and_then(|part| {
+            let font = ui.node_at(part.index).look.font;
+            (font.size != 0).then(|| crate::ui_core::font_px(&font, ui.font_px()))
+        });
         ui.input_box = Some(field);
         let s = ui.signal_owned(&field);
         let focused = ui.focused(&field);
@@ -1283,7 +1298,7 @@ fn search_field_body(this: &mut Ui, label: &str, icon: &str, value: &str, placeh
             let mut e = ui.load_text_edit_into(field.box_key, value, buffer);
             let r = ui.rect(&field);
             let shift = ui.press_shift(&field);
-            ui.point_text_caret(None, &mut e, &s, shift, r.x + 2.0, r.x + r.w - 2.0);
+            ui.point_text_caret(size, &mut e, &s, shift, r.x + 2.0, r.x + r.w - 2.0);
             for (event, modifiers) in ui.key_events(&field) {
                 if event == Event::KeyPressed(Key::Escape) {
                     e.text.clear();
@@ -1311,17 +1326,20 @@ fn search_field_body(this: &mut Ui, label: &str, icon: &str, value: &str, placeh
         let filled = !current.is_empty();
         ui.a11y_name(&field, shown(label));
         ui.a11y_value(&field, current, (0, 0));
-        ui.node_mut(&field).look = Look { text: if current.is_empty() { hint.text } else { look.text }, ..text_only(&look) };
+        // a body's editor keeps its look (the body restyles it for the placeholder when the slot answers empty)
+        if body_editor.is_none() {
+            ui.node_mut(&field).look = Look { text: if current.is_empty() { hint.text } else { look.text }, ..text_only(&look) };
+        }
         match edit {
             Some(edit) => {
-                let font_size = ui.font_px();
+                let font_size = size.unwrap_or(ui.font_px());
                 let marks = Some((look.selection, look.caret));
                 let (caret, anchor) = (edit.caret, edit.anchor);
                 // the edit text and composition travel in the painter (`paint_begin`), as a text field's do: no copy
                 ui.canvas(&field, move |paint, rect| {
                     let r = crate::ui_kit::ints(rect);
                     let (text, composition) = (std::mem::take(&mut paint.edit_text), std::mem::take(&mut paint.composition));
-                    crate::ui_text::paint_text_edit_ref(paint, None, false, 2.0, marks, r, crate::ui_kit::label_y(font_size, r.1, r.3), &composition, &text, caret, anchor);
+                    crate::ui_text::paint_text_edit_ref(paint, size, false, 2.0, marks, r, crate::ui_kit::label_y(font_size, r.1, r.3), &composition, &text, caret, anchor);
                     (paint.edit_text, paint.composition) = (text, composition);
                 });
                 ui.edit_work = edit.text;
@@ -1330,7 +1348,8 @@ fn search_field_body(this: &mut Ui, label: &str, icon: &str, value: &str, placeh
         }
         filled
     };
-    let config = SearchFieldConfig { state: State { focused: this.focus_key() == int_key(key, 1), ..State::default() }, well, key };
+    let focus = this.focus_key();
+    let config = SearchFieldConfig { state: State { focused: focus == int_key(key, 1) || focus == part_key(key, Part::EDITOR), ..State::default() }, well, key };
     in_body!(this, key, well, search_field, default_search_field(&config, icon, &mut editor));
     if let Some(clear) = this.part_built(key, Part::CLEAR) {
         this.set_role(&clear, Role::Button, 0);
