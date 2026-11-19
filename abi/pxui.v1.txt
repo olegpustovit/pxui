@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 108
+minor 109
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -263,7 +263,7 @@ layout PxuiBox 32 8 0 8 16 24
 layout PxuiButtonConfig 480 8 0 4 12 13 14 16 48 80 88 104 105 106 107 108 112 116 132 134 135 144 145 146 147 148 152 216 232 248 256 264 280 296 297 298 304 368 384 448 464 468 472
 layout PxuiButtonDesc 432 8 0 4 5 6 7 8 9 10 11 12 16 20 40 48 64 80 96 97 104 105 106 107 108 112 176 192 208 216 224 240 256 257 258 264 328 344 408
 layout PxuiCell 8 2 0 2 4 6
-layout PxuiCellState 48 8 0 4 5 6 7 8 40 44
+layout PxuiCellState 48 8 0 1 2 3 4 8 40 44
 layout PxuiCheckConfig 88 8 0 4 12 16 48 64 72 80 84 85
 layout PxuiCheckboxDesc 56 8 0 4 5 6 7 8 16 24 40
 layout PxuiColorSpan 24 8 0 8 16 20

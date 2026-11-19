@@ -22,7 +22,8 @@ pub const LIVE: u8 = 4;
 /// The most columns a table or heading takes.
 pub const MAX_COLUMNS: usize = 64;
 
-/// What a selection list or table row's builder is told about the row.
+/// What a selection list or table row's builder is told about the row. It crosses as its bytes: `PxuiCellState` is this layout,
+/// so a C builder reads the library's own record (every byte written: the reserved words are 0).
 #[derive(Clone, Copy, Debug, Default)]
 #[repr(C)]
 pub struct ListCell {
@@ -30,10 +31,12 @@ pub struct ListCell {
     pub enabled: bool,
     pub focused: bool,
     pub held: bool,
+    pub reserved: u32,
     /// The row's box (the empty box for the lead-in, heading and trailer).
     pub handle: Handle,
     /// The part's logical content Y.
     pub y: f32,
+    pub reserved_tail: u32,
 }
 
 /// What a selection list or table's rows report this frame.
@@ -265,7 +268,7 @@ fn row_in(ui: &mut Ui, r: &mut Rows, flags: &mut [u8], anchor: &mut Option<usize
         if to != i as i64 && to >= 0 && (to as usize) < flags.len() { r.moved = Some((i, to as usize)); }
     }
     if let (3, Some(look)) = (drop, r.drop_look) { ui.node_mut(&n).look = look; }
-    let cell = ListCell { selected: on, enabled, focused, held: s.held && enabled, handle: n, y };
+    let cell = ListCell { selected: on, enabled, focused, held: s.held && enabled, handle: n, y, ..ListCell::default() };
     let config = RowConfig { state, index: i, row: n, drop, line: r.line };
     let body = if r.kind == ITEM_TABLE { body_of!(ui, table_row) } else { body_of!(ui, selection_list) };
     let outer = (core::mem::replace(&mut ui.bodies.item, n), core::mem::replace(&mut ui.bodies.item_kind, r.kind));

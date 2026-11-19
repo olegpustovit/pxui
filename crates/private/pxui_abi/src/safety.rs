@@ -545,7 +545,7 @@ fn section_list_validates_before_callbacks_and_builds_every_part() {
     type Seen = (usize, [bool; 3]);
     extern "C" fn part(user: *mut c_void, raw: *mut c_void, index: usize, cell: *const pxui_types::ffi::PxuiCellState) {
         let (seen, cell) = (unsafe { &mut *user.cast::<Seen>() }, unsafe { &*cell });
-        assert!(cell.y.is_finite() && cell.enabled == 1 && cell.size as usize == core::mem::size_of::<pxui_types::ffi::PxuiCellState>());
+        assert!(cell.y.is_finite() && cell.enabled == 1 && cell.reserved == 0 && cell.reserved_tail == 0);
         // 1.103: a row is told its box, the other parts the empty box
         assert_eq!(index < usize::MAX - 2, cell.handle.index != 0, "part {index}");
         if index >= usize::MAX - 2 { seen.1[usize::MAX - index] = true; }
@@ -984,6 +984,29 @@ fn calls_are_counted_per_ui() {
     assert!(unsafe { pxui_ui_calls(b) } > at_b);
     assert_eq!(unsafe { pxui_ui_calls(core::ptr::null()) } | unsafe { pxui_counter(0) }, 0);
     assert_eq!(unsafe { pxui_ui_destroy(a) } | unsafe { pxui_ui_destroy(b) }, 0);
+}
+
+/// A builder export that ends in its trusted entry is one call: `item_text`, `disclosure` and `part` count once (they counted twice,
+/// as an export and again as the entry, and checked the handle twice) and refuse as before.
+#[test]
+fn a_builder_export_ending_in_its_trusted_entry_counts_one_call() {
+    let ui = create();
+    let mut deltas = [0u64; 3];
+    assert_eq!(in_frame(ui, &mut |h| {
+        let mut at = unsafe { pxui_ui_calls(h) };
+        let mut next = |i: usize| { let now = unsafe { pxui_ui_calls(h) }; deltas[i] = now - at; at = now; };
+        assert_ne!(unsafe { pxui_ui_item_text(h, str_of(b"row")) }, 0, "item_text outside a row is refused");
+        next(0);
+        let mut out = pxui_types::ffi::PxuiResponse::EMPTY;
+        assert_eq!(unsafe { pxui_ui_disclosure(h, &pxui_types::ffi::PxuiKeyedDesc::new("more", "More"), 0, None, core::ptr::null_mut(), &mut out) }, 0);
+        next(1);
+        let mut part = PxuiBox::default();
+        assert_eq!(unsafe { pxui_part(h, pxui_types::theme::Part::HIT.0, &pxui_types::Node::DEFAULT, &mut part) }, PXUI_ERR_STATE, "a part outside a body");
+        next(2);
+        0
+    }), 0);
+    assert_eq!(deltas, [1, 1, 1]);
+    assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
 }
 
 /// Grid nodes with equal track lists share one stored list, found by hash; a list no box holds goes at the end of a frame.

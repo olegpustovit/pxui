@@ -326,7 +326,22 @@ unsafe fn register_body(ui: *mut PxuiUi, kind: u32, name: Str, body: PxuiBodyFn,
 // Builds a node as `part` of the widget whose body is running (the way `pxui_ui_node_keyed` does): behaviour finds it again by role.
 // A part is a number of `Part`; refused outside a body call (but for a reorderable list row's `Part::HANDLE`, built by the row's
 // content) or for a number that names no part.
-export!(build pub unsafe fn pxui_part(ui: *mut PxuiUi, part: u32, node: *const Node, out: *mut PxuiBox) -> i32 {
+// A checked node with no grid takes the static wrapper's entry (one call, counted once); a grid, a 1.x anchor or a refused node takes
+// the keyed node's export, which copies a grid and corrects or refuses the node.
+export!(trusted pub unsafe fn pxui_part(ui: *mut PxuiUi, part: u32, node: *const Node, out: *mut PxuiBox) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT };
+    if out.is_null() { enter!(ui); return unsafe { fail(ui, "null part argument") } }
+    match unsafe { crate::node::checked_node(node) } {
+        Some(node) if node.grid.is_none() => unsafe { crate::trusted::part(ui, part, node, out) },
+        _ => unsafe { part_by_export(ui, part, node, out) },
+    }
+});
+/// `pxui_part` for a node `checked_node` does not pass as it is: the part's key, then the keyed node's export.
+#[cold]
+#[inline(never)]
+unsafe fn part_by_export(ui: *mut PxuiUi, part: u32, node: *const Node, out: *mut PxuiBox) -> i32 {
+    let shared = unsafe { (*ui).shared };
+    if unsafe { (*shared).building } != ui { return unsafe { crate::state::not_building(ui) } }
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT };
     // a reorderable list row's content builds its handle outside any body
     let handle = part == Part::HANDLE.0 && unsafe { (*state.engine).in_movable_row() };
@@ -336,7 +351,7 @@ export!(build pub unsafe fn pxui_part(ui: *mut PxuiUi, part: u32, node: *const N
     let rc = unsafe { crate::pxui_ui_node_keyed(ui, key, node, out) };
     if rc == 0 { if let Some(b) = crate::state::core_box(unsafe { *out }) { unsafe { (*state.engine).note_part(Part(part), b) } } }
     rc
-});
+}
 
 // The box of `part` of the widget keyed `owner` as the last build left it: 0 and the box in `out`, 1 when it was not built.
 export!(pub unsafe fn pxui_part_box(ui: *mut PxuiUi, owner: i64, part: u32, out: *mut PxuiBox) -> i32 {

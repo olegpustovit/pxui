@@ -23,7 +23,7 @@ fn valid_output_span<T>(ptr: *mut T, len: usize, required: usize) -> bool {
     len >= required && len <= MAX_ITEMS && (len == 0 || !ptr.is_null())
 }
 // ABI 1.49: the kit's text of the collection item being built, from inside a `selection_list`/`tree` row or a `table` cell callback: a list row's text, a tree row's text naming the row, a table cell's text naming the cell. Refused elsewhere.
-export!(build pub unsafe fn pxui_ui_item_text(ui: *mut PxuiUi, text: Str) -> i32 {
+export!(trusted pub unsafe fn pxui_ui_item_text(ui: *mut PxuiUi, text: Str) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     let Some(text) = (unsafe { checked(text) }) else { return unsafe { fail(ui, "invalid item text") } };
     unsafe { crate::trusted::item_text(ui, text) }
@@ -64,7 +64,7 @@ export!(trusted pub unsafe fn pxui_ui_section_list(ui: *mut PxuiUi, keyed: *cons
     let Some((label, name)) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
     let Some(desc) = sized!(desc) else { return unsafe { fail(ui, "invalid section list descriptor") } };
     let ids = key.map(|key| move |row| key(user, row));
-    let rc = unsafe { crate::trusted::section_list(ui, label, desc, ids.as_ref().map(|ids| ids as &dyn Fn(usize) -> i64), &mut |engine: &mut pxui_core::ui::Ui, index, c| if let Some(build) = build { { let mut b = crate::state::Borrowed::new(engine, ui); let h = b.enter(); build(user, h.cast(), index, &crate::trusted::cell_state(c)) } }, out) };
+    let rc = unsafe { crate::trusted::section_list(ui, label, desc, ids.as_ref().map(|ids| ids as &dyn Fn(usize) -> i64), &mut |engine: &mut pxui_core::ui::Ui, index, c| if let Some(build) = build { { let mut b = crate::state::Borrowed::new(engine, ui); let h = b.enter(); build(user, h.cast(), index, crate::trusted::cell_state(c)) } }, out) };
     if rc == 0 { unsafe { name_box(ui, &out.handle, name) }; }
     rc
 });
@@ -77,7 +77,7 @@ export!(trusted pub unsafe fn pxui_ui_selection_list(ui: *mut PxuiUi, keyed: *co
     let drop_look = match desc.has_drop_look { 0 => None, 1 => crate::style::decode_look(desc.drop_look), _ => None };
     if desc.has_drop_look > 1 || (desc.has_drop_look == 1 && drop_look.is_none()) { enter!(ui); return unsafe { fail(ui, "invalid selection list descriptor") } }
     let ids = key.map(|key| move |row| key(user, row));
-    let rc = unsafe { crate::trusted::selection_list(ui, label, desc, drop_look, ids.as_ref().map(|ids| ids as &dyn Fn(usize) -> i64), &mut |engine: &mut pxui_core::ui::Ui, index, c| if let Some(cell) = cell { { let mut b = crate::state::Borrowed::new(engine, ui); let h = b.enter(); cell(user, h.cast(), index, &crate::trusted::cell_state(c)) } }, out) };
+    let rc = unsafe { crate::trusted::selection_list(ui, label, desc, drop_look, ids.as_ref().map(|ids| ids as &dyn Fn(usize) -> i64), &mut |engine: &mut pxui_core::ui::Ui, index, c| if let Some(cell) = cell { { let mut b = crate::state::Borrowed::new(engine, ui); let h = b.enter(); cell(user, h.cast(), index, crate::trusted::cell_state(c)) } }, out) };
     if rc == 0 { unsafe { name_box(ui, &out.handle, name) }; }
     rc
 });
@@ -96,7 +96,7 @@ export!(trusted pub unsafe fn pxui_ui_table(ui: *mut PxuiUi, keyed: *const PxuiK
     let Some((label, name)) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
     let Some(desc) = sized!(desc) else { return unsafe { fail(ui, "invalid table descriptor") } };
     let ids = key.map(|key| move |row| key(user, row));
-    let rc = unsafe { crate::trusted::table(ui, label, desc, ids.as_ref().map(|ids| ids as &dyn Fn(usize) -> i64), &mut |engine: &mut pxui_core::ui::Ui, row, column, c| if let Some(cell) = cell { { let mut b = crate::state::Borrowed::new(engine, ui); let h = b.enter(); cell(user, h.cast(), row, column, &crate::trusted::cell_state(c)) } }, out) };
+    let rc = unsafe { crate::trusted::table(ui, label, desc, ids.as_ref().map(|ids| ids as &dyn Fn(usize) -> i64), &mut |engine: &mut pxui_core::ui::Ui, row, column, c| if let Some(cell) = cell { { let mut b = crate::state::Borrowed::new(engine, ui); let h = b.enter(); cell(user, h.cast(), row, column, crate::trusted::cell_state(c)) } }, out) };
     if rc == 0 && !name.is_empty() { if let Some(engine) = unsafe { crate::state::engine(ui) } { crate::trusted::name_table(engine, label, name); } }
     rc
 });

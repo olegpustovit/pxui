@@ -166,7 +166,7 @@ export!(trusted pub unsafe fn pxui_ui_section_index(ui: *mut PxuiUi, keyed: *con
 // ABI 1.85: a collapsible section keyed by `keyed.key`, its header showing and named `keyed.name`, built through the `inspector_section`
 // body: `open` (0 or 1) is the caller's value, `build(user, ui)` builds the content while open. `out` is the header's response; a click
 // (or Enter/Space while focused) is a toggle, and the caller keeps the value.
-export!(build pub unsafe fn pxui_ui_disclosure(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, open: u8, build: Build, user: *mut c_void, out: *mut PxuiResponse) -> i32 {
+export!(trusted pub unsafe fn pxui_ui_disclosure(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, open: u8, build: Build, user: *mut c_void, out: *mut PxuiResponse) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short disclosure response") } };
     if open > 1 { return unsafe { fail(ui, "invalid disclosure arguments") }; }

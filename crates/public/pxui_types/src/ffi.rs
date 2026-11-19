@@ -1522,13 +1522,11 @@ pub struct PxuiGridListDesc {
 
 /// The item id of a virtual row: `(user, index) -> id` (ABI 1.49).
 pub type PxuiRowKey = Option<extern "C" fn(*mut core::ffi::c_void, usize) -> i64>;
-/// What a selection list or table row builder is told about its row (ABI 1.87; library-written, read `size` before a field the
-/// caller's header does not have): flags 0 or 1, the row's box (the empty box for the lead-in, heading and trailer), its content Y.
+/// What a selection list or table row builder is told about its row (ABI 1.87; 1.109: the library's own row record, lent for the
+/// callback, with no `size`): flags 0 or 1, the row's box (the empty box for the lead-in, heading and trailer), its content Y.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct PxuiCellState {
-    /// Size of this record in bytes.
-    pub size: u32,
     /// 1 when the row is selected.
     pub selected: u8,
     /// 1 when the row takes presses (the caller did not flag it disabled).
@@ -1537,12 +1535,14 @@ pub struct PxuiCellState {
     pub focused: u8,
     /// 1 while a press is held on the row.
     pub held: u8,
+    /// Zero.
+    pub reserved: u32,
     /// The row's box.
     pub handle: PxuiBox,
     /// The part's logical content Y in points.
     pub y: f32,
     /// Zero.
-    pub reserved: u32,
+    pub reserved_tail: u32,
 }
 /// A section or selection list part builder (ABI 1.87; the section list's since 1.103): `(user, ui, index, cell)`, index `usize::MAX`
 /// the lead-in, `MAX - 1` the heading, `MAX - 2` the trailer, else a row.
@@ -2341,7 +2341,7 @@ pub(crate) mod layout {
         check("PxuiSegmentedResult", size_of::<PxuiSegmentedResult>(), align_of::<PxuiSegmentedResult>(), &[("size", core::mem::offset_of!(PxuiSegmentedResult, size)), ("has_chosen", core::mem::offset_of!(PxuiSegmentedResult, has_chosen)), ("has_secondary", core::mem::offset_of!(PxuiSegmentedResult, has_secondary)), ("reserved", core::mem::offset_of!(PxuiSegmentedResult, reserved)), ("chosen", core::mem::offset_of!(PxuiSegmentedResult, chosen)), ("secondary", core::mem::offset_of!(PxuiSegmentedResult, secondary))]);
         check("PxuiKeyedDesc", size_of::<PxuiKeyedDesc>(), align_of::<PxuiKeyedDesc>(), &[("size", core::mem::offset_of!(PxuiKeyedDesc, size)), ("reserved", core::mem::offset_of!(PxuiKeyedDesc, reserved)), ("key", core::mem::offset_of!(PxuiKeyedDesc, key)), ("name", core::mem::offset_of!(PxuiKeyedDesc, name))]);
         check("PxuiSheetDesc", size_of::<PxuiSheetDesc>(), align_of::<PxuiSheetDesc>(), &[("size", core::mem::offset_of!(PxuiSheetDesc, size)), ("has_width", core::mem::offset_of!(PxuiSheetDesc, has_width)), ("present", core::mem::offset_of!(PxuiSheetDesc, present)), ("reserved", core::mem::offset_of!(PxuiSheetDesc, reserved)), ("width", core::mem::offset_of!(PxuiSheetDesc, width)), ("dismiss_fraction", core::mem::offset_of!(PxuiSheetDesc, dismiss_fraction)), ("dismiss_velocity", core::mem::offset_of!(PxuiSheetDesc, dismiss_velocity))]);
-        check("PxuiCellState", size_of::<PxuiCellState>(), align_of::<PxuiCellState>(), &[("size", core::mem::offset_of!(PxuiCellState, size)), ("selected", core::mem::offset_of!(PxuiCellState, selected)), ("enabled", core::mem::offset_of!(PxuiCellState, enabled)), ("focused", core::mem::offset_of!(PxuiCellState, focused)), ("held", core::mem::offset_of!(PxuiCellState, held)), ("handle", core::mem::offset_of!(PxuiCellState, handle)), ("y", core::mem::offset_of!(PxuiCellState, y)), ("reserved", core::mem::offset_of!(PxuiCellState, reserved))]);
+        check("PxuiCellState", size_of::<PxuiCellState>(), align_of::<PxuiCellState>(), &[("selected", core::mem::offset_of!(PxuiCellState, selected)), ("enabled", core::mem::offset_of!(PxuiCellState, enabled)), ("focused", core::mem::offset_of!(PxuiCellState, focused)), ("held", core::mem::offset_of!(PxuiCellState, held)), ("reserved", core::mem::offset_of!(PxuiCellState, reserved)), ("handle", core::mem::offset_of!(PxuiCellState, handle)), ("y", core::mem::offset_of!(PxuiCellState, y)), ("reserved_tail", core::mem::offset_of!(PxuiCellState, reserved_tail))]);
         check("PxuiSectionListDesc", size_of::<PxuiSectionListDesc>(), align_of::<PxuiSectionListDesc>(), &[("size", core::mem::offset_of!(PxuiSectionListDesc, size)), ("overlay_scrollbar", core::mem::offset_of!(PxuiSectionListDesc, overlay_scrollbar)), ("measured", core::mem::offset_of!(PxuiSectionListDesc, measured)), ("reserved", core::mem::offset_of!(PxuiSectionListDesc, reserved)), ("count", core::mem::offset_of!(PxuiSectionListDesc, count)), ("row_height", core::mem::offset_of!(PxuiSectionListDesc, row_height)), ("leading_height", core::mem::offset_of!(PxuiSectionListDesc, leading_height)), ("header_height", core::mem::offset_of!(PxuiSectionListDesc, header_height)), ("trailing_height", core::mem::offset_of!(PxuiSectionListDesc, trailing_height))]);
         check("PxuiListResult", size_of::<PxuiListResult>(), align_of::<PxuiListResult>(), &[("size", core::mem::offset_of!(PxuiListResult, size)), ("focused", core::mem::offset_of!(PxuiListResult, focused)), ("reserved", core::mem::offset_of!(PxuiListResult, reserved)), ("handle", core::mem::offset_of!(PxuiListResult, handle)), ("row", core::mem::offset_of!(PxuiListResult, row)), ("activated", core::mem::offset_of!(PxuiListResult, activated)), ("selected", core::mem::offset_of!(PxuiListResult, selected)), ("secondary", core::mem::offset_of!(PxuiListResult, secondary)), ("anchor", core::mem::offset_of!(PxuiListResult, anchor))]);
         check("PxuiSelectionListDesc", size_of::<PxuiSelectionListDesc>(), align_of::<PxuiSelectionListDesc>(), &[("size", core::mem::offset_of!(PxuiSelectionListDesc, size)), ("multi", core::mem::offset_of!(PxuiSelectionListDesc, multi)), ("fit", core::mem::offset_of!(PxuiSelectionListDesc, fit)), ("open_on_click", core::mem::offset_of!(PxuiSelectionListDesc, open_on_click)), ("overlay_scrollbar", core::mem::offset_of!(PxuiSelectionListDesc, overlay_scrollbar)), ("measured", core::mem::offset_of!(PxuiSelectionListDesc, measured)), ("bare", core::mem::offset_of!(PxuiSelectionListDesc, bare)), ("has_revision", core::mem::offset_of!(PxuiSelectionListDesc, has_revision)), ("reserved", core::mem::offset_of!(PxuiSelectionListDesc, reserved)), ("count", core::mem::offset_of!(PxuiSelectionListDesc, count)), ("row_height", core::mem::offset_of!(PxuiSelectionListDesc, row_height)), ("leading_height", core::mem::offset_of!(PxuiSelectionListDesc, leading_height)), ("header_height", core::mem::offset_of!(PxuiSelectionListDesc, header_height)), ("trailing_height", core::mem::offset_of!(PxuiSelectionListDesc, trailing_height)), ("rows", core::mem::offset_of!(PxuiSelectionListDesc, rows)), ("anchor", core::mem::offset_of!(PxuiSelectionListDesc, anchor)), ("revision", core::mem::offset_of!(PxuiSelectionListDesc, revision))]);
