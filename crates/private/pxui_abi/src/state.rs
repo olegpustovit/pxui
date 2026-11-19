@@ -48,6 +48,8 @@ pub(crate) struct Shared {
     pub paint_error: bool,
     /// the word `pxui_ui_icon_word` gave the next icon button call's drawing; that call takes it (back to 0)
     pub icon_word: u32,
+    /// the last two six-look tables `pxui_ui_style` checked, byte for byte (a list's row bodies style each row with one of a few)
+    pub checked_looks: [Option<[pxui_types::ffi::PxuiLookDesc; 6]>; 2],
     pub error: String,
     /// a frame ended since the output was last built: its next build refreshes the accessibility records too
     pub frame_ended: bool,
@@ -123,7 +125,7 @@ impl Shared {
     pub fn put_strs(&mut self, mut strs: Vec<&'static str>) { strs.clear(); self.strs.push(strs); }
     pub fn new() -> Self {
         Self {
-            error: String::new(), poisoned: false, calls: 0, paint_error: false, icon_word: 0, in_frame: false, current: core::ptr::null_mut(), building: core::ptr::null_mut(), frame_ended: false, draw_acknowledged: false, renderers: 0, returned: Vec::new(), area: Default::default(), area_ad: None, lent: Vec::new(), lent_used: 0, returned_bytes: 0,
+            error: String::new(), poisoned: false, calls: 0, paint_error: false, icon_word: 0, checked_looks: [None; 2], in_frame: false, current: core::ptr::null_mut(), building: core::ptr::null_mut(), frame_ended: false, draw_acknowledged: false, renderers: 0, returned: Vec::new(), area: Default::default(), area_ad: None, lent: Vec::new(), lent_used: 0, returned_bytes: 0,
             grid_tracks: HashMap::new(), grid_shared: HashMap::new(), grid_retired: Vec::new(), output: Output::default(), nodes: Vec::new(),
             layers: Vec::new(), dirty: Vec::new(), last_children: Vec::new(), chunks: Vec::new(), chunks_used: 0, spare_input: None, wants: Vec::new(), key_codes: Vec::new(), menu: Vec::new(), menu_sub: Vec::new(), routed: None, routed_events: Vec::new(), routed_text: Vec::new(),routed_touches:Vec::new(), routed_keys: Vec::new(), routed_buttons: Vec::new(),
             hints: Vec::new(), actions: Vec::new(), rename: None, strs: Vec::new(), raster_glyphs: Vec::new(), menus: Vec::new(), bodies: Default::default(), images: crate::image::Handles::new(),

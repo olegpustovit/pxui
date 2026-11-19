@@ -1975,3 +1975,27 @@ fn label_text_calls_resolve_in_the_same_call_and_refuse_bad_records() {
         pxui_ui_destroy(ui);
     }
 }
+
+/// U4a.6: `pxui_ui_style` keeps the last two six-look tables it checked and does not check an equal one again; a table that differs
+/// from a kept one in any byte is checked (an invalid one refused right after a valid one was kept), and a refused one is not kept.
+#[test]
+fn style_checks_a_table_once_and_still_refuses_an_invalid_one() {
+    use pxui_types::ffi::{PxuiLookDesc, PxuiStateDesc};
+    let ui = create();
+    let good = [unsafe { core::mem::zeroed::<PxuiLookDesc>() }; 6];
+    let mut bad = good;
+    bad[4].opacity = f32::NAN;
+    let state = PxuiStateDesc::default();
+    let rcs = in_frame(ui, &mut |h| {
+        let mut b = PxuiBox::default();
+        assert_eq!(unsafe { pxui_ui_node_keyed(h, 7, &pxui_types::Node::DEFAULT, &mut b) }, 0);
+        let first = unsafe { pxui_ui_style(h, &b, good.as_ptr(), &state) };
+        let kept = unsafe { (*(*h).shared).checked_looks[0] }.is_some_and(|t| t.iter().zip(&good).all(|(a, b)| a.opacity.to_bits() == b.opacity.to_bits()));
+        let again = unsafe { pxui_ui_style(h, &b, good.as_ptr(), &state) };
+        let refused = unsafe { pxui_ui_style(h, &b, bad.as_ptr(), &state) };
+        let not_kept = unsafe { (*(*h).shared).checked_looks.iter().flatten().all(|t| !t[4].opacity.is_nan()) };
+        (first == 0 && kept && again == 0 && refused != 0 && not_kept) as i32
+    });
+    assert_eq!(rcs, 1, "{}", error(ui));
+    unsafe { pxui_ui_destroy(ui) };
+}

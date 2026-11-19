@@ -45,8 +45,14 @@ export!(pub unsafe fn pxui_ui_style(ui:*mut PxuiUi,box_:*const PxuiBox,states_:*
     if states_.is_null(){return unsafe{fail(ui,"null states descriptor")};}
     let values=unsafe{core::slice::from_raw_parts(states_,6)};
     // all six are checked; only the one the state picks is converted (`Ui::style` is `set_look` of `States::pick`), so a body's look
-    // per row costs one conversion, not six
-    if !values.iter().all(valid_look) {return unsafe{fail(ui,"invalid states descriptor")};}
+    // per row costs one conversion, not six; a table equal byte for byte to one of the last two checked is not checked again
+    let bytes=|v:&[PxuiLookDesc]| unsafe{core::slice::from_raw_parts(v.as_ptr().cast::<u8>(),core::mem::size_of_val(v))};
+    let shared=ui.shared();
+    if !shared.checked_looks.iter().flatten().any(|ok| bytes(ok)==bytes(values)) {
+        if !values.iter().all(valid_look) {return unsafe{fail(ui,"invalid states descriptor")};}
+        shared.checked_looks.swap(0,1);
+        shared.checked_looks[0]=values.try_into().ok();
+    }
     unsafe{(&mut *ui.engine).set_look(&box_,look(values[picked(state)]),state);}
     0
 });
