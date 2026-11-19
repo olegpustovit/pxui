@@ -186,7 +186,8 @@ fn mix(hash: u64, value: u64) -> u64 { (hash ^ value).wrapping_mul(0x0000_0100_0
 /// one node a frame, as a section list's does). With the caller's revision (`ListState::revision`) the box holds a view and the row is
 /// a node inside it, kept with everything its body and content built while the row's key, its selected, disabled and focused state,
 /// the payload over it and the revision hold (hovering, pressing and keys reach a kept row's nodes and rebuild it, as any view's); a
-/// `LIVE` row, and every row of a reorderable list, rebuilds every frame.
+/// `LIVE` row, and every row of a reorderable list in view, rebuilds every frame. A kept row past the viewport keeps its build until
+/// it scrolls into view.
 fn build_row(ui: &mut Ui, r: &mut Rows, flags: &mut [u8], anchor: &mut Option<usize>, i: usize, y: f32, content: &mut dyn FnMut(&mut Ui, usize, &ListCell)) {
     let n = ui.entered();
     let enabled = flags[i] & DISABLED == 0;
@@ -206,7 +207,8 @@ fn build_row(ui: &mut Ui, r: &mut Rows, flags: &mut [u8], anchor: &mut Option<us
     ui.node_new(&n).role = Role::Unknown;
     let focused = r.focused && i == r.c;
     let mut key = mix(mix(mix(revision, u64::from(flags[i] & (SELECTED | DISABLED))), u64::from(focused)), over as u64);
-    if flags[i] & LIVE != 0 || r.reorder { key = mix(key, ui.frame_no() as u64); }
+    // a reorderable row's handle registers every frame while it shows (out of view nothing can lift it)
+    if flags[i] & LIVE != 0 || (r.reorder && !ui.out_of_view()) { key = mix(key, ui.frame_no() as u64); }
     ui.view_entry("row", key, Size::Grow, h, true, &mut |ui| {
         let row = ui.node_ref("row", &Node { flags: if enabled { ROW_FLAGS } else { Flags::NONE }, w: Size::Grow, h, axis: Axis::Row, align: Align::Center, padding: Edges { l: r.inset, r: side, ..Edges::ZERO }, gap: r.gap, ..Node::DEFAULT });
         let saved = ui.enter(&row);

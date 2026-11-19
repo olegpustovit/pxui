@@ -1154,6 +1154,8 @@ pub struct Ui {
     building: bool,
     /// the rows being built are past the viewport (`BoxRec::ahead`)
     ahead: bool,
+    /// the rows being built are outside the viewport, so culled: a kept view among them stays kept without a run (`view_entry`)
+    out_of_view: bool,
     /// the frame a theme swap transitions in (`set_theme`)
     swap_frame: i64,
     frame_number: i64,
@@ -1440,6 +1442,7 @@ impl Ui {
             seeds: Vec::new(),
             building: false,
             ahead: false,
+            out_of_view: false,
             swap_frame: -1,
             frame_number: 0,
             drop_zones: -1,
@@ -3511,6 +3514,8 @@ pub(crate) fn positional_key(seed: i64, kind: Positional) -> i64 {
 impl Ui {
     /// The frame's number (a retained row's key changes with it while the row stays live).
     pub(crate) fn frame_no(&self) -> i64 { self.frame_number }
+    /// The rows being built are outside their list's viewport (culled): a kept view among them keeps its build (`view_entry`).
+    pub(crate) fn out_of_view(&self) -> bool { self.out_of_view }
 
     pub(crate) fn require_building(&self) {
         if !self.building {
@@ -7596,7 +7601,10 @@ impl Ui {
         let r = &mut self.views[v as usize];
         (r.parent, r.xf) = (parent, xf);
         r.reflow |= parent_reflow;
-        let clean = !r.reflow && r.built >= 0 && r.valid && !r.dirty && !r.escapes && r.revision == revision && r.epoch == self.epoch && r.theme == self.theme_id;
+        // a view culled since its build has no run: kept while it stays out of view (a wrong guess rebuilds it on the settling
+        // build, as a kept view with no run in its layer)
+        let shown = r.valid || (self.out_of_view && r.index != 0);
+        let clean = !r.reflow && r.built >= 0 && shown && !r.dirty && !r.escapes && r.revision == revision && r.epoch == self.epoch && r.theme == self.theme_id;
         if clean && !self.verify {
             r.kept = self.frame_number;
             self.boxes[b.index].kept = true;
@@ -7659,17 +7667,17 @@ impl Ui {
         let inner = self.enter(&extent);
         self.slots[extent.box_slot].holds_rows = true;
         self.text_mut().list_window(body.box_key as u64, first, last);
-        let outer = self.ahead;
+        let outer = (self.ahead, self.out_of_view);
         let shown = top..top + (height / row_h).ceil() as usize + 1;
         for i in first..last {
-            self.ahead_row(outer, &shown, i);
+            self.ahead_row(outer, &shown, false, i);
             let row = self.list_row(body.box_key, i, ids, Node { h: Size::Px(row_h), at: Some((0.0, i as f32 * row_h)).into(), role: Role::ListItem, ..Node::DEFAULT });
             self.slots[row.box_slot].row_of = (body.box_key, i as u32);
             let saved = self.enter(&row);
             f(self, i);
             self.leave(saved);
         }
-        self.ahead = outer;
+        (self.ahead, self.out_of_view) = outer;
         self.leave(inner);
         self.leave(saved);
         self.remember_list(&body, ListGeometry::rows(&body, count, row_h, 0.0, 0.0, 0.0, padding));
@@ -7720,11 +7728,13 @@ impl Ui {
         let inner=self.enter(&extent);
         self.slots[extent.box_slot].holds_rows = true;
         self.text_mut().list_window(body.box_key as u64,first,last);
-        let (outer,mut line)=(self.ahead,None);
+        let (outer,mut line)=((self.ahead,self.out_of_view),None);
         let mut moves=(section.reorder|core::mem::take(&mut self.row_moves)).then(|| self.rows_move_begin(&body,&extent,rows_h,section.count));
-        let lifted=self.lifted_row(&body,section.count,first..last);
-        for index in (first..last).chain(lifted) {
-            self.ahead_row(outer,&(top..bottom),index);
+        let lifted=self.lifted_row(&body,section.count);
+        for index in (first..last).chain(lifted.filter(|i| !(first..last).contains(i))) {
+            // the lifted row follows the pointer: in view wherever its index is
+            self.ahead_row(outer,&(top..bottom),false,index);
+            self.out_of_view&=Some(index)!=lifted;
             let at=index as f32*section.row_height;
             let node=Node {w:Size::Grow,h:Size::Px(section.row_height),at:Some((0.0,at)).into(),role:Role::ListItem,..Node::DEFAULT};
             let row=self.list_row(body.box_key,index,row_key,node);
@@ -7732,7 +7742,7 @@ impl Ui {
             self.build_row_part(&row,moves.as_mut(),section.reorder,index,at,section.row_height,&mut |ui| f(ui,index));
             if section.reorder { line=line.or(self.row_insertion(&row,index,at,section.row_height)); }
         }
-        self.ahead=outer;
+        (self.ahead,self.out_of_view)=outer;
         if let Some(y)=line { self.insertion_line(&extent,y); }
         if let Some(m)=moves.as_mut() { self.rows_move_end(m,&body); self.list_moved=m.moved; }
         self.leave(inner);
@@ -7776,10 +7786,14 @@ impl Ui {
     }
 
     /// Row (or grid line) `index` of a virtual list builds past the viewport rows `shown` while the prepare queue runs (or
-    /// inside such a row, `outer`): its nodes' unseen text goes to the queue instead of shaping (`BoxRec::ahead`), so it is
-    /// ready when the row scrolls into view.
-    fn ahead_row(&mut self, outer: bool, shown: &core::ops::Range<usize>, index: usize) {
-        self.ahead = outer || (!shown.contains(&index) && self.text.as_ref().is_some_and(|t| t.queue_running()));
+    /// inside such a row, `outer.0`): its nodes' unseen text goes to the queue instead of shaping (`BoxRec::ahead`), so it is
+    /// ready when the row scrolls into view; `below`: only rows below the viewport (measured rows, whose heights do not move the
+    /// rows in view). Outside `shown` (or inside such a row, `outer.1`) it is culled, so a kept view in it keeps its build
+    /// (`out_of_view`).
+    fn ahead_row(&mut self, outer: (bool, bool), shown: &core::ops::Range<usize>, below: bool, index: usize) {
+        let past = if below { index >= shown.end } else { !shown.contains(&index) };
+        self.ahead = outer.0 || (past && self.text.as_ref().is_some_and(|t| t.queue_running()));
+        self.out_of_view = outer.1 || !shown.contains(&index);
     }
 
     /// Attaches this `Ui` to the prepare queue's `worker` (shared with any number of `Ui`s; `None` detaches): from then on its
@@ -7855,12 +7869,12 @@ impl Ui {
         let inner=self.enter(&extent);
         self.slots[extent.box_slot].holds_rows = true;
         self.text_mut().list_window(body.box_key as u64,first,last);
-        let (outer,mut line)=(self.ahead,None);
+        let (outer,mut line)=((self.ahead,self.out_of_view),None);
         let mut moves=(section.reorder|core::mem::take(&mut self.row_moves)).then(|| self.rows_move_begin(&body,&extent,rows_h,section.count));
-        let lifted=self.lifted_row(&body,section.count,first..last);
-        for index in (first..last).chain(lifted) {
-            // measured rows: only rows below the viewport, whose heights do not move the rows in view
-            self.ahead_row(outer,&(0..bottom),index);
+        let lifted=self.lifted_row(&body,section.count);
+        for index in (first..last).chain(lifted.filter(|i| !(first..last).contains(i))) {
+            self.ahead_row(outer,&(top..bottom),true,index);
+            self.out_of_view&=Some(index)!=lifted;
             let at=cache.tops[index];
             let node=Node {w:Size::Grow,h:Size::Fit,at:Some((0.0,at)).into(),role:Role::ListItem,..Node::DEFAULT};
             let row=self.list_row(body.box_key,index,row_key,node);
@@ -7869,7 +7883,7 @@ impl Ui {
             self.build_row_part(&row,moves.as_mut(),section.reorder,index,at,cache.heights[index],&mut |ui| f(ui,index,before+at));
             if section.reorder { line=line.or(self.row_insertion(&row,index,at,cache.heights[index])); }
         }
-        self.ahead=outer;
+        (self.ahead,self.out_of_view)=outer;
         if let Some(y)=line { self.insertion_line(&extent,y); }
         if let Some(m)=moves.as_mut() { self.rows_move_end(m,&body); self.list_moved=m.moved; }
         self.leave(inner);
@@ -7926,10 +7940,9 @@ impl Ui {
         let inner = self.enter(&extent);
         self.slots[extent.box_slot].holds_rows = true;
         self.text_mut().list_window(body.box_key as u64, first, last);
-        let outer = self.ahead;
+        let outer = (self.ahead, self.out_of_view);
         for i in first..last {
-            // measured rows: only rows below the viewport, whose heights do not move the rows in view
-            self.ahead_row(outer, &(0..bottom), i);
+            self.ahead_row(outer, &(top..bottom), true, i);
             let row = self.node_keyed(int_key(body.box_key, i as i64), Node { h: Size::Fit, at: Some((0.0, cache.tops[i])).into(), role: Role::ListItem, ..Node::DEFAULT });
             self.slots[row.box_slot].row_of = (body.box_key, i as u32);
             self.list_rows.push((body.box_key, i, row.box_slot));
@@ -7937,7 +7950,7 @@ impl Ui {
             f(self, i);
             self.leave(saved);
         }
-        self.ahead = outer;
+        (self.ahead, self.out_of_view) = outer;
         self.leave(inner);
         self.leave(saved);
         cache.geometry = ListGeometry::rows(&body, count, 0.0, 0.0, 0.0, 0.0, padding);
@@ -8009,11 +8022,11 @@ impl Ui {
         let inner = self.enter(&holder);
         self.slots[holder.box_slot].holds_rows = true;
         self.text_mut().list_window(body.box_key as u64, first * per, (last * per).min(count));
-        let outer = self.ahead;
+        let outer = (self.ahead, self.out_of_view);
         let shown = top..top + (room / along).ceil() as usize + 1;
         for i in first * per..(last * per).min(count) {
             let (line, k) = (i / per, i % per);
-            self.ahead_row(outer, &shown, line);
+            self.ahead_row(outer, &shown, false, line);
             // the holder is a flow child, mirrored right to left; cells are `at` children, physical
             let (mut x, y) = if sideways { (line as f32 * cell.0, k as f32 * cell.1) } else { (k as f32 * cell.0, line as f32 * cell.1) };
             if rtl {
@@ -8025,7 +8038,7 @@ impl Ui {
             f(self, i);
             self.leave(saved);
         }
-        self.ahead = outer;
+        (self.ahead, self.out_of_view) = outer;
         self.leave(inner);
         self.leave(saved);
         let mut geometry = ListGeometry::rows(&body, count, along, 0.0, 0.0, 0.0, padding);

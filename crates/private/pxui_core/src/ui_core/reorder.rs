@@ -190,11 +190,11 @@ impl Ui {
         self.signals.get(&b.box_key).map_or(0, |a| a.a11y_move)
     }
 
-    /// The lifted row of list `body` when it is outside the rows in view `window`: it is built too, so a drag outlives scrolling
-    /// its row out of the virtual window.
-    pub(crate) fn lifted_row(&self, body: &Handle, count: usize, window: core::ops::Range<usize>) -> Option<usize> {
+    /// The lifted row of list `body`: built even outside the virtual window, so a drag outlives scrolling its row out of it, and
+    /// in view wherever its index is (it follows the pointer).
+    pub(crate) fn lifted_row(&self, body: &Handle, count: usize) -> Option<usize> {
         let r = &self.reorder;
-        (r.list == body.box_key && r.from < count && !window.contains(&r.from)).then_some(r.from)
+        (r.list == body.box_key && r.from < count).then_some(r.from)
     }
 
     /// A reorderable list's row is lifted by its handle this frame (its drag holds the pointer; Escape, a cancelled pointer or lost

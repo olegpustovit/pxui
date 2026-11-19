@@ -26,8 +26,8 @@ pub struct ListState {
     /// built) is kept while the revision, the row's key, its selected, disabled and keyboard-focus state and a payload over it are
     /// unchanged, and moves with the rows on scroll; a pointer, key or accessibility action reaching the row, or the pointer entering
     /// or leaving it, rebuilds it, as it does a view. Change it whenever anything the cells read changes (`pxui::hash_of` of those
-    /// inputs). A table also rebuilds its rows when a column's width changes. `None` (the default) rebuilds every row in view every
-    /// frame.
+    /// inputs). A table also rebuilds its rows when a column's width changes. A kept row past the viewport keeps its build until it
+    /// scrolls into view. `None` (the default) rebuilds every row in view every frame.
     pub revision: Option<u64>,
 }
 
@@ -719,6 +719,60 @@ mod tests {
         // the rows in view (5 of the table's 20-point rows under its heading) and the culled ones past them build in a rebuilt table;
         // a kept one builds only the culled ones until a column's width changes
         assert!(kept.1 < rebuilt.1 && kept.2 >= rebuilt.1, "a kept table builds its cells when a column's width changes: {kept:?} {rebuilt:?}", kept = (kept.1, kept.2), rebuilt = (rebuilt.1, rebuilt.2));
+    }
+
+    /// GAP U2b.4.14: a kept list's rows past its viewport (overscan, culled) keep their build until they scroll into view. Scrolling
+    /// down row by row, a frame builds the rows it brings into view, the rows new to the list's window and the row the pointer
+    /// leaves, never another row it held out of view before; warm scroll frames allocate nothing; the accessibility tree after the
+    /// scroll is a rebuilt list's. The same for a reorderable list (whose rows in view rebuild every frame). Both link modes.
+    #[test]
+    fn a_kept_list_keeps_rows_past_its_viewport_until_they_show() {
+        let run = |kept: bool, reorder: bool| {
+            let (state, built, list) = (RefCell::new(ListState::new()), RefCell::new(Vec::with_capacity(64)), Cell::new(None));
+            let mut build = |ui: &mut Ui| {
+                let mut s = state.borrow_mut();
+                s.revision = kept.then_some(1);
+                let r = ui.selection_list("rows", 1000, &|i| i as i64, &mut s, &SelectionList::DEFAULT.row_h(20.0).multi().reorder(reorder), &mut |ui, part, _| if let SectionPart::Row(i) = part {
+                    built.borrow_mut().push(i);
+                    ui.item_text(NAMES[i % 10]);
+                });
+                list.set(Some(r.handle));
+            };
+            let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+            ui.verify_views(false);
+            ui.set_a11y(true);
+            // the rows that show in the 240-point window at the painted offset (the list's 1-point inset, 20-point rows)
+            let shows = |ui: &Ui, i: usize| { let y = 1.0 + 20.0 * i as f32 - ui.scroll(&list.get().unwrap()).painted; y + 20.0 > 1.0 && y < 239.0 };
+            let (wheel, over) = ([Event { kind: Event::SCROLLED, y: -1.0, ..Default::default() }], [Event::pointer(Event::POINTER_MOVED, 0, 150.0, 30.0)]);
+            let (mut ever, mut stale, mut t, mut hovered, mut showed) = (vec![false; 1000], Vec::new(), 0.0, [usize::MAX; 2], vec![false; 1000]);
+            for frame in 0..40 {
+                built.borrow_mut().clear();
+                t += 1.0;
+                let warm = frame >= 20;
+                if warm { mem_sys::set_peer(crate::library_counter); }
+                let scope = warm.then(mem_sys::warm_scope);
+                mem_sys::local_reset();
+                at(&mut ui, t, if frame >= 2 { &wheel } else if frame == 1 { &over } else { &[] }, &mut build);
+                if warm { assert_eq!(mem_sys::local_alloc_count(), 0, "a warm scroll frame allocated (frame {frame})"); }
+                drop(scope);
+                // a row built out of view that a frame before built too (the row the pointer leaves rebuilds, as any view it leaves:
+                // hover follows the rows a frame late; a reorderable row leaving the view builds once, its handle no longer registered)
+                stale.extend(built.borrow().iter().filter(|&&i| !shows(&ui, i) && ever[i] && !hovered.contains(&i) && !(reorder && showed[i])).map(|&i| (frame, i)));
+                for (i, s) in showed.iter_mut().enumerate() { *s = shows(&ui, i); }
+                hovered = [hovered[1], ((30.0 - 1.0 + ui.scroll(&list.get().unwrap()).painted) / 20.0) as usize];
+                for &i in built.borrow().iter() { ever[i] = true; }
+            }
+            assert!(mem_sys::take_reports().is_empty());
+            assert!(ui.scroll(&list.get().unwrap()).painted > 200.0, "the list scrolled");
+            let nodes: Vec<_> = ui.a11y_nodes().iter().map(|n| (n.role, ui.a11y_name_of(n).to_string(), n.states, n.actions, n.rect)).collect();
+            (stale, nodes)
+        };
+        for reorder in [false, true] {
+            let (kept, rebuilt) = (run(true, reorder), run(false, reorder));
+            assert_eq!(kept.0, [], "a kept list rebuilds no row it held out of view (reorder {reorder})");
+            assert!(!rebuilt.0.is_empty(), "a list without a revision builds its rows past the viewport every frame");
+            assert_eq!(kept.1, rebuilt.1, "a kept list reads as a rebuilt one after scrolling (reorder {reorder})");
+        }
     }
 
     /// The collections are built through their bodies: with a registered body for each kind, the custom structure is in the tree, the

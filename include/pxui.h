@@ -18,7 +18,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 106u)
+#define PXUI_ABI_BUILT ((1u << 16) | 107u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 typedef struct { uint32_t autocorrect, capitalization, action; } PxuiTextInputOptions;
@@ -440,7 +440,8 @@ typedef struct { uint32_t size; uint8_t overlay_scrollbar, measured, reorder /* 
 typedef struct { uint32_t size; uint8_t focused /* 1.104: the list holds keyboard focus (0 for a section list) */, reserved[3]; PxuiBox handle, row; size_t activated, selected, secondary, anchor, drop_at /* 1.88 */, moved_from, moved_to /* 1.89 */; } PxuiListResult;
 /* rows: one flag byte a row (1 selected, written by the list; 2 disabled and 4 live, written by the caller), at least count; anchor SIZE_MAX: none.
    1.106: with has_revision 1 a row is kept (its body and cells not built) while revision, its key and its selected, disabled and focused state hold;
-   a pointer, key or action reaching it rebuilds it; a live row and every row of a reorderable list rebuild every frame. */
+   a pointer, key or action reaching it rebuilds it; a live row and every row of a reorderable list rebuild every frame.
+   1.107: a kept row past the viewport (culled) keeps its build until it scrolls into view, a reorderable list's too. */
 typedef struct { uint32_t size; uint8_t multi, fit, open_on_click, overlay_scrollbar, measured, reorder /* 1.88 */, has_drop_look /* 1.88 */, bare /* 1.100: no frame look or inset */; uint8_t has_revision /* 1.106 */, reserved[3]; size_t count; float row_height, leading_height, header_height, trailing_height; PxuiU8MutSpan rows; size_t anchor; PxuiLookDesc drop_look /* 1.88 */; uint64_t revision /* 1.106 */; } PxuiSelectionListDesc;
 /* share > 0 splits the width the point columns leave by weight, else w points (0: hidden); id keys the column when has_id is 1 (else its index; unique). */
 typedef struct { uint32_t size; uint8_t sortable, grip, has_id, reserved; PxuiStr title; int64_t id; float share, w; } PxuiColumn;
