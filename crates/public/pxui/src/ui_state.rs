@@ -213,6 +213,9 @@ impl Ui {
     /// Escape, a cancelled pointer or lost focus puts back. An app spends its own Escape on nothing else while it is true.
     /// Allocates: never. Panics: never.
     #[inline] pub fn reordering(&self) -> bool { unsafe { lib::pxui_ui_reordering(self.0.as_ptr()) != 0 } }
+    /// A text editor (a text field, search field, picker field or text area) holds the keyboard focus. A focused list, button or
+    /// other control is not one: those take only the keys they handle from `key_pressed`, so app shortcuts gate on this alone.
+    /// Allocates: never. Panics: never.
     #[inline] pub fn text_input_focused(&self) -> bool { unsafe { lib::pxui_ui_text_input_focused(self.0.as_ptr()) != 0 } }
     #[inline] pub fn verifying(&self) -> bool { unsafe { lib::pxui_ui_verifying(self.0.as_ptr()) != 0 } }
     #[inline] pub fn text_undo_bytes(&self) -> usize { unsafe { lib::pxui_ui_text_undo_bytes(self.0.as_ptr()) as usize } }
@@ -247,7 +250,9 @@ impl Ui {
     /// The check uses the state at each press, before a later release or focus loss.
     /// `Mods::ANY` accepts any state, `Mods::NONE` requires no modifiers, and all
     /// modifiers in a nonempty mask must be held during one press. Additional modifiers
-    /// are allowed. The query observes raw input without consuming it.
+    /// are allowed. A press a focused widget handled is the widget's and is not reported (a list's arrows, Return and Command-A, a
+    /// focused button's Space and Return): read shortcuts after building the widgets. A text editor's keys are reported; gate on
+    /// `text_input_focused`. The query itself consumes nothing.
     /// Allocates: never.
     /// Identity: `key` names a physical or character key from the input.
     /// Panics: when the Ui has failed or the character is NUL.

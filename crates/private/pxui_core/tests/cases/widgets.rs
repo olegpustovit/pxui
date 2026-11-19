@@ -555,9 +555,22 @@ fn widgets_list_keys_multi() {
     keys(&mut ui, &mut s, 5.0, &[Key::ArrowDown]);
     check(s.list[5] != 0 && s.list.iter().filter(|f| **f != 0).count() == 1, "Down selects row 5 alone");
     keys(&mut ui, &mut s, 6.0, &[Key::Space]);
-    check(s.list[5] == 0, "Space toggles the keyboard's row off");
+    check(s.list[5] != 0, "on Apple Space is the app's: the keyboard's row stays selected");
+    ui.destroy();
+    // elsewhere Space toggles the keyboard's row
+    let mut s = S::new();
+    s.multi = true;
+    let mut ui = Ui::create(input::Platform::Other, None, golden_text());
+    for t in 0..2 { ui.frame(&at(t as f64 * 0.1, vec![]), &mut |ui| all(ui, &mut s)); }
+    for i in 0..40 {
+        if s.list_frame.is_some_and(|b| ui.focused(&b)) { break; }
+        ui.frame(&at(4.0 + i as f64 * 0.01, vec![Event::KeyPressed(Key::Tab)]), &mut |ui| all(ui, &mut s));
+    }
+    keys(&mut ui, &mut s, 5.0, &[Key::ArrowDown]);
+    keys(&mut ui, &mut s, 6.0, &[Key::Space]);
+    check(s.list.iter().all(|f| *f == 0), "Space toggles the keyboard's row off");
     keys(&mut ui, &mut s, 7.0, &[Key::Space]);
-    check(s.list[5] != 0, "and on again");
+    check(s.list.iter().filter(|f| **f != 0).count() == 1, "and on again");
     ui.destroy();
 }
 

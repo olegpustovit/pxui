@@ -14,7 +14,7 @@ use pxui_types::ui::{ListResponse, SectionList, SectionPart, SelectionList, Tree
 /// adds unflagged rows) and updates it in place.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ListState {
-    /// One flag byte a row, by row index: `ListState::SELECTED` (the widget writes it on clicks, Command, Shift, Space and
+    /// One flag byte a row, by row index: `ListState::SELECTED` (the widget writes it on clicks, Command, Shift, Space (not on Apple) and
     /// Command-A; the app may write it too, for a selection made elsewhere: a route chosen from a menu, a select-all button, a song
     /// revealed by a search, and the widget honours it next frame), `ListState::DISABLED` (the app writes it: the row takes no
     /// selection, presses or drops and reads as disabled) and `ListState::LIVE` (the app writes it: a kept list rebuilds the row
@@ -383,7 +383,9 @@ impl Ui {
     ///
     /// Selection lives in the widget and the app-owned `state`: a click selects a row alone and sets the anchor; with
     /// `SelectionList::multi` Command (Ctrl) toggles one and Shift selects the run from the anchor; arrows, Page keys, Home and End move
-    /// the keyboard's row (Shift extending), Space toggles it, Command-A selects every enabled row. A double click or Enter reports
+    /// the keyboard's row (Shift extending), Space toggles it (not on Apple, where Space stays the app's as in NSTableView), Command-A
+    /// selects every enabled row; a focused list takes these keys, so `Ui::key_pressed` no longer reports them (Command chords other
+    /// than Command-A stay the app's, and Escape). A double click or Enter reports
     /// `activated`, a secondary press (right click, Control-click, long press) `secondary`, both with the row's box in `row`. Rows the
     /// app flags `ListState::DISABLED` take no selection or presses and read as disabled. With `SelectionList::reorder` rows move as
     /// `SectionList::reorder` describes (`moved`, `drop_at`). One Tab stop.
@@ -936,7 +938,7 @@ mod tests {
     fn on(state: &ListState) -> Vec<usize> { (0..state.rows.len()).filter(|i| state.rows[*i] & ListState::SELECTED != 0).collect() }
 
     /// The selection lives in the widget: a click selects a row alone, Command toggles one, Shift selects the run from the anchor; arrows
-    /// select (Shift extending), Space toggles the keyboard's row, Command-A selects every enabled row, Enter and a double click activate,
+    /// select (Shift extending), Space toggles the keyboard's row (not on Apple), Command-A selects every enabled row, Enter and a double click activate,
     /// a right click reports `secondary`; `selected` names the row of every change the widget made; rows read as selectable list items
     /// with SELECTED on the selected ones, in both link modes.
     #[test]
@@ -975,7 +977,9 @@ mod tests {
         assert_eq!(on(&state.borrow()), vec![3, 4], "Shift-Up extends from the anchor");
         last.set(ListResponse::default());
         press(&mut ui, 22.0, KeyCode::Space, &[], &mut build);
-        assert_eq!((on(&state.borrow()), last.get().selected), (vec![4], Some(3)), "Space toggles the keyboard's row");
+        // Space toggles the keyboard's row; on Apple it is the app's (the core's widgets_list_keys_multi checks both platforms)
+        let want = if cfg!(any(target_os = "macos", target_os = "ios")) { (vec![3, 4], None) } else { (vec![4], Some(3)) };
+        assert_eq!((on(&state.borrow()), last.get().selected), want, "Space toggles the keyboard's row (not on Apple)");
         last.set(ListResponse::default());
         press(&mut ui, 23.0, KeyCode::Char('a'), &[KeyCode::Meta], &mut build);
         assert_eq!(on(&state.borrow()), vec![0, 1, 2, 3, 4, 5], "Command-A selects every row");
@@ -994,26 +998,37 @@ mod tests {
         assert_eq!(last.get().activated, Some(0), "a double click activates");
     }
 
-    /// `ListResponse::focused` tells whether the list holds keyboard focus (its keys are the list's): false until a click focuses a
-    /// selection list or a table, then true on the frames after; a section list's rows are app content, so it never reports focus.
+    /// A focused list takes the keys it handles from `Ui::key_pressed` (an arrow) and leaves the rest to the app (a Command chord and,
+    /// on Apple, Space); it is not a text editor, so `Ui::text_input_focused` stays false. A section list's rows are app content: a
+    /// click focuses nothing, and every key stays the app's.
     #[test]
-    fn lists_report_keyboard_focus() {
+    fn a_focused_list_takes_only_the_keys_it_handles() {
         let (state, table) = (RefCell::new(ListState::new()), RefCell::new(TableState::new()));
-        let focused = Cell::new(false);
+        let seen = Cell::new((false, false, false));
         const COLUMNS: [Column; 1] = [Column::new("Title").share(1.0)];
-        let cases: [&dyn Fn(&mut Ui) -> ListResponse; 3] = [
-            &|ui| ui.selection_list("files", 3, &|i| i as i64, &mut state.borrow_mut(), &SelectionList::DEFAULT, &mut |ui, part, _| if let SectionPart::Row(row) = part { ui.item_text(["a", "b", "c"][row]) }),
-            &|ui| ui.table("songs", &COLUMNS, 3, &|i| i as i64, &mut table.borrow_mut(), &Table::DEFAULT, &mut |ui, row, _, _| ui.item_text(["a", "b", "c"][row])).rows,
-            &|ui| ui.section_list("plain", &SectionList::new(3).row_h(24.0), &|i| i as i64, &mut |ui, part, _| if let SectionPart::Row(_) = part { ui.node("r", Node { h: Size::Grow, ..Node::DEFAULT }); }),
+        let cases: [&dyn Fn(&mut Ui); 3] = [
+            &|ui| { ui.selection_list("files", 3, &|i| i as i64, &mut state.borrow_mut(), &SelectionList::DEFAULT, &mut |ui, part, _| if let SectionPart::Row(row) = part { ui.item_text(["a", "b", "c"][row]) }); },
+            &|ui| { ui.table("songs", &COLUMNS, 3, &|i| i as i64, &mut table.borrow_mut(), &Table::DEFAULT, &mut |ui, row, _, _| ui.item_text(["a", "b", "c"][row])); },
+            &|ui| { ui.section_list("plain", &SectionList::new(3).row_h(24.0), &|i| i as i64, &mut |ui, part, _| if let SectionPart::Row(_) = part { ui.node("r", Node { h: Size::Grow, ..Node::DEFAULT }); }); },
         ];
-        for (case, (role, want)) in cases.iter().zip([(Role::ListItem, true), (Role::Row, true), (Role::Unknown, false)]) {
-            let mut build = |ui: &mut Ui| focused.set(case(ui).focused);
+        for (case, (role, taken)) in cases.iter().zip([(Role::ListItem, true), (Role::Row, true), (Role::Unknown, false)]) {
+            let mut build = |ui: &mut Ui| {
+                case(ui);
+                seen.set((ui.key_pressed(KeyCode::ArrowDown, crate::Mods::ANY), ui.key_pressed(KeyCode::Char('3'), crate::Mods::META), ui.key_pressed(KeyCode::Space, crate::Mods::ANY)));
+            };
             let mut ui = crate::doc::frames(2, &mut build);
-            assert!(!focused.get(), "an untouched list is not focused");
             let rect = if role == Role::Unknown { crate::geom::Rect { x: 0.0, y: 24.0, w: 200.0, h: 24.0 } } else { items(&ui, role)[1].rect };
             click_at(&mut ui, 1.0, rect, &[], false, &mut build);
             at(&mut ui, 2.0, &[], &mut build);
-            assert_eq!(focused.get(), want, "{role:?}: a click focuses a selection list or a table, never a section list");
+            assert!(!ui.text_input_focused(), "{role:?}: a focused list is not a text editor");
+            press(&mut ui, 3.0, KeyCode::ArrowDown, &[], &mut build);
+            assert_eq!(seen.get().0, !taken, "{role:?}: a focused selection list or table takes the arrow, a section list never");
+            press(&mut ui, 4.0, KeyCode::Char('3'), &[KeyCode::Meta], &mut build);
+            assert!(seen.get().1, "{role:?}: Command-3 stays the app's");
+            press(&mut ui, 5.0, KeyCode::Space, &[], &mut build);
+            // the doc Ui takes the host's conventions: Space selects in a list everywhere but Apple
+            let apple = cfg!(any(target_os = "macos", target_os = "ios"));
+            assert_eq!(seen.get().2, apple || !taken, "{role:?}: Space stays the app's on Apple");
         }
     }
 

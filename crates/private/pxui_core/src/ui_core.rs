@@ -1238,6 +1238,8 @@ pub struct Ui {
     carry_latch: Option<i64>,
     passed_undo: Option<UndoKind>,
     frame_events: Vec<Event>,
+    /// one flag a `frame_events` entry: a focused widget handled that key, so `key_pressed` no longer reports it
+    taken: Vec<std::cell::Cell<bool>>,
     input_frame: Option<rframe::Frame>,
     routed_events: Vec<(i64, Event, (f64, f64))>,
     cancelled: Vec<MouseButton>,
@@ -1511,6 +1513,7 @@ impl Ui {
             carry_latch: None,
             passed_undo: None,
             frame_events: Vec::with_capacity(input::EVENT_RESERVE),
+            taken: Vec::with_capacity(input::EVENT_RESERVE),
             input_frame: None,
             routed_events: Vec::with_capacity(input::EVENT_RESERVE),
             cancelled: Vec::new(),
@@ -2823,6 +2826,8 @@ impl Ui {
         }
         self.out.cursor = None;
         self.frame_events.clone_from(&frame.input.events);
+        self.taken.clear();
+        self.taken.resize(self.frame_events.len(), std::cell::Cell::new(false));
         keep_frame(&mut self.input_frame, frame);
         self.routed_events.clear();
         self.cancelled.clear();
@@ -2895,7 +2900,7 @@ impl Ui {
                     _ => (0, (0.0, 0.0)),
                 };
                 if step == 0 { self.routed_events.push((owner, event.clone(), delta)); }
-                else { self.frame_events.push(event.clone()); }
+                else { self.frame_events.push(event.clone()); self.taken.push(std::cell::Cell::new(false)); }
                 match event {
                     Event::PointerMoved(point) => {
                         let (px, py) = self.pointer;
@@ -3127,6 +3132,8 @@ impl Ui {
                             mods.extend_from_slice(&modifiers);
                             // a focus taking its first key this frame takes a warmed key list (recycled accumulators hand theirs to
                             // `spare_key_lists`, so whichever accumulator a node gets, a key it takes reuses one)
+                            // a focused control (not a text editor) presses on Enter and Space: those keys are the control's
+                            let control = step == 0 && focus != self.edit_focus && self.flags_of_key(focus).any(Flags::CLICKABLE);
                             let warmed = if self.signals.get(&focus).is_none_or(|a| a.keys.capacity() == 0) { self.spare_key_lists.pop() } else { None };
                             let value = self.accumulator(focus);
                             if let Some(keys) = warmed { value.keys = keys; }
@@ -3134,6 +3141,7 @@ impl Ui {
                             if let Event::KeyPressed(Key::Enter) | Event::KeyPressed(Key::Space) | Event::KeyPressed(Key::KeyChar(' ')) = event {
                                 if !command {
                                     value.clicked = true;
+                                    if control { self.taken[event_index].set(true); }
                                 }
                             }
                             match event {
@@ -3186,8 +3194,17 @@ impl Ui {
         self.out.cursor = Some(shape);
     }
 
+    /// A text editor holds the keyboard focus: the focus is the box whose edit was loaded since the focus came to it.
     pub fn text_input_focused(&self) -> bool {
-        self.focus != 0
+        self.focus != 0 && self.focus == self.edit_focus
+    }
+
+    /// A focused widget handled a press of `key` this frame: the first press of it not taken yet is no longer reported by
+    /// `key_pressed` (app shortcuts see only the keys no widget handled).
+    pub(crate) fn take_key(&self, key: Key) {
+        if let Some(i) = self.frame_events.iter().enumerate().position(|(i, e)| matches!(e, Event::KeyPressed(k) if *k == key) && !self.taken[i].get()) {
+            self.taken[i].set(true);
+        }
     }
 
     pub fn passed_undo(&self) -> Option<UndoKind> {
@@ -3219,13 +3236,14 @@ impl Ui {
 
     /// Modifier mask 0 requires no held modifiers; 16 accepts a press with any modifiers.
     pub fn key_pressed_mods(&self, key: Key, modifiers: u32) -> bool {
-        if modifiers == 16 { return self.frame_events.iter().any(|e| matches!(e, Event::KeyPressed(k) if *k == key)); }
+        let free = |i: usize| !self.taken[i].get();
+        if modifiers == 16 { return self.frame_events.iter().enumerate().any(|(i, e)| matches!(e, Event::KeyPressed(k) if *k == key) && free(i)); }
         let mut held = self.frame_modifiers;
-        for event in &self.frame_events {
+        for (i, event) in self.frame_events.iter().enumerate() {
             match event {
                 Event::KeyPressed(k) => {
                     held |= modifier_bit(*k);
-                    if *k == key && (if modifiers == 0 { held == 0 } else { held & modifiers == modifiers }) { return true; }
+                    if *k == key && free(i) && (if modifiers == 0 { held == 0 } else { held & modifiers == modifiers }) { return true; }
                 }
                 Event::KeyReleased(k) => held &= !modifier_bit(*k),
                 Event::FocusLost => held = 0,

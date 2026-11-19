@@ -18,7 +18,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 112u)
+#define PXUI_ABI_BUILT ((1u << 16) | 113u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 typedef struct { uint32_t autocorrect, capitalization, action; } PxuiTextInputOptions;
@@ -438,7 +438,7 @@ typedef struct { uint8_t selected, enabled, focused, held; uint32_t reserved; Px
 typedef void (*PxuiListCell)(void *user, void *ui, size_t index, const PxuiCellState *cell);
 typedef void (*PxuiTableCellBuild)(void *user, void *ui, size_t row, size_t column, const PxuiCellState *cell);
 typedef struct { uint32_t size; uint8_t overlay_scrollbar, measured, reorder /* 1.88 */, reserved; size_t count; float row_height, leading_height, header_height, trailing_height; } PxuiSectionListDesc;
-typedef struct { uint32_t size; uint8_t focused /* 1.104: the list holds keyboard focus (0 for a section list) */, reserved[3]; PxuiBox handle, row; size_t activated, selected, secondary, anchor, drop_at /* 1.88 */, moved_from, moved_to /* 1.89 */; } PxuiListResult;
+typedef struct { uint32_t size, reserved; PxuiBox handle, row; size_t activated, selected, secondary, anchor, drop_at /* 1.88 */, moved_from, moved_to /* 1.89 */; } PxuiListResult;
 /* rows: one flag byte a row (1 selected, written by the list; 2 disabled and 4 live, written by the caller), at least count; anchor SIZE_MAX: none.
    1.106: with has_revision 1 a row is kept (its body and cells not built) while revision, its key and its selected, disabled and focused state hold;
    a pointer, key or action reaching it rebuilds it; a live row and every row of a reorderable list rebuild every frame.
@@ -899,6 +899,7 @@ uint64_t pxui_ui_frame_index(PxuiUi *ui);
 uint8_t pxui_ui_captured(PxuiUi *ui);
 /* ABI 1.105: 1 while a reorderable list's row is lifted by its handle (Escape, a cancelled pointer or lost focus puts it back). */
 uint8_t pxui_ui_reordering(PxuiUi *ui);
+/* ABI 1.113: 1 while a text editor holds the keyboard focus (a focused list or control is not one). */
 uint8_t pxui_ui_text_input_focused(PxuiUi *ui);
 uint8_t pxui_ui_verifying(PxuiUi *ui);
 uint64_t pxui_ui_text_undo_bytes(PxuiUi *ui);
@@ -909,6 +910,7 @@ uint32_t pxui_ui_passed_undo(PxuiUi *ui); /* 0 none, 1 undo, 2 redo */
 int32_t pxui_ui_key_down(PxuiUi *ui, uint32_t code, uint8_t *out);
 /* ABI 1.23: raw press query with Shift/Ctrl/Alt/Meta held at the event, including same-frame release. */
 /* Match all requested modifiers on one press (Shift=1, Ctrl=2, Alt=4, Meta=8). 0 requires none and 16 accepts any. */
+/* ABI 1.113: a press a focused widget handled (a list's arrows, Return and Command-A; a focused control's Space and Return) is not reported. */
 int32_t pxui_ui_key_pressed(PxuiUi *ui, uint32_t code, uint32_t modifiers, uint8_t *out);
 /* ABI 1.78: the body size and kit row exactly; the setter keeps fractions (0.5..=1024). */
 int32_t pxui_ui_font_points(PxuiUi *ui, float *out);
@@ -1254,7 +1256,7 @@ _Static_assert(sizeof(PxuiCheckboxDesc) == 56 && offsetof(PxuiCheckboxDesc, size
 _Static_assert(sizeof(PxuiSheetDesc) == 28 && offsetof(PxuiSheetDesc, size) == 0 && offsetof(PxuiSheetDesc, has_width) == 4 && offsetof(PxuiSheetDesc, present) == 5 && offsetof(PxuiSheetDesc, reserved) == 6 && offsetof(PxuiSheetDesc, width) == 8 && offsetof(PxuiSheetDesc, dismiss_fraction) == 12 && offsetof(PxuiSheetDesc, dismiss_velocity) == 16, "PxuiSheetDesc layout");
 _Static_assert(sizeof(PxuiPickRow) == 64 && offsetof(PxuiPickRow, size) == 0 && offsetof(PxuiPickRow, art_kind) == 4 && offsetof(PxuiPickRow, reserved) == 5 && offsetof(PxuiPickRow, art) == 8 && offsetof(PxuiPickRow, label) == 16 && offsetof(PxuiPickRow, detail) == 32 && offsetof(PxuiPickRow, heading) == 48, "PxuiPickRow layout");
 _Static_assert(sizeof(PxuiCellState) == 48 && offsetof(PxuiCellState, selected) == 0 && offsetof(PxuiCellState, enabled) == 1 && offsetof(PxuiCellState, focused) == 2 && offsetof(PxuiCellState, held) == 3 && offsetof(PxuiCellState, reserved) == 4 && offsetof(PxuiCellState, handle) == 8 && offsetof(PxuiCellState, y) == 40 && offsetof(PxuiCellState, reserved_tail) == 44, "PxuiCellState layout");
-_Static_assert(sizeof(PxuiListResult) == 128 && offsetof(PxuiListResult, size) == 0 && offsetof(PxuiListResult, focused) == 4 && offsetof(PxuiListResult, reserved) == 5 && offsetof(PxuiListResult, handle) == 8 && offsetof(PxuiListResult, row) == 40 && offsetof(PxuiListResult, activated) == 72 && offsetof(PxuiListResult, selected) == 80 && offsetof(PxuiListResult, secondary) == 88 && offsetof(PxuiListResult, anchor) == 96, "PxuiListResult layout");
+_Static_assert(sizeof(PxuiListResult) == 128 && offsetof(PxuiListResult, size) == 0 && offsetof(PxuiListResult, reserved) == 4 && offsetof(PxuiListResult, handle) == 8 && offsetof(PxuiListResult, row) == 40 && offsetof(PxuiListResult, activated) == 72 && offsetof(PxuiListResult, selected) == 80 && offsetof(PxuiListResult, secondary) == 88 && offsetof(PxuiListResult, anchor) == 96, "PxuiListResult layout");
 _Static_assert(sizeof(PxuiSelectionListDesc) == 224 && offsetof(PxuiSelectionListDesc, size) == 0 && offsetof(PxuiSelectionListDesc, multi) == 4 && offsetof(PxuiSelectionListDesc, fit) == 5 && offsetof(PxuiSelectionListDesc, open_on_click) == 6 && offsetof(PxuiSelectionListDesc, overlay_scrollbar) == 7 && offsetof(PxuiSelectionListDesc, measured) == 8 && offsetof(PxuiSelectionListDesc, bare) == 11 && offsetof(PxuiSelectionListDesc, has_revision) == 12 && offsetof(PxuiSelectionListDesc, reserved) == 13 && offsetof(PxuiSelectionListDesc, count) == 16 && offsetof(PxuiSelectionListDesc, row_height) == 24 && offsetof(PxuiSelectionListDesc, leading_height) == 28 && offsetof(PxuiSelectionListDesc, header_height) == 32 && offsetof(PxuiSelectionListDesc, trailing_height) == 36 && offsetof(PxuiSelectionListDesc, rows) == 40 && offsetof(PxuiSelectionListDesc, anchor) == 56 && offsetof(PxuiSelectionListDesc, revision) == 216, "PxuiSelectionListDesc layout");
 _Static_assert(sizeof(PxuiColumn) == 40 && offsetof(PxuiColumn, size) == 0 && offsetof(PxuiColumn, sortable) == 4 && offsetof(PxuiColumn, grip) == 5 && offsetof(PxuiColumn, has_id) == 6 && offsetof(PxuiColumn, reserved) == 7 && offsetof(PxuiColumn, title) == 8 && offsetof(PxuiColumn, id) == 24 && offsetof(PxuiColumn, share) == 32 && offsetof(PxuiColumn, w) == 36, "PxuiColumn layout");
 _Static_assert(sizeof(PxuiColumnWidth) == 16 && offsetof(PxuiColumnWidth, id) == 0 && offsetof(PxuiColumnWidth, w) == 8 && offsetof(PxuiColumnWidth, reserved) == 12, "PxuiColumnWidth layout");

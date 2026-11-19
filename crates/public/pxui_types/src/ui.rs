@@ -294,7 +294,7 @@ pub struct ListResponse {
     /// The row a double click or Enter activated (`Ui::selection_list`; a plain list's rows report their own presses).
     pub activated: Option<usize>,
     /// Set whenever the widget changed the list state's selection this frame (`Ui::selection_list`, `Ui::table`), naming the row the
-    /// change acted on: the row clicked, Command-toggled (on or off), Shift-extended to, moved to by a key or toggled by Space; for
+    /// change acted on: the row clicked, Command-toggled (on or off), Shift-extended to, moved to by a key or toggled by Space (not on Apple); for
     /// Command-A the keyboard's row (0 without one). A navigation list (a sidebar, a folder browser) acts on it as "this row was
     /// chosen"; a multi-selection list reads it as "the selection changed" (to invalidate what it caches). Either way the app never
     /// scans `ListState::rows` per frame. App writes to `ListState` never set it.
@@ -311,10 +311,6 @@ pub struct ListResponse {
     /// frame only; read the payload with `Ui::drop_target(&response.handle)` on the same frame. A move of the list's own row is
     /// `moved`, never `drop_at`.
     pub drop_at: Option<usize>,
-    /// The list holds keyboard focus this frame (`Ui::selection_list`, `Ui::table`), as `Response::focused`: its keys (arrows,
-    /// Return, Space, Command-A) are the list's, so an app reads it to keep its own list shortcuts while the list is focused. A
-    /// section list's rows are app content: always false.
-    pub focused: bool,
 }
 
 /// What `Ui::tree` reports this frame.

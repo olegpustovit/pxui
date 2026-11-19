@@ -74,10 +74,11 @@ pub struct Scrub {
 }
 
 /// The key presses of `keys` (a focused node's signal), in order.
-fn pressed(keys: &[Event], f: &mut dyn FnMut(Key)) {
+/// Each key press in `keys`; a press `f` handles (returns true for) is the widget's, no longer reported by `Ui::key_pressed`.
+fn pressed(ui: &Ui, keys: &[Event], f: &mut dyn FnMut(Key) -> bool) {
     for e in keys {
-        if let Event::KeyPressed(k) = e {
-            f(*k);
+        if let Event::KeyPressed(k) = e && f(*k) {
+            ui.take_key(*k);
         }
     }
 }
@@ -378,10 +379,10 @@ impl Ui {
         self.a11y_name(&group, name);
         let s = self.signal_owned(&group);
         let mut sel = selected.filter(|_| count > 0).map(|i| i.min(count - 1));
-        pressed(&s.keys, &mut |k| match k {
-            Key::ArrowDown | Key::ArrowRight => sel = Some(sel.map_or(0, |i| wrap(i, 1, count))),
-            Key::ArrowUp | Key::ArrowLeft => sel = Some(sel.map_or(count.saturating_sub(1), |i| wrap(i, -1, count))),
-            _ => {}
+        pressed(self, &s.keys, &mut |k| match k {
+            Key::ArrowDown | Key::ArrowRight => { sel = Some(sel.map_or(0, |i| wrap(i, 1, count))); true }
+            Key::ArrowUp | Key::ArrowLeft => { sel = Some(sel.map_or(count.saturating_sub(1), |i| wrap(i, -1, count))); true }
+            _ => false,
         });
         if count == 0 { sel = None; }
         let mut secondary = None;
@@ -468,6 +469,7 @@ impl Ui {
                             Key::End => hi,
                             _ => continue,
                         }.clamp(lo, hi);
+                        self.take_key(*key);
                         result.commit = Some(next);
                         adjusted = true;
                     }
@@ -525,6 +527,7 @@ impl Ui {
                             Key::End => last,
                             _ => continue,
                         };
+                        self.take_key(*key);
                         moved = true;
                     }
                 }
@@ -625,16 +628,18 @@ impl Ui {
         self.a11y_name(&bar, name);
         let s = self.signal_owned(&bar);
         let mut sel = selected.filter(|_| count > 0).map(|i| i.min(count - 1));
-        pressed(&s.keys, &mut |k| {
-            if count == 0 { return; }
+        pressed(self, &s.keys, &mut |k| {
+            if count == 0 { return false; }
             match k {
                 Key::Home => sel = Some(0),
                 Key::End => sel = Some(count - 1),
                 k => {
                     let by = self.along(k);
-                    if by != 0 { sel = Some(sel.map_or(if by > 0 { 0 } else { count - 1 }, |i| wrap(i, by, count))); }
+                    if by == 0 { return false; }
+                    sel = Some(sel.map_or(if by > 0 { 0 } else { count - 1 }, |i| wrap(i, by, count)));
                 }
             }
+            true
         });
         let saved = self.enter(&bar);
         let (before, mut old, mut focus, mut secondary) = (sel, None, false, None);
@@ -821,12 +826,13 @@ impl Ui {
         let mut lit = self.state(&button, -1);
         let mut pick = false;
         let by_key = s.keys.iter().any(|e| matches!(e, Event::KeyPressed(Key::Enter | Key::Space | Key::KeyChar(' '))));
-        pressed(&s.keys, &mut |k| match k {
-            Key::ArrowDown if lit < 0 => lit = sel.unwrap_or(0) as i64,
-            Key::ArrowDown => lit = clamp_step(lit as usize, 1, count) as i64,
-            Key::ArrowUp if lit >= 0 => lit = clamp_step(lit as usize, -1, count) as i64,
-            Key::Escape => lit = -1,
-            _ => {}
+        pressed(self, &s.keys, &mut |k| match k {
+            Key::ArrowDown if lit < 0 => { lit = sel.unwrap_or(0) as i64; true }
+            Key::ArrowDown => { lit = clamp_step(lit as usize, 1, count) as i64; true }
+            Key::ArrowUp if lit >= 0 => { lit = clamp_step(lit as usize, -1, count) as i64; true }
+            // Escape closes an open menu (a closed one leaves it to the app)
+            Key::Escape if lit >= 0 => { lit = -1; true }
+            _ => false,
         });
         if s.clicked {
             if by_key && lit >= 0 {
@@ -883,16 +889,17 @@ impl Ui {
         let count = |m: usize| if m < menus { entry(m).1 } else { 0 };
         let mut picked = None;
         let by_key = s.keys.iter().any(|e| matches!(e, Event::KeyPressed(Key::Enter | Key::Space | Key::KeyChar(' '))));
-        pressed(&s.keys, &mut |k| match k {
+        pressed(self, &s.keys, &mut |k| match k {
             Key::ArrowLeft | Key::ArrowRight => {
                 menu = wrap(menu, self.along(k), menus);
                 lit = -1;
+                true
             }
-            Key::ArrowDown if !open => (open, lit) = (true, 0),
-            Key::ArrowDown => lit = clamp_step(lit.max(0) as usize, 1, count(menu)) as i64,
-            Key::ArrowUp if open => lit = clamp_step(lit.max(0) as usize, -1, count(menu)) as i64,
-            Key::Escape => open = false,
-            _ => {}
+            Key::ArrowDown if !open => { (open, lit) = (true, 0); true }
+            Key::ArrowDown => { lit = clamp_step(lit.max(0) as usize, 1, count(menu)) as i64; true }
+            Key::ArrowUp if open => { lit = clamp_step(lit.max(0) as usize, -1, count(menu)) as i64; true }
+            Key::Escape if open => { open = false; true }
+            _ => false,
         });
         if s.clicked && by_key {
             if open && lit >= 0 {
@@ -980,16 +987,17 @@ impl Ui {
     /// Keys of a focused list over `count` rows: the new cursor and whether Enter or Space came.
     fn list_keys(&self, keys: &[Event], cursor: usize, count: usize, page: i64) -> (usize, bool, bool) {
         let (mut c, mut enter, mut space) = (cursor, false, false);
-        pressed(keys, &mut |k| match k {
-            Key::ArrowDown => c = clamp_step(c, 1, count),
-            Key::ArrowUp => c = clamp_step(c, -1, count),
-            Key::PageDown => c = clamp_step(c, page, count),
-            Key::PageUp => c = clamp_step(c, -page, count),
-            Key::Home => c = 0,
-            Key::End => c = count.saturating_sub(1),
-            Key::Enter => enter = true,
-            Key::Space | Key::KeyChar(' ') => space = true,
-            _ => {}
+        // Space is reported, not taken: the caller takes it when it acts on it
+        pressed(self, keys, &mut |k| match k {
+            Key::ArrowDown => { c = clamp_step(c, 1, count); true }
+            Key::ArrowUp => { c = clamp_step(c, -1, count); true }
+            Key::PageDown => { c = clamp_step(c, page, count); true }
+            Key::PageUp => { c = clamp_step(c, -page, count); true }
+            Key::Home => { c = 0; true }
+            Key::End => { c = count.saturating_sub(1); true }
+            Key::Enter => { enter = true; true }
+            Key::Space | Key::KeyChar(' ') => { space = true; false }
+            _ => false,
         });
         (c, enter, space)
     }
@@ -1056,12 +1064,13 @@ impl Ui {
             let node = node as usize;
             let is_open = open.get(node).copied().unwrap_or(0) != 0;
             let mut toggle = space && nodes[node].children != 0;
-            pressed(&s.keys, &mut |k| match self.along(k) {
-                1 if nodes[node].children != 0 && !is_open => toggle = true,
-                1 if nodes[node].children != 0 => c = clamp_step(c, 1, rows_shown),
-                -1 if nodes[node].children != 0 && is_open => toggle = true,
-                -1 => c = visible[..c].iter().rposition(|v| nodes[*v as usize].depth < nodes[node].depth).unwrap_or(c),
-                _ => {}
+            if toggle { self.take_key(Key::Space); }
+            pressed(self, &s.keys, &mut |k| match self.along(k) {
+                1 if nodes[node].children != 0 && !is_open => { toggle = true; true }
+                1 if nodes[node].children != 0 => { c = clamp_step(c, 1, rows_shown); true }
+                -1 if nodes[node].children != 0 && is_open => { toggle = true; true }
+                -1 => { c = visible[..c].iter().rposition(|v| nodes[*v as usize].depth < nodes[node].depth).unwrap_or(c); true }
+                _ => false,
             });
             if toggle {
                 if let Some(o) = open.get_mut(node) {
@@ -1652,8 +1661,9 @@ fn slider_body(this: &mut Ui, key: &str, text: &str, value: f32, range: RangeInc
     let mut v = value.clamp(lo.min(hi), hi.max(lo));
     let step = span / 100.0;
     let mut keyed = false;
-    pressed(&s.keys, &mut |k| {
-        keyed |= matches!(k, Key::ArrowRight | Key::ArrowLeft | Key::ArrowUp | Key::ArrowDown | Key::PageUp | Key::PageDown | Key::Home | Key::End);
+    pressed(this, &s.keys, &mut |k| {
+        let handled = matches!(k, Key::ArrowRight | Key::ArrowLeft | Key::ArrowUp | Key::ArrowDown | Key::PageUp | Key::PageDown | Key::Home | Key::End);
+        keyed |= handled;
         v += match k {
             Key::ArrowRight | Key::ArrowLeft => this.along(k) as f32 * step,
             Key::ArrowUp => step,
@@ -1664,6 +1674,7 @@ fn slider_body(this: &mut Ui, key: &str, text: &str, value: f32, range: RangeInc
             Key::End => hi - v,
             _ => 0.0,
         };
+        handled
     });
     if s.held || s.released {
         // across the rail, a half thumb in from each end: from the parts' rectangles of the last frame

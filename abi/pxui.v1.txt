@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 112
+minor 113
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -303,7 +303,7 @@ layout PxuiLabelConfig 144 8 0 4 8 40 56 120 124
 layout PxuiLabelStyle 64 8 0 4 8 10 12 14 16 17 18 19 20 24 28 32 36 40 44 48
 layout PxuiLayerInfo 48 8 0 8 12 16 32
 layout PxuiLineFieldConfig 72 8 0 4 12 16 48 64
-layout PxuiListResult 128 8 0 4 5 8 40 72 80 88 96
+layout PxuiListResult 128 8 0 4 8 40 72 80 88 96
 layout PxuiLook 160 8 0 4 12 16 20 24 28 44 92 96 128 132 144 148 152
 layout PxuiLookDesc 152 8 0 4 8 12 16 20 24 28 44 92 96 120 124 136 140 144 145
 layout PxuiMark 12 4
