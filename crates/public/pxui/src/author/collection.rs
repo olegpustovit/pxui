@@ -40,7 +40,7 @@ impl ListState {
     pub const fn new() -> ListState { ListState { rows: Vec::new(), anchor: None } }
 }
 
-/// What a cell callback is told about the row it builds (`Ui::selection_list`, `Ui::table`), a `Copy` value.
+/// What a cell callback is told about the row it builds (`Ui::section_list`, `Ui::selection_list`, `Ui::table`), a `Copy` value.
 #[derive(Clone, Copy, Debug, Default)]
 #[repr(C)]
 pub struct CellState {
@@ -54,7 +54,7 @@ pub struct CellState {
     pub held: bool,
     /// The row's box (empty for a lead-in or heading): a per-row drop target (`Ui::drop_target(&cell.handle)`) or an anchor.
     pub handle: crate::Handle,
-    /// The part's logical content Y (the lead-in 0), as `Ui::section_list` gives it.
+    /// The part's logical content Y (the lead-in 0).
     pub y: f32,
 }
 
@@ -319,7 +319,10 @@ impl Ui {
     /// dropped between rows (`drop_at`); `activated`, `secondary` and `row` stay `None` (the rows are app content and report their own
     /// presses).
     ///
-    /// `build(ui, part, y)` builds the lead-in, the heading and each row in view (`y` is the part's logical content Y). Row `i`'s box is
+    /// `build(ui, part, cell)` builds the lead-in, the heading and each row in view, told the part's `CellState`: `cell.y` is its logical
+    /// content Y and `cell.handle` a row's box (empty for the lead-in, heading and trailer), which the row names for assistive technology
+    /// (`Ui::a11y_name(&cell.handle, ..)`, as a `selection_list` row is) or uses as an anchor; a section list's rows are always `enabled`,
+    /// never `selected`, `focused` or `held` (the rows are app content). Row `i`'s box is
     /// keyed by the item id `row_key(i)`, so a row's state follows its item when the items reorder (React's row key); ids must be unique
     /// among the rows (a repeated id takes a `#dup` key). With `SectionList::measured` each row takes the height it lays out to (the
     /// row height its estimate until built). `reveal(&returned_box, row)` scrolls a row into view (minimum scroll, heading respected).
@@ -334,13 +337,16 @@ impl Ui {
     /// let ids = [7i64, 3, 9];
     /// const SONGS: SectionList = SectionList::new(3).row_h(20.0).lead(40.0).overlay_scrollbar();
     /// pxui::doc::frames(2, &mut |ui| {
-    ///     ui.section_list("songs", &SONGS, &|i| ids[i], &mut |ui, part, _y| if let SectionPart::Row(i) = part { ui.label_fmt(format_args!("{}", ids[i]), pxui::Label::BODY); });
-    ///     ui.section_list("notes", &SectionList::new(3).measured(), &|i| i as i64, &mut |ui, part, _y| if let SectionPart::Row(_) = part { ui.label("note", pxui::Label::BODY.wrap()); });
+    ///     ui.section_list("songs", &SONGS, &|i| ids[i], &mut |ui, part, cell| if let SectionPart::Row(i) = part {
+    ///         ui.label_fmt(format_args!("{}", ids[i]), pxui::Label::BODY);
+    ///         ui.a11y_name(&cell.handle, "song");
+    ///     });
+    ///     ui.section_list("notes", &SectionList::new(3).measured(), &|i| i as i64, &mut |ui, part, _| if let SectionPart::Row(_) = part { ui.label("note", pxui::Label::BODY.wrap()); });
     /// });
     /// ```
     #[inline]
     #[track_caller]
-    pub fn section_list<K: Into<Key>>(&mut self, key: K, section: &SectionList, row_key: &dyn Fn(usize) -> i64, build: &mut dyn FnMut(&mut Ui, SectionPart, f32)) -> ListResponse {
+    pub fn section_list<K: Into<Key>>(&mut self, key: K, section: &SectionList, row_key: &dyn Fn(usize) -> i64, build: &mut dyn FnMut(&mut Ui, SectionPart, CellState)) -> ListResponse {
         self.section_list_key(key.into(), section, row_key, build)
     }
 
@@ -1149,27 +1155,41 @@ mod tests {
     }
 
     /// One `section_list` serves fixed and measured rows: a fixed row's `y` is the lead-in, heading and rows above it, and a measured
-    /// row takes the height it lays out to.
+    /// row takes the height it lays out to. U2b.4.10: every part is told its `CellState`, a row its own box (a list item the app names
+    /// for assistive technology, a reorderable row too), the other parts the empty box. Both link modes.
     #[test]
     fn section_list_serves_fixed_and_measured_rows() {
         let ys = RefCell::new(Vec::new());
-        let tall = Cell::new(None);
+        let (tall, rows, parts) = (Cell::new(None), RefCell::new(Vec::new()), Cell::new(0));
         let mut build = |ui: &mut Ui| {
             ys.borrow_mut().clear();
+            rows.borrow_mut().clear();
             ui.column(Node { h: Size::Px(200.0), ..Node::DEFAULT }, |ui| {
-                ui.section_list("fixed", &SectionList::new(3).row_h(20.0).lead(30.0).header(10.0), &|i| i as i64, &mut |ui, part, y| {
-                    if let SectionPart::Row(i) = part { ys.borrow_mut().push((i, y)); ui.node("r", Node { h: Size::Grow, ..Node::DEFAULT }); }
+                ui.section_list("fixed", &SectionList::new(3).row_h(20.0).lead(30.0).header(10.0), &|i| i as i64, &mut |ui, part, cell| {
+                    if let SectionPart::Row(i) = part { ys.borrow_mut().push((i, cell.y)); ui.node("r", Node { h: Size::Grow, ..Node::DEFAULT }); }
+                    else { assert_eq!(cell.handle.box_slot, 0, "{part:?} has no row box"); parts.set(parts.get() + 1); }
+                    assert!(cell.enabled && !cell.selected && !cell.focused && !cell.held);
                 });
             });
             ui.column(Node { h: Size::Px(200.0), ..Node::DEFAULT }, |ui| {
-                ui.section_list("measured", &SectionList::new(1).row_h(20.0).measured(), &|i| i as i64, &mut |ui, part, _| {
-                    if let SectionPart::Row(_) = part { tall.set(Some(ui.node("tall", Node { h: Size::Px(50.0), ..Node::DEFAULT }))); }
+                ui.section_list("measured", &SectionList::new(2).row_h(20.0).measured().reorder(true), &|i| i as i64, &mut |ui, part, cell| {
+                    if let SectionPart::Row(i) = part {
+                        if i == 0 { tall.set(Some(ui.node("tall", Node { h: Size::Px(50.0), ..Node::DEFAULT }))); }
+                        ui.a11y_name(&cell.handle, ["first song", "second song"][i]);
+                        rows.borrow_mut().push(cell.handle);
+                    }
                 });
             });
         };
         let mut ui = crate::doc::frames(2, &mut build);
+        ui.set_a11y(true);
         testing::frame(&mut ui, &[], &mut build);
         assert_eq!(ys.borrow()[..3], [(0, 40.0), (1, 60.0), (2, 80.0)]);
         assert_eq!(ui.rect(&tall.get().unwrap()).h, 50.0, "a measured row keeps its own height");
+        assert!(parts.get() >= 2, "the lead-in and heading were built");
+        assert_eq!(rows.borrow().len(), 2);
+        assert_eq!(ui.rect(&rows.borrow()[0]).h, 50.0, "the cell's handle is the row's box");
+        let named: Vec<_> = items(&ui, Role::ListItem).iter().map(|n| ui.a11y_name_of(n).to_string()).filter(|n| n.ends_with("song")).collect();
+        assert_eq!(named, ["first song", "second song"], "the list items are named through their handle");
     }
 }

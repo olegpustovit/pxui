@@ -222,8 +222,12 @@ pub mod shapes {
             if list.variant != 0 { self.0.set_variant(BodyKind::selection_list as u32, 0); }
             list_response(&r)
         }
-        pub fn section_list(&mut self, key: &str, section: &pxui_types::ui::SectionList, row_key: &dyn Fn(usize) -> i64, f: &mut dyn FnMut(&mut Ui, SectionPart, f32)) -> ListResponse {
-            let handle = self.0.section_list(key, section, Some(row_key), true, &mut |e: &mut Engine, i, y| f(Ui::of(e), part_of(i), y));
+        pub fn section_list(&mut self, key: &str, section: &pxui_types::ui::SectionList, row_key: &dyn Fn(usize) -> i64, f: &mut dyn FnMut(&mut Ui, SectionPart, CellState)) -> ListResponse {
+            // a row is told its box (the entered node), as the library's section list tells it
+            let handle = self.0.section_list(key, section, Some(row_key), true, &mut |e: &mut Engine, i, y| {
+                let handle = if i < usize::MAX - 2 { e.entered() } else { Default::default() };
+                f(Ui::of(e), part_of(i), CellState { enabled: true, handle, y, ..CellState::default() })
+            });
             list_response(&ListResult { handle, drop_at: self.0.list_dropped(), moved: self.0.list_moved(), ..ListResult::default() })
         }
         pub fn drop_target(&mut self, b: &Handle) -> Option<DropRef<'_>> {

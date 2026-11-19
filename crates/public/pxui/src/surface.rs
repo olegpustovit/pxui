@@ -2764,7 +2764,8 @@ fn measured_section_rows_settle_positions_pin_heading_and_reuse_warm_storage() {
     let positions=RefCell::new(Vec::with_capacity(100));
     let mut build=|ui:&mut Ui| {
         positions.borrow_mut().clear();
-        body.set(Some(ui.section_list("measured",&SectionList::new(count.get()).row_h(20.0).lead(100.0).header(30.0).trail(40.0).overlay_scrollbar().measured(),&|i| i as i64,&mut |ui,part,y| {
+        body.set(Some(ui.section_list("measured",&SectionList::new(count.get()).row_h(20.0).lead(100.0).header(30.0).trail(40.0).overlay_scrollbar().measured(),&|i| i as i64,&mut |ui,part,cell| {
+            let y=cell.y;
             match part {
                 SectionPart::Leading=>assert_eq!(y,0.0),
                 SectionPart::Trailing=>{},

@@ -1043,13 +1043,18 @@ fn write_head(h: &pxui_core::ui_lists::HeadResult, sort: Option<(i64, bool)>, ou
 }
 
 /// `pxui_ui_section_list`'s body (and the static wrapper's `section_list`): `desc` checked, then the list keyed by `key` with
-/// its trailer; `f` gets the borrowed handle, the part's index (`usize::MAX - 2` the trailer) and its logical content Y.
-pub unsafe fn section_list(ui: *mut PxuiUi, key: &str, desc: &PxuiSectionListDesc, ids: Option<&dyn Fn(usize) -> i64>, f: &mut dyn FnMut(&mut Ui, usize, f32), out: &mut PxuiListResult) -> i32 {
+/// its trailer; `f` gets the borrowed handle, the part's index (`usize::MAX - 2` the trailer) and its cell: a row's box (the lead-in,
+/// heading and trailer the empty box) and the part's logical content Y, enabled, nothing selected, focused or held.
+pub unsafe fn section_list(ui: *mut PxuiUi, key: &str, desc: &PxuiSectionListDesc, ids: Option<&dyn Fn(usize) -> i64>, f: &mut dyn FnMut(&mut Ui, usize, &ListCell), out: &mut PxuiListResult) -> i32 {
     enter!(ui);
     if bad_key(key) || desc.overlay_scrollbar > 1 || desc.measured > 1 || desc.reorder > 1 || desc.reserved != 0
         || !geometry_ok(desc.count, desc.row_height, [desc.leading_height, desc.header_height, desc.trailing_height]) { return unsafe { fail(ui, "invalid section list descriptor") }; }
     let section = pxui_types::ui::SectionList { count: desc.count, row_height: desc.row_height, leading_height: desc.leading_height, header_height: desc.header_height, trailing_height: desc.trailing_height, overlay_scrollbar: desc.overlay_scrollbar != 0, measured: desc.measured != 0, reorder: desc.reorder != 0 };
-    let body = unsafe { engine(ui) }.section_list(key, &section, ids, true, f);
+    // a row builds inside its box (the entered node); the other parts get the empty box
+    let body = unsafe { engine(ui) }.section_list(key, &section, ids, true, &mut |e, index, y| {
+        let handle = if index < usize::MAX - 2 { e.entered() } else { Default::default() };
+        f(e, index, &ListCell { enabled: true, handle, y, ..ListCell::default() })
+    });
     let (drop_at, moved) = { let e = unsafe { engine(ui) }; (e.list_dropped(), e.list_moved()) };
     write_list(&ListResult { handle: body, drop_at, moved, ..ListResult::default() }, None, out);
     0

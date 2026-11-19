@@ -538,14 +538,16 @@ fn accessibility_batches_validate_the_entire_span_before_applying_any_chunk() {
 }
 
 /// ABI 1.87: a section list's record is checked before any callback (fixed and measured rows); the build gets the lead-in, heading,
-/// rows and trailer (`usize::MAX - 2`) with their logical Y, and every builder's parent is restored after it.
+/// rows and trailer (`usize::MAX - 2`) with their logical Y (1.103: and a row its box), and every builder's parent is restored after it.
 #[test]
 fn section_list_validates_before_callbacks_and_builds_every_part() {
     use pxui_types::ffi::{PxuiKeyedDesc, PxuiListResult, PxuiSectionListDesc};
     type Seen = (usize, [bool; 3]);
-    extern "C" fn part(user: *mut c_void, raw: *mut c_void, index: usize, y: f32) {
-        let seen = unsafe { &mut *user.cast::<Seen>() };
-        assert!(y.is_finite());
+    extern "C" fn part(user: *mut c_void, raw: *mut c_void, index: usize, cell: *const pxui_types::ffi::PxuiCellState) {
+        let (seen, cell) = (unsafe { &mut *user.cast::<Seen>() }, unsafe { &*cell });
+        assert!(cell.y.is_finite() && cell.enabled == 1 && cell.size as usize == core::mem::size_of::<pxui_types::ffi::PxuiCellState>());
+        // 1.103: a row is told its box, the other parts the empty box
+        assert_eq!(index < usize::MAX - 2, cell.handle.index != 0, "part {index}");
         if index >= usize::MAX - 2 { seen.1[usize::MAX - index] = true; }
         seen.0 += 1;
         let mut node = PxuiBox::default();
@@ -598,7 +600,7 @@ fn list_and_table_rows_key_by_item_id() {
         assert_eq!(unsafe { crate::pxui_ui_node(raw.cast(), Str { ptr: b"title".as_ptr(), len: 5 }, &pxui_types::Node::DEFAULT, &mut node) }, 0);
         node.box_key
     }
-    extern "C" fn part(user: *mut c_void, raw: *mut c_void, index: usize, _: f32) { let s = unsafe { &mut *user.cast::<State>() }; if index < 3 { s.1[0][index] = child(raw); } }
+    extern "C" fn part(user: *mut c_void, raw: *mut c_void, index: usize, _: *const pxui_types::ffi::PxuiCellState) { let s = unsafe { &mut *user.cast::<State>() }; if index < 3 { s.1[0][index] = child(raw); } }
     extern "C" fn cell(user: *mut c_void, raw: *mut c_void, index: usize, _: *const pxui_types::ffi::PxuiCellState) { let s = unsafe { &mut *user.cast::<State>() }; if index < 3 { s.1[1][index] = child(raw); } }
     extern "C" fn table_cell(user: *mut c_void, raw: *mut c_void, row: usize, _: usize, _: *const pxui_types::ffi::PxuiCellState) { let s = unsafe { &mut *user.cast::<State>() }; s.1[2][row] = child(raw); }
     extern "C" fn key(user: *mut c_void, row: usize) -> i64 { unsafe { (*user.cast::<State>()).0[row] } }

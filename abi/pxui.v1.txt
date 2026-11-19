@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 102
+minor 103
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -169,7 +169,7 @@ function pxui_ui_scroll_view int32_t pxui_ui_scroll_view ( PxuiUi * ui , const P
 function pxui_ui_scrub int32_t pxui_ui_scrub ( PxuiUi * ui , PxuiStr label , float value , float min , float max , float step , PxuiResponse * response , PxuiScrubOut * out ) ;
 function pxui_ui_search_field int32_t pxui_ui_search_field ( PxuiUi * ui , PxuiStr label , PxuiStr icon , PxuiStr value , PxuiStr placeholder , PxuiStr name , uint8_t action , uint8_t * changed , PxuiStr * out , PxuiResponse * response ) ;
 function pxui_ui_section_index int32_t pxui_ui_section_index ( PxuiUi * ui , const PxuiKeyedDesc * keyed , PxuiStrSpan letters , PxuiResponse * out , PxuiSegmentedResult * result ) ;
-function pxui_ui_section_list int32_t pxui_ui_section_list ( PxuiUi * ui , const PxuiKeyedDesc * keyed , const PxuiSectionListDesc * desc , PxuiRowKey key , PxuiSectionBuild build , void * user , PxuiListResult * out ) ;
+function pxui_ui_section_list int32_t pxui_ui_section_list ( PxuiUi * ui , const PxuiKeyedDesc * keyed , const PxuiSectionListDesc * desc , PxuiRowKey key , PxuiListCell build , void * user , PxuiListResult * out ) ;
 function pxui_ui_segmented int32_t pxui_ui_segmented ( PxuiUi * ui , const PxuiSegmentedDesc * desc , PxuiPickItemSpan items , PxuiResponse * out , PxuiSegmentedResult * result ) ;
 function pxui_ui_selection_list int32_t pxui_ui_selection_list ( PxuiUi * ui , const PxuiKeyedDesc * keyed , const PxuiSelectionListDesc * desc , PxuiRowKey key , PxuiListCell cell , void * user , PxuiListResult * out ) ;
 function pxui_ui_set_a11y int32_t pxui_ui_set_a11y ( PxuiUi * ui , uint8_t on ) ;

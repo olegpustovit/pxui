@@ -58,13 +58,13 @@ unsafe fn name_box(ui: *mut PxuiUi, handle: &crate::PxuiBox, name: &str) {
     if let Ok((engine, b)) = unsafe { crate::state::boxed(ui, handle) } { engine.a11y_name(&b, name); }
 }
 
-export!(trusted pub unsafe fn pxui_ui_section_list(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, desc: *const pxui_types::ffi::PxuiSectionListDesc, key: PxuiRowKey, build: pxui_types::ffi::PxuiSectionBuild, user: *mut core::ffi::c_void, out: *mut pxui_types::ffi::PxuiListResult) -> i32 {
+export!(trusted pub unsafe fn pxui_ui_section_list(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, desc: *const pxui_types::ffi::PxuiSectionListDesc, key: PxuiRowKey, build: pxui_types::ffi::PxuiListCell, user: *mut core::ffi::c_void, out: *mut pxui_types::ffi::PxuiListResult) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "invalid list result") } };
     let Some((label, name)) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
     let Some(desc) = sized!(desc) else { return unsafe { fail(ui, "invalid section list descriptor") } };
     let ids = key.map(|key| move |row| key(user, row));
-    let rc = unsafe { crate::trusted::section_list(ui, label, desc, ids.as_ref().map(|ids| ids as &dyn Fn(usize) -> i64), &mut |engine: &mut pxui_core::ui::Ui, index, y| if let Some(build) = build { { let mut b = crate::state::Borrowed::new(engine, ui); let h = b.enter(); build(user, h.cast(), index, y) } }, out) };
+    let rc = unsafe { crate::trusted::section_list(ui, label, desc, ids.as_ref().map(|ids| ids as &dyn Fn(usize) -> i64), &mut |engine: &mut pxui_core::ui::Ui, index, c| if let Some(build) = build { { let mut b = crate::state::Borrowed::new(engine, ui); let h = b.enter(); build(user, h.cast(), index, &crate::trusted::cell_state(c)) } }, out) };
     if rc == 0 { unsafe { name_box(ui, &out.handle, name) }; }
     rc
 });

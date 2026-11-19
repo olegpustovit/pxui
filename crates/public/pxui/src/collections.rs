@@ -46,6 +46,7 @@ mod link {
     #[link(name = "pxui")]
     unsafe extern "C" {
         fn pxui_ui_tree(ui: *mut crate::sys::PxuiUi, desc: *const PxuiTreeViewDesc, out: *mut usize) -> i32;
+        fn pxui_ui_section_list(ui: *mut crate::sys::PxuiUi, keyed: *const pxui_types::ffi::PxuiKeyedDesc, desc: *const pxui_types::ffi::PxuiSectionListDesc, key: pxui_types::ffi::PxuiRowKey, build: pxui_types::ffi::PxuiListCell, user: *mut c_void, out: *mut PxuiListResult) -> i32;
         fn pxui_ui_selection_list(ui: *mut crate::sys::PxuiUi, keyed: *const pxui_types::ffi::PxuiKeyedDesc, desc: *const PxuiSelectionListDesc, key: pxui_types::ffi::PxuiRowKey, cell: pxui_types::ffi::PxuiListCell, user: *mut c_void, out: *mut PxuiListResult) -> i32;
         fn pxui_ui_table_head(ui: *mut crate::sys::PxuiUi, keyed: *const pxui_types::ffi::PxuiKeyedDesc, desc: *const PxuiTableHeadDesc, out: *mut PxuiHeadResult) -> i32;
         fn pxui_ui_table(ui: *mut crate::sys::PxuiUi, keyed: *const pxui_types::ffi::PxuiKeyedDesc, desc: *const PxuiTableDesc, key: pxui_types::ffi::PxuiRowKey, cell: pxui_types::ffi::PxuiTableCellBuild, user: *mut c_void, out: *mut PxuiTableResult) -> i32;
@@ -62,7 +63,7 @@ mod link {
         if let Err(panic) = result { defer_callback_panic(panic); }
     }
 
-    /// The selection list context: the part builder and the row ids, behind the one `user` the call carries.
+    /// The section and selection list context: the part builder and the row ids, behind the one `user` the call carries.
     pub(super) struct ListRows<'a> { pub cell: &'a mut dyn FnMut(&mut Ui, SectionPart, CellState), pub id: &'a dyn Fn(usize) -> i64 }
     pub(super) extern "C" fn call_list_cell(user: *mut c_void, raw: *mut c_void, index: usize, cell: *const PxuiCellState) {
         if raw.is_null() || cell.is_null() || deferred() { return; }
@@ -95,6 +96,13 @@ mod link {
     }
 
     impl Ui {
+        /// `section_list`'s C route: the part builder and the row ids as a selection list's (`ListRows`), one trampoline for both.
+        pub(crate) fn section_list_c(&mut self, label: &str, desc: &pxui_types::ffi::PxuiSectionListDesc, id: &dyn Fn(usize) -> i64, cell: &mut dyn FnMut(&mut Ui, SectionPart, CellState), out: &mut PxuiListResult) {
+            let mut rows = ListRows { cell, id };
+            let rc = unsafe { pxui_ui_section_list(self.0.as_ptr(), &pxui_types::ffi::PxuiKeyedDesc::new(label, ""), desc, Some(call_list_id), Some(call_list_cell), (&mut rows as *mut ListRows).cast(), out) };
+            crate::composite::resume_deferred();
+            check(self, rc);
+        }
         pub(super) fn selection_list_c(&mut self, label: &str, desc: &PxuiSelectionListDesc, rows: &mut ListRows, out: &mut PxuiListResult) {
             let rc = unsafe { pxui_ui_selection_list(self.0.as_ptr(), &pxui_types::ffi::PxuiKeyedDesc::new(label, ""), desc, Some(call_list_id), Some(call_list_cell), (rows as *mut ListRows).cast(), out) };
             crate::composite::resume_deferred();
@@ -148,7 +156,7 @@ pub(crate) fn part_of(index: usize) -> SectionPart {
 /// The engine's row record as the wrapper's: the same bytes (`#[repr(C)]` both, checked below), read as they are.
 #[cfg(feature = "static")]
 #[inline(always)]
-fn cell_from(c: &pxui_abi_link::trusted::ListCell) -> CellState { unsafe { *(c as *const pxui_abi_link::trusted::ListCell).cast::<CellState>() } }
+pub(crate) fn cell_from(c: &pxui_abi_link::trusted::ListCell) -> CellState { unsafe { *(c as *const pxui_abi_link::trusted::ListCell).cast::<CellState>() } }
 #[cfg(feature = "static")]
 const _: () = {
     use core::mem::{align_of, offset_of, size_of};

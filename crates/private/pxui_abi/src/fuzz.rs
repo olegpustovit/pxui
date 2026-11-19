@@ -101,7 +101,7 @@ arg!(plain: u16, *mut PxuiRenderer, u8, u32, u64, i64, usize, f32, c_void, Str, 
 arg!(null: PxuiRenderer, PxuiPaint, PxuiPreparedText, PxuiA11y, PxuiTextWorker);
 arg!(none: UiBuild, PxuiGridBuild, PxuiButtonBuild, PxuiBodyFn, crate::paint::PaintBuild, crate::paint::PaintRelease, crate::paint::SpanBuild,
     crate::overlays::PickerRows, crate::overlays::PickerMark, crate::overlays::PickerOff, crate::text_inputs::TextValid, crate::text_inputs::SlideText,
-    crate::text_inputs::ScrubText, pxui_types::ffi::PxuiRowKey, PxuiListCell, PxuiTableCellBuild, PxuiSectionBuild);
+    crate::text_inputs::ScrubText, pxui_types::ffi::PxuiRowKey, PxuiListCell, PxuiTableCellBuild);
 arg!(bytes: geom::Rgba, geom::Rect, PxuiSlot);
 
 /// Boxes: zero (the root slot), all ones (no slot), one stale since an earlier frame, one of another `Ui`, one live this frame (passed to

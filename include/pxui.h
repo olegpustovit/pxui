@@ -18,7 +18,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 102u)
+#define PXUI_ABI_BUILT ((1u << 16) | 103u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 typedef struct { uint32_t autocorrect, capitalization, action; } PxuiTextInputOptions;
@@ -429,11 +429,11 @@ typedef struct { uint32_t size,reserved; PxuiStr label; size_t count; float cell
 /* ABI 1.49: `key` returns the item id of row `index`; row boxes are keyed by it (a row's state follows its item). A record
    ending before `key` (56-byte `user` end, size 64 without it) or a null `key` keys rows by index. */
 typedef int64_t (*PxuiRowKey)(void *user, size_t index);
-typedef void (*PxuiSectionBuild)(void *user, void *ui, size_t index, float content_y);
 /* ABI 1.87 (U2b.1): selection lists, tables and headings, and the section list with its trailer. One export a widget; every record is
    checked in one pass before any effect; results are library-written records (the caller sets size). Indices are SIZE_MAX for none. */
 typedef struct { uint32_t size; uint8_t selected, enabled, focused, held; PxuiBox handle; float y; uint32_t reserved; } PxuiCellState;
-/* index SIZE_MAX the lead-in, SIZE_MAX-1 the heading, SIZE_MAX-2 the trailer, else a row; cell describes the row (library-written). */
+/* A section or selection list part builder: index SIZE_MAX the lead-in, SIZE_MAX-1 the heading, SIZE_MAX-2 the trailer, else a row;
+   cell describes the part (library-written; a section list's row: its box and y, enabled, the rest 0). */
 typedef void (*PxuiListCell)(void *user, void *ui, size_t index, const PxuiCellState *cell);
 typedef void (*PxuiTableCellBuild)(void *user, void *ui, size_t row, size_t column, const PxuiCellState *cell);
 typedef struct { uint32_t size; uint8_t overlay_scrollbar, measured, reorder /* 1.88 */, reserved; size_t count; float row_height, leading_height, header_height, trailing_height; } PxuiSectionListDesc;
@@ -533,8 +533,8 @@ const PxuiThemeSnapshot *pxui_ui_theme(PxuiUi *ui);
 /* Measured virtual rows: count <= 1,000,000, finite positive estimate and finite estimated total.
    Called inside a frame; build may repeat while measured heights settle. The returned box scrolls the list. */
 int32_t pxui_ui_grid_list(PxuiUi *ui, const PxuiGridListDesc *desc, PxuiBox *out);
-/* ABI 1.87 (reshaped): one scroll region of a scrolling lead-in (index SIZE_MAX), a sticky heading (SIZE_MAX-1), fixed or measured rows and a trailer (SIZE_MAX-2, when trailing_height > 0); build gets each part's logical content Y. Replaces the 1.20 section list and the 1.21 measured one. */
-int32_t pxui_ui_section_list(PxuiUi *ui, const PxuiKeyedDesc *keyed, const PxuiSectionListDesc *desc, PxuiRowKey key, PxuiSectionBuild build, void *user, PxuiListResult *out);
+/* ABI 1.87 (reshaped): one scroll region of a scrolling lead-in (index SIZE_MAX), a sticky heading (SIZE_MAX-1), fixed or measured rows and a trailer (SIZE_MAX-2, when trailing_height > 0); build gets each part's cell (1.103: its box and logical content Y, the PxuiListCell of a selection list). Replaces the 1.20 section list and the 1.21 measured one. */
+int32_t pxui_ui_section_list(PxuiUi *ui, const PxuiKeyedDesc *keyed, const PxuiSectionListDesc *desc, PxuiRowKey key, PxuiListCell build, void *user, PxuiListResult *out);
 /* ABI 1.87: a selectable list over the section geometry (selection semantics in the list; rows and anchor updated in place); replaces the 1.x list views. */
 int32_t pxui_ui_selection_list(PxuiUi *ui, const PxuiKeyedDesc *keyed, const PxuiSelectionListDesc *desc, PxuiRowKey key, PxuiListCell cell, void *user, PxuiListResult *out);
 /* ABI 1.87: a heading of columns (tri-state sort, weighted and gripped widths). */

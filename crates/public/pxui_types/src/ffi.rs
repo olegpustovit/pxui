@@ -1522,7 +1522,6 @@ pub struct PxuiGridListDesc {
 
 /// The item id of a virtual row: `(user, index) -> id` (ABI 1.49).
 pub type PxuiRowKey = Option<extern "C" fn(*mut core::ffi::c_void, usize) -> i64>;
-pub type PxuiSectionBuild = Option<extern "C" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, usize, f32)>;
 /// What a selection list or table row builder is told about its row (ABI 1.87; library-written, read `size` before a field the
 /// caller's header does not have): flags 0 or 1, the row's box (the empty box for the lead-in, heading and trailer), its content Y.
 #[repr(C)]
@@ -1545,8 +1544,8 @@ pub struct PxuiCellState {
     /// Zero.
     pub reserved: u32,
 }
-/// A selection list part builder (ABI 1.87): `(user, ui, index, cell)`, index `usize::MAX` the lead-in, `MAX - 1` the heading,
-/// `MAX - 2` the trailer, else a row.
+/// A section or selection list part builder (ABI 1.87; the section list's since 1.103): `(user, ui, index, cell)`, index `usize::MAX`
+/// the lead-in, `MAX - 1` the heading, `MAX - 2` the trailer, else a row.
 pub type PxuiListCell = Option<extern "C" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, usize, *const PxuiCellState)>;
 /// A table cell builder (ABI 1.87): `(user, ui, row, column, cell)`.
 pub type PxuiTableCellBuild = Option<extern "C" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, usize, usize, *const PxuiCellState)>;

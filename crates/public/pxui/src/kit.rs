@@ -20,7 +20,6 @@ mod sys {
     use pxui_types::{PxuiBox, Str, ffi::Slice};
     #[link(name = "pxui")]
     unsafe extern "C" {
-    pub(super) fn pxui_ui_section_list(ui: *mut PxuiUi, keyed: *const pxui_types::ffi::PxuiKeyedDesc, desc: *const pxui_types::ffi::PxuiSectionListDesc, key: pxui_types::ffi::PxuiRowKey, build: pxui_types::ffi::PxuiSectionBuild, user: *mut core::ffi::c_void, out: *mut pxui_types::ffi::PxuiListResult) -> i32;
     pub fn pxui_ui_grid_list(ui: *mut PxuiUi, desc: *const GridListDesc, out: *mut PxuiBox) -> i32;
     pub fn pxui_ui_split(ui: *mut PxuiUi, desc: *const SplitDesc, out: *mut pxui_types::ffi::PxuiResponse, has_ratio: *mut u8, ratio: *mut f32) -> i32;
     pub fn pxui_ui_menu_bar(ui: *mut PxuiUi, desc: *const MenuBarDesc, out: *mut MenuOut, dismissed: *mut u8) -> i32;
@@ -75,28 +74,6 @@ extern "C" fn call_grid(user: *mut c_void, raw: *mut c_void, index: usize) {
     let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
         let mut ui = ManuallyDrop::new(Ui(unsafe { NonNull::new_unchecked(raw.cast()) }));
         build(&mut ui, index);
-    }));
-    if let Err(panic) = result { defer_callback_panic(panic); }
-}
-/// The context of a keyed section list crossing the C ABI: the row key and the part builder.
-#[cfg(not(feature = "static"))]
-struct KeyedSection<'a> { key: &'a dyn Fn(usize) -> i64, build: &'a mut dyn FnMut(&mut Ui, usize, f32) }
-#[cfg(not(feature = "static"))]
-extern "C" fn call_row_key(user: *mut c_void, index: usize) -> i64 {
-    if deferred() { return index as i64; }
-    let state = unsafe { &*user.cast::<KeyedSection>() };
-    match std::panic::catch_unwind(AssertUnwindSafe(|| (state.key)(index))) {
-        Ok(id) => id,
-        Err(panic) => { defer_callback_panic(panic); index as i64 }
-    }
-}
-#[cfg(not(feature = "static"))]
-extern "C" fn call_keyed_measured(user: *mut c_void, raw: *mut c_void, index: usize, y: f32) {
-    if raw.is_null() || deferred() { return; }
-    let state = unsafe { &mut *user.cast::<KeyedSection>() };
-    let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
-        let mut ui = ManuallyDrop::new(Ui(unsafe { NonNull::new_unchecked(raw.cast()) }));
-        (state.build)(&mut ui, index, y);
     }));
     if let Err(panic) = result { defer_callback_panic(panic); }
 }
@@ -222,9 +199,9 @@ impl<'a> MenuBarMenu<'a> {
 
 impl Ui {
     /// The one body of `section_list` (and of `list`): keyed by `key`, measured or fixed rows as `section` says, through the one route
-    /// that builds the trailer (`pxui_ui_section_list`); `build` is given the part and its logical content Y.
+    /// that builds the trailer (`pxui_ui_section_list`); `build` is given the part and its cell (a row's box, the part's content Y).
     #[track_caller]
-    pub(crate) fn section_list_key(&mut self, key: Key, section: &SectionList, id: &dyn Fn(usize) -> i64, build: &mut dyn FnMut(&mut Ui, SectionPart, f32)) -> pxui_types::ui::ListResponse {
+    pub(crate) fn section_list_key(&mut self, key: Key, section: &SectionList, id: &dyn Fn(usize) -> i64, build: &mut dyn FnMut(&mut Ui, SectionPart, crate::CellState)) -> pxui_types::ui::ListResponse {
         let mut id_label = [0u8; 17];
         let label = key.label(&mut id_label);
         let desc = pxui_types::ffi::PxuiSectionListDesc { size: core::mem::size_of::<pxui_types::ffi::PxuiSectionListDesc>() as u32, overlay_scrollbar: section.overlay_scrollbar as u8, measured: section.measured as u8, reorder: section.reorder as u8, reserved: 0,
@@ -233,23 +210,16 @@ impl Ui {
         #[cfg(feature = "static")]
         {
             let outer = self.0.as_ptr();
-            let mut invoke = |engine: &mut pxui_abi_link::trusted::Engine, index, y| {
+            let mut invoke = |engine: &mut pxui_abi_link::trusted::Engine, index, c: &pxui_abi_link::trusted::ListCell| {
                 let mut slot = None;
                 let handle = unsafe { pxui_abi_link::trusted::Borrowed::handle(engine, outer, &mut slot) };
                 let mut ui = ManuallyDrop::new(unsafe { Ui(NonNull::new_unchecked(handle)) });
-                build(&mut ui, crate::collections::part_of(index), y)
+                build(&mut ui, crate::collections::part_of(index), crate::collections::cell_from(c))
             };
             check(self, unsafe { pxui_abi_link::trusted::section_list(outer, label, &desc, Some(id), &mut invoke, &mut out) });
         }
         #[cfg(not(feature = "static"))]
-        {
-            let mut invoke = |ui: &mut Ui, index, y: f32| build(ui, crate::collections::part_of(index), y);
-            let mut context = KeyedSection { key: id, build: &mut invoke };
-            let user = (&mut context as *mut KeyedSection).cast();
-            let rc = unsafe { sys::pxui_ui_section_list(self.0.as_ptr(), &pxui_types::ffi::PxuiKeyedDesc::new(label, ""), &desc, Some(call_row_key), Some(call_keyed_measured), user, &mut out) };
-            crate::composite::resume_deferred();
-            check(self, rc);
-        }
+        self.section_list_c(label, &desc, id, build, &mut out);
         crate::collections::list_response(&out)
     }
 
