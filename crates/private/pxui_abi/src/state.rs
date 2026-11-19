@@ -395,8 +395,13 @@ pub(crate) unsafe fn text(value: Str) -> Option<&'static str> {
     if value.ptr.is_null() { return None; }
     let bytes: &'static [u8] = unsafe { std::slice::from_raw_parts(value.ptr, value.len) };
     // most labels are ASCII: checked inline, the answer in a register; anything else takes the full check
-    if ascii(bytes) { Some(unsafe { std::str::from_utf8_unchecked(bytes) }) } else { std::str::from_utf8(bytes).ok() }
+    if ascii(bytes) { Some(unsafe { std::str::from_utf8_unchecked(bytes) }) } else { non_ascii(bytes) }
 }
+
+/// The full UTF-8 check of text that is not all ASCII, out of line: a caller whose texts are ASCII (the most) keeps no registers for it.
+#[cold]
+#[inline(never)]
+fn non_ascii(bytes: &'static [u8]) -> Option<&'static str> { std::str::from_utf8(bytes).ok() }
 
 /// Whether `bytes` are ASCII. Up to 16 of them (a label) are two loads that may overlap, up to 64 (a tip, a sentence) four or eight,
 /// not a loop; longer ones `is_ascii`.

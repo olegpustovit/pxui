@@ -703,7 +703,8 @@ impl Ui {
         let stored = sel;
         // the option holding the focus, if one does: its arrows move the focus and the choice
         let focus = self.focus_key();
-        let held = (0..count).find(|i| item_key(strip.box_key, option(*i).id, *i) == focus);
+        // no focus (key 0) is held by none: the options are read only to find one that holds it
+        let held = if focus == 0 { None } else { (0..count).find(|i| item_key(strip.box_key, option(*i).id, *i) == focus) };
         let mut at = held;
         if let (true, Some(from)) = (enabled, held) {
             for (event, _) in self.key_events_of(focus) {
@@ -751,7 +752,7 @@ impl Ui {
         self.leave(saved);
         if !enabled { self.node_new(&strip).state.disabled = true; }
         let now = self.focus_key();
-        let focused = (0..count).any(|i| item_key(strip.box_key, option(i).id, i) == now);
+        let focused = now != 0 && (0..count).any(|i| item_key(strip.box_key, option(i).id, i) == now);
         self.set_state(&line, code);
         self.set_state(&strip, if focused { now } else { 0 });
         let response = Response { clicked, hovered, held: pressed, focused, activated: clicked && by_key, secondary: secondary.is_some(), handle: strip };

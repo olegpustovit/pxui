@@ -873,12 +873,14 @@ pub unsafe fn footer(ui: *mut PxuiUi, right: Option<&str>, hints: &[(&str, &str)
 // ---- containers with options
 
 /// Whether every number of `overlay` is finite (and its width, height and padding not negative).
-/// Every value is tested and the answers and-ed, no branch each (NaN fails every compare).
+/// On the bits, one compare a group: a finite number's bits less the sign are below infinity's; one in `0.0..=f32::MAX` is a
+/// positive finite number's bits or -0.0 (its bits less the sign 0); NaN is neither.
 #[inline(always)]
 fn overlay_ok(overlay: &Overlay) -> bool {
-    [overlay.at.0, overlay.at.1, overlay.max_h.unwrap_or_default()].iter().fold(true, |ok, v| ok & v.is_finite())
-        & [overlay.w.unwrap_or_default(), overlay.h.unwrap_or_default(), overlay.padding, overlay.dismiss.fraction.unwrap_or_default(), overlay.dismiss.velocity.unwrap_or_default()]
-            .iter().fold(true, |ok, v| ok & (*v >= 0.0) & (*v <= f32::MAX))
+    let finite = [overlay.at.0, overlay.at.1, overlay.max_h.unwrap_or_default()].iter().fold(0, |most, v| most.max(v.to_bits() & 0x7fff_ffff)) < 0x7f80_0000;
+    let sized = [overlay.w.unwrap_or_default(), overlay.h.unwrap_or_default(), overlay.padding, overlay.dismiss.fraction.unwrap_or_default(), overlay.dismiss.velocity.unwrap_or_default()]
+        .iter().fold(0, |most, v| { let bits = v.to_bits(); most.max(if bits == 0x8000_0000 { 0 } else { bits }) }) <= f32::MAX.to_bits();
+    finite & sized
 }
 
 /// A panel keyed by `key`, placed, dressed and named by `overlay`.
@@ -1240,7 +1242,7 @@ pub unsafe fn table(ui: *mut PxuiUi, key: &str, desc: &PxuiTableDesc, ids: Optio
 
 #[cfg(test)]
 mod segment_tests {
-    use super::{MAX_LABEL_BYTES, MAX_OPTIONS, Segment, checked_segments};
+    use super::{MAX_LABEL_BYTES, MAX_OPTIONS, Overlay, Segment, checked_segments, overlay_ok};
 
     /// Short segments pass as they are in one pass; one past the display cap takes the clipping pass (clipped, still accepted); more
     /// than `MAX_OPTIONS` are refused.
@@ -1258,5 +1260,21 @@ mod segment_tests {
         let many = vec![Segment::new("x"); MAX_OPTIONS + 1];
         let mut spare = Vec::new();
         assert!(!checked_segments(&many, &mut spare).1);
+    }
+
+    /// `overlay_ok` on the bits takes what the float compares took: finite places, sizes in `0.0..=f32::MAX` (-0.0 included).
+    #[test]
+    fn overlay_ok_takes_finite_places_and_sizes_from_zero_to_max() {
+        let base = Overlay::DEFAULT;
+        assert!(overlay_ok(&base));
+        assert!(overlay_ok(&Overlay { at: (-5.0, f32::MAX), w: Some(-0.0), h: Some(f32::MAX), max_h: Some(-1.0), ..base }));
+        for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            assert!(!overlay_ok(&Overlay { at: (bad, 0.0), ..base }));
+            assert!(!overlay_ok(&Overlay { max_h: Some(bad), ..base }));
+        }
+        for bad in [f32::NAN, f32::INFINITY, -1.0, -f32::MIN_POSITIVE] {
+            assert!(!overlay_ok(&Overlay { w: Some(bad), ..base }));
+            assert!(!overlay_ok(&Overlay { padding: bad, ..base }));
+        }
     }
 }
