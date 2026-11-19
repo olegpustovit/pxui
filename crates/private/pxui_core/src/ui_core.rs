@@ -6805,9 +6805,13 @@ impl Ui {
             quiet.input.keys.clone_from(&frame.input.keys);
             quiet.input.events.clear();
             (quiet.pixel_scale, quiet.fps, quiet.mouse_delta) = (frame.pixel_scale, frame.fps, (0.0, 0.0));
+            // a copy or paste the first build asked for is this frame's: the quiet build sees no key to ask again
+            let (paste, clipboard) = (self.out.paste, self.out.clipboard.take());
             self.begin_frame(&quiet);
             f(self);
             self.end_frame(&quiet);
+            self.out.paste |= paste;
+            if self.out.clipboard.is_none() { self.out.clipboard = clipboard; }
             self.quiet = Some(quiet);
         }
         self.settle = false;

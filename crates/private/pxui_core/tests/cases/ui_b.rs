@@ -37,6 +37,8 @@ pub fn window_pxui_picker() {
         } else {
             vec![]
         };
+        // a frame whose results change height settles (builds again without its input): keep the result its first build gave
+        last.set(Pick::None);
         host_frame(ui, &frame_at(keys, 1.0, 0.0, events), &mut |ui| {
             ui.panel("p", &pxui_core::ui::Overlay::DEFAULT.at(pxui_types::geom::Point::new(0.0, 0.0)).w_px(240.0).name("p"), &mut |ui| {
                 let off: Rc<dyn Fn(i64) -> bool> = {
@@ -47,7 +49,7 @@ pub fn window_pxui_picker() {
                 let q = query.borrow().clone();
                 let (edited, result) = { let r = ui.picker("Search", "Search", &q, &o, (None, Some(&*off), None), &mut |q: &str, out: &mut pxui_core::ui::PickRows| for (a, b) in rows(q) { out.push(pxui_types::ui::PickRow::new(&a).detail(&b)) }); (r.query.to_owned(), r.pick) };
                 *query.borrow_mut() = edited;
-                last.set(result);
+                if result != Pick::None { last.set(result); }
             });
         });
     };

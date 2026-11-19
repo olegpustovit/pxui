@@ -235,7 +235,7 @@ fn text_with_nul_crosses_as_ordinary_text() {
     let ui = create();
     let mut built = 0u32;
     assert_eq!(run(ui, Some(build), (&mut built as *mut u32).cast()), 0);
-    assert_eq!(built, 1);
+    assert_eq!(built, 2, "the first frame settles the picker's new results list once (U2b.4.15), the query echoed both times");
     unsafe { pxui_ui_destroy(ui); }
 }
 

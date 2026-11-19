@@ -215,10 +215,15 @@ thread_local! {
 }
 
 /// A picker row whose art is a 20-point cover (`PickArt::Image`: the app's image for the id, an accent tile until there is one) or its
-/// glyph, then its label and, at the end, its detail; the engine draws the group headings above it.
+/// glyph, then its label and, at the end, its detail; a group heading above it in the hint look, a row high, the spacing scale's third step in.
 fn cover_row(ui: &mut Ui, c: &PickerConfig) {
     let state = state_of(&c.state);
-    let (look, hint, accent) = { let t = ui.theme(); (*t.list.pick(state), t.hint.idle.text, t.tokens.accent) };
+    let (look, hint, accent, heading, inset) = { let t = ui.theme(); (*t.list.pick(state), t.hint.idle.text, t.tokens.accent, t.hint.idle, (t.tokens.space[2] * t.tokens.density).round()) };
+    if c.has_head == 1 {
+        ui.style(&c.head, &pxui::theme::States::of(heading), pxui::theme::State::default());
+        let row_height = ui.row_height();
+        ui.set_node_layout(&c.head, &Node { w: Size::Grow, h: Size::Px(row_height), margin: Edges { l: inset, ..Edges::ZERO }, ..ui.node_layout(&c.head) });
+    }
     ui.style(&c.row, &pxui::theme::States::of(look), state);
     let mut row = ui.node_layout(&c.row);
     (row.axis, row.align, row.gap, row.padding) = (Axis::Row, Align::Center, 6.0, Edges { l: 8.0, r: 8.0, ..Edges::ZERO });
