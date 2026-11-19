@@ -2266,7 +2266,12 @@ configs! {
     PxuiLineFieldConfig { state: PxuiStateDesc, empty: u8, field: PxuiBox, text: Str }
     /// `opts` holds the caller's options (its strings borrowed for the call); its place, label and value are unset.
     PxuiValueFieldConfig { state: PxuiStateDesc, invalid: u8, w: f32, h: f32, field: PxuiBox, opts: PxuiValueFieldDesc, text: Str }
-    PxuiPickerFieldConfig { state: PxuiStateDesc, empty: u8, slash: u8, prefix: f32, inset: f32, search: PxuiBox, placeholder: Str }
+    PxuiPickerFieldConfig { state: PxuiStateDesc, empty: u8, slash: u8, prefix: f32, inset: f32, search: PxuiBox, placeholder: Str } @variant {
+        /// ABI 1.111 (U2b.4.16): the results region, the scrolling list built before the body runs (`Fit` high, at most the picker's
+        /// limit of kit rows), which a body lays out with `pxui_ui_set_node_layout` (maximum and minimum height, padding inside the
+        /// scroll) as a search field body sizes `PxuiSearchFieldConfig.line`.
+        list: PxuiBox,
+    }
 }
 
 

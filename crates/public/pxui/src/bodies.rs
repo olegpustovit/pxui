@@ -602,6 +602,41 @@ mod tests {
         assert!(current.y >= list.y - 0.5 && current.y + current.h <= list.y + list.h + 0.5, "the keyboard's row is in view: {current:?} in {list:?}");
     }
 
+    /// U2b.4.16: a picker field body lays out the results region (`PickerFieldConfig.list`): its maximum height caps the rows it
+    /// shows, its padding insets them inside the scroll, and its minimum height holds an empty region open; warm frames allocate
+    /// nothing. Both link modes.
+    #[test]
+    fn a_picker_field_body_lays_out_the_results_region() {
+        use pxui_types::a11y::Role;
+        fn field(ui: &mut Ui, c: &PickerFieldConfig) {
+            ui.set_node_layout(&c.list, &Node::column().w(Size::Grow).h(Size::Fit).pad(6.0).min_h(60.0).max_h(100.0));
+        }
+        const NAMES: [&str; 12] = ["P00", "P01", "P02", "P03", "P04", "P05", "P06", "P07", "P08", "P09", "P10", "P11"];
+        let rows = core::cell::Cell::new(NAMES.len());
+        let mut build = |ui: &mut Ui| { let _ = ui.picker("pick", "Search", "", &crate::Picker::DEFAULT, &mut |_, out| for n in &NAMES[..rows.get()] { out.push(crate::PickRow::new(n)) }); };
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+        ui.set_a11y(true);
+        ui.register_picker_field_body("f", field).unwrap();
+        ui.set_theme(&crate::ThemeHandle::parse("picker_field.body = f").unwrap()).unwrap();
+        for _ in 0..3 { crate::testing::frame(&mut ui, &[], &mut build); }
+        let list = |ui: &Ui| ui.a11y_nodes().iter().find(|n| n.role == Role::List as u32).map(|n| n.rect).expect("the results list");
+        let (region, first) = (list(&ui), crate::testing::find(&ui, Role::ListItem, "P00").unwrap());
+        assert_eq!(region.h, 100.0, "the body's maximum height, not ten kit rows");
+        assert_eq!(first.y, region.y + 6.0, "the body's padding insets the first row");
+        mem_sys::set_peer(crate::library_counter);
+        let scope = mem_sys::warm_scope();
+        for round in 0..3 {
+            mem_sys::local_reset();
+            crate::testing::frame(&mut ui, &[], &mut build);
+            assert_eq!(mem_sys::local_alloc_count(), 0, "a warm picker frame with a laid-out region allocated (round {round})");
+        }
+        drop(scope);
+        assert!(mem_sys::take_reports().is_empty());
+        rows.set(0);
+        for _ in 0..3 { crate::testing::frame(&mut ui, &[], &mut build); }
+        assert_eq!(list(&ui).h, 60.0, "the body's minimum height holds the empty region open");
+    }
+
     /// U2b.4.1: a registered button body reads the caller's text, detail and accessory styles back as the `Label`s it gave (every
     /// field), `None` for those it did not give. Both link modes.
     #[test]

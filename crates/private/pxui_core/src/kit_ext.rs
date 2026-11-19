@@ -195,38 +195,8 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, (mark, off_fn, image_fn): crate::o
     this.set_role(&search, Role::TextField, crate::a11y::state::EDITABLE);
     this.a11y_name(&search, placeholder);
     this.a11y_value(&search, &edit.text, (edit.text[..edit.anchor.min(edit.text.len())].chars().count() as u32, edit.text[..edit.caret.min(edit.text.len())].chars().count() as u32));
-    let config = PickerFieldConfig { state, empty: edit.text.is_empty(), slash, prefix: prefix as f32, inset, search };
-    in_body!(this, search.box_key, search, picker_field, default_picker_field(&config, placeholder));
-    {
-        let marks = if edit.text.is_empty() { None } else { Some((field.selection, field.caret)) };
-        let (caret, anchor) = (edit.caret, edit.anchor);
-        // the focused search's edit text and composition travel in the painter (`paint_begin`), as a text field's do: no copy. An
-        // unfocused search (another node took the focus) paints a copy of its own.
-        let own = (!this.focused(&search)).then(|| (edit.text.clone(), this.composition().to_owned()));
-        // a body's own `Part::EDITOR` is the editing surface: the query painted on it, 2 points in, in its look's font (U2b.4.15)
-        let editor = this.part_built(search.box_key, crate::theme::Part::EDITOR).map(|part| {
-            let font = this.node_at(part.index).look.font;
-            (part, (font.size != 0).then(|| crate::ui_core::font_px(&font, font_size)))
-        });
-        let (target, size, inset, prefix) = match editor { Some((part, size)) => (part, size, 2.0, 0), None => (search, None, inset, prefix) };
-        let line = size.unwrap_or(font_size);
-        this.canvas_over(&target, move |paint, rect| {
-            let (cx, cy, cw, ch) = ints(rect);
-            let control = (cx + prefix, cy, 1.max(cw - prefix), ch);
-            let y = label_y(line, cy, ch);
-            match &own {
-                Some((text, composition)) => paint_text_edit_ref(paint, size, false, inset, marks, control, y, composition, text, caret, anchor),
-                None => {
-                    let (text, composition) = (std::mem::take(&mut paint.edit_text), std::mem::take(&mut paint.composition));
-                    paint_text_edit_ref(paint, size, false, inset, marks, control, y, &composition, &text, caret, anchor);
-                    (paint.edit_text, paint.composition) = (text, composition);
-                }
-            }
-        });
-        this.edit_work = edit.text;
-    }
     // the results: a measured list that scrolls (wheel, trackpad, keyboard), `limit` rows of the kit's height high at most, its rows
-    // as high as their bodies make them (U2b.4.15)
+    // as high as their bodies make them (U2b.4.15); built before the field body, which may lay the region out (U2b.4.16)
     let frame = this.box_keyed(int_key(search.box_key, 0), BoxOpts::default().w(Size::Grow).h(Size::Fit).axis(Axis::Column));
     let saved = this.enter(&frame);
     let row_height = this.row_px() as f32;
@@ -275,8 +245,38 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, (mark, off_fn, image_fn): crate::o
     let n = this.node_mut(&list);
     (n.h, n.max_h) = (Size::Fit, o.limit as f32 * row_height);
     this.set_role(&list, Role::List, 0);
-    if moved && count > 0 { this.reveal(&list, cursor as usize); }
     this.leave(saved);
+    let config = PickerFieldConfig { state, empty: edit.text.is_empty(), slash, prefix: prefix as f32, inset, search, list };
+    in_body!(this, search.box_key, search, picker_field, default_picker_field(&config, placeholder));
+    {
+        let marks = if edit.text.is_empty() { None } else { Some((field.selection, field.caret)) };
+        let (caret, anchor) = (edit.caret, edit.anchor);
+        // the focused search's edit text and composition travel in the painter (`paint_begin`), as a text field's do: no copy. An
+        // unfocused search (another node took the focus) paints a copy of its own.
+        let own = (!this.focused(&search)).then(|| (edit.text.clone(), this.composition().to_owned()));
+        // a body's own `Part::EDITOR` is the editing surface: the query painted on it, 2 points in, in its look's font (U2b.4.15)
+        let editor = this.part_built(search.box_key, crate::theme::Part::EDITOR).map(|part| {
+            let font = this.node_at(part.index).look.font;
+            (part, (font.size != 0).then(|| crate::ui_core::font_px(&font, font_size)))
+        });
+        let (target, size, inset, prefix) = match editor { Some((part, size)) => (part, size, 2.0, 0), None => (search, None, inset, prefix) };
+        let line = size.unwrap_or(font_size);
+        this.canvas_over(&target, move |paint, rect| {
+            let (cx, cy, cw, ch) = ints(rect);
+            let control = (cx + prefix, cy, 1.max(cw - prefix), ch);
+            let y = label_y(line, cy, ch);
+            match &own {
+                Some((text, composition)) => paint_text_edit_ref(paint, size, false, inset, marks, control, y, composition, text, caret, anchor),
+                None => {
+                    let (text, composition) = (std::mem::take(&mut paint.edit_text), std::mem::take(&mut paint.composition));
+                    paint_text_edit_ref(paint, size, false, inset, marks, control, y, &composition, &text, caret, anchor);
+                    (paint.edit_text, paint.composition) = (text, composition);
+                }
+            }
+        });
+        this.edit_work = edit.text;
+    }
+    if moved && count > 0 { this.reveal(&list, cursor as usize); }
     this.set_state(&search, cursor);
     this.set_state(&frame, armed);
     this.picker_rows = rows;

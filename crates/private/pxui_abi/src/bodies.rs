@@ -269,7 +269,7 @@ mod tramps {
         state: st(c.state), invalid: c.invalid as u8, w: c.w, h: c.h, field: bx(c.field), opts: value_opts(opts), text: pair(text)
     });
     tramp!(picker_field, |ui, sh, c: &PickerFieldConfig, placeholder: &str| PxuiPickerFieldConfig {
-        state: st(c.state), empty: c.empty as u8, slash: c.slash as u8, prefix: c.prefix, inset: c.inset, search: bx(c.search), placeholder: pair(placeholder)
+        state: st(c.state), empty: c.empty as u8, slash: c.slash as u8, prefix: c.prefix, inset: c.inset, search: bx(c.search), placeholder: pair(placeholder), list: bx(c.list)
     });
 }
 

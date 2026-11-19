@@ -522,6 +522,10 @@ pub struct PickerFieldConfig {
     pub prefix: f32,
     pub inset: f32,
     pub search: Handle,
+    /// The results region (U2b.4.16): the scrolling list of rows, built before the body runs, `Fit` high and at most `limit` rows of
+    /// the kit's height; a body lays it out with `set_node_layout` (its maximum and minimum height, its padding inside the scroll) as
+    /// a search field body sizes its `line`.
+    pub list: Handle,
 }
 
 pub type PickerFieldBody = fn(&mut Ui, &PickerFieldConfig, &str);
