@@ -742,6 +742,37 @@ pub fn checkbox_mark_body() {
     swap("checkbox", &|ui| pick(ui, &|t, id| t.body.checkbox = id, &|ui| ui.register_checkbox_body("mark", mark_check)), Role::CheckBox, "Snap", Key::Space, &hits);
 }
 
+/// A focused checkbox toggled by Space on warm frames allocates nothing (before, the checkbox copied the frame's key events into a
+/// fresh list on every key press).
+pub fn checkbox_space_warm_zero_alloc() {
+    let mut ui = new_ui(None);
+    let on = Cell::new(false);
+    let mut build = |ui: &mut Ui| on.set(on.get() ^ ui.checkbox("Snap", "Snap", on.get(), &pxui_core::ui::Checkbox::DEFAULT).clicked);
+    let mut t = 0.0;
+    let mut step = |ui: &mut Ui, e: Vec<Event>| {
+        t += 0.1;
+        ui.frame(&frame(t, e), &mut build);
+    };
+    for e in [vec![], vec![], vec![Event::KeyPressed(Key::Tab)], vec![]] {
+        step(&mut ui, e);
+    }
+    let mut allocs = 0;
+    for round in 0..8 {
+        let presses = [vec![Event::KeyPressed(Key::Space)], vec![Event::KeyReleased(Key::Space)], vec![]];
+        mem_sys::local_reset();
+        let before = mem_sys::local_alloc_count();
+        for e in presses {
+            step(&mut ui, e);
+        }
+        if round >= 2 {
+            allocs += mem_sys::local_alloc_count() - before;
+        }
+    }
+    check(!on.get(), "eight Space presses leave it off");
+    check(allocs == 0, &format!("{allocs} allocations toggling a focused checkbox with Space"));
+    ui.destroy();
+}
+
 pub fn radio_mark_body() {
     let hits = |ui: &mut Ui, v: &Cell<i64>| v.set(ui.pick_radio("Mode", "Mode", 3, &|i| pxui_core::ui::Segment::new(["A", "B", "C"][i]), Some(v.get() as usize), 0).1.unwrap_or(0) as i64);
     // a click on "B" chooses 1; Tab then Down moves on to 2
@@ -1944,6 +1975,7 @@ pub const CASES: &[(&str, fn())] = &[
     ("icon_button_draws_the_apps_icon_like_the_transport_key", icon_button_draws_the_apps_icon_like_the_transport_key),
     ("icon_button_body_receives_the_drawing", icon_button_body_receives_the_drawing),
     ("checkbox_mark_body", checkbox_mark_body),
+    ("checkbox_space_warm_zero_alloc", checkbox_space_warm_zero_alloc),
     ("radio_mark_body", radio_mark_body),
     ("spinner_three_dots_body", spinner_three_dots_body),
     ("badge_box_body", badge_box_body),

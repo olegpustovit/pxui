@@ -340,7 +340,8 @@ impl Ui {
         } else {
             self.kit_line(key, if enabled { STOP_FLAGS } else { Flags::BLOCKING | Flags::TAB_ONLY }, Role::CheckBox)
         };
-        let mut s = if checkbox.passive { Signal::default() } else { self.signal_owned(&row) };
+        // the scalars only: a checkbox reads no key events (Space reaches it as `clicked`), so a key press copies none
+        let mut s = if checkbox.passive { Signal::default() } else { self.signal(&row) };
         // a disabled checkbox reports no click from any input (a press begun while it was enabled, an assistive technology's press)
         s.clicked &= enabled;
         let value = value ^ s.clicked;
