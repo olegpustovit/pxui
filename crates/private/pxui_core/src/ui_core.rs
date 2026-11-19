@@ -4243,9 +4243,11 @@ impl Ui {
     }
 
     /// Forget the payload: the host cancelled (Escape) or finished a carry it started.
+    /// Retires the carried payload; the frame's Escape press that cancels it is spent (`key_pressed` no longer reports it).
     pub fn cancel_carry(&mut self) {
         if self.payload.is_some() {
             self.carry_latch = self.active;
+            self.take_key(Key::Escape);
         }
         self.retire_payload();
     }

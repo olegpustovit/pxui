@@ -610,7 +610,8 @@ impl Ui {
         check(self, unsafe { lib::pxui_ui_transfer_carry(self.0.as_ptr(), to, &mut out) });
         out != 0
     }
-    /// Ends a held carry: `carrying` reads `None` from now on and the drop targets see no hover.
+    /// Ends a held carry: `carrying` reads `None` from now on and the drop targets see no hover. The frame's Escape press that
+    /// cancels a carry is the carry's: `key_pressed` no longer reports it (a focused list does not also clear its selection).
     /// Allocates: never.
     /// Panics: when the library refuses the call (a null `Ui`).
     ///

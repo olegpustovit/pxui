@@ -103,15 +103,19 @@ pub(crate) fn moved_index(k: usize, (from, to): (usize, usize)) -> usize {
 }
 
 /// The frame's keys on a focused list: the keyboard row before and after, Enter, the row whose selection a key changed and, in a
-/// reorderable list, the keyboard row's move (Alt with Up or Down). The keys it handles are taken from the app's `key_pressed`.
+/// reorderable list, the keyboard row's move (Alt with Up or Down). Escape clears a multi-selection (not while a press is held: a
+/// drag, a carry or a lifted row spends it). The keys it handles are taken from the app's `key_pressed`.
 #[allow(clippy::type_complexity)]
 fn key_selection(this: &Ui, frame: &Handle, count: usize, page: i64, flags: &mut [u8], anchor: &mut Option<usize>, multi: bool, reorder: bool) -> (usize, usize, bool, Option<usize>, Option<(usize, usize)>) {
     let cursor = (this.state(frame, 0).max(0) as usize).min(count.saturating_sub(1));
     let (mut c, mut enter, mut space, mut all, mut changed, mut moved) = (cursor, false, false, false, None, None);
+    let mut clear = false;
     // Space selects on other platforms; on Apple it stays the app's (NSTableView takes no Space)
     let space_selects = this.platform() != Platform::Apple;
     for (event, mods) in this.key_events_ref(frame) {
         let Event::KeyPressed(key) = event else { continue };
+        // a press spent before the list built (an app's `cancel_carry` on Escape) is not the list's: a key acts once
+        if !this.key_pressed_mods(*key, 16) { continue; }
         if reorder && moved.is_none() && mods.contains(&Key::Alt) && matches!(key, Key::ArrowUp | Key::ArrowDown) {
             let to = if *key == Key::ArrowUp { c.checked_sub(1) } else { Some(c + 1).filter(|t| *t < count) };
             moved = to.map(|to| (c, to));
@@ -130,6 +134,7 @@ fn key_selection(this: &Ui, frame: &Handle, count: usize, page: i64, flags: &mut
             Key::Enter if !command => { enter = true; None }
             Key::Space | Key::KeyChar(' ') if space_selects && !command => { space = true; None }
             Key::KeyChar('a' | 'A') if multi && command => { all = true; None }
+            Key::Escape if multi && !command && !this.captured() && flags.iter().any(|f| *f & SELECTED != 0) => { clear = true; None }
             _ => continue,
         };
         this.take_key(*key);
@@ -147,6 +152,11 @@ fn key_selection(this: &Ui, frame: &Handle, count: usize, page: i64, flags: &mut
     if space && count > 0 && flags[c] & DISABLED == 0 {
         if multi { flags[c] ^= SELECTED } else { select_alone(flags, c) }
         *anchor = Some(c);
+        changed = Some(c);
+    }
+    if clear {
+        for f in flags.iter_mut() { *f &= !SELECTED; }
+        *anchor = None;
         changed = Some(c);
     }
     if all && count > 0 {

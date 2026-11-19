@@ -18,7 +18,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 114u)
+#define PXUI_ABI_BUILT ((1u << 16) | 115u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 typedef struct { uint32_t autocorrect, capitalization, action; } PxuiTextInputOptions;
@@ -976,6 +976,7 @@ int32_t pxui_ui_carry(PxuiUi *ui, uint8_t has_from, const PxuiBox *from, PxuiStr
 /* ABI 1.12: transfer an active pointer carry to a live hit ancestor (out=1); otherwise out=0.
    Scroll ancestors follow the pointer at their edges. Release/cancellation does not click the ancestor. */
 int32_t pxui_ui_transfer_carry(PxuiUi *ui, const PxuiBox *to, uint8_t *out);
+/* ABI 1.115: a cancelled carry spends the frame's Escape press (pxui_ui_key_pressed no longer reports it). */
 int32_t pxui_ui_cancel_carry(PxuiUi *ui);
 int32_t pxui_ui_drop_target(PxuiUi *ui, const PxuiBox *box, uint32_t *tag, PxuiStr *kind, PxuiStr *value); /* 0 none, 1 hover, 2 dropped */
 int32_t pxui_ui_context_at(PxuiUi *ui, const PxuiBox *box, uint8_t *present, PxuiPoint *out);

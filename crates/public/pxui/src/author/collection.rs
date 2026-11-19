@@ -1032,6 +1032,39 @@ mod tests {
         }
     }
 
+    /// Escape clears a focused multi-selection list's selection and is the list's; with nothing selected, in a single-selection list,
+    /// and when the app spends it cancelling a carry (`cancel_carry`), it stays the app's and the selection holds.
+    #[test]
+    fn escape_clears_a_focused_multi_selection_unless_a_carry_spends_it() {
+        let state = RefCell::new(ListState::new());
+        let (multi, carry, esc) = (Cell::new(true), Cell::new(false), Cell::new(false));
+        let mut build = |ui: &mut Ui| {
+            if carry.get() {
+                ui.carry(None, "row", "1");
+                if ui.key_pressed(KeyCode::Escape, crate::Mods::ANY) { ui.cancel_carry(); }
+            }
+            let list = if multi.get() { SelectionList::DEFAULT.multi() } else { SelectionList::DEFAULT };
+            let r = ui.selection_list("files", 3, &|i| i as i64, &mut state.borrow_mut(), &list, &mut |ui, part, _| if let SectionPart::Row(row) = part { ui.item_text(["a", "b", "c"][row]) });
+            ui.focus_default(&r.handle);
+            esc.set(ui.key_pressed(KeyCode::Escape, crate::Mods::ANY));
+        };
+        let mut ui = crate::doc::frames(2, &mut build);
+        press(&mut ui, 1.0, KeyCode::Char('a'), &[KeyCode::Meta], &mut build);
+        assert_eq!(on(&state.borrow()), vec![0, 1, 2]);
+        carry.set(true);
+        press(&mut ui, 2.0, KeyCode::Escape, &[], &mut build);
+        assert_eq!((on(&state.borrow()), esc.get()), (vec![0, 1, 2], false), "the Escape that cancels a carry is the carry's");
+        carry.set(false);
+        press(&mut ui, 3.0, KeyCode::Escape, &[], &mut build);
+        assert_eq!((on(&state.borrow()), esc.get()), (vec![], false), "Escape clears the selection and is the list's");
+        press(&mut ui, 4.0, KeyCode::Escape, &[], &mut build);
+        assert!(esc.get(), "with nothing selected Escape stays the app's");
+        multi.set(false);
+        press(&mut ui, 5.0, KeyCode::ArrowDown, &[], &mut build);
+        press(&mut ui, 6.0, KeyCode::Escape, &[], &mut build);
+        assert_eq!((on(&state.borrow()).len(), esc.get()), (1, true), "a single-selection list leaves Escape to the app");
+    }
+
     /// `Ui::focus_default` names the list a window's default key target: with nothing focused an arrow press focuses it and moves its
     /// selection (the list takes the arrow; a Command chord stays the app's), a click on empty space gives the focus up and the next
     /// press comes back; a build that names no default leaves the keys to the app, and so does a modal over the list.
