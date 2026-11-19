@@ -3509,6 +3509,9 @@ pub(crate) fn positional_key(seed: i64, kind: Positional) -> i64 {
 }
 
 impl Ui {
+    /// The frame's number (a retained row's key changes with it while the row stays live).
+    pub(crate) fn frame_no(&self) -> i64 { self.frame_number }
+
     pub(crate) fn require_building(&self) {
         if !self.building {
             panic!("Ui: boxes must be built inside Ui.frame");
@@ -7414,6 +7417,8 @@ impl Ui {
 
 /// Rows built past each edge of a virtual list's visible rows.
 const OVERSCAN: usize = 4;
+/// The nodes a new view record has room for, built and kept.
+const VIEW_NODES: usize = 32;
 
 /// IEEE half bits as f32.
 fn half(h: u16) -> f32 {
@@ -7538,7 +7543,7 @@ impl Ui {
         self.view_entry(key, *revision, w, h, true, f)
     }
 
-    fn view_entry(&mut self, label: &str, revision: u64, w: Size, h: Size, entry: bool, f: &mut dyn FnMut(&mut Ui)) -> Handle {
+    pub(crate) fn view_entry(&mut self, label: &str, revision: u64, w: Size, h: Size, entry: bool, f: &mut dyn FnMut(&mut Ui)) -> Handle {
         let b = self.node_ref(label, &Node { w, h, ..Node::DEFAULT });
         let parent = self.view_cur;
         let v = match self.slots[b.box_slot].view {
@@ -7555,7 +7560,8 @@ impl Ui {
                 }).map(|i| self.free_views.swap_remove(i));
                 let v = reused.unwrap_or_else(|| {
                     // Recycled records change labels as adaptive subtrees enter and leave.
-                    self.views.push(ViewRec { name: String::with_capacity(label.len().max(32)), ..ViewRec::new() });
+                    // room for a list row's nodes: a recycled record seldom grows when a view of another size takes it
+                    self.views.push(ViewRec { name: String::with_capacity(label.len().max(32)), nodes: Vec::with_capacity(VIEW_NODES), prev: Vec::with_capacity(VIEW_NODES), hits: Vec::with_capacity(VIEW_NODES / 4), ..ViewRec::new() });
                     self.views.len() as u32 - 1
                 });
                 // a table index of its own (unless flat): a freed one, else the next (the painter's

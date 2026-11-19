@@ -9,18 +9,26 @@ use crate::Handle;
 use pxui_types::ui::{ListResponse, SectionList, SectionPart, SelectionList, TreeResponse};
 
 /// A selectable list's app-owned state (`Ui::selection_list`, and a table's rows through `TableState::selection`): one flag byte a
-/// row and the anchor of a Shift-range. Keep it beside the data it describes and pass it every frame; the widget sizes `rows` to the
-/// row count every frame (truncating when it shrinks, so rows that later return start unflagged; growing adds unflagged rows) and
-/// updates it in place.
+/// row, the anchor of a Shift-range and the rows' content revision. Keep it beside the data it describes and pass it every frame; the
+/// widget sizes `rows` to the row count every frame (truncating when it shrinks, so rows that later return start unflagged; growing
+/// adds unflagged rows) and updates it in place.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ListState {
     /// One flag byte a row, by row index: `ListState::SELECTED` (the widget writes it on clicks, Command, Shift, Space and
     /// Command-A; the app may write it too, for a selection made elsewhere: a route chosen from a menu, a select-all button, a song
-    /// revealed by a search, and the widget honours it next frame) and `ListState::DISABLED` (the app writes it: the row takes no
-    /// selection, presses or drops and reads as disabled). Other bits are kept and ignored.
+    /// revealed by a search, and the widget honours it next frame), `ListState::DISABLED` (the app writes it: the row takes no
+    /// selection, presses or drops and reads as disabled) and `ListState::LIVE` (the app writes it: a kept list rebuilds the row
+    /// every frame). Other bits are kept and ignored.
     pub rows: Vec<u8>,
     /// The row a Shift-click or Shift-arrow extends a run from (the last row clicked or moved to without Shift); `None` before any.
     pub anchor: Option<usize>,
+    /// The rows' content revision, as a view's (`Ui::view_of`): with `Some`, a row's build (its body, cells and everything they
+    /// built) is kept while the revision, the row's key, its selected, disabled and keyboard-focus state and a payload over it are
+    /// unchanged, and moves with the rows on scroll; a pointer, key or accessibility action reaching the row, or the pointer entering
+    /// or leaving it, rebuilds it, as it does a view. Change it whenever anything the cells read changes (`pxui::hash_of` of those
+    /// inputs). A table also rebuilds its rows when a column's width changes. `None` (the default) rebuilds every row in view every
+    /// frame.
+    pub revision: Option<u64>,
 }
 
 impl ListState {
@@ -28,16 +36,19 @@ impl ListState {
     pub const SELECTED: u8 = 1;
     /// The row is disabled.
     pub const DISABLED: u8 = 2;
+    /// The row is rebuilt every frame while the list keeps its rows (`revision`): content that changes on its own, such as an
+    /// animation that pauses while its row is out of view.
+    pub const LIVE: u8 = 4;
 
-    /// No rows, no anchor.
+    /// No rows, no anchor, no revision.
     /// Allocates: never (the first frame that sees rows sizes `rows` to them; later frames only when the count grows).
     /// Panics: never.
     ///
     /// ```
     /// let state = pxui::ListState::new();
-    /// assert!(state.rows.is_empty() && state.anchor.is_none());
+    /// assert!(state.rows.is_empty() && state.anchor.is_none() && state.revision.is_none());
     /// ```
-    pub const fn new() -> ListState { ListState { rows: Vec::new(), anchor: None } }
+    pub const fn new() -> ListState { ListState { rows: Vec::new(), anchor: None, revision: None } }
 }
 
 /// What a cell callback is told about the row it builds (`Ui::section_list`, `Ui::selection_list`, `Ui::table`), a `Copy` value.
@@ -580,6 +591,134 @@ mod tests {
         }
         drop(scope);
         assert!(mem_sys::take_reports().is_empty());
+    }
+
+    const NAMES: [&str; 10] = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
+
+    /// GAP U2b.4.13: with `ListState::revision` a selection list keeps its rows. A still frame and a scroll frame build no row in view
+    /// that was in view before (a scroll builds the rows it brings in; rows past the viewport, culled, build as a culled view does);
+    /// the pointer moving from one row to the next rebuilds those two, a click the row it selects, an arrow key the rows the keyboard
+    /// leaves and reaches; a `LIVE` row rebuilds every frame; a new revision rebuilds every row; warm frames allocate nothing. Both
+    /// link modes.
+    #[test]
+    fn a_selection_list_keeps_rows_while_their_inputs_hold() {
+        let (state, revision, built, list) = (RefCell::new(ListState::new()), Cell::new(1u64), RefCell::new(Vec::with_capacity(64)), Cell::new(None));
+        let mut build = |ui: &mut Ui| {
+            let mut s = state.borrow_mut();
+            s.revision = Some(revision.get());
+            let r = ui.selection_list("rows", 100, &|i| i as i64, &mut s, &SelectionList::DEFAULT.row_h(20.0).multi(), &mut |ui, part, _| if let SectionPart::Row(i) = part {
+                built.borrow_mut().push(i);
+                ui.item_text(NAMES[i % 10]);
+            });
+            list.set(Some(r.handle));
+        };
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+        // counts builds: a verifying pass rebuilds every kept view
+        ui.verify_views(false);
+        ui.set_a11y(true);
+        let mut t = 0.0;
+        // the rows a frame built that show in the 240-point window (the list's 1-point inset, 20-point rows, its scroll)
+        let mut step = |ui: &mut Ui, events: &[Event], build: &mut dyn FnMut(&mut Ui)| -> Vec<usize> {
+            built.borrow_mut().clear();
+            t += 1.0;
+            at(ui, t, events, build);
+            let offset = ui.scroll(&list.get().unwrap()).painted;
+            let mut b: Vec<usize> = built.borrow().iter().copied().filter(|i| { let y = 1.0 + 20.0 * *i as f32 - offset; y + 20.0 > 1.0 && y < 239.0 }).collect();
+            b.sort_unstable();
+            b.dedup();
+            b
+        };
+        let row = |ui: &Ui, i: usize| { let offset = ui.scroll(&list.get().unwrap()).painted; crate::geom::Rect::new(1.0, 1.0 + 20.0 * i as f32 - offset, 300.0, 20.0) };
+        let pointer = |r: crate::geom::Rect| Event::pointer(Event::POINTER_MOVED, 0, (r.x + r.w / 2.0) as f64, (r.y + r.h / 2.0) as f64);
+        for _ in 0..3 { step(&mut ui, &[], &mut build); }
+        assert_eq!(step(&mut ui, &[], &mut build), [], "a still frame builds no row in view");
+        let shown = (0..100).filter(|i| 1.0 + 20.0 * (*i as f32) < 239.0).count();
+        let (two, three) = (row(&ui, 2), row(&ui, 3));
+        step(&mut ui, &[pointer(two)], &mut build);
+        assert_eq!(step(&mut ui, &[pointer(three)], &mut build), [2, 3], "the pointer leaves row 2 for row 3");
+        let scrolled = step(&mut ui, &[Event { kind: Event::SCROLLED, y: -1.0, ..Default::default() }], &mut build);
+        assert!(scrolled.len() <= 4, "a scroll builds the rows it brings in and the rows the pointer leaves and reaches, not the {shown} in view: {scrolled:?}");
+        for _ in 0..2 { step(&mut ui, &[], &mut build); }
+        let five = row(&ui, 5);
+        step(&mut ui, &[pointer(five)], &mut build);
+        let (x, y) = ((five.x + five.w / 2.0) as f64, (five.y + five.h / 2.0) as f64);
+        let mut clicked = step(&mut ui, &[Event::pointer(Event::POINTER_PRESSED, 0, x, y)], &mut build);
+        clicked.extend(step(&mut ui, &[Event::pointer(Event::POINTER_RELEASED, 0, x, y)], &mut build));
+        clicked.dedup();
+        assert_eq!(on(&state.borrow()), [5], "the click selected row 5");
+        assert_eq!(clicked, [5], "a click rebuilds the row it selects");
+        let arrowed = step(&mut ui, &[key(Event::KEY_PRESSED, KeyCode::ArrowDown), key(Event::KEY_RELEASED, KeyCode::ArrowDown)], &mut build);
+        assert_eq!(arrowed, [5, 6], "an arrow moves the selection and the keyboard's row from one row to the next");
+        state.borrow_mut().rows[8] |= ListState::LIVE;
+        for _ in 0..2 { assert_eq!(step(&mut ui, &[], &mut build), [8], "a live row rebuilds every frame"); }
+        state.borrow_mut().rows[8] &= !ListState::LIVE;
+        step(&mut ui, &[], &mut build);
+        revision.set(2);
+        let rebuilt = step(&mut ui, &[], &mut build);
+        assert!(rebuilt.len() >= shown && rebuilt.windows(2).all(|w| w[1] == w[0] + 1), "a new revision rebuilds every row in view: {rebuilt:?}");
+        // the scroll's first round frees and takes rows the list never held at once before: warm, its rounds allocate nothing
+        let wheel = [[Event { kind: Event::SCROLLED, y: 1.0, ..Default::default() }], [Event { kind: Event::SCROLLED, y: -1.0, ..Default::default() }]];
+        for round in 0..4 { step(&mut ui, &wheel[round % 2], &mut build); }
+        mem_sys::set_peer(crate::library_counter);
+        let scope = mem_sys::warm_scope();
+        for round in 0..6 {
+            mem_sys::local_reset();
+            t += 1.0;
+            at(&mut ui, t, if round % 3 == 2 { &[] } else { &wheel[round % 3] }, &mut build);
+            assert_eq!(mem_sys::local_alloc_count(), 0, "a warm kept list frame allocated (round {round})");
+        }
+        drop(scope);
+        assert!(mem_sys::take_reports().is_empty());
+    }
+
+    /// GAP U2b.4.13: a kept list's accessibility tree is a rebuilt one's: the same list items, names, states, actions and places,
+    /// after a hover, a selection and the keyboard, with the views verified (a kept row's output must equal its rebuild). A kept
+    /// table rebuilds its rows when a column's width changes. Both link modes.
+    #[test]
+    fn a_kept_list_reads_as_a_rebuilt_one() {
+        const COLUMNS: [Column; 2] = [Column::new("Name").id(0).w_px(120.0), Column::new("Kind").id(1).share(1.0)];
+        let dump = |kept: bool| {
+            let (state, table) = (RefCell::new(ListState::new()), RefCell::new(TableState::new()));
+            let cells = Cell::new(0usize);
+            let mut build = |ui: &mut Ui| {
+                ui.column(Node::column().w(Size::Grow).h_px(120.0), |ui| {
+                    let mut s = state.borrow_mut();
+                    s.revision = kept.then_some(7);
+                    ui.selection_list("rows", 30, &|i| i as i64, &mut s, &SelectionList::DEFAULT.row_h(20.0).multi(), &mut |ui, part, _| if let SectionPart::Row(i) = part { ui.item_text(NAMES[i % 10]) });
+                });
+                ui.column(Node::column().w(Size::Grow).h(Size::Grow), |ui| {
+                    let mut t = table.borrow_mut();
+                    t.selection.revision = kept.then_some(7);
+                    ui.table("table", &COLUMNS, 20, &|i| i as i64, &mut t, &Table::DEFAULT, &mut |ui, row, column, _| { cells.set(cells.get() + 1); ui.item_text(NAMES[(row + column) % 10]) });
+                });
+            };
+            let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+            ui.set_a11y(true);
+            at(&mut ui, 1.0, &[], &mut build);
+            at(&mut ui, 2.0, &[], &mut build);
+            let r = items(&ui, Role::ListItem)[3].rect;
+            at(&mut ui, 3.0, &[Event::pointer(Event::POINTER_MOVED, 0, (r.x + 10.0) as f64, (r.y + 10.0) as f64)], &mut build);
+            click_at(&mut ui, 4.0, r, &[], false, &mut build);
+            press(&mut ui, 5.0, KeyCode::ArrowDown, &[KeyCode::Shift], &mut build);
+            at(&mut ui, 6.0, &[], &mut build);
+            ui.verify_views(false);
+            cells.set(0);
+            at(&mut ui, 7.0, &[], &mut build);
+            let still = cells.get();
+            cells.set(0);
+            // a wider window widens the shared column: the kept table's cells are rebuilt to it
+            let mut wide = FrameIn::new(400.0, 240.0).time(8.0);
+            wide.wire.event_count = 0;
+            ui.frame(&wide, &mut build).unwrap();
+            let widened = cells.get();
+            let nodes: Vec<_> = ui.a11y_nodes().iter().map(|n| (n.role, ui.a11y_name_of(n).to_string(), n.states, n.actions, n.rect)).collect();
+            (nodes, still, widened)
+        };
+        let (kept, rebuilt) = (dump(true), dump(false));
+        assert_eq!(kept.0, rebuilt.0, "a kept list reads as a rebuilt one");
+        // the rows in view (5 of the table's 20-point rows under its heading) and the culled ones past them build in a rebuilt table;
+        // a kept one builds only the culled ones until a column's width changes
+        assert!(kept.1 < rebuilt.1 && kept.2 >= rebuilt.1, "a kept table builds its cells when a column's width changes: {kept:?} {rebuilt:?}", kept = (kept.1, kept.2), rebuilt = (rebuilt.1, rebuilt.2));
     }
 
     /// The collections are built through their bodies: with a registered body for each kind, the custom structure is in the tree, the

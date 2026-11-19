@@ -1613,8 +1613,9 @@ impl PxuiListResult {
 }
 
 /// A selection list for `pxui_ui_selection_list` (ABI 1.87): the section geometry, the row flags (one byte a row: 1 selected,
-/// written by the list; 2 disabled, written by the caller) and the anchor (`usize::MAX`: none). The caller sets `size`; a shorter
-/// record, a flag above 1, non-zero `reserved` or a flag span shorter than `count` are refused.
+/// written by the list; 2 disabled and 4 live, written by the caller) and the anchor (`usize::MAX`: none); with `has_revision` 1 the
+/// rows are kept while `revision`, their keys and their state hold (ABI 1.106). The caller sets `size`; a shorter record, a flag
+/// above 1, non-zero `reserved` or a flag span shorter than `count` are refused.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct PxuiSelectionListDesc {
@@ -1636,6 +1637,10 @@ pub struct PxuiSelectionListDesc {
     pub has_drop_look: u8,
     /// 1 (ABI 1.100): the list draws no frame (no frame look, no 1-point inset).
     pub bare: u8,
+    /// 1 (ABI 1.106): `revision` is the rows' content revision; a row is kept while it, the row's key and state hold.
+    pub has_revision: u8,
+    /// Zero.
+    pub reserved: [u8; 3],
     /// The section geometry, as `PxuiSectionListDesc`'s.
     pub count: usize,
     /// Row height in points (positive, finite).
@@ -1652,6 +1657,8 @@ pub struct PxuiSelectionListDesc {
     pub anchor: usize,
     /// ABI 1.88: the look a row takes while a payload is over it (read when `has_drop_look` is 1; checked as `pxui_ui_style` checks one).
     pub drop_look: PxuiLookDesc,
+    /// ABI 1.106: the rows' content revision (read when `has_revision` is 1).
+    pub revision: u64,
 }
 
 /// One table column (ABI 1.87): `share` > 0 splits the width the point columns leave by weight, else `w` points (0: hidden);
@@ -1750,7 +1757,7 @@ pub struct PxuiHeadResult {
 }
 
 /// A table for `pxui_ui_table` (ABI 1.87): the heading's fields, `rows` rows `row_h` high under a heading `head_h` high, the row
-/// flags and anchor as `PxuiSelectionListDesc`'s. The caller sets `size`.
+/// flags, anchor and revision as `PxuiSelectionListDesc`'s. The caller sets `size`.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct PxuiTableDesc {
@@ -1762,8 +1769,8 @@ pub struct PxuiTableDesc {
     pub has_sort: u8,
     /// 1: the sort is ascending.
     pub ascending: u8,
-    /// Zero.
-    pub reserved: u8,
+    /// 1 (ABI 1.106): `revision` is the rows' content revision, as `PxuiSelectionListDesc.has_revision`.
+    pub has_revision: u8,
     /// The columns.
     pub columns: Slice<PxuiColumn>,
     /// The widths, rewritten.
@@ -1784,6 +1791,8 @@ pub struct PxuiTableDesc {
     pub head_variant: u16,
     /// Zero.
     pub reserved2: [u8; 6],
+    /// ABI 1.106: the rows' content revision (read when `has_revision` is 1).
+    pub revision: u64,
 }
 
 /// What a table reports (ABI 1.87; library-written, the caller's `size` covers it): the rows' and the heading's results.
@@ -2335,13 +2344,13 @@ pub(crate) mod layout {
         check("PxuiCellState", size_of::<PxuiCellState>(), align_of::<PxuiCellState>(), &[("size", core::mem::offset_of!(PxuiCellState, size)), ("selected", core::mem::offset_of!(PxuiCellState, selected)), ("enabled", core::mem::offset_of!(PxuiCellState, enabled)), ("focused", core::mem::offset_of!(PxuiCellState, focused)), ("held", core::mem::offset_of!(PxuiCellState, held)), ("handle", core::mem::offset_of!(PxuiCellState, handle)), ("y", core::mem::offset_of!(PxuiCellState, y)), ("reserved", core::mem::offset_of!(PxuiCellState, reserved))]);
         check("PxuiSectionListDesc", size_of::<PxuiSectionListDesc>(), align_of::<PxuiSectionListDesc>(), &[("size", core::mem::offset_of!(PxuiSectionListDesc, size)), ("overlay_scrollbar", core::mem::offset_of!(PxuiSectionListDesc, overlay_scrollbar)), ("measured", core::mem::offset_of!(PxuiSectionListDesc, measured)), ("reserved", core::mem::offset_of!(PxuiSectionListDesc, reserved)), ("count", core::mem::offset_of!(PxuiSectionListDesc, count)), ("row_height", core::mem::offset_of!(PxuiSectionListDesc, row_height)), ("leading_height", core::mem::offset_of!(PxuiSectionListDesc, leading_height)), ("header_height", core::mem::offset_of!(PxuiSectionListDesc, header_height)), ("trailing_height", core::mem::offset_of!(PxuiSectionListDesc, trailing_height))]);
         check("PxuiListResult", size_of::<PxuiListResult>(), align_of::<PxuiListResult>(), &[("size", core::mem::offset_of!(PxuiListResult, size)), ("focused", core::mem::offset_of!(PxuiListResult, focused)), ("reserved", core::mem::offset_of!(PxuiListResult, reserved)), ("handle", core::mem::offset_of!(PxuiListResult, handle)), ("row", core::mem::offset_of!(PxuiListResult, row)), ("activated", core::mem::offset_of!(PxuiListResult, activated)), ("selected", core::mem::offset_of!(PxuiListResult, selected)), ("secondary", core::mem::offset_of!(PxuiListResult, secondary)), ("anchor", core::mem::offset_of!(PxuiListResult, anchor))]);
-        check("PxuiSelectionListDesc", size_of::<PxuiSelectionListDesc>(), align_of::<PxuiSelectionListDesc>(), &[("size", core::mem::offset_of!(PxuiSelectionListDesc, size)), ("multi", core::mem::offset_of!(PxuiSelectionListDesc, multi)), ("fit", core::mem::offset_of!(PxuiSelectionListDesc, fit)), ("open_on_click", core::mem::offset_of!(PxuiSelectionListDesc, open_on_click)), ("overlay_scrollbar", core::mem::offset_of!(PxuiSelectionListDesc, overlay_scrollbar)), ("measured", core::mem::offset_of!(PxuiSelectionListDesc, measured)), ("bare", core::mem::offset_of!(PxuiSelectionListDesc, bare)), ("count", core::mem::offset_of!(PxuiSelectionListDesc, count)), ("row_height", core::mem::offset_of!(PxuiSelectionListDesc, row_height)), ("leading_height", core::mem::offset_of!(PxuiSelectionListDesc, leading_height)), ("header_height", core::mem::offset_of!(PxuiSelectionListDesc, header_height)), ("trailing_height", core::mem::offset_of!(PxuiSelectionListDesc, trailing_height)), ("rows", core::mem::offset_of!(PxuiSelectionListDesc, rows)), ("anchor", core::mem::offset_of!(PxuiSelectionListDesc, anchor))]);
+        check("PxuiSelectionListDesc", size_of::<PxuiSelectionListDesc>(), align_of::<PxuiSelectionListDesc>(), &[("size", core::mem::offset_of!(PxuiSelectionListDesc, size)), ("multi", core::mem::offset_of!(PxuiSelectionListDesc, multi)), ("fit", core::mem::offset_of!(PxuiSelectionListDesc, fit)), ("open_on_click", core::mem::offset_of!(PxuiSelectionListDesc, open_on_click)), ("overlay_scrollbar", core::mem::offset_of!(PxuiSelectionListDesc, overlay_scrollbar)), ("measured", core::mem::offset_of!(PxuiSelectionListDesc, measured)), ("bare", core::mem::offset_of!(PxuiSelectionListDesc, bare)), ("has_revision", core::mem::offset_of!(PxuiSelectionListDesc, has_revision)), ("reserved", core::mem::offset_of!(PxuiSelectionListDesc, reserved)), ("count", core::mem::offset_of!(PxuiSelectionListDesc, count)), ("row_height", core::mem::offset_of!(PxuiSelectionListDesc, row_height)), ("leading_height", core::mem::offset_of!(PxuiSelectionListDesc, leading_height)), ("header_height", core::mem::offset_of!(PxuiSelectionListDesc, header_height)), ("trailing_height", core::mem::offset_of!(PxuiSelectionListDesc, trailing_height)), ("rows", core::mem::offset_of!(PxuiSelectionListDesc, rows)), ("anchor", core::mem::offset_of!(PxuiSelectionListDesc, anchor)), ("revision", core::mem::offset_of!(PxuiSelectionListDesc, revision))]);
         check("PxuiColumn", size_of::<PxuiColumn>(), align_of::<PxuiColumn>(), &[("size", core::mem::offset_of!(PxuiColumn, size)), ("sortable", core::mem::offset_of!(PxuiColumn, sortable)), ("grip", core::mem::offset_of!(PxuiColumn, grip)), ("has_id", core::mem::offset_of!(PxuiColumn, has_id)), ("reserved", core::mem::offset_of!(PxuiColumn, reserved)), ("title", core::mem::offset_of!(PxuiColumn, title)), ("id", core::mem::offset_of!(PxuiColumn, id)), ("share", core::mem::offset_of!(PxuiColumn, share)), ("w", core::mem::offset_of!(PxuiColumn, w))]);
         check("PxuiColumnWidth", size_of::<PxuiColumnWidth>(), align_of::<PxuiColumnWidth>(), &[("id", core::mem::offset_of!(PxuiColumnWidth, id)), ("w", core::mem::offset_of!(PxuiColumnWidth, w)), ("reserved", core::mem::offset_of!(PxuiColumnWidth, reserved))]);
         check("PxuiColumnWidthSpan", size_of::<PxuiColumnWidthSpan>(), align_of::<PxuiColumnWidthSpan>(), &[("ptr", core::mem::offset_of!(PxuiColumnWidthSpan, ptr)), ("len", core::mem::offset_of!(PxuiColumnWidthSpan, len))]);
         check("PxuiTableHeadDesc", size_of::<PxuiTableHeadDesc>(), align_of::<PxuiTableHeadDesc>(), &[("size", core::mem::offset_of!(PxuiTableHeadDesc, size)), ("has_sort", core::mem::offset_of!(PxuiTableHeadDesc, has_sort)), ("ascending", core::mem::offset_of!(PxuiTableHeadDesc, ascending)), ("reserved", core::mem::offset_of!(PxuiTableHeadDesc, reserved)), ("columns", core::mem::offset_of!(PxuiTableHeadDesc, columns)), ("widths", core::mem::offset_of!(PxuiTableHeadDesc, widths)), ("sort_id", core::mem::offset_of!(PxuiTableHeadDesc, sort_id)), ("h", core::mem::offset_of!(PxuiTableHeadDesc, h)), ("reserved2", core::mem::offset_of!(PxuiTableHeadDesc, reserved2))]);
         check("PxuiHeadResult", size_of::<PxuiHeadResult>(), align_of::<PxuiHeadResult>(), &[("size", core::mem::offset_of!(PxuiHeadResult, size)), ("sorted", core::mem::offset_of!(PxuiHeadResult, sorted)), ("resized", core::mem::offset_of!(PxuiHeadResult, resized)), ("has_sort", core::mem::offset_of!(PxuiHeadResult, has_sort)), ("ascending", core::mem::offset_of!(PxuiHeadResult, ascending)), ("sort_id", core::mem::offset_of!(PxuiHeadResult, sort_id)), ("response", core::mem::offset_of!(PxuiHeadResult, response))]);
-        check("PxuiTableDesc", size_of::<PxuiTableDesc>(), align_of::<PxuiTableDesc>(), &[("size", core::mem::offset_of!(PxuiTableDesc, size)), ("multi", core::mem::offset_of!(PxuiTableDesc, multi)), ("has_sort", core::mem::offset_of!(PxuiTableDesc, has_sort)), ("ascending", core::mem::offset_of!(PxuiTableDesc, ascending)), ("reserved", core::mem::offset_of!(PxuiTableDesc, reserved)), ("columns", core::mem::offset_of!(PxuiTableDesc, columns)), ("widths", core::mem::offset_of!(PxuiTableDesc, widths)), ("sort_id", core::mem::offset_of!(PxuiTableDesc, sort_id)), ("rows", core::mem::offset_of!(PxuiTableDesc, rows)), ("row_h", core::mem::offset_of!(PxuiTableDesc, row_h)), ("head_h", core::mem::offset_of!(PxuiTableDesc, head_h)), ("flags", core::mem::offset_of!(PxuiTableDesc, flags)), ("anchor", core::mem::offset_of!(PxuiTableDesc, anchor)), ("head_variant", core::mem::offset_of!(PxuiTableDesc, head_variant)), ("reserved2", core::mem::offset_of!(PxuiTableDesc, reserved2))]);
+        check("PxuiTableDesc", size_of::<PxuiTableDesc>(), align_of::<PxuiTableDesc>(), &[("size", core::mem::offset_of!(PxuiTableDesc, size)), ("multi", core::mem::offset_of!(PxuiTableDesc, multi)), ("has_sort", core::mem::offset_of!(PxuiTableDesc, has_sort)), ("ascending", core::mem::offset_of!(PxuiTableDesc, ascending)), ("has_revision", core::mem::offset_of!(PxuiTableDesc, has_revision)), ("columns", core::mem::offset_of!(PxuiTableDesc, columns)), ("widths", core::mem::offset_of!(PxuiTableDesc, widths)), ("sort_id", core::mem::offset_of!(PxuiTableDesc, sort_id)), ("rows", core::mem::offset_of!(PxuiTableDesc, rows)), ("row_h", core::mem::offset_of!(PxuiTableDesc, row_h)), ("head_h", core::mem::offset_of!(PxuiTableDesc, head_h)), ("flags", core::mem::offset_of!(PxuiTableDesc, flags)), ("anchor", core::mem::offset_of!(PxuiTableDesc, anchor)), ("head_variant", core::mem::offset_of!(PxuiTableDesc, head_variant)), ("reserved2", core::mem::offset_of!(PxuiTableDesc, reserved2)), ("revision", core::mem::offset_of!(PxuiTableDesc, revision))]);
         check("PxuiTableResult", size_of::<PxuiTableResult>(), align_of::<PxuiTableResult>(), &[("size", core::mem::offset_of!(PxuiTableResult, size)), ("reserved", core::mem::offset_of!(PxuiTableResult, reserved)), ("rows", core::mem::offset_of!(PxuiTableResult, rows)), ("head", core::mem::offset_of!(PxuiTableResult, head))]);
         check("PxuiPickRow", size_of::<PxuiPickRow>(), align_of::<PxuiPickRow>(), &[("size", core::mem::offset_of!(PxuiPickRow, size)), ("art_kind", core::mem::offset_of!(PxuiPickRow, art_kind)), ("reserved", core::mem::offset_of!(PxuiPickRow, reserved)), ("art", core::mem::offset_of!(PxuiPickRow, art)), ("label", core::mem::offset_of!(PxuiPickRow, label)), ("detail", core::mem::offset_of!(PxuiPickRow, detail)), ("heading", core::mem::offset_of!(PxuiPickRow, heading))]);
         check("PxuiResponse", size_of::<PxuiResponse>(), align_of::<PxuiResponse>(), &[("size", core::mem::offset_of!(PxuiResponse, size)), ("flags", core::mem::offset_of!(PxuiResponse, flags)), ("node", core::mem::offset_of!(PxuiResponse, node))]);

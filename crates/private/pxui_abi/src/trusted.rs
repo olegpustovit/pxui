@@ -1066,7 +1066,7 @@ pub unsafe fn section_list(ui: *mut PxuiUi, key: &str, desc: &PxuiSectionListDes
 /// wrapper passes its own, so it is never encoded and decoded).
 pub unsafe fn selection_list(ui: *mut PxuiUi, key: &str, desc: &PxuiSelectionListDesc, drop_look: Option<pxui_types::theme::Look>, ids: Option<&dyn Fn(usize) -> i64>, cell: &mut dyn FnMut(&mut Ui, usize, &ListCell), out: &mut PxuiListResult) -> i32 {
     enter!(ui);
-    if bad_key(key) || [desc.multi, desc.fit, desc.open_on_click, desc.overlay_scrollbar, desc.measured, desc.reorder, desc.bare].iter().any(|f| *f > 1)
+    if bad_key(key) || [desc.multi, desc.fit, desc.open_on_click, desc.overlay_scrollbar, desc.measured, desc.reorder, desc.bare, desc.has_revision].iter().any(|f| *f > 1) || desc.reserved != [0; 3]
         || !geometry_ok(desc.count, desc.row_height, [desc.leading_height, desc.header_height, desc.trailing_height])
         || desc.rows.len < desc.count || (desc.count > 0 && desc.rows.ptr.is_null()) { return unsafe { fail(ui, "invalid selection list descriptor") }; }
     let flags: &mut [u8] = if desc.count == 0 { &mut [] } else { unsafe { core::slice::from_raw_parts_mut(desc.rows.ptr, desc.count) } };
@@ -1074,7 +1074,8 @@ pub unsafe fn selection_list(ui: *mut PxuiUi, key: &str, desc: &PxuiSelectionLis
     let list = pxui_types::ui::SelectionList { multi: desc.multi != 0, row_height: desc.row_height, leading_height: desc.leading_height, header_height: desc.header_height, trailing_height: desc.trailing_height,
         overlay_scrollbar: desc.overlay_scrollbar != 0, measured: desc.measured != 0, fit: desc.fit != 0, open_on_click: desc.open_on_click != 0,
         reorder: desc.reorder != 0, drop_look, bare: desc.bare != 0, ..pxui_types::ui::SelectionList::DEFAULT };
-    let r = unsafe { engine(ui) }.selection_rows(key, desc.count, ids.unwrap_or(&|i| i as i64), flags, &mut anchor, &list, cell);
+    let revision = (desc.has_revision != 0).then_some(desc.revision);
+    let r = unsafe { engine(ui) }.selection_rows(key, desc.count, ids.unwrap_or(&|i| i as i64), flags, &mut anchor, revision, &list, cell);
     write_list(&r, anchor, out);
     0
 }
@@ -1099,14 +1100,15 @@ pub unsafe fn table(ui: *mut PxuiUi, key: &str, desc: &PxuiTableDesc, ids: Optio
     enter!(ui);
     let (mut columns, mut titles) = ([ColumnSpec::default(); MAX_COLUMNS], [""; MAX_COLUMNS]);
     let positive = |v: f32| v.is_finite() && v > 0.0;
-    let n = if bad_key(key) || desc.multi > 1 || desc.has_sort > 1 || desc.ascending > 1 || desc.reserved != 0 || desc.reserved2 != [0; 6] || !positive(desc.head_h)
+    let n = if bad_key(key) || desc.multi > 1 || desc.has_sort > 1 || desc.ascending > 1 || desc.has_revision > 1 || desc.reserved2 != [0; 6] || !positive(desc.head_h)
         || !geometry_ok(desc.rows, desc.row_h, [0.0; 3]) || desc.flags.len < desc.rows || (desc.rows > 0 && desc.flags.ptr.is_null()) { None } else { unsafe { read_columns(desc.columns, &mut columns, &mut titles) } };
     let Some(n) = n else { return unsafe { fail(ui, "invalid table descriptor") } };
     let Some(widths) = (unsafe { widths_of(desc.widths.ptr, desc.widths.len, n) }) else { return unsafe { fail(ui, "invalid table widths") } };
     let flags: &mut [u8] = if desc.rows == 0 { &mut [] } else { unsafe { core::slice::from_raw_parts_mut(desc.flags.ptr, desc.rows) } };
     let mut anchor = (desc.anchor < desc.rows).then_some(desc.anchor);
     let mut sort = (desc.has_sort != 0).then_some((desc.sort_id, desc.ascending != 0)).filter(|(id, _)| columns[..n].iter().any(|c| c.id == *id));
-    let (r, h) = unsafe { engine(ui) }.table(key, &columns[..n], &titles[..n], widths, &mut sort, desc.rows, ids.unwrap_or(&|i| i as i64), flags, &mut anchor, desc.multi != 0, desc.row_h, desc.head_h, desc.head_variant, cell);
+    let revision = (desc.has_revision != 0).then_some(desc.revision);
+    let (r, h) = unsafe { engine(ui) }.table(key, &columns[..n], &titles[..n], widths, &mut sort, desc.rows, ids.unwrap_or(&|i| i as i64), flags, &mut anchor, revision, desc.multi != 0, desc.row_h, desc.head_h, desc.head_variant, cell);
     out.reserved = 0;
     out.rows.size = core::mem::size_of::<PxuiListResult>() as u32;
     write_list(&r, anchor, &mut out.rows);

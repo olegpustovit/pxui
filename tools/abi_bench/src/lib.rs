@@ -39,8 +39,8 @@ pub mod shapes {
     pub type Engine = pxui_core::ui::Ui;
 
     // The wrapper's app-owned list and table state, columns and results (`pxui::author::collection`), as the page source names them.
-    #[derive(Clone, Debug, Default)] pub struct ListState { pub rows: Vec<u8>, pub anchor: Option<usize> }
-    impl ListState { pub const SELECTED: u8 = 1; pub const DISABLED: u8 = 2; pub const fn new() -> ListState { ListState { rows: Vec::new(), anchor: None } } }
+    #[derive(Clone, Debug, Default)] pub struct ListState { pub rows: Vec<u8>, pub anchor: Option<usize>, pub revision: Option<u64> }
+    impl ListState { pub const SELECTED: u8 = 1; pub const DISABLED: u8 = 2; pub const LIVE: u8 = 4; pub const fn new() -> ListState { ListState { rows: Vec::new(), anchor: None, revision: None } } }
     #[derive(Clone, Copy, Debug, Default)] pub struct CellState { pub selected: bool, pub enabled: bool, pub focused: bool, pub held: bool, pub handle: Handle, pub y: f32 }
     #[derive(Clone, Copy, Debug, PartialEq, Eq)] pub enum Sort { Ascending, Descending }
     #[derive(Clone, Copy, Debug)] pub struct Column<'a> { title: &'a str, sortable: bool, share: f32, w: f32, grip: bool, id: Option<i64> }
@@ -218,7 +218,7 @@ pub mod shapes {
         pub fn selection_list(&mut self, key: &str, count: usize, row_key: &dyn Fn(usize) -> i64, state: &mut ListState, list: &SelectionList, f: &mut dyn FnMut(&mut Ui, SectionPart, CellState)) -> ListResponse {
             state.rows.resize(count, 0);
             if list.variant != 0 { self.0.set_variant(BodyKind::selection_list as u32, list.variant); }
-            let r = self.0.selection_rows(key, count, row_key, &mut state.rows, &mut state.anchor, list, &mut |e: &mut Engine, i, c| f(Ui::of(e), part_of(i), cell_of(c)));
+            let r = self.0.selection_rows(key, count, row_key, &mut state.rows, &mut state.anchor, state.revision, list, &mut |e: &mut Engine, i, c| f(Ui::of(e), part_of(i), cell_of(c)));
             if list.variant != 0 { self.0.set_variant(BodyKind::selection_list as u32, 0); }
             list_response(&r)
         }
@@ -248,7 +248,7 @@ pub mod shapes {
             state.selection.rows.resize(rows, 0);
             let mut sort = state.sort.map(|(id, s)| (id, s == Sort::Ascending)).filter(|(id, _)| specs[..n].iter().any(|c| c.id == *id));
             if table.variant != 0 { self.0.set_variant(BodyKind::table_row as u32, table.variant); }
-            let (r, h) = self.0.table(key, &specs[..n], &titles[..n], &mut widths[..n], &mut sort, rows, row_key, &mut state.selection.rows, &mut state.selection.anchor, table.multi, table.row_h, table.head.h, table.head.variant, &mut |e: &mut Engine, row, c, cell| f(Ui::of(e), row, c, cell_of(cell)));
+            let (r, h) = self.0.table(key, &specs[..n], &titles[..n], &mut widths[..n], &mut sort, rows, row_key, &mut state.selection.rows, &mut state.selection.anchor, state.selection.revision, table.multi, table.row_h, table.head.h, table.head.variant, &mut |e: &mut Engine, row, c, cell| f(Ui::of(e), row, c, cell_of(cell)));
             if table.variant != 0 { self.0.set_variant(BodyKind::table_row as u32, 0); }
             for (s, w) in state.widths.iter_mut().zip(&widths[..n]) { *s = (w.id, w.w); }
             state.sort = sort.map(|(id, a)| (id, if a { Sort::Ascending } else { Sort::Descending }));

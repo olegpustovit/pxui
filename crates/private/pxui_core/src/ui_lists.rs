@@ -16,6 +16,9 @@ use pxui_types::ui::{SectionList, SelectionList};
 pub const SELECTED: u8 = 1;
 /// A row flag the caller writes: the row takes no selection or presses and reads as disabled.
 pub const DISABLED: u8 = 2;
+/// A row flag the caller writes: a retained list rebuilds the row every frame (content that changes with the frame, such as an
+/// animation that follows the row's place on screen).
+pub const LIVE: u8 = 4;
 /// The most columns a table or heading takes.
 pub const MAX_COLUMNS: usize = 64;
 
@@ -164,23 +167,68 @@ struct Rows {
     kind: u8,
     role: Role,
     inset: f32,
+    /// the row's end padding (the theme's second spacing step), read once a list
+    side: f32,
     gap: f32,
     /// the theme's row looks and the insertion line's look (the drop look, else the accent), read once a list, not once a row
     states: States,
     line: Look,
+    /// the caller's content revision folded with what else the rows show (the body variant, a table's widths): rows are kept while
+    /// it holds (`None`: rebuilt every frame)
+    revision: Option<u64>,
 }
 
-/// Row `i`: its list row box (entered, placed by the list) becomes the clickable row in the list look, the selection its presses
-/// make, then the caller's content through the row body. The box is the row (no node of its own inside it): a row costs the list
-/// one node a frame, as a section list's does.
+/// One FNV-1a step of `value` into `hash`: a retained row's key folds its inputs one word each.
+fn mix(hash: u64, value: u64) -> u64 { (hash ^ value).wrapping_mul(0x0000_0100_0000_01b3) }
+
+/// Row `i` in its list row box (entered, placed by the list). Without a revision the box is the row: the clickable row in the list
+/// look, the selection its presses make, then the caller's content through the row body, rebuilt every frame (a row costs the list
+/// one node a frame, as a section list's does). With the caller's revision (`ListState::revision`) the box holds a view and the row is
+/// a node inside it, kept with everything its body and content built while the row's key, its selected, disabled and focused state,
+/// the payload over it and the revision hold (hovering, pressing and keys reach a kept row's nodes and rebuild it, as any view's); a
+/// `LIVE` row, and every row of a reorderable list, rebuilds every frame.
 fn build_row(ui: &mut Ui, r: &mut Rows, flags: &mut [u8], anchor: &mut Option<usize>, i: usize, y: f32, content: &mut dyn FnMut(&mut Ui, usize, &ListCell)) {
     let n = ui.entered();
     let enabled = flags[i] & DISABLED == 0;
-    let side = ui.space(2);
-    let node = ui.node_new(&n);
-    // the list's size and place stay (`h` is its row height, or `Fit` for measured rows); the row's own layout joins them
-    (node.flags, node.axis, node.align, node.padding, node.gap) = (if enabled { ROW_FLAGS } else { Flags::NONE }, Axis::Row, Align::Center, Edges { l: r.inset, r: side, ..Edges::ZERO }, r.gap);
-    let place = node.at;
+    let (over, side) = (drop_over(ui, r, &n, i), r.side);
+    let Some(revision) = r.revision else {
+        // the list's size and place stay (`h` is its row height, or `Fit` for measured rows); the row's own layout joins them
+        let node = ui.node_new(&n);
+        (node.flags, node.axis, node.align, node.padding, node.gap) = (if enabled { ROW_FLAGS } else { Flags::NONE }, Axis::Row, Align::Center, Edges { l: r.inset, r: side, ..Edges::ZERO }, r.gap);
+        let place = node.at;
+        row_in(ui, r, flags, anchor, i, y, n, over, content);
+        // a body lays out its row (`set_node_layout`); the row's place in the list stays the list's
+        ui.node_new(&n).at = place;
+        return;
+    };
+    // the box only places the row: out of the accessibility tree, the row inside it is the list item
+    let h = if matches!(ui.node_new(&n).h, Size::Fit) { Size::Fit } else { Size::Grow };
+    ui.node_new(&n).role = Role::Unknown;
+    let focused = r.focused && i == r.c;
+    let mut key = mix(mix(mix(revision, u64::from(flags[i] & (SELECTED | DISABLED))), u64::from(focused)), over as u64);
+    if flags[i] & LIVE != 0 || r.reorder { key = mix(key, ui.frame_no() as u64); }
+    ui.view_entry("row", key, Size::Grow, h, true, &mut |ui| {
+        let row = ui.node_ref("row", &Node { flags: if enabled { ROW_FLAGS } else { Flags::NONE }, w: Size::Grow, h, axis: Axis::Row, align: Align::Center, padding: Edges { l: r.inset, r: side, ..Edges::ZERO }, gap: r.gap, ..Node::DEFAULT });
+        let saved = ui.enter(&row);
+        row_in(ui, r, flags, anchor, i, y, row, over, content);
+        ui.leave(saved);
+    });
+}
+
+/// The payload over row `i` (box `n`) this frame: 1 or 2 a reorderable list's insertion line above or below it, 3 a payload over a
+/// list that takes drops on its rows (shown in the drop look), else 0. Asked every frame, so the box is a drop zone while it shows.
+fn drop_over(ui: &mut Ui, r: &Rows, n: &Handle, i: usize) -> u8 {
+    if !ui.drop_pending() { return 0; }
+    let over = if r.reorder { ui.drop_side(n, i).map(|(after, dropped)| if dropped { 0 } else if after { 2 } else { 1 }) }
+        else if r.drop_look.is_some() { ui.drop_target_ref(n).map(|_| 3) } else { None };
+    over.unwrap_or(0)
+}
+
+/// Row `i` itself on `row` (entered): its signal, the selection its presses make, its look, role and the caller's content through the
+/// row body.
+#[allow(clippy::too_many_arguments)]
+fn row_in(ui: &mut Ui, r: &mut Rows, flags: &mut [u8], anchor: &mut Option<usize>, i: usize, y: f32, n: Handle, drop: u8, content: &mut dyn FnMut(&mut Ui, usize, &ListCell)) {
+    let enabled = flags[i] & DISABLED == 0;
     let s = ui.signal_owned(&n);
     if enabled {
         if s.clicked {
@@ -213,9 +261,6 @@ fn build_row(ui: &mut Ui, r: &mut Rows, flags: &mut [u8], anchor: &mut Option<us
         let to = i as i64 + i64::from(ui.signal_move(&n));
         if to != i as i64 && to >= 0 && (to as usize) < flags.len() { r.moved = Some((i, to as usize)); }
     }
-    let over = if r.reorder { ui.drop_side(&n, i).map(|(after, dropped)| if dropped { 0 } else if after { 2 } else { 1 }) }
-        else if r.drop_look.is_some() { ui.drop_target_ref(&n).map(|_| 3) } else { None };
-    let drop = over.unwrap_or(0);
     if let (3, Some(look)) = (drop, r.drop_look) { ui.node_mut(&n).look = look; }
     let cell = ListCell { selected: on, enabled, focused, held: s.held && enabled, handle: n, y };
     let config = RowConfig { state, index: i, row: n, drop, line: r.line };
@@ -223,8 +268,6 @@ fn build_row(ui: &mut Ui, r: &mut Rows, flags: &mut [u8], anchor: &mut Option<us
     let outer = (core::mem::replace(&mut ui.bodies.item, n), core::mem::replace(&mut ui.bodies.item_kind, r.kind));
     in_item!(ui, body, n.box_key, n, default_row(&config, &mut |ui| content(ui, i, &cell)));
     (ui.bodies.item, ui.bodies.item_kind) = outer;
-    // a body lays out its row (`set_node_layout`); the row's place in the list stays the list's
-    ui.node_new(&n).at = place;
 }
 
 /// Every part of `section` built in a column that fits its content (no scrolling, no virtual window): `f(ui, index, y)` as
@@ -371,7 +414,7 @@ impl Ui {
     /// (`usize::MAX - 2`) and each row in view inside the row node the `selection_list` body shapes. `flags` holds one byte a row
     /// (`SELECTED`, `DISABLED`; at least `count`), `anchor` the row Shift extends from. Row `i`'s box is keyed by `ids(i)`.
     #[allow(clippy::too_many_arguments)]
-    pub fn selection_rows(&mut self, label: &str, count: usize, ids: &dyn Fn(usize) -> i64, flags: &mut [u8], anchor: &mut Option<usize>, list: &SelectionList, cell: &mut dyn FnMut(&mut Ui, usize, &ListCell)) -> ListResult {
+    pub fn selection_rows(&mut self, label: &str, count: usize, ids: &dyn Fn(usize) -> i64, flags: &mut [u8], anchor: &mut Option<usize>, revision: Option<u64>, list: &SelectionList, cell: &mut dyn FnMut(&mut Ui, usize, &ListCell)) -> ListResult {
         let count = count.min(flags.len());
         let flags = &mut flags[..count];
         let look = self.theme().scroll_view.idle;
@@ -382,7 +425,8 @@ impl Ui {
         let page = (self.rect(&frame).h / list.row_height).floor().max(1.0) as i64;
         let (cursor, c, enter, changed, key_moved) = key_selection(self, &frame, count, page, flags, anchor, list.multi, list.reorder);
         self.list_drop = None;
-        let mut rows = Rows { reorder: list.reorder, drop_look: list.drop_look, late: false, multi: list.multi, open_on_click: list.open_on_click, focused, c, moved: None, out: ListResult { selected: changed, activated: enter.then_some(c), focused, ..ListResult::default() }, kind: ITEM_LIST, role: Role::ListItem, inset: self.space(2), gap: 4.0, states: self.theme().listbox, line: list.drop_look.unwrap_or(Look { fill: self.theme().tokens.accent, ..Look::NONE }) };
+        let mut rows = Rows { reorder: list.reorder, drop_look: list.drop_look, late: false, multi: list.multi, open_on_click: list.open_on_click, focused, c, moved: None, out: ListResult { selected: changed, activated: enter.then_some(c), focused, ..ListResult::default() }, kind: ITEM_LIST, role: Role::ListItem, inset: self.space(2), side: self.space(2), gap: 4.0, states: self.theme().listbox, line: list.drop_look.unwrap_or(Look { fill: self.theme().tokens.accent, ..Look::NONE }),
+            revision: revision.map(|v| mix(v, u64::from(self.bodies.variant))) };
         // the rows take drops themselves (their body draws the line), so the section draws none
         let section = SectionList { count, row_height: list.row_height, leading_height: list.leading_height, header_height: list.header_height, trailing_height: list.trailing_height, overlay_scrollbar: list.overlay_scrollbar, measured: list.measured, reorder: false };
         let saved = self.enter(&frame);
@@ -421,7 +465,7 @@ impl Ui {
     /// `selection_rows` with `flags`, `anchor` and `multi`; the heading is built with the `table_head` variant `head_variant` (0: the
     /// theme's). Reports the rows' and the heading's results.
     #[allow(clippy::too_many_arguments)]
-    pub fn table(&mut self, label: &str, columns: &[ColumnSpec], titles: &[&str], widths: &mut [PxuiColumnWidth], sort: &mut Option<(i64, bool)>, rows: usize, ids: &dyn Fn(usize) -> i64, flags: &mut [u8], anchor: &mut Option<usize>, multi: bool, row_h: f32, head_h: f32, head_variant: u16, cell: &mut dyn FnMut(&mut Ui, usize, usize, &ListCell)) -> (ListResult, HeadResult) {
+    pub fn table(&mut self, label: &str, columns: &[ColumnSpec], titles: &[&str], widths: &mut [PxuiColumnWidth], sort: &mut Option<(i64, bool)>, rows: usize, ids: &dyn Fn(usize) -> i64, flags: &mut [u8], anchor: &mut Option<usize>, revision: Option<u64>, multi: bool, row_h: f32, head_h: f32, head_variant: u16, cell: &mut dyn FnMut(&mut Ui, usize, usize, &ListCell)) -> (ListResult, HeadResult) {
         let count = rows.min(flags.len());
         let flags = &mut flags[..count];
         let columns = &columns[..columns.len().min(widths.len()).min(titles.len()).min(MAX_COLUMNS)];
@@ -446,7 +490,9 @@ impl Ui {
         let head_out = head_row(self, head, columns, titles, widths, sort);
         (self.bodies.variant, self.bodies.variant_kind) = rows_variant;
         let widths = &*widths;
-        let mut rows = Rows { reorder: false, drop_look: None, late: false, multi, open_on_click: false, focused, c, moved: None, out: ListResult { selected: changed, activated: enter.then_some(c), focused, ..ListResult::default() }, kind: ITEM_TABLE, role: Role::Row, inset: 0.0, gap: 1.0, states: self.theme().listbox, line: Look { fill: self.theme().tokens.accent, ..Look::NONE } };
+        // a kept row's cells are as wide as their columns were: a resized column rebuilds the rows
+        let revision = revision.map(|v| widths.iter().fold(mix(v, u64::from(self.bodies.variant)), |h, w| mix(h, u64::from(w.w.to_bits()))));
+        let mut rows = Rows { reorder: false, drop_look: None, late: false, multi, open_on_click: false, focused, c, moved: None, out: ListResult { selected: changed, activated: enter.then_some(c), focused, ..ListResult::default() }, kind: ITEM_TABLE, role: Role::Row, inset: 0.0, side: self.space(2), gap: 1.0, states: self.theme().listbox, line: Look { fill: self.theme().tokens.accent, ..Look::NONE }, revision };
         let mut cells = |ui: &mut Ui, row: usize, info: &ListCell| {
             let n = info.handle;
             for (col, (spec, w)) in columns.iter().zip(widths).enumerate() {

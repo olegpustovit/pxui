@@ -121,7 +121,7 @@ fn table(ui: &mut Ui) {
     let mut widths = [0, 1, 2, 3].map(|id| pxui_types::ffi::PxuiColumnWidth { id, w: 70.0, reserved: 0 });
     let (mut flags, mut anchor, mut sort) = (vec![0u8; 1_000_000], None, None);
     let at = ui.node("table-at".into(), Node { at: Some((8.0, 8.0)).into(), w: Size::Px(304.0), h: Size::Px(280.0), ..Node::DEFAULT });
-    ui.within(&at, &mut |ui| { ui.table("table", &columns, &headers, &mut widths, &mut sort, 1_000_000, &|i| i as i64, &mut flags, &mut anchor, false, 24.0, 24.0, 0, &mut |ui, r, c, _| ui.item_text(&cell(r as i64, c as i64))); });
+    ui.within(&at, &mut |ui| { ui.table("table", &columns, &headers, &mut widths, &mut sort, 1_000_000, &|i| i as i64, &mut flags, &mut anchor, None, false, 24.0, 24.0, 0, &mut |ui, r, c, _| ui.item_text(&cell(r as i64, c as i64))); });
 }
 
 fn parity(name: &str, golden: &str, height: i64, build: fn(&mut Ui)) {

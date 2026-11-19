@@ -1516,7 +1516,7 @@ fn list_build(ui: &mut Ui, c: &Cells) {
         sel.resize(4, 0);
     }
     let mut anchor = c.row.get();
-    let got = ui.selection_rows("List", 4, &|i| i as i64, &mut sel, &mut anchor, &SelectionList::DEFAULT, &mut |ui, i, _| if i < 4 { ui.item_text(["one", "two", "three", "four"][i]) }).activated;
+    let got = ui.selection_rows("List", 4, &|i| i as i64, &mut sel, &mut anchor, None, &SelectionList::DEFAULT, &mut |ui, i, _| if i < 4 { ui.item_text(["one", "two", "three", "four"][i]) }).activated;
     c.row.set(anchor);
     if got.is_some() {
         c.b.set(c.b.get() + 1);
@@ -1598,7 +1598,7 @@ fn table_build(ui: &mut Ui, c: &Cells) {
         sel.resize(3, 0);
     }
     let (mut anchor, mut sort) = (c.row.get(), Some((0, true)));
-    let (_, head) = ui.table("Table", &TWO, &["Name", "Size"], &mut widths, &mut sort, 3, &|i| i as i64, &mut sel, &mut anchor, false, 24.0, 24.0, 0, &mut |ui, r, col, _| ui.item_text(NAMES[r][col]));
+    let (_, head) = ui.table("Table", &TWO, &["Name", "Size"], &mut widths, &mut sort, 3, &|i| i as i64, &mut sel, &mut anchor, None, false, 24.0, 24.0, 0, &mut |ui, r, col, _| ui.item_text(NAMES[r][col]));
     c.row.set(anchor);
     c.a.set(sel.iter().position(|b| *b != 0).map_or(0, |i| i as i64 + 1));
     if head.sorted {
@@ -1652,7 +1652,7 @@ pub fn table_with_widget_cell() {
             t += 0.1;
             ui.frame(&frame(t, e), &mut |ui| {
                 let (mut anchor, mut sort) = (None, None);
-                ui.table("Table", &TWO, &["Name", "Action"], &mut two_widths(&cells), &mut sort, 3, &|i| i as i64, &mut flags, &mut anchor, false, 24.0, 24.0, 0, &mut |ui, row, col, _| {
+                ui.table("Table", &TWO, &["Name", "Action"], &mut two_widths(&cells), &mut sort, 3, &|i| i as i64, &mut flags, &mut anchor, None, false, 24.0, 24.0, 0, &mut |ui, row, col, _| {
                     if col == 0 {
                         ui.label(["row 0", "row 1", "row 2"][row], pxui_core::ui::Label::DEFAULT);
                     } else if ui.button("Go") {

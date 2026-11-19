@@ -219,9 +219,9 @@ impl Ui {
         #[cfg(not(feature = "static"))]
         let drop_look = crate::node::look(list.drop_look.unwrap_or(crate::theme::Look::NONE));
         let desc = PxuiSelectionListDesc { size: core::mem::size_of::<PxuiSelectionListDesc>() as u32, multi: list.multi as u8, fit: list.fit as u8, open_on_click: list.open_on_click as u8,
-            overlay_scrollbar: list.overlay_scrollbar as u8, measured: list.measured as u8, reorder: list.reorder as u8, has_drop_look: list.drop_look.is_some() as u8, bare: list.bare as u8, count, row_height: list.row_height, leading_height: list.leading_height,
+            overlay_scrollbar: list.overlay_scrollbar as u8, measured: list.measured as u8, reorder: list.reorder as u8, has_drop_look: list.drop_look.is_some() as u8, bare: list.bare as u8, has_revision: state.revision.is_some() as u8, reserved: [0; 3], count, row_height: list.row_height, leading_height: list.leading_height,
             header_height: list.header_height, trailing_height: list.trailing_height, rows: PxuiU8MutSpan { ptr: state.rows.as_mut_ptr(), len: count }, anchor: state.anchor.unwrap_or(usize::MAX),
-            drop_look };
+            drop_look, revision: state.revision.unwrap_or(0) };
         let mut out = PxuiListResult::EMPTY;
         if list.variant != 0 { self.set_variant(BodyKind::selection_list, list.variant); }
         #[cfg(feature = "static")]
@@ -273,9 +273,9 @@ impl Ui {
         state.selection.rows.resize(rows, 0);
         let n = columns.len();
         let (has_sort, ascending, sort_id) = sort_fields(state.sort);
-        let desc = PxuiTableDesc { size: core::mem::size_of::<PxuiTableDesc>() as u32, multi: table.multi as u8, has_sort, ascending, reserved: 0,
+        let desc = PxuiTableDesc { size: core::mem::size_of::<PxuiTableDesc>() as u32, multi: table.multi as u8, has_sort, ascending, has_revision: state.selection.revision.is_some() as u8,
             columns: Slice { ptr: specs.as_mut_ptr(), len: n }, widths: PxuiColumnWidthSpan { ptr: widths.as_mut_ptr(), len: n }, sort_id, rows, row_h: table.row_h, head_h: table.head.h,
-            flags: PxuiU8MutSpan { ptr: state.selection.rows.as_mut_ptr(), len: rows }, anchor: state.selection.anchor.unwrap_or(usize::MAX), head_variant: table.head.variant, reserved2: [0; 6] };
+            flags: PxuiU8MutSpan { ptr: state.selection.rows.as_mut_ptr(), len: rows }, anchor: state.selection.anchor.unwrap_or(usize::MAX), head_variant: table.head.variant, reserved2: [0; 6], revision: state.selection.revision.unwrap_or(0) };
         let mut out = PxuiTableResult { size: core::mem::size_of::<PxuiTableResult>() as u32, reserved: 0, rows: PxuiListResult::EMPTY, head: HEAD_EMPTY };
         if table.variant != 0 { self.set_variant(BodyKind::table_row, table.variant); }
         #[cfg(feature = "static")]
