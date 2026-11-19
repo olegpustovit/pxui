@@ -2088,6 +2088,9 @@ configs! {
         lead_word: u32,
         /// ABI 1.91: the leading icon's square in points (`Button::icon_size`; 0: the control-high one).
         icon_size: f32,
+        /// ABI 1.99: the kit's built-in button body for this config, run with `pxui_slot` (the Rust `Ui::slot`): a registered body
+        /// that does not style a config (its variant 0, say) draws the kit's button exactly as an unregistered theme would.
+        built_in: PxuiSlot,
     }
     /// `states.pick(state)` is the look the caller asked for; `states` is valid for the call.
     PxuiIconButtonConfig {

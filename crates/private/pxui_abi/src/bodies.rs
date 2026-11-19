@@ -145,7 +145,17 @@ mod tramps {
     });
     tramp!(slider, |ui, sh, c: &SliderConfig, label: &str| PxuiSliderConfig { state: st(c.state), fraction: c.fraction, track: bx(c.track), label: pair(label) });
     tramp!(progress, |ui, sh, c: &ProgressConfig, label: &str| PxuiProgressConfig { has_value: c.value.is_some() as u8, value: c.value.unwrap_or(0.0), row: bx(c.row), label: pair(label) });
-    tramp!(button, |ui, sh, c: &ButtonConfig, states: &States, label: &str, parts: [&str; 3]| PxuiButtonConfig {
+    // the button's own trampoline (`tramp!` with one more step): its record carries the kit's built-in body as a slot, made from a
+    // closure that must outlive the record, so the closure is a local here rather than a temporary of the record's expression
+    pub(super) fn button(ui: &mut Ui, c: &ButtonConfig, states: &States, label: &str, parts: [&str; 3]) {
+        let id = ui.theme().body.button;
+        let sh = shared(ui);
+        if sh.is_null() { return }
+        let mark = unsafe { (*sh).bodies.slots.len() };
+        let variant = ui.variant_of(BodyKind::button as u32);
+        let mut kit = |ui: &mut Ui| pxui_core::ui_kit::default_button(ui, c, states, label, parts);
+        let cfg = PxuiButtonConfig {
+        size: core::mem::size_of::<PxuiButtonConfig>() as u32,
         state: st(c.state), bare: c.bare as u8, icon: c.icon as u8, at_end: c.at_end as u8, line: bx(c.line), row: bx(c.row), states: states, label: pair(label),
         w_kind: size_kind(c.w).0, h_kind: size_kind(c.h).0, justify: match c.justify { Justify::Center => 1, Justify::End => 2, _ => 0 },
         reserved: 0, w: size_kind(c.w).1, h: size_kind(c.h).1, padding: [c.pad.l, c.pad.t, c.pad.r, c.pad.b], centered: c.centered as u8, reserved2: [0; 9],
@@ -156,8 +166,13 @@ mod tramps {
         has_detail_style: c.detail_label.is_some() as u8, has_accessory_style: c.accessory_label.is_some() as u8, reserved4: [0; 6],
         detail_style: c.detail_label.as_ref().map(PxuiLabelStyle::from).unwrap_or_default(), detail_box: c.detail_label.as_ref().map(pxui_types::ffi::PxuiLabelBox::from).unwrap_or_default(),
         accessory_style: c.accessory_label.as_ref().map(PxuiLabelStyle::from).unwrap_or_default(), accessory_box: c.accessory_label.as_ref().map(pxui_types::ffi::PxuiLabelBox::from).unwrap_or_default(),
-        lead_word: draw_word(c.lead_draw), icon_size: c.icon_size
-    });
+        lead_word: draw_word(c.lead_draw), icon_size: c.icon_size, built_in: content(sh, &mut kit), variant
+        };
+        if variant != 0 { ui.set_variant(0, 0); }
+        invoke(ui, sh, BodyKind::button, id, (&cfg as *const PxuiButtonConfig).cast());
+        if variant != 0 { ui.set_variant(BodyKind::button as u32, variant); }
+        unsafe { (*sh).bodies.slots.truncate(mark) };
+    }
     tramp!(icon_button, |ui, sh, c: &IconButtonConfig, states: &States, label: &str, icon: &str| PxuiIconButtonConfig {
         state: st(c.state), node: bx(c.node), label: pair(label), icon: pair(icon), states: states,
         w_kind: size_kind(c.w).0, h_kind: size_kind(c.h).0, reserved: 0, w: size_kind(c.w).1, h: size_kind(c.h).1, press_scale: c.press_scale,

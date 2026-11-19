@@ -220,8 +220,9 @@ impl Ui {
         self.part_box(owner, part).map(|b| self.rect(&b)).filter(|r| r.w > 0.0 && r.h > 0.0)
     }
 
-    /// Runs a config's slot (the caller's content, built where the body calls this); for a search field's editor slot the answer is
-    /// whether the query is not empty, otherwise false. A slot is valid only during the body call that received it, and not inside its own content or a nested body: else this panics.
+    /// Runs a config's slot (the caller's content, built where the body calls this; a button config's `built_in`, the kit's own button
+    /// body for that config, so a registered body draws the kit's button for configs it does not style); for a search field's editor slot
+    /// the answer is whether the query is not empty, otherwise false. A slot is valid only during the body call that received it, and not inside its own content or a nested body: else this panics.
     #[track_caller]
     pub fn slot(&mut self, slot: PxuiSlot) -> bool {
         let mut out = 0u8;
@@ -413,6 +414,36 @@ mod tests {
         crate::testing::frame(&mut ui, &[], &mut build);
         let want = [Some(format!("{:?}", TEXT.fields())), Some(format!("{:?}", DETAIL.fields())), None];
         assert_eq!(GOT.with(|g| g.borrow().clone()), want, "each style as the caller gave it; none for the unstyled accessory");
+    }
+
+    /// U2b.4.2: a registered button body that runs its config's `built_in` slot draws exactly what the kit's body draws (instances and
+    /// accessibility) for plain, sized, laid-out, part-carrying, content and disabled buttons; warm frames allocate nothing. Both link modes.
+    #[test]
+    fn a_button_body_running_built_in_draws_the_kit_button() {
+        fn kit(ui: &mut Ui, c: &ButtonConfig) { ui.slot(c.built_in); }
+        let mut build = |ui: &mut Ui| {
+            use crate::{Button, Label};
+            ui.button("plain", "Plain", &Button::DEFAULT);
+            ui.button("sized", "Sized", &Button::sized(90.0, 30.0).selected(true));
+            ui.button("laid", "Laid", &Button::DEFAULT.size(Size::Grow, Size::Px(32.0)).label(Label::BODY.size(13.0)).gap(4.0));
+            ui.button("parts", "Search", &Button::DEFAULT.icon(crate::Icon::glyph('?')).detail("Library").accessory("⌘K").disabled(true));
+            ui.button_content("content", &Button::sized(60.0, 24.0).name("Content"), |ui, _| { ui.label("inside", Label::DEFAULT); });
+        };
+        let draw = |ui: &Ui| (format!("{:?}", ui.layers().flat_map(|l| l.instances.iter()).collect::<Vec<_>>()), ui.a11y_nodes().iter().map(|n| (n.role, n.states, ui.a11y_name_of(n).to_owned())).collect::<Vec<_>>());
+        let (mut plain, mut bodied) = (Ui::new(&crate::UiDesc::DEFAULT).unwrap(), Ui::new(&crate::UiDesc::DEFAULT).unwrap());
+        bodied.register_button_body("kit", kit).unwrap();
+        bodied.set_theme(&crate::ThemeHandle::parse("button.body = kit").unwrap()).unwrap();
+        for ui in [&mut plain, &mut bodied] { ui.set_a11y(true); for _ in 0..2 { crate::testing::frame(ui, &[], &mut build); } }
+        assert_eq!(draw(&bodied), draw(&plain), "the built-in slot draws the kit's button");
+        mem_sys::set_peer(crate::library_counter);
+        let scope = mem_sys::warm_scope();
+        for round in 0..3 {
+            mem_sys::local_reset();
+            crate::testing::frame(&mut bodied, &[], &mut build);
+            assert_eq!(mem_sys::local_alloc_count(), 0, "a warm frame of built-in slots allocated (round {round})");
+        }
+        drop(scope);
+        assert!(mem_sys::take_reports().is_empty());
     }
 
     #[test]

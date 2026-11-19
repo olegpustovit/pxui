@@ -200,7 +200,7 @@ impl Response {
 /// box lays them out as a laid-out button does, `space(0)` apart unless the caller set a gap; a detail under a `Fit`-high text grows
 /// the box to fit both lines.
 #[inline(always)]
-pub(crate) fn default_button(this: &mut Ui, c: &ButtonConfig, states: &States, text: &str, parts: [&str; 3]) {
+pub fn default_button(this: &mut Ui, c: &ButtonConfig, states: &States, text: &str, parts: [&str; 3]) {
     let given = parts;
     let parts = has_parts(c, given);
     let gap = if parts && c.gap == 0.0 { this.space(0) } else { c.gap };
