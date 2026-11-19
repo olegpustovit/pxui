@@ -1,7 +1,7 @@
 //! Kit and text widgets beyond the first set: styled buttons, grips, popups, inspector pieces and the line field.
 use crate::interaction::write_signal;
 use crate::kit::PxuiHintDesc;
-use crate::state::{Build, MAX_TOTAL_TEXT_BYTES, PxuiUi, boxed, call_build, checked, engine, fail, get, to_abi_box};
+use crate::state::{Build, MAX_TOTAL_TEXT_BYTES, PxuiUi, boxed, call_build, checked, fail, get, to_abi_box};
 use crate::text_inputs::TextValid;
 use crate::trusted;
 use crate::{PXUI_ERR_ARGUMENT, PxuiBox, PxuiSignal, Str};
@@ -300,27 +300,8 @@ unsafe fn popup(ui: *mut PxuiUi, key: &str, name: &str, d: &PxuiPopupDesc, build
     rc
 }
 
-// Legacy (cut at 2.0): keyed by its label, named up to a `##`; `pxui_ui_popup_keyed` keys apart.
-export!(build pub unsafe fn pxui_ui_popup(ui: *mut PxuiUi, desc: *const PxuiPopupDesc, build: Build, user: *mut c_void, out: *mut u8) -> i32 {
-    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
-    if desc.is_null() || out.is_null() { return unsafe { fail(ui, "null popup argument") }; }
-    let Some(d) = read_desc!(desc, PxuiPopupDesc) else { return unsafe { fail(ui, "invalid popup descriptor") }; };
-    let Some(label) = (unsafe { crate::state::checked_label(d.label) }) else { return unsafe { fail(ui, "invalid popup label") }; };
-    unsafe { popup(ui, label, pxui_types::ui::shown(label), &d, build, user, out, None) }
-});
-
-// ABI 1.68: a popup keyed by `keyed.key` and named `keyed.name` (empty: none); `desc.label` must be empty.
-export!(build pub unsafe fn pxui_ui_popup_keyed(ui: *mut PxuiUi, keyed: *const pxui_types::ffi::PxuiKeyedDesc, desc: *const PxuiPopupDesc, build: Build, user: *mut c_void, out: *mut u8) -> i32 {
-    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
-    if desc.is_null() || out.is_null() { return unsafe { fail(ui, "null popup argument") }; }
-    let Some((key, name)) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
-    let Some(d) = read_desc!(desc, PxuiPopupDesc) else { return unsafe { fail(ui, "invalid popup descriptor") }; };
-    if d.label.len != 0 { return unsafe { fail(ui, "a keyed popup takes no label") }; }
-    unsafe { popup(ui, key, name, &d, build, user, out, None) }
-});
-
 // ABI 1.76: `pxui_ui_popup_keyed` that also writes the popup's root to `root` (the empty box when it is dismissed).
-export!(build pub unsafe fn pxui_ui_popup_root(ui: *mut PxuiUi, keyed: *const pxui_types::ffi::PxuiKeyedDesc, desc: *const PxuiPopupDesc, build: Build, user: *mut c_void, out: *mut u8, root: *mut PxuiBox) -> i32 {
+export!(build pub unsafe fn pxui_ui_popup(ui: *mut PxuiUi, keyed: *const pxui_types::ffi::PxuiKeyedDesc, desc: *const PxuiPopupDesc, build: Build, user: *mut c_void, out: *mut u8, root: *mut PxuiBox) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if desc.is_null() || out.is_null() || root.is_null() { return unsafe { fail(ui, "null popup argument") }; }
     let Some((key, name)) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
@@ -398,24 +379,6 @@ export!(build pub unsafe fn pxui_ui_inspector_header(ui: *mut PxuiUi, desc: *con
     state.shared().actions = actions;
     let Ok(renamed) = state.give(head.renamed) else { return crate::PXUI_ERR_STATE };
     (out.renamed, out.chosen, out.has_chosen, out.reset_pressed) = (renamed, head.chosen.unwrap_or(0), head.chosen.is_some() as u8, head.reset_pressed as u8);
-    0
-});
-
-export!(build pub unsafe fn pxui_ui_inspector_section_view(ui: *mut PxuiUi, key: Str, revision: u64, expanded: u8, has_set: u8, set_expanded: u8, label: Str, build: Build, user: *mut c_void, out: *mut u8) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    let (Some(key), Some(label)) = (unsafe { crate::state::checked_key(key) }, unsafe { checked(label) }) else { return unsafe { fail(ui, "invalid inspector section text") }; };
-    if out.is_null() || expanded > 1 || has_set > 1 || set_expanded > 1 { return unsafe { fail(ui, "invalid inspector section arguments") }; }
-    let shared = state.shared;
-    let mut body = |engine: &mut Ui| call_build(shared, engine, build, user);
-    let open = unsafe { (&mut *state.engine).inspector_section_view(key, revision, expanded != 0, (has_set != 0).then_some(set_expanded != 0), label, &mut body) };
-    unsafe { *out = open as u8; }
-    0
-});
-
-export!(build pub unsafe fn pxui_ui_inspector_toggle_value(ui: *mut PxuiUi, key: Str, x: f32, y: f32, value: u8, out: *mut u8) -> i32 {
-    let Some(e) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    let Some(key) = (unsafe { crate::state::checked_key(key) }).filter(|_| value <= 1 && !out.is_null() && crate::state::finite(&[x, y])) else { return unsafe { fail(ui, "invalid toggle arguments") }; };
-    unsafe { *out = e.inspector_toggle_value(key, (x, y), value != 0) as u8; }
     0
 });
 

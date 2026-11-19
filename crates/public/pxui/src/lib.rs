@@ -1088,7 +1088,7 @@ pub enum Feature {
     ImageChecked = pxui_types::feature::IMAGE_CHECKED,
     /// ABI 1.71: `Button::icon`/`detail`/`accessory`, `IconButton::selected` and `DialogButton::detail` (and their body config fields).
     ButtonParts = pxui_types::feature::BUTTON_PARTS,
-    /// ABI 1.72: `pxui_ui_view_keyed`, the authoring view `Ui::view_of` (sized by its parent).
+    /// ABI 1.72: `pxui_ui_view`, the authoring view `Ui::view_of` (sized by its parent).
     ViewKeyed = pxui_types::feature::VIEW_KEYED,
 }
 

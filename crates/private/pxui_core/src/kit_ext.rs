@@ -726,33 +726,6 @@ impl Ui {
         (last == NONE, last != NONE && last == self.closed_section_index())
     }
 
-    /// `inspector_section` as a content-sized cached view (`Ui::view`, `Fit` high): `f` runs only
-    /// when `revision` (what the section shows), its place among its siblings, its label or
-    /// `set_expanded` change, or input reaches it; kept, its rows hand back nothing. While a payload
-    /// is carried it builds every frame (its controls report their drop targets as they build).
-    /// `ui.expanded(key)` reads its state as it reads a plain section's.
-    pub fn inspector_section_view(&mut self, key: &str, revision: u64, expanded: bool, set_expanded: Option<bool>, label: &str, f: &mut dyn FnMut(&mut Ui)) -> bool {
-        let at = self.section_place();
-        let carrying = self.carry_frame();
-        let flags = at.0 as u64 | (at.1 as u64) << 1 | (expanded as u64) << 2 | (set_expanded.map_or(0, |o| 2 + o as u64)) << 3;
-        let revision = key_of(key_of(revision as i64 ^ (flags as i64).rotate_left(48) ^ carrying as i64, label), "") as u64;
-        let mut built = None;
-        let view = self.view(key, revision, Size::Grow, Size::Fit, &mut |ui| {
-            built = Some(ui.section_at(at, key, expanded, set_expanded, label, f).0);
-        });
-        let open = match built {
-            Some(open) => {
-                self.set_state(&view, open as i64);
-                open
-            }
-            None => self.state(&view, expanded as i64) != 0,
-        };
-        if !open {
-            self.set_closed_section(view.index);
-        }
-        open
-    }
-
     fn section_at(&mut self, at: (bool, bool), key: &str, expanded: bool, set_expanded: Option<bool>, label: &str, f: &mut dyn FnMut(&mut Ui)) -> (bool, Response) {
         let rh = self.row_px() as f32;
         let title = self.box_(key, BoxOpts::default().flags(Flags::CLICKABLE | Flags::TAB_STOP).w(Size::Grow).h(Size::Px(rh)));
@@ -793,13 +766,6 @@ impl Ui {
         let response = self.toggle_opts("value", "", value, &ToggleOpts { row_h: Some(h), ..ToggleOpts::DEFAULT });
         self.leave(saved);
         response
-    }
-
-    /// A bare inspector switch at `at`, named `key`; the value after this frame's click.
-    pub fn inspector_toggle_value(&mut self, key: &str, at: (f32, f32), value: bool) -> bool {
-        let response = self.switch_at(key, at, value);
-        self.a11y_name(&response.handle, key);
-        value ^ response.clicked
     }
 
     /// A switch row: the switch sits at the start of the control column, not at the row's end, named by the row's `label`.

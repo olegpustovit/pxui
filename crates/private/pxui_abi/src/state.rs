@@ -100,7 +100,6 @@ pub(crate) struct Shared {
     /// a footer's or inspector bar's rows borrowed from the caller for one call: empty between calls
     pub hints: Vec<(&'static str, &'static str)>,
     /// hit callbacks the engine holds or has let go of, kept to reuse (see `box_ops::hit_closure`)
-    pub hits: Vec<(Rc<dyn Fn(pxui_types::geom::Rect) -> pxui_types::geom::Rect>, Rc<crate::box_ops::HitSlot>)>,
     /// an inspector head's actions, reused between frames like the hints
     pub actions: Vec<pxui_core::ui::HeadAction>,
     /// the name validator of an inspector head: one closure over a cell the call fills, so a settled head allocates none
@@ -129,7 +128,7 @@ impl Shared {
             error: String::new(), poisoned: false, calls: 0, paint_error: false, icon_word: 0, in_frame: false, current: core::ptr::null_mut(), building: core::ptr::null_mut(), frame_ended: false, draw_acknowledged: false, renderers: 0, returned: Vec::new(), area: Default::default(), area_ad: None, lent: Vec::new(), lent_used: 0, returned_bytes: 0,
             grid_tracks: HashMap::new(), grid_shared: HashMap::new(), grid_retired: Vec::new(), output: Output::default(), nodes: Vec::new(),
             layers: Vec::new(), dirty: Vec::new(), last_children: Vec::new(), chunks: Vec::new(), chunks_used: 0, spare_input: None, wants: Vec::new(), key_codes: Vec::new(), menu: Vec::new(), menu_sub: Vec::new(), routed: None, routed_events: Vec::new(), routed_text: Vec::new(),routed_touches:Vec::new(), routed_keys: Vec::new(), routed_buttons: Vec::new(),
-            hints: Vec::new(), hits: Vec::new(), actions: Vec::new(), rename: None, strs: Vec::new(), raster_glyphs: Vec::new(), menus: Vec::new(), bodies: Default::default(), images: crate::image::Handles::new(), legacy_theme: None,
+            hints: Vec::new(), actions: Vec::new(), rename: None, strs: Vec::new(), raster_glyphs: Vec::new(), menus: Vec::new(), bodies: Default::default(), images: crate::image::Handles::new(), legacy_theme: None,
         }
     }
 }

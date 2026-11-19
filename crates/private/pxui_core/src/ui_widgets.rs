@@ -1239,14 +1239,6 @@ impl Ui {
         self.image_at(unique, name, image, fit, w, h)
     }
 
-    /// The 1.x `pxui_ui_image` form: keyed and named by one `label` (`key_of`, the name before `##`). Cut at 2.0.
-    #[doc(hidden)]
-    pub fn image_labeled(&mut self, label: &str, image: &Image, fit: Fit, w: Size, h: Size) -> Handle {
-        self.require_building();
-        let unique = self.unique_key(key_of(self.current_seed(), label));
-        self.image_at(unique, shown(label), image, fit, w, h)
-    }
-
     fn image_at(&mut self, unique: (i64, Option<usize>), name: &str, image: &Image, fit: Fit, w: Size, h: Size) -> Handle {
         let look = self.theme().image.idle;
         let n = self.node_unique(unique, &Node { w, h, look, padding: Edges::all(1.0), role: Role::Image, ..Node::DEFAULT });

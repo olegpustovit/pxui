@@ -297,13 +297,6 @@ export!(pub unsafe fn pxui_ui_key_seed(ui: *mut PxuiUi, out: *mut i64) -> i32 {
     0
 });
 
-export!(build pub unsafe fn pxui_ui_tooltip(ui: *mut PxuiUi, key: Str, text: Str) -> i32 {
-    let Some(e) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    let (Some(key), Some(text)) = (unsafe { crate::state::checked_key(key) }, unsafe { checked(text) }) else { return unsafe { fail(ui, "invalid tooltip text") }; };
-    e.tooltip_legacy(key, text);
-    0
-});
-
 export!(pub unsafe fn pxui_ui_cap_width(ui: *mut PxuiUi, text: Str, out: *mut f32) -> i32 {
     let Some(e) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
     let Some(text) = (unsafe { checked(text) }) else { return unsafe { fail(ui, "invalid label") }; };

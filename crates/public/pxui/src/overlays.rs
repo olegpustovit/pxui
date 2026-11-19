@@ -7,7 +7,7 @@ use crate::{composite::{defer_callback_panic, deferred}, check, OverlayResponse,
 
 use crate::Picker;
 library!(popup_lib {
-    fn pxui_ui_popup_root(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, desc: *const PxuiPopupDesc, build: pxui_types::ffi::UiBuild, user: *mut c_void, out: *mut u8, root: *mut pxui_types::PxuiBox) -> i32;
+    fn pxui_ui_popup(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, desc: *const PxuiPopupDesc, build: pxui_types::ffi::UiBuild, user: *mut c_void, out: *mut u8, root: *mut pxui_types::PxuiBox) -> i32;
 });
 
 
@@ -190,7 +190,7 @@ impl Ui {
             x: overlay.at.0, y: overlay.at.1, width: overlay.w.unwrap_or(0.0), height: overlay.h.unwrap_or(0.0), label: Str::default(),
         };
         let (mut out, mut handle) = (0, crate::Handle::default());
-        check(self, unsafe { popup_lib::pxui_ui_popup_root(self.0.as_ptr(), &keyed, &desc, Some(crate::composite::call), &mut f as *mut _ as *mut c_void, &mut out, &mut handle) });
+        check(self, unsafe { popup_lib::pxui_ui_popup(self.0.as_ptr(), &keyed, &desc, Some(crate::composite::call), &mut f as *mut _ as *mut c_void, &mut out, &mut handle) });
         OverlayResponse { handle, open: out != 0 }
     }
 

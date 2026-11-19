@@ -74,13 +74,13 @@ pub(crate) fn adopt_texture(device: &Device, image: &CoreImage) -> Result<Textur
 
 #[cfg(test)]
 mod tests {
-    /// The 1.70 image calls validate everything before they touch the native-image table. `pxui_ui_image_node`: a short record (read
+    /// The image calls validate everything before they touch the native-image table. `pxui_ui_image`: a short record (read
     /// after its `size`), an invalid descriptor, an unknown fit or size kind and a NaN size are refused with PXUI_ERR_ARGUMENT and
-    /// register nothing; a valid call is keyed by position, not by its name (`##`/`###` in a name are ordinary text).
+    /// register nothing; a valid call is keyed by its key, not by its name (`##`/`###` in a name are ordinary text).
     /// `pxui_paint_image_checked` under a live painter: a short record, an invalid descriptor, an unknown fit and a NaN rectangle are
     /// refused and register nothing, a valid call registers one native image; with a null painter it is refused.
     #[test]
-    fn image_node_and_checked_paint_refuse_bad_input_before_registering_anything() {
+    fn image_and_checked_paint_refuse_bad_input_before_registering_anything() {
         use pxui_types::{ffi::PxuiSizeDesc, PxuiBox, Str, PXUI_ERR_ARGUMENT};
         extern "C" fn build(_: *mut core::ffi::c_void, raw: *mut core::ffi::c_void) {
             let ui: *mut crate::PxuiUi = raw.cast();
@@ -96,14 +96,14 @@ mod tests {
                 (good, 1, PxuiSizeDesc { kind: 99, ..px }),
                 (good, 1, PxuiSizeDesc { value: f32::NAN, ..px }),
             ] {
-                assert_eq!(unsafe { super::pxui_ui_image_node(ui, name("Cover"), &image, fit, w, px, &mut out) }, PXUI_ERR_ARGUMENT);
+                assert_eq!(unsafe { super::pxui_ui_image(ui, name("cover"), name("Cover"), &image, fit, w, px, &mut out) }, PXUI_ERR_ARGUMENT);
                 assert_eq!(images(), 0, "a refused call registers no native image");
             }
-            assert_eq!(unsafe { super::pxui_ui_image_node(ui, name("a##b###c"), &good, 1, px, px, &mut out) }, 0);
+            assert_eq!(unsafe { super::pxui_ui_image(ui, name("a"), name("a##b###c"), &good, 1, px, px, &mut out) }, 0);
             let first = out.box_key;
-            assert_eq!(unsafe { super::pxui_ui_image_node(ui, name("c"), &good, 1, px, px, &mut out) }, 0);
-            assert_ne!(out.box_key, first, "the second image is the second \\0image");
-            assert_ne!(first, pxui_types::ui::key_of(pxui_types::ui::ROOT_KEY, "c"), "`###c` in a name is not a key");
+            assert_eq!(unsafe { super::pxui_ui_image(ui, name("c"), name("c"), &good, 1, px, px, &mut out) }, 0);
+            assert_ne!(out.box_key, first, "each image is keyed by its key");
+            assert_eq!(first, pxui_types::ui::key_of(pxui_types::ui::ROOT_KEY, "a"), "`###c` in a name is not a key");
             assert_eq!(images(), 1);
             // a painter callback on that node exercises the checked paint call under a live painter
             extern "C" fn paint(user: *mut core::ffi::c_void, raw: *mut crate::paint::PxuiPaint, rect: pxui_types::geom::Rect, _: *const pxui_types::ffi::PxuiPaintInfo) {
@@ -163,40 +163,15 @@ mod tests {
     }
 }
 
-export!(build pub unsafe fn pxui_ui_image(ui: *mut crate::PxuiUi, label: Str, raw: *const pxui_types::Image, fit_code: u32, width: PxuiSizeDesc, height: PxuiSizeDesc, out: *mut PxuiBox) -> i32 {
-    let Some(state) = (unsafe { crate::get(ui) }) else { return -1; };
-    if raw.is_null() || out.is_null() { return unsafe { crate::fail(ui, "invalid image descriptor") }; }
-    let (Some(label), Some(image), Some(fit), Some(width), Some(height)) = (unsafe { crate::state::checked_label(label) }, image(unsafe { *raw }, &mut state.shared().images), fit(fit_code), size(width), size(height))
-        else { return unsafe { crate::fail(ui, "invalid image descriptor") }; };
-    let handle = unsafe { &mut *state.engine }.image_labeled(label, &image, fit, width, height);
-    unsafe { *out = to_abi_box(handle); }
-    0
-});
-
 // ABI 1.77: an image keyed by `key` (a label or id label under the current parent, as `pxui_ui_node` keys it) and named `name` for
 // accessibility only (never parsed for a key). Checked as `pxui_ui_image_node`, the key as a node label.
-export!(build pub unsafe fn pxui_ui_image_keyed(ui: *mut crate::PxuiUi, key: Str, name: Str, raw: *const pxui_types::Image, fit_code: u32, width: PxuiSizeDesc, height: PxuiSizeDesc, out: *mut PxuiBox) -> i32 {
+export!(build pub unsafe fn pxui_ui_image(ui: *mut crate::PxuiUi, key: Str, name: Str, raw: *const pxui_types::Image, fit_code: u32, width: PxuiSizeDesc, height: PxuiSizeDesc, out: *mut PxuiBox) -> i32 {
     let Some(state) = (unsafe { crate::get(ui) }) else { return crate::PXUI_ERR_ARGUMENT; };
     if raw.is_null() || out.is_null() { return unsafe { crate::fail(ui, "invalid image descriptor") }; }
     let (Some(record), Some(key), Some(name), Some(fit), Some(width), Some(height)) = (read_desc!(raw, pxui_types::Image), unsafe { crate::state::checked_key(key) }, unsafe { checked(name) }, fit(fit_code), size(width), size(height))
         else { return unsafe { crate::fail(ui, "invalid image arguments") }; };
     let Some(image) = image(record, &mut state.shared().images) else { return unsafe { crate::fail(ui, "invalid image descriptor") }; };
     let handle = unsafe { &mut *state.engine }.image_keyed(key, name, &image, fit, width, height);
-    unsafe { *out = to_abi_box(handle); }
-    0
-});
-
-// ABI 1.70: an image with no key (the n-th image among its siblings, as a label is) named `name` for accessibility only; `name` is never
-// parsed for a key. The record is read after its `size`, and every argument is checked before the image's native handle is registered:
-// PXUI_ERR_ARGUMENT, nothing added and nothing registered, for a short or invalid descriptor (`Image::valid`), an unknown fit, a size or
-// a name the library refuses.
-export!(build pub unsafe fn pxui_ui_image_node(ui: *mut crate::PxuiUi, name: Str, raw: *const pxui_types::Image, fit_code: u32, width: PxuiSizeDesc, height: PxuiSizeDesc, out: *mut PxuiBox) -> i32 {
-    let Some(state) = (unsafe { crate::get(ui) }) else { return crate::PXUI_ERR_ARGUMENT; };
-    if raw.is_null() || out.is_null() { return unsafe { crate::fail(ui, "invalid image descriptor") }; }
-    let (Some(record), Some(name), Some(fit), Some(width), Some(height)) = (read_desc!(raw, pxui_types::Image), unsafe { checked(name) }, fit(fit_code), size(width), size(height))
-        else { return unsafe { crate::fail(ui, "invalid image arguments") }; };
-    let Some(image) = image(record, &mut state.shared().images) else { return unsafe { crate::fail(ui, "invalid image descriptor") }; };
-    let handle = unsafe { &mut *state.engine }.image(name, &image, fit, width, height);
     unsafe { *out = to_abi_box(handle); }
     0
 });

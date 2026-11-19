@@ -1,9 +1,9 @@
 use crate::node::size;
 use crate::state::{Build, PxuiUi, checked, fail, get, strings};
-use crate::{PXUI_ERR_ARGUMENT, PxuiBox, Str};
+use crate::{PXUI_ERR_ARGUMENT, PxuiBox};
 use core::ffi::c_void;
 use pxui_types::ffi::{PxuiAnchorDesc, PxuiDialogDesc, PxuiDialogResult, PxuiSizeDesc};
-use pxui_types::ui::{shown, Dialog, DialogButton, DismissOpts, Chosen, Overlay, Presentation};
+use pxui_types::ui::{Dialog, DialogButton, DismissOpts, Chosen, Overlay, Presentation};
 use pxui_types::ffi::PxuiKeyedDesc;
 use pxui_types::Node;
 
@@ -22,37 +22,12 @@ fn dialog_buttons<'a, 'b>(texts: &[&'a str], details: &[&'a str], (default_at, c
     Some(&buf[..n])
 }
 
-/// The modal of a width flag and width named `name`, the body of `pxui_ui_modal` and `pxui_ui_modal_keyed`.
-unsafe fn modal(ui: *mut PxuiUi, key: &str, name: &str, has_width: u8, width: f32, callback: Build, user: *mut c_void, out: *mut u8, root: Option<&mut PxuiBox>) -> i32 {
-    if out.is_null() || has_width > 1 { return unsafe { fail(ui, "invalid modal arguments") }; }
-    let overlay = Overlay { w: (has_width != 0).then_some(width), name: Some(name), ..Overlay::DEFAULT };
-    let (mut open, mut node) = (false, PxuiBox::default());
-    let rc = unsafe { crate::trusted::modal(ui, key, &overlay, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, callback, user), &mut open, &mut node) };
-    unsafe { *out = open as u8; }
-    if let Some(root) = root { *root = node; }
-    rc
-}
-
-// Legacy (cut at 2.0): keyed by its label, named up to a `##`; `pxui_ui_modal_keyed` keys apart.
-export!(trusted pub unsafe fn pxui_ui_modal(ui: *mut PxuiUi, label: Str, has_width: u8, width: f32, callback: Build, user: *mut c_void, out: *mut u8) -> i32 {
-    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
-    let Some(label) = (unsafe { crate::state::checked_label(label) }) else { return unsafe { fail(ui, "invalid modal label") }; };
-    unsafe { modal(ui, label, shown(label), has_width, width, callback, user, out, None) }
-});
-
-// ABI 1.68: a modal keyed by `keyed.key`, named `keyed.name`.
-export!(trusted pub unsafe fn pxui_ui_modal_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, has_width: u8, width: f32, callback: Build, user: *mut c_void, out: *mut u8) -> i32 {
-    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
-    let Some((key, name)) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
-    unsafe { modal(ui, key, name, has_width, width, callback, user, out, None) }
-});
-
 // ABI 1.86: the one modal route with a presentation: a modal keyed by `keyed.key`, named `keyed.name`, presented as `sheet` says
 // (centred, a bottom sheet, full screen or top-anchored at `sheet.top`; a bottom or full-screen sheet takes a downward drag-to-dismiss with `sheet`'s thresholds) and
 // `sheet.width` wide when `has_width` is 1. Every field of `sheet` is checked before the build: a short record, `has_width` or `present`
 // out of range, a non-zero `reserved`, or a width or threshold that is negative or not finite is refused. Writes `out` (1 while open)
 // and the modal's root to `root` (the empty box when it is dismissed).
-export!(trusted pub unsafe fn pxui_ui_modal_sheet(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, sheet: *const pxui_types::ffi::PxuiSheetDesc, callback: Build, user: *mut c_void, out: *mut u8, root: *mut PxuiBox) -> i32 {
+export!(trusted pub unsafe fn pxui_ui_modal(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, sheet: *const pxui_types::ffi::PxuiSheetDesc, callback: Build, user: *mut c_void, out: *mut u8, root: *mut PxuiBox) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if out.is_null() || root.is_null() { return unsafe { fail(ui, "null modal output") }; }
     let Some((key, name)) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
@@ -70,38 +45,9 @@ export!(trusted pub unsafe fn pxui_ui_modal_sheet(ui: *mut PxuiUi, keyed: *const
     rc
 });
 
-// ABI 1.76: `pxui_ui_modal_keyed` that also writes the modal's root to `root` (the empty box when it is dismissed).
-export!(trusted pub unsafe fn pxui_ui_modal_root(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, has_width: u8, width: f32, callback: Build, user: *mut c_void, out: *mut u8, root: *mut PxuiBox) -> i32 {
-    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
-    if root.is_null() { return unsafe { fail(ui, "null modal root") }; }
-    let Some((key, name)) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
-    unsafe { modal(ui, key, name, has_width, width, callback, user, out, Some(&mut *root)) }
-});
-
-/// The scroll view named `name`, the body of `pxui_ui_scroll_view` and `pxui_ui_scroll_view_keyed`.
-unsafe fn scroll_view(ui: *mut PxuiUi, key: &str, name: &str, width: PxuiSizeDesc, height: PxuiSizeDesc, callback: Build, user: *mut c_void, out: *mut PxuiBox) -> i32 {
-    if out.is_null() { return unsafe { fail(ui, "null scroll view output") }; }
-    let (Some(w), Some(h)) = (size(width), size(height)) else { return unsafe { fail(ui, "invalid scroll view arguments") }; };
-    unsafe { crate::trusted::scroll_view(ui, key, name, &Node { w, h, ..Node::DEFAULT }, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, callback, user), &mut *out) }
-}
-
-// Legacy (cut at 2.0): keyed by its label, named up to a `##`; `pxui_ui_scroll_view_keyed` keys apart.
-export!(trusted pub unsafe fn pxui_ui_scroll_view(ui: *mut PxuiUi, label: Str, width: PxuiSizeDesc, height: PxuiSizeDesc, callback: Build, user: *mut c_void, out: *mut PxuiBox) -> i32 {
-    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
-    let Some(label) = (unsafe { crate::state::checked_label(label) }) else { return unsafe { fail(ui, "invalid scroll view arguments") }; };
-    unsafe { scroll_view(ui, label, shown(label), width, height, callback, user, out) }
-});
-
-// ABI 1.68: a scroll view keyed by `keyed.key`, named `keyed.name` (empty: none).
-export!(trusted pub unsafe fn pxui_ui_scroll_view_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, width: PxuiSizeDesc, height: PxuiSizeDesc, callback: Build, user: *mut c_void, out: *mut PxuiBox) -> i32 {
-    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
-    let Some((key, name)) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
-    unsafe { scroll_view(ui, key, name, width, height, callback, user, out) }
-});
-
 // ABI 1.80: a scroll view keyed by `keyed.key`, named `keyed.name` (empty: none), laid out by the checked `node` (no grid); the frame
 // adds its scroll flags, look, thumbs, scroll step and role, and insets the content one point inside the node's padding.
-export!(trusted pub unsafe fn pxui_ui_scroll_view_node(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, node: *const Node, callback: Build, user: *mut c_void, out: *mut PxuiBox) -> i32 {
+export!(trusted pub unsafe fn pxui_ui_scroll_view(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, node: *const Node, callback: Build, user: *mut c_void, out: *mut PxuiBox) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     let Some((key, name)) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
     let Some(node) = (unsafe { crate::node::checked_node(node) }) else { return unsafe { fail(ui, "invalid scroll view node") } };
@@ -109,27 +55,9 @@ export!(trusted pub unsafe fn pxui_ui_scroll_view_node(ui: *mut PxuiUi, keyed: *
     unsafe { crate::trusted::scroll_view(ui, key, name, node, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, callback, user), &mut *out) }
 });
 
-unsafe fn view_with(ui: *mut PxuiUi, label: Str, revision: u64, width: PxuiSizeDesc, height: PxuiSizeDesc, callback: Build, user: *mut c_void, out: *mut PxuiBox, flat: bool) -> i32 {
-    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
-    if out.is_null() { return unsafe { fail(ui, "null view output") }; }
-    let (Some(label), Some(width), Some(height)) = (unsafe { crate::state::checked_key(label) }, size(width), size(height)) else {
-        return unsafe { fail(ui, "invalid view arguments") };
-    };
-    unsafe { crate::trusted::view(ui, label, revision, width, height, flat, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, callback, user), out) }
-}
-
-export!(trusted pub unsafe fn pxui_ui_view(ui: *mut PxuiUi, label: Str, revision: u64, width: PxuiSizeDesc, height: PxuiSizeDesc, callback: Build, user: *mut c_void, out: *mut PxuiBox) -> i32 {
-    unsafe { view_with(ui, label, revision, width, height, callback, user, out, false) }
-});
-
-// A view that takes no entry of its own in the painter view table: its instances ride its parent entry.
-export!(trusted pub unsafe fn pxui_ui_view_flat(ui: *mut PxuiUi, label: Str, revision: u64, width: PxuiSizeDesc, height: PxuiSizeDesc, callback: Build, user: *mut c_void, out: *mut PxuiBox) -> i32 {
-    unsafe { view_with(ui, label, revision, width, height, callback, user, out, true) }
-});
-
 // ABI 1.72: the authoring view keyed by `keyed.key` (a view has no name: a non-empty `keyed.name` is refused). It fills its parent,
 // or takes its content's size on the main axis of a row or column that is `Fit` there; `revision` is the hash of the inputs.
-export!(trusted pub unsafe fn pxui_ui_view_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, revision: u64, callback: Build, user: *mut c_void, out: *mut PxuiBox) -> i32 {
+export!(trusted pub unsafe fn pxui_ui_view(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, revision: u64, callback: Build, user: *mut c_void, out: *mut PxuiBox) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if out.is_null() { return unsafe { fail(ui, "null view output") }; }
     let Some((key, "")) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
@@ -145,23 +73,8 @@ fn placement(anchor: &PxuiAnchorDesc) -> Option<pxui_types::layout::Placement> {
     Some(pxui_types::layout::Placement { side, align, gap: anchor.gap, margin: anchor.margin, flip: anchor.flip != 0 })
 }
 
-// Legacy (cut at 2.0): keyed by its label (identity only); `pxui_ui_anchored_keyed` keys apart and names.
-export!(build pub unsafe fn pxui_ui_anchored(ui: *mut PxuiUi, label: Str, anchor: *const PxuiAnchorDesc, width: PxuiSizeDesc, height: PxuiSizeDesc, callback: Build, user: *mut c_void, out: *mut PxuiBox) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    if anchor.is_null() || out.is_null() { return unsafe { fail(ui, "null anchored argument") }; }
-    let (Some(label), Some(width), Some(height)) = (unsafe { crate::state::checked_key(label) }, size(width), size(height)) else { return unsafe { fail(ui, "invalid anchored arguments") }; };
-    let anchor = unsafe { *anchor };
-    let Some(place) = placement(&anchor) else { return unsafe { fail(ui, "invalid anchor descriptor") }; };
-    let r = anchor.rect;
-    if label.len() > crate::state::MAX_TEXT_BYTES || r.w < 0.0 || r.h < 0.0 || place.margin < 0.0 || ![r.x, r.y, r.w, r.h, place.gap, place.margin].iter().all(|v| v.is_finite()) { return unsafe { fail(ui, "invalid anchored arguments") }; }
-    let shared = state.shared;
-    let b = unsafe { (&mut *state.engine).anchored_legacy(label, r, place, width, height, &mut |engine| crate::state::call_build(shared, engine, callback, user)) };
-    unsafe { *out = crate::state::to_abi_box(b); }
-    0
-});
-
 // ABI 1.68: a sheet by its anchor keyed by `keyed.key`, named `keyed.name` (empty: none); `width` and `height` in points or fit.
-export!(trusted pub unsafe fn pxui_ui_anchored_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, anchor: *const PxuiAnchorDesc, width: PxuiSizeDesc, height: PxuiSizeDesc, callback: Build, user: *mut c_void, out: *mut PxuiBox) -> i32 {
+export!(trusted pub unsafe fn pxui_ui_anchored(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, anchor: *const PxuiAnchorDesc, width: PxuiSizeDesc, height: PxuiSizeDesc, callback: Build, user: *mut c_void, out: *mut PxuiBox) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     let Some((key, name)) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
     if anchor.is_null() || out.is_null() { return unsafe { fail(ui, "null anchored argument") }; }

@@ -1,32 +1,10 @@
-//! Building blocks for widgets written outside the library: enter/leave, focus, per-box state and `signal`.
+//! Building blocks for widgets written outside the library: focus, per-box state and `signal`.
 use crate::state::{KeyChunk, PxuiUi, fail, get, live_box};
 use crate::ui::{button_code, key_code};
-use crate::{PXUI_ERR_ARGUMENT, PxuiBox, PxuiSaved, PxuiSignal, Str};
+use crate::{PXUI_ERR_ARGUMENT, PxuiBox, PxuiSignal, Str};
 use input::{Event, ScrollPhase};
-use pxui_core::ui::{Saved, Signal};
+use pxui_core::ui::Signal;
 use pxui_types::{Event as FfiEvent, ffi::Slice};
-
-export!(build pub unsafe fn pxui_ui_enter(ui: *mut PxuiUi, box_: *const PxuiBox, out: *mut PxuiSaved) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    if box_.is_null() || out.is_null() { return unsafe { fail(ui, "null enter argument") }; }
-    let engine = unsafe { &mut *state.engine };
-    let Some(box_) = live_box(engine, unsafe { *box_ }) else { return unsafe { fail(ui, "stale enter box") }; };
-    if !engine.is_current_build_box(&box_) { return unsafe { fail(ui, "enter box is not in the current build") }; }
-    let Saved::Depths(parents, seeds) = engine.enter(&box_);
-    unsafe { *out = PxuiSaved { size: core::mem::size_of::<PxuiSaved>() as u32, reserved: 0, parents, seeds }; }
-    0
-});
-
-export!(build pub unsafe fn pxui_ui_leave(ui: *mut PxuiUi, saved: *const PxuiSaved) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    if saved.is_null() { return unsafe { fail(ui, "null leave state") }; }
-    let Some(saved) = read_desc!(saved, PxuiSaved) else { return unsafe { fail(ui, "invalid leave state") }; };
-    if saved.parents > 1 << 20 || saved.seeds > 1 << 20 {
-        return unsafe { fail(ui, "invalid leave state") };
-    }
-    unsafe { (&mut *state.engine).leave(Saved::Depths(saved.parents, saved.seeds)); }
-    0
-});
 
 export!(pub unsafe fn pxui_ui_focus_box(ui: *mut PxuiUi, box_: *const PxuiBox) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };

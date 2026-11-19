@@ -11,7 +11,7 @@ pub(crate) use pxui_types::ffi::{PxuiFooterDesc as FooterDesc, PxuiGridListDesc 
 
 #[cfg(feature = "static")]
 mod sys {
-    pub use pxui_abi_link::{pxui_ui_animate_keys, pxui_ui_animate_keys_repeat, pxui_ui_menu_bar_result, pxui_ui_wants_frame};
+    pub use pxui_abi_link::{pxui_ui_animate_keys, pxui_ui_animate_keys_repeat, pxui_ui_menu_bar, pxui_ui_wants_frame};
 }
 #[cfg(not(feature = "static"))]
 mod sys {
@@ -22,8 +22,8 @@ mod sys {
     unsafe extern "C" {
     pub(super) fn pxui_ui_section_list(ui: *mut PxuiUi, keyed: *const pxui_types::ffi::PxuiKeyedDesc, desc: *const pxui_types::ffi::PxuiSectionListDesc, key: pxui_types::ffi::PxuiRowKey, build: pxui_types::ffi::PxuiSectionBuild, user: *mut core::ffi::c_void, out: *mut pxui_types::ffi::PxuiListResult) -> i32;
     pub fn pxui_ui_grid_list(ui: *mut PxuiUi, desc: *const GridListDesc, out: *mut PxuiBox) -> i32;
-    pub fn pxui_ui_split_result(ui: *mut PxuiUi, desc: *const SplitDesc, out: *mut pxui_types::ffi::PxuiResponse, has_ratio: *mut u8, ratio: *mut f32) -> i32;
-    pub fn pxui_ui_menu_bar_result(ui: *mut PxuiUi, desc: *const MenuBarDesc, out: *mut MenuOut, dismissed: *mut u8) -> i32;
+    pub fn pxui_ui_split(ui: *mut PxuiUi, desc: *const SplitDesc, out: *mut pxui_types::ffi::PxuiResponse, has_ratio: *mut u8, ratio: *mut f32) -> i32;
+    pub fn pxui_ui_menu_bar(ui: *mut PxuiUi, desc: *const MenuBarDesc, out: *mut MenuOut, dismissed: *mut u8) -> i32;
     pub fn pxui_ui_inspector_row(ui: *mut PxuiUi, desc: *mut InspectorRowDesc) -> i32;
     pub fn pxui_ui_inspector_section(ui: *mut PxuiUi, desc: *mut InspectorSectionDesc) -> i32;
     pub fn pxui_ui_inspector_toggle(ui: *mut PxuiUi, key: Str, label: Str, value: u8, out: *mut u8) -> i32;
@@ -299,7 +299,7 @@ impl Ui {
             let (build_b, user_b): (Build, _) = (Some(crate::composite::call), &mut b as *mut _ as *mut c_void);
             let desc = SplitDesc { size: core::mem::size_of::<SplitDesc>() as u32, reserved: 0, label: as_str(label), axis: match axis { Axis::Row => 0, _ => 1 }, ratio, min_a, min_b, build_a, user_a, build_b, user_b };
             let (mut has, mut at) = (0u8, 0.0f32);
-            check(self, unsafe { sys::pxui_ui_split_result(self.0.as_ptr(), &desc, &mut out, &mut has, &mut at) });
+            check(self, unsafe { sys::pxui_ui_split(self.0.as_ptr(), &desc, &mut out, &mut has, &mut at) });
             (has != 0).then_some(at)
         };
         crate::SplitResponse { response: crate::kit_ext::response(&out), ratio: at }
@@ -332,7 +332,7 @@ impl Ui {
         let mut out = MenuOut { size: core::mem::size_of::<MenuOut>() as u32, reserved: 0, menu: usize::MAX, item: usize::MAX };
         let mut dismissed = 0u8;
         self.variant_on(pxui_types::theme::BodyKind::menu_bar, bar.variant);
-        check(self, unsafe { sys::pxui_ui_menu_bar_result(self.0.as_ptr(), &desc, &mut out, &mut dismissed) });
+        check(self, unsafe { sys::pxui_ui_menu_bar(self.0.as_ptr(), &desc, &mut out, &mut dismissed) });
         self.variant_off(pxui_types::theme::BodyKind::menu_bar, bar.variant);
         let picked = menus.get(out.menu).and_then(|menu| Some((menu.items.get(out.item)?, out.item)));
         let chosen = picked.map(|(_, item)| menus[..out.menu].iter().map(|menu| menu.items.len()).sum::<usize>() + item);

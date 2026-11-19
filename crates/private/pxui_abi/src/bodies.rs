@@ -351,7 +351,7 @@ mod tests {
     use super::*;
     use crate::{FrameIn, FrameOut, PXUI_ERR_ARGUMENT, PxuiUiDesc, pxui_frame, pxui_last_error, pxui_ui_create, pxui_ui_destroy, pxui_ui_set_theme};
     use core::cell::{Cell, RefCell};
-    use pxui_types::ffi::{PxuiSizeDesc, ThemeSource};
+    use pxui_types::ffi::ThemeSource;
 
     thread_local! {
         static TOGGLE: RefCell<Vec<(u32, String, u8, i32, i32, i32)>> = const { RefCell::new(Vec::new()) };
@@ -435,8 +435,8 @@ mod tests {
 
     extern "C" fn scroll_frame(_: *mut c_void, ui: *mut c_void) {
         let mut out = PxuiBox::default();
-        let grow = PxuiSizeDesc { kind: 3, value: 0.0, relative: None };
-        assert_eq!(unsafe { crate::pxui_ui_scroll_view(ui.cast(), text("list"), grow, grow, Some(count_content), core::ptr::null_mut(), &mut out) }, 0);
+        let grow = pxui_types::Node { w: pxui_types::Size::Grow, h: pxui_types::Size::Grow, ..pxui_types::Node::DEFAULT };
+        assert_eq!(unsafe { crate::pxui_ui_scroll_view(ui.cast(), &pxui_types::ffi::PxuiKeyedDesc::new("list", ""), &grow, Some(count_content), core::ptr::null_mut(), &mut out) }, 0);
     }
 
     /// A body runs the caller's content once through its slot; the slot is stale once the body call has returned.
@@ -472,8 +472,8 @@ mod tests {
     }
 
     extern "C" fn reentering_frame(_: *mut c_void, ui: *mut c_void) {
-        let (mut out, grow) = (PxuiBox::default(), PxuiSizeDesc { kind: 3, value: 0.0, relative: None });
-        assert_eq!(unsafe { crate::pxui_ui_scroll_view(ui.cast(), text("list"), grow, grow, Some(reentering_content), core::ptr::null_mut(), &mut out) }, 0);
+        let (mut out, grow) = (PxuiBox::default(), pxui_types::Node { w: pxui_types::Size::Grow, h: pxui_types::Size::Grow, ..pxui_types::Node::DEFAULT });
+        assert_eq!(unsafe { crate::pxui_ui_scroll_view(ui.cast(), &pxui_types::ffi::PxuiKeyedDesc::new("list", ""), &grow, Some(reentering_content), core::ptr::null_mut(), &mut out) }, 0);
     }
 
     /// A slot is never run inside its own content (the closure it lends is running): refused, and the content ran once.

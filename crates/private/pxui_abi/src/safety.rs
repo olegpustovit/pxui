@@ -298,7 +298,7 @@ fn modal_sheet_checks_every_field_before_the_build() {
     let keyed = PxuiKeyedDesc::new("sheet", "Queue");
     let good = PxuiSheetDesc { size: core::mem::size_of::<PxuiSheetDesc>() as u32, has_width: 0, present: 1, reserved: [0; 2], width: 0.0, dismiss_fraction: 0.0, dismiss_velocity: 0.0, top: 0.0, max_h: 0.0 };
     let sheet = |desc: &PxuiSheetDesc, built: &mut u32, open: &mut u8, root: &mut PxuiBox| in_frame(ui, &mut |ui| unsafe {
-        pxui_ui_modal_sheet(ui, &keyed, desc, Some(ran), (built as *mut u32).cast(), open, root)
+        pxui_ui_modal(ui, &keyed, desc, Some(ran), (built as *mut u32).cast(), open, root)
     });
     let (mut built, mut open, mut root) = (0u32, 0u8, PxuiBox::default());
     assert_eq!(sheet(&good, &mut built, &mut open, &mut root), 0, "{}", error(ui));
@@ -322,8 +322,8 @@ fn modal_sheet_checks_every_field_before_the_build() {
         assert_eq!((built, open), (0, 9), "{why}: no build, no output");
     }
     let mut root = PxuiBox::default();
-    assert_ne!(in_frame(ui, &mut |ui| unsafe { pxui_ui_modal_sheet(ui, &keyed, core::ptr::null(), Some(ran), core::ptr::null_mut(), &mut 0, &mut root) }), 0, "a null sheet");
-    assert_ne!(in_frame(ui, &mut |ui| unsafe { pxui_ui_modal_sheet(ui, &keyed, &good, Some(ran), core::ptr::null_mut(), core::ptr::null_mut(), &mut root) }), 0, "a null output");
+    assert_ne!(in_frame(ui, &mut |ui| unsafe { pxui_ui_modal(ui, &keyed, core::ptr::null(), Some(ran), core::ptr::null_mut(), &mut 0, &mut root) }), 0, "a null sheet");
+    assert_ne!(in_frame(ui, &mut |ui| unsafe { pxui_ui_modal(ui, &keyed, &good, Some(ran), core::ptr::null_mut(), core::ptr::null_mut(), &mut root) }), 0, "a null output");
     assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
 }
 
@@ -1145,20 +1145,7 @@ mod sized_records {
         fix(&mut value);
         four(ui, ((&value as *const PxuiPanel).cast(), size_of_val(&value), align_of_val(&value)), true, &mut |p| {
             let p = p.cast::<PxuiPanel>();
-            in_frame(ui, &mut |ui| unsafe { pxui_panel(ui, p, Str::default(), None, core::ptr::null_mut()) })
-        });
-        unsafe { pxui_ui_destroy(ui); }
-    }
-
-    #[test]
-    fn box_desc() {
-        let ui = create();
-        let mut value: PxuiBoxDesc = unsafe { core::mem::zeroed() };
-        let fix: fn(&mut PxuiBoxDesc) = |_| {};
-        fix(&mut value);
-        four(ui, ((&value as *const PxuiBoxDesc).cast(), size_of_val(&value), align_of_val(&value)), true, &mut |p| {
-            let p = p.cast::<PxuiBoxDesc>();
-            in_frame(ui, &mut |ui| unsafe { pxui_ui_box(ui, Str::default(), p, &mut PxuiBox::default()) })
+            in_frame(ui, &mut |ui| unsafe { pxui_ui_panel(ui, &pxui_types::ffi::PxuiKeyedDesc::new("k", ""), p, None, core::ptr::null_mut(), &mut PxuiBox::default()) })
         });
         unsafe { pxui_ui_destroy(ui); }
     }
@@ -1274,7 +1261,7 @@ mod sized_records {
         fix(&mut value);
         four(ui, ((&value as *const PxuiPopupDesc).cast(), size_of_val(&value), align_of_val(&value)), true, &mut |p| {
             let p = p.cast::<PxuiPopupDesc>();
-            in_frame(ui, &mut |ui| { let mut open = 0u8; unsafe { pxui_ui_popup(ui, p, None, core::ptr::null_mut(), &mut open) } })
+            in_frame(ui, &mut |ui| { let mut open = 0u8; unsafe { pxui_ui_popup(ui, &pxui_types::ffi::PxuiKeyedDesc::new("k", ""), p, None, core::ptr::null_mut(), &mut open, &mut PxuiBox::default()) } })
         });
         unsafe { pxui_ui_destroy(ui); }
     }
@@ -1610,7 +1597,7 @@ mod sized_records {
         fix(&mut value);
         four(ui, ((&value as *const PxuiSplitDesc).cast(), size_of_val(&value), align_of_val(&value)), true, &mut |p| {
             let p = p.cast::<PxuiSplitDesc>();
-            in_frame(ui, &mut |ui| { let (mut changed, mut ratio) = (0u8, 0.5f32); unsafe { pxui_ui_split(ui, p, &mut changed, &mut ratio) } })
+            in_frame(ui, &mut |ui| { let (mut changed, mut ratio) = (0u8, 0.5f32); unsafe { pxui_ui_split(ui, p, &mut { pxui_types::ffi::PxuiResponse::EMPTY }, &mut changed, &mut ratio) } })
         });
         unsafe { pxui_ui_destroy(ui); }
     }
@@ -1623,7 +1610,7 @@ mod sized_records {
         fix(&mut value);
         four(ui, ((&value as *const PxuiMenuBarDesc).cast(), size_of_val(&value), align_of_val(&value)), true, &mut |p| {
             let p = p.cast::<PxuiMenuBarDesc>();
-            in_frame(ui, &mut |ui| { let mut out = PxuiMenuOut::default(); out.size = core::mem::size_of::<PxuiMenuOut>() as u32; unsafe { pxui_ui_menu_bar(ui, p, &mut out) } })
+            in_frame(ui, &mut |ui| { let mut out = PxuiMenuOut::default(); out.size = core::mem::size_of::<PxuiMenuOut>() as u32; unsafe { pxui_ui_menu_bar(ui, p, &mut out, &mut 0) } })
         });
         unsafe { pxui_ui_destroy(ui); }
     }
@@ -1636,7 +1623,7 @@ mod sized_records {
         fix(&mut value);
         four(ui, ((&value as *const PxuiMenuOut).cast(), size_of_val(&value), align_of_val(&value)), true, &mut |p| {
             let p = p.cast::<PxuiMenuOut>();
-            in_frame(ui, &mut |ui| { let mut d: PxuiMenuBarDesc = unsafe { core::mem::zeroed() }; d.size = core::mem::size_of::<PxuiMenuBarDesc>() as u32; unsafe { pxui_ui_menu_bar(ui, &d, p) } })
+            in_frame(ui, &mut |ui| { let mut d: PxuiMenuBarDesc = unsafe { core::mem::zeroed() }; d.size = core::mem::size_of::<PxuiMenuBarDesc>() as u32; unsafe { pxui_ui_menu_bar(ui, &d, p, &mut 0) } })
         });
         unsafe { pxui_ui_destroy(ui); }
     }
@@ -1799,18 +1786,6 @@ mod sized_records {
         let (style, mut out) = (pxui_types::ffi::PxuiTextStyle::default(), pxui_types::TextMetrics::default());
         unsafe { pxui_text_width_spans(ui, 0, Str::default(), &style, 100.0, p, &mut out) }
     }
-        });
-        unsafe { pxui_ui_destroy(ui); }
-    }
-    #[test]
-    fn saved_in() {
-        let ui = create();
-        let mut value: PxuiSaved = unsafe { core::mem::zeroed() };
-        let fix: fn(&mut PxuiSaved) = |_| {};
-        fix(&mut value);
-        four(ui, ((&value as *const PxuiSaved).cast(), size_of_val(&value), align_of_val(&value)), true, &mut |p| {
-            let p = p.cast::<PxuiSaved>();
-            in_frame(ui, &mut |ui| unsafe { pxui_ui_leave(ui, p) })
         });
         unsafe { pxui_ui_destroy(ui); }
     }

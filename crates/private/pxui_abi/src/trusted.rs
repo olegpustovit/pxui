@@ -326,25 +326,7 @@ pub unsafe fn scope(ui: *mut PxuiUi, label: &str, f: Inner) -> i32 {
     0
 }
 
-#[inline]
-pub unsafe fn col(ui: *mut PxuiUi, padding: f32, label: &str, f: Inner) -> i32 {
-    enter!(ui);
-    if bad_key(label) || !padding.is_finite() { return unsafe { fail(ui, "invalid column arguments") }; }
-    unsafe { engine(ui) }.col(padding, label, f);
-    0
-}
-
-#[inline]
-pub unsafe fn view(ui: *mut PxuiUi, label: &str, revision: u64, width: Size, height: Size, flat: bool, f: Inner, out: *mut PxuiBox) -> i32 {
-    enter!(ui);
-    if bad_key(label) || !finite(width) || !finite(height) { return unsafe { fail(ui, "invalid view arguments") }; }
-    let engine = unsafe { engine(ui) };
-    let handle = if flat { engine.view_flat(label, revision, width, height, f) } else { engine.view(label, revision, width, height, f) };
-    unsafe { *out = to_abi_box(handle); }
-    0
-}
-
-/// The body of `pxui_ui_view_keyed`: the engine's `view_of` (sized by its parent).
+/// The body of `pxui_ui_view`: the engine's `view_of` (sized by its parent).
 #[inline]
 pub unsafe fn view_of(ui: *mut PxuiUi, key: &str, revision: u64, f: Inner, out: *mut PxuiBox) -> i32 {
     enter!(ui);
@@ -858,15 +840,6 @@ pub unsafe fn scroll_view(ui: *mut PxuiUi, key: &str, name: &str, node: &Node, f
 const MAX_ITEMS: usize = 1_000_000;
 
 // ---- more containers and callbacks
-
-/// Measured rows share the existing borrowed-handle callback protocol with virtual grids.
-#[inline]
-pub unsafe fn list_measured(ui:*mut PxuiUi,label:&str,count:usize,estimate_h:f32,f:&mut dyn FnMut(&mut Ui,usize),out:&mut PxuiBox)->i32 {
-    enter!(ui);
-    if bad_key(label) || count>MAX_ITEMS || !estimate_h.is_finite() || estimate_h<=0.0 || !(count as f32*estimate_h).is_finite() { return unsafe { fail(ui,"invalid measured list arguments") }; }
-    *out=to_abi_box(unsafe { engine(ui) }.list_measured(label,count,estimate_h,f));
-    0
-}
 
 
 /// A grid of `count` cells, built on demand: `cell` gets the engine and the cell's index, and makes its own borrowed handle.

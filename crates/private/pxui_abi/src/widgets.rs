@@ -85,9 +85,9 @@ mod keyed_tests {
             assert_eq!(unsafe { pxui_ui_spinner(ui, &k("s", "Loading"), &mut b) }, 0);
             assert_eq!(unsafe { pxui_ui_badge(ui, &k("b", "Unread"), s("3"), &mut b) }, 0);
             // 1.72: a view has no name, and its output is required; a valid one keys by `key` and runs its build
-            assert_eq!(unsafe { crate::composite::pxui_ui_view_keyed(ui, &k("view", "Named"), 1, None, core::ptr::null_mut(), &mut b) }, PXUI_ERR_ARGUMENT);
-            assert_eq!(unsafe { crate::composite::pxui_ui_view_keyed(ui, &k("view", ""), 1, None, core::ptr::null_mut(), core::ptr::null_mut()) }, PXUI_ERR_ARGUMENT);
-            assert_eq!(unsafe { crate::composite::pxui_ui_view_keyed(ui, &k("view", ""), 1, None, core::ptr::null_mut(), &mut b) }, 0);
+            assert_eq!(unsafe { crate::composite::pxui_ui_view(ui, &k("view", "Named"), 1, None, core::ptr::null_mut(), &mut b) }, PXUI_ERR_ARGUMENT);
+            assert_eq!(unsafe { crate::composite::pxui_ui_view(ui, &k("view", ""), 1, None, core::ptr::null_mut(), core::ptr::null_mut()) }, PXUI_ERR_ARGUMENT);
+            assert_eq!(unsafe { crate::composite::pxui_ui_view(ui, &k("view", ""), 1, None, core::ptr::null_mut(), &mut b) }, 0);
             assert_eq!(b.box_key, pxui_types::ui::key_of(pxui_types::ui::ROOT_KEY, "view"));
             let _ = user;
         }

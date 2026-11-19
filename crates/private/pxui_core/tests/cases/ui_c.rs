@@ -601,7 +601,10 @@ pub fn floating_roots_past_the_layer_limit_share_a_merged_layer() {
 pub fn a_tooltip_is_a_tooltip_layer() {
     let mut ui = ui11();
     for (t, events) in [(0.0, vec![move_to((10, 10))]), (0.1, vec![]), (1.0, vec![]), (1.1, vec![])] {
-        ui.frame(&frame_at(vec![], 1.0, t, events), &mut |ui| ui.tooltip_legacy("tip", "Hello"));
+        ui.frame(&frame_at(vec![], 1.0, t, events), &mut |ui| {
+            let b = ui.box_("tip", BoxOpts::default().flags(Flags::CLICKABLE).w(Size::Px(100.0)).h(Size::Px(100.0)));
+            ui.tooltip(&b, "Hello");
+        });
     }
     let kinds: Vec<LayerRole> = ui.output().draw.iter().map(|l| l.role).collect();
     check(kinds == [LayerRole::Base, LayerRole::Tooltip], &format!("layers {kinds:?}"));

@@ -7005,13 +7005,8 @@ impl Ui {
         }
     }
 
-    /// A tooltip: a 20-point sheet with a line-2 edge and 6 points of padding, text at the label
-    /// size and long text wraps to further 14-point lines.
-    #[doc(hidden)]
-    /// The C 1.x `pxui_ui_tooltip` only (cut at 2.0): the tooltip sheet for a hover the caller tracks by `key`; Rust calls `tooltip`.
-    pub fn tooltip_legacy(&mut self, key: &str, text: &str) { self.tooltip_sheet(Some(key), 0, text) }
-
-    /// The tooltip once the hover wait of `wait` (text) or `key` (see `hover_wait`) has passed.
+    /// The tooltip once the hover wait of `wait` (text) or `key` (see `hover_wait`) has passed: a 20-point sheet with a line-2 edge
+    /// and 6 points of padding, text at the label size and long text wrapping to further 14-point lines.
     pub(crate) fn tooltip_sheet(&mut self, wait: Option<&str>, key: i64, text: &str) {
         if !self.hover_wait(wait, key) {
             return;
@@ -7056,12 +7051,6 @@ impl Ui {
     /// on the placement's side, flipped to the other when it does not fit there, kept inside the
     /// window. Its size may be `Fit`: placement runs in layout, after the size is known. Built at the
     /// root wherever it is called, and painted over the rest.
-    #[doc(hidden)]
-    /// The C 1.x `pxui_ui_anchored` only (cut at 2.0): any `Size` for the sheet, which `Overlay` (points or fit) does not take.
-    pub fn anchored_legacy(&mut self, label: &str, anchor: Rect, placement: Placement, w: Size, h: Size, f: &mut dyn FnMut(&mut Ui)) -> Handle {
-        self.anchored_label(label, anchor, placement, w, h, f)
-    }
-
     pub(crate) fn anchored_label(&mut self, label: &str, anchor: Rect, placement: Placement, w: Size, h: Size, f: &mut dyn FnMut(&mut Ui)) -> Handle {
         let saved = self.enter_root_parent();
         let b = self.node_ref(label, &Node { w, h, anchor: Some(Anchor::new(anchor, placement)).into(), ..Node::DEFAULT });
@@ -8861,12 +8850,6 @@ impl Ui {
 
     pub(crate) fn closed_section_index(&self) -> usize {
         self.closed_section
-    }
-
-    /// The frame number while a payload is carried, else 0 (a revision part that rebuilds a view
-    /// every frame of a carry).
-    pub(crate) fn carry_frame(&self) -> u64 {
-        if self.payload.is_some() { self.frame_number as u64 } else { 0 }
     }
 
     pub(crate) fn set_closed_section(&mut self, index: usize) {

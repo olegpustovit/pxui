@@ -10,7 +10,7 @@ use crate::{as_str, Error, Handle, Key, Paint, Ui};
 use pxui_types::{draw::Fit, ffi::PxuiSizeDesc, geom::{Rect, Rgba}, Image, PxuiBox, Size, Str};
 
 library!(lib {
-    fn pxui_ui_image_keyed(ui: *mut PxuiUi, key: Str, name: Str, image: *const Image, fit: u32, width: PxuiSizeDesc, height: PxuiSizeDesc, out: *mut PxuiBox) -> i32;
+    fn pxui_ui_image(ui: *mut PxuiUi, key: Str, name: Str, image: *const Image, fit: u32, width: PxuiSizeDesc, height: PxuiSizeDesc, out: *mut PxuiBox) -> i32;
     fn pxui_paint_image_checked(paint: *mut RawPaint, image: *const Image, x: f32, y: f32, width: f32, height: f32, fit: u32, tint: Rgba) -> i32;
 });
 
@@ -106,7 +106,7 @@ impl Ui {
         if let Key::Label(label) = key { crate::authored(label); }
         let mut id_label = [0u8; 17];
         let mut out = Handle::default();
-        let rc = unsafe { lib::pxui_ui_image_keyed(self.0.as_ptr(), crate::as_text(key.label(&mut id_label)), as_str(name), image, fit(style.fit), size(style.w), size(style.h), &mut out) };
+        let rc = unsafe { lib::pxui_ui_image(self.0.as_ptr(), crate::as_text(key.label(&mut id_label)), as_str(name), image, fit(style.fit), size(style.w), size(style.h), &mut out) };
         if rc == 0 { Ok(out) } else { Err(Error::from_code(rc)) }
     }
 }

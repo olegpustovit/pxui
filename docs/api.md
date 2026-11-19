@@ -4196,25 +4196,25 @@ pxui_types::ffi::PxuiBadgeConfig::size field u32 @HEAD
 pxui_types::ffi::PxuiBadgeConfig::text field Str @HEAD
 pxui_types::ffi::PxuiBadgeConfig::variant field u16 @HEAD
 pxui_types::ffi::PxuiBodyFn type = Option<extern "C" fn(*mut c_void, *mut c_void, *const c_void)> @HEAD
-pxui_types::ffi::PxuiBoxDesc impl Clone @HEAD
-pxui_types::ffi::PxuiBoxDesc impl Copy @HEAD
-pxui_types::ffi::PxuiBoxDesc struct @HEAD
-pxui_types::ffi::PxuiBoxDesc::at field [f32; 2] @HEAD
-pxui_types::ffi::PxuiBoxDesc::axis field u32 @HEAD
-pxui_types::ffi::PxuiBoxDesc::flags field i64 @HEAD
-pxui_types::ffi::PxuiBoxDesc::h field PxuiSizeDesc @HEAD
-pxui_types::ffi::PxuiBoxDesc::has_at field u8 @HEAD
-pxui_types::ffi::PxuiBoxDesc::has_hit_rect field u8 @HEAD
-pxui_types::ffi::PxuiBoxDesc::hit field Option<extern "C" fn(*mut c_void, Rect) -> Rect> @HEAD
-pxui_types::ffi::PxuiBoxDesc::hit_rect field Rect @HEAD
-pxui_types::ffi::PxuiBoxDesc::hit_release field Option<extern "C" fn(*mut c_void)> @HEAD
-pxui_types::ffi::PxuiBoxDesc::hit_user field *mut c_void @HEAD
-pxui_types::ffi::PxuiBoxDesc::max_h field f32 @HEAD
-pxui_types::ffi::PxuiBoxDesc::padding field f32 @HEAD
-pxui_types::ffi::PxuiBoxDesc::reserved field [u8; 2] @HEAD
-pxui_types::ffi::PxuiBoxDesc::scroll_step field f32 @HEAD
-pxui_types::ffi::PxuiBoxDesc::size field u32 @HEAD
-pxui_types::ffi::PxuiBoxDesc::w field PxuiSizeDesc @HEAD
+-pxui_types::ffi::PxuiBoxDesc impl Clone @U2c.3
+-pxui_types::ffi::PxuiBoxDesc impl Copy @U2c.3
+-pxui_types::ffi::PxuiBoxDesc struct @U2c.3
+-pxui_types::ffi::PxuiBoxDesc::at field [f32; 2] @U2c.3
+-pxui_types::ffi::PxuiBoxDesc::axis field u32 @U2c.3
+-pxui_types::ffi::PxuiBoxDesc::flags field i64 @U2c.3
+-pxui_types::ffi::PxuiBoxDesc::h field PxuiSizeDesc @U2c.3
+-pxui_types::ffi::PxuiBoxDesc::has_at field u8 @U2c.3
+-pxui_types::ffi::PxuiBoxDesc::has_hit_rect field u8 @U2c.3
+-pxui_types::ffi::PxuiBoxDesc::hit field Option<extern "C" fn(*mut c_void, Rect) -> Rect> @U2c.3
+-pxui_types::ffi::PxuiBoxDesc::hit_rect field Rect @U2c.3
+-pxui_types::ffi::PxuiBoxDesc::hit_release field Option<extern "C" fn(*mut c_void)> @U2c.3
+-pxui_types::ffi::PxuiBoxDesc::hit_user field *mut c_void @U2c.3
+-pxui_types::ffi::PxuiBoxDesc::max_h field f32 @U2c.3
+-pxui_types::ffi::PxuiBoxDesc::padding field f32 @U2c.3
+-pxui_types::ffi::PxuiBoxDesc::reserved field [u8; 2] @U2c.3
+-pxui_types::ffi::PxuiBoxDesc::scroll_step field f32 @U2c.3
+-pxui_types::ffi::PxuiBoxDesc::size field u32 @U2c.3
+-pxui_types::ffi::PxuiBoxDesc::w field PxuiSizeDesc @U2c.3
 pxui_types::ffi::PxuiBuild type = UiBuild @HEAD
 pxui_types::ffi::PxuiButtonBuild type = Option<extern "C" fn(*mut c_void, *mut c_void, *const PxuiStateDesc)> @HEAD
 pxui_types::ffi::PxuiButtonConfig impl Clone @HEAD
@@ -5165,15 +5165,15 @@ pxui_types::ffi::PxuiRowConfig::size field u32 @HEAD
 pxui_types::ffi::PxuiRowConfig::state field PxuiStateDesc @HEAD
 pxui_types::ffi::PxuiRowConfig::variant field u16 @HEAD
 pxui_types::ffi::PxuiRowKey type = Option<extern "C" fn(*mut c_void, usize) -> i64> @HEAD
-pxui_types::ffi::PxuiSaved impl Clone @HEAD
-pxui_types::ffi::PxuiSaved impl Copy @HEAD
-pxui_types::ffi::PxuiSaved impl Debug @HEAD
-pxui_types::ffi::PxuiSaved impl Default @HEAD
-pxui_types::ffi::PxuiSaved struct @HEAD
-pxui_types::ffi::PxuiSaved::parents field usize @HEAD
-pxui_types::ffi::PxuiSaved::reserved field u32 @HEAD
-pxui_types::ffi::PxuiSaved::seeds field usize @HEAD
-pxui_types::ffi::PxuiSaved::size field u32 @HEAD
+-pxui_types::ffi::PxuiSaved impl Clone @U2c.3
+-pxui_types::ffi::PxuiSaved impl Copy @U2c.3
+-pxui_types::ffi::PxuiSaved impl Debug @U2c.3
+-pxui_types::ffi::PxuiSaved impl Default @U2c.3
+-pxui_types::ffi::PxuiSaved struct @U2c.3
+-pxui_types::ffi::PxuiSaved::parents field usize @U2c.3
+-pxui_types::ffi::PxuiSaved::reserved field u32 @U2c.3
+-pxui_types::ffi::PxuiSaved::seeds field usize @U2c.3
+-pxui_types::ffi::PxuiSaved::size field u32 @U2c.3
 pxui_types::ffi::PxuiScrollConfig impl Clone @HEAD
 pxui_types::ffi::PxuiScrollConfig impl Copy @HEAD
 pxui_types::ffi::PxuiScrollConfig struct @HEAD

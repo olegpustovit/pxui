@@ -803,7 +803,7 @@ pub fn window_pxui_frame_gate() {
         ui.frame(&frame_at(vec![], 1.0, time, events), &mut |ui| {
             let b = ui.box_("gate", BoxOpts::default().flags(Flags::CLICKABLE).at((200.0, 150.0)).w(Size::Px(100.0)).h(Size::Px(60.0)));
             if ui.hovered_within(&b) && ui.hover_delay("gate") {
-                ui.tooltip_legacy("gate", "Tip");
+                ui.label("Tip", Label::DEFAULT);
             }
             ui.draw(&b, |paint, Rect { x, y, w, h }| paint.fill(x, y, w, h, pxui_core::geom::Rgba::WHITE));
         });
@@ -851,9 +851,6 @@ pub fn window_pxui_tooltip_rest() {
             ui.leave(saved);
             let k = key_name.borrow().clone();
             let ready = !skip.get() && ui.hovered_within(&parent) && ui.hover_delay(&k);
-            if ready {
-                ui.tooltip_legacy(&k, "A shared tooltip.");
-            }
             out = (ready, ui.hovered_within(&parent), ui.signal_owned(&child).hovered);
         });
         out

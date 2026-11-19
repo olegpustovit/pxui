@@ -81,7 +81,7 @@ impl Ui {
                 top: overlay.at.1, max_h: overlay.max_h.unwrap_or_default(),
             };
             let mut out = 0;
-            check(self, unsafe { keyed_sys::pxui_ui_modal_sheet(self.0.as_ptr(), &keyed, &sheet, Some(call), &mut build as *mut _ as *mut c_void, &mut out, &mut handle) });
+            check(self, unsafe { keyed_sys::pxui_ui_modal(self.0.as_ptr(), &keyed, &sheet, Some(call), &mut build as *mut _ as *mut c_void, &mut out, &mut handle) });
             OverlayResponse { handle, open: out != 0 }
         }
     }
@@ -105,7 +105,7 @@ impl Ui {
             if let Some(stroke) = overlay.stroke { (panel.has_stroke, panel.stroke) = (1, stroke); }
             if let Some(look) = overlay.look { panel_look(&mut panel, look); }
             let keyed = PxuiKeyedDesc::new(key, crate::clip(overlay.name.unwrap_or("")));
-            unsafe { keyed_sys::pxui_ui_panel_root(self.0.as_ptr(), &keyed, &panel, Some(call), &mut f as *mut _ as *mut c_void, &mut handle) }
+            unsafe { keyed_sys::pxui_ui_panel(self.0.as_ptr(), &keyed, &panel, Some(call), &mut f as *mut _ as *mut c_void, &mut handle) }
         };
         check(self, rc);
         OverlayResponse { handle, open: true }
@@ -120,7 +120,7 @@ impl Ui {
         #[cfg(feature = "static")]
         check(self, unsafe { let outer = self.0.as_ptr(); pxui_abi_link::trusted::scroll_view(outer, key, "", &node, inner!(outer, |ui: &mut Ui| build(ui)), &mut out) });
         #[cfg(not(feature = "static"))]
-        check(self, unsafe { keyed_sys::pxui_ui_scroll_view_node(self.0.as_ptr(), &PxuiKeyedDesc::new(key, ""), &node, Some(call), &mut build as *mut _ as *mut c_void, &mut out) });
+        check(self, unsafe { keyed_sys::pxui_ui_scroll_view(self.0.as_ptr(), &PxuiKeyedDesc::new(key, ""), &node, Some(call), &mut build as *mut _ as *mut c_void, &mut out) });
         out
     }
 
@@ -134,7 +134,7 @@ impl Ui {
         #[cfg(feature = "static")]
         check(self, unsafe { let outer = self.0.as_ptr(); pxui_abi_link::trusted::view_of(outer, key, revision, inner!(outer, |ui: &mut Ui| build(ui)), &mut out) });
         #[cfg(not(feature = "static"))]
-        check(self, unsafe { keyed_sys::pxui_ui_view_keyed(self.0.as_ptr(), &PxuiKeyedDesc::new(key, ""), revision, Some(call), &mut build as *mut _ as *mut c_void, &mut out) });
+        check(self, unsafe { keyed_sys::pxui_ui_view(self.0.as_ptr(), &PxuiKeyedDesc::new(key, ""), revision, Some(call), &mut build as *mut _ as *mut c_void, &mut out) });
         out
     }
 
@@ -151,7 +151,7 @@ impl Ui {
             let mut descriptor = encode_placement(overlay.place);
             descriptor.rect = anchor;
             let (width, height) = { use pxui_types::Size; (overlay.w.map_or(Size::Fit, Size::Px), overlay.h.map_or(Size::Fit, Size::Px)) };
-            check(self, unsafe { keyed_sys::pxui_ui_anchored_keyed(self.0.as_ptr(), &PxuiKeyedDesc::new(key, crate::clip(overlay.name.unwrap_or(""))), &descriptor, size(width), size(height), Some(call), &mut build as *mut _ as *mut c_void, &mut out) });
+            check(self, unsafe { keyed_sys::pxui_ui_anchored(self.0.as_ptr(), &PxuiKeyedDesc::new(key, crate::clip(overlay.name.unwrap_or(""))), &descriptor, size(width), size(height), Some(call), &mut build as *mut _ as *mut c_void, &mut out) });
         }
         OverlayResponse { handle: out, open: true }
     }
@@ -172,10 +172,10 @@ mod keyed_sys {
     use crate::sys::PxuiUi;
     #[link(name = "pxui")]
     unsafe extern "C" {
-        pub(super) fn pxui_ui_modal_sheet(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, sheet: *const pxui_types::ffi::PxuiSheetDesc, build: UiBuild, user: *mut c_void, out: *mut u8, root: *mut PxuiBox) -> i32;
-        pub(super) fn pxui_ui_panel_root(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, panel: *const PxuiPanel, build: UiBuild, user: *mut c_void, root: *mut PxuiBox) -> i32;
-        pub(super) fn pxui_ui_view_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, revision: u64, build: UiBuild, user: *mut c_void, out: *mut PxuiBox) -> i32;
-        pub(super) fn pxui_ui_scroll_view_node(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, node: *const pxui_types::Node, build: UiBuild, user: *mut c_void, out: *mut PxuiBox) -> i32;
-        pub(super) fn pxui_ui_anchored_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, anchor: *const PxuiAnchorDesc, width: PxuiSizeDesc, height: PxuiSizeDesc, build: UiBuild, user: *mut c_void, out: *mut PxuiBox) -> i32;
+        pub(super) fn pxui_ui_modal(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, sheet: *const pxui_types::ffi::PxuiSheetDesc, build: UiBuild, user: *mut c_void, out: *mut u8, root: *mut PxuiBox) -> i32;
+        pub(super) fn pxui_ui_panel(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, panel: *const PxuiPanel, build: UiBuild, user: *mut c_void, root: *mut PxuiBox) -> i32;
+        pub(super) fn pxui_ui_view(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, revision: u64, build: UiBuild, user: *mut c_void, out: *mut PxuiBox) -> i32;
+        pub(super) fn pxui_ui_scroll_view(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, node: *const pxui_types::Node, build: UiBuild, user: *mut c_void, out: *mut PxuiBox) -> i32;
+        pub(super) fn pxui_ui_anchored(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, anchor: *const PxuiAnchorDesc, width: PxuiSizeDesc, height: PxuiSizeDesc, build: UiBuild, user: *mut c_void, out: *mut PxuiBox) -> i32;
     }
 }
