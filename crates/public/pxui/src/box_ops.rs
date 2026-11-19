@@ -638,7 +638,7 @@ impl Ui {
     pub fn drop_target(&mut self, b: &Handle) -> Option<DropRef<'_>> {
         // linked statically, the common answer (nothing carried, no target) without the export's box checks and payload lending
         #[cfg(feature = "static")]
-        if !unsafe { pxui_abi_link::trusted::drop_pending(self.0.as_ptr()) } { return None; }
+        if !unsafe { pxui_abi_link::trusted::drop_pending(self.0.as_ptr(), b) } { return None; }
         let (mut tag, mut kind, mut value) = (0, Str::default(), Str::default());
         check(self, unsafe { lib::pxui_ui_drop_target(self.0.as_ptr(), b, &mut tag, &mut kind, &mut value) });
         let payload = || PayloadRef { kind: crate::lent_str(kind), value: crate::lent_str(value) };

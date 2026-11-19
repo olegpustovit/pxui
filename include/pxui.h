@@ -130,7 +130,7 @@ typedef struct { PxuiLook idle,hover,pressed,focus,disabled,checked; } PxuiState
 typedef struct { uint16_t toggle,slider,progress,button,icon_button,checkbox,radio,spinner,badge,label,footer,grip,panel,window,popup,modal,dialog,inspector_section,inspector_row,split,scroll_view,toast,tip,tab,segment,dropdown,menu_bar,menu_item,context_menu,list_view,tree,table_view,table_head,picker,search_field,text_field,line_field,value_field,picker_field,section_index; } PxuiBodies;
 typedef struct { PxuiTokens tokens; float row_h,control_h; PxuiRing ring; float scrollbar_w,scrollbar_gap; PxuiStates parts[PXUI_THEME_PARTS]; PxuiBodies bodies; } PxuiThemeSnapshot;
 /* ABI 1.92: a handle's public head. theme is the theme in effect for this handle as pxui_ui_theme_exact lends it, NULL until a theme
-   read on the handle fills it; then read the field in place of the call. It stays valid while the handle does and cannot change while
+   read on the handle fills it; then read the field in place of the call. The library maintains it: the caller must not write it. It stays valid while the handle does and cannot change while
    the handle is usable (a theme swap is refused in a frame; a themed scope builds through a handle of its own). The rest of the
    record is private: never allocate, copy or size a PxuiUi. */
 struct PxuiUi { const PxuiThemeSnapshot *theme; };
@@ -374,7 +374,7 @@ typedef struct { uint32_t size; uint8_t enabled,on,press_row,reserved; float row
 typedef struct { uint32_t size; uint8_t disabled, on, passive, reserved; float box_size; const PxuiLookDesc *look; PxuiStr key, text; } PxuiCheckboxDesc;
 /* ABI 1.67 (a 64- or 96-byte record is still read, its selected always the choice): has_selected 1 when selected is the choice (clamped to
    the options), 0 for no choice (final; selected not read; pxui_ui_segmented_response refuses it); reserved3 zero. */
-/* ABI 1.76: one pick-one item (pxui_ui_pick, pxui_ui_segmented_items), borrowed for the call: has_id 1 keys it by id (its node, focus and
+/* ABI 1.76: one pick-one item (pxui_ui_pick, pxui_ui_segmented_items), borrowed for the call and must not change during the call, including from body callbacks: has_id 1 keys it by id (its node, focus and
    secondary press follow it through a reorder), 0 by its place; reserved zero; name empty for the text; detail extra body text (may be empty). */
 typedef struct { uint8_t has_id, reserved[7]; int64_t id; PxuiStr text, name, detail; } PxuiPickItem;
 typedef struct { const PxuiPickItem *ptr; size_t len; } PxuiPickItemSpan;
@@ -710,7 +710,7 @@ typedef uint8_t (*PxuiPickerOff)(void *user, int64_t row);
 int32_t pxui_ui_picker(PxuiUi *ui, int64_t limit, uint8_t slash, uint8_t at_rest, PxuiStr label, PxuiStr query, PxuiPickerRows rows, PxuiPickerMark mark, PxuiPickerOff off, void *user, PxuiStr *out_query, uint32_t *out_tag, int64_t *out_index);
 int32_t pxui_ui_tree(PxuiUi *ui, const PxuiTreeViewDesc *desc, size_t *activated);
 /* Widget bodies: an app builds a widget kind's nodes itself. pxui_body_register names a body of kind `kind` (PxuiBodyKind, in the field order of
-   PxuiBodies; append-only) `name`, for a theme's `KIND.body = NAME` (pxui_ui_set_theme, pxui_ui_theme_apply) and returns its id, 0 when refused
+   PxuiBodies; before 2.0 kinds are renumbered in place, so build against this header) `name`, for a theme's `KIND.body = NAME` (pxui_ui_set_theme, pxui_ui_theme_apply) and returns its id, 0 when refused
    (see pxui_last_error). A name has one id for the whole process, whichever Ui registers it, and is never released (65,535 names a kind at most, in the process; choose names statically, and register a name again to change its body: that keeps the id and uses none): a
    theme carried from the Ui that parsed it to another selects the body of that name there, or the built-in body where that Ui has none; the function is called as body(user, ui, config) with the kind's record below, `ui` borrowed and valid for the call.
    Records start with `size` and grow at the end. A body builds with the ordinary calls, finds the parts its widget's behaviour reads through

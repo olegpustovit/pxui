@@ -66,6 +66,8 @@ const GATE_DYNAMIC_SMALL_PAGE_US: f64 = 1.5;
 const GATE_STATIC_KIT_INSTRUCTION_RATIO: f64 = 1.013;
 const GATE_DYNAMIC_LAYOUT_INSTRUCTION_RATIO: f64 = 1.045; // the wrapper is 37,676 instructions over the engine's 855,031 (4.41%). The ratio rose from 4.02% because the page stopped copying the theme (the engine frame was 975,138, the wrapper 39,201 over it); 3.84% before the current-handle check of every call (OPEN_ISSUES.md)
 const GATE_STATIC_OVERLAYS_INSTRUCTION_RATIO: f64 = 1.011; // 1.01 before the current-handle check: about 118 instructions on a 60,429-instruction frame (1.0102)
+// Margin at U2b.10 is about 27 instructions; whether the gallery crate inlines a sixth `button::<&str>` call swings Overlays by about
+// 180. The limit stays: fix that by making the page's call shape deterministic, never by raising it.
 /// Plan: the dynamic build's resident memory no higher than the static build's. A second OGPU, `metal_sys` and `input` copy is the
 /// design (section 5), so the gate is its private (dirty) footprint, within a tolerance, and the clean shared code pages apart.
 const GATE_PRIVATE_TOLERANCE_KIB: f64 = 512.0;

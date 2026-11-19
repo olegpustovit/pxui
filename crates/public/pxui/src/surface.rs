@@ -1361,6 +1361,9 @@ fn a_caller_bug_panics_with_the_librarys_message_at_the_call() {
     let err = catch_unwind(AssertUnwindSafe(|| { let _ = ui.scroll(&stale).settled; })).expect_err("a stale box is refused");
     let message = err.downcast_ref::<String>().expect("a formatted message");
     assert!(message.contains("stale box"), "{message}");
+    // linked statically too, with nothing carried: the shortcut refuses the box as the export does
+    let err = catch_unwind(AssertUnwindSafe(|| { let _ = ui.drop_target(&stale); })).expect_err("a stale drop target is refused");
+    assert!(err.downcast_ref::<String>().is_some_and(|m| m.contains("stale box")));
     let err = catch_unwind(AssertUnwindSafe(|| ui.set_font_size(0.0))).expect_err("a font size of zero is refused");
     assert!(err.downcast_ref::<String>().is_some_and(|m| m.contains("font size")));
     assert_eq!(ui.font_size(), 13.0, "the refused call changed nothing");

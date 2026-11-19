@@ -253,10 +253,15 @@ impl Current {
 // a poisoned `Ui` stays without a current handle until its next frame (`panicked` cleared it): every call takes `refuse`'s way out.
 // In a frame `building` is `current`, so it follows it back.
 impl Drop for Current { #[inline(always)] fn drop(&mut self) { unsafe { if !(*self.shared).poisoned { (*self.shared).current = self.prev; (*self.shared).building = self.prev; } } } }
-/// No handle current between frames (a renderer callback), where none builds (`building` stays null) until it is dropped.
-pub(crate) struct NoCurrent { shared: *mut Shared, prev: *mut PxuiUi }
-impl NoCurrent { pub fn set(shared: *mut Shared) -> Self { Self { shared, prev: unsafe { core::mem::replace(&mut (*shared).current, core::ptr::null_mut()) } } } }
-impl Drop for NoCurrent { fn drop(&mut self) { unsafe { if !(*self.shared).poisoned { (*self.shared).current = self.prev; } } } }
+/// No handle current and none building (a renderer callback) until it is dropped, which restores both.
+pub(crate) struct NoCurrent { shared: *mut Shared, prev: *mut PxuiUi, building: *mut PxuiUi }
+impl NoCurrent {
+    pub fn set(shared: *mut Shared) -> Self {
+        let (prev, building) = unsafe { (core::mem::replace(&mut (*shared).current, core::ptr::null_mut()), core::mem::replace(&mut (*shared).building, core::ptr::null_mut())) };
+        Self { shared, prev, building }
+    }
+}
+impl Drop for NoCurrent { fn drop(&mut self) { unsafe { if !(*self.shared).poisoned { (*self.shared).current = self.prev; (*self.shared).building = self.building; } } } }
 
 /// Whether `ui` is the handle an export may use now (one load and compare; see `Shared::current`).
 #[inline(always)]

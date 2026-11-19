@@ -114,12 +114,14 @@ pub unsafe fn part(ui: *mut PxuiUi, part: u32, desc: &Node, out: *mut PxuiBox) -
     0
 }
 
-/// `pxui_ui_drop_target`'s answer when nothing is carried or dropped this frame (the static wrapper's `drop_target` asks first): `false`
-/// is that answer, no target, counted as the call, as the engine answers before it looks at the box; `true` (or a `Ui` that is not
-/// usable) sends the caller to the export, which checks the box and lends the payload.
+/// `pxui_ui_drop_target`'s answer for box `b` when nothing is carried or dropped this frame (the static wrapper's `drop_target` asks
+/// first): `false` is that answer, no target, counted as the call; `true` (a `Ui` that is not usable, a box the export refuses as
+/// stale, or a pending drop) sends the caller to the export, which checks the box and lends the payload.
 #[inline]
-pub unsafe fn drop_pending(ui: *mut PxuiUi) -> bool {
-    if ui.is_null() || !unsafe { crate::state::usable(ui) } || unsafe { engine(ui) }.drop_pending() { return true; }
+pub unsafe fn drop_pending(ui: *mut PxuiUi, b: *const PxuiBox) -> bool {
+    if ui.is_null() || b.is_null() || !unsafe { crate::state::usable(ui) } { return true; }
+    let e = unsafe { engine(ui) };
+    if e.drop_pending() || crate::state::live_box(e, unsafe { *b }).is_none() { return true; }
     unsafe { note_call((*ui).shared) };
     false
 }

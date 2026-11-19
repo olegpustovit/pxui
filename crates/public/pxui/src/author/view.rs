@@ -58,7 +58,9 @@ fn hash_run(f: &mut dyn FnMut(&mut FixedHasher)) -> u64 {
 ///
 /// Bytes (a `str`'s, a slice's) hash one FNV-1a step each; an integer of up to 64 bits one step of its whole value as a 64-bit word
 /// (signed ones sign-extended, `usize` as 64 bits), so two different integers never hash alike. Anything else hashes as its `Hash`
-/// impl feeds the hasher, so the number is stable only while the type's `Hash` impl is. The numbers are for comparing within a run;
+/// impl feeds the hasher, so the number is stable only while the type's `Hash` impl is. Because integers fold as whole 64-bit words,
+/// fields of a tuple or struct that differ only in high bits can cancel: fine for a revision, not a cryptographic or collision-free
+/// hash. The numbers are for comparing within a run;
 /// nothing should persist them. Use it as the `revision` of a view.
 /// Allocates: never.
 /// Panics: never (unless `T::hash` does).

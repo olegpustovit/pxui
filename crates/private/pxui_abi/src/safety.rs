@@ -126,6 +126,43 @@ fn a_ui_with_a_renderer_attached_refuses_to_be_destroyed() {
     assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
 }
 
+/// A renderer holds the engine while it draws: a split callback it runs during a frame callback's lifetime (`NoCurrent`) cannot build
+/// through the frame's handle, and the handle builds again once the renderer returns.
+#[test]
+fn a_builder_call_from_a_renderer_split_callback_is_refused() {
+    let ui = create();
+    let desc = pxui_types::Node::DEFAULT;
+    let rc = in_frame(ui, &mut |handle| {
+        let mut out = PxuiBox::default();
+        {
+            let _renderer = crate::state::NoCurrent::set(unsafe { (*handle).shared });
+            assert_eq!(unsafe { pxui_ui_node_keyed(handle, 7, &desc, &mut out) }, PXUI_ERR_STATE);
+        }
+        unsafe { pxui_ui_node_keyed(handle, 7, &desc, &mut out) }
+    });
+    assert_eq!(rc, 0, "{}", error(ui));
+    assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
+}
+
+/// Renderer calls are refused from a frame callback (`PXUI_ERR_STATE`) before the renderer is read: only its `shared` is written here.
+#[test]
+fn a_renderer_call_inside_a_frame_is_refused() {
+    let ui = create();
+    let mut renderer = core::mem::MaybeUninit::<PxuiRenderer>::uninit();
+    let raw = renderer.as_mut_ptr();
+    unsafe { core::ptr::addr_of_mut!((*raw).shared).write((*ui).shared); }
+    let commands = pxui_types::Commands { size: core::mem::size_of::<pxui_types::Commands>() as u32, ..unsafe { core::mem::zeroed() } };
+    let pass = pxui_types::Pass::default();
+    let (mut prepared, mut drawn) = (0, 0);
+    assert_eq!(in_frame(ui, &mut |_| unsafe {
+        prepared = pxui_renderer_prepare(raw, &commands, 1, 0);
+        drawn = pxui_renderer_draw(raw, &pass);
+        0
+    }), 0);
+    assert_eq!((prepared, drawn), (PXUI_ERR_STATE, PXUI_ERR_STATE));
+    assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
+}
+
 #[test]
 fn checked_constructors_leave_outputs_untouched_on_refusal() {
     extern "C" fn body(_: *mut c_void, _: *mut c_void, _: *const c_void) {}

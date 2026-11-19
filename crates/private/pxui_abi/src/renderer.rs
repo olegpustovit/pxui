@@ -184,7 +184,7 @@ export!(pub unsafe fn pxui_renderer_prepare(renderer:*mut PxuiRenderer, commands
     let commands=match adopt_again(&renderer.queue,renderer.prepared.take(),native) { Ok(c)=>c, Err(e)=>return renderer.fail_gpu(e) };
     if let Err(e)=gpu_backend::retire(&renderer.queue,completed) { return renderer.fail_gpu(e); }
     renderer.completed=completed;
-    // the renderer holds the engine until it returns: a callback it runs (the pass's split) finds no usable `PxuiUi` handle
+    // the renderer holds the engine until it returns: a callback it runs (the pass's split) finds no usable or building `PxuiUi` handle
     let _current=crate::state::NoCurrent::set(renderer.shared);
     let ui=unsafe { &mut *renderer.engine };
     let mut failed=None;
@@ -328,7 +328,7 @@ export!(pub unsafe fn pxui_renderer_draw(renderer:*mut PxuiRenderer, pass:*const
         Some(Err(e))=>return renderer.fail_gpu(e),
         _=>match gpu_backend::adopt_render_encoder(&commands,native_pass,renderer.format,renderer.samples) { Ok(e)=>e, Err(e)=>return renderer.fail_gpu(e) },
     };
-    // the renderer holds the engine until it returns: a callback it runs (the pass's split) finds no usable `PxuiUi` handle
+    // the renderer holds the engine until it returns: a callback it runs (the pass's split) finds no usable or building `PxuiUi` handle
     let _current=crate::state::NoCurrent::set(renderer.shared);
     let ui=unsafe { &mut *renderer.engine };
     for (index,v) in ui.output().views {
