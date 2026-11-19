@@ -5318,6 +5318,7 @@ pxui_types::ffi::PxuiSelectionListDesc::count field usize @U2b.1
 pxui_types::ffi::PxuiSelectionListDesc::drop_look field PxuiLookDesc @U2b.2
 pxui_types::ffi::PxuiSelectionListDesc::fit field u8 @U2b.1
 pxui_types::ffi::PxuiSelectionListDesc::has_drop_look field u8 @U2b.2
+pxui_types::ffi::PxuiSelectionListDesc::has_revision field u8 @U2b.4.13
 pxui_types::ffi::PxuiSelectionListDesc::header_height field f32 @U2b.1
 pxui_types::ffi::PxuiSelectionListDesc::leading_height field f32 @U2b.1
 pxui_types::ffi::PxuiSelectionListDesc::measured field u8 @U2b.1
@@ -5326,6 +5327,8 @@ pxui_types::ffi::PxuiSelectionListDesc::open_on_click field u8 @U2b.1
 pxui_types::ffi::PxuiSelectionListDesc::overlay_scrollbar field u8 @U2b.1
 pxui_types::ffi::PxuiSelectionListDesc::reorder field u8 @U2b.2
 -pxui_types::ffi::PxuiSelectionListDesc::reserved field u8 @U2b.4.3
+pxui_types::ffi::PxuiSelectionListDesc::reserved field [u8; 3] @U2b.4.13
+pxui_types::ffi::PxuiSelectionListDesc::revision field u64 @U2b.4.13
 pxui_types::ffi::PxuiSelectionListDesc::row_height field f32 @U2b.1
 pxui_types::ffi::PxuiSelectionListDesc::rows field PxuiU8MutSpan @U2b.1
 pxui_types::ffi::PxuiSelectionListDesc::size field u32 @U2b.1
@@ -5526,6 +5529,7 @@ pxui_types::ffi::PxuiTableDesc::ascending field u8 @U2b.1
 -pxui_types::ffi::PxuiTableDesc::cell field PxuiTableCell @U2b.1
 pxui_types::ffi::PxuiTableDesc::columns field Slice<PxuiColumn> @U2b.1
 pxui_types::ffi::PxuiTableDesc::flags field PxuiU8MutSpan @U2b.1
+pxui_types::ffi::PxuiTableDesc::has_revision field u8 @U2b.4.13
 pxui_types::ffi::PxuiTableDesc::has_sort field u8 @U2b.1
 pxui_types::ffi::PxuiTableDesc::head_h field f32 @U2b.1
 pxui_types::ffi::PxuiTableDesc::head_variant field u16 @U2b.1
@@ -5534,8 +5538,9 @@ pxui_types::ffi::PxuiTableDesc::head_variant field u16 @U2b.1
 -pxui_types::ffi::PxuiTableDesc::label field Str @U2b.1
 pxui_types::ffi::PxuiTableDesc::multi field u8 @U2b.1
 -pxui_types::ffi::PxuiTableDesc::reserved field u32 @U2b.1
-pxui_types::ffi::PxuiTableDesc::reserved field u8 @U2b.1
+-pxui_types::ffi::PxuiTableDesc::reserved field u8 @U2b.4.13
 pxui_types::ffi::PxuiTableDesc::reserved2 field [u8; 6] @U2b.1
+pxui_types::ffi::PxuiTableDesc::revision field u64 @U2b.4.13
 pxui_types::ffi::PxuiTableDesc::row_h field f32 @U2b.1
 -pxui_types::ffi::PxuiTableDesc::rows field i64 @U2b.1
 pxui_types::ffi::PxuiTableDesc::rows field usize @U2b.1
