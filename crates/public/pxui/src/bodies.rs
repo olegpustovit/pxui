@@ -393,8 +393,9 @@ mod tests {
         assert!(mem_sys::take_reports().is_empty());
     }
 
-    /// U4a.2: `SearchField::action(ReturnKey::Done)` ends editing on Return, as `TextField::action` does; the Search key keeps focus.
-    /// Both link modes.
+    /// U4a.2: `SearchField::action(ReturnKey::Done)` ends editing on Return in that frame, as `TextField::action` does; the Search key
+    /// keeps focus. A warm click, Done, Return cycle allocates nothing, the kit's editor or a body's (before, every key press copied the
+    /// frame's key events twice). Both link modes.
     #[test]
     fn a_search_field_with_done_ends_editing_on_return() {
         for (traits, kept) in [(crate::SearchField::DEFAULT.name("Find").action(crate::ReturnKey::Done), false), (crate::SearchField::DEFAULT.name("Find"), true)] {
@@ -404,8 +405,37 @@ mod tests {
             crate::testing::key(&mut ui, crate::KeyCode::Tab, &mut build);
             assert!(ui.ime().is_some(), "Tab focuses the field");
             crate::testing::key(&mut ui, crate::KeyCode::Enter, &mut build);
+            assert_eq!(ui.ime().is_some(), kept, "Return with Done ends editing in its frame; with Search it does not");
             crate::testing::frame(&mut ui, &[], &mut build);
-            assert_eq!(ui.ime().is_some(), kept, "Return with Done ends editing; with Search it does not");
+            assert_eq!(ui.ime().is_some(), kept, "and stays so");
+        }
+        fn body(ui: &mut Ui, c: &SearchFieldConfig) {
+            ui.part(Part::EDITOR, Node::DEFAULT.w_px(200.0).h_px(40.0));
+            ui.slot(c.editor);
+        }
+        for bodied in [false, true] {
+            let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+            if bodied {
+                ui.register_search_field_body("s", body).unwrap();
+                ui.set_theme(&crate::ThemeHandle::parse("search_field.body = s").unwrap()).unwrap();
+            }
+            let field = crate::SearchField::DEFAULT.name("Find").action(crate::ReturnKey::Done);
+            let mut build = |ui: &mut Ui| { ui.search_field("find", "Track", &field); };
+            ui.set_a11y(true);
+            crate::testing::frame(&mut ui, &[], &mut build);
+            let r = crate::testing::find(&ui, pxui_types::a11y::Role::TextField, "Find").expect("the field");
+            mem_sys::set_peer(crate::library_counter);
+            let scope = mem_sys::warm_scope();
+            for tick in 0..60 {
+                mem_sys::local_reset();
+                match tick % 3 {
+                    0 => crate::testing::click(&mut ui, f64::from(r.x + r.w / 2.0), f64::from(r.y + r.h / 2.0), &mut build),
+                    _ => crate::testing::key(&mut ui, crate::KeyCode::Enter, &mut build),
+                }
+                if tick >= 30 { assert_eq!(mem_sys::local_alloc_count(), 0, "warm focus/Done cycle allocated (body {bodied}, tick {tick})"); }
+            }
+            drop(scope);
+            mem_sys::take_reports();
         }
     }
 

@@ -1290,7 +1290,8 @@ fn search_field_body(this: &mut Ui, label: &str, icon: &str, value: &str, placeh
             (font.size != 0).then(|| crate::ui_core::font_px(&font, ui.font_px()))
         });
         ui.input_box = Some(field);
-        let s = ui.signal_owned(&field);
+        // the scalars only: the key events are read in place below
+        let s = ui.signal(&field);
         let focused = ui.focused(&field);
         let mut edit = None;
         if focused {
@@ -1301,19 +1302,22 @@ fn search_field_body(this: &mut Ui, label: &str, icon: &str, value: &str, placeh
             let r = ui.rect(&field);
             let shift = ui.press_shift(&field);
             ui.point_text_caret(size, &mut e, &s, shift, r.x + 2.0, r.x + r.w - 2.0);
-            for (event, modifiers) in ui.key_events(&field) {
-                if event == Event::KeyPressed(Key::Escape) {
-                    e.text.clear();
-                    (e.caret, e.anchor) = (0, 0);
-                } else {
-                    ui.edit_text_event(false, &mut e, &|_| true, &modifiers, &event);
-                    // Done ends editing, as a text field's does
-                    if traits.return_key() == pxui_types::ReturnKey::Done && event == Event::KeyPressed(Key::Enter)
-                        && !ui.command_modifiers(&modifiers) && ui.composition().is_empty() {
-                        ui.unfocus();
+            // the frame's key events, read in place (as a text field's): a keystroke copies no list
+            ui.with_key_events(&field, &mut |ui, keys| {
+                for (event, modifiers) in keys {
+                    if *event == Event::KeyPressed(Key::Escape) {
+                        e.text.clear();
+                        (e.caret, e.anchor) = (0, 0);
+                    } else {
+                        ui.edit_text_event(false, &mut e, &|_| true, modifiers, event);
+                        // Done ends editing, as a text field's does
+                        if traits.return_key() == pxui_types::ReturnKey::Done && *event == Event::KeyPressed(Key::Enter)
+                            && !ui.command_modifiers(modifiers) && ui.composition().is_empty() {
+                            ui.unfocus();
+                        }
                     }
                 }
-            }
+            });
             ui.save_text_edit(&e);
             if e.text != value {
                 ui.returned.clear();
@@ -1338,7 +1342,7 @@ fn search_field_body(this: &mut Ui, label: &str, icon: &str, value: &str, placeh
             ui.node_mut(&field).look = Look { text: if current.is_empty() { hint.text } else { look.text }, ..text_only(&look) };
         }
         match edit {
-            Some(edit) => {
+            Some(edit) if ui.focused(&field) => {
                 let font_size = size.unwrap_or(ui.font_px());
                 let marks = Some((look.selection, look.caret));
                 let (caret, anchor) = (edit.caret, edit.anchor);
@@ -1349,6 +1353,11 @@ fn search_field_body(this: &mut Ui, label: &str, icon: &str, value: &str, placeh
                     crate::ui_text::paint_text_edit_ref(paint, size, false, 2.0, marks, r, crate::ui_kit::label_y(font_size, r.1, r.3), &composition, &text, caret, anchor);
                     (paint.edit_text, paint.composition) = (text, composition);
                 });
+                ui.edit_work = edit.text;
+            }
+            // Done ended editing this frame: the field shows its text, and paints no caret or input region
+            Some(edit) => {
+                ui.text(&field, if edit.text.is_empty() { placeholder } else { &edit.text });
                 ui.edit_work = edit.text;
             }
             None => ui.text(&field, if value.is_empty() { placeholder } else { value }),
