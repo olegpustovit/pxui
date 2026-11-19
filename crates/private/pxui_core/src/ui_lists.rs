@@ -368,7 +368,9 @@ impl Ui {
         let count = count.min(flags.len());
         let flags = &mut flags[..count];
         let look = self.theme().scroll_view.idle;
-        let frame = self.node_ref(label, &Node { flags: Flags::FOCUSABLE | Flags::CLIP, w: Size::Grow, h: if list.fit { Size::Fit } else { Size::Grow }, look, padding: Edges::all(1.0), ..Node::DEFAULT });
+        // a bare list has no frame: no look and no inset
+        let (look, padding) = if list.bare { (Look::NONE, Edges::ZERO) } else { (look, Edges::all(1.0)) };
+        let frame = self.node_ref(label, &Node { flags: Flags::FOCUSABLE | Flags::CLIP, w: Size::Grow, h: if list.fit { Size::Fit } else { Size::Grow }, look, padding, ..Node::DEFAULT });
         let focused = self.focused(&frame);
         let page = (self.rect(&frame).h / list.row_height).floor().max(1.0) as i64;
         let (cursor, c, enter, changed, key_moved) = key_selection(self, &frame, count, page, flags, anchor, list.multi, list.reorder);

@@ -490,6 +490,43 @@ mod tests {
     fn table_row(ui: &mut Ui, c: &TableRowConfig) { seen(format!("table row {}", c.index)); marker(ui, "custom table row"); ui.slot(c.content); }
     fn head(ui: &mut Ui, c: &TableHeadConfig) { seen(format!("head {} {}{}", c.text_of(&c.title), c.has_ascending, c.ascending)); marker(ui, "custom head"); }
 
+    /// U2b.4.3: a `bare` selection list draws no frame look and no inset: its rows start at the list's own edges, a framed list's one
+    /// point in; the frame's instances are gone; warm frames of a bare list allocate nothing. Both link modes.
+    #[test]
+    fn a_bare_selection_list_has_no_frame_look_or_inset() {
+        let (state, rows, instances) = (RefCell::new(ListState::new()), Cell::new([(0.0f32, 0.0f32, 0.0f32); 2]), Cell::new([0usize; 2]));
+        let bare = Cell::new(false);
+        let mut build = |ui: &mut Ui| {
+            let list = if bare.get() { SelectionList::DEFAULT.row_h(20.0).fit().bare() } else { SelectionList::DEFAULT.row_h(20.0).fit() };
+            let r = ui.selection_list("lists", 2, &|i| i as i64, &mut state.borrow_mut(), &list, &mut |ui, part, cell| if let SectionPart::Row(i) = part {
+                ui.item_text("row");
+                if i == 0 { let at = ui.rect(&cell.handle); let mut v = rows.get(); v[bare.get() as usize] = (at.x, at.y, at.w); rows.set(v); }
+            });
+            let _ = r;
+        };
+        let mut ui = crate::doc::frames(1, &mut build);
+        // a frame the theme fills red, so the framed list shows it and the bare one must not
+        ui.set_theme(&crate::ThemeHandle::parse("scroll_view.fill = #FF0000").unwrap()).unwrap();
+        let red = |ui: &Ui| ui.layers().flat_map(|l| l.instances.iter()).filter(|i| i.color == [255, 0, 0, 255]).count();
+        for _ in 0..2 { testing::frame(&mut ui, &[], &mut build); }
+        let mut n = instances.get(); n[0] = red(&ui); instances.set(n);
+        bare.set(true);
+        for _ in 0..2 { testing::frame(&mut ui, &[], &mut build); }
+        let mut n = instances.get(); n[1] = red(&ui); instances.set(n);
+        let [framed, bared] = rows.get();
+        assert_eq!((bared.0, bared.1, bared.2), (framed.0 - 1.0, framed.1 - 1.0, framed.2 + 2.0), "a bare list's rows sit at its edges");
+        assert_eq!(instances.get(), [1, 0], "the framed list draws the theme's frame, the bare one none");
+        mem_sys::set_peer(crate::library_counter);
+        let scope = mem_sys::warm_scope();
+        for round in 0..3 {
+            mem_sys::local_reset();
+            testing::frame(&mut ui, &[], &mut build);
+            assert_eq!(mem_sys::local_alloc_count(), 0, "a warm bare list frame allocated (round {round})");
+        }
+        drop(scope);
+        assert!(mem_sys::take_reports().is_empty());
+    }
+
     /// The collections are built through their bodies: with a registered body for each kind, the custom structure is in the tree, the
     /// caller's cells run through the row bodies' slots, and a heading body is told its title and sort; a standalone heading too.
     #[test]

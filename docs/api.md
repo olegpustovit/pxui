@@ -42,7 +42,7 @@ The target public surface. **Rule:** a call not marked with a step keeps its HEA
 | Dialog | `dialog<K>(key, title: &str, &[DialogButton], &Dialog, body: &mut dyn FnMut(&mut Ui)) -> Chosen` | dialog | HEAD |
 | Overlays | `panel/popup/modal<K, F>(key, &Overlay, f) -> OverlayResponse { handle, open: bool }`; `anchored<K, F>(key, anchor: Rect, &Overlay, f) -> OverlayResponse`; sheets via `Overlay::present(Presentation::{Centered, Bottom, Full, Top})` (`Top`: centred across, top edge at `Overlay::at`'s y, U2b.5) + `.dismiss(DismissOpts)`; `tooltip(&Handle, &str)` keyed by the owner; `toasts<K>(key, &[Toast], seconds: f64) -> Chosen` | panel / popup / modal / tooltip / toasts | U1b.1 (results, tooltip key); U2a.4 (present) |
 | Lists | `list<K, F>(key, count, row_h: f32, row_key: &dyn Fn(usize) -> i64, f) -> ListResponse` (short form, never reorderable); `section_list<K>(key, &SectionList, row_key, build) -> ListResponse` (`SectionList::reorder(bool)`; the row content builds its `Part::HANDLE`); `grid_list<K>(key, count, &GridList, build) -> Handle`; `ListResponse { handle, activated, selected, secondary, row: Option<Handle>, moved: Option<(usize, usize)>, drop_at: Option<usize> }` (`selected`: set whenever the widget changed the selection this frame, naming the row; `moved.1` is the final index; no `Eq`: `Handle` has none); `SectionPart::Trailing` builds the `trail` area (an action row ending a list) | — (rows are app content; the insertion line is the row body's) | U1b.5 (grid_list); U2b.2–U2b.3 (ListResponse, reorder) |
-| Selection list | `selection_list<K>(key, count, row_key, state: &mut ListState, &SelectionList, cell: &mut dyn FnMut(&mut Ui, SectionPart, CellState)) -> ListResponse`; `ListState { rows: Vec<u8> /* SELECTED, DISABLED flags */, anchor: Option<usize> }`, `ListState::new()`; `CellState { selected, enabled, focused, held, handle, y }`; `SelectionList` carries the `SectionList` geometry (`row_h`, `lead`, `header`, `trail`, `measured`, `overlay_scrollbar`) plus `multi`, `reorder(bool)`, `variant(u16)`, `fit()` (as tall as its rows, no scroll), `drop_look(Look)` (a row's look while a payload hovers its drop target); selection semantics (click, Meta-toggle, Shift-range, double-click, keyboard, Command-A) in the widget | selection_list | U2a.1 (row_key), U2b.1 (rest; reorder U2b.3) |
+| Selection list | `selection_list<K>(key, count, row_key, state: &mut ListState, &SelectionList, cell: &mut dyn FnMut(&mut Ui, SectionPart, CellState)) -> ListResponse`; `ListState { rows: Vec<u8> /* SELECTED, DISABLED flags */, anchor: Option<usize> }`, `ListState::new()`; `CellState { selected, enabled, focused, held, handle, y }`; `SelectionList` carries the `SectionList` geometry (`row_h`, `lead`, `header`, `trail`, `measured`, `overlay_scrollbar`) plus `multi`, `reorder(bool)`, `variant(u16)`, `fit()` (as tall as its rows, no scroll), `drop_look(Look)` (a row's look while a payload hovers its drop target), `bare()` (no frame look and no 1-point inset; U2b.4.3); selection semantics (click, Meta-toggle, Shift-range, double-click, keyboard, Command-A) in the widget | selection_list | U2a.1 (row_key), U2b.1 (rest; reorder U2b.3) |
 | Table | `table<K>(key, &[Column], rows, row_key, state: &mut TableState, &Table, cell: &mut dyn FnMut(&mut Ui, usize, usize, CellState)) -> TableResponse { rows: ListResponse, head: HeadResponse }`; `table_head<K>(key, &[Column], state: &mut TableState, &TableHead) -> HeadResponse { response, sorted: bool, resized: bool }` (also a `selection_list` heading: it writes `TableState::widths`); `Column::new(title).sortable(bool).share(f32).w_px(f32).grip(bool).id(i64)` (every column stays in the slice; `w_px(0.0)` hides one; without a grip `w_px` holds every frame); `TableState { widths: Vec<(i64, f32)>, sort: Option<(i64, Sort)>, selection: ListState }` (keyed by column id), `TableState::new()`; `Table::DEFAULT.multi().row_h(f32).head(TableHead).variant(u16)`; `TableHead::DEFAULT.h_px(f32).variant(u16)`; `Sort::{Ascending, Descending}`, `None` = original order; `TableView` and the fixed text table deleted | table_row / table_head (`table_cell` deleted with the text table) | U2b.1 |
 | Tree | `tree<K>(key, &[TreeNode], open: &mut [u8], selected: &mut Option<usize>, visible: &mut [u32], cell) -> TreeResponse`; `TreeNode::new(depth, has_children)` | tree | HEAD; builder U1b.5 |
 | Picker | `picker<K>(key, placeholder, query, &Picker, fill: &mut dyn FnMut(&str, &mut PickRows)) -> PickerResponse`; `PickRows::push(PickRow)`; `PickRow::new(label).detail(..).art(PickArt).heading(..)`; `PickerOpts` → `Picker` | picker | U1b.1 (rename); U2a.4 (rows) |
@@ -5303,6 +5303,7 @@ pxui_types::ffi::PxuiSelectionListDesc impl Clone @U2b.1
 pxui_types::ffi::PxuiSelectionListDesc impl Copy @U2b.1
 pxui_types::ffi::PxuiSelectionListDesc struct @U2b.1
 pxui_types::ffi::PxuiSelectionListDesc::anchor field usize @U2b.1
+pxui_types::ffi::PxuiSelectionListDesc::bare field u8 @U2b.4.3
 pxui_types::ffi::PxuiSelectionListDesc::count field usize @U2b.1
 pxui_types::ffi::PxuiSelectionListDesc::drop_look field PxuiLookDesc @U2b.2
 pxui_types::ffi::PxuiSelectionListDesc::fit field u8 @U2b.1
@@ -5314,7 +5315,7 @@ pxui_types::ffi::PxuiSelectionListDesc::multi field u8 @U2b.1
 pxui_types::ffi::PxuiSelectionListDesc::open_on_click field u8 @U2b.1
 pxui_types::ffi::PxuiSelectionListDesc::overlay_scrollbar field u8 @U2b.1
 pxui_types::ffi::PxuiSelectionListDesc::reorder field u8 @U2b.2
-pxui_types::ffi::PxuiSelectionListDesc::reserved field u8 @U2b.1
+-pxui_types::ffi::PxuiSelectionListDesc::reserved field u8 @U2b.4.3
 pxui_types::ffi::PxuiSelectionListDesc::row_height field f32 @U2b.1
 pxui_types::ffi::PxuiSelectionListDesc::rows field PxuiU8MutSpan @U2b.1
 pxui_types::ffi::PxuiSelectionListDesc::size field u32 @U2b.1
@@ -7397,6 +7398,8 @@ pxui_types::ui::SelectionList impl PartialEq @HEAD
 pxui_types::ui::SelectionList impl StructuralPartialEq @HEAD
 pxui_types::ui::SelectionList struct @HEAD
 pxui_types::ui::SelectionList::DEFAULT const SelectionList @HEAD
+pxui_types::ui::SelectionList::bare field bool @U2b.4.3
+pxui_types::ui::SelectionList::bare fn const (self) -> SelectionList @U2b.4.3
 pxui_types::ui::SelectionList::drop_look field Option<Look> @U2b.2
 pxui_types::ui::SelectionList::drop_look fn const (self, look: Look) -> SelectionList @U2b.2
 pxui_types::ui::SelectionList::fit field bool @U2b.1

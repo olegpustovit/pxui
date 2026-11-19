@@ -146,11 +146,13 @@ pub struct SelectionList {
     /// The look a row shows in place of its state look while a carried payload is over it (in a reorderable list, the insertion
     /// line's); `None`: the row keeps its state look.
     pub drop_look: Option<Look>,
+    /// The list draws no frame: no frame look and no 1-point inset, so its rows sit at its own edges.
+    pub bare: bool,
 }
 
 impl SelectionList {
     /// One row selected at a time, 24-point fixed rows, no lead-in, heading or trailer, not reorderable, the theme's row body.
-    pub const DEFAULT: SelectionList = SelectionList { multi: false, row_height: 24.0, leading_height: 0.0, header_height: 0.0, trailing_height: 0.0, overlay_scrollbar: false, measured: false, reorder: false, variant: 0, fit: false, open_on_click: false, drop_look: None };
+    pub const DEFAULT: SelectionList = SelectionList { multi: false, row_height: 24.0, leading_height: 0.0, header_height: 0.0, trailing_height: 0.0, overlay_scrollbar: false, measured: false, reorder: false, variant: 0, fit: false, open_on_click: false, drop_look: None, bare: false };
 
     /// Lets Command (Ctrl) toggle a row and Shift select a run (Space toggles the keyboard's row).
     /// Allocates: never.
@@ -272,6 +274,16 @@ impl SelectionList {
     /// assert!(LISTS.drop_look.is_some());
     /// ```
     pub const fn drop_look(mut self, look: Look) -> SelectionList { self.drop_look = Some(look); self }
+
+    /// Draws the list without its frame: no frame look (the theme's `scroll_view`) and no 1-point inset, so the rows sit at the list's
+    /// own edges (a sidebar group laid out with the column around it). Keyboard focus and scrolling are unchanged.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert!(pxui_types::ui::SelectionList::DEFAULT.bare().bare);
+    /// ```
+    pub const fn bare(mut self) -> SelectionList { self.bare = true; self }
 }
 
 /// What `Ui::list`, `Ui::section_list` and `Ui::selection_list` report this frame.

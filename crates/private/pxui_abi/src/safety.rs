@@ -658,7 +658,7 @@ fn selection_list_table_and_heading_refuse_invalid_records_before_effects() {
     refuse_list(PxuiSelectionListDesc { multi: 2, ..list }, "multi not 0 or 1");
     refuse_list(PxuiSelectionListDesc { fit: 2, ..list }, "fit not 0 or 1");
     refuse_list(PxuiSelectionListDesc { open_on_click: 2, ..list }, "open_on_click not 0 or 1");
-    refuse_list(PxuiSelectionListDesc { reserved: 1, ..list }, "a reserved byte");
+    refuse_list(PxuiSelectionListDesc { bare: 2, ..list }, "a bare flag past 1");
     refuse_list(PxuiSelectionListDesc { reorder: 2, ..list }, "reorder not 0 or 1");
     refuse_list(PxuiSelectionListDesc { has_drop_look: 2, ..list }, "has_drop_look not 0 or 1");
     refuse_list(PxuiSelectionListDesc { has_drop_look: 1, drop_look: pxui_types::ffi::PxuiLookDesc { opacity: f32::NAN, ..list.drop_look }, ..list }, "a drop look the look check refuses");

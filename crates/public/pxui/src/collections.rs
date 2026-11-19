@@ -211,7 +211,7 @@ impl Ui {
         #[cfg(not(feature = "static"))]
         let drop_look = crate::node::look(list.drop_look.unwrap_or(crate::theme::Look::NONE));
         let desc = PxuiSelectionListDesc { size: core::mem::size_of::<PxuiSelectionListDesc>() as u32, multi: list.multi as u8, fit: list.fit as u8, open_on_click: list.open_on_click as u8,
-            overlay_scrollbar: list.overlay_scrollbar as u8, measured: list.measured as u8, reorder: list.reorder as u8, has_drop_look: list.drop_look.is_some() as u8, reserved: 0, count, row_height: list.row_height, leading_height: list.leading_height,
+            overlay_scrollbar: list.overlay_scrollbar as u8, measured: list.measured as u8, reorder: list.reorder as u8, has_drop_look: list.drop_look.is_some() as u8, bare: list.bare as u8, count, row_height: list.row_height, leading_height: list.leading_height,
             header_height: list.header_height, trailing_height: list.trailing_height, rows: PxuiU8MutSpan { ptr: state.rows.as_mut_ptr(), len: count }, anchor: state.anchor.unwrap_or(usize::MAX),
             drop_look };
         let mut out = PxuiListResult::EMPTY;
