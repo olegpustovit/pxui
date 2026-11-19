@@ -260,10 +260,8 @@ pub mod inputs {
     pub fn notes(ui: &mut Ui, notes: &mut String) {
         if let (Some(text), _) = ui.text_area_submit(pxui_types::Node::DEFAULT.at(12.0, 4.0).w_px(270.0).h_px(56.0), &TextAreaOpts::default(), "notes-area", notes) { *notes = text.to_owned(); }
     }
-    /// The field and its response, named, as the wrapper's `search_field` builds them (the page reads only the change).
     pub fn layer_search(ui: &mut Ui, search: &mut String) {
         if let Some(q) = ui.search_field("Find", "/", search, "Search layers", pxui_types::TextTraits::SEARCH) { *search = q.to_owned(); }
-        let _ = ui.input_response(Some("Find"));
     }
     pub fn images(ui: &mut Ui, image: &super::pxui::Image) {
         use super::pxui::{Fit, Size};
