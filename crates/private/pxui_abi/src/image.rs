@@ -164,7 +164,7 @@ mod tests {
 }
 
 // ABI 1.77: an image keyed by `key` (a label or id label under the current parent, as `pxui_ui_node` keys it) and named `name` for
-// accessibility only (never parsed for a key). Checked as `pxui_ui_image_node`, the key as a node label.
+// accessibility only (never parsed for a key). The record is checked as `pxui_paint_image` checks it, the key as a node label.
 export!(build pub unsafe fn pxui_ui_image(ui: *mut crate::PxuiUi, key: Str, name: Str, raw: *const pxui_types::Image, fit_code: u32, width: PxuiSizeDesc, height: PxuiSizeDesc, out: *mut PxuiBox) -> i32 {
     let Some(state) = (unsafe { crate::get(ui) }) else { return crate::PXUI_ERR_ARGUMENT; };
     if raw.is_null() || out.is_null() { return unsafe { crate::fail(ui, "invalid image descriptor") }; }
@@ -176,9 +176,9 @@ export!(build pub unsafe fn pxui_ui_image(ui: *mut crate::PxuiUi, key: Str, name
     0
 });
 
-// ABI 1.70: `pxui_paint_image` that reports a refusal: PXUI_ERR_ARGUMENT (nothing drawn, nothing registered) for a null painter or
-// descriptor, a short or invalid descriptor (`Image::valid`, read after its `size`), an unknown fit or a non-finite rectangle; 0 when
-// drawn. `pxui_paint_image` is cut at 2.0.
+// ABI 1.70: an image painted into `rect` by `fit`, tinted `tint`, reporting a refusal: PXUI_ERR_ARGUMENT (nothing drawn, nothing
+// registered) for a null painter or descriptor, a short or invalid descriptor (`Image::valid`, read after its `size`), an unknown fit or
+// a non-finite rectangle; 0 when drawn.
 export!(pub unsafe fn pxui_paint_image(paint: *mut crate::paint::PxuiPaint, raw: *const pxui_types::Image, x: f32, y: f32, width: f32, height: f32, fit_code: u32, tint: Rgba) -> i32 {
     if raw.is_null() || paint.is_null() || !finite(&[x, y, width, height]) { return crate::PXUI_ERR_ARGUMENT; }
     let (Some(record), Some(fit)) = (read_desc!(raw, pxui_types::Image), fit(fit_code)) else { return crate::PXUI_ERR_ARGUMENT; };

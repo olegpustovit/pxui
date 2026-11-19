@@ -447,7 +447,7 @@ export!(bare pub unsafe fn pxui_renderer_destroy(renderer:*mut PxuiRenderer) {
 });
 
 // The native handle of a glyph atlas texture (`kind` 0: the mask atlas, one byte per texel; 1: the colour atlas, RGBA8), for an
-// app pass that draws text quads of `pxui_text_quads`. The texture stays the renderer's: do not keep the handle past the frame.
+// app pass that draws text quads of `pxui_ui_label_quads`. The texture stays the renderer's: do not keep the handle past the frame.
 export!(pub unsafe fn pxui_renderer_atlas(renderer:*mut PxuiRenderer, kind:u32, out:*mut pxui_types::Image) -> i32 {
     if renderer.is_null() { return PXUI_ERR_ARGUMENT; }
     let renderer=unsafe { &mut *renderer };

@@ -2,7 +2,7 @@
 //!
 //! One rule for a descriptor PXUI cannot sample (`Image::valid` is false: a zero size, no native handle, a depth format, a short
 //! `size`): the call draws nothing and returns `Error::InvalidInput`, in `Ui::image` and `Paint::image` alike. An `Image` is host data
-//! that can go bad between frames, so it is never a panic. The check is the library's (`pxui_ui_image_node`,
+//! that can go bad between frames, so it is never a panic. The check is the library's (`pxui_ui_image`,
 //! `pxui_paint_image`).
 use crate::sys::PxuiPaint as RawPaint;
 use crate::node::size;

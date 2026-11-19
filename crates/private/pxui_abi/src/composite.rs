@@ -26,7 +26,7 @@ fn dialog_buttons<'a, 'b>(texts: &[&'a str], details: &[&'a str], (default_at, c
 // (centred, a bottom sheet, full screen or top-anchored at `sheet.top`; a bottom or full-screen sheet takes a downward drag-to-dismiss with `sheet`'s thresholds) and
 // `sheet.width` wide when `has_width` is 1. Every field of `sheet` is checked before the build: a short record, `has_width` or `present`
 // out of range, a non-zero `reserved`, or a width or threshold that is negative or not finite is refused. Writes `out` (1 while open)
-// and the modal's root to `root` (the empty box when it is dismissed).
+// and the modal's root to `root` (the empty box when it is dismissed); a refused call writes neither.
 export!(trusted pub unsafe fn pxui_ui_modal(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, sheet: *const pxui_types::ffi::PxuiSheetDesc, callback: Build, user: *mut c_void, out: *mut u8, root: *mut PxuiBox) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if out.is_null() || root.is_null() { return unsafe { fail(ui, "null modal output") }; }
@@ -39,9 +39,9 @@ export!(trusted pub unsafe fn pxui_ui_modal(ui: *mut PxuiUi, keyed: *const PxuiK
     let present = [Presentation::Centered, Presentation::Bottom, Presentation::Full, Presentation::Top][sheet.present as usize];
     let dismiss = DismissOpts { fraction: (sheet.dismiss_fraction > 0.0).then_some(sheet.dismiss_fraction), velocity: (sheet.dismiss_velocity > 0.0).then_some(sheet.dismiss_velocity) };
     let overlay = Overlay { w: (sheet.has_width != 0).then_some(sheet.width), at: (0.0, sheet.top), max_h: (sheet.max_h > 0.0).then_some(sheet.max_h), name: Some(name), present, dismiss, ..Overlay::DEFAULT };
-    let mut open = false;
-    let rc = unsafe { crate::trusted::modal(ui, key, &overlay, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, callback, user), &mut open, &mut *root) };
-    unsafe { *out = open as u8; }
+    let (mut open, mut node) = (false, PxuiBox::default());
+    let rc = unsafe { crate::trusted::modal(ui, key, &overlay, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, callback, user), &mut open, &mut node) };
+    if rc == 0 { unsafe { (*out, *root) = (open as u8, node); } }
     rc
 });
 

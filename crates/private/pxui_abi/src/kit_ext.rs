@@ -12,7 +12,7 @@ use std::rc::Rc;
 
 const MAX_ACTIONS: usize = 256;
 
-// ABI 1.56: `pxui_ui_button_response` whose content callback is also given the button's interaction state this frame.
+// ABI 1.56: the kit button of `desc`, reporting into one `PxuiResponse`; its content callback is given the button's interaction state this frame.
 export!(trusted pub unsafe fn pxui_ui_button(ui: *mut PxuiUi, desc: *const PxuiButtonDesc, build: PxuiButtonBuild, user: *mut c_void, out: *mut PxuiResponse) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if desc.is_null() { return unsafe { fail(ui, "null button argument") }; }
@@ -68,7 +68,7 @@ fn label_of(has: u8, style: &pxui_types::ffi::PxuiLabelStyle, label_box: &pxui_t
     crate::ui::read_label_box(label_box, &mut fields).then_some(Some(fields))
 }
 
-// ABI 1.48: `pxui_ui_icon_button_with` reporting into one `PxuiResponse` (no `PxuiSignal`).
+// ABI 1.48: the kit icon button of `desc`, reporting into one `PxuiResponse`.
 export!(trusted pub unsafe fn pxui_ui_icon_button(ui: *mut PxuiUi, desc: *const PxuiIconButtonDesc, out: *mut PxuiResponse) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if desc.is_null() { return unsafe { fail(ui, "null icon button argument") }; }
@@ -284,8 +284,8 @@ export!(build pub unsafe fn pxui_ui_grip(ui: *mut PxuiUi, label: Str, axis: u32,
     0
 });
 
-/// The popup of `desc` keyed by `key` and named `name`: the body of `pxui_ui_popup` and `pxui_ui_popup_keyed`.
-unsafe fn popup(ui: *mut PxuiUi, key: &str, name: &str, d: &PxuiPopupDesc, build: Build, user: *mut c_void, out: *mut u8, root: Option<&mut PxuiBox>) -> i32 {
+/// The popup of `desc` keyed by `key` and named `name`, the body of `pxui_ui_popup`: `out` and `root` are written only when it builds.
+unsafe fn popup(ui: *mut PxuiUi, key: &str, name: &str, d: &PxuiPopupDesc, build: Build, user: *mut c_void, out: &mut u8, root: &mut PxuiBox) -> i32 {
     if d.has_stroke > 1 || d.has_max_height > 1 || d.dismiss_initial > 1 || d.attached > 1
         || !crate::state::finite(&[d.x, d.y, d.width, d.height]) || (d.has_max_height != 0 && !d.max_height.is_finite()) || d.width < 0.0 || d.height < 0.0 {
         return unsafe { fail(ui, "invalid popup descriptor") };
@@ -295,19 +295,19 @@ unsafe fn popup(ui: *mut PxuiUi, key: &str, name: &str, d: &PxuiPopupDesc, build
     let mut open = false;
     let mut node = PxuiBox::default();
     let rc = unsafe { crate::trusted::popup(ui, key, &overlay, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, build, user), &mut open, &mut node) };
-    unsafe { *out = open as u8; }
-    if let Some(root) = root { *root = node; }
+    if rc == 0 { (*out, *root) = (open as u8, node); }
     rc
 }
 
-// ABI 1.76: `pxui_ui_popup_keyed` that also writes the popup's root to `root` (the empty box when it is dismissed).
+// ABI 1.76: a popup keyed by `keyed.key`, named `keyed.name`, placed and dressed by `desc`; writes `out` (1 while open) and the popup's
+// root to `root` (the empty box when it is dismissed). A refused call writes neither.
 export!(build pub unsafe fn pxui_ui_popup(ui: *mut PxuiUi, keyed: *const pxui_types::ffi::PxuiKeyedDesc, desc: *const PxuiPopupDesc, build: Build, user: *mut c_void, out: *mut u8, root: *mut PxuiBox) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if desc.is_null() || out.is_null() || root.is_null() { return unsafe { fail(ui, "null popup argument") }; }
     let Some((key, name)) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
     let Some(d) = read_desc!(desc, PxuiPopupDesc) else { return unsafe { fail(ui, "invalid popup descriptor") }; };
     if d.label.len != 0 { return unsafe { fail(ui, "a keyed popup takes no label") }; }
-    unsafe { popup(ui, key, name, &d, build, user, out, Some(&mut *root)) }
+    unsafe { popup(ui, key, name, &d, build, user, &mut *out, &mut *root) }
 });
 
 export!(build pub unsafe fn pxui_ui_inspector_bar(ui: *mut PxuiUi, hints: Slice<PxuiHintDesc>, count: i64) -> i32 {
@@ -382,29 +382,25 @@ export!(build pub unsafe fn pxui_ui_inspector_header(ui: *mut PxuiUi, desc: *con
     0
 });
 
-// ABI 1.82: `pxui_ui_line_field` that also names the field `name` to a screen reader and reports what happened to its box in `response`,
-// the result a caller would otherwise read with `pxui_ui_input_box`, `pxui_ui_a11y_name`, `pxui_ui_signal` and `pxui_ui_focused`.
+// ABI 1.82: a line field at `x`, `y` (`w` by `h`) named `name` to a screen reader: `text` takes its text, `step` where a key moved the
+// focus (0 none, 1 next, 2 previous, 3 close) and `response` what happened to its box. A refused call writes none of them.
 export!(build pub unsafe fn pxui_ui_line_field(ui: *mut PxuiUi, x: f32, y: f32, w: f32, h: f32, grab: u8, placeholder: Str, label: Str, value: Str, name: Str, text: *mut Str, step: *mut u32, response: *mut PxuiResponse) -> i32 {
-    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     let Some(response) = sized_mut!(response) else { return unsafe { fail(ui, "null or short line field response") } };
     let Some(name) = (unsafe { checked(name) }) else { return unsafe { fail(ui, "invalid line field text") }; };
-    unsafe { line_field(ui, [x, y, w, h], grab, placeholder, label, value, text, step, Some((name, response))) }
-});
-
-/// Both line field exports: `response`, when given, names the field and takes what happened to its box.
-#[allow(clippy::too_many_arguments)]
-unsafe fn line_field(ui: *mut PxuiUi, [x, y, w, h]: [f32; 4], grab: u8, placeholder: Str, label: Str, value: Str, text: *mut Str, step: *mut u32, response: Option<(&str, &mut PxuiResponse)>) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     let (Some(placeholder), Some(label), Some(value)) = (unsafe { checked(placeholder) }, unsafe { crate::state::checked_label(label) }, unsafe { crate::state::checked_text(value) }) else { return unsafe { fail(ui, "invalid line field text") }; };
     if text.is_null() || step.is_null() || grab > 1 || !crate::state::finite(&[x, y, w, h]) { return unsafe { fail(ui, "invalid line field arguments") }; }
     let (edited, next) = unsafe { (&mut *state.engine).line_field((x, y), w, h, grab != 0, placeholder, label, value) };
     let Ok(edited) = state.give(edited) else { return crate::PXUI_ERR_STATE };
-    unsafe {
-        *text = edited;
-        *step = match next { LineStep::None => 0, LineStep::Next => 1, LineStep::Previous => 2, LineStep::Close => 3 };
+    let rc = unsafe { trusted::input_response(ui, Some(name), response) };
+    if rc == 0 {
+        unsafe {
+            *text = edited;
+            *step = match next { LineStep::None => 0, LineStep::Next => 1, LineStep::Previous => 2, LineStep::Close => 3 };
+        }
     }
-    match response { Some((name, out)) => unsafe { trusted::input_response(ui, Some(name), out) }, None => 0 }
-}
+    rc
+});
 
 export!(pub unsafe fn pxui_ui_field_drag(ui: *mut PxuiUi, box_: *const PxuiBox, present: *mut u8, out: *mut Point) -> i32 {
     let (e, b) = match unsafe { boxed(ui, box_) } { Ok(v) => v, Err(code) => return code };

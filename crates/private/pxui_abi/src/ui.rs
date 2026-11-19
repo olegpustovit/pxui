@@ -620,7 +620,7 @@ export!(trusted pub unsafe fn pxui_scope(ui: *mut PxuiUi, label: Str, build: Bui
     unsafe { trusted::scope(ui, label, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, build, user)) }
 });
 
-/// The panel of `panel`'s record keyed by `key` and named `name`, the body of `pxui_panel` and `pxui_ui_panel_keyed`.
+/// The panel of `panel`'s record keyed by `key` and named `name`, the body of `pxui_ui_panel`.
 unsafe fn panel(ui: *mut PxuiUi, key: &str, name: &str, panel: *const PxuiPanel, build: Build, user: *mut c_void, root: &mut PxuiBox) -> i32 {
     // read where it lies (a record at least as long as ours), the look only when it has one
     let Some(panel) = sized!(panel) else { return unsafe { fail(ui, "invalid panel descriptor") }; };
@@ -634,7 +634,7 @@ unsafe fn panel(ui: *mut PxuiUi, key: &str, name: &str, panel: *const PxuiPanel,
     unsafe { trusted::panel(ui, key, &overlay, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, build, user), root) }
 }
 
-// ABI 1.76: `pxui_ui_panel_keyed` that also writes the panel's root to `root`.
+// ABI 1.76: a panel keyed by `keyed.key`, named `keyed.name`, placed and dressed by `panel`, writing its root to `root`.
 export!(trusted pub unsafe fn pxui_ui_panel(ui: *mut PxuiUi, keyed: *const pxui_types::ffi::PxuiKeyedDesc, panel: *const PxuiPanel, build: Build, user: *mut c_void, root: *mut PxuiBox) -> i32 {
     if unsafe { get(ui) }.is_none() || panel.is_null() { return PXUI_ERR_ARGUMENT; }
     if root.is_null() { return unsafe { fail(ui, "null panel root") }; }
@@ -643,8 +643,8 @@ export!(trusted pub unsafe fn pxui_ui_panel(ui: *mut PxuiUi, keyed: *const pxui_
 });
 
 
-// ABI 1.54: `pxui_ui_label` with the label's box (`label_box`, null for none) writing the label's node to `out`; a null `style` is
-// the theme's label (`pxui_label`).
+// ABI 1.54: a label of `text` in `style` with the label's box (`label_box`, null for none), writing the label's node to `out`; a null
+// `style` is the theme's label.
 export!(trusted pub unsafe fn pxui_ui_label_node(ui: *mut PxuiUi, text: Str, style: *const pxui_types::ffi::PxuiLabelStyle, label_box: *const pxui_types::ffi::PxuiLabelBox, out: *mut PxuiBox) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     let (Some(text), false) = (unsafe { checked(text) }, out.is_null()) else { return unsafe { fail(ui, "invalid label arguments") } };
@@ -686,7 +686,7 @@ pub(crate) fn align_of(value: u32) -> Option<pxui_types::text::TextAlign> {
     [A::Start, A::Center, A::End].into_iter().find(|a| *a as u32 == value)
 }
 
-// ABI 1.49: the text style `style` shapes with, resolved against the Ui's theme label (what `pxui_ui_label` would shape), written to
+// ABI 1.49: the text style `style` shapes with, resolved against the Ui's theme label (what `pxui_ui_label_node` would shape), written to
 // `out` (its `size` set). `digits` is ignored. Refused for a null or invalid style or one that does not resolve.
 export!(pub unsafe fn pxui_ui_resolve_label(ui: *mut PxuiUi, style: *const pxui_types::ffi::PxuiLabelStyle, out: *mut pxui_types::ffi::PxuiTextStyle) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
@@ -726,8 +726,7 @@ pub(crate) fn label_style(style: *const pxui_types::ffi::PxuiLabelStyle) -> Opti
     Some((l, r.digits != 0))
 }
 
-// ABI 1.82: `pxui_ui_text_field_keyed` that also reports what happened to the field's box in `response`, the result a caller would otherwise
-// read with `pxui_ui_input_box`, `pxui_ui_signal` and `pxui_ui_focused`. The descriptor and outputs are checked as that export checks them; the
+// ABI 1.82: a text field of `desc` that reports what happened to the field's box in `response` (box, hover, press, focus and click). The
 // trusted entry checks the handle (once: the export does not count the call itself).
 export!(trusted pub unsafe fn pxui_ui_text_field(ui: *mut PxuiUi, desc: *const pxui_types::ffi::PxuiTextFieldDesc, changed: *mut Str, out_changed: *mut u8, response: *mut pxui_types::ffi::PxuiResponse) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
@@ -800,8 +799,8 @@ mod tests {
         assert_eq!(unsafe {pxui_ui_destroy(ui)},0);
     }
 
-    /// Each text input's `_response` export reports what `pxui_ui_input_box`, `pxui_ui_signal` and `pxui_ui_focused` read of the box it
-    /// built, in the one call; a short response record is refused before the widget runs.
+    /// Each text input export reports what `pxui_ui_signal` and `pxui_ui_focused` read of the box it built, in the one call; a short
+    /// response record is refused before the widget runs.
     #[test]
     fn text_input_response_exports_report_their_box_in_one_call() {
         use super::*;

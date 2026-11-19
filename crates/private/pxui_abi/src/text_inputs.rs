@@ -3,7 +3,7 @@ use crate::{PXUI_ERR_ARGUMENT, PxuiBox, Str};
 use core::{cell::Cell, ffi::c_void};
 use pxui_types::ffi::{PxuiAreaCallbacks, PxuiResponse, PxuiDescription, PxuiMaybeRange, PxuiRewrite, PxuiTextAreaDesc, PxuiValueFieldDesc, Slice};
 use std::rc::Rc;
-use pxui_types::{Node, Size};
+use pxui_types::Node;
 use pxui_core::ui::Drop;
 use pxui_core::ui_text::{CodeContext, Completion, Language, ScrubPhase, TextAreaOpts, ValueFieldOpts};
 
@@ -140,29 +140,19 @@ pub(crate) fn area_adapters() -> AreaAdapters {
     }
 }
 
-// ABI 1.82: `pxui_ui_text_area_node` that also names the area `name` to a screen reader and reports what happened to its box in `response`,
-// the result a caller would otherwise read with `pxui_ui_input_box`, `pxui_ui_a11y_name`, `pxui_ui_signal` and `pxui_ui_focused`.
+// ABI 1.82: a text area laid out by the checked `node` (no grid; a transition must be valid), named `name` to a screen reader:
+// `out_text` takes its text (the caller's value when unchanged), `out_changed` whether it changed, `out_submitted` whether it was
+// submitted and `response` what happened to its box. A refused call writes none of them.
 export!(build pub unsafe fn pxui_ui_text_area(
     ui: *mut PxuiUi, desc: *const PxuiTextAreaDesc, node: *const Node, cbs: *const PxuiAreaCallbacks, name: Str,
     out_text: *mut Str, out_changed: *mut u8, out_submitted: *mut u8, response: *mut PxuiResponse,
 ) -> i32 {
-    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     let Some(response) = sized_mut!(response) else { return unsafe { fail(ui, "null or short text area response") } };
     let Some(name) = (unsafe { checked(name) }) else { return unsafe { fail(ui, "invalid text area strings") }; };
     let Some(node) = (unsafe { crate::node::checked_node(node) }) else { return unsafe { fail(ui, "invalid text area node") } };
     let bad_curve = matches!(&node.transition, pxui_types::node::OptTransition::Some(curve) if !curve.valid());
     if node.grid.is_some() || bad_curve { return unsafe { fail(ui, "invalid text area node") }; }
-    let rc = unsafe { text_area(ui, desc, Some(*node), cbs, out_text, out_changed, out_submitted) };
-    if rc != 0 { return rc; }
-    unsafe { crate::trusted::input_response(ui, Some(name), response) }
-});
-
-/// The body of both text area exports: `place` (checked by the caller) or the descriptor's rectangle lays the area out.
-unsafe fn text_area(
-    ui: *mut PxuiUi, desc: *const PxuiTextAreaDesc, place: Option<Node>, cbs: *const PxuiAreaCallbacks,
-    out_text: *mut Str, out_changed: *mut u8, out_submitted: *mut u8,
-) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if desc.is_null() || out_text.is_null() || out_changed.is_null() || out_submitted.is_null() {
         return unsafe { fail(ui, "invalid text area arguments") };
     }
@@ -171,26 +161,23 @@ unsafe fn text_area(
         return unsafe { fail(ui, "invalid text area descriptor") };
     }
     let d = unsafe { *desc };
-    if d.flags & !PxuiTextAreaDesc::KNOWN != 0 || (place.is_none() && (!finite(&[d.x, d.y, d.width, d.height]) || d.width < 0.0 || d.height < 0.0)) {
-        return unsafe { fail(ui, "invalid text area arguments") };
-    }
-    let place = place.unwrap_or(Node { at: Some((d.x, d.y)).into(), w: Size::Px(d.width), h: Size::Px(d.height), ..Node::DEFAULT });
-    unsafe { *out_text = Str::default(); *out_changed = 0; *out_submitted = 0; }
+    if d.flags & !PxuiTextAreaDesc::KNOWN != 0 { return unsafe { fail(ui, "invalid text area arguments") }; }
     let (Some(label), Some(value)) = (unsafe { crate::state::checked_label(d.label) }, unsafe { checked_text(d.value) }) else {
         return unsafe { fail(ui, "invalid text area strings") };
     };
     let shared = state.shared();
     let (opts, ad) = (&mut shared.area, shared.area_ad.get_or_insert_with(area_adapters));
     if unsafe { area_opts(&d, cbs.as_ref(), opts, ad) }.is_none() { return unsafe { fail(ui, "invalid text area options") }; }
-    let (text, submitted) = unsafe { (&mut *state.engine).text_area_submit(place, opts, label, value) };
+    let (text, submitted) = unsafe { (&mut *state.engine).text_area_submit(*node, opts, label, value) };
     // the language goes back to its adapters for the next call
     if let Some(lang) = opts.language.take() { ad.language = Some(lang); }
-    unsafe { *out_changed = text.is_some() as u8; *out_submitted = submitted as u8; }
+    let changed = text.is_some();
     // an unchanged text is the caller's own value: nothing is copied into the library's storage
     let text = match text { Some(text) => match state.lend(text) { Ok(text) => text, Err(code) => return code }, None => d.value };
-    unsafe { *out_text = text; }
-    0
-}
+    let rc = unsafe { crate::trusted::input_response(ui, Some(name), response) };
+    if rc == 0 { unsafe { (*out_text, *out_changed, *out_submitted) = (text, changed as u8, submitted as u8); } }
+    rc
+});
 
 /// Text a callback wrote, copied into the engine's `String` (refused, and the call fails, when it is not UTF-8 or too long).
 fn produced(invalid: &Cell<bool>, out: Str) -> String {
@@ -233,31 +220,21 @@ unsafe fn field_desc(ui: *mut PxuiUi, desc: *const PxuiValueFieldDesc) -> Result
     Ok((d, [display, placeholder, lead, trail, label, value]))
 }
 
-// ABI 1.82: `pxui_ui_value_field` that also names the field `name` to a screen reader and reports what happened to its box in `response`,
-// the result a caller would otherwise read with `pxui_ui_input_box`, `pxui_ui_a11y_name`, `pxui_ui_signal` and `pxui_ui_focused`.
+// ABI 1.82: a value field of `desc` named `name` to a screen reader, `valid`, `slide` and `scrub` the caller's functions (run only
+// during the call, with `user`): `out_text` takes the field's text (changed or not, kept by the library until the next frame),
+// `out_changed` whether it changed, `out_editing` whether a text editor is open and `response` what happened to its box. A refused
+// call writes none of them.
 export!(build pub unsafe fn pxui_ui_value_field(
     ui: *mut PxuiUi, desc: *const PxuiValueFieldDesc, valid: TextValid, slide: SlideText, scrub: ScrubText, user: *mut c_void, name: Str,
     out_text: *mut Str, out_changed: *mut u8, out_editing: *mut u8, response: *mut PxuiResponse,
 ) -> i32 {
-    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     let Some(response) = sized_mut!(response) else { return unsafe { fail(ui, "null or short value field response") } };
     let Some(name) = (unsafe { checked(name) }) else { return unsafe { fail(ui, "invalid value field strings") }; };
-    unsafe { value_field(ui, desc, valid, slide, scrub, user, out_text, out_changed, out_editing, Some((name, response))) }
-});
-
-/// Both value field exports: `response`, when given, names the field and takes what happened to its box.
-#[allow(clippy::too_many_arguments)]
-unsafe fn value_field(
-    ui: *mut PxuiUi, desc: *const PxuiValueFieldDesc, valid: TextValid, slide: SlideText, scrub: ScrubText, user: *mut c_void,
-    out_text: *mut Str, out_changed: *mut u8, out_editing: *mut u8, response: Option<(&str, &mut PxuiResponse)>,
-) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if out_text.is_null() || out_changed.is_null() || out_editing.is_null() {
         return unsafe { fail(ui, "invalid value field arguments") };
     }
     let (d, [display, placeholder, lead, trail, label, value]) = match unsafe { field_desc(ui, desc) } { Ok(v) => v, Err(code) => return code };
-    unsafe { *out_text = Str::default(); *out_changed = 0; *out_editing = 0; }
-    // the caller's functions, run only during this call
     let invalid = Cell::new(false);
     let slide_cb = |fraction: f32| { let mut out = Str::default(); if let Some(slide) = slide { slide(user, fraction, &mut out); } produced(&invalid, out) };
     let scrub_cb = |origin: &str, dx: f32, coarse: bool| {
@@ -274,12 +251,12 @@ unsafe fn value_field(
     };
     let (text, editing) = unsafe { (&mut *state.engine).value_field((d.x, d.y), d.width, d.height, &opts, &accept, slide.map(|_| &slide_cb as &dyn Fn(f32) -> String), scrub.map(|_| &scrub_cb as &dyn Fn(&str, f32, bool) -> String), label, value) };
     if invalid.get() { return unsafe { fail(ui, "invalid value field callback result") }; }
-    unsafe { *out_changed = text.is_some() as u8; *out_editing = editing as u8; }
-    // the field's text, changed or not, kept by the library until the next frame
+    let changed = text.is_some();
     let Ok(text) = state.lend(text.unwrap_or(value)) else { return crate::PXUI_ERR_STATE };
-    unsafe { *out_text = text; }
-    match response { Some((name, out)) => unsafe { crate::trusted::input_response(ui, Some(name), out) }, None => 0 }
-}
+    let rc = unsafe { crate::trusted::input_response(ui, Some(name), response) };
+    if rc == 0 { unsafe { (*out_text, *out_changed, *out_editing) = (text, changed as u8, editing as u8); } }
+    rc
+});
 
 // A value field's value (`text`) and soft-range line written by patches, as the field's build lays them out (the engine's
 // `patch_field`): `out` says whether the patch could show it; false (a lead, a value too wide beside its trail, a line

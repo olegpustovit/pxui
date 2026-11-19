@@ -18,7 +18,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 97u)
+#define PXUI_ABI_BUILT ((1u << 16) | 98u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 typedef struct { uint32_t autocorrect, capitalization, action; } PxuiTextInputOptions;
@@ -594,17 +594,17 @@ int32_t pxui_ui_draw(PxuiUi *ui, const PxuiBox *box, uint8_t over, PxuiPaintBuil
 int32_t pxui_within(PxuiUi *ui, const PxuiBox *box, PxuiBuild build, void *user);
 /* Builds `build` under the id scope of `label` (the Rust ui.id). */
 int32_t pxui_scope(PxuiUi *ui, PxuiStr label, PxuiBuild build, void *user);
-/* ABI 1.54: pxui_ui_label with the label's box (null for none) writing the label's node to `out` (for a fill, an accessible state or
-   text laid into it); a null style is the theme's label, as pxui_label. A short box, unknown set bits, a non-finite height or an
+/* ABI 1.54: a label of `text` in `style` with the label's box (null for none), writing the label's node to `out` (for a fill, an
+   accessible state or text laid into it); a null style is the theme's label. A short box, unknown set bits, a non-finite height or an
    unknown role is refused. */
 int32_t pxui_ui_label_node(PxuiUi *ui, PxuiStr text, const PxuiLabelStyle *style, const PxuiLabelBox *label_box, PxuiBox *out);
-/* ABI 1.49: the PxuiTextStyle `style` shapes with, resolved against the Ui's theme label as pxui_ui_label resolves it (unset fields
-   the theme label's, tracking in points); `digits` is ignored. Refused for a style pxui_ui_label would refuse. */
+/* ABI 1.49: the PxuiTextStyle `style` shapes with, resolved against the Ui's theme label as pxui_ui_label_node resolves it (unset
+   fields the theme label's, tracking in points); `digits` is ignored. Refused for a style pxui_ui_label_node would refuse. */
 int32_t pxui_ui_resolve_label(PxuiUi *ui, const PxuiLabelStyle *style, PxuiTextStyle *out);
 /* A text field keyed by desc->key and named desc->name to a screen reader (empty: unnamed). changed receives the new text (borrowed
-   until the next call) when out_changed is 1; a refused call writes neither. Each text input reports what happened to its box in one call:
-   `response` (size set by the caller; a shorter record is refused) takes the box, hover, press, focus and click; `name` (search, line and
-   value fields, text area) names the box to a screen reader. */
+   until the next call) when out_changed is 1. Each text input reports what happened to its box in one call: `response` (size set by the
+   caller; a shorter record is refused) takes the box, hover, press, focus and click; `name` (search, line and value fields, text area)
+   names the box to a screen reader. A refused text input call (outside a frame among them) writes none of its outputs. */
 int32_t pxui_ui_text_field(PxuiUi *ui, const PxuiTextFieldDesc *desc, PxuiStr *changed, uint8_t *out_changed, PxuiResponse *response);
 /* action (ABI 1.91): the on-screen keyboard's return key, 0 Return, 1 Done, 2 Search (no autocorrection or capitalization). */
 int32_t pxui_ui_search_field(PxuiUi *ui, PxuiStr label, PxuiStr icon, PxuiStr value, PxuiStr placeholder, PxuiStr name, uint8_t action, uint8_t *changed, PxuiStr *out, PxuiResponse *response);
@@ -748,10 +748,10 @@ typedef struct {
     void (*describe)(void *user, PxuiStr text, int64_t at, PxuiDescription *out); void (*number_at)(void *user, PxuiStr text, int64_t at, PxuiMaybeRange *out);
     uint32_t (*context_at)(void *user, PxuiStr text, int64_t caret); void (*rewrite)(void *user, PxuiStr text, int64_t caret, PxuiRewrite *out);
 } PxuiAreaCallbacks;
-/* ABI 1.80: pxui_ui_text_area_submit laid out by node under the current parent (checked as pxui_ui_node checks it; no grid); desc's
+/* ABI 1.80: pxui_ui_text_area is laid out by node under the current parent (checked as pxui_ui_node checks it; no grid); desc's
    x, y, width and height are ignored. The wrap width is node's Px width, else the area's width from the last layout. */
 int32_t pxui_ui_patch_field(PxuiUi *ui, const PxuiBox *field, const PxuiValueFieldDesc *desc, PxuiStr text, uint8_t *out); /* the field's value and soft-range line written by patches, as its build lays them out; out is 0 when a patch cannot show it (a lead, a value too wide beside its trail): build the field's view */
-/* ABI 1.82: pxui_ui_value_field and pxui_ui_text_area_node with `name` and `response` (see pxui_ui_text_field). */
+/* ABI 1.82: the value field and the text area, named `name`, report into `response` (see pxui_ui_text_field). */
 int32_t pxui_ui_value_field(PxuiUi *ui, const PxuiValueFieldDesc *desc, PxuiTextValid valid, PxuiSlideText slide, PxuiScrubText scrub, void *user, PxuiStr name, PxuiStr *out_text, uint8_t *out_changed, uint8_t *out_editing, PxuiResponse *response);
 int32_t pxui_ui_text_area(PxuiUi *ui, const PxuiTextAreaDesc *desc, const PxuiNode *node, const PxuiAreaCallbacks *cbs, PxuiStr name, PxuiStr *out_text, uint8_t *out_changed, uint8_t *out_submitted, PxuiResponse *response);
 int32_t pxui_ui_load_text_edit(PxuiUi *ui, int64_t key, PxuiStr text, PxuiStr *out_text, uint64_t *caret, uint64_t *anchor);
@@ -894,7 +894,7 @@ int32_t pxui_ui_key_down(PxuiUi *ui, uint32_t code, uint8_t *out);
 /* ABI 1.23: raw press query with Shift/Ctrl/Alt/Meta held at the event, including same-frame release. */
 /* Match all requested modifiers on one press (Shift=1, Ctrl=2, Alt=4, Meta=8). 0 requires none and 16 accepts any. */
 int32_t pxui_ui_key_pressed(PxuiUi *ui, uint32_t code, uint32_t modifiers, uint8_t *out);
-/* ABI 1.78: the body size and kit row exactly (pxui_ui_font_size/_row_height round them); the setter keeps fractions (0.5..=1024). */
+/* ABI 1.78: the body size and kit row exactly; the setter keeps fractions (0.5..=1024). */
 int32_t pxui_ui_font_points(PxuiUi *ui, float *out);
 int32_t pxui_ui_row_points(PxuiUi *ui, float *out);
 int32_t pxui_ui_set_font_points(PxuiUi *ui, float points);
@@ -1004,7 +1004,7 @@ int32_t pxui_ui_field_drag(PxuiUi *ui, const PxuiBox *box, uint8_t *present, Pxu
 /* ABI 1.85: the kit checkbox with its style; a click flips on, which the caller keeps. */
 int32_t pxui_ui_checkbox(PxuiUi *ui, const PxuiCheckboxDesc *desc, PxuiResponse *out);
 /* ABI 1.85: the section index strip (a focusable slider over letters, each checked once, at most 4096), named keyed->name; result: the letter chosen this frame (has_chosen 0: none moved it), never a secondary. */
-int32_t pxui_ui_section_index_result(PxuiUi *ui, const PxuiKeyedDesc *keyed, PxuiStrSpan letters, PxuiResponse *out, PxuiSegmentedResult *result);
+int32_t pxui_ui_section_index(PxuiUi *ui, const PxuiKeyedDesc *keyed, PxuiStrSpan letters, PxuiResponse *out, PxuiSegmentedResult *result);
 /* ABI 1.85: a collapsible section, its header showing and named keyed->name, built through the inspector_section body; open is the caller's value (0 or 1), build runs the content while open. A click (or Enter/Space while focused) in out is a toggle; the caller keeps the value. */
 int32_t pxui_ui_disclosure(PxuiUi *ui, const PxuiKeyedDesc *keyed, uint8_t open, PxuiBuild build, void *user, PxuiResponse *out);
 int32_t pxui_ui_progress(PxuiUi *ui, const PxuiKeyedDesc *keyed, uint8_t has_value, float value, PxuiBox *out);
@@ -1022,7 +1022,8 @@ int32_t pxui_ui_scroll_view(PxuiUi *ui, const PxuiKeyedDesc *keyed, const PxuiNo
    a held preview, 2 a commit (a release, a key or an assistive SetValue, with preview equal to it), 4 held; a slider's preview is the value
    shown. pxui_ui_panel and pxui_ui_popup also write the overlay's root (the empty box when it is dismissed). pxui_ui_split reports the grip's
    response (empty without a grip) and has_ratio 1 with the ratio under the pointer while the grip is held and on its release frame.
-   pxui_ui_menu_bar sets dismissed to 1 when the menu open at the frame's start closed without a pick. */
+   pxui_ui_menu_bar sets dismissed to 1 when the menu open at the frame's start closed without a pick. A refused call (pxui_ui_modal,
+   pxui_ui_popup, pxui_ui_split and pxui_ui_toasts among them) writes none of its outputs. */
 int32_t pxui_ui_segmented(PxuiUi *ui, const PxuiSegmentedDesc *desc, PxuiPickItemSpan items, PxuiResponse *out, PxuiSegmentedResult *result);
 int32_t pxui_ui_pick(PxuiUi *ui, const PxuiKeyedDesc *keyed, uint32_t kind, PxuiPickItemSpan items, uint8_t has_selected, size_t selected, PxuiResponse *out, PxuiSegmentedResult *result);
 /* ABI 1.84: a tab bar of pick-one items (an item's detail beside its text, its id keying it), named keyed->name; selected is the tab in use when has_selected is 1 (0: none is); focus_on_click 1 makes a press on a tab focus the bar. result: the tab in use and the tab a secondary press began on. */

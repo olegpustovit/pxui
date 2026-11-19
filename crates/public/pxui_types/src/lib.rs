@@ -268,7 +268,7 @@ pub struct TextTraits {
 impl Default for TextTraits {
     fn default() -> Self { Self::DEFAULT }
 }
-/// The C record of the text input traits (`pxui_text_field_with_options`, `pxui_ui_text_input_options`): `TextTraits` as three numbers. For C
+/// The C record of the text input traits (`PxuiTextFieldDesc`, `pxui_ui_text_input_options`): `TextTraits` as three numbers. For C
 /// callers and the library's own conversions, not for authoring.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -859,7 +859,7 @@ pub mod feature {
     pub const FRAME_SURFACE: u32 = 13;
     /// ABI 1.49: `ui_item_text`.
     pub const ITEM_TEXT: u32 = 14;
-    /// ABI 1.43: app colour tokens (`ui_set_colors`).
+    /// ABI 1.43: app colour tokens (`theme_set_color`).
     pub const COLOR_TOKENS: u32 = 15;
     /// ABI 1.40: `ui_swipe_actions`.
     pub const SWIPE_ACTIONS: u32 = 16;
@@ -899,7 +899,7 @@ pub mod feature {
 }
 
 /// The ABI version this crate's records describe (`major << 16 | minor`); an app states it as `PxuiUiDesc::abi_built`.
-pub const ABI_BUILT: u32 = 1 << 16 | 97;
+pub const ABI_BUILT: u32 = 1 << 16 | 98;
 impl Default for PxuiUiDesc { fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, platform: 0, font_size: 0, abi_built: ABI_BUILT } } }
 
 #[cfg(test)]

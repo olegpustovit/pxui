@@ -224,27 +224,21 @@ export!(pub unsafe fn pxui_ui_animate(ui: *mut PxuiUi, box_: *const PxuiBox, key
 
 // ABI 1.76: the split of `desc` reporting the grip's response (the empty one when the body builds no grip) into `out`; `has_ratio` is
 // 1 with the ratio under the pointer in `ratio` while the grip is held and on its release frame (the release value is final), else 0.
+// A refused call writes none of them.
 export!(trusted pub unsafe fn pxui_ui_split(ui: *mut PxuiUi, desc: *const PxuiSplitDesc, out: *mut PxuiResponse, has_ratio: *mut u8, ratio: *mut f32) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
-    let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short split response") } };
-    unsafe { split(ui, desc, out, has_ratio, ratio, false) }
-});
-
-/// The body of `pxui_ui_split` (`moved_only`: a ratio only when the grip moved along the axis) and `pxui_ui_split`.
-unsafe fn split(ui: *mut PxuiUi, desc: *const PxuiSplitDesc, response: &mut PxuiResponse, changed: *mut u8, ratio: *mut f32, moved_only: bool) -> i32 {
-    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
-    if desc.is_null() || changed.is_null() || ratio.is_null() { return unsafe { fail(ui, "null split argument") }; }
+    let Some(response) = sized_mut!(out) else { return unsafe { fail(ui, "null or short split response") } };
+    if desc.is_null() || has_ratio.is_null() || ratio.is_null() { return unsafe { fail(ui, "null split argument") }; }
     let Some(desc) = sized!(desc) else { return unsafe { fail(ui, "invalid split descriptor") }; };
     if desc.axis > 1 { return unsafe { fail(ui, "invalid split descriptor") }; }
     let Some(label) = (unsafe { crate::state::checked_key(desc.label) }) else { return unsafe { fail(ui, "invalid split label") }; };
     let axis = if desc.axis == 0 { Axis::Row } else { Axis::Column };
-    let (mut moved, mut at) = (false, None);
+    let mut at = None;
     let rc = unsafe { crate::trusted::split(ui, label, axis, desc.ratio, desc.min_a, desc.min_b,
-        &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, desc.build_a, desc.user_a), &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, desc.build_b, desc.user_b), response, &mut moved, &mut at) };
-    let at = at.filter(|_| moved || !moved_only);
-    unsafe { *changed = at.is_some() as u8; *ratio = at.unwrap_or_default(); }
+        &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, desc.build_a, desc.user_a), &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, desc.build_b, desc.user_b), response, &mut at) };
+    if rc == 0 { unsafe { (*has_ratio, *ratio) = (at.is_some() as u8, at.unwrap_or_default()); } }
     rc
-}
+});
 
 // ABI 1.76: `pxui_ui_menu_bar` that also sets `dismissed` to 1 when the menu open at the frame's start closed without a pick.
 export!(build pub unsafe fn pxui_ui_menu_bar(ui: *mut PxuiUi, desc: *const PxuiMenuBarDesc, out: *mut PxuiMenuOut, dismissed: *mut u8) -> i32 {
@@ -253,7 +247,7 @@ export!(build pub unsafe fn pxui_ui_menu_bar(ui: *mut PxuiUi, desc: *const PxuiM
     unsafe { menu_bar(ui, desc, out, &mut *dismissed) }
 });
 
-/// The body of `pxui_ui_menu_bar` and `pxui_ui_menu_bar`.
+/// The body of `pxui_ui_menu_bar`.
 unsafe fn menu_bar(ui: *mut PxuiUi, desc: *const PxuiMenuBarDesc, out: *mut PxuiMenuOut, dismissed: &mut u8) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if desc.is_null() || out.is_null() { return unsafe { fail(ui, "null menu bar argument") }; }
@@ -312,7 +306,7 @@ export!(trusted pub unsafe fn pxui_ui_inspector_section(ui: *mut PxuiUi, desc: *
     let (build, user) = (desc.build, desc.user);
     let mut open = false;
     let rc = unsafe { crate::trusted::inspector_section(ui, key, desc.expanded != 0, (desc.has_set != 0).then_some(desc.set_expanded != 0), label, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, build, user), &mut open) };
-    desc.out_open = open as u8;
+    if rc == 0 { desc.out_open = open as u8; }
     rc
 });
 
@@ -322,7 +316,7 @@ export!(trusted pub unsafe fn pxui_ui_inspector_toggle(ui: *mut PxuiUi, key: Str
     let (Some(key), Some(label)) = (unsafe { crate::state::checked_key(key) }, unsafe { checked(label) }) else { return unsafe { fail(ui, "invalid inspector toggle text") }; };
     let mut on = false;
     let rc = unsafe { crate::trusted::inspector_toggle(ui, key, label, value != 0, &mut on) };
-    unsafe { *out = on as u8; }
+    if rc == 0 { unsafe { *out = on as u8; } }
     rc
 });
 
@@ -332,7 +326,7 @@ export!(trusted pub unsafe fn pxui_ui_inspector_button(ui: *mut PxuiUi, key: Str
     let (Some(key), Some(label)) = (unsafe { crate::state::checked_key(key) }, unsafe { checked(label) }) else { return unsafe { fail(ui, "invalid inspector button text") }; };
     let mut pressed = false;
     let rc = unsafe { crate::trusted::inspector_button(ui, key, label, &mut pressed) };
-    unsafe { *out = pressed as u8; }
+    if rc == 0 { unsafe { *out = pressed as u8; } }
     rc
 });
 

@@ -428,7 +428,7 @@ pub struct PxuiMenuExtra {
     pub reserved4: u32,
 }
 
-/// A label's style as it crosses the ABI (`pxui_ui_label`, `pxui_paint_label`, `PxuiLabelConfig::style`; ABI 1.45): `Label` with
+/// A label's style as it crosses the ABI (`pxui_ui_label_node`, `pxui_paint_label`, `PxuiLabelConfig::style`; ABI 1.45): `Label` with
 /// each optional field's bit in `set` (`SET_*`); a field whose bit is clear is the theme's label style. `color` is an app colour
 /// token; `digits` 1 draws the text one cached character at a time with every digit on the advance of `0`. The label's box (height,
 /// role, whole pixels) crosses beside it as a `PxuiLabelBox` (ABI 1.54).
@@ -1080,7 +1080,7 @@ impl PxuiDialogResult {
     pub const EMPTY: PxuiDialogResult = PxuiDialogResult { size: core::mem::size_of::<PxuiDialogResult>() as u32, has_chosen: 0, dismissed: 0, reserved: [0; 2], chosen: 0 };
 }
 
-/// A widget's identity and its accessible name, apart (ABI 1.68, every `pxui_ui_*_keyed` call): `key` is hashed under the parent's seed
+/// A widget's identity and its accessible name, apart (ABI 1.68, every call that takes one): `key` is hashed under the parent's seed
 /// and is identity only; `name` is what the widget shows and is read as (empty: none). The caller sets `size`; a shorter record and a
 /// non-zero `reserved` are refused.
 #[repr(C)]
@@ -1180,7 +1180,7 @@ impl PxuiPickRow {
 }
 
 /// What happened to a kit button or icon button this frame, in one record (ABI 1.48, `pxui_ui_button_plain`,
-/// `pxui_ui_button_response`, `pxui_ui_icon_button_plain`, `pxui_ui_icon_button`): the `CLICKED`, `HOVERED`, `HELD`,
+/// `pxui_ui_button`, `pxui_ui_icon_button_plain`, `pxui_ui_icon_button`): the `CLICKED`, `HOVERED`, `HELD`,
 /// `FOCUSED` and `ACTIVATED` bits and the button's box. The caller sets `size`; a shorter record is refused.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -1210,7 +1210,7 @@ impl PxuiResponse {
     pub const EMPTY: PxuiResponse = PxuiResponse { size: core::mem::size_of::<PxuiResponse>() as u32, flags: 0, node: PxuiBox { index: 0, box_key: 0, box_slot: 0, generation: 0 } };
 }
 
-/// What a segmented control's frame chose (ABI 1.67, `pxui_ui_segmented_result`): `chosen` is the choice when `has_chosen` is 1 (0: no
+/// What a segmented control's frame chose (ABI 1.67, `pxui_ui_segmented`, `pxui_ui_pick`, `pxui_ui_tabs`, `pxui_ui_section_index`): `chosen` is the choice when `has_chosen` is 1 (0: no
 /// option is chosen), `secondary` the option a secondary press began on this frame when `has_secondary` is 1. The caller sets `size`; a
 /// shorter record is refused.
 #[repr(C)]
@@ -1284,7 +1284,7 @@ pub struct PxuiIconButtonDesc {
     pub reserved2: [u8; 6],
 }
 
-/// A text field (`pxui_ui_text_field_keyed`): `key` is its identity among its siblings, `name` what a screen reader calls it (empty: unnamed),
+/// A text field (`pxui_ui_text_field`): `key` is its identity among its siblings, `name` what a screen reader calls it (empty: unnamed),
 /// `value` the text it shows; the three traits are the numbers of `PxuiTextInputOptions` (autocorrect 0 or 1, capitalization 0 to 3, action 0
 /// to 2). The caller sets `size`; a shorter record is refused.
 #[repr(C)]
@@ -1308,7 +1308,7 @@ pub struct PxuiTextFieldDesc {
     pub value: Str,
 }
 
-/// A kit toggle with options (`toggle_response`). `row_h` 0 is the kit's row height; `switch_w` and `switch_h` 0 are the kit's 28 x 14;
+/// A kit toggle with options (`pxui_ui_toggle`). `row_h` 0 is the kit's row height; `switch_w` and `switch_h` 0 are the kit's 28 x 14;
 /// `inset` 0 is the kit's distance of the label and the switch from the row's sides; `detail` is a secondary line under the label
 /// (empty: none); `track` and `knob` null are the theme's, else six looks each (idle, hover, pressed, focus, disabled, checked).
 #[repr(C)]
@@ -1649,7 +1649,7 @@ pub struct PxuiSelectionListDesc {
     pub rows: PxuiU8MutSpan,
     /// The anchor row (`usize::MAX`: none).
     pub anchor: usize,
-    /// ABI 1.88: the look a row takes while a payload is over it (read when `has_drop_look` is 1; checked as `pxui_ui_set_look` checks one).
+    /// ABI 1.88: the look a row takes while a payload is over it (read when `has_drop_look` is 1; checked as `pxui_ui_style` checks one).
     pub drop_look: PxuiLookDesc,
 }
 

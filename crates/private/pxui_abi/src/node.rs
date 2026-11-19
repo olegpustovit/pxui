@@ -259,7 +259,7 @@ export!(pub unsafe fn pxui_ui_node_layout(ui: *mut PxuiUi, box_: *const PxuiBox,
 
 // Sets the layout of a node declared this frame, as a body sizes the node its widget gave it (`Ui::node_mut` in the engine): `desc`'s axis, justify,
 // align, wrap, size, minimum and maximum, grow, shrink, aspect, padding, margin, gaps, own alignment and offset. Its other fields (flags, role,
-// state, look, text, grid, anchor) are ignored: behaviour keeps them, the look is `pxui_ui_set_look`'s.
+// state, look, text, grid, anchor) are ignored: behaviour keeps them, the look is `pxui_ui_style`'s.
 export!(pub unsafe fn pxui_ui_set_node_layout(ui: *mut PxuiUi, box_: *const PxuiBox, desc: *const Node) -> i32 {
     let (e, b) = match unsafe { crate::state::boxed(ui, box_) } { Ok(v) => v, Err(code) => return code };
     let legacy;

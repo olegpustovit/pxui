@@ -167,7 +167,7 @@ export!(pub unsafe fn pxui_paint_label_measure(p:*mut PxuiPaint,text:Str,style:*
     0
 });
 
-// ABI 1.78: `pxui_paint_text_spans` in a label style resolved against this painter's theme (its colour included).
+// ABI 1.78: text with spans painted in a label style resolved against this painter's theme (its colour included).
 export!(pub unsafe fn pxui_paint_label_spans(p:*mut PxuiPaint,x:f32,y:f32,style:*const pxui_types::ffi::PxuiLabelStyle,width:f32,text:Str,spans:*const pxui_types::TextSpans,out:*mut TextMetrics)->i32 {
     if !finite(&[x,y,width]) || out.is_null() { return PXUI_ERR_ARGUMENT; }
     let (Some(p),Some((label,_)),Some(text),Some(spans))=(unsafe { value(p) },crate::ui::label_style(style),unsafe { string(text) },unsafe { crate::text::span_packet(spans) }) else { return PXUI_ERR_ARGUMENT };

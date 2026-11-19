@@ -162,7 +162,7 @@ pub unsafe fn toggle_plain(ui: *mut PxuiUi, key: &str, text: &str, on: bool, out
     0
 }
 
-/// The kit toggle with options, the body of `pxui_ui_toggle` and `pxui_ui_toggle_plain`: `track` and `knob` in place of the theme's
+/// The kit toggle with options, the body of `pxui_ui_toggle`: `track` and `knob` in place of the theme's
 /// `switch` and `knob`, `row_h`, `switch_w`, `switch_h` and `inset` (finite, non-negative; 0 the kit's), `press_row` (a press anywhere on the row
 /// toggles), `detail` a line under the text, `label` the title's text style (`None`: the theme's toggle font; one that does not resolve is
 /// refused), `enabled`. `detail` is only read for the call.
@@ -282,7 +282,7 @@ pub unsafe fn text_area(ui: *mut PxuiUi, d: &pxui_types::ffi::PxuiTextAreaDesc, 
 }
 
 /// What happened to the text input the widget call just built (`Ui::input_response`), the box named `name` when given: what a text
-/// input's `_response` export reports. `PXUI_ERR_STATE` when the call built none.
+/// input export reports. `PXUI_ERR_STATE` when the call built none.
 #[inline]
 pub(crate) unsafe fn input_response(ui: *mut PxuiUi, name: Option<&str>, out: &mut PxuiResponse) -> i32 {
     match unsafe { engine(ui) }.input_response(name) { Some(r) => { respond(&r, out); 0 } None => crate::PXUI_ERR_STATE }
@@ -485,7 +485,7 @@ pub unsafe fn section_index(ui: *mut PxuiUi, key: &str, name: &str, letters: &[&
     unsafe { section_index_body(ui, key, name, letters, out, chosen) }
 }
 
-/// `section_index` for `pxui_ui_section_index_result`, which has checked the key, the name and every letter as C hands them over.
+/// `section_index` for `pxui_ui_section_index`, which has checked the key, the name and every letter as C hands them over.
 #[inline]
 pub(crate) unsafe fn section_index_checked(ui: *mut PxuiUi, key: &str, name: &str, letters: &[&str], out: &mut PxuiResponse, chosen: &mut Option<usize>) -> i32 {
     enter!(ui);
@@ -543,8 +543,7 @@ pub(crate) fn respond(r: &pxui_core::ui::Response, out: &mut PxuiResponse) {
         | r.focused as u32 * PxuiResponse::FOCUSED | r.activated as u32 * PxuiResponse::ACTIVATED | r.secondary as u32 * PxuiResponse::SECONDARY;
 }
 
-/// The kit button with options, the body of `pxui_ui_button_with`, `pxui_ui_button_response`, `pxui_ui_button` and
-/// `pxui_ui_button_plain`: `states` in place of the theme's button, `w` and `h` (`button_size`), `justify` its place in the line, `pad`
+/// The kit button with options, the body of `pxui_ui_button`: `states` in place of the theme's button, `w` and `h` (`button_size`), `justify` its place in the line, `pad`
 /// (finite, non-negative) inside the box, `centered` the box exactly its size with its text centred, `label` the text's style (one that
 /// resolves), `axis`, `gap` (finite, non-negative) and `content_align` the contents' layout, `focus_on_click` a press focusing it,
 /// `lead` the leading icon's glyph or `lead_draw` (the app's C drawing with its `lead_user` and `lead_word`, as `icon_button_with` takes
@@ -611,7 +610,7 @@ pub unsafe fn icon_button_plain(ui: *mut PxuiUi, key: &str, glyph: &str, name: &
     0
 }
 
-/// The kit icon button with options, the body of `pxui_ui_icon_button_with`, `_response` and `_plain`: the `glyph`, or the app's
+/// The kit icon button with options, the body of `pxui_ui_icon_button`: the `glyph`, or the app's
 /// drawing `draw` (a C callback, its `user` and the icon's `word`, read in it with `pxui_paint_icon_word`), named `name`; `states` in place of the theme's icon button, `w` and `h`
 /// (`button_size`), `press_scale` finite and positive, `press` the valid curves in and out (`None`: the kit's), `selected` an on/off key's
 /// state (`None`: a plain button). What happened goes to `out`; with `signal`, the box's whole signal too.
@@ -655,7 +654,7 @@ pub unsafe fn badge(ui: *mut PxuiUi, key: &str, name: &str, value: &str, out: &m
 
 /// The text a search field changed to, or none; kept by the library until the next frame.
 #[inline]
-pub unsafe fn search_field(ui: *mut PxuiUi, label: &str, icon: &str, value: &str, placeholder: &str, traits: pxui_types::TextTraits, out: &mut Option<Str>, response: Option<(&str, &mut PxuiResponse)>) -> i32 {
+pub unsafe fn search_field(ui: *mut PxuiUi, label: &str, icon: &str, value: &str, placeholder: &str, traits: pxui_types::TextTraits, out: &mut Option<Str>, name: &str, response: &mut PxuiResponse) -> i32 {
     enter!(ui);
     let label = clip(label);
     let icon = clip(icon);
@@ -663,7 +662,7 @@ pub unsafe fn search_field(ui: *mut PxuiUi, label: &str, icon: &str, value: &str
     if value.len() > MAX_TEXT_BYTES { return unsafe { fail(ui, "invalid search field text") }; }
     let found = unsafe { engine(ui) }.search_field(label, icon, value, placeholder, traits);
     *out = match found { None => None, Some(text) => match unsafe { get(ui) } { Some(state) => match state.lend(text) { Ok(text) => Some(text), Err(code) => return code }, None => Some(Str::default()) } };
-    match response { Some((name, out)) => unsafe { input_response(ui, Some(clip(name)), out) }, None => 0 }
+    unsafe { input_response(ui, Some(clip(name)), response) }
 }
 
 /// `Ui::menu` of Rust rows: the position and the widths are finite by the checks below, the rows and the key are Rust values. The
@@ -841,16 +840,16 @@ pub unsafe fn grid_list(ui: *mut PxuiUi, label: &str, count: usize, cell_w: f32,
     0
 }
 
-/// Two panes in a row (`axis` 0) or a column (1); `response` is the grip's, `moved` whether it moved along the axis and `out` the
-/// ratio under the pointer while the grip is held and on its release.
+/// Two panes in a row (`axis` 0) or a column (1); `response` is the grip's and `out` the ratio under the pointer while the grip is held
+/// and on its release.
 #[allow(clippy::too_many_arguments)]
 #[inline]
-pub unsafe fn split(ui: *mut PxuiUi, label: &str, axis: pxui_types::Axis, ratio: f32, min_a: f32, min_b: f32, a: Inner, b: Inner, response: &mut PxuiResponse, moved: &mut bool, out: &mut Option<f32>) -> i32 {
+pub unsafe fn split(ui: *mut PxuiUi, label: &str, axis: pxui_types::Axis, ratio: f32, min_a: f32, min_b: f32, a: Inner, b: Inner, response: &mut PxuiResponse, out: &mut Option<f32>) -> i32 {
     enter!(ui);
     if bad_key(label) || ![ratio, min_a, min_b].iter().all(|v| v.is_finite()) || min_a < 0.0 || min_b < 0.0 || axis == pxui_types::Axis::Stack { return unsafe { fail(ui, "invalid split descriptor") }; }
-    let (r, m, at) = unsafe { engine(ui) }.split_result(label, axis, ratio, min_a, min_b, a, b);
+    let (r, _, at) = unsafe { engine(ui) }.split_result(label, axis, ratio, min_a, min_b, a, b);
     respond(&r, response);
-    (*moved, *out) = (m, at);
+    *out = at;
     0
 }
 
@@ -954,7 +953,7 @@ pub unsafe fn label_text_line_box(ui: *mut PxuiUi, box_: *const PxuiBox, value: 
     unsafe { crate::text::ui_text_line_box(ui, box_, value, &style, spans) }
 }
 
-/// `spans` null: the plain measurement (`pxui_text_width`); else `pxui_text_width_spans`.
+/// The measurement of `value` in a label style, with `spans` when not null (the body of `pxui_ui_label_measure`).
 #[inline(always)]
 pub unsafe fn label_measure(ui: *mut PxuiUi, value: Str, style: &LabelFields, max_width: f32, spans: *const TextSpans, out: *mut TextMetrics) -> i32 {
     let Some(style) = (unsafe { resolved(ui, style) }) else { return crate::PXUI_ERR_ARGUMENT };

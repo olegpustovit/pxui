@@ -41,11 +41,11 @@ mod link {
     use super::*;
     use crate::composite::{defer_callback_panic, deferred};
     use core::{ffi::c_void, panic::AssertUnwindSafe};
-    use pxui_types::{Str, ffi::{PxuiTreeViewDesc as TreeViewWithDesc, PxuiU32MutSpan as U32MutSpan, PxuiU8MutSpan as U8MutSpan}};
+    use pxui_types::{Str, ffi::{PxuiTreeViewDesc, PxuiU32MutSpan as U32MutSpan, PxuiU8MutSpan as U8MutSpan}};
 
     #[link(name = "pxui")]
     unsafe extern "C" {
-        fn pxui_ui_tree(ui: *mut crate::sys::PxuiUi, desc: *const TreeViewWithDesc, out: *mut usize) -> i32;
+        fn pxui_ui_tree(ui: *mut crate::sys::PxuiUi, desc: *const PxuiTreeViewDesc, out: *mut usize) -> i32;
         fn pxui_ui_selection_list(ui: *mut crate::sys::PxuiUi, keyed: *const pxui_types::ffi::PxuiKeyedDesc, desc: *const PxuiSelectionListDesc, key: pxui_types::ffi::PxuiRowKey, cell: pxui_types::ffi::PxuiListCell, user: *mut c_void, out: *mut PxuiListResult) -> i32;
         fn pxui_ui_table_head(ui: *mut crate::sys::PxuiUi, keyed: *const pxui_types::ffi::PxuiKeyedDesc, desc: *const PxuiTableHeadDesc, out: *mut PxuiHeadResult) -> i32;
         fn pxui_ui_table(ui: *mut crate::sys::PxuiUi, keyed: *const pxui_types::ffi::PxuiKeyedDesc, desc: *const PxuiTableDesc, key: pxui_types::ffi::PxuiRowKey, cell: pxui_types::ffi::PxuiTableCellBuild, user: *mut c_void, out: *mut PxuiTableResult) -> i32;
@@ -118,8 +118,8 @@ mod link {
         pub(super) fn tree_c(&mut self, label: &str, nodes: &[TreeNode], open: &mut [u8], selected: &mut Option<usize>, visible: &mut [u32], mut cell: Cell) -> (Option<usize>, usize) {
             let mut rows_len = 0usize;
             let mut selected_raw = selected.unwrap_or(usize::MAX);
-            let desc = TreeViewWithDesc {
-                size: core::mem::size_of::<TreeViewWithDesc>() as u32, reserved: 0, label: as_str(label), nodes: Slice { ptr: nodes.as_ptr().cast::<TreeNodeDesc>(), len: nodes.len() },
+            let desc = PxuiTreeViewDesc {
+                size: core::mem::size_of::<PxuiTreeViewDesc>() as u32, reserved: 0, label: as_str(label), nodes: Slice { ptr: nodes.as_ptr().cast::<TreeNodeDesc>(), len: nodes.len() },
                 open: U8MutSpan { ptr: open.as_mut_ptr(), len: open.len() }, selected: &mut selected_raw,
                 visible: U32MutSpan { ptr: visible.as_mut_ptr(), len: visible.len() }, visible_len: &mut rows_len,
                 build: Some(call_cell), user: (&mut cell as *mut Cell).cast(),

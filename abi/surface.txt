@@ -22,7 +22,7 @@ Paint|flag|Rays|inlined
 Paint|frame|Rays|inlined
 Paint|grid|Rays|inlined
 Paint|icon|Rays|done
-Paint|image|Rays|done: pxui_paint_image_checked
+Paint|image|Rays|done: pxui_paint_image
 Paint|line|Rays|inlined
 Paint|method|source|status
 Paint|rtl|Rays|inlined
@@ -58,7 +58,7 @@ Ui|cap_width|Rays|done
 Ui|captured|Rays|done
 Ui|carrying|Rays|done
 Ui|carry|Rays|done
-Ui|checkbox|Gallery|done: pxui_ui_checkbox_keyed
+Ui|checkbox|Gallery|done: pxui_ui_checkbox
 Ui|clipboard_request|Rays|done
 Ui|col|Rays|done
 Ui|context_at|Rays|done
@@ -88,7 +88,7 @@ Ui|hovered_exactly|Rays|done
 Ui|hovered_within|Rays|done
 Ui|icon_button|Gallery|done
 Ui|id|Rays|done: the library handle, a stable key for app state per Ui
-Ui|image|Gallery|done: pxui_ui_image_node
+Ui|image|Gallery|done: pxui_ui_image
 Ui|ime|Rays|done
 Ui|inject_a11y|Gallery|done
 Ui|input|Rays|replaced: frame takes the host's input as FrameIn/Input
@@ -189,7 +189,7 @@ Ui|tokens|Gallery,Rays|done
 Ui|tree|Gallery|done
 Ui|unfocus|Rays|done
 Ui|value_field|Gallery,Rays|done
-Ui|verify_new_views|Rays|done: pxui_verify_new_views
+Ui|verify_new_views|Rays|done: pxui_ui_verify_views
 Ui|verify_views|Rays|done
 Ui|verifying|Rays|done
 Ui|view_backdrop_blur|Rays|done
@@ -204,7 +204,7 @@ Renderer|forget_image|LocalWave|done: pxui_renderer_forget_image
 Ui|key_down|LocalWave|done
 Ui|key_pressed_with|LocalWave|done
 Ui|now|LocalWave|done: pxui_ui_now
-Ui|text_line_box|LocalWave|done: pxui_ui_text_line_box
+Ui|text_line_box|LocalWave|done: pxui_ui_label_text_line_box
 
 Ui|density|LocalWave|done: pxui_ui_density
 

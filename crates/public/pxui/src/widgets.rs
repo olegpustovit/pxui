@@ -4,7 +4,7 @@ use pxui_types::{ffi::{PxuiKeyedDesc, PxuiResponse, Slice}, theme::BodyKind, ui:
 
 library!(keyed_lib {
     fn pxui_ui_checkbox(ui: *mut PxuiUi, desc: *const pxui_types::ffi::PxuiCheckboxDesc, out: *mut PxuiResponse) -> i32;
-    fn pxui_ui_section_index_result(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, letters: Slice<Str>, out: *mut PxuiResponse, result: *mut pxui_types::ffi::PxuiSegmentedResult) -> i32;
+    fn pxui_ui_section_index(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, letters: Slice<Str>, out: *mut PxuiResponse, result: *mut pxui_types::ffi::PxuiSegmentedResult) -> i32;
     fn pxui_ui_disclosure(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, open: u8, build: pxui_types::ffi::UiBuild, user: *mut core::ffi::c_void, out: *mut PxuiResponse) -> i32;
     fn pxui_ui_slider(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, value: f32, min: f32, max: f32, out: *mut PxuiResponse, result: *mut pxui_types::ffi::PxuiScrubOut) -> i32;
     fn pxui_ui_pick(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, kind: u32, items: Slice<pxui_types::ffi::PxuiPickItem>, has_selected: u8, selected: usize, out: *mut PxuiResponse, result: *mut pxui_types::ffi::PxuiSegmentedResult) -> i32;
@@ -167,7 +167,7 @@ impl Ui {
             let letters = crate::Strs::new(letters);
             let mut result = pxui_types::ffi::PxuiSegmentedResult::EMPTY;
             self.variant_on(BodyKind::section_index, variant);
-            check(self, unsafe { keyed_lib::pxui_ui_section_index_result(self.0.as_ptr(), &keyed, letters.span(), &mut out, &mut result) });
+            check(self, unsafe { keyed_lib::pxui_ui_section_index(self.0.as_ptr(), &keyed, letters.span(), &mut out, &mut result) });
             self.variant_off(BodyKind::section_index, variant);
             (result.has_chosen != 0).then_some(result.chosen as usize)
         };
@@ -311,7 +311,7 @@ impl Ui {
         let mut response = pxui_types::ffi::PxuiResponse::EMPTY;
         self.variant_on(BodyKind::search_field, field.variant);
         #[cfg(feature = "static")]
-        let changed = { let mut out = None; check(self, unsafe { pxui_abi_link::trusted::search_field(self.0.as_ptr(), label, field.icon, value, field.placeholder, field.traits, &mut out, Some((field.name, &mut response))) }); out };
+        let changed = { let mut out = None; check(self, unsafe { pxui_abi_link::trusted::search_field(self.0.as_ptr(), label, field.icon, value, field.placeholder, field.traits, &mut out, field.name, &mut response) }); out };
         #[cfg(not(feature = "static"))]
         let changed = {
             let mut changed = 0;

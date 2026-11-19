@@ -20,17 +20,17 @@ export!(trusted pub unsafe fn pxui_ui_tip(ui: *mut PxuiUi, box_: *const PxuiBox,
     unsafe { crate::trusted::tooltip(ui, &*box_, label) }
 });
 
-/// Toasts of `items` keyed by `key`, each by its id in `ids` (empty: by its text, as before 1.63), the body of `pxui_ui_toasts` and
-/// `pxui_ui_toasts`; up to 32 on the stack, more in a buffer.
-unsafe fn toasts(ui: *mut PxuiUi, key: &str, items: Slice<Str>, ids: Slice<i64>, by_text: bool, seconds: f64, out_index: *mut i64) -> i32 {
+/// Toasts of `items` keyed by `key`, each by its id in `ids` (as many), the body of `pxui_ui_toasts`; up to 32 on the stack, more in a
+/// buffer. `out_index` is written only when the call is not refused.
+unsafe fn toasts(ui: *mut PxuiUi, key: &str, items: Slice<Str>, ids: Slice<i64>, seconds: f64, out_index: *mut i64) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    if out_index.is_null() || !seconds.is_finite() || seconds < 0.0 || (!by_text && ids.len != items.len) || (ids.len != 0 && ids.ptr.is_null()) {
+    if out_index.is_null() || !seconds.is_finite() || seconds < 0.0 || ids.len != items.len || (ids.len != 0 && ids.ptr.is_null()) {
         return unsafe { fail(ui, "invalid toast arguments") };
     }
     let mut list = state.shared().take_strs();
     if !unsafe { strings(items, MAX_ROWS, &mut list) } { state.shared().put_strs(list); return unsafe { fail(ui, "invalid toast strings") }; }
-    let ids = if by_text || ids.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(ids.ptr, ids.len) } };
-    let toast = |i: usize| Toast::new(if by_text { pxui_types::ui::key_of(0, list[i]) } else { ids[i] }, list[i]);
+    let ids = if ids.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(ids.ptr, ids.len) } };
+    let toast = |i: usize| Toast::new(ids[i], list[i]);
     let mut stack = [Toast::new(0, ""); 32];
     let heap: Vec<Toast>;
     let items: &[Toast] = if list.len() <= 32 {
@@ -43,7 +43,7 @@ unsafe fn toasts(ui: *mut PxuiUi, key: &str, items: Slice<Str>, ids: Slice<i64>,
     let mut gone = None;
     let rc = unsafe { crate::trusted::toasts(ui, key, items, seconds, &mut gone) };
     state.shared().put_strs(list);
-    unsafe { *out_index = gone.map_or(-1, |index| index as i64); }
+    if rc == 0 { unsafe { *out_index = gone.map_or(-1, |index| index as i64); } }
     rc
 }
 
@@ -51,7 +51,7 @@ unsafe fn toasts(ui: *mut PxuiUi, key: &str, items: Slice<Str>, ids: Slice<i64>,
 export!(build pub unsafe fn pxui_ui_toasts(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, items: Slice<Str>, ids: Slice<i64>, seconds: f64, out_index: *mut i64) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     let Some((key, _name)) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
-    unsafe { toasts(ui, key, items, ids, false, seconds, out_index) }
+    unsafe { toasts(ui, key, items, ids, seconds, out_index) }
 });
 
 export!(trusted pub unsafe fn pxui_ui_context_menu(
@@ -195,7 +195,7 @@ unsafe fn decode_extra(extra: &PxuiMenuExtra, size: usize, menu: &mut [MenuItem<
     true
 }
 
-/// The picker keyed by `key`, `placeholder` its placeholder and name: the body of `pxui_ui_picker` and `pxui_ui_picker`.
+/// The picker keyed by `key`, `placeholder` its placeholder and name: the body of `pxui_ui_picker`.
 #[allow(clippy::too_many_arguments)]
 unsafe fn picker(
     ui: *mut PxuiUi, limit: i64, slash: u8, at_rest: u8, key: &str, placeholder: &str, query: Str,

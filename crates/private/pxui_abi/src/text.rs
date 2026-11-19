@@ -349,7 +349,7 @@ unsafe fn measure(text: &mut Text, key: u64, value: Str, style_: *const TextStyl
     0
 }
 
-// A text's glyph quads (see `pxui_text_quads`).
+// A text's glyph quads (see `pxui_ui_label_quads`).
 unsafe fn quads(
     text: &mut Text,
     key: u64,
@@ -609,9 +609,8 @@ mod tests {
 }
 
 // ABI 1.65: the text calls on a label style (`PxuiLabelStyle`; `digits` ignored), resolved against the Ui's theme as
-// `pxui_ui_resolve_label` resolves it, in the same call. A null, invalid or unresolvable style is refused like an invalid style of
-// the resolved-style twin (`pxui_ui_text_spans`, `pxui_ui_text_line_box`, `pxui_text_width`/`_spans`, `pxui_text_quads`,
-// `pxui_text_rasterize_rgba`, `pxui_text_prewarm`); the layout key is the content's (key 0).
+// `pxui_ui_resolve_label` resolves it, in the same call. A null, invalid or unresolvable style is refused like an invalid
+// resolved style; the layout key is the content's (key 0).
 
 export!(pub unsafe fn pxui_ui_label_text_spans(ui:*mut PxuiUi,box_:*const crate::PxuiBox,value:Str,style:*const pxui_types::ffi::PxuiLabelStyle,spans:*const TextSpans)->i32 {
     if unsafe { crate::state::get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
@@ -623,7 +622,7 @@ export!(pub unsafe fn pxui_ui_label_text_line_box(ui:*mut PxuiUi,box_:*const cra
     let Some(state)=(unsafe { crate::state::get(ui) }) else { return PXUI_ERR_ARGUMENT };
     let Some((label,_))=crate::ui::label_style(style) else { return unsafe { crate::fail(ui,"invalid label style") } };
     let Some(resolved)=(unsafe { &*state.engine }).resolve(&label) else { return unsafe { crate::fail(ui,"label style does not resolve") } };
-    // Keep the call recorded by the former delegation to pxui_ui_text_line_box.
+    // counted as one call, as every text call is
     unsafe { crate::state::note_call(state.shared) };
     if !state.shared().in_frame || box_.is_null() { return unsafe { crate::fail(ui,"line-box text needs a frame, a node and a style") }; }
     unsafe { write_line_box(ui, state, box_, value, self::style(resolved), spans) }

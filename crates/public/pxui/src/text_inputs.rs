@@ -170,7 +170,7 @@ extern "C" fn rewrite(user: *mut c_void, value: Str, caret: i64, out: *mut PxuiR
     unsafe { *out = PxuiRewrite { text: lend(&a.produced), caret }; }
 }
 
-/// A text input's response as its `_response` call reported it, `changed` as the call's text said.
+/// A text input's response as its call reported it, `changed` as the call's text said.
 pub(crate) fn input_response(out: &PxuiResponse, changed: bool) -> Response { Response { changed, ..crate::kit_ext::response(out) } }
 
 impl Ui {

@@ -288,8 +288,8 @@ impl Ui {
         let mut out = pxui_types::ffi::PxuiResponse::EMPTY;
         #[cfg(feature = "static")]
         let at = {
-            let (mut moved, mut at) = (false, None);
-            check(self, unsafe { let outer = self.0.as_ptr(); pxui_abi_link::trusted::split(outer, label, axis, ratio, min_a, min_b, inner!(outer, |ui: &mut Ui| a(ui)), inner!(outer, |ui: &mut Ui| b(ui)), &mut out, &mut moved, &mut at) });
+            let mut at = None;
+            check(self, unsafe { let outer = self.0.as_ptr(); pxui_abi_link::trusted::split(outer, label, axis, ratio, min_a, min_b, inner!(outer, |ui: &mut Ui| a(ui)), inner!(outer, |ui: &mut Ui| b(ui)), &mut out, &mut at) });
             at
         };
         #[cfg(not(feature = "static"))]

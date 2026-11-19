@@ -319,6 +319,61 @@ fn modal_sheet_checks_every_field_before_the_build() {
     assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
 }
 
+/// A refused call writes none of its outputs (pxui.h: "a refused call writes neither"), whether it is refused outside a frame
+/// (`PXUI_ERR_STATE`) or for a bad argument inside one: each output keeps the caller's sentinel.
+#[test]
+fn refused_calls_leave_their_outputs_untouched() {
+    use pxui_types::ffi::{PxuiInspectorSectionDesc, PxuiKeyedDesc, PxuiResponse, PxuiSheetDesc, PxuiSplitDesc, PxuiTextAreaDesc};
+    let ui = create();
+    let s = |t: &'static str| Str { ptr: t.as_ptr(), len: t.len() };
+    let bad_utf8 = Str { ptr: [0xff_u8].as_ptr(), len: 1 };
+    let sentinel = Str { ptr: b"sentinel".as_ptr(), len: 8 };
+    let marked = || { let mut r = PxuiResponse::EMPTY; r.flags = 0xdead; r };
+    let keyed = PxuiKeyedDesc::new("k", "K");
+    // the search field: outside a frame, and inside one with a label that is not UTF-8
+    let search = |ui: *mut PxuiUi, label: Str| {
+        let (mut changed, mut out, mut r) = (7u8, sentinel, marked());
+        let rc = unsafe { pxui_ui_search_field(ui, label, s(""), s("q"), s(""), s("Find"), 2, &mut changed, &mut out, &mut r) };
+        assert_eq!((changed, out.len, r.flags), (7, 8, 0xdead), "search field rc {rc}");
+        rc
+    };
+    assert_eq!(search(ui, s("find")), PXUI_ERR_STATE);
+    assert_eq!(in_frame(ui, &mut |ui| search(ui, bad_utf8)), PXUI_ERR_ARGUMENT);
+    // the split: outside a frame, and inside one with a ratio that is not finite (refused by the trusted entry)
+    let split = |ui: *mut PxuiUi, ratio: f32| {
+        let d = PxuiSplitDesc { size: core::mem::size_of::<PxuiSplitDesc>() as u32, axis: 0, label: s("split"), ratio, min_a: 0.0, min_b: 0.0, reserved: 0,
+            build_a: Some(nothing), user_a: core::ptr::null_mut(), build_b: Some(nothing), user_b: core::ptr::null_mut() };
+        let (mut r, mut has, mut at) = (marked(), 7u8, 9.0f32);
+        let rc = unsafe { pxui_ui_split(ui, &d, &mut r, &mut has, &mut at) };
+        assert_eq!((r.flags, has, at), (0xdead, 7, 9.0), "split rc {rc}");
+        rc
+    };
+    assert_eq!(split(ui, 0.5), PXUI_ERR_STATE);
+    assert_eq!(in_frame(ui, &mut |ui| split(ui, f32::NAN)), PXUI_ERR_ARGUMENT);
+    // the modal: outside a frame
+    let sheet = PxuiSheetDesc { size: core::mem::size_of::<PxuiSheetDesc>() as u32, has_width: 0, present: 0, reserved: [0; 2], width: 0.0, dismiss_fraction: 0.0, dismiss_velocity: 0.0, top: 0.0, max_h: 0.0 };
+    let (mut open, mut root) = (7u8, PxuiBox { box_key: 99, ..PxuiBox::default() });
+    assert_eq!(unsafe { pxui_ui_modal(ui, &keyed, &sheet, Some(nothing), core::ptr::null_mut(), &mut open, &mut root) }, PXUI_ERR_STATE);
+    assert_eq!((open, root.box_key), (7, 99), "modal");
+    // the text area: inside a frame with a label that is not UTF-8
+    let mut area: PxuiTextAreaDesc = unsafe { core::mem::zeroed() };
+    (area.size, area.label) = (core::mem::size_of::<PxuiTextAreaDesc>() as u32, bad_utf8);
+    let (mut text, mut changed, mut submitted, mut r) = (sentinel, 7u8, 7u8, marked());
+    assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_text_area(ui, &area, &pxui_types::Node::DEFAULT, core::ptr::null(), s("Notes"), &mut text, &mut changed, &mut submitted, &mut r) }), PXUI_ERR_ARGUMENT);
+    assert_eq!((text.len, changed, submitted, r.flags), (8, 7, 7, 0xdead), "text area");
+    // the inspector's trusted builders: outside a frame
+    let mut on = 7u8;
+    assert_eq!(unsafe { pxui_ui_inspector_toggle(ui, s("t"), s("T"), 1, &mut on) }, PXUI_ERR_STATE);
+    assert_eq!(unsafe { pxui_ui_inspector_button(ui, s("b"), s("B"), &mut on) }, PXUI_ERR_STATE);
+    assert_eq!(on, 7, "inspector toggle and button");
+    let mut section = PxuiInspectorSectionDesc { size: core::mem::size_of::<PxuiInspectorSectionDesc>() as u32, expanded: 1, has_set: 0, set_expanded: 0, reserved: 0,
+        key: s("s"), label: s("S"), build: Some(nothing), user: core::ptr::null_mut(), out_open: 7 };
+    assert_eq!(unsafe { pxui_ui_inspector_section(ui, &mut section) }, PXUI_ERR_STATE);
+    assert_eq!(section.out_open, 7, "inspector section");
+    assert!(!unsafe { (*(*ui).shared).poisoned });
+    assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
+}
+
 #[test]
 fn theme_tokens_that_cannot_be_a_theme_make_none() {
     use pxui_types::ffi::ThemeTokens;
@@ -709,7 +764,7 @@ fn section_index_and_disclosure_refuse_invalid_arguments() {
     let keyed = PxuiKeyedDesc::new("index", "Jump to");
     let index = |letters: Slice<Str>, keyed: &PxuiKeyedDesc, result: &mut PxuiSegmentedResult| in_frame(ui, &mut |ui| {
         let mut out = PxuiResponse::EMPTY;
-        unsafe { pxui_ui_section_index_result(ui, keyed, letters, &mut out, result) }
+        unsafe { pxui_ui_section_index(ui, keyed, letters, &mut out, result) }
     });
     let mut result = PxuiSegmentedResult::EMPTY;
     assert_eq!(index(Slice { ptr: letters.as_ptr(), len: 2 }, &keyed, &mut result), 0, "{}", error(ui));
@@ -725,7 +780,7 @@ fn section_index_and_disclosure_refuse_invalid_arguments() {
     refused(Slice { ptr: letters.as_ptr(), len: 5000 }, &keyed, "more than 4096 letters");
     refused(Slice { ptr: letters.as_ptr(), len: 2 }, &PxuiKeyedDesc { size: 8, ..keyed }, "a short keyed record");
     refused(Slice { ptr: letters.as_ptr(), len: 2 }, &PxuiKeyedDesc { reserved: 1, ..keyed }, "a reserved bit");
-    assert_ne!(in_frame(ui, &mut |ui| { let mut out = PxuiResponse::EMPTY; unsafe { pxui_ui_section_index_result(ui, &keyed, Slice { ptr: letters.as_ptr(), len: 2 }, &mut out, core::ptr::null_mut()) } }), 0, "a null result");
+    assert_ne!(in_frame(ui, &mut |ui| { let mut out = PxuiResponse::EMPTY; unsafe { pxui_ui_section_index(ui, &keyed, Slice { ptr: letters.as_ptr(), len: 2 }, &mut out, core::ptr::null_mut()) } }), 0, "a null result");
 
     extern "C" fn ran(user: *mut c_void, _: *mut c_void) { unsafe { *user.cast::<u32>() += 1; } }
     let mut built = 0u32;

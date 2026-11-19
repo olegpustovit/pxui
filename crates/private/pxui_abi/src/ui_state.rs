@@ -106,7 +106,7 @@ export!(pub unsafe fn pxui_ui_variant(ui: *mut PxuiUi, kind: u32, variant: u16) 
     e.set_variant(kind, variant);
     0
 });
-// ABI 1.61: the word the next icon button call (`pxui_ui_icon_button_with`/`_response`) hands its drawing, read in the drawing with
+// ABI 1.61: the word the next icon button call (`pxui_ui_icon_button`) hands its drawing, read in the drawing with
 // `pxui_paint_icon_word`; that call takes it, so the one after reads 0 unless set again.
 export!(pub unsafe fn pxui_ui_icon_word(ui: *mut PxuiUi, word: u32) -> i32 {
     let Some(ui) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
