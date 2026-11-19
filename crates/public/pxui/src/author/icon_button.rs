@@ -163,7 +163,8 @@ impl<'a> IconButton<'a> {
     pub const fn variant(mut self, variant: u16) -> IconButton<'a> { self.variant = variant; self }
 
     /// Makes the button an on/off key (shuffle, repeat, a panel's toggle) that is on when `on`: it shows its look's `checked` state while
-    /// on and reads to accessibility as checkable, checked while on; a registered body sees it as `state.checked`. A click still only
+    /// on, hovered or held too (its press scale still applies; U2b.4.9), and reads to accessibility as checkable, checked while on; a
+    /// registered body sees it as `state.checked`. A click still only
     /// reports `clicked`: the caller flips its value and passes it back next frame. Without it the button is a plain one.
     /// Allocates: never.
     /// Panics: never.

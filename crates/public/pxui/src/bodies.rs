@@ -572,6 +572,33 @@ mod tests {
         assert!(mem_sys::take_reports().is_empty());
     }
 
+    /// U2b.4.9: a selected icon button keeps its checked look while hovered and held (the kit's body and the ink a registered body is
+    /// given), its press scale still springs, and an unselected one still takes its hover look. Both link modes.
+    #[test]
+    fn a_selected_icon_button_keeps_its_checked_look_while_hovered_and_held() {
+        use crate::theme::{Look, States};
+        const LOOKS: States = States::of(Look::NONE.fill(crate::Rgba::rgb(1, 1, 1))).hover(Look::NONE.fill(crate::Rgba::rgb(2, 2, 2)))
+            .pressed(Look::NONE.fill(crate::Rgba::rgb(3, 3, 3))).checked(Look::NONE.fill(crate::Rgba::rgb(4, 4, 4)));
+        let on = Cell::new(true);
+        let mut build = |ui: &mut Ui| { ui.icon_button("key", crate::Icon::glyph('?'), "Key", &crate::IconButton::sized(40.0, 40.0).look(&LOOKS).press_scale(0.9).selected(on.get())); };
+        let fill = |ui: &Ui, c: u8| ui.layers().flat_map(|l| l.instances.iter()).any(|i| i.color == [c, c, c, 255]);
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+        crate::testing::frame(&mut ui, &[], &mut build);
+        let over = crate::Event { kind: crate::Event::POINTER_MOVED, x: 20.0, y: 20.0, ..Default::default() };
+        crate::testing::frame(&mut ui, &[over], &mut build);
+        assert!(fill(&ui, 4) && !fill(&ui, 2), "hovered and on: the checked look");
+        let down = crate::Event { kind: crate::Event::POINTER_PRESSED, ..over };
+        crate::testing::frame(&mut ui, &[down], &mut build);
+        crate::testing::frame(&mut ui, &[], &mut build);
+        assert!(fill(&ui, 4) && !fill(&ui, 3), "held and on: the checked look");
+        assert!(ui.repaint_at().is_some(), "the press scale springs");
+        crate::testing::frame(&mut ui, &[crate::Event { kind: crate::Event::POINTER_RELEASED, ..over }], &mut build);
+        on.set(false);
+        crate::testing::frame(&mut ui, &[], &mut build);
+        crate::testing::frame(&mut ui, &[over], &mut build);
+        assert!(fill(&ui, 2), "hovered and off: the hover look");
+    }
+
     #[test]
     fn icon_of_only_trusts_the_wrappers_trampoline() {
         extern "C" fn foreign(_: *mut c_void, _: *mut c_void, _: Rect, _: pxui_types::geom::Rgba, _: *const pxui_types::ffi::PxuiPaintInfo) {}
