@@ -679,12 +679,6 @@ export!(trusted pub unsafe fn pxui_ui_panel_root(ui: *mut PxuiUi, keyed: *const 
     unsafe { self::panel(ui, key, name, panel, build, user, &mut *root) }
 });
 
-export!(trusted pub unsafe fn pxui_label(ui: *mut PxuiUi, label: Str) -> i32 {
-    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
-    let Some(label) = (unsafe { checked(label) }) else { return unsafe { fail(ui, "invalid label text") } };
-    unsafe { trusted::pxui_label(ui, pair(label)) }
-});
-
 export!(trusted pub unsafe fn pxui_ui_label(ui: *mut PxuiUi, text: Str, style: *const pxui_types::ffi::PxuiLabelStyle) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     let (Some(text), false) = (unsafe { checked(text) }, style.is_null()) else { return unsafe { fail(ui, "invalid label arguments") } };
@@ -775,18 +769,6 @@ pub(crate) fn label_style(style: *const pxui_types::ffi::PxuiLabelStyle) -> Opti
     l.max_lines = r.max_lines;
     Some((l, r.digits != 0))
 }
-
-export!(trusted pub unsafe fn pxui_button(ui: *mut PxuiUi, label: Str, out: *mut u8) -> i32 {
-    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
-    let (Some(label), false) = (unsafe { crate::state::checked_label(label) }, out.is_null()) else { return unsafe { fail(ui, "invalid button arguments") } };
-    unsafe { trusted::pxui_button(ui, pair(label), out) }
-});
-
-export!(trusted pub unsafe fn pxui_toggle(ui: *mut PxuiUi, label: Str, on: u8, out: *mut u8) -> i32 {
-    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
-    let (Some(label), false) = (unsafe { crate::state::checked_label(label) }, out.is_null() || on > 1) else { return unsafe { fail(ui, "invalid toggle arguments") } };
-    unsafe { trusted::pxui_toggle(ui, pair(label), on, out) }
-});
 
 export!(trusted pub unsafe fn pxui_text_field(ui: *mut PxuiUi, label: Str, value: Str, changed: *mut Str, out_changed: *mut u8) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }

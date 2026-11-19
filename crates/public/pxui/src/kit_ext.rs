@@ -18,14 +18,14 @@ use std::{fmt::Arguments, rc::Rc};
 library!(lib {
     fn pxui_ui_animate(ui: *mut PxuiUi, box_: *const PxuiBox, key: *const KeyframeDesc, out: *mut u8) -> i32;
     fn pxui_ui_button_plain(ui: *mut PxuiUi, key: Str, text: Str, out: *mut PxuiResponse) -> i32;
-    fn pxui_ui_dialog_response(ui: *mut PxuiUi, desc: *const PxuiDialogDesc, build: pxui_types::ffi::UiBuild, user: *mut c_void, out: *mut PxuiDialogResult) -> i32;
-    fn pxui_ui_button_content(ui: *mut PxuiUi, desc: *const PxuiButtonDesc, build: pxui_types::ffi::PxuiButtonBuild, user: *mut c_void, out: *mut PxuiResponse) -> i32;
+    fn pxui_ui_dialog(ui: *mut PxuiUi, desc: *const PxuiDialogDesc, build: pxui_types::ffi::UiBuild, user: *mut c_void, out: *mut PxuiDialogResult) -> i32;
+    fn pxui_ui_button(ui: *mut PxuiUi, desc: *const PxuiButtonDesc, build: pxui_types::ffi::PxuiButtonBuild, user: *mut c_void, out: *mut PxuiResponse) -> i32;
     fn pxui_ui_icon_button_plain(ui: *mut PxuiUi, key: Str, icon: Str, name: Str, out: *mut PxuiResponse) -> i32;
-    fn pxui_ui_icon_button_response(ui: *mut PxuiUi, desc: *const PxuiIconButtonDesc, out: *mut PxuiResponse) -> i32;
+    fn pxui_ui_icon_button(ui: *mut PxuiUi, desc: *const PxuiIconButtonDesc, out: *mut PxuiResponse) -> i32;
     fn pxui_ui_icon_word(ui: *mut PxuiUi, word: u32) -> i32;
     fn pxui_ui_toggle_plain(ui: *mut PxuiUi, key: Str, text: Str, on: u8, out: *mut PxuiResponse) -> i32;
-    fn pxui_ui_toggle_response(ui: *mut PxuiUi, desc: *const pxui_types::ffi::PxuiToggleDesc, out: *mut PxuiResponse) -> i32;
-    fn pxui_ui_segmented_items(ui: *mut PxuiUi, desc: *const pxui_types::ffi::PxuiSegmentedDesc, items: Slice<pxui_types::ffi::PxuiPickItem>, out: *mut PxuiResponse, result: *mut pxui_types::ffi::PxuiSegmentedResult) -> i32;
+    fn pxui_ui_toggle(ui: *mut PxuiUi, desc: *const pxui_types::ffi::PxuiToggleDesc, out: *mut PxuiResponse) -> i32;
+    fn pxui_ui_segmented(ui: *mut PxuiUi, desc: *const pxui_types::ffi::PxuiSegmentedDesc, items: Slice<pxui_types::ffi::PxuiPickItem>, out: *mut PxuiResponse, result: *mut pxui_types::ffi::PxuiSegmentedResult) -> i32;
     fn pxui_ui_disabled(ui: *mut PxuiUi, disabled: u8, build: pxui_types::ffi::UiBuild, user: *mut c_void) -> i32;
     fn pxui_ui_grip(ui: *mut PxuiUi, label: Str, axis: u32, has_rect: u8, rect: Rect, out: *mut PxuiBox, signal: *mut PxuiSignal) -> i32;
     fn pxui_ui_inspector_bar(ui: *mut PxuiUi, hints: Slice<HintDesc>, count: i64) -> i32;
@@ -45,7 +45,7 @@ extern "C" fn rename_call(user: *mut c_void, name: Str) -> u8 {
     }
 }
 
-/// A button's content callback (`pxui_ui_button_content`): `user` is the wrapper's `Option<&mut dyn FnMut(&mut Ui, State)>`, called
+/// A button's content callback (`pxui_ui_button`): `user` is the wrapper's `Option<&mut dyn FnMut(&mut Ui, State)>`, called
 /// with the button's state. A panic is deferred to the end of the call, as `composite::call` defers it.
 #[cfg(not(feature = "static"))]
 extern "C" fn button_build(user: *mut c_void, raw: *mut c_void, state: *const pxui_types::ffi::PxuiStateDesc) {
@@ -203,7 +203,7 @@ impl Ui {
                 checkable: button.selected.is_some() as u8, checked: (button.selected == Some(true)) as u8, reserved2: [0; 6],
             };
             if draw.is_some() { unsafe { lib::pxui_ui_icon_word(self.0.as_ptr(), word) }; }
-            unsafe { lib::pxui_ui_icon_button_response(self.0.as_ptr(), &desc, &mut out) }
+            unsafe { lib::pxui_ui_icon_button(self.0.as_ptr(), &desc, &mut out) }
         };
         check(self, rc);
         response(&out)
@@ -271,7 +271,7 @@ impl Ui {
             if lead_draw.is_some() { unsafe { lib::pxui_ui_icon_word(self.0.as_ptr(), lead_word) }; }
             let build = if content.is_some() { Some(button_build as extern "C" fn(*mut c_void, *mut c_void, *const pxui_types::ffi::PxuiStateDesc)) } else { None };
             let mut inner = content;
-            unsafe { lib::pxui_ui_button_content(self.0.as_ptr(), &desc, build, &mut inner as *mut _ as *mut c_void, &mut out) }
+            unsafe { lib::pxui_ui_button(self.0.as_ptr(), &desc, build, &mut inner as *mut _ as *mut c_void, &mut out) }
         };
         check(self, rc);
         response(&out)
@@ -307,7 +307,7 @@ impl Ui {
                 key: as_str(key), text: as_str(text), detail: as_str(toggle.detail),
                 has_style: toggle.label.is_some() as u8, reserved2: [0; 7], style: toggle.label.as_ref().map_or_else(Default::default, pxui_types::ffi::PxuiLabelStyle::from),
             };
-            unsafe { lib::pxui_ui_toggle_response(self.0.as_ptr(), &desc, &mut out) }
+            unsafe { lib::pxui_ui_toggle(self.0.as_ptr(), &desc, &mut out) }
         };
         check(self, rc);
         let mut r = response(&out);
@@ -338,7 +338,7 @@ impl Ui {
                 names: Slice { ptr: core::ptr::null(), len: 0 }, has_selected: selected.is_some() as u8, reserved3: [0; 7], focus_on_click: segmented.focus_on_click as u8, reserved4: [0; 7],
             };
             let mut result = pxui_types::ffi::PxuiSegmentedResult::EMPTY;
-            check(self, unsafe { lib::pxui_ui_segmented_items(self.0.as_ptr(), &desc, items.span(), &mut out, &mut result) });
+            check(self, unsafe { lib::pxui_ui_segmented(self.0.as_ptr(), &desc, items.span(), &mut out, &mut result) });
             (response(&out), (result.has_chosen != 0).then_some(result.chosen as usize), (result.has_secondary != 0).then_some(result.secondary as usize))
         };
         response.changed = chosen != selected.filter(|_| !options.is_empty()).map(|i| i.min(options.len() - 1));
@@ -372,7 +372,7 @@ impl Ui {
                 details: Slice { ptr: details.as_ptr(), len: buttons.len() },
             };
             let mut result = PxuiDialogResult::EMPTY;
-            check(self, unsafe { lib::pxui_ui_dialog_response(self.0.as_ptr(), &desc, Some(call), &mut body as *mut _ as *mut c_void, &mut result) });
+            check(self, unsafe { lib::pxui_ui_dialog(self.0.as_ptr(), &desc, Some(call), &mut body as *mut _ as *mut c_void, &mut result) });
             Chosen { chosen: (result.has_chosen != 0).then_some(result.chosen as usize), chosen_id: None, dismissed: result.dismissed != 0 }
         }
     }

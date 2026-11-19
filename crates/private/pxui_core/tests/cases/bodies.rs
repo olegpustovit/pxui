@@ -412,7 +412,7 @@ pub fn button_pill_body() {
         if ui.button("Go") {
             v.set(v.get() + 1);
         }
-        if ui.button_styled("Bare", true, false, true, None) {
+        if ui.button_opts("Bare", "Bare", None, &ButtonOpts { bare: true, justify: Justify::End, ..ButtonOpts::DEFAULT }, [""; 3], None, None).clicked {
             v.set(v.get() + 100);
         }
     };

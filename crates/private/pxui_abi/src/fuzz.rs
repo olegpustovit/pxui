@@ -93,8 +93,8 @@ arg!(span: Str, u8, i64, Event, A11yAction, PxuiHintDesc, PxuiKeyframeDesc, pxui
 arg!(sized: PxuiTextFieldDesc, Environment, Gpu, Keyboard, Pass, pxui_text::TextSpans, Commands, A11yAction, Input, PxuiBoxDesc, PxuiButtonDesc, PxuiDialogDesc, PxuiDialogResult, PxuiSegmentedResult,
     PxuiDismissIn, PxuiDismissOut, PxuiFooterDesc, PxuiGestureIn, PxuiGestureOut, PxuiGridListDesc, PxuiHeaderDesc, PxuiHeadOut, PxuiIconButtonDesc,
     PxuiInspectorRowDesc, PxuiInspectorSectionDesc, PxuiInspectorTextDesc, PxuiInspectorValueDesc, PxuiKeyframeDesc, PxuiLabelStyle, PxuiLookDesc, PxuiMenuBarDesc, PxuiMenuExtra, PxuiMenuOut, PxuiNodeFields, PxuiPopupDesc, PxuiResponse,
-    PxuiSaved, PxuiScrubOut, PxuiSignal, PxuiSplitDesc, PxuiStateDesc, PxuiSwipeIn, PxuiTreeViewDesc, PxuiTreeViewWithDesc, PxuiValueFieldDesc, ThemeSource, ThemeTokens, FrameIn, FrameOut, Image, Node, PxuiPanel,
-    PxuiTargetDesc, PxuiUiDesc, TextMetrics, PxuiTextStyle, PxuiAnchorDesc, PxuiAreaCallbacks, PxuiDialogOut, PxuiLabelBox, PxuiMarkDesc, PxuiSegmentedDesc,
+    PxuiSaved, PxuiScrubOut, PxuiSignal, PxuiSplitDesc, PxuiStateDesc, PxuiSwipeIn, PxuiTreeViewDesc, PxuiValueFieldDesc, ThemeSource, ThemeTokens, FrameIn, FrameOut, Image, Node, PxuiPanel,
+    PxuiTargetDesc, PxuiUiDesc, TextMetrics, PxuiTextStyle, PxuiAnchorDesc, PxuiAreaCallbacks, PxuiLabelBox, PxuiMarkDesc, PxuiSegmentedDesc,
     PxuiTextAreaDesc, PxuiTextInputOptions, PxuiToggleDesc, PxuiCheckboxDesc, PxuiSheetDesc, Span, TextGlyph,
     PxuiSectionListDesc, PxuiListResult, PxuiSelectionListDesc, PxuiTableHeadDesc, PxuiHeadResult, PxuiTableDesc, PxuiTableResult);
 arg!(plain: u16, *mut PxuiRenderer, u8, u32, u64, i64, usize, f32, c_void, Str, geom::Rgba, geom::Rect, geom::Point, *const u32, *mut PxuiPreparedText, A11yTree, Slice<A11yAction>);
@@ -217,9 +217,9 @@ macro_rules! fuzz {
 fuzz!(
     pxui_ui_inspector_bar/3, pxui_ui_inspector_body/3, pxui_ui_inspector_button/4, pxui_ui_inspector_header/5, pxui_ui_inspector_label_x/1,
     pxui_ui_inspector_message/2, pxui_ui_inspector_readout/2, pxui_ui_inspector_row/2, pxui_ui_inspector_section/2, pxui_ui_inspector_section_view/10,
-    pxui_ui_inspector_toggle/5, pxui_ui_inspector_toggle_value/6, pxui_ui_inspector_width/1, pxui_ui_layout_node/3, pxui_ui_line_field/11, pxui_ui_line_field_response/13, pxui_ui_menu_bar_result/4, pxui_ui_modal_root/8, pxui_ui_modal_sheet/7, pxui_ui_panel_root/6, pxui_ui_pick/8, pxui_ui_tabs_result/8, pxui_ui_picker/13, pxui_ui_popup_root/7, pxui_ui_scrub_result/8, pxui_ui_slider_result/7, pxui_ui_split_result/5, pxui_ui_value_field/9, pxui_ui_value_field_response/11,
-    pxui_a11y_fd/1, pxui_a11y_pump/2, pxui_a11y_update/2, pxui_abi_version/0, pxui_body_register/5, pxui_body_register_checked/6, pxui_button/3, pxui_col/5,
-    pxui_counter/1, pxui_default_font/0, pxui_frame/5, pxui_label/2, pxui_last_error/1, pxui_paint_cap/6, pxui_paint_cap_width/2, pxui_paint_caret_x/5,
+    pxui_ui_inspector_toggle/5, pxui_ui_inspector_toggle_value/6, pxui_ui_inspector_width/1, pxui_ui_layout_node/3, pxui_ui_line_field/11, pxui_ui_line_field_response/13, pxui_ui_menu_bar_result/4, pxui_ui_modal_root/8, pxui_ui_modal_sheet/7, pxui_ui_panel_root/6, pxui_ui_pick/8, pxui_ui_tabs/8, pxui_ui_popup_root/7, pxui_ui_scrub/8, pxui_ui_slider/7, pxui_ui_split_result/5, pxui_ui_value_field/9, pxui_ui_value_field_response/11,
+    pxui_a11y_fd/1, pxui_a11y_pump/2, pxui_a11y_update/2, pxui_abi_version/0, pxui_body_register/5, pxui_body_register_checked/6, pxui_col/5,
+    pxui_counter/1, pxui_default_font/0, pxui_frame/5, pxui_last_error/1, pxui_paint_cap/6, pxui_paint_cap_width/2, pxui_paint_caret_x/5,
     pxui_paint_color/2, pxui_paint_icon/7, pxui_paint_icon_word/1, pxui_paint_image/8, pxui_paint_image_checked/8, pxui_paint_input_region/6, pxui_paint_label/6, pxui_paint_label_chars/5, pxui_paint_label_measure/6, pxui_paint_label_spans/8,
     pxui_paint_ratio/5, pxui_paint_scroll_y/2, pxui_paint_selection/8, pxui_paint_span/3, pxui_paint_text/4, pxui_paint_text_color/5, pxui_paint_text_metrics/4,
     pxui_paint_text_size/6, pxui_paint_text_spans/10, pxui_paint_text_styled/8, pxui_paint_text_width/4, pxui_paint_text_with/9, pxui_panel/5, pxui_part/4,
@@ -229,34 +229,30 @@ fuzz!(
     pxui_shaper_width_spans/7, pxui_slot/3, pxui_supports/1, pxui_text_add_font/2, pxui_text_field/5, pxui_text_field_with_options/6,
     pxui_text_install/2, pxui_text_prewarm/4, pxui_text_quads/10, pxui_text_rasterize_rgba/14, pxui_text_system_fonts/1, pxui_text_width/6,
     pxui_text_width_spans/7, pxui_theme_density/2, pxui_theme_last_error/1, pxui_theme_load/2, pxui_theme_parse/2,
-    pxui_theme_reduced_motion/2, pxui_theme_set/3, pxui_theme_set_color/3, pxui_toggle/4, pxui_ui_a11y_name/3, pxui_ui_a11y_name_checked/3, pxui_ui_a11y_number/6, pxui_ui_a11y_number_checked/6, pxui_ui_a11y_value/5, pxui_ui_anchored/8, pxui_ui_animate/4,
-    pxui_ui_animate_keys/4, pxui_ui_animate_keys_repeat/7, pxui_ui_badge/4, pxui_ui_box/4, pxui_ui_box_of_a11y/3, pxui_ui_box_of_key/3, pxui_ui_busy_step/4,
-    pxui_ui_button_content/5, pxui_ui_button_plain/4, pxui_ui_button_response/5, pxui_ui_button_styled/8, pxui_ui_button_with/7, pxui_ui_bytes/3,
-    pxui_ui_cached_label/5, pxui_ui_calls/1, pxui_ui_cancel_carry/1, pxui_ui_cap_width/3, pxui_ui_captured/1, pxui_ui_carry/5, pxui_ui_carrying/4, pxui_ui_checkbox/4, pxui_ui_checkbox_keyed/4, pxui_ui_choice_keyed/7, pxui_ui_slider_keyed/7, pxui_ui_progress_keyed/5, pxui_ui_spinner_keyed/3,
-    pxui_ui_badge_keyed/4, pxui_ui_panel_keyed/5, pxui_ui_popup_keyed/6, pxui_ui_modal_keyed/7, pxui_ui_anchored_keyed/8, pxui_ui_scroll_view_keyed/7, pxui_ui_scroll_view_node/6, pxui_ui_view_keyed/6,
-    pxui_ui_toasts_keyed/6, pxui_ui_picker_keyed/13, pxui_ui_checkbox_response/3, pxui_ui_section_index_result/5, pxui_ui_disclosure/6,
+    pxui_theme_reduced_motion/2, pxui_theme_set/3, pxui_theme_set_color/3, pxui_ui_a11y_name/3, pxui_ui_a11y_name_checked/3, pxui_ui_a11y_number/6, pxui_ui_a11y_number_checked/6, pxui_ui_a11y_value/5, pxui_ui_anchored/8, pxui_ui_animate/4,
+    pxui_ui_animate_keys/4, pxui_ui_animate_keys_repeat/7, pxui_ui_box/4, pxui_ui_box_of_a11y/3, pxui_ui_box_of_key/3, pxui_ui_busy_step/4,
+    pxui_ui_button/5, pxui_ui_button_plain/4, pxui_ui_bytes/3,
+    pxui_ui_cached_label/5, pxui_ui_calls/1, pxui_ui_cancel_carry/1, pxui_ui_cap_width/3, pxui_ui_captured/1, pxui_ui_carry/5, pxui_ui_carrying/4, pxui_ui_progress/5, pxui_ui_spinner/3,
+    pxui_ui_badge/4, pxui_ui_panel_keyed/5, pxui_ui_popup_keyed/6, pxui_ui_modal_keyed/7, pxui_ui_anchored_keyed/8, pxui_ui_scroll_view_keyed/7, pxui_ui_scroll_view_node/6, pxui_ui_view_keyed/6,
+    pxui_ui_toasts/6, pxui_ui_picker/13, pxui_ui_checkbox/3, pxui_ui_section_index_result/5, pxui_ui_disclosure/6,
     pxui_ui_color/2, pxui_ui_content_rect/2, pxui_ui_context_at/4, pxui_ui_context_menu/13, pxui_ui_density/1,
-    pxui_ui_dialog/6, pxui_ui_dialog_response/5, pxui_ui_disabled/4, pxui_ui_dismiss/4, pxui_ui_dismiss_popup/1, pxui_ui_draw/6,
-    pxui_ui_drop_target/5, pxui_ui_dropdown/5, pxui_ui_enter/3, pxui_ui_environment/2, pxui_ui_expanded/3, pxui_ui_field_drag/4, pxui_ui_focus_box/2,
+    pxui_ui_dialog/5, pxui_ui_disabled/4, pxui_ui_dismiss/4, pxui_ui_dismiss_popup/1, pxui_ui_draw/6,
+    pxui_ui_drop_target/5, pxui_ui_enter/3, pxui_ui_environment/2, pxui_ui_expanded/3, pxui_ui_field_drag/4, pxui_ui_focus_box/2,
     pxui_ui_focused/3, pxui_ui_font_points/2, pxui_ui_font_size/1, pxui_ui_footer/2, pxui_ui_frame/5, pxui_ui_frame_index/1, pxui_ui_gesture/5, pxui_ui_grid_list/3, pxui_ui_grip/7,
-    pxui_ui_hover_delay/3, pxui_ui_key_seed/2, pxui_ui_hovered/4, pxui_ui_icon_button/4, pxui_ui_icon_button_plain/5, pxui_ui_icon_button_response/3, pxui_ui_icon_button_with/5,
-    pxui_ui_icon_word/2, pxui_ui_image/7, pxui_ui_image_keyed/8, pxui_ui_image_node/7, pxui_ui_inject_a11y/3, pxui_ui_input/4, pxui_ui_input_box/2, pxui_ui_item_text/2, pxui_ui_key_down/3, pxui_ui_key_pressed/3,
-    pxui_ui_key_pressed_mods/4, pxui_ui_key_pressed_with/4, pxui_ui_keyboard/2, pxui_ui_label/3, pxui_ui_label_node/5, pxui_ui_label_text_spans/5, pxui_ui_label_text_line_box/5, pxui_ui_label_measure/6,
+    pxui_ui_hover_delay/3, pxui_ui_key_seed/2, pxui_ui_hovered/4, pxui_ui_icon_button_plain/5, pxui_ui_icon_button/3, pxui_ui_icon_word/2, pxui_ui_image/7, pxui_ui_image_keyed/8, pxui_ui_image_node/7, pxui_ui_inject_a11y/3, pxui_ui_input/4, pxui_ui_input_box/2, pxui_ui_item_text/2, pxui_ui_key_down/3, pxui_ui_key_pressed/4, pxui_ui_keyboard/2, pxui_ui_label/3, pxui_ui_label_node/5, pxui_ui_label_text_spans/5, pxui_ui_label_text_line_box/5, pxui_ui_label_measure/6,
     pxui_ui_label_quads/9, pxui_ui_label_rasterize_rgba/13, pxui_ui_label_prewarm/4, pxui_ui_layer_drawn/2, pxui_ui_leave/2, pxui_ui_list_measured/7,
     pxui_ui_load_text_edit/6, pxui_ui_local_rect/3, pxui_ui_menu_bar/3, pxui_ui_modal/7, pxui_ui_node/4,
     pxui_ui_node_fields/3, pxui_ui_node_keyed/4, pxui_ui_node_layout/3, pxui_ui_now/1, pxui_ui_output/1, pxui_ui_passed_undo/1, pxui_ui_patch_field/5,
     pxui_ui_patch_look/4, pxui_ui_patch_mark/4, pxui_ui_patch_rect/4, pxui_ui_patch_text/4, pxui_ui_phase_cpu_times/3, pxui_ui_phase_times/3, pxui_ui_platform/1,
-    pxui_ui_popup/5, pxui_ui_press_keys/4, pxui_ui_progress/5, pxui_ui_radio/5, pxui_ui_rebuilt_named/3, pxui_ui_rect/3, pxui_ui_remember/5, pxui_ui_remember_key/6,
+    pxui_ui_popup/5, pxui_ui_press_keys/4, pxui_ui_rebuilt_named/3, pxui_ui_rect/3, pxui_ui_remember/5, pxui_ui_remember_key/6,
     pxui_ui_repaint_after/2, pxui_ui_request_cursor/2, pxui_ui_request_frame/1, pxui_ui_resolve_label/3, pxui_ui_reveal/3, pxui_ui_root_at/6, pxui_ui_row_height/1, pxui_ui_row_points/2,
-    pxui_ui_scroll_offset/4, pxui_ui_scroll_view/7, pxui_ui_scrub/7, pxui_ui_search_field/7, pxui_ui_search_field_response/10, pxui_ui_section_list/7, pxui_ui_selection_list/7, pxui_ui_table_head/4, pxui_ui_table/7,
-    pxui_ui_segmented/5, pxui_ui_segmented_plain/7, pxui_ui_segmented_response/5, pxui_ui_segmented_items/5, pxui_ui_segmented_result/5, pxui_ui_set_a11y/2, pxui_ui_set_at/4, pxui_ui_set_colors/4, pxui_ui_set_dir/2,
+    pxui_ui_scroll_offset/4, pxui_ui_scroll_view/7, pxui_ui_search_field/7, pxui_ui_search_field_response/10, pxui_ui_section_list/7, pxui_ui_selection_list/7, pxui_ui_table_head/4, pxui_ui_table/7,
+    pxui_ui_segmented/5, pxui_ui_set_a11y/2, pxui_ui_set_at/4, pxui_ui_set_colors/4, pxui_ui_set_dir/2,
     pxui_ui_set_font_points/2, pxui_ui_set_font_size/2, pxui_ui_set_look/4, pxui_ui_set_node_fields/3, pxui_ui_set_node_layout/3, pxui_ui_set_role/4, pxui_ui_set_scroll_offset/3,
-    pxui_ui_set_state/3, pxui_ui_set_text_state/4, pxui_ui_set_text_worker/2, pxui_ui_set_theme/2, pxui_ui_set_timing/2, pxui_ui_signal/3, pxui_ui_slider/6,
-    pxui_ui_spinner/3, pxui_ui_split/4, pxui_ui_state/4, pxui_ui_style/4, pxui_ui_swipe_actions/3, pxui_ui_system_appearance/2,
-    pxui_ui_tabs/5, pxui_ui_text/3, pxui_ui_text_area_node/7, pxui_ui_text_area_submit/6, pxui_ui_text_area_response/9, pxui_ui_text_field_keyed/4, pxui_ui_text_field_response/5, pxui_ui_text_input_focused/1,
+    pxui_ui_set_state/3, pxui_ui_set_text_state/4, pxui_ui_set_text_worker/2, pxui_ui_set_theme/2, pxui_ui_set_timing/2, pxui_ui_signal/3, pxui_ui_split/4, pxui_ui_state/4, pxui_ui_style/4, pxui_ui_swipe_actions/3, pxui_ui_system_appearance/2,
+    pxui_ui_text/3, pxui_ui_text_area_node/7, pxui_ui_text_area_submit/6, pxui_ui_text_area_response/9, pxui_ui_text_field_keyed/4, pxui_ui_text_field_response/5, pxui_ui_text_input_focused/1,
     pxui_ui_text_input_options/2, pxui_ui_text_layout_count/2, pxui_ui_text_line_box/5, pxui_ui_text_spans/5, pxui_ui_text_state/4, pxui_ui_text_top/5,
-    pxui_ui_text_undo_bytes/1, pxui_ui_text_width/4, pxui_ui_theme/1, pxui_ui_theme_exact/1, pxui_ui_theme_apply/3, pxui_ui_themed/4, pxui_ui_tip/3, pxui_ui_to_front/3, pxui_ui_toasts/5,
-    pxui_ui_toggle_plain/5, pxui_ui_toggle_response/3, pxui_ui_tooltip/3, pxui_ui_transfer_carry/3, pxui_ui_tree/3, pxui_ui_tree_with/3, pxui_ui_unfocus/1,
+    pxui_ui_text_undo_bytes/1, pxui_ui_text_width/4, pxui_ui_theme/1, pxui_ui_theme_exact/1, pxui_ui_theme_apply/3, pxui_ui_themed/4, pxui_ui_tip/3, pxui_ui_to_front/3, pxui_ui_toggle_plain/5, pxui_ui_toggle/3, pxui_ui_tooltip/3, pxui_ui_transfer_carry/3, pxui_ui_tree/3, pxui_ui_unfocus/1,
     pxui_ui_use_theme/2, pxui_ui_variant/3, pxui_ui_verify_views/2, pxui_ui_verifying/1, pxui_ui_view/8, pxui_ui_view_backdrop_blur/3,
     pxui_ui_view_backdrop_saturation/3, pxui_ui_view_clip/3, pxui_ui_view_flat/8, pxui_ui_view_offset/4, pxui_ui_view_opacity/3, pxui_ui_view_scale/3,
     pxui_ui_view_size/2, pxui_ui_view_transform_about/6, pxui_ui_wants_frame/4, pxui_within/4,
@@ -387,13 +383,13 @@ fn unusable_resolved_labels_are_refused_with_the_argument_error() {
         for label in UNRESOLVED {
             let key = Str { ptr: label.as_ptr(), len: 17 };
             let keyed = PxuiKeyedDesc { size: core::mem::size_of::<PxuiKeyedDesc>() as u32, reserved: 0, key, name: Str { ptr: b"n".as_ptr(), len: 1 } };
-            let (mut b, mut response, mut flag) = (PxuiBox::default(), unsafe { core::mem::zeroed::<PxuiResponse>() }, 0u8);
+            let (mut b, mut flag) = (PxuiBox::default(), 0u8);
             let image = VALID_IMAGE;
             let px = PX;
             unsafe {
                 assert_eq!(pxui_ui_node(ui, key, &Node::DEFAULT, &mut b), PXUI_ERR_ARGUMENT);
                 assert_eq!(pxui_scope(ui, key, None, core::ptr::null_mut()), PXUI_ERR_ARGUMENT);
-                assert_eq!(pxui_ui_checkbox_keyed(ui, &keyed, 0, &mut response), PXUI_ERR_ARGUMENT);
+                assert_eq!(pxui_ui_progress(ui, &keyed, 0, 0.0, &mut b), PXUI_ERR_ARGUMENT);
                 assert_eq!(pxui_ui_image_keyed(ui, key, keyed.name, &image, 0, px, px, &mut b), PXUI_ERR_ARGUMENT);
                 assert_eq!(pxui_ui_expanded(ui, key, &mut flag), PXUI_ERR_ARGUMENT);
                 assert_eq!(pxui_ui_hover_delay(ui, key, &mut flag), PXUI_ERR_ARGUMENT);
@@ -450,32 +446,16 @@ static LEGACY_KEYED: &[(&str, LegacyCall)] = &[
         ("pxui_ui_menu_bar", |ui, l| { let d = PxuiMenuBarDesc { label: l, size: core::mem::size_of::<PxuiMenuBarDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_menu_bar(ui, &d, &mut menu_out()) } }),
         ("pxui_ui_menu_bar_result", |ui, l| { let d = PxuiMenuBarDesc { label: l, size: core::mem::size_of::<PxuiMenuBarDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_menu_bar_result(ui, &d, &mut menu_out(), &mut 0) } }),
         ("pxui_ui_tree", |ui, l| { let (mut selected, mut len) = (0usize, 0usize); let d = PxuiTreeViewDesc { label: l, selected: &mut selected, visible_len: &mut len, size: core::mem::size_of::<PxuiTreeViewDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_tree(ui, &d, &mut 0) } }),
-        ("pxui_ui_tree_with", |ui, l| { let (mut selected, mut len) = (0usize, 0usize); let d = PxuiTreeViewWithDesc { label: l, selected: &mut selected, visible_len: &mut len, size: core::mem::size_of::<PxuiTreeViewWithDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_tree_with(ui, &d, &mut 0) } }),
         ("pxui_ui_view", |ui, l| unsafe { pxui_ui_view(ui, l, 1, PX, PX, None, core::ptr::null_mut(), &mut PxuiBox::default()) }),
         ("pxui_ui_view_flat", |ui, l| unsafe { pxui_ui_view_flat(ui, l, 1, PX, PX, None, core::ptr::null_mut(), &mut PxuiBox::default()) }),
         ("pxui_ui_anchored", |ui, l| { let a = PxuiAnchorDesc { has_anchor: 1, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_anchored(ui, l, &a, PX, PX, None, core::ptr::null_mut(), &mut PxuiBox::default()) } }),
-        ("pxui_ui_toasts", |ui, l| unsafe { pxui_ui_toasts(ui, l, Slice { ptr: core::ptr::null(), len: 0 }, 1.0, &mut 0) }),
         ("pxui_ui_modal", |ui, l| unsafe { pxui_ui_modal(ui, l, 0, 0.0, None, core::ptr::null_mut(), &mut 0) }),
         ("pxui_ui_scroll_view", |ui, l| unsafe { pxui_ui_scroll_view(ui, l, PX, PX, None, core::ptr::null_mut(), &mut PxuiBox::default()) }),
         ("pxui_ui_popup", |ui, l| { let d = PxuiPopupDesc { label: l, width: 10.0, height: 10.0, size: core::mem::size_of::<PxuiPopupDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_popup(ui, &d, None, core::ptr::null_mut(), &mut 0) } }),
         ("pxui_panel", |ui, l| unsafe { pxui_panel(ui, &PxuiPanel::default(), l, None, core::ptr::null_mut()) }),
-        ("pxui_button", |ui, l| unsafe { pxui_button(ui, l, &mut 0) }),
-        ("pxui_toggle", |ui, l| unsafe { pxui_toggle(ui, l, 0, &mut 0) }),
         ("pxui_text_field", |ui, l| unsafe { pxui_text_field(ui, l, Str::default(), &mut Str::default(), &mut 0) }),
         ("pxui_text_field_with_options", |ui, l| { let o: pxui_types::PxuiTextInputOptions = unsafe { core::mem::zeroed() }; unsafe { pxui_text_field_with_options(ui, l, Str::default(), &o, &mut Str::default(), &mut 0) } }),
-        ("pxui_ui_button_styled", |ui, l| unsafe { pxui_ui_button_styled(ui, l, 0, 0, 0, 0, geom::Rgba::default(), &mut 0) }),
-        ("pxui_ui_icon_button", |ui, l| unsafe { pxui_ui_icon_button(ui, l, Str::default(), &mut 0) }),
-        ("pxui_ui_checkbox", |ui, l| unsafe { pxui_ui_checkbox(ui, l, 0, &mut 0) }),
-        ("pxui_ui_radio", |ui, l| unsafe { pxui_ui_radio(ui, l, Slice { ptr: core::ptr::null(), len: 0 }, 0, &mut 0) }),
-        ("pxui_ui_tabs", |ui, l| unsafe { pxui_ui_tabs(ui, l, Slice { ptr: core::ptr::null(), len: 0 }, 0, &mut 0) }),
-        ("pxui_ui_segmented", |ui, l| unsafe { pxui_ui_segmented(ui, l, Slice { ptr: core::ptr::null(), len: 0 }, 0, &mut 0) }),
-        ("pxui_ui_dropdown", |ui, l| unsafe { pxui_ui_dropdown(ui, l, Slice { ptr: core::ptr::null(), len: 0 }, 0, &mut 0) }),
-        ("pxui_ui_slider", |ui, l| unsafe { pxui_ui_slider(ui, l, 0.0, 0.0, 1.0, &mut 0.0) }),
-        ("pxui_ui_progress", |ui, l| unsafe { pxui_ui_progress(ui, l, 0, 0.0, &mut PxuiBox::default()) }),
-        ("pxui_ui_spinner", |ui, l| unsafe { pxui_ui_spinner(ui, l, &mut PxuiBox::default()) }),
-        ("pxui_ui_badge", |ui, l| unsafe { pxui_ui_badge(ui, l, Str::default(), &mut PxuiBox::default()) }),
-        ("pxui_ui_scrub", |ui, l| unsafe { pxui_ui_scrub(ui, l, 0.0, 0.0, 1.0, 0.1, &mut PxuiScrubOut::default()) }),
-        ("pxui_ui_scrub_result", |ui, l| unsafe { pxui_ui_scrub_result(ui, l, 0.0, 0.0, 1.0, 0.1, &mut response(), &mut PxuiScrubOut::default()) }),
+        ("pxui_ui_scrub", |ui, l| unsafe { pxui_ui_scrub(ui, l, 0.0, 0.0, 1.0, 0.1, &mut response(), &mut PxuiScrubOut::default()) }),
         ("pxui_ui_search_field", |ui, l| unsafe { pxui_ui_search_field(ui, l, Str::default(), Str::default(), Str::default(), &mut 0, &mut Str::default()) }),
         ("pxui_ui_line_field", |ui, l| unsafe { pxui_ui_line_field(ui, 0.0, 0.0, 10.0, 10.0, 0, Str::default(), l, Str::default(), &mut Str::default(), &mut 0) }),
         ("pxui_ui_text_area_submit", |ui, l| { let d = PxuiTextAreaDesc { label: l, width: 10.0, height: 10.0, size: core::mem::size_of::<PxuiTextAreaDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_text_area_submit(ui, &d, core::ptr::null(), &mut Str::default(), &mut 0, &mut 0) } }),
@@ -486,7 +466,6 @@ static LEGACY_KEYED: &[(&str, LegacyCall)] = &[
         ("pxui_ui_text_area_response", |ui, l| { let d = PxuiTextAreaDesc { label: l, size: core::mem::size_of::<PxuiTextAreaDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_text_area_response(ui, &d, &Node::DEFAULT, core::ptr::null(), Str::default(), &mut Str::default(), &mut 0, &mut 0, &mut response()) } }),
         ("pxui_ui_value_field_response", |ui, l| { let d = PxuiValueFieldDesc { label: l, width: 10.0, height: 10.0, size: core::mem::size_of::<PxuiValueFieldDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_value_field_response(ui, &d, None, None, None, core::ptr::null_mut(), Str::default(), &mut Str::default(), &mut 0, &mut 0, &mut response()) } }),
         ("pxui_ui_context_menu", |ui, l| { let e = Slice { ptr: core::ptr::null(), len: 0 }; unsafe { pxui_ui_context_menu(ui, 0.0, 0.0, l, e, Slice { ptr: core::ptr::null(), len: 0 }, 0, 0.0, 0, 0, core::ptr::null(), &mut 0, &mut 0) } }),
-        ("pxui_ui_picker", |ui, l| unsafe { pxui_ui_picker(ui, 1, 0, 0, l, Str::default(), None, None, None, core::ptr::null_mut(), &mut Str::default(), &mut 0, &mut 0) }),
         ("pxui_ui_image", |ui, l| unsafe { pxui_ui_image(ui, l, &VALID_IMAGE, 0, PX, PX, &mut PxuiBox::default()) }),
 ];
 

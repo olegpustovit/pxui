@@ -13,7 +13,7 @@ library!(popup_lib {
 
 #[cfg(feature = "static")]
 mod raw {
-    pub use pxui_abi_link::{pxui_ui_picker_keyed, pxui_ui_toasts_keyed};
+    pub use pxui_abi_link::{pxui_ui_picker, pxui_ui_toasts};
 }
 
 #[cfg(not(feature = "static"))]
@@ -49,7 +49,7 @@ mod raw {
     /// use pxui::ui::Toast;
     /// pxui::doc::frames(1, &mut |ui| { ui.toasts("toasts", &[Toast::new(1, "Saved")], 3.0); });
     /// ```
-    pub fn pxui_ui_toasts_keyed(ui:*mut PxuiUi,keyed:*const PxuiKeyedDesc,items:Slice<Str>,ids:Slice<i64>,seconds:f64,out_index:*mut i64)->i32;
+    pub fn pxui_ui_toasts(ui:*mut PxuiUi,keyed:*const PxuiKeyedDesc,items:Slice<Str>,ids:Slice<i64>,seconds:f64,out_index:*mut i64)->i32;
     /// The C entry `Ui::menu` calls (the dynamic-link path): shows the menu `items` at (`x`, `y`) with the enabled flags, optional width and selected row and the `extra` columns (keys, swatches, danger rows, submenus, marks); writes the outcome tag (0 open, 1 chosen, 2 dismissed) and the chosen row to the outputs; an error code for invalid arguments.
     /// `extra` is read by its `size` field, so an older caller's shorter record is served.
     /// Allocates: never on a warm frame.
@@ -73,7 +73,7 @@ mod raw {
     ///     ui.picker("find", "Search", "", &pxui::Picker::DEFAULT, &mut |_query, rows| rows.push(pxui::PickRow::new("Song").detail("Artist")));
     /// });
     /// ```
-    pub fn pxui_ui_picker_keyed(ui:*mut PxuiUi,keyed:*const PxuiKeyedDesc,limit:i64,slash:u8,at_rest:u8,query:Str,rows:PickerRows,mark:PickerMark,off:PickerOff,user:*mut c_void,out_query:*mut Str,out_tag:*mut u32,out_index:*mut i64)->i32;
+    pub fn pxui_ui_picker(ui:*mut PxuiUi,keyed:*const PxuiKeyedDesc,limit:i64,slash:u8,at_rest:u8,query:Str,rows:PickerRows,mark:PickerMark,off:PickerOff,user:*mut c_void,out_query:*mut Str,out_tag:*mut u32,out_index:*mut i64)->i32;
     }
 }
 
@@ -174,7 +174,7 @@ impl Ui {
             &heap
         };
         let mut index: i64 = -1;
-        check(self, unsafe { raw::pxui_ui_toasts_keyed(self.0.as_ptr(), &keyed, texts.span(), Slice { ptr: ids.as_ptr(), len: ids.len() }, seconds, &mut index) });
+        check(self, unsafe { raw::pxui_ui_toasts(self.0.as_ptr(), &keyed, texts.span(), Slice { ptr: ids.as_ptr(), len: ids.len() }, seconds, &mut index) });
         let chosen = (index >= 0).then_some(index as usize);
         Chosen { chosen, chosen_id: chosen.and_then(|index| items.get(index).map(|item| item.id)), dismissed: false }
     }
@@ -291,7 +291,7 @@ impl Ui {
         let mut out_query = Str::default();
         let mut tag = 0;
         let mut index: i64 = -1;
-        check(self, unsafe { raw::pxui_ui_picker_keyed(
+        check(self, unsafe { raw::pxui_ui_picker(
             self.0.as_ptr(), &keyed, i64::try_from(options.limit).expect("pxui: a picker row limit over i64::MAX"), options.slash as u8, options.at_rest as u8,
             as_str(query), Some(rows), options.mark.map(|_| mark as extern "C" fn(*mut c_void, i64, *mut pxui_types::geom::Rgba) -> u8), options.off.map(|_| off as extern "C" fn(*mut c_void, i64) -> u8), &mut rows_ctx as *mut _ as *mut c_void,
             &mut out_query, &mut tag, &mut index,

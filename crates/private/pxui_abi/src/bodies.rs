@@ -377,8 +377,7 @@ mod tests {
     }
 
     extern "C" fn toggle_frame(_: *mut c_void, ui: *mut c_void) {
-        let mut out = 0u8;
-        assert_eq!(unsafe { crate::pxui_toggle(ui.cast(), text("Wi-Fi"), 1, &mut out) }, 0);
+        assert_eq!(unsafe { crate::pxui_ui_toggle_plain(ui.cast(), text("wifi"), text("Wi-Fi"), 1, &mut { pxui_types::ffi::PxuiResponse::EMPTY }) }, 0);
     }
 
     fn frame(ui: *mut PxuiUi, build: extern "C" fn(*mut c_void, *mut c_void)) {
@@ -606,10 +605,12 @@ mod tests {
 
     extern "C" fn nested_dialogs(depth: *mut c_void, ui: *mut c_void) {
         let (ui, left) = (ui.cast::<PxuiUi>(), unsafe { *depth.cast::<u32>() });
-        let (mut out, buttons) = (pxui_types::ffi::PxuiDialogOut::default(), [text("OK"), text("Cancel")]);
-        if left == 0 { assert_eq!(unsafe { crate::pxui_label(ui, text("leaf")) }, 0); return }
+        let (mut out, buttons) = (pxui_types::ffi::PxuiDialogResult::EMPTY, [text("OK"), text("Cancel")]);
+        if left == 0 { assert_eq!(unsafe { crate::pxui_ui_button_plain(ui, text("leaf"), text("leaf"), &mut { pxui_types::ffi::PxuiResponse::EMPTY }) }, 0); return }
         let mut next = left - 1;
-        let rc = unsafe { crate::pxui_ui_dialog(ui, text("Title"), Slice { ptr: buttons.as_ptr(), len: 2 }, Some(nested_dialogs), (&mut next as *mut u32).cast(), &mut out) };
+        let desc = pxui_types::ffi::PxuiDialogDesc { size: core::mem::size_of::<pxui_types::ffi::PxuiDialogDesc>() as u32, width: 0.0, key: text("dialog"), title: text("Title"),
+            buttons: Slice { ptr: buttons.as_ptr(), len: 2 }, default_at: 0, cancel_at: 1, danger: 0, disabled: 0, details: Slice { ptr: core::ptr::null(), len: 0 } };
+        let rc = unsafe { crate::pxui_ui_dialog(ui, &desc, Some(nested_dialogs), (&mut next as *mut u32).cast(), &mut out) };
         assert_eq!(rc, 0, "{}", error(ui));
     }
 
@@ -639,7 +640,7 @@ mod tests {
 
     extern "C" fn themed_toggle_frame(user: *mut c_void, ui: *mut c_void) {
         let theme = user.cast::<crate::theme::PxuiTheme>();
-        extern "C" fn toggle(_: *mut c_void, ui: *mut c_void) { let mut out = 0u8; assert_eq!(unsafe { crate::pxui_toggle(ui.cast(), text("Wi-Fi"), 1, &mut out) }, 0); }
+        extern "C" fn toggle(_: *mut c_void, ui: *mut c_void) { assert_eq!(unsafe { crate::pxui_ui_toggle_plain(ui.cast(), text("wifi"), text("Wi-Fi"), 1, &mut { pxui_types::ffi::PxuiResponse::EMPTY }) }, 0); }
         assert_eq!(unsafe { crate::pxui_ui_themed(ui.cast(), theme, Some(toggle), core::ptr::null_mut()) }, 0);
     }
 

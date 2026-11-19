@@ -51,7 +51,7 @@ fn c_size(row: &str, c: &str) -> String {
 /// The C name of a Rust field where `pxui.h` flattens a slice into `ptr, len` or names an array differently.
 fn c_field<'a>(row: &str, field: &'a str) -> &'a str {
     match (row, field) {
-        ("PxuiFooterDesc" | "PxuiTreeViewDesc" | "PxuiTreeViewWithDesc", "hints" | "nodes") => "ptr",
+        ("PxuiFooterDesc" | "PxuiTreeViewDesc", "hints" | "nodes") => "ptr",
         ("PxuiThemeSnapshot", "panel") => "parts",
         ("PxuiThemeSnapshot", "body") => "bodies",
         _ => field,

@@ -3,7 +3,7 @@ use crate::{PXUI_ERR_ARGUMENT, PxuiBox, Str};
 use core::{cell::Cell, ffi::c_void};
 use pxui_core::ui_text::{Menu, MenuItem, Chosen, Pick, PickerOpts, PickRows};
 use std::rc::Rc;
-use pxui_types::{ffi::PxuiKeyedDesc, ui::{shown, Toast}};
+use pxui_types::{ffi::PxuiKeyedDesc, ui::Toast};
 use pxui_types::ui::Key as NodeKey;
 use pxui_types::ffi::{PxuiMenuExtra, Slice};
 
@@ -21,7 +21,7 @@ export!(trusted pub unsafe fn pxui_ui_tip(ui: *mut PxuiUi, box_: *const PxuiBox,
 });
 
 /// Toasts of `items` keyed by `key`, each by its id in `ids` (empty: by its text, as before 1.63), the body of `pxui_ui_toasts` and
-/// `pxui_ui_toasts_keyed`; up to 32 on the stack, more in a buffer.
+/// `pxui_ui_toasts`; up to 32 on the stack, more in a buffer.
 unsafe fn toasts(ui: *mut PxuiUi, key: &str, items: Slice<Str>, ids: Slice<i64>, by_text: bool, seconds: f64, out_index: *mut i64) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if out_index.is_null() || !seconds.is_finite() || seconds < 0.0 || (!by_text && ids.len != items.len) || (ids.len != 0 && ids.ptr.is_null()) {
@@ -47,15 +47,8 @@ unsafe fn toasts(ui: *mut PxuiUi, key: &str, items: Slice<Str>, ids: Slice<i64>,
     rc
 }
 
-// Legacy (cut at 2.0): keyed by its label, each toast by its text; `pxui_ui_toasts_keyed` keys each by an id.
-export!(build pub unsafe fn pxui_ui_toasts(ui: *mut PxuiUi, label: Str, items: Slice<Str>, seconds: f64, out_index: *mut i64) -> i32 {
-    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
-    let Some(label) = (unsafe { crate::state::checked_key(label) }) else { return unsafe { fail(ui, "invalid toast strings") }; };
-    unsafe { toasts(ui, label, items, Slice { ptr: core::ptr::null(), len: 0 }, true, seconds, out_index) }
-});
-
 // ABI 1.68: toasts keyed by `keyed.key` (the stack's accessible name `keyed.name`), toast `i` keyed by `ids[i]` (as many as `items`).
-export!(build pub unsafe fn pxui_ui_toasts_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, items: Slice<Str>, ids: Slice<i64>, seconds: f64, out_index: *mut i64) -> i32 {
+export!(build pub unsafe fn pxui_ui_toasts(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, items: Slice<Str>, ids: Slice<i64>, seconds: f64, out_index: *mut i64) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     let Some((key, _name)) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
     unsafe { toasts(ui, key, items, ids, false, seconds, out_index) }
@@ -202,7 +195,7 @@ unsafe fn decode_extra(extra: &PxuiMenuExtra, size: usize, menu: &mut [MenuItem<
     true
 }
 
-/// The picker keyed by `key`, `placeholder` its placeholder and name: the body of `pxui_ui_picker` and `pxui_ui_picker_keyed`.
+/// The picker keyed by `key`, `placeholder` its placeholder and name: the body of `pxui_ui_picker` and `pxui_ui_picker`.
 #[allow(clippy::too_many_arguments)]
 unsafe fn picker(
     ui: *mut PxuiUi, limit: i64, slash: u8, at_rest: u8, key: &str, placeholder: &str, query: Str,
@@ -257,18 +250,8 @@ unsafe fn picker(
     0
 }
 
-// Legacy (cut at 2.0): keyed by its label, which (up to a `##`) is also its placeholder; `pxui_ui_picker_keyed` keys apart.
-export!(build pub unsafe fn pxui_ui_picker(
-    ui: *mut PxuiUi, limit: i64, slash: u8, at_rest: u8, label: Str, query: Str,
-    rows_cb: PickerRows, mark_cb: PickerMark, off_cb: PickerOff, user: *mut c_void, out_query: *mut Str, out_tag: *mut u32, out_index: *mut i64,
-) -> i32 {
-    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
-    let Some(label) = (unsafe { crate::state::checked_label(label) }) else { return unsafe { fail(ui, "invalid picker strings") }; };
-    unsafe { picker(ui, limit, slash, at_rest, label, shown(label), query, rows_cb, mark_cb, off_cb, user, out_query, out_tag, out_index) }
-});
-
 // ABI 1.68: the picker keyed by `keyed.key`, `keyed.name` its placeholder and accessible name.
-export!(build pub unsafe fn pxui_ui_picker_keyed(
+export!(build pub unsafe fn pxui_ui_picker(
     ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, limit: i64, slash: u8, at_rest: u8, query: Str,
     rows_cb: PickerRows, mark_cb: PickerMark, off_cb: PickerOff, user: *mut c_void, out_query: *mut Str, out_tag: *mut u32, out_index: *mut i64,
 ) -> i32 {

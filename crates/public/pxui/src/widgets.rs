@@ -3,19 +3,19 @@ use crate::{Key, PickResponse, PxuiBox, Response, Scrubber, Segment, SliderRespo
 use pxui_types::{ffi::{PxuiKeyedDesc, PxuiResponse, Slice}, theme::BodyKind, ui::Checkbox, Str};
 
 library!(keyed_lib {
-    fn pxui_ui_checkbox_response(ui: *mut PxuiUi, desc: *const pxui_types::ffi::PxuiCheckboxDesc, out: *mut PxuiResponse) -> i32;
+    fn pxui_ui_checkbox(ui: *mut PxuiUi, desc: *const pxui_types::ffi::PxuiCheckboxDesc, out: *mut PxuiResponse) -> i32;
     fn pxui_ui_section_index_result(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, letters: Slice<Str>, out: *mut PxuiResponse, result: *mut pxui_types::ffi::PxuiSegmentedResult) -> i32;
     fn pxui_ui_disclosure(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, open: u8, build: pxui_types::ffi::UiBuild, user: *mut core::ffi::c_void, out: *mut PxuiResponse) -> i32;
-    fn pxui_ui_slider_result(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, value: f32, min: f32, max: f32, out: *mut PxuiResponse, result: *mut pxui_types::ffi::PxuiScrubOut) -> i32;
+    fn pxui_ui_slider(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, value: f32, min: f32, max: f32, out: *mut PxuiResponse, result: *mut pxui_types::ffi::PxuiScrubOut) -> i32;
     fn pxui_ui_pick(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, kind: u32, items: Slice<pxui_types::ffi::PxuiPickItem>, has_selected: u8, selected: usize, out: *mut PxuiResponse, result: *mut pxui_types::ffi::PxuiSegmentedResult) -> i32;
-    fn pxui_ui_tabs_result(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, items: Slice<pxui_types::ffi::PxuiPickItem>, has_selected: u8, selected: usize, focus_on_click: u8, out: *mut PxuiResponse, result: *mut pxui_types::ffi::PxuiSegmentedResult) -> i32;
-    fn pxui_ui_progress_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, has_value: u8, value: f32, out: *mut PxuiBox) -> i32;
-    fn pxui_ui_spinner_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, out: *mut PxuiBox) -> i32;
-    fn pxui_ui_badge_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, value: Str, out: *mut PxuiBox) -> i32;
+    fn pxui_ui_tabs(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, items: Slice<pxui_types::ffi::PxuiPickItem>, has_selected: u8, selected: usize, focus_on_click: u8, out: *mut PxuiResponse, result: *mut pxui_types::ffi::PxuiSegmentedResult) -> i32;
+    fn pxui_ui_progress(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, has_value: u8, value: f32, out: *mut PxuiBox) -> i32;
+    fn pxui_ui_spinner(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, out: *mut PxuiBox) -> i32;
+    fn pxui_ui_badge(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, value: Str, out: *mut PxuiBox) -> i32;
 });
 
 library!(scrub_lib {
-    fn pxui_ui_scrub_result(ui: *mut PxuiUi, label: pxui_types::Str, value: f32, min: f32, max: f32, step: f32, response: *mut PxuiResponse, out: *mut pxui_types::ffi::PxuiScrubOut) -> i32;
+    fn pxui_ui_scrub(ui: *mut PxuiUi, label: pxui_types::Str, value: f32, min: f32, max: f32, step: f32, response: *mut PxuiResponse, out: *mut pxui_types::ffi::PxuiScrubOut) -> i32;
 });
 
 #[cfg(not(feature = "static"))]
@@ -93,7 +93,7 @@ impl Ui {
             let (has, at) = (selected.is_some() as u8, selected.unwrap_or(0));
             self.variant_on(body, variant);
             check(self, unsafe {
-                if kind == 1 { keyed_lib::pxui_ui_tabs_result(self.0.as_ptr(), &keyed, list.span(), has, at, focus as u8, &mut out, &mut result) }
+                if kind == 1 { keyed_lib::pxui_ui_tabs(self.0.as_ptr(), &keyed, list.span(), has, at, focus as u8, &mut out, &mut result) }
                 else { keyed_lib::pxui_ui_pick(self.0.as_ptr(), &keyed, kind, list.span(), has, at, &mut out, &mut result) }
             });
             self.variant_off(body, variant);
@@ -109,7 +109,7 @@ impl Ui {
         let mut id_label = [0u8; 17];
         let label = key.label(&mut id_label);
         let (mut response, mut out) = (PxuiResponse::EMPTY, pxui_types::ffi::PxuiScrubOut::default());
-        check(self, unsafe { scrub_lib::pxui_ui_scrub_result(self.0.as_ptr(), crate::as_str(label), value, *range.start(), *range.end(), scrubber.step, &mut response, &mut out) });
+        check(self, unsafe { scrub_lib::pxui_ui_scrub(self.0.as_ptr(), crate::as_str(label), value, *range.start(), *range.end(), scrubber.step, &mut response, &mut out) });
         self.a11y_name(&out.node, scrubber.name);
         slider_response(&response, &out, value.clamp(*range.start(), *range.end()))
     }
@@ -137,7 +137,7 @@ impl Ui {
                 reserved: 0, box_size: checkbox.size.unwrap_or(0.0), look: look.as_ref().map_or(core::ptr::null(), |l| l.as_ptr()), key: crate::as_str(label), text: crate::as_str(crate::clip(text)),
             };
             self.variant_on(BodyKind::checkbox, checkbox.variant);
-            check(self, unsafe { keyed_lib::pxui_ui_checkbox_response(self.0.as_ptr(), &desc, &mut out) });
+            check(self, unsafe { keyed_lib::pxui_ui_checkbox(self.0.as_ptr(), &desc, &mut out) });
             self.variant_off(BodyKind::checkbox, checkbox.variant);
             crate::kit_ext::response(&out)
         };
@@ -221,7 +221,7 @@ impl Ui {
             let (mut out, mut phases) = (PxuiResponse::EMPTY, pxui_types::ffi::PxuiScrubOut::default());
             let keyed = PxuiKeyedDesc::new(label, crate::clip(text));
             self.variant_on(BodyKind::slider, variant);
-            check(self, unsafe { keyed_lib::pxui_ui_slider_result(self.0.as_ptr(), &keyed, value, min, max, &mut out, &mut phases) });
+            check(self, unsafe { keyed_lib::pxui_ui_slider(self.0.as_ptr(), &keyed, value, min, max, &mut out, &mut phases) });
             self.variant_off(BodyKind::slider, variant);
             slider_response(&out, &phases, phases.preview)
         };
@@ -245,7 +245,7 @@ impl Ui {
         {
             let keyed = PxuiKeyedDesc::new(label, crate::clip(text));
             self.variant_on(BodyKind::progress, variant);
-            check(self, unsafe { keyed_lib::pxui_ui_progress_keyed(self.0.as_ptr(), &keyed, value.is_some() as u8, value.unwrap_or_default(), &mut out) });
+            check(self, unsafe { keyed_lib::pxui_ui_progress(self.0.as_ptr(), &keyed, value.is_some() as u8, value.unwrap_or_default(), &mut out) });
             self.variant_off(BodyKind::progress, variant);
         }
         out
@@ -267,7 +267,7 @@ impl Ui {
         {
             let keyed = PxuiKeyedDesc::new(label, crate::clip(name));
             self.variant_on(BodyKind::spinner, variant);
-            check(self, unsafe { keyed_lib::pxui_ui_spinner_keyed(self.0.as_ptr(), &keyed, &mut out) });
+            check(self, unsafe { keyed_lib::pxui_ui_spinner(self.0.as_ptr(), &keyed, &mut out) });
             self.variant_off(BodyKind::spinner, variant);
         }
         out
@@ -289,7 +289,7 @@ impl Ui {
         {
             let keyed = PxuiKeyedDesc::new(label, crate::clip(name));
             self.variant_on(BodyKind::badge, variant);
-            check(self, unsafe { keyed_lib::pxui_ui_badge_keyed(self.0.as_ptr(), &keyed, crate::as_str(text), &mut out) });
+            check(self, unsafe { keyed_lib::pxui_ui_badge(self.0.as_ptr(), &keyed, crate::as_str(text), &mut out) });
             self.variant_off(BodyKind::badge, variant);
         }
         out

@@ -1,8 +1,8 @@
 use crate::node::size;
 use crate::state::{Build, PxuiUi, checked, fail, get, strings};
-use crate::{PXUI_ERR_ARGUMENT, PxuiBox, PxuiDialogOut, Str};
+use crate::{PXUI_ERR_ARGUMENT, PxuiBox, Str};
 use core::ffi::c_void;
-use pxui_types::ffi::{PxuiAnchorDesc, PxuiDialogDesc, PxuiDialogResult, PxuiSizeDesc, Slice};
+use pxui_types::ffi::{PxuiAnchorDesc, PxuiDialogDesc, PxuiDialogResult, PxuiSizeDesc};
 use pxui_types::ui::{shown, Dialog, DialogButton, DismissOpts, Chosen, Overlay, Presentation};
 use pxui_types::ffi::PxuiKeyedDesc;
 use pxui_types::Node;
@@ -173,33 +173,8 @@ export!(trusted pub unsafe fn pxui_ui_anchored_keyed(ui: *mut PxuiUi, keyed: *co
     unsafe { crate::trusted::anchored(ui, key, anchor.rect, &overlay, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, callback, user), &mut *out) }
 });
 
-// A dialog with the plain buttons of its labels: the last is the default, none cancels, the sheet is keyed by the title.
-export!(trusted pub unsafe fn pxui_ui_dialog(ui: *mut PxuiUi, title: Str, buttons: Slice<Str>, callback: Build, user: *mut c_void, out: *mut PxuiDialogOut) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    if out.is_null() { return unsafe { fail(ui, "null dialog output") }; }
-    let mut list = state.shared().take_strs();
-    let mut buf = [DialogButton::new(""); MAX_BUTTONS];
-    let n = buttons.len as i64;
-    let flags = (n - 1, -1, 0, 0);
-    let decoded = match unsafe { checked(title) } {
-        Some(title) if unsafe { strings(buttons, MAX_BUTTONS, &mut list) } => dialog_buttons(&list, &[], flags, &mut buf).map(|b| (title, b)),
-        _ => None,
-    };
-    let Some((title, buttons)) = decoded else {
-        state.shared().put_strs(list);
-        return unsafe { fail(ui, "invalid dialog arguments") };
-    };
-    let mut result = Chosen { chosen: None, chosen_id: None, dismissed: false };
-    let rc = unsafe { crate::trusted::dialog(ui, title, title, buttons, &Dialog::DEFAULT, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, callback, user), &mut result) };
-    state.shared().put_strs(list);
-    if rc == 0 {
-        unsafe { *out = match result { Chosen { chosen: Some(index), .. } => PxuiDialogOut { tag: 2, index }, Chosen { dismissed: true, .. } => PxuiDialogOut { tag: 1, index: 0 }, _ => PxuiDialogOut { tag: 0, index: 0 } }; }
-    }
-    rc
-});
-
 // ABI 1.53: a dialog with flagged buttons (`PxuiDialogDesc`) answering a `PxuiDialogResult`.
-export!(trusted pub unsafe fn pxui_ui_dialog_response(ui: *mut PxuiUi, desc: *const PxuiDialogDesc, callback: Build, user: *mut c_void, out: *mut PxuiDialogResult) -> i32 {
+export!(trusted pub unsafe fn pxui_ui_dialog(ui: *mut PxuiUi, desc: *const PxuiDialogDesc, callback: Build, user: *mut c_void, out: *mut PxuiDialogResult) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if desc.is_null() { return unsafe { fail(ui, "null dialog argument") }; }
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short dialog result") } };

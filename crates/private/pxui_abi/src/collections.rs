@@ -6,9 +6,9 @@
 use pxui_types::ffi::{PxuiKeyedDesc, PxuiRowKey};
 use crate::state::{PxuiUi, checked, fail, get};
 use crate::{PXUI_ERR_ARGUMENT, Str};
-use core::{cell::Cell, ffi::c_void, mem::{align_of, offset_of, size_of}};
+use core::{mem::{align_of, offset_of, size_of}};
 use pxui_core::ui_widgets::TreeNode;
-pub use pxui_types::ffi::{PxuiTreeViewWithDesc, PxuiCollectionEmit, PxuiCollectionText, PxuiF32MutSpan, PxuiTreeNode, PxuiTreeViewDesc, PxuiU32MutSpan, PxuiU8MutSpan};
+pub use pxui_types::ffi::{PxuiTreeViewDesc, PxuiF32MutSpan, PxuiTreeNode, PxuiU32MutSpan, PxuiU8MutSpan};
 
 const MAX_ITEMS: usize = 1_000_000;
 
@@ -16,57 +16,12 @@ const MAX_ITEMS: usize = 1_000_000;
 const _: () = assert!(size_of::<TreeNode>() == size_of::<PxuiTreeNode>() && align_of::<TreeNode>() == align_of::<PxuiTreeNode>()
     && offset_of!(TreeNode, depth) == offset_of!(PxuiTreeNode, depth) && offset_of!(TreeNode, children) == offset_of!(PxuiTreeNode, children));
 
-struct EmitCtx { invalid: bool }
-// The Rust callback target stays in a stack context and never crosses the ABI boundary.
-struct EmitCtxWithTarget<'a> { ctx: EmitCtx, target: Option<&'a mut dyn FnMut(&str)> }
-// What C emits is checked here as display text (`checked`: at most `MAX_LABEL_BYTES`, refused past it); the entry checks the total.
-extern "C" fn emit_to_target(user: *mut c_void, value: Str) {
-    let state = unsafe { &mut *user.cast::<EmitCtxWithTarget<'_>>() };
-    let Some(text) = (unsafe { crate::state::checked(value) }) else { state.ctx.invalid = true; return; };
-    if let Some(target) = state.target.as_deref_mut() { target(text); }
-}
-
 fn valid_span<T>(ptr: *mut T, len: usize, required: usize) -> bool {
     len == required && len <= MAX_ITEMS && (len == 0 || !ptr.is_null())
 }
 fn valid_output_span<T>(ptr: *mut T, len: usize, required: usize) -> bool {
     len >= required && len <= MAX_ITEMS && (len == 0 || !ptr.is_null())
 }
-/// Runs the C text callback for one row or cell, its emitted text going to `put`; false when it emitted text that is not UTF-8.
-fn callback_text(callback: PxuiCollectionText, user: *mut c_void, row: usize, column: usize, put: &mut dyn FnMut(&str)) -> bool {
-    if let Some(callback) = callback {
-        let mut state = EmitCtxWithTarget { ctx: EmitCtx { invalid: false }, target: Some(put) };
-        callback(user, row, column, Some(emit_to_target), (&mut state as *mut EmitCtxWithTarget<'_>).cast());
-        !state.ctx.invalid
-    } else {
-        true
-    }
-}
-
-export!(trusted pub unsafe fn pxui_ui_tree(ui: *mut PxuiUi, desc: *const PxuiTreeViewDesc, out: *mut usize) -> i32 {
-    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
-    if out.is_null() { return unsafe { fail(ui, "null tree argument") }; }
-    let Some(desc) = sized!(desc) else { return unsafe { fail(ui, "invalid tree descriptor") }; };
-    if desc.nodes.len > MAX_ITEMS || (desc.nodes.len != 0 && desc.nodes.ptr.is_null()) || !valid_span(desc.open.ptr, desc.open.len, desc.nodes.len)
-        || !valid_output_span(desc.visible.ptr, desc.visible.len, desc.nodes.len) || desc.selected.is_null() || desc.visible_len.is_null() {
-        return unsafe { fail(ui, "invalid tree descriptor") };
-    }
-    let Some(label) = (unsafe { crate::state::checked_key(desc.label) }) else { return unsafe { fail(ui, "invalid tree label") }; };
-    let raw_nodes = if desc.nodes.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(desc.nodes.ptr, desc.nodes.len) } };
-    // any byte is a valid flag (not 0: has children), so the nodes and the open flags need no scan
-    let open: &mut [u8] = if desc.open.len == 0 { &mut [] } else { unsafe { core::slice::from_raw_parts_mut(desc.open.ptr, desc.open.len) } };
-    let mut selected = (unsafe { *desc.selected } != usize::MAX).then_some(unsafe { *desc.selected });
-    // the engine writes the rows into the caller's buffer itself (at least a row per node, checked above): nothing is copied
-    let visible: &mut [u32] = if desc.visible.len == 0 { &mut [] } else { unsafe { core::slice::from_raw_parts_mut(desc.visible.ptr, desc.visible.len) } };
-    let bad_text = Cell::new(false);
-    let mut result = (None, 0);
-    let rc = unsafe { crate::trusted::tree_text(ui, label, raw_nodes, open, &mut selected, visible, &mut |row, put| if !callback_text(desc.text, desc.user, row, 0, put) { bad_text.set(true); }, &mut result) };
-    if rc != 0 { return rc; }
-    if bad_text.get() { return unsafe { fail(ui, "invalid collection callback text") }; }
-    unsafe { *desc.visible_len = result.1; *desc.selected = selected.unwrap_or(usize::MAX); *out = result.0.unwrap_or(usize::MAX); }
-    0
-});
-
 // ABI 1.49: the kit's text of the collection item being built, from inside a `selection_list`/`tree` row or a `table` cell callback: a list row's text, a tree row's text naming the row, a table cell's text naming the cell. Refused elsewhere.
 export!(build pub unsafe fn pxui_ui_item_text(ui: *mut PxuiUi, text: Str) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
@@ -74,7 +29,7 @@ export!(build pub unsafe fn pxui_ui_item_text(ui: *mut PxuiUi, text: Str) -> i32
     unsafe { crate::trusted::item_text(ui, text) }
 });
 
-export!(trusted pub unsafe fn pxui_ui_tree_with(ui: *mut PxuiUi, desc: *const PxuiTreeViewWithDesc, out: *mut usize) -> i32 {
+export!(trusted pub unsafe fn pxui_ui_tree(ui: *mut PxuiUi, desc: *const PxuiTreeViewDesc, out: *mut usize) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if out.is_null() { return unsafe { fail(ui, "null tree argument") }; }
     let Some(desc) = sized!(desc) else { return unsafe { fail(ui, "invalid tree descriptor") }; };

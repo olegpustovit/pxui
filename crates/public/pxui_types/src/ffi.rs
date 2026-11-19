@@ -224,13 +224,6 @@ pub struct ThemeTokens {
     pub density: f32,
 }
 
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Default)]
-pub struct PxuiDialogOut {
-    pub tag: u32,
-    pub index: usize,
-}
-
 /// The fields of a declared node an app edits in place after its signal is known (`Ui::node_mut`): its look, its mark and the
 /// inset of its text.
 #[repr(C)]
@@ -1068,7 +1061,7 @@ pub struct PxuiButtonDesc {
     pub icon_size: f32,
 }
 
-/// A modal dialog (ABI 1.53, `pxui_ui_dialog_response`): the sheet's `key`, the `title`, the button labels (at most 64) and their
+/// A modal dialog (ABI 1.53, `pxui_ui_dialog`): the sheet's `key`, the `title`, the button labels (at most 64) and their
 /// flags as `PxuiDialogConfig` carries them (`default_at`, `cancel_at`: an index or -1; `danger`, `disabled`: bit `i` for button `i`),
 /// the sheet's `width` in points (finite, not negative).
 #[repr(C)]
@@ -1164,7 +1157,7 @@ pub struct PxuiSheetDesc {
     pub max_h: f32,
 }
 
-/// One row of a picker's fill (ABI 1.86, the rows the `PxuiPickerRows` callback of `pxui_ui_picker_keyed` hands back): the label and
+/// One row of a picker's fill (ABI 1.86, the rows the `PxuiPickerRows` callback of `pxui_ui_picker` hands back): the label and
 /// detail, the optional artwork or icon and the heading of the group the row starts (empty: none). The caller sets `size`; a different
 /// size, an unknown `art_kind`, a non-zero `reserved`, a glyph that is not a Unicode scalar value or text that is not UTF-8 is refused.
 #[repr(C)]
@@ -1207,7 +1200,7 @@ impl PxuiPickRow {
 }
 
 /// What happened to a kit button or icon button this frame, in one record (ABI 1.48, `pxui_ui_button_plain`,
-/// `pxui_ui_button_response`, `pxui_ui_icon_button_plain`, `pxui_ui_icon_button_response`): the `CLICKED`, `HOVERED`, `HELD`,
+/// `pxui_ui_button_response`, `pxui_ui_icon_button_plain`, `pxui_ui_icon_button`): the `CLICKED`, `HOVERED`, `HELD`,
 /// `FOCUSED` and `ACTIVATED` bits and the button's box. The caller sets `size`; a shorter record is refused.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -1377,7 +1370,7 @@ pub struct PxuiToggleDesc {
     pub style: PxuiLabelStyle,
 }
 
-/// ABI 1.85: a kit checkbox with its style (`pxui_ui_checkbox_response`; all zero but `size`, `key` and `text` is the plain checkbox).
+/// ABI 1.85: a kit checkbox with its style (`pxui_ui_checkbox`; all zero but `size`, `key` and `text` is the plain checkbox).
 /// `box_size` 0 is the kit's 12-point box; `look` null is the theme's checkbox, else six looks (idle, hover, pressed, focus, disabled,
 /// checked); `disabled` 1 shows the disabled look and blocks presses and focus; `passive` 1 makes a mark with no input of its own. A click
 /// is reported and the caller keeps `on`.
@@ -1404,7 +1397,7 @@ pub struct PxuiCheckboxDesc {
     pub text: Str,
 }
 
-/// A kit segmented control with options (`segmented_result`, `segmented_response`); the options go beside it as a slice of strings. `h` 0 is the theme's control
+/// A kit segmented control (`pxui_ui_segmented`); the options go beside it as a slice of `PxuiPickItem`s. `h` 0 is the theme's control
 /// height; `states` null is the theme's segment, else six looks (idle, hover, pressed, focus, disabled, checked).
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -1435,10 +1428,10 @@ pub struct PxuiSegmentedDesc {
     pub min_segment: f32,
     /// Zero.
     pub reserved2: u32,
-    /// Per option its accessible name (an empty one is the option's text); empty for all named by their text, else as long as the options.
+    /// Empty: each item carries its own accessible name (`PxuiPickItem.name`).
     pub names: Slice<Str>,
     /// ABI 1.67 (a 64- or 96-byte record is read without it, as 1): 1 when `selected` is the choice, 0 for no choice (final; `selected`
-    /// then not read). `pxui_ui_segmented_response` refuses 0; `pxui_ui_segmented_result` reports none.
+    /// then not read); the result then reports none.
     pub has_selected: u8,
     /// Zero.
     pub reserved3: [u8; 7],
@@ -1449,7 +1442,7 @@ pub struct PxuiSegmentedDesc {
     pub reserved4: [u8; 7],
 }
 
-/// ABI 1.76: one item of a pick-one control (`pxui_ui_pick`, `pxui_ui_segmented_items`), borrowed for the call.
+/// ABI 1.76: one item of a pick-one control (`pxui_ui_pick`, `pxui_ui_segmented`), borrowed for the call.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct PxuiPickItem {
@@ -1550,7 +1543,7 @@ pub type UiBuild = Option<extern "C" fn(*mut core::ffi::c_void, *mut core::ffi::
 // keyframes) is read at its exact size, since a span's stride cannot grow.
 pub type PxuiBuild = UiBuild;
 pub type PxuiGridBuild = Option<extern "C" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, usize)>;
-/// A button's content callback (ABI 1.56, `pxui_ui_button_content`): `(user, ui, state)`, `state` the button's interaction state this
+/// A button's content callback (ABI 1.56, `pxui_ui_button`): `(user, ui, state)`, `state` the button's interaction state this
 /// frame, valid for the call.
 pub type PxuiButtonBuild = Option<extern "C" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *const PxuiStateDesc)>;
 
@@ -1983,26 +1976,6 @@ pub struct PxuiTreeNode {
     pub children: u8,
 }
 
-pub type PxuiCollectionEmit = Option<extern "C" fn(*mut core::ffi::c_void, Str)>;
-pub type PxuiCollectionText = Option<extern "C" fn(*mut core::ffi::c_void, usize, usize, PxuiCollectionEmit, *mut core::ffi::c_void)>;
-
-
-#[repr(C)]
-pub struct PxuiTreeViewDesc {
-    pub size: u32,
-    pub reserved: u32,
-    pub label: Str,
-    pub nodes: Slice<PxuiTreeNode>,
-    pub open: PxuiU8MutSpan,
-    pub selected: *mut usize,
-    pub visible: PxuiU32MutSpan,
-    pub visible_len: *mut usize,
-    pub text: PxuiCollectionText,
-    pub user: *mut core::ffi::c_void,
-}
-
-
-
 // ---- widget bodies (`pxui_body_register`): what a body is given, one record per kind. The records hold what the widget's behaviour
 // already computed; the text beside each (a label, a value) is in the record, borrowed until the body returns. A body builds nodes
 // with the ordinary calls on the `ui` it is given, finds nothing but the parts it names (`pxui_part`) and runs the caller's content
@@ -2023,7 +1996,7 @@ pub type PxuiCellBuild = Option<extern "C" fn(*mut core::ffi::c_void, *mut core:
 
 
 #[repr(C)]
-pub struct PxuiTreeViewWithDesc {
+pub struct PxuiTreeViewDesc {
     pub size: u32,
     pub reserved: u32,
     pub label: Str,
@@ -2341,9 +2314,8 @@ pub(crate) mod layout {
         check("PxuiF32MutSpan", size_of::<PxuiF32MutSpan>(), align_of::<PxuiF32MutSpan>(), &[("ptr", core::mem::offset_of!(PxuiF32MutSpan, ptr)), ("len", core::mem::offset_of!(PxuiF32MutSpan, len))]);
         check("PxuiU32MutSpan", size_of::<PxuiU32MutSpan>(), align_of::<PxuiU32MutSpan>(), &[("ptr", core::mem::offset_of!(PxuiU32MutSpan, ptr)), ("len", core::mem::offset_of!(PxuiU32MutSpan, len))]);
         check("PxuiTreeNode", size_of::<PxuiTreeNode>(), align_of::<PxuiTreeNode>(), &[("depth", core::mem::offset_of!(PxuiTreeNode, depth)), ("children", core::mem::offset_of!(PxuiTreeNode, children))]);
-        check("PxuiTreeViewDesc", size_of::<PxuiTreeViewDesc>(), align_of::<PxuiTreeViewDesc>(), &[("size", core::mem::offset_of!(PxuiTreeViewDesc, size)), ("reserved", core::mem::offset_of!(PxuiTreeViewDesc, reserved)), ("label", core::mem::offset_of!(PxuiTreeViewDesc, label)), ("nodes", core::mem::offset_of!(PxuiTreeViewDesc, nodes)), ("open", core::mem::offset_of!(PxuiTreeViewDesc, open)), ("selected", core::mem::offset_of!(PxuiTreeViewDesc, selected)), ("visible", core::mem::offset_of!(PxuiTreeViewDesc, visible)), ("visible_len", core::mem::offset_of!(PxuiTreeViewDesc, visible_len)), ("text", core::mem::offset_of!(PxuiTreeViewDesc, text)), ("user", core::mem::offset_of!(PxuiTreeViewDesc, user))]);
         check("PxuiSlot", size_of::<PxuiSlot>(), align_of::<PxuiSlot>(), &[("serial", core::mem::offset_of!(PxuiSlot, serial))]);
-        check("PxuiTreeViewWithDesc", size_of::<PxuiTreeViewWithDesc>(), align_of::<PxuiTreeViewWithDesc>(), &[("size", core::mem::offset_of!(PxuiTreeViewWithDesc, size)), ("reserved", core::mem::offset_of!(PxuiTreeViewWithDesc, reserved)), ("label", core::mem::offset_of!(PxuiTreeViewWithDesc, label)), ("nodes", core::mem::offset_of!(PxuiTreeViewWithDesc, nodes)), ("open", core::mem::offset_of!(PxuiTreeViewWithDesc, open)), ("selected", core::mem::offset_of!(PxuiTreeViewWithDesc, selected)), ("visible", core::mem::offset_of!(PxuiTreeViewWithDesc, visible)), ("visible_len", core::mem::offset_of!(PxuiTreeViewWithDesc, visible_len)), ("build", core::mem::offset_of!(PxuiTreeViewWithDesc, build)), ("user", core::mem::offset_of!(PxuiTreeViewWithDesc, user))]);
+        check("PxuiTreeViewDesc", size_of::<PxuiTreeViewDesc>(), align_of::<PxuiTreeViewDesc>(), &[("size", core::mem::offset_of!(PxuiTreeViewDesc, size)), ("reserved", core::mem::offset_of!(PxuiTreeViewDesc, reserved)), ("label", core::mem::offset_of!(PxuiTreeViewDesc, label)), ("nodes", core::mem::offset_of!(PxuiTreeViewDesc, nodes)), ("open", core::mem::offset_of!(PxuiTreeViewDesc, open)), ("selected", core::mem::offset_of!(PxuiTreeViewDesc, selected)), ("visible", core::mem::offset_of!(PxuiTreeViewDesc, visible)), ("visible_len", core::mem::offset_of!(PxuiTreeViewDesc, visible_len)), ("build", core::mem::offset_of!(PxuiTreeViewDesc, build)), ("user", core::mem::offset_of!(PxuiTreeViewDesc, user))]);
         check("PxuiNodeFields", size_of::<PxuiNodeFields>(), align_of::<PxuiNodeFields>(), &[("size", core::mem::offset_of!(PxuiNodeFields, size)), ("reserved", core::mem::offset_of!(PxuiNodeFields, reserved)), ("look", core::mem::offset_of!(PxuiNodeFields, look)), ("mark", core::mem::offset_of!(PxuiNodeFields, mark)), ("inset", core::mem::offset_of!(PxuiNodeFields, inset))]);
         check("PxuiRange", size_of::<PxuiRange>(), align_of::<PxuiRange>(), &[("start", core::mem::offset_of!(PxuiRange, start)), ("end", core::mem::offset_of!(PxuiRange, end))]);
         check("PxuiColorSpan", size_of::<PxuiColorSpan>(), align_of::<PxuiColorSpan>(), &[("start", core::mem::offset_of!(PxuiColorSpan, start)), ("end", core::mem::offset_of!(PxuiColorSpan, end)), ("color", core::mem::offset_of!(PxuiColorSpan, color)), ("reserved", core::mem::offset_of!(PxuiColorSpan, reserved))]);
@@ -2372,7 +2344,6 @@ pub(crate) mod layout {
         check("ThemeSource", size_of::<ThemeSource>(), align_of::<ThemeSource>(), &[("size", core::mem::offset_of!(ThemeSource, size)), ("flags", core::mem::offset_of!(ThemeSource, flags)), ("source", core::mem::offset_of!(ThemeSource, source))]);
         check("PxuiMotion", size_of::<PxuiMotion>(), align_of::<PxuiMotion>(), &[("fast", core::mem::offset_of!(PxuiMotion, fast)), ("normal", core::mem::offset_of!(PxuiMotion, normal)), ("slow", core::mem::offset_of!(PxuiMotion, slow)), ("ease", core::mem::offset_of!(PxuiMotion, ease))]);
         check("PxuiThemeTokens", size_of::<ThemeTokens>(), align_of::<ThemeTokens>(), &[("size", core::mem::offset_of!(ThemeTokens, size)), ("panel", core::mem::offset_of!(ThemeTokens, panel)), ("foreground", core::mem::offset_of!(ThemeTokens, foreground)), ("control", core::mem::offset_of!(ThemeTokens, control)), ("input", core::mem::offset_of!(ThemeTokens, input)), ("track", core::mem::offset_of!(ThemeTokens, track)), ("accent", core::mem::offset_of!(ThemeTokens, accent)), ("ink_ground", core::mem::offset_of!(ThemeTokens, ink_ground)), ("has_ink_ground", core::mem::offset_of!(ThemeTokens, has_ink_ground)), ("reserved", core::mem::offset_of!(ThemeTokens, reserved)), ("space", core::mem::offset_of!(ThemeTokens, space)), ("radius", core::mem::offset_of!(ThemeTokens, radius)), ("display_size", core::mem::offset_of!(ThemeTokens, display_size)), ("title_size", core::mem::offset_of!(ThemeTokens, title_size)), ("font_size", core::mem::offset_of!(ThemeTokens, font_size)), ("label_size", core::mem::offset_of!(ThemeTokens, label_size)), ("motion", core::mem::offset_of!(ThemeTokens, motion)), ("reduced_motion", core::mem::offset_of!(ThemeTokens, reduced_motion)), ("reserved_tail", core::mem::offset_of!(ThemeTokens, reserved_tail)), ("density", core::mem::offset_of!(ThemeTokens, density))]);
-        check("PxuiDialogOut", size_of::<PxuiDialogOut>(), align_of::<PxuiDialogOut>(), &[("tag", core::mem::offset_of!(PxuiDialogOut, tag)), ("index", core::mem::offset_of!(PxuiDialogOut, index))]);
         check("PxuiSizeDesc", size_of::<PxuiSizeDesc>(), align_of::<PxuiSizeDesc>(), &[("kind", core::mem::offset_of!(PxuiSizeDesc, kind)), ("value", core::mem::offset_of!(PxuiSizeDesc, value)), ("relative", core::mem::offset_of!(PxuiSizeDesc, relative))]);
         check("PxuiAnchorDesc", size_of::<PxuiAnchorDesc>(), align_of::<PxuiAnchorDesc>(), &[("has_anchor", core::mem::offset_of!(PxuiAnchorDesc, has_anchor)), ("rect", core::mem::offset_of!(PxuiAnchorDesc, rect)), ("side", core::mem::offset_of!(PxuiAnchorDesc, side)), ("align", core::mem::offset_of!(PxuiAnchorDesc, align)), ("gap", core::mem::offset_of!(PxuiAnchorDesc, gap)), ("margin", core::mem::offset_of!(PxuiAnchorDesc, margin)), ("flip", core::mem::offset_of!(PxuiAnchorDesc, flip)), ("reserved_tail", core::mem::offset_of!(PxuiAnchorDesc, reserved_tail))]);
         check("PxuiFontDesc", size_of::<PxuiFontDesc>(), align_of::<PxuiFontDesc>(), &[("family", core::mem::offset_of!(PxuiFontDesc, family)), ("weight", core::mem::offset_of!(PxuiFontDesc, weight)), ("size", core::mem::offset_of!(PxuiFontDesc, size)), ("tracking", core::mem::offset_of!(PxuiFontDesc, tracking)), ("caps", core::mem::offset_of!(PxuiFontDesc, caps)), ("reserved", core::mem::offset_of!(PxuiFontDesc, reserved))]);

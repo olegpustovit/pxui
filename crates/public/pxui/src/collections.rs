@@ -41,11 +41,11 @@ mod link {
     use super::*;
     use crate::composite::{defer_callback_panic, deferred};
     use core::{ffi::c_void, panic::AssertUnwindSafe};
-    use pxui_types::{Str, ffi::{PxuiTreeViewWithDesc as TreeViewWithDesc, PxuiU32MutSpan as U32MutSpan, PxuiU8MutSpan as U8MutSpan}};
+    use pxui_types::{Str, ffi::{PxuiTreeViewDesc as TreeViewWithDesc, PxuiU32MutSpan as U32MutSpan, PxuiU8MutSpan as U8MutSpan}};
 
     #[link(name = "pxui")]
     unsafe extern "C" {
-        fn pxui_ui_tree_with(ui: *mut crate::sys::PxuiUi, desc: *const TreeViewWithDesc, out: *mut usize) -> i32;
+        fn pxui_ui_tree(ui: *mut crate::sys::PxuiUi, desc: *const TreeViewWithDesc, out: *mut usize) -> i32;
         fn pxui_ui_selection_list(ui: *mut crate::sys::PxuiUi, keyed: *const pxui_types::ffi::PxuiKeyedDesc, desc: *const PxuiSelectionListDesc, key: pxui_types::ffi::PxuiRowKey, cell: pxui_types::ffi::PxuiListCell, user: *mut c_void, out: *mut PxuiListResult) -> i32;
         fn pxui_ui_table_head(ui: *mut crate::sys::PxuiUi, keyed: *const pxui_types::ffi::PxuiKeyedDesc, desc: *const PxuiTableHeadDesc, out: *mut PxuiHeadResult) -> i32;
         fn pxui_ui_table(ui: *mut crate::sys::PxuiUi, keyed: *const pxui_types::ffi::PxuiKeyedDesc, desc: *const PxuiTableDesc, key: pxui_types::ffi::PxuiRowKey, cell: pxui_types::ffi::PxuiTableCellBuild, user: *mut c_void, out: *mut PxuiTableResult) -> i32;
@@ -125,7 +125,7 @@ mod link {
                 build: Some(call_cell), user: (&mut cell as *mut Cell).cast(),
             };
             let mut out = usize::MAX;
-            let rc = unsafe { pxui_ui_tree_with(self.0.as_ptr(), &desc, &mut out) };
+            let rc = unsafe { pxui_ui_tree(self.0.as_ptr(), &desc, &mut out) };
             crate::composite::resume_deferred();
             check(self, rc);
             *selected = (selected_raw != usize::MAX).then_some(selected_raw);

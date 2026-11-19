@@ -4340,8 +4340,8 @@ pxui_types::ffi::PxuiCheckboxDesc::passive field u8 @U2a.3
 pxui_types::ffi::PxuiCheckboxDesc::reserved field u8 @U2a.3
 pxui_types::ffi::PxuiCheckboxDesc::size field u32 @U2a.3
 pxui_types::ffi::PxuiCheckboxDesc::text field Str @U2a.3
-pxui_types::ffi::PxuiCollectionEmit type = Option<extern "C" fn(*mut c_void, Str)> @HEAD
-pxui_types::ffi::PxuiCollectionText type = Option<extern "C" fn(*mut c_void, usize, usize, PxuiCollectionEmit, *mut c_void)> @HEAD
+-pxui_types::ffi::PxuiCollectionEmit type = Option<extern "C" fn(*mut c_void, Str)> @U2c.2
+-pxui_types::ffi::PxuiCollectionText type = Option<extern "C" fn(*mut c_void, usize, usize, PxuiCollectionEmit, *mut c_void)> @U2c.2
 pxui_types::ffi::PxuiColorSpan impl Clone @HEAD
 pxui_types::ffi::PxuiColorSpan impl Copy @HEAD
 pxui_types::ffi::PxuiColorSpan impl Debug @HEAD
@@ -4443,13 +4443,13 @@ pxui_types::ffi::PxuiDialogDesc::key field Str @HEAD
 pxui_types::ffi::PxuiDialogDesc::size field u32 @HEAD
 pxui_types::ffi::PxuiDialogDesc::title field Str @HEAD
 pxui_types::ffi::PxuiDialogDesc::width field f32 @HEAD
-pxui_types::ffi::PxuiDialogOut impl Clone @HEAD
-pxui_types::ffi::PxuiDialogOut impl Copy @HEAD
-pxui_types::ffi::PxuiDialogOut impl Debug @HEAD
-pxui_types::ffi::PxuiDialogOut impl Default @HEAD
-pxui_types::ffi::PxuiDialogOut struct @HEAD
-pxui_types::ffi::PxuiDialogOut::index field usize @HEAD
-pxui_types::ffi::PxuiDialogOut::tag field u32 @HEAD
+-pxui_types::ffi::PxuiDialogOut impl Clone @U2c.2
+-pxui_types::ffi::PxuiDialogOut impl Copy @U2c.2
+-pxui_types::ffi::PxuiDialogOut impl Debug @U2c.2
+-pxui_types::ffi::PxuiDialogOut impl Default @U2c.2
+-pxui_types::ffi::PxuiDialogOut struct @U2c.2
+-pxui_types::ffi::PxuiDialogOut::index field usize @U2c.2
+-pxui_types::ffi::PxuiDialogOut::tag field u32 @U2c.2
 pxui_types::ffi::PxuiDialogResult impl Clone @HEAD
 pxui_types::ffi::PxuiDialogResult impl Copy @HEAD
 pxui_types::ffi::PxuiDialogResult impl Debug @HEAD
@@ -5737,27 +5737,28 @@ pxui_types::ffi::PxuiTreeRowConfig::size field u32 @HEAD
 pxui_types::ffi::PxuiTreeRowConfig::state field PxuiStateDesc @HEAD
 pxui_types::ffi::PxuiTreeRowConfig::variant field u16 @HEAD
 pxui_types::ffi::PxuiTreeViewDesc struct @HEAD
+pxui_types::ffi::PxuiTreeViewDesc::build field PxuiCellBuild @U2c.2
 pxui_types::ffi::PxuiTreeViewDesc::label field Str @HEAD
 pxui_types::ffi::PxuiTreeViewDesc::nodes field Slice<PxuiTreeNode> @HEAD
 pxui_types::ffi::PxuiTreeViewDesc::open field PxuiU8MutSpan @HEAD
 pxui_types::ffi::PxuiTreeViewDesc::reserved field u32 @HEAD
 pxui_types::ffi::PxuiTreeViewDesc::selected field *mut usize @HEAD
 pxui_types::ffi::PxuiTreeViewDesc::size field u32 @HEAD
-pxui_types::ffi::PxuiTreeViewDesc::text field PxuiCollectionText @HEAD
+-pxui_types::ffi::PxuiTreeViewDesc::text field PxuiCollectionText @U2c.2
 pxui_types::ffi::PxuiTreeViewDesc::user field *mut c_void @HEAD
 pxui_types::ffi::PxuiTreeViewDesc::visible field PxuiU32MutSpan @HEAD
 pxui_types::ffi::PxuiTreeViewDesc::visible_len field *mut usize @HEAD
-pxui_types::ffi::PxuiTreeViewWithDesc struct @HEAD
-pxui_types::ffi::PxuiTreeViewWithDesc::build field PxuiCellBuild @HEAD
-pxui_types::ffi::PxuiTreeViewWithDesc::label field Str @HEAD
-pxui_types::ffi::PxuiTreeViewWithDesc::nodes field Slice<PxuiTreeNode> @HEAD
-pxui_types::ffi::PxuiTreeViewWithDesc::open field PxuiU8MutSpan @HEAD
-pxui_types::ffi::PxuiTreeViewWithDesc::reserved field u32 @HEAD
-pxui_types::ffi::PxuiTreeViewWithDesc::selected field *mut usize @HEAD
-pxui_types::ffi::PxuiTreeViewWithDesc::size field u32 @HEAD
-pxui_types::ffi::PxuiTreeViewWithDesc::user field *mut c_void @HEAD
-pxui_types::ffi::PxuiTreeViewWithDesc::visible field PxuiU32MutSpan @HEAD
-pxui_types::ffi::PxuiTreeViewWithDesc::visible_len field *mut usize @HEAD
+-pxui_types::ffi::PxuiTreeViewWithDesc struct @U2c.2
+-pxui_types::ffi::PxuiTreeViewWithDesc::build field PxuiCellBuild @U2c.2
+-pxui_types::ffi::PxuiTreeViewWithDesc::label field Str @U2c.2
+-pxui_types::ffi::PxuiTreeViewWithDesc::nodes field Slice<PxuiTreeNode> @U2c.2
+-pxui_types::ffi::PxuiTreeViewWithDesc::open field PxuiU8MutSpan @U2c.2
+-pxui_types::ffi::PxuiTreeViewWithDesc::reserved field u32 @U2c.2
+-pxui_types::ffi::PxuiTreeViewWithDesc::selected field *mut usize @U2c.2
+-pxui_types::ffi::PxuiTreeViewWithDesc::size field u32 @U2c.2
+-pxui_types::ffi::PxuiTreeViewWithDesc::user field *mut c_void @U2c.2
+-pxui_types::ffi::PxuiTreeViewWithDesc::visible field PxuiU32MutSpan @U2c.2
+-pxui_types::ffi::PxuiTreeViewWithDesc::visible_len field *mut usize @U2c.2
 pxui_types::ffi::PxuiU32MutSpan impl Clone @HEAD
 pxui_types::ffi::PxuiU32MutSpan impl Copy @HEAD
 pxui_types::ffi::PxuiU32MutSpan impl Default @HEAD

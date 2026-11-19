@@ -32,8 +32,8 @@ fn a_builder_outside_a_frame_is_refused_without_poisoning_the_ui() {
     let mut out = PxuiBox::default();
     assert_eq!(unsafe { pxui_ui_node_keyed(ui, 7, &desc, &mut out) }, PXUI_ERR_STATE);
     assert!(error(ui).contains("frame callback"), "{}", error(ui));
-    let mut pressed = 0;
-    assert_eq!(unsafe { pxui_button(ui, Str { ptr: b"x".as_ptr(), len: 1 }, &mut pressed) }, PXUI_ERR_STATE);
+    let x = Str { ptr: b"x".as_ptr(), len: 1 };
+    assert_eq!(unsafe { pxui_ui_button_plain(ui, x, x, &mut { pxui_types::ffi::PxuiResponse::EMPTY }) }, PXUI_ERR_STATE);
     assert!(!unsafe { (*(*ui).shared).poisoned });
     assert_eq!(unsafe { pxui_ui_set_dir(ui, 0) }, 0);
     let mut built = 0u32;
@@ -52,8 +52,8 @@ fn a_caught_panic_poisons_the_ui_until_its_next_frame() {
     // every later call on this Ui fails at once with the same code, even valid ones
     assert_eq!(unsafe { pxui_ui_set_dir(ui, 0) }, PXUI_ERR_PANIC);
     assert_eq!(unsafe { pxui_ui_request_frame(ui) }, PXUI_ERR_PANIC);
-    let mut pressed = 0;
-    assert_eq!(unsafe { pxui_button(ui, Str { ptr: b"x".as_ptr(), len: 1 }, &mut pressed) }, PXUI_ERR_PANIC);
+    let x = Str { ptr: b"x".as_ptr(), len: 1 };
+    assert_eq!(unsafe { pxui_ui_button_plain(ui, x, x, &mut { pxui_types::ffi::PxuiResponse::EMPTY }) }, PXUI_ERR_PANIC);
     // another Ui is untouched
     let other = create();
     assert_eq!(unsafe { pxui_ui_set_dir(other, 0) }, 0);
@@ -235,7 +235,7 @@ fn text_with_nul_crosses_as_ordinary_text() {
         let ui = ui.cast::<PxuiUi>();
         let query = Str { ptr: b"a\0b".as_ptr(), len: 3 };
         let (mut returned, mut tag, mut index) = (Str::default(), 0u32, 0i64);
-        let rc = unsafe { pxui_ui_picker(ui, 5, 0, 0, Str { ptr: b"pick".as_ptr(), len: 4 }, query, None, None, None, core::ptr::null_mut(), &mut returned, &mut tag, &mut index) };
+        let rc = unsafe { pxui_ui_picker(ui, &pxui_types::ffi::PxuiKeyedDesc::new("pick", ""), 5, 0, 0, query, None, None, None, core::ptr::null_mut(), &mut returned, &mut tag, &mut index) };
         assert_eq!(rc, 0, "{}", error(ui));
         assert_eq!(unsafe { core::slice::from_raw_parts(returned.ptr, returned.len) }, b"a\0b");
         unsafe { *user.cast::<u32>() += 1; }
@@ -263,7 +263,7 @@ fn picker_rows_are_checked_and_old_str_fills_are_refused_unread() {
     let pick = |fill: &mut Fill| in_frame(ui, &mut |ui| {
         let (mut query, mut tag, mut index) = (Str::default(), 0u32, 0i64);
         let keyed = pxui_types::ffi::PxuiKeyedDesc::new("pick", "Search");
-        unsafe { pxui_ui_picker_keyed(ui, &keyed, 5, 0, 1, Str { ptr: b"s".as_ptr(), len: 1 }, Some(rows), None, None, (fill as *mut Fill).cast(), &mut query, &mut tag, &mut index) }
+        unsafe { pxui_ui_picker(ui, &keyed, 5, 0, 1, Str { ptr: b"s".as_ptr(), len: 1 }, Some(rows), None, None, (fill as *mut Fill).cast(), &mut query, &mut tag, &mut index) }
     });
     let row = PxuiPickRow { art_kind: 1, art: 0x266B, heading: Str { ptr: b"S".as_ptr(), len: 1 }, ..PxuiPickRow::new("Song", "Artist") };
     let good = [row, PxuiPickRow { art_kind: 2, art: 7, ..PxuiPickRow::new("Album", "") }];
@@ -345,9 +345,9 @@ fn theme_tokens_that_cannot_be_a_theme_make_none() {
 /// Calls every kind of export on `ui` and returns the statuses: a default-form one, a trusted-form one (C entry), the trusted entry the
 /// static wrapper calls, a bare one that touches the engine and a container.
 fn probe(ui: *mut PxuiUi) -> [i32; 6] {
-    let (label, mut pressed, mut out) = (Str { ptr: b"x".as_ptr(), len: 1 }, 0u8, PxuiBox::default());
+    let (label, mut out) = (Str { ptr: b"x".as_ptr(), len: 1 }, PxuiBox::default());
     unsafe {
-        [pxui_ui_set_dir(ui, 0), pxui_label(ui, label), pxui_button(ui, label, &mut pressed),
+        [pxui_ui_set_dir(ui, 0), pxui_ui_toggle_plain(ui, label, label, 0, &mut { pxui_types::ffi::PxuiResponse::EMPTY }), pxui_ui_button_plain(ui, label, label, &mut { pxui_types::ffi::PxuiResponse::EMPTY }),
          crate::trusted::pxui_ui_node_keyed(ui, 7, &pxui_types::Node::DEFAULT, &mut out),
          pxui_ui_draw(ui, &out, 0, None, core::ptr::null_mut(), None), pxui_scope(ui, label, Some(nothing), core::ptr::null_mut())]
     }
@@ -684,7 +684,7 @@ fn tabs_result_refuses_invalid_arguments_and_items() {
     let keyed = PxuiKeyedDesc::new("tabs", "Sections");
     let tabs = |items: &[PxuiPickItem], has_selected: u8, focus: u8, result: &mut PxuiSegmentedResult| in_frame(ui, &mut |ui| {
         let mut out = PxuiResponse::EMPTY;
-        unsafe { pxui_ui_tabs_result(ui, &keyed, Slice { ptr: items.as_ptr(), len: items.len() }, has_selected, 1, focus, &mut out, result) }
+        unsafe { pxui_ui_tabs(ui, &keyed, Slice { ptr: items.as_ptr(), len: items.len() }, has_selected, 1, focus, &mut out, result) }
     });
     let mut result = PxuiSegmentedResult::EMPTY;
     assert_eq!(tabs(&good, 1, 1, &mut result), 0, "{}", error(ui));
@@ -701,8 +701,8 @@ fn tabs_result_refuses_invalid_arguments_and_items() {
     refused(&[item(b"\xff")], 0, 0, "text that is not UTF-8");
     refused(&[PxuiPickItem { detail: Str { ptr: core::ptr::null(), len: 3 }, ..good[0] }], 0, 0, "a null detail with a length");
     let mut result = PxuiSegmentedResult::EMPTY;
-    assert_ne!(in_frame(ui, &mut |ui| { let mut out = PxuiResponse::EMPTY; unsafe { pxui_ui_tabs_result(ui, &keyed, Slice { ptr: core::ptr::null(), len: 2 }, 0, 0, 0, &mut out, &mut result) } }), 0, "a null span with a length");
-    assert_ne!(in_frame(ui, &mut |ui| unsafe { pxui_ui_tabs_result(ui, &keyed, Slice { ptr: good.as_ptr(), len: 2 }, 0, 0, 0, core::ptr::null_mut(), &mut result) }), 0, "a null response");
+    assert_ne!(in_frame(ui, &mut |ui| { let mut out = PxuiResponse::EMPTY; unsafe { pxui_ui_tabs(ui, &keyed, Slice { ptr: core::ptr::null(), len: 2 }, 0, 0, 0, &mut out, &mut result) } }), 0, "a null span with a length");
+    assert_ne!(in_frame(ui, &mut |ui| unsafe { pxui_ui_tabs(ui, &keyed, Slice { ptr: good.as_ptr(), len: 2 }, 0, 0, 0, core::ptr::null_mut(), &mut result) }), 0, "a null response");
     assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
 }
 
@@ -1279,32 +1279,6 @@ mod sized_records {
         unsafe { pxui_ui_destroy(ui); }
     }
 
-    #[test]
-    fn button_desc() {
-        let ui = create();
-        let mut value: PxuiButtonDesc = unsafe { core::mem::zeroed() };
-        let fix: fn(&mut PxuiButtonDesc) = |d| { d.enabled = 1; d.key = Str { ptr: b"k".as_ptr(), len: 1 }; d.text = d.key; };
-        fix(&mut value);
-        four_min(ui, ((&value as *const PxuiButtonDesc).cast(), size_of_val(&value), align_of_val(&value)), &[96, 104, 192], &mut |p| {
-            let p = p.cast::<PxuiButtonDesc>();
-            in_frame(ui, &mut |ui| { let (mut out, mut signal, mut focused) = (PxuiBox::default(), PxuiSignal::default(), 0u8); unsafe { pxui_ui_button_with(ui, p, None, core::ptr::null_mut(), &mut out, &mut signal, &mut focused) } })
-        });
-        unsafe { pxui_ui_destroy(ui); }
-    }
-
-    #[test]
-    fn icon_button_desc() {
-        let ui = create();
-        let mut value: PxuiIconButtonDesc = unsafe { core::mem::zeroed() };
-        let fix: fn(&mut PxuiIconButtonDesc) = |d| { d.enabled = 1; d.press_scale = 1.0; d.key = Str { ptr: b"k".as_ptr(), len: 1 }; d.name = d.key; d.icon = d.key; };
-        fix(&mut value);
-        four_min(ui, ((&value as *const PxuiIconButtonDesc).cast(), size_of_val(&value), align_of_val(&value)), &[96, 104], &mut |p| {
-            let p = p.cast::<PxuiIconButtonDesc>();
-            in_frame(ui, &mut |ui| { let (mut out, mut signal, mut focused) = (PxuiBox::default(), PxuiSignal::default(), 0u8); unsafe { pxui_ui_icon_button_with(ui, p, &mut out, &mut signal, &mut focused) } })
-        });
-        unsafe { pxui_ui_destroy(ui); }
-    }
-
     /// ABI 1.54: the 96-byte button and icon button records from before `centered` and the press curves are still read (as a plain button and
     /// the kit's springs); a size between the two, a `centered` past 1, a nonzero reserved byte or an invalid curve is refused.
     #[test]
@@ -1315,8 +1289,8 @@ mod sized_records {
         (button.size, button.enabled, button.key, button.text, button.centered) = (size_of::<PxuiButtonDesc>() as u32, 1, k, k, 1);
         let mut icon: PxuiIconButtonDesc = unsafe { core::mem::zeroed() };
         (icon.size, icon.enabled, icon.press_scale, icon.key, icon.name, icon.icon) = (size_of::<PxuiIconButtonDesc>() as u32, 1, 0.96, k, k, k);
-        let press = |b: &PxuiButtonDesc| in_frame(ui, &mut |ui| { let mut out = PxuiResponse::EMPTY; unsafe { pxui_ui_button_content(ui, b, None, core::ptr::null_mut(), &mut out) } });
-        let tap = |b: &PxuiIconButtonDesc| in_frame(ui, &mut |ui| { let mut out = PxuiResponse::EMPTY; unsafe { pxui_ui_icon_button_response(ui, b, &mut out) } });
+        let press = |b: &PxuiButtonDesc| in_frame(ui, &mut |ui| { let mut out = PxuiResponse::EMPTY; unsafe { pxui_ui_button(ui, b, None, core::ptr::null_mut(), &mut out) } });
+        let tap = |b: &PxuiIconButtonDesc| in_frame(ui, &mut |ui| { let mut out = PxuiResponse::EMPTY; unsafe { pxui_ui_icon_button(ui, b, &mut out) } });
         assert_eq!(press(&button), 0);
         assert_eq!(press(&PxuiButtonDesc { size: 96, centered: 7, ..button }), 0, "a 96-byte record's tail is not read");
         assert_eq!(press(&PxuiButtonDesc { size: 100, ..button }), PXUI_ERR_ARGUMENT, "a size that ends inside a field");
@@ -1369,7 +1343,7 @@ mod sized_records {
         unsafe { pxui_ui_destroy(ui); }
     }
 
-    /// ABI 1.48: the response calls check their descriptors as the `_with` ones do, and refuse a null or short `PxuiResponse`; a plain
+    /// ABI 1.48: the button calls check their descriptors at every size they have had, and refuse a null or short `PxuiResponse`; a plain
     /// call fills the record with the box it declared.
     #[test]
     fn response_calls() {
@@ -1379,25 +1353,20 @@ mod sized_records {
         (value.enabled, value.key, value.text) = (1, k, k);
         four_min(ui, ((&value as *const PxuiButtonDesc).cast(), size_of_val(&value), align_of_val(&value)), &[96, 104, 192], &mut |p| {
             let p = p.cast::<PxuiButtonDesc>();
-            in_frame(ui, &mut |ui| { let mut out = PxuiResponse::EMPTY; unsafe { pxui_ui_button_response(ui, p, None, core::ptr::null_mut(), &mut out) } })
-        });
-        four_min(ui, ((&value as *const PxuiButtonDesc).cast(), size_of_val(&value), align_of_val(&value)), &[96, 104, 192], &mut |p| {
-            let p = p.cast::<PxuiButtonDesc>();
-            in_frame(ui, &mut |ui| { let mut out = PxuiResponse::EMPTY; unsafe { pxui_ui_button_content(ui, p, None, core::ptr::null_mut(), &mut out) } })
+            in_frame(ui, &mut |ui| { let mut out = PxuiResponse::EMPTY; unsafe { pxui_ui_button(ui, p, None, core::ptr::null_mut(), &mut out) } })
         });
         let mut icon: PxuiIconButtonDesc = unsafe { core::mem::zeroed() };
         (icon.enabled, icon.press_scale, icon.key, icon.name, icon.icon) = (1, 1.0, k, k, k);
         four_min(ui, ((&icon as *const PxuiIconButtonDesc).cast(), size_of_val(&icon), align_of_val(&icon)), &[96, 104], &mut |p| {
             let p = p.cast::<PxuiIconButtonDesc>();
-            in_frame(ui, &mut |ui| { let mut out = PxuiResponse::EMPTY; unsafe { pxui_ui_icon_button_response(ui, p, &mut out) } })
+            in_frame(ui, &mut |ui| { let mut out = PxuiResponse::EMPTY; unsafe { pxui_ui_icon_button(ui, p, &mut out) } })
         });
         let short = PxuiResponse { size: 8, ..PxuiResponse::EMPTY };
         for out in [core::ptr::null_mut(), &short as *const PxuiResponse as *mut PxuiResponse] {
             assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_button_plain(ui, k, k, out) }), PXUI_ERR_ARGUMENT);
             assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_icon_button_plain(ui, k, k, k, out) }), PXUI_ERR_ARGUMENT);
-            assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_button_response(ui, &value, None, core::ptr::null_mut(), out) }), PXUI_ERR_ARGUMENT);
-            assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_button_content(ui, &value, None, core::ptr::null_mut(), out) }), PXUI_ERR_ARGUMENT);
-            assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_icon_button_response(ui, &icon, out) }), PXUI_ERR_ARGUMENT);
+            assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_button(ui, &value, None, core::ptr::null_mut(), out) }), PXUI_ERR_ARGUMENT);
+            assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_icon_button(ui, &icon, out) }), PXUI_ERR_ARGUMENT);
         }
         let bad = Str { ptr: [0xffu8].as_ptr(), len: 1 };
         assert_eq!(in_frame(ui, &mut |ui| { let mut out = PxuiResponse::EMPTY; unsafe { pxui_ui_button_plain(ui, k, bad, &mut out) } }), PXUI_ERR_ARGUMENT);
@@ -1407,7 +1376,7 @@ mod sized_records {
         unsafe { pxui_ui_destroy(ui); }
     }
 
-    /// ABI 1.53: `pxui_ui_dialog_response` checks its descriptor as the other sized records (size word, text, masks naming a button
+    /// ABI 1.53: `pxui_ui_dialog` checks its descriptor as the other sized records (size word, text, masks naming a button
     /// that is not there, an index out of range, a bad width) and refuses a null or short `PxuiDialogResult`; a good call answers.
     #[test]
     fn dialog_response_desc() {
@@ -1419,75 +1388,71 @@ mod sized_records {
         (value.width, value.key, value.title, value.buttons, value.default_at, value.cancel_at) = (320.0, k, k, Slice { ptr: buttons.as_ptr(), len: 2 }, 1, 0);
         four_min(ui, ((&value as *const PxuiDialogDesc).cast(), size_of_val(&value), align_of_val(&value)), &[88], &mut |p| {
             let p = p.cast::<PxuiDialogDesc>();
-            in_frame(ui, &mut |ui| { let mut out = PxuiDialogResult::EMPTY; unsafe { pxui_ui_dialog_response(ui, p, None, core::ptr::null_mut(), &mut out) } })
+            in_frame(ui, &mut |ui| { let mut out = PxuiDialogResult::EMPTY; unsafe { pxui_ui_dialog(ui, p, None, core::ptr::null_mut(), &mut out) } })
         });
         let mut out = PxuiDialogResult::EMPTY;
-        assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_dialog_response(ui, &value, None, core::ptr::null_mut(), &mut out) }), 0, "{}", error(ui));
+        assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_dialog(ui, &value, None, core::ptr::null_mut(), &mut out) }), 0, "{}", error(ui));
         assert_eq!((out.has_chosen, out.dismissed), (0, 0), "an open dialog chose nothing");
         let short = PxuiDialogResult { size: 4, ..PxuiDialogResult::EMPTY };
         for bad_out in [core::ptr::null_mut(), &short as *const PxuiDialogResult as *mut PxuiDialogResult] {
-            assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_dialog_response(ui, &value, None, core::ptr::null_mut(), bad_out) }), PXUI_ERR_ARGUMENT);
+            assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_dialog(ui, &value, None, core::ptr::null_mut(), bad_out) }), PXUI_ERR_ARGUMENT);
         }
         // ABI 1.71: as many details as buttons (or none); an 88-byte record's details are not read
         let details = [k, Str { ptr: b"\xff".as_ptr(), len: 1 }];
         let mut sink = PxuiDialogResult::EMPTY;
-        assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_dialog_response(ui, &PxuiDialogDesc { details: Slice { ptr: buttons.as_ptr(), len: 2 }, ..value }, None, core::ptr::null_mut(), &mut sink) }), 0, "{}", error(ui));
-        assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_dialog_response(ui, &PxuiDialogDesc { size: 88, details: Slice { ptr: core::ptr::null(), len: 7 }, ..value }, None, core::ptr::null_mut(), &mut sink) }), 0, "{}", error(ui));
+        assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_dialog(ui, &PxuiDialogDesc { details: Slice { ptr: buttons.as_ptr(), len: 2 }, ..value }, None, core::ptr::null_mut(), &mut sink) }), 0, "{}", error(ui));
+        assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_dialog(ui, &PxuiDialogDesc { size: 88, details: Slice { ptr: core::ptr::null(), len: 7 }, ..value }, None, core::ptr::null_mut(), &mut sink) }), 0, "{}", error(ui));
         for bad in [Slice { ptr: buttons.as_ptr(), len: 1 }, Slice { ptr: details.as_ptr(), len: 2 }, Slice { ptr: core::ptr::null(), len: 2 }] {
-            assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_dialog_response(ui, &PxuiDialogDesc { details: bad, ..value }, None, core::ptr::null_mut(), &mut sink) }), PXUI_ERR_ARGUMENT);
+            assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_dialog(ui, &PxuiDialogDesc { details: bad, ..value }, None, core::ptr::null_mut(), &mut sink) }), PXUI_ERR_ARGUMENT);
         }
         let fixes: [fn(&mut PxuiDialogDesc); 7] = [|d| d.default_at = 2, |d| d.cancel_at = -2, |d| d.danger = 4, |d| d.disabled = 1 << 40, |d| d.width = f32::NAN, |d| d.width = -1.0, |d| d.buttons.len = 65];
         for fix in fixes {
             let mut bad = value;
             fix(&mut bad);
             let mut sink = PxuiDialogResult::EMPTY;
-            assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_dialog_response(ui, &bad, None, core::ptr::null_mut(), &mut sink) }), PXUI_ERR_ARGUMENT);
+            assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_dialog(ui, &bad, None, core::ptr::null_mut(), &mut sink) }), PXUI_ERR_ARGUMENT);
         }
         unsafe { pxui_ui_destroy(ui); }
     }
 
-    /// ABI 1.67: `pxui_ui_segmented_result` reads its descriptor as `pxui_ui_segmented_response` does (64, 96 and 104 bytes; the older
-    /// sizes always carry a choice), refuses a null ui, descriptor or out, a null or short `PxuiSegmentedResult`, `has_selected` over 1
-    /// or a reserved byte set; `has_selected` 0 answers no choice there and is refused by the 1.51 call, which cannot report none.
+    /// ABI 1.67: `pxui_ui_segmented` reads its descriptor at 64, 96 and 104 bytes (the older sizes always carry a choice), refuses a
+    /// null ui, descriptor or out, a null or short `PxuiSegmentedResult`, `has_selected` over 1 or a reserved byte set; `has_selected` 0
+    /// answers no choice.
     #[test]
-    fn segmented_result_desc() {
+    fn segmented_desc() {
         let ui = create();
         let k = Str { ptr: b"k".as_ptr(), len: 1 };
-        let options = [k, k];
+        let options = [PxuiPickItem { text: k, ..PxuiPickItem::default() }; 2];
         let span = Slice { ptr: options.as_ptr(), len: 2 };
         let mut value: PxuiSegmentedDesc = unsafe { core::mem::zeroed() };
         (value.size, value.enabled, value.key, value.name, value.padding, value.selected) = (size_of_val(&value) as u32, 1, k, k, 8.0, 5);
         four_min(ui, ((&value as *const PxuiSegmentedDesc).cast(), size_of_val(&value), align_of_val(&value)), &[64, 96, 104], &mut |p| {
             let p = p.cast::<PxuiSegmentedDesc>();
-            in_frame(ui, &mut |ui| { let (mut out, mut result) = (PxuiResponse::EMPTY, PxuiSegmentedResult::EMPTY); unsafe { pxui_ui_segmented_result(ui, p, span, &mut out, &mut result) } })
+            in_frame(ui, &mut |ui| { let (mut out, mut result) = (PxuiResponse::EMPTY, PxuiSegmentedResult::EMPTY); unsafe { pxui_ui_segmented(ui, p, span, &mut out, &mut result) } })
         });
         let (mut out, mut result) = (PxuiResponse::EMPTY, PxuiSegmentedResult { has_chosen: 9, has_secondary: 9, reserved: [9; 2], ..PxuiSegmentedResult::EMPTY });
-        assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_segmented_result(ui, &value, span, &mut out, &mut result) }), 0, "{}", error(ui));
+        assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_segmented(ui, &value, span, &mut out, &mut result) }), 0, "{}", error(ui));
         assert_eq!((result.has_chosen, result.has_secondary, result.reserved), (0, 0, [0; 2]), "has_selected 0 is no choice");
-        let mut chosen = 7usize;
-        assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_segmented_response(ui, &value, span, &mut out, &mut chosen) }), PXUI_ERR_ARGUMENT, "the 1.51 call cannot report none");
         let old = PxuiSegmentedDesc { size: 96, ..value };
-        assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_segmented_response(ui, &old, span, &mut out, &mut chosen) }), 0);
-        assert_eq!(chosen, 1, "a 1.55 record's `selected` is the choice, clamped");
-        assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_segmented_result(ui, &old, span, &mut out, &mut result) }), 0);
+        assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_segmented(ui, &old, span, &mut out, &mut result) }), 0);
         assert_eq!((result.has_chosen, result.chosen), (1, 1));
         // a 1.67 record (104 bytes) has its own has_selected (0 here: none) and never has its `focus_on_click` bytes read
         let v67 = PxuiSegmentedDesc { size: 104, focus_on_click: 9, reserved4: [9; 7], ..value };
-        assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_segmented_result(ui, &v67, span, &mut out, &mut result) }), 0, "{}", error(ui));
+        assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_segmented(ui, &v67, span, &mut out, &mut result) }), 0, "{}", error(ui));
         assert_eq!((result.has_chosen, result.chosen), (0, 0), "has_selected 0 at 104 bytes is no choice");
         let fine = PxuiSegmentedDesc { selected: 0, has_selected: 1, focus_on_click: 1, ..value };
-        assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_segmented_result(ui, &fine, span, &mut out, &mut result) }), 0);
+        assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_segmented(ui, &fine, span, &mut out, &mut result) }), 0);
         assert_eq!((result.has_chosen, result.chosen), (1, 0));
         for bad in [PxuiSegmentedDesc { has_selected: 2, ..value }, PxuiSegmentedDesc { reserved3: [0, 0, 1, 0, 0, 0, 0], ..value }, PxuiSegmentedDesc { focus_on_click: 2, ..value }, PxuiSegmentedDesc { reserved4: [0, 1, 0, 0, 0, 0, 0], ..value }] {
-            assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_segmented_result(ui, &bad, span, &mut out, &mut result) }), PXUI_ERR_ARGUMENT);
+            assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_segmented(ui, &bad, span, &mut out, &mut result) }), PXUI_ERR_ARGUMENT);
         }
         let short = PxuiSegmentedResult { size: 4, ..PxuiSegmentedResult::EMPTY };
         for bad in [core::ptr::null_mut(), &short as *const PxuiSegmentedResult as *mut PxuiSegmentedResult] {
-            assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_segmented_result(ui, &value, span, &mut out, bad) }), PXUI_ERR_ARGUMENT);
+            assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_segmented(ui, &value, span, &mut out, bad) }), PXUI_ERR_ARGUMENT);
         }
-        assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_segmented_result(ui, core::ptr::null(), span, &mut out, &mut result) }), PXUI_ERR_ARGUMENT);
-        assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_segmented_result(ui, &value, span, core::ptr::null_mut(), &mut result) }), PXUI_ERR_ARGUMENT);
-        assert_eq!(unsafe { pxui_ui_segmented_result(core::ptr::null_mut(), &value, span, &mut out, &mut result) }, PXUI_ERR_ARGUMENT);
+        assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_segmented(ui, core::ptr::null(), span, &mut out, &mut result) }), PXUI_ERR_ARGUMENT);
+        assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_segmented(ui, &value, span, core::ptr::null_mut(), &mut result) }), PXUI_ERR_ARGUMENT);
+        assert_eq!(unsafe { pxui_ui_segmented(core::ptr::null_mut(), &value, span, &mut out, &mut result) }, PXUI_ERR_ARGUMENT);
         unsafe { pxui_ui_destroy(ui); }
     }
 
@@ -1754,19 +1719,6 @@ mod sized_records {
     }
 
     #[test]
-    fn tree_with() {
-        let ui = create();
-        let mut value: PxuiTreeViewWithDesc = unsafe { core::mem::zeroed() };
-        let fix: fn(&mut PxuiTreeViewWithDesc) = |d| { d.selected = Box::leak(Box::new(0)); d.visible_len = Box::leak(Box::new(0)); };
-        fix(&mut value);
-        four(ui, ((&value as *const PxuiTreeViewWithDesc).cast(), size_of_val(&value), align_of_val(&value)), true, &mut |p| {
-            let p = p.cast::<PxuiTreeViewWithDesc>();
-            in_frame(ui, &mut |ui| { let mut hit = 0usize; unsafe { pxui_ui_tree_with(ui, p, &mut hit) } })
-        });
-        unsafe { pxui_ui_destroy(ui); }
-    }
-
-    #[test]
     fn scrub_out() {
         let ui = create();
         let mut value: PxuiScrubOut = unsafe { core::mem::zeroed() };
@@ -1774,7 +1726,7 @@ mod sized_records {
         fix(&mut value);
         four(ui, ((&value as *const PxuiScrubOut).cast(), size_of_val(&value), align_of_val(&value)), true, &mut |p| {
             let p = p.cast::<PxuiScrubOut>();
-            in_frame(ui, &mut |ui| unsafe { pxui_ui_scrub(ui, Str::default(), 0.0, 0.0, 1.0, 0.1, p) })
+            in_frame(ui, &mut |ui| unsafe { pxui_ui_scrub(ui, Str::default(), 0.0, 0.0, 1.0, 0.1, &mut { PxuiResponse::EMPTY }, p) })
         });
         unsafe { pxui_ui_destroy(ui); }
     }
@@ -1917,18 +1869,18 @@ fn grown_fields_are_read_only_when_the_callers_size_covers_them() {
     (toggle.size, toggle.enabled, toggle.key, toggle.text) = (size_of::<PxuiToggleDesc>() as u32, 1, k, k);
     let mut response = PxuiResponse::EMPTY;
     // an 88-byte record: a title style the caller never had is not read, even when has_style and a bad reserved byte are in memory after it
-    assert_eq!(build(&mut |ui| unsafe { pxui_ui_toggle_response(ui, &PxuiToggleDesc { size: 88, has_style: 7, reserved2: [9; 7], ..toggle }, &mut response) }), 0);
-    assert_eq!(build(&mut |ui| unsafe { pxui_ui_toggle_response(ui, &PxuiToggleDesc { has_style: 7, ..toggle }, &mut response) }), PXUI_ERR_ARGUMENT);
+    assert_eq!(build(&mut |ui| unsafe { pxui_ui_toggle(ui, &PxuiToggleDesc { size: 88, has_style: 7, reserved2: [9; 7], ..toggle }, &mut response) }), 0);
+    assert_eq!(build(&mut |ui| unsafe { pxui_ui_toggle(ui, &PxuiToggleDesc { has_style: 7, ..toggle }, &mut response) }), PXUI_ERR_ARGUMENT);
     let mut seg: PxuiSegmentedDesc = unsafe { core::mem::zeroed() };
     (seg.size, seg.enabled, seg.key, seg.name, seg.has_selected) = (size_of::<PxuiSegmentedDesc>() as u32, 1, k, k, 1);
-    let options = [k, k];
-    let mut chosen = 0usize;
+    let options = [pxui_types::ffi::PxuiPickItem { text: k, ..Default::default() }; 2];
+    let mut result = pxui_types::ffi::PxuiSegmentedResult::EMPTY;
     let names = [k];
-    let bad = Slice { ptr: names.as_ptr(), len: 1 }; // one name for two options: invalid only when read
-    assert_eq!(build(&mut |ui| unsafe { pxui_ui_segmented_response(ui, &PxuiSegmentedDesc { size: 64, names: bad, reserved2: 5, ..seg }, Slice { ptr: options.as_ptr(), len: 2 }, &mut response, &mut chosen) }), 0);
+    let bad = Slice { ptr: names.as_ptr(), len: 1 }; // a name span: refused only when the caller's size covers it
+    assert_eq!(build(&mut |ui| unsafe { pxui_ui_segmented(ui, &PxuiSegmentedDesc { size: 64, names: bad, reserved2: 5, ..seg }, Slice { ptr: options.as_ptr(), len: 2 }, &mut response, &mut result) }), 0);
     // a 96-byte (1.55) record: the 1.67 `has_selected` and reserved bytes after it are never read
-    assert_eq!(build(&mut |ui| unsafe { pxui_ui_segmented_response(ui, &PxuiSegmentedDesc { size: 96, has_selected: 7, reserved3: [9; 7], ..seg }, Slice { ptr: options.as_ptr(), len: 2 }, &mut response, &mut chosen) }), 0);
-    assert_eq!(build(&mut |ui| unsafe { pxui_ui_segmented_response(ui, &PxuiSegmentedDesc { names: bad, ..seg }, Slice { ptr: options.as_ptr(), len: 2 }, &mut response, &mut chosen) }), PXUI_ERR_ARGUMENT);
+    assert_eq!(build(&mut |ui| unsafe { pxui_ui_segmented(ui, &PxuiSegmentedDesc { size: 96, has_selected: 7, reserved3: [9; 7], ..seg }, Slice { ptr: options.as_ptr(), len: 2 }, &mut response, &mut result) }), 0);
+    assert_eq!(build(&mut |ui| unsafe { pxui_ui_segmented(ui, &PxuiSegmentedDesc { names: bad, ..seg }, Slice { ptr: options.as_ptr(), len: 2 }, &mut response, &mut result) }), PXUI_ERR_ARGUMENT);
     unsafe { pxui_ui_destroy(ui); }
 }
 

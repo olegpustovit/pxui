@@ -18,14 +18,13 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 92u)
+#define PXUI_ABI_BUILT ((1u << 16) | 93u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 typedef struct { uint32_t autocorrect, capitalization, action; } PxuiTextInputOptions;
 /* ABI 1.64: a text field: key, accessible name (empty: none) and value, with the traits as PxuiTextInputOptions numbers as bytes. */
 typedef struct { uint32_t size; uint8_t autocorrect, capitalization, action, reserved; PxuiStr key, name, value; } PxuiTextFieldDesc;
 typedef struct { const PxuiStr *ptr; size_t len; } PxuiStrSpan;
-typedef struct { uint32_t tag; size_t index; } PxuiDialogOut;
 /* ABI 1.25: TOUCH borrows this numeric payload through Event.text; len is sizeof(PxuiTouch).
    IDs retain all 64 bits. Phase: 0 began, 1 moved, 2 ended, 3 cancelled. Positions are logical points
    and may be outside the window. Time is source monotonic seconds; finite pressure is in [0,1]. */
@@ -368,13 +367,13 @@ typedef struct { uint32_t size; uint8_t enabled,selected,danger,justify,w_kind,h
 typedef void (*PxuiButtonBuild)(void *user, PxuiUi *ui, const PxuiStateDesc *state);
 /* ABI 1.55: PxuiToggleDesc grows by the title's text style (has_style 1: style, else the theme's toggle font; an 88-byte record is still read)
    and PxuiSegmentedDesc by the strip's width w (0: as grow says), padding (the text's inset, 8 the kit's), min_segment (0: none) and names
-   (empty, or one accessible name per option, an empty one the option's text; a 64-byte record is still read, padding 8). */
+   (empty: each PxuiPickItem carries its own name; a 64-byte record is still read, padding 8). */
 typedef struct { uint32_t size; uint8_t enabled,on,press_row,reserved; float row_h,switch_w,switch_h,inset; const PxuiLookDesc *track,*knob; PxuiStr key,text,detail; uint8_t has_style, reserved2[7]; PxuiLabelStyle style; } PxuiToggleDesc;
-/* ABI 1.85: a kit checkbox with its style (pxui_ui_checkbox_response; all zero but size, key and text is the plain checkbox). box_size 0 is the kit's 12 points (finite, not negative); look is NULL for the theme's checkbox, else six looks (idle, hover, pressed, focus, disabled, checked); disabled 1 shows the disabled look and blocks presses and focus; passive 1 makes a mark with no input of its own (with empty text the box alone). key is identity only, as PxuiKeyedDesc.key. */
+/* ABI 1.85: a kit checkbox with its style (pxui_ui_checkbox; all zero but size, key and text is the plain checkbox). box_size 0 is the kit's 12 points (finite, not negative); look is NULL for the theme's checkbox, else six looks (idle, hover, pressed, focus, disabled, checked); disabled 1 shows the disabled look and blocks presses and focus; passive 1 makes a mark with no input of its own (with empty text the box alone). key is identity only, as PxuiKeyedDesc.key. */
 typedef struct { uint32_t size; uint8_t disabled, on, passive, reserved; float box_size; const PxuiLookDesc *look; PxuiStr key, text; } PxuiCheckboxDesc;
 /* ABI 1.67 (a 64- or 96-byte record is still read, its selected always the choice): has_selected 1 when selected is the choice (clamped to
-   the options), 0 for no choice (final; selected not read; pxui_ui_segmented_response refuses it); reserved3 zero. */
-/* ABI 1.76: one pick-one item (pxui_ui_pick, pxui_ui_segmented_items), borrowed for the call and must not change during the call, including from body callbacks: has_id 1 keys it by id (its node, focus and
+   the options), 0 for no choice (final; selected not read; the result reports none); reserved3 zero. */
+/* ABI 1.76: one pick-one item (pxui_ui_pick, pxui_ui_segmented), borrowed for the call and must not change during the call, including from body callbacks: has_id 1 keys it by id (its node, focus and
    secondary press follow it through a reorder), 0 by its place; reserved zero; name empty for the text; detail extra body text (may be empty). */
 typedef struct { uint8_t has_id, reserved[7]; int64_t id; PxuiStr text, name, detail; } PxuiPickItem;
 typedef struct { const PxuiPickItem *ptr; size_t len; } PxuiPickItemSpan;
@@ -428,11 +427,6 @@ typedef void (*PxuiSpanBuild)(void *user, float x, float width);
 /* Extension set; ABI 1.86: the callback fills out with the rows for query (each checked once; at most the row cap). */
 typedef void (*PxuiPickerRows)(void *user, PxuiStr query, PxuiPickRowSpan *out);
 typedef uint8_t (*PxuiTextValid)(void *user, PxuiStr value);
-typedef void (*PxuiCollectionEmit)(void *user, PxuiStr text);
-typedef void (*PxuiCollectionText)(void *user, size_t row, size_t column, PxuiCollectionEmit emit, void *emit_user);
-/* Collection flags (selected, open, a node's children) are bytes: not 0 is set; the library writes 0 or 1 and scans none.
-   A tree writes its shown rows into the start of `visible` (at least a row per node) and their number to `visible_len`. */
-typedef struct { uint32_t size,reserved; PxuiStr label; const PxuiTreeNode *ptr; size_t len; PxuiU8MutSpan open; size_t *selected; PxuiU32MutSpan visible; size_t *visible_len; PxuiCollectionText text; void *user; } PxuiTreeViewDesc;
 typedef struct { uint32_t size,reserved; PxuiStr title; PxuiStrSpan items; } PxuiMenuDesc;
 typedef struct { const PxuiMenuDesc *ptr; size_t len; } PxuiMenuDescSpan;
 typedef void (*PxuiGridBuild)(void *user, PxuiUi *ui, size_t index);
@@ -622,7 +616,6 @@ int32_t pxui_scope(PxuiUi *ui, PxuiStr label, PxuiBuild build, void *user);
 int32_t pxui_col(PxuiUi *ui, float padding, PxuiStr label, PxuiBuild build, void *user);
 int32_t pxui_panel(PxuiUi *ui, const PxuiPanel *panel, PxuiStr label, PxuiBuild build, void *user);
 /* Legacy: superseded by pxui_ui_label_node (ABI 1.54); kept for the append-only ABI. */
-int32_t pxui_label(PxuiUi *ui, PxuiStr text);
 /* Legacy since ABI 1.54: superseded by pxui_ui_label_node; kept for the append-only ABI.
    ABI 1.45: a label in `style` through the label body (PxuiLabelConfig.style), keyed by its place among its siblings (as
    pxui_label now is). A null or short style, unknown set bits, invalid UTF-8, a non-finite or non-positive size, an invalid
@@ -635,8 +628,6 @@ int32_t pxui_ui_label_node(PxuiUi *ui, PxuiStr text, const PxuiLabelStyle *style
 /* ABI 1.49: the PxuiTextStyle `style` shapes with, resolved against the Ui's theme label as pxui_ui_label resolves it (unset fields
    the theme label's, tracking in points); `digits` is ignored. Refused for a style pxui_ui_label would refuse. */
 int32_t pxui_ui_resolve_label(PxuiUi *ui, const PxuiLabelStyle *style, PxuiTextStyle *out);
-int32_t pxui_button(PxuiUi *ui, PxuiStr label, uint8_t *out);
-int32_t pxui_toggle(PxuiUi *ui, PxuiStr label, uint8_t on, uint8_t *out);
 /* Legacy: pxui_text_field and pxui_text_field_with_options are superseded by pxui_ui_text_field_keyed (key, name); cut at 2.0. */
 int32_t pxui_text_field(PxuiUi *ui, PxuiStr label, PxuiStr value, PxuiStr *changed, uint8_t *out_changed); /* changed: the new text, borrowed until the next frame, when out_changed */
 int32_t pxui_text_field_with_options(PxuiUi *ui, PxuiStr label, PxuiStr value, const PxuiTextInputOptions *options, PxuiStr *changed, uint8_t *out_changed);
@@ -657,18 +648,7 @@ int32_t pxui_ui_line_field_response(PxuiUi *ui, float x, float y, float w, float
 /* Legacy, cut at 2.0: pxui_ui_checkbox, _radio, _tabs, _dropdown, _slider, _progress, _spinner, _badge, pxui_panel, pxui_ui_popup, _modal,
    _anchored, _scroll_view, _toasts, _table, _table_view_with and _picker key by a label that is also their text (`##`/`###` rules);
    superseded by the pxui_ui_*_keyed calls (ABI 1.68), kept for the append-only ABI. */
-int32_t pxui_ui_checkbox(PxuiUi *ui, PxuiStr label, uint8_t value, uint8_t *out);
-int32_t pxui_ui_radio(PxuiUi *ui, PxuiStr label, PxuiStrSpan options, size_t selected, size_t *out);
-int32_t pxui_ui_tabs(PxuiUi *ui, PxuiStr label, PxuiStrSpan options, size_t selected, size_t *out);
-int32_t pxui_ui_segmented(PxuiUi *ui, PxuiStr label, PxuiStrSpan options, size_t selected, size_t *out);
-int32_t pxui_ui_dropdown(PxuiUi *ui, PxuiStr label, PxuiStrSpan options, size_t selected, size_t *out);
-int32_t pxui_ui_slider(PxuiUi *ui, PxuiStr label, float value, float min, float max, float *out);
 /* Caller-painted horizontal control: finite ordered range (equal ends are read-only), positive finite step. */
-int32_t pxui_ui_scrub(PxuiUi *ui, PxuiStr label, float value, float min, float max, float step, PxuiScrubOut *out);
-int32_t pxui_ui_progress(PxuiUi *ui, PxuiStr label, uint8_t has_value, float value, PxuiBox *out);
-int32_t pxui_ui_spinner(PxuiUi *ui, PxuiStr label, PxuiBox *out);
-int32_t pxui_ui_icon_button(PxuiUi *ui, PxuiStr label, PxuiStr icon, uint8_t *out);
-int32_t pxui_ui_badge(PxuiUi *ui, PxuiStr label, PxuiStr value, PxuiBox *out);
 /* Legacy (cut at 2.0): pxui_ui_search_field and pxui_ui_text_area_submit stay as they are; pxui_ui_search_field_response (ABI 1.82) also
    names the field and reports its box. */
 int32_t pxui_ui_search_field(PxuiUi *ui, PxuiStr label, PxuiStr icon, PxuiStr value, PxuiStr placeholder, uint8_t *changed, PxuiStr *out);
@@ -685,9 +665,7 @@ int32_t pxui_ui_scroll_view(PxuiUi *ui, PxuiStr label, PxuiSizeDesc width, PxuiS
 /* Legacy, cut at 2.0: superseded by pxui_ui_view_keyed (1.72); size the enclosing node instead of the view. */
 int32_t pxui_ui_view(PxuiUi *ui, PxuiStr label, uint64_t revision, PxuiSizeDesc width, PxuiSizeDesc height, PxuiBuild build, void *user, PxuiBox *out);
 int32_t pxui_ui_anchored(PxuiUi *ui, PxuiStr label, const PxuiAnchorDesc *anchor, PxuiSizeDesc width, PxuiSizeDesc height, PxuiBuild build, void *user, PxuiBox *out);
-int32_t pxui_ui_dialog(PxuiUi *ui, PxuiStr title, PxuiStrSpan buttons, PxuiBuild build, void *user, PxuiDialogOut *out);
 int32_t pxui_ui_tip(PxuiUi *ui, const PxuiBox *box, PxuiStr label);
-int32_t pxui_ui_toasts(PxuiUi *ui, PxuiStr label, PxuiStrSpan items, double seconds, int64_t *out_index);
 typedef struct { uint8_t has, reserved[3]; PxuiColor color; } PxuiSwatch;
 typedef struct { int64_t row, current; uint8_t has_current, reserved[7]; PxuiStrSpan rows; PxuiU8Span enabled; PxuiStrSpan keys; } PxuiSubmenu;
 typedef struct { const PxuiSubmenu *ptr; size_t len; } PxuiSubmenuSpan;
@@ -707,8 +685,6 @@ int32_t pxui_ui_context_menu(PxuiUi *ui, float x, float y, PxuiStr label, PxuiSt
 /* mark(user, row, &color) returns 1 and sets the colour of a row's accent square, else 0; off(user, row) returns 1 for a row drawn off. */
 typedef uint8_t (*PxuiPickerMark)(void *user, int64_t row, PxuiColor *out);
 typedef uint8_t (*PxuiPickerOff)(void *user, int64_t row);
-int32_t pxui_ui_picker(PxuiUi *ui, int64_t limit, uint8_t slash, uint8_t at_rest, PxuiStr label, PxuiStr query, PxuiPickerRows rows, PxuiPickerMark mark, PxuiPickerOff off, void *user, PxuiStr *out_query, uint32_t *out_tag, int64_t *out_index);
-int32_t pxui_ui_tree(PxuiUi *ui, const PxuiTreeViewDesc *desc, size_t *activated);
 /* Widget bodies: an app builds a widget kind's nodes itself. pxui_body_register names a body of kind `kind` (PxuiBodyKind, in the field order of
    PxuiBodies; before 2.0 kinds are renumbered in place, so build against this header) `name`, for a theme's `KIND.body = NAME` (pxui_ui_set_theme, pxui_ui_theme_apply) and returns its id, 0 when refused
    (see pxui_last_error). A name has one id for the whole process, whichever Ui registers it, and is never released (65,535 names a kind at most, in the process; choose names statically, and register a name again to change its body: that keeps the id and uses none): a
@@ -783,8 +759,10 @@ int32_t pxui_part_box(PxuiUi *ui, int64_t owner, uint32_t part, PxuiBox *out);
 /* Runs a slot of the body call in progress; `out` (may be NULL) gets a search field's editor answer (1: the query is not empty). PXUI_ERR_STALE for a slot of a finished call or another Ui, PXUI_ERR_STATE inside its own content or a nested body. */
 int32_t pxui_slot(PxuiUi *ui, PxuiSlot slot, uint8_t *out);
 enum PxuiPart { PXUI_PART_HIT=1, PXUI_PART_RAIL=2, PXUI_PART_THUMB=3, PXUI_PART_TRACK=4, PXUI_PART_BAR=5, PXUI_PART_TITLE=6, PXUI_PART_DISCLOSURE=7, PXUI_PART_CLEAR=8, PXUI_PART_EDITOR=9, PXUI_PART_DOT0=16 /* dot i: 16 + i, i < 256 */, PXUI_PART_BUTTON0=1024 /* dialog button i: 1024 + i, i < 256 */ };
-typedef struct { uint32_t size,reserved; PxuiStr label; const PxuiTreeNode *ptr; size_t len; PxuiU8MutSpan open; size_t *selected; PxuiU32MutSpan visible; size_t *visible_len; PxuiCellBuild build; void *user; } PxuiTreeViewWithDesc;
-int32_t pxui_ui_tree_with(PxuiUi *ui, const PxuiTreeViewWithDesc *desc, size_t *activated);
+/* Collection flags (selected, open, a node's children) are bytes: not 0 is set; the library writes 0 or 1 and scans none.
+   A tree writes its shown rows into the start of `visible` (at least a row per node) and their number to `visible_len`. */
+typedef struct { uint32_t size,reserved; PxuiStr label; const PxuiTreeNode *ptr; size_t len; PxuiU8MutSpan open; size_t *selected; PxuiU32MutSpan visible; size_t *visible_len; PxuiCellBuild build; void *user; } PxuiTreeViewDesc;
+int32_t pxui_ui_tree(PxuiUi *ui, const PxuiTreeViewDesc *desc, size_t *activated);
 /* ABI 1.49: from inside a list_view/tree row or table_view cell callback of the _with calls, the kit's text of that item: a list
    row's row label, a tree row's (naming the row), a table cell's (naming the cell). Refused outside a collection item. */
 int32_t pxui_ui_item_text(PxuiUi *ui, PxuiStr text);
@@ -985,13 +963,11 @@ uint64_t pxui_ui_text_undo_bytes(PxuiUi *ui);
 float pxui_ui_inspector_width(PxuiUi *ui);
 float pxui_ui_inspector_label_x(PxuiUi *ui);
 uint32_t pxui_ui_passed_undo(PxuiUi *ui); /* 0 none, 1 undo, 2 redo */
-int32_t pxui_ui_key_pressed(PxuiUi *ui, uint32_t code, uint8_t *out);
 /* Raw held state, including modifiers when a widget or popup owns focus (ABI 1.15). */
 int32_t pxui_ui_key_down(PxuiUi *ui, uint32_t code, uint8_t *out);
 /* ABI 1.23: raw press query with Shift/Ctrl/Alt/Meta held at the event, including same-frame release. */
-int32_t pxui_ui_key_pressed_with(PxuiUi *ui, uint32_t code, uint32_t modifier, uint8_t *out);
 /* Match all requested modifiers on one press (Shift=1, Ctrl=2, Alt=4, Meta=8). 0 requires none and 16 accepts any. */
-int32_t pxui_ui_key_pressed_mods(PxuiUi *ui, uint32_t code, uint32_t modifiers, uint8_t *out);
+int32_t pxui_ui_key_pressed(PxuiUi *ui, uint32_t code, uint32_t modifiers, uint8_t *out);
 int32_t pxui_ui_set_font_size(PxuiUi *ui, int64_t size);
 /* ABI 1.78: the body size and kit row exactly (pxui_ui_font_size/_row_height round them); the setter keeps fractions (0.5..=1024). */
 int32_t pxui_ui_font_points(PxuiUi *ui, float *out);
@@ -1083,37 +1059,30 @@ int32_t pxui_ui_view_backdrop_saturation(PxuiUi *ui, const PxuiBox *box, float s
 
 /* Kit and text widgets: styled buttons, grips, popups, inspector pieces, the line field. Text results are borrowed until the next frame. */
 int32_t pxui_ui_animate(PxuiUi *ui, const PxuiBox *box, const PxuiKeyframeDesc *key, uint8_t *out);
-int32_t pxui_ui_button_styled(PxuiUi *ui, PxuiStr text, uint8_t bare, uint8_t icon, uint8_t at_end, uint8_t has_ink, PxuiColor ink, uint8_t *out);
 int32_t pxui_ui_grip(PxuiUi *ui, PxuiStr label, uint32_t axis, uint8_t has_rect, PxuiRect rect, PxuiBox *out, PxuiSignal *signal);
 /* ABI 1.44: the kit button with options; build (when set) replaces its text inside the box. Reports the box, its signal and whether it has focus. */
 /* ABI 1.46: the icon button with options (PxuiIconButtonDesc); replaces pxui_ui_icon_button. */
-int32_t pxui_ui_icon_button_with(PxuiUi *ui, const PxuiIconButtonDesc *desc, PxuiBox *out, PxuiSignal *signal, uint8_t *focused);
-int32_t pxui_ui_button_with(PxuiUi *ui, const PxuiButtonDesc *desc, PxuiBuild build, void *user, PxuiBox *out, PxuiSignal *signal, uint8_t *focused);
 /* ABI 1.48: the same calls reporting one PxuiResponse instead of the box, the whole signal and the focus; the _plain forms are the
    kit button keyed by key (the theme's look, the kit's size, at the start of its line) and the kit icon button showing the glyph
    icon named name (the theme's look, the kit's square), with no descriptor. */
-/* Legacy: pxui_ui_button_response is superseded by pxui_ui_button_content; kept for the append-only ABI. */
-int32_t pxui_ui_button_response(PxuiUi *ui, const PxuiButtonDesc *desc, PxuiBuild build, void *user, PxuiResponse *out);
+/* Legacy: pxui_ui_button_response is superseded by pxui_ui_button; kept for the append-only ABI. */
 int32_t pxui_ui_button_plain(PxuiUi *ui, PxuiStr key, PxuiStr text, PxuiResponse *out);
 /* ABI 1.56: pxui_ui_button_response whose content callback is also given the button's interaction state (hovered, pressed, focused,
    disabled, checked) this frame; build may be null for a text button. */
-int32_t pxui_ui_button_content(PxuiUi *ui, const PxuiButtonDesc *desc, PxuiButtonBuild build, void *user, PxuiResponse *out);
-int32_t pxui_ui_icon_button_response(PxuiUi *ui, const PxuiIconButtonDesc *desc, PxuiResponse *out);
+int32_t pxui_ui_button(PxuiUi *ui, const PxuiButtonDesc *desc, PxuiButtonBuild build, void *user, PxuiResponse *out);
+int32_t pxui_ui_icon_button(PxuiUi *ui, const PxuiIconButtonDesc *desc, PxuiResponse *out);
 /* ABI 1.51: the kit toggle and segmented control, plain or with options, each reporting one PxuiResponse (a click on the toggle is the flip of `on`, which the caller keeps; the segmented control also reports the choice), and a scope in which every interactive node built is disabled (disabled 1; scopes nest by OR). */
 int32_t pxui_ui_toggle_plain(PxuiUi *ui, PxuiStr key, PxuiStr text, uint8_t on, PxuiResponse *out);
-int32_t pxui_ui_toggle_response(PxuiUi *ui, const PxuiToggleDesc *desc, PxuiResponse *out);
-int32_t pxui_ui_segmented_plain(PxuiUi *ui, PxuiStr key, PxuiStr name, PxuiStrSpan options, size_t selected, PxuiResponse *out, size_t *chosen);
-int32_t pxui_ui_segmented_response(PxuiUi *ui, const PxuiSegmentedDesc *desc, PxuiStrSpan options, PxuiResponse *out, size_t *chosen);
+int32_t pxui_ui_toggle(PxuiUi *ui, const PxuiToggleDesc *desc, PxuiResponse *out);
 int32_t pxui_ui_disabled(PxuiUi *ui, uint8_t disabled, PxuiBuild build, void *user);
 int32_t pxui_ui_icon_button_plain(PxuiUi *ui, PxuiStr key, PxuiStr icon, PxuiStr name, PxuiResponse *out);
 /* ABI 1.53: pxui_ui_dialog with the buttons' default, cancel, danger and disabled flags, the sheet's key and width, and a PxuiDialogResult. */
-int32_t pxui_ui_dialog_response(PxuiUi *ui, const PxuiDialogDesc *desc, PxuiBuild build, void *user, PxuiDialogResult *out);
+int32_t pxui_ui_dialog(PxuiUi *ui, const PxuiDialogDesc *desc, PxuiBuild build, void *user, PxuiDialogResult *out);
 /* ABI 1.67: pxui_ui_segmented_response with no choice and the secondary press: desc->has_selected 0 is no choice, and result has the choice
    (none until a press or key chooses) and the option a secondary press began on. From 1.67 every segmented call (pxui_ui_segmented,
    _plain, _response, _result) is a radio group: every option focusable to assistive technology, one Tab stop (the chosen option, the
    first with none); Left and Right on the focused option move the focus and the choice; the focus follows a choice that changes while an
    option holds it, and moves to the Tab stop (the strip with no option left) when its option goes. */
-int32_t pxui_ui_segmented_result(PxuiUi *ui, const PxuiSegmentedDesc *desc, PxuiStrSpan options, PxuiResponse *out, PxuiSegmentedResult *result);
 int32_t pxui_ui_popup(PxuiUi *ui, const PxuiPopupDesc *desc, PxuiBuild build, void *user, uint8_t *out);
 int32_t pxui_ui_inspector_bar(PxuiUi *ui, PxuiHintSpan hints, int64_t count);
 int32_t pxui_ui_inspector_body(PxuiUi *ui, PxuiBuild build, void *user);
@@ -1128,18 +1097,15 @@ int32_t pxui_ui_field_drag(PxuiUi *ui, const PxuiBox *box, uint8_t *present, Pxu
    value held in [min, max]. A keyed popup or table takes no `desc->label` (it must be empty). Toast `i` is keyed by `ids.ptr[i]` (`ids.len`
    equals `items.len`). The table is the virtual one, or with `text` non-null the fixed text table at that rectangle (each cell's text given to
    pxui_ui_item_text; widths may be empty); `sort` is the clicked header, `row` the clicked text row, SIZE_MAX for none. */
-int32_t pxui_ui_checkbox_keyed(PxuiUi *ui, const PxuiKeyedDesc *keyed, uint8_t on, PxuiResponse *out);
 /* ABI 1.85: the kit checkbox with its style; a click flips on, which the caller keeps. pxui_ui_checkbox_keyed is legacy (cut at 2.0). */
-int32_t pxui_ui_checkbox_response(PxuiUi *ui, const PxuiCheckboxDesc *desc, PxuiResponse *out);
+int32_t pxui_ui_checkbox(PxuiUi *ui, const PxuiCheckboxDesc *desc, PxuiResponse *out);
 /* ABI 1.85: the section index strip (a focusable slider over letters, each checked once, at most 4096), named keyed->name; result: the letter chosen this frame (has_chosen 0: none moved it), never a secondary. */
 int32_t pxui_ui_section_index_result(PxuiUi *ui, const PxuiKeyedDesc *keyed, PxuiStrSpan letters, PxuiResponse *out, PxuiSegmentedResult *result);
 /* ABI 1.85: a collapsible section, its header showing and named keyed->name, built through the inspector_section body; open is the caller's value (0 or 1), build runs the content while open. A click (or Enter/Space while focused) in out is a toggle; the caller keeps the value. */
 int32_t pxui_ui_disclosure(PxuiUi *ui, const PxuiKeyedDesc *keyed, uint8_t open, PxuiBuild build, void *user, PxuiResponse *out);
-int32_t pxui_ui_choice_keyed(PxuiUi *ui, const PxuiKeyedDesc *keyed, uint32_t kind, PxuiStrSpan options, size_t selected, PxuiResponse *out, size_t *chosen);
-int32_t pxui_ui_slider_keyed(PxuiUi *ui, const PxuiKeyedDesc *keyed, float value, float min, float max, PxuiResponse *out, float *value_out);
-int32_t pxui_ui_progress_keyed(PxuiUi *ui, const PxuiKeyedDesc *keyed, uint8_t has_value, float value, PxuiBox *out);
-int32_t pxui_ui_spinner_keyed(PxuiUi *ui, const PxuiKeyedDesc *keyed, PxuiBox *out);
-int32_t pxui_ui_badge_keyed(PxuiUi *ui, const PxuiKeyedDesc *keyed, PxuiStr value, PxuiBox *out);
+int32_t pxui_ui_progress(PxuiUi *ui, const PxuiKeyedDesc *keyed, uint8_t has_value, float value, PxuiBox *out);
+int32_t pxui_ui_spinner(PxuiUi *ui, const PxuiKeyedDesc *keyed, PxuiBox *out);
+int32_t pxui_ui_badge(PxuiUi *ui, const PxuiKeyedDesc *keyed, PxuiStr value, PxuiBox *out);
 int32_t pxui_ui_panel_keyed(PxuiUi *ui, const PxuiKeyedDesc *keyed, const PxuiPanel *panel, PxuiBuild build, void *user);
 int32_t pxui_ui_popup_keyed(PxuiUi *ui, const PxuiKeyedDesc *keyed, const PxuiPopupDesc *desc, PxuiBuild build, void *user, uint8_t *out);
 int32_t pxui_ui_modal_keyed(PxuiUi *ui, const PxuiKeyedDesc *keyed, uint8_t has_width, float width, PxuiBuild build, void *user, uint8_t *out);
@@ -1151,18 +1117,18 @@ int32_t pxui_ui_scroll_view_keyed(PxuiUi *ui, const PxuiKeyedDesc *keyed, PxuiSi
    thumbs, row scroll step and role, and insets the content one point inside the node's padding. */
 int32_t pxui_ui_scroll_view_node(PxuiUi *ui, const PxuiKeyedDesc *keyed, const PxuiNode *node, PxuiBuild build, void *user, PxuiBox *out);
 /* ABI 1.76: one result per call. pxui_ui_pick is a radio group (kind 0) or dropdown (3) of items, selected read when has_selected is 1,
-   reporting the choice (none for none) and the item a secondary press began on; pxui_ui_segmented_items is pxui_ui_segmented_result with
+   reporting the choice (none for none) and the item a secondary press began on; pxui_ui_segmented is pxui_ui_segmented_result with
    the options as items (desc->names empty). The slider and scrub results fill a PxuiScrubOut: flags 1
    a held preview, 2 a commit (a release, a key or an assistive SetValue, with preview equal to it), 4 held; a slider's preview is the value
    shown. The _root forms also write the overlay's root (the empty box when it is dismissed). pxui_ui_split_result reports the grip's
    response (empty without a grip) and has_ratio 1 with the ratio under the pointer while the grip is held and on its release frame.
    pxui_ui_menu_bar_result sets dismissed to 1 when the menu open at the frame's start closed without a pick. */
-int32_t pxui_ui_segmented_items(PxuiUi *ui, const PxuiSegmentedDesc *desc, PxuiPickItemSpan items, PxuiResponse *out, PxuiSegmentedResult *result);
+int32_t pxui_ui_segmented(PxuiUi *ui, const PxuiSegmentedDesc *desc, PxuiPickItemSpan items, PxuiResponse *out, PxuiSegmentedResult *result);
 int32_t pxui_ui_pick(PxuiUi *ui, const PxuiKeyedDesc *keyed, uint32_t kind, PxuiPickItemSpan items, uint8_t has_selected, size_t selected, PxuiResponse *out, PxuiSegmentedResult *result);
 /* ABI 1.84: a tab bar of pick-one items (an item's detail beside its text, its id keying it), named keyed->name; selected is the tab in use when has_selected is 1 (0: none is); focus_on_click 1 makes a press on a tab focus the bar. result: the tab in use and the tab a secondary press began on. */
-int32_t pxui_ui_tabs_result(PxuiUi *ui, const PxuiKeyedDesc *keyed, PxuiPickItemSpan items, uint8_t has_selected, size_t selected, uint8_t focus_on_click, PxuiResponse *out, PxuiSegmentedResult *result);
-int32_t pxui_ui_slider_result(PxuiUi *ui, const PxuiKeyedDesc *keyed, float value, float min, float max, PxuiResponse *out, PxuiScrubOut *result);
-int32_t pxui_ui_scrub_result(PxuiUi *ui, PxuiStr label, float value, float min, float max, float step, PxuiResponse *response, PxuiScrubOut *out);
+int32_t pxui_ui_tabs(PxuiUi *ui, const PxuiKeyedDesc *keyed, PxuiPickItemSpan items, uint8_t has_selected, size_t selected, uint8_t focus_on_click, PxuiResponse *out, PxuiSegmentedResult *result);
+int32_t pxui_ui_slider(PxuiUi *ui, const PxuiKeyedDesc *keyed, float value, float min, float max, PxuiResponse *out, PxuiScrubOut *result);
+int32_t pxui_ui_scrub(PxuiUi *ui, PxuiStr label, float value, float min, float max, float step, PxuiResponse *response, PxuiScrubOut *out);
 int32_t pxui_ui_panel_root(PxuiUi *ui, const PxuiKeyedDesc *keyed, const PxuiPanel *panel, PxuiBuild build, void *user, PxuiBox *root);
 int32_t pxui_ui_popup_root(PxuiUi *ui, const PxuiKeyedDesc *keyed, const PxuiPopupDesc *desc, PxuiBuild build, void *user, uint8_t *out, PxuiBox *root);
 int32_t pxui_ui_modal_root(PxuiUi *ui, const PxuiKeyedDesc *keyed, uint8_t has_width, float width, PxuiBuild build, void *user, uint8_t *out, PxuiBox *root);
@@ -1171,8 +1137,8 @@ int32_t pxui_ui_menu_bar_result(PxuiUi *ui, const PxuiMenuBarDesc *desc, PxuiMen
 /* ABI 1.72: the authoring view keyed by keyed->key (keyed->name must be empty). It fills its parent, or takes its content's size on the
    main axis of a row or column whose size there is fit; build runs only when revision (a hash of what it reads) changed. */
 int32_t pxui_ui_view_keyed(PxuiUi *ui, const PxuiKeyedDesc *keyed, uint64_t revision, PxuiBuild build, void *user, PxuiBox *out);
-int32_t pxui_ui_toasts_keyed(PxuiUi *ui, const PxuiKeyedDesc *keyed, PxuiStrSpan items, PxuiI64Span ids, double seconds, int64_t *out_index);
-int32_t pxui_ui_picker_keyed(PxuiUi *ui, const PxuiKeyedDesc *keyed, int64_t limit, uint8_t slash, uint8_t at_rest, PxuiStr query, PxuiPickerRows rows, PxuiPickerMark mark, PxuiPickerOff off, void *user, PxuiStr *out_query, uint32_t *out_tag, int64_t *out_index);
+int32_t pxui_ui_toasts(PxuiUi *ui, const PxuiKeyedDesc *keyed, PxuiStrSpan items, PxuiI64Span ids, double seconds, int64_t *out_index);
+int32_t pxui_ui_picker(PxuiUi *ui, const PxuiKeyedDesc *keyed, int64_t limit, uint8_t slash, uint8_t at_rest, PxuiStr query, PxuiPickerRows rows, PxuiPickerMark mark, PxuiPickerOff off, void *user, PxuiStr *out_query, uint32_t *out_tag, int64_t *out_index);
 
 /* Themes a caller builds and scopes over a subtree. set and load apply over what the theme holds, as a theme file applies over
    its base: a tokens.* key re-derives every look from the new tokens, so set tokens before the keys that restyle single looks. */
@@ -1243,7 +1209,6 @@ _Static_assert(sizeof(PxuiOutput) == 240 && offsetof(PxuiOutput, size) == 0 && o
 _Static_assert(sizeof(PxuiThemeSource) == 24 && offsetof(PxuiThemeSource, size) == 0 && offsetof(PxuiThemeSource, flags) == 4 && offsetof(PxuiThemeSource, source) == 8, "ThemeSource layout");
 _Static_assert(sizeof(PxuiMotion) == 28 && offsetof(PxuiMotion, fast) == 0 && offsetof(PxuiMotion, normal) == 4 && offsetof(PxuiMotion, slow) == 8 && offsetof(PxuiMotion, ease) == 12, "PxuiMotion layout");
 _Static_assert(sizeof(PxuiThemeTokens) == 136 && offsetof(PxuiThemeTokens, size) == 0 && offsetof(PxuiThemeTokens, panel) == 4 && offsetof(PxuiThemeTokens, foreground) == 8 && offsetof(PxuiThemeTokens, control) == 12 && offsetof(PxuiThemeTokens, input) == 16 && offsetof(PxuiThemeTokens, track) == 20 && offsetof(PxuiThemeTokens, accent) == 24 && offsetof(PxuiThemeTokens, ink_ground) == 28 && offsetof(PxuiThemeTokens, has_ink_ground) == 32 && offsetof(PxuiThemeTokens, reserved) == 33 && offsetof(PxuiThemeTokens, space) == 36 && offsetof(PxuiThemeTokens, radius) == 52 && offsetof(PxuiThemeTokens, display_size) == 64 && offsetof(PxuiThemeTokens, title_size) == 72 && offsetof(PxuiThemeTokens, font_size) == 80 && offsetof(PxuiThemeTokens, label_size) == 88 && offsetof(PxuiThemeTokens, motion) == 96 && offsetof(PxuiThemeTokens, reduced_motion) == 124 && offsetof(PxuiThemeTokens, reserved_tail) == 125 && offsetof(PxuiThemeTokens, density) == 128, "PxuiThemeTokens layout");
-_Static_assert(sizeof(PxuiDialogOut) == 16 && offsetof(PxuiDialogOut, tag) == 0 && offsetof(PxuiDialogOut, index) == 8, "PxuiDialogOut layout");
 _Static_assert(sizeof(PxuiSizeDesc) == 16 && offsetof(PxuiSizeDesc, kind) == 0 && offsetof(PxuiSizeDesc, value) == 4 && offsetof(PxuiSizeDesc, relative) == 8, "PxuiSizeDesc layout");
 _Static_assert(sizeof(PxuiAnchorDesc) == 40 && offsetof(PxuiAnchorDesc, has_anchor) == 0 && offsetof(PxuiAnchorDesc, rect) == 4 && offsetof(PxuiAnchorDesc, side) == 20 && offsetof(PxuiAnchorDesc, align) == 24 && offsetof(PxuiAnchorDesc, gap) == 28 && offsetof(PxuiAnchorDesc, margin) == 32 && offsetof(PxuiAnchorDesc, flip) == 36 && offsetof(PxuiAnchorDesc, reserved_tail) == 37, "PxuiAnchorDesc layout");
 _Static_assert(sizeof(PxuiFontDesc) == 24 && offsetof(PxuiFontDesc, family) == 0 && offsetof(PxuiFontDesc, weight) == 2 && offsetof(PxuiFontDesc, size) == 8 && offsetof(PxuiFontDesc, tracking) == 16 && offsetof(PxuiFontDesc, caps) == 20 && offsetof(PxuiFontDesc, reserved) == 21, "PxuiFontDesc layout");
@@ -1275,7 +1240,7 @@ _Static_assert(sizeof(PxuiU8MutSpan) == 16 && offsetof(PxuiU8MutSpan, ptr) == 0 
 _Static_assert(sizeof(PxuiF32MutSpan) == 16 && offsetof(PxuiF32MutSpan, ptr) == 0 && offsetof(PxuiF32MutSpan, len) == 8, "PxuiF32MutSpan layout");
 _Static_assert(sizeof(PxuiU32MutSpan) == 16 && offsetof(PxuiU32MutSpan, ptr) == 0 && offsetof(PxuiU32MutSpan, len) == 8, "PxuiU32MutSpan layout");
 _Static_assert(sizeof(PxuiTreeNode) == 4 && offsetof(PxuiTreeNode, depth) == 0 && offsetof(PxuiTreeNode, children) == 2, "PxuiTreeNode layout");
-_Static_assert(sizeof(PxuiTreeViewDesc) == 104 && offsetof(PxuiTreeViewDesc, size) == 0 && offsetof(PxuiTreeViewDesc, reserved) == 4 && offsetof(PxuiTreeViewDesc, label) == 8 && offsetof(PxuiTreeViewDesc, ptr) == 24 && offsetof(PxuiTreeViewDesc, open) == 40 && offsetof(PxuiTreeViewDesc, selected) == 56 && offsetof(PxuiTreeViewDesc, visible) == 64 && offsetof(PxuiTreeViewDesc, visible_len) == 80 && offsetof(PxuiTreeViewDesc, text) == 88 && offsetof(PxuiTreeViewDesc, user) == 96, "PxuiTreeViewDesc layout");
+_Static_assert(sizeof(PxuiTreeViewDesc) == 104 && offsetof(PxuiTreeViewDesc, size) == 0 && offsetof(PxuiTreeViewDesc, reserved) == 4 && offsetof(PxuiTreeViewDesc, label) == 8 && offsetof(PxuiTreeViewDesc, ptr) == 24 && offsetof(PxuiTreeViewDesc, open) == 40 && offsetof(PxuiTreeViewDesc, selected) == 56 && offsetof(PxuiTreeViewDesc, visible) == 64 && offsetof(PxuiTreeViewDesc, visible_len) == 80 && offsetof(PxuiTreeViewDesc, build) == 88 && offsetof(PxuiTreeViewDesc, user) == 96, "PxuiTreeViewDesc layout");
 _Static_assert(sizeof(PxuiNodeFields) == 192 && offsetof(PxuiNodeFields, size) == 0 && offsetof(PxuiNodeFields, reserved) == 4 && offsetof(PxuiNodeFields, look) == 8 && offsetof(PxuiNodeFields, mark) == 160 && offsetof(PxuiNodeFields, inset) == 176, "PxuiNodeFields layout");
 _Static_assert(sizeof(PxuiRange) == 16 && offsetof(PxuiRange, start) == 0 && offsetof(PxuiRange, end) == 8, "PxuiRange layout");
 _Static_assert(sizeof(PxuiColorSpan) == 24 && offsetof(PxuiColorSpan, start) == 0 && offsetof(PxuiColorSpan, end) == 8 && offsetof(PxuiColorSpan, color) == 16 && offsetof(PxuiColorSpan, reserved) == 20, "PxuiColorSpan layout");
@@ -1347,7 +1312,6 @@ _Static_assert(sizeof(PxuiSearchFieldConfig) == 88 && offsetof(PxuiSearchFieldCo
 _Static_assert(sizeof(PxuiTextFieldConfig) == 88 && offsetof(PxuiTextFieldConfig, size) == 0 && offsetof(PxuiTextFieldConfig, state) == 4 && offsetof(PxuiTextFieldConfig, row) == 16 && offsetof(PxuiTextFieldConfig, label) == 48 && offsetof(PxuiTextFieldConfig, value) == 64 && offsetof(PxuiTextFieldConfig, variant) == 80, "PxuiTextFieldConfig layout");
 _Static_assert(sizeof(PxuiLineFieldConfig) == 72 && offsetof(PxuiLineFieldConfig, size) == 0 && offsetof(PxuiLineFieldConfig, state) == 4 && offsetof(PxuiLineFieldConfig, empty) == 12 && offsetof(PxuiLineFieldConfig, field) == 16 && offsetof(PxuiLineFieldConfig, text) == 48 && offsetof(PxuiLineFieldConfig, variant) == 64, "PxuiLineFieldConfig layout");
 _Static_assert(sizeof(PxuiSlot) == 8 && offsetof(PxuiSlot, serial) == 0, "PxuiSlot layout");
-_Static_assert(sizeof(PxuiTreeViewWithDesc) == 104 && offsetof(PxuiTreeViewWithDesc, size) == 0 && offsetof(PxuiTreeViewWithDesc, reserved) == 4 && offsetof(PxuiTreeViewWithDesc, label) == 8 && offsetof(PxuiTreeViewWithDesc, ptr) == 24 && offsetof(PxuiTreeViewWithDesc, open) == 40 && offsetof(PxuiTreeViewWithDesc, selected) == 56 && offsetof(PxuiTreeViewWithDesc, visible) == 64 && offsetof(PxuiTreeViewWithDesc, visible_len) == 80 && offsetof(PxuiTreeViewWithDesc, build) == 88 && offsetof(PxuiTreeViewWithDesc, user) == 96, "PxuiTreeViewWithDesc layout");
 _Static_assert(sizeof(PxuiTextSpan) == 24 && offsetof(PxuiTextSpan, start) == 0 && offsetof(PxuiTextSpan, end) == 4 && offsetof(PxuiTextSpan, weight) == 8 && offsetof(PxuiTextSpan, flags) == 10 && offsetof(PxuiTextSpan, color) == 12 && offsetof(PxuiTextSpan, background) == 16 && offsetof(PxuiTextSpan, underline) == 20, "TextSpan layout");
 _Static_assert(sizeof(PxuiTextSpans) == 200 && offsetof(PxuiTextSpans, size) == 0 && offsetof(PxuiTextSpans, count) == 4 && offsetof(PxuiTextSpans, spans) == 8, "TextSpans layout");
 _Static_assert(offsetof(PxuiFrameIn, environment) == 56 && offsetof(PxuiFrameIn, size) == 0 && offsetof(PxuiFrameIn, events) == 8 && offsetof(PxuiFrameIn, event_count) == 16 && offsetof(PxuiFrameIn, width) == 24 && offsetof(PxuiFrameIn, height) == 28 && offsetof(PxuiFrameIn, scale) == 32 && offsetof(PxuiFrameIn, time) == 40 && offsetof(PxuiFrameIn, appearance) == 48 && offsetof(PxuiFrameIn, reduced_motion) == 52, "FrameInV1_8 layout");

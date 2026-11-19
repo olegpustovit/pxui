@@ -34,7 +34,6 @@ Output 240 8 0 4 8 16 24 32 40 48 136 160 224
 ThemeSource 24 8 0 4 8
 PxuiMotion 28 4 0 4 8 12
 PxuiThemeTokens 136 8 0 4 8 12 16 20 24 28 32 33 36 52 64 72 80 88 96 124 125 128
-PxuiDialogOut 16 8 0 8
 PxuiSizeDesc 16 8 0 4 8
 PxuiAnchorDesc 40 4 0 4 20 24 28 32 36 37
 PxuiFontDesc 24 8 0 2 8 16 20 21
@@ -138,7 +137,6 @@ PxuiSearchFieldConfig 88 8 0 4 16 24 56 72 80
 PxuiTextFieldConfig 88 8 0 4 16 48 64 80
 PxuiLineFieldConfig 72 8 0 4 12 16 48 64
 PxuiSlot 8 8 0
-PxuiTreeViewWithDesc 104 8 0 4 8 24 40 56 64 80 88 96
 TextSpan 24 4 0 4 8 10 12 16 20
 TextSpans 200 4 0 4 8
 

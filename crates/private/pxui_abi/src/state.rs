@@ -107,7 +107,6 @@ pub(crate) struct Shared {
     pub rename: Option<(Rc<core::cell::Cell<(crate::text_inputs::TextValid, usize)>>, Rc<dyn Fn(&str) -> bool>)>,
     pub strs: Vec<Vec<&'static str>>,
     /// a segmented control's options borrowed from the caller for one call: a pool, as `strs`
-    pub segments: Vec<Vec<pxui_types::ui::Segment<'static>>>,
     /// the glyph list `rasterize` composites from, kept for its capacity
     pub raster_glyphs: Vec<pxui_text::Glyph>,
     pub menus: Vec<(&'static str, &'static [&'static str])>,
@@ -125,15 +124,12 @@ impl Shared {
     /// and every one comes back, so a settled frame allocates none whatever the nesting.
     pub fn take_strs(&mut self) -> Vec<&'static str> { self.strs.pop().unwrap_or_default() }
     pub fn put_strs(&mut self, mut strs: Vec<&'static str>) { strs.clear(); self.strs.push(strs); }
-    /// The segment scratch, a pool as `take_strs`; give it back with `put_segments`.
-    pub fn take_segments(&mut self) -> Vec<pxui_types::ui::Segment<'static>> { self.segments.pop().unwrap_or_default() }
-    pub fn put_segments(&mut self, mut segments: Vec<pxui_types::ui::Segment<'static>>) { segments.clear(); self.segments.push(segments); }
     pub fn new() -> Self {
         Self {
             error: String::new(), poisoned: false, calls: 0, paint_error: false, icon_word: 0, in_frame: false, current: core::ptr::null_mut(), building: core::ptr::null_mut(), frame_ended: false, draw_acknowledged: false, renderers: 0, returned: Vec::new(), area: Default::default(), area_ad: None, lent: Vec::new(), lent_used: 0, returned_bytes: 0,
             grid_tracks: HashMap::new(), grid_shared: HashMap::new(), grid_retired: Vec::new(), output: Output::default(), nodes: Vec::new(),
             layers: Vec::new(), dirty: Vec::new(), last_children: Vec::new(), chunks: Vec::new(), chunks_used: 0, spare_input: None, wants: Vec::new(), key_codes: Vec::new(), menu: Vec::new(), menu_sub: Vec::new(), routed: None, routed_events: Vec::new(), routed_text: Vec::new(),routed_touches:Vec::new(), routed_keys: Vec::new(), routed_buttons: Vec::new(),
-            hints: Vec::new(), hits: Vec::new(), actions: Vec::new(), rename: None, strs: Vec::new(), segments: Vec::new(), raster_glyphs: Vec::new(), menus: Vec::new(), bodies: Default::default(), images: crate::image::Handles::new(), legacy_theme: None,
+            hints: Vec::new(), hits: Vec::new(), actions: Vec::new(), rename: None, strs: Vec::new(), raster_glyphs: Vec::new(), menus: Vec::new(), bodies: Default::default(), images: crate::image::Handles::new(), legacy_theme: None,
         }
     }
 }

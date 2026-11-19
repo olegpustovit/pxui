@@ -60,15 +60,6 @@ export!(pub unsafe fn pxui_ui_passed_undo(ui: *mut PxuiUi) -> u32 {
     match unsafe { engine(ui) }.and_then(|e| e.passed_undo()) { None => 0, Some(UndoKind::Undo) => 1, Some(UndoKind::Redo) => 2 }
 });
 
-// Whether the key (a `pxui.h` key code) was pressed in this frame's events.
-export!(pub unsafe fn pxui_ui_key_pressed(ui: *mut PxuiUi, code: u32, out: *mut u8) -> i32 {
-    let Some(e) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    let Some(k) = key(code) else { return unsafe { fail(ui, "unknown key code") }; };
-    if out.is_null() { return unsafe { fail(ui, "null key output") }; }
-    unsafe { *out = e.key_pressed(k, None) as u8; }
-    0
-});
-
 export!(pub unsafe fn pxui_ui_key_down(ui: *mut PxuiUi, code: u32, out: *mut u8) -> i32 {
     let Some(e) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
     let Some(k) = key(code) else { return unsafe { fail(ui, "unknown key code") }; };
@@ -77,16 +68,7 @@ export!(pub unsafe fn pxui_ui_key_down(ui: *mut PxuiUi, code: u32, out: *mut u8)
     0
 });
 
-export!(pub unsafe fn pxui_ui_key_pressed_with(ui: *mut PxuiUi, code: u32, modifier: u32, out: *mut u8) -> i32 {
-    let Some(e) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    let Some(k) = key(code) else { return unsafe { fail(ui, "unknown key code") }; };
-    let Some(m) = key(modifier).filter(|m| matches!(m, input::Key::Shift | input::Key::Ctrl | input::Key::Alt | input::Key::Meta)) else { return unsafe { fail(ui, "expected Shift, Ctrl, Alt or Meta modifier") }; };
-    if out.is_null() { return unsafe { fail(ui, "null key output") }; }
-    unsafe { *out = e.key_pressed(k, Some(m)) as u8; }
-    0
-});
-
-export!(pub unsafe fn pxui_ui_key_pressed_mods(ui: *mut PxuiUi, code: u32, modifiers: u32, out: *mut u8) -> i32 {
+export!(pub unsafe fn pxui_ui_key_pressed(ui: *mut PxuiUi, code: u32, modifiers: u32, out: *mut u8) -> i32 {
     let Some(e) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
     let Some(k) = key(code) else { return unsafe { fail(ui, "unknown key code") }; };
     if modifiers > 16 { return unsafe { fail(ui, "invalid modifier mask") }; }
@@ -111,22 +93,12 @@ mod held_key_tests {
         assert_eq!(unsafe { pxui_ui_key_down(ui,b'a' as u32,&mut out) },0);
         assert_eq!(out,0);
         out=99;
-        assert_eq!(unsafe { pxui_ui_key_pressed_with(std::ptr::null_mut(),b'k' as u32,pxui_types::KEY_SPECIAL+12,&mut out) },PXUI_ERR_ARGUMENT);
-        assert_eq!(out,99);
-        for (code,modifier) in [(0,pxui_types::KEY_SPECIAL+12),(b'k' as u32,0),(b'k' as u32,b'a' as u32)] {
-            assert_eq!(unsafe { pxui_ui_key_pressed_with(ui,code,modifier,&mut out) },PXUI_ERR_ARGUMENT);
-            assert_eq!(out,99);
-        }
-        assert_eq!(unsafe { pxui_ui_key_pressed_with(ui,b'k' as u32,pxui_types::KEY_SPECIAL+12,std::ptr::null_mut()) },PXUI_ERR_ARGUMENT);
-        assert_eq!(unsafe { pxui_ui_key_pressed_with(ui,b'k' as u32,pxui_types::KEY_SPECIAL+12,&mut out) },0);
-        assert_eq!(out,0);
-        out=99;
         for (code, mask) in [(0, 8), (b'k' as u32, 17), (b'k' as u32, u32::MAX)] {
-            assert_eq!(unsafe { pxui_ui_key_pressed_mods(ui,code,mask,&mut out) },PXUI_ERR_ARGUMENT);
+            assert_eq!(unsafe { pxui_ui_key_pressed(ui,code,mask,&mut out) },PXUI_ERR_ARGUMENT);
             assert_eq!(out,99);
         }
-        assert_eq!(unsafe { pxui_ui_key_pressed_mods(ui,b'k' as u32,9,std::ptr::null_mut()) },PXUI_ERR_ARGUMENT);
-        assert_eq!(unsafe { pxui_ui_key_pressed_mods(ui,b'k' as u32,9,&mut out) },0);
+        assert_eq!(unsafe { pxui_ui_key_pressed(ui,b'k' as u32,9,std::ptr::null_mut()) },PXUI_ERR_ARGUMENT);
+        assert_eq!(unsafe { pxui_ui_key_pressed(ui,b'k' as u32,9,&mut out) },0);
         assert_eq!(out,0);
         assert_eq!(unsafe { crate::pxui_ui_destroy(ui) },0);
     }

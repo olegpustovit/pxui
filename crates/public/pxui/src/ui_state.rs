@@ -23,7 +23,7 @@ library!(lib {
     fn pxui_ui_inspector_label_x(ui: *mut PxuiUi) -> f32;
     fn pxui_ui_passed_undo(ui: *mut PxuiUi) -> u32;
     fn pxui_ui_key_down(ui: *mut PxuiUi, code: u32, out: *mut u8) -> i32;
-    fn pxui_ui_key_pressed_mods(ui: *mut PxuiUi, code: u32, modifiers: u32, out: *mut u8) -> i32;
+    fn pxui_ui_key_pressed(ui: *mut PxuiUi, code: u32, modifiers: u32, out: *mut u8) -> i32;
     fn pxui_ui_variant(ui: *mut PxuiUi, kind: u32, variant: u16) -> i32;
     fn pxui_ui_set_font_points(ui: *mut PxuiUi, points: f32) -> i32;
     fn pxui_ui_unfocus(ui: *mut PxuiUi) -> i32;
@@ -261,7 +261,7 @@ impl Ui {
     #[track_caller]
     pub fn key_pressed(&self, key: KeyCode, mods: Mods) -> bool {
         let mut out = 0;
-        check(self, unsafe { lib::pxui_ui_key_pressed_mods(self.0.as_ptr(), key.wire(), mods.0, &mut out) });
+        check(self, unsafe { lib::pxui_ui_key_pressed(self.0.as_ptr(), key.wire(), mods.0, &mut out) });
         out != 0
     }
     /// Sets the surface's body font size in logical points.

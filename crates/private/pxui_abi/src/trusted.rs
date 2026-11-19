@@ -141,36 +141,12 @@ pub(crate) unsafe fn text(ui: *mut PxuiUi, box_: *const PxuiBox, value: &str) ->
     0
 }
 
-#[inline]
-pub unsafe fn pxui_label(ui: *mut PxuiUi, label: Str) -> i32 {
-    enter!(ui);
-    let Some(label) = (unsafe { utf8(label, usize::MAX) }).map(clip) else { return unsafe { fail(ui, "invalid label text") } };
-    unsafe { engine(ui) }.label(label, pxui_core::ui::Label::DEFAULT);
-    0
-}
-
 #[inline(always)]
 pub unsafe fn pxui_ui_label(ui: *mut PxuiUi, text: Str, style: &pxui_types::text::LabelFields, digits: bool, out: &mut PxuiBox) -> i32 {
     enter!(ui);
     let Some(text) = (unsafe { utf8(text, usize::MAX) }).map(clip) else { return unsafe { fail(ui, "invalid label text") } };
     let Some(node) = unsafe { engine(ui) }.label_styled(text, style, digits) else { return unsafe { fail(ui, "invalid label style: a size, line height, box height, padding, width, wrap, align, ellipsis or feature no style has, or a font not loaded") }; };
     *out = to_abi_box(node);
-    0
-}
-
-#[inline]
-pub unsafe fn pxui_button(ui: *mut PxuiUi, label: Str, out: *mut u8) -> i32 {
-    enter!(ui);
-    let Some(label) = (unsafe { utf8(label, usize::MAX) }).map(clip) else { return unsafe { fail(ui, "invalid button arguments") } };
-    unsafe { *out = engine(ui).button(label) as u8; }
-    0
-}
-
-#[inline]
-pub unsafe fn pxui_toggle(ui: *mut PxuiUi, label: Str, on: u8, out: *mut u8) -> i32 {
-    enter!(ui);
-    let Some(label) = (unsafe { utf8(label, usize::MAX) }).map(clip) else { return unsafe { fail(ui, "invalid toggle arguments") } };
-    unsafe { *out = engine(ui).toggle(label, on != 0) as u8; }
     0
 }
 
@@ -186,7 +162,7 @@ pub unsafe fn toggle_plain(ui: *mut PxuiUi, key: &str, text: &str, on: bool, out
     0
 }
 
-/// The kit toggle with options, the body of `pxui_ui_toggle_response` and `pxui_ui_toggle_plain`: `track` and `knob` in place of the theme's
+/// The kit toggle with options, the body of `pxui_ui_toggle` and `pxui_ui_toggle_plain`: `track` and `knob` in place of the theme's
 /// `switch` and `knob`, `row_h`, `switch_w`, `switch_h` and `inset` (finite, non-negative; 0 the kit's), `press_row` (a press anywhere on the row
 /// toggles), `detail` a line under the text, `label` the title's text style (`None`: the theme's toggle font; one that does not resolve is
 /// refused), `enabled`. `detail` is only read for the call.
@@ -213,34 +189,7 @@ pub unsafe fn toggle_with(ui: *mut PxuiUi, key: &str, text: &str, on: bool, trac
     0
 }
 
-/// The plain kit segmented control (`Segmented::DEFAULT`) keyed by `key`, named `name`, `pxui_ui_segmented_plain`'s body. `chosen` is the choice
-/// (`selected` clamped to `options`, moved by a press or a key); `options` are within the engine's limits (`segments_ok`).
-#[inline(always)]
-pub unsafe fn segmented_plain(ui: *mut PxuiUi, key: &str, name: &str, options: &[Segment], selected: usize, out: &mut PxuiResponse, chosen: &mut usize) -> i32 {
-    let (mut at, mut secondary, mut r) = (None, None, EngineResponse::default());
-    let rc = unsafe { segmented(ui, key, name, options, Some(selected), true, 0.0, false, None, 0.0, 8.0, 0.0, false, &mut r, &mut at, &mut secondary) };
-    if rc == 0 { respond(&r, out); }
-    *chosen = at.unwrap_or(0);
-    rc
-}
-
-/// The kit segmented control with options, the body of `pxui_ui_segmented_result`, `pxui_ui_segmented_response` and `pxui_ui_segmented_plain`:
-/// `selected` the choice (`None`: none; past the options: the last), `h` (0 the theme's control height), `grow`, `states` in place of the
-/// theme's `segment`, `enabled`, `w` the strip's width (0: as `grow` says), `padding` the text's inset, `min_segment` a segment's least width
-/// (each finite and not negative), `focus_on_click` a press on an option focusing it. `chosen` is the choice after this frame's input, `secondary` the option a secondary press began on.
-#[allow(clippy::too_many_arguments)]
-#[inline(always)]
-pub unsafe fn segmented(ui: *mut PxuiUi, key: &str, name: &str, options: &[Segment], selected: Option<usize>, enabled: bool, h: f32, grow: bool, states: Option<&States>,
-    w: f32, padding: f32, min_segment: f32, focus_on_click: bool, out: &mut EngineResponse, chosen: &mut Option<usize>, secondary: &mut Option<usize>) -> i32 {
-    enter!(ui);
-    let name = clip(name);
-    let mut spare = Vec::new();
-    let (options, ok) = checked_segments(options, &mut spare);
-    if bad_key(key) || !ok { return unsafe { fail(ui, "invalid widget strings") }; }
-    unsafe { segmented_body(ui, key, name, options.len(), &|i| options[i], selected, enabled, h, grow, states, w, padding, min_segment, focus_on_click, out, chosen, secondary) }
-}
-
-/// `segmented` for `pxui_ui_segmented_items`, which has checked the key, the name and every item as C hands them over (`checked_key`,
+/// `segmented` for `pxui_ui_segmented`, which has checked the key, the name and every item as C hands them over (`checked_key`,
 /// `checked`, `checked_items`): only the handle and the numbers are checked here. `item(i)` reads item `i` where it lies.
 #[allow(clippy::too_many_arguments)]
 #[inline]
@@ -483,30 +432,6 @@ pub unsafe fn checkbox(ui: *mut PxuiUi, key: &str, text: &str, on: bool, checkbo
     0
 }
 
-/// A kit choice keyed by `key`: `kind` 0 a radio group and 1 tabs (`name` their accessible name), 2 a segmented control of plain
-/// options (the 1.x `pxui_ui_segmented`), 3 a dropdown (`name` its shown and accessible text); `chosen` is the choice. Any other kind
-/// is refused.
-#[allow(clippy::too_many_arguments)]
-#[inline]
-pub unsafe fn choice(ui: *mut PxuiUi, kind: u32, key: &str, name: &str, options: &[&str], selected: usize, variant: u16, out: &mut PxuiResponse, chosen: &mut usize) -> i32 {
-    enter!(ui);
-    let name = clip(name);
-    let mut spare = Vec::new();
-    let options = clip_strs(options, &mut spare);
-    if bad_key(key) || !options_ok(options) { return unsafe { fail(ui, "invalid widget strings") }; }
-    let engine = unsafe { engine(ui) };
-    let (r, at) = match kind {
-        0 => { let (r, at, _) = engine.pick_radio(key, name, options.len(), &|i| Segment::new(options[i]), Some(selected), variant); (r, at.unwrap_or(0)) }
-        1 => { let (r, at, _) = engine.tabs(key, name, options.len(), &|i| Segment::new(options[i]), Some(selected), variant, false); (r, at.unwrap_or(0)) }
-        2 => { let (r, at, _) = engine.segmented_options(key, name, options.len(), &|i| Segment::new(options[i]), Some(selected), &SegmentedOpts::DEFAULT); (r, at.unwrap_or(0)) }
-        3 => { let (r, at, _) = engine.pick_dropdown(key, name, options.len(), &|i| Segment::new(options[i]), Some(selected), variant); (r, at.unwrap_or(0)) }
-        _ => return unsafe { fail(ui, "invalid choice kind") },
-    };
-    respond(&r, out);
-    *chosen = at;
-    0
-}
-
 /// A pick-one control of `items` keyed by `key`: `kind` 0 a radio group and 1 a tab bar (`name` their accessible name; `focus` makes a
 /// press on a tab focus the bar), 3 a dropdown (`name` its shown and accessible text); an item with an id is keyed by it. `chosen` is
 /// the choice (none: none), `secondary` the item a secondary press began on. Any other kind is refused.
@@ -521,7 +446,7 @@ pub unsafe fn pick(ui: *mut PxuiUi, kind: u32, key: &str, name: &str, items: &[S
     unsafe { pick_body(ui, kind, key, name, items.len(), &|i| items[i], selected, focus, out, chosen, secondary) }
 }
 
-/// `pick` for `pxui_ui_pick` and `pxui_ui_tabs_result`, which has checked the key, the name and every item as C hands them over (`checked_key`, `checked`,
+/// `pick` for `pxui_ui_pick` and `pxui_ui_tabs`, which has checked the key, the name and every item as C hands them over (`checked_key`, `checked`,
 /// `checked_items`): only the handle is checked here, so nothing is checked twice. `item(i)` reads item `i` where it lies.
 #[allow(clippy::too_many_arguments)]
 #[inline]
@@ -615,19 +540,6 @@ pub unsafe fn disclosure(ui: *mut PxuiUi, key: &str, text: &str, open: bool, f: 
     0
 }
 
-/// The kit slider keyed by `key`, showing and named `text`; `value_out` is the value, held in the range.
-#[allow(clippy::too_many_arguments)]
-#[inline]
-pub unsafe fn slider(ui: *mut PxuiUi, key: &str, text: &str, value: f32, min: f32, max: f32, slider: &Slider, out: &mut PxuiResponse, value_out: &mut f32) -> i32 {
-    enter!(ui);
-    let text = clip(text);
-    if !value.is_finite() || !min.is_finite() || !max.is_finite() || min > max || bad_key(key) { return unsafe { fail(ui, "invalid slider arguments") }; }
-    let (r, v, _, _) = unsafe { engine(ui) }.slider_result(key, text, value, min..=max, slider);
-    respond(&r, out);
-    *value_out = v;
-    0
-}
-
 /// A progress row keyed by `key`, showing and named `text`.
 #[inline]
 pub unsafe fn progress(ui: *mut PxuiUi, key: &str, text: &str, value: Option<f32>, out: &mut PxuiBox) -> i32 {
@@ -659,7 +571,7 @@ pub(crate) fn respond(r: &pxui_core::ui::Response, out: &mut PxuiResponse) {
         | r.focused as u32 * PxuiResponse::FOCUSED | r.activated as u32 * PxuiResponse::ACTIVATED | r.secondary as u32 * PxuiResponse::SECONDARY;
 }
 
-/// The kit button with options, the body of `pxui_ui_button_with`, `pxui_ui_button_response`, `pxui_ui_button_content` and
+/// The kit button with options, the body of `pxui_ui_button_with`, `pxui_ui_button_response`, `pxui_ui_button` and
 /// `pxui_ui_button_plain`: `states` in place of the theme's button, `w` and `h` (`button_size`), `justify` its place in the line, `pad`
 /// (finite, non-negative) inside the box, `centered` the box exactly its size with its text centred, `label` the text's style (one that
 /// resolves), `axis`, `gap` (finite, non-negative) and `content_align` the contents' layout, `focus_on_click` a press focusing it,
@@ -755,15 +667,6 @@ pub unsafe fn icon_button_with(ui: *mut PxuiUi, key: &str, glyph: &str, draw: px
         }
     };
     respond(&r, out);
-    0
-}
-
-#[inline]
-pub unsafe fn icon_button(ui: *mut PxuiUi, label: &str, icon: &str, out: &mut bool) -> i32 {
-    enter!(ui);
-    let label = clip(label);
-    let icon = clip(icon);
-    *out = unsafe { engine(ui) }.icon_button_text(label, icon, None, label, &pxui_core::ui::IconButton::DEFAULT, None).clicked;
     0
 }
 
@@ -950,34 +853,9 @@ pub unsafe fn scroll_view(ui: *mut PxuiUi, key: &str, name: &str, node: &Node, f
     0
 }
 
-// ---- collections: the engine asks `text` for a row's text and the entry checks what it hands back
+// ---- collections
 
 const MAX_ITEMS: usize = 1_000_000;
-
-
-/// `put` of a row's text clipped (`clip`), refusing (and recording) one past `MAX_TOTAL_TEXT_BYTES` in all instead of passing it on.
-#[inline]
-fn bounded(put: &mut dyn FnMut(&str), bad: &core::cell::Cell<bool>, total: &core::cell::Cell<usize>, value: &str) {
-    let value = clip(value);
-    let sum = total.get().saturating_add(value.len());
-    if sum > MAX_TOTAL_TEXT_BYTES { bad.set(true); return; }
-    total.set(sum);
-    put(value);
-}
-
-/// The C text-row `tree` (`pxui_ui_tree`): a preorder tree; `visible` holds a row per node, `open` and `nodes` one flag and one node each.
-#[inline]
-pub unsafe fn tree_text(ui: *mut PxuiUi, label: &str, nodes: &[pxui_types::ffi::PxuiTreeNode], open: &mut [u8], selected: &mut Option<usize>, visible: &mut [u32], text: &mut dyn FnMut(usize, &mut dyn FnMut(&str)), out: &mut (Option<usize>, usize)) -> i32 {
-    enter!(ui);
-    if bad_key(label) || nodes.len() > MAX_ITEMS || open.len() != nodes.len() || visible.len() < nodes.len() { return unsafe { fail(ui, "invalid tree descriptor") }; }
-    // the engine's node and the C node share a layout (asserted where the exports are), so the caller's array is the engine's slice
-    let nodes = unsafe { core::slice::from_raw_parts(nodes.as_ptr().cast::<pxui_core::ui_widgets::TreeNode>(), nodes.len()) };
-    let (bad, total, text) = (core::cell::Cell::new(false), core::cell::Cell::new(0), core::cell::RefCell::new(text));
-    let r = unsafe { engine(ui) }.tree(label, nodes, open, selected, visible, &mut |ui, row| (text.borrow_mut())(row, &mut |value| bounded(&mut |t| ui.item_text(t), &bad, &total, value)));
-    *out = (r.activated, r.shown);
-    if bad.get() { return unsafe { fail(ui, "invalid collection callback text") }; }
-    0
-}
 
 // ---- more containers and callbacks
 
@@ -1307,4 +1185,19 @@ mod segment_tests {
             assert!(!overlay_ok(&Overlay { padding: bad, ..base }));
         }
     }
+}
+/// The kit segmented control with options, the static wrapper's `segmented` entry:
+/// `selected` the choice (`None`: none; past the options: the last), `h` (0 the theme's control height), `grow`, `states` in place of the
+/// theme's `segment`, `enabled`, `w` the strip's width (0: as `grow` says), `padding` the text's inset, `min_segment` a segment's least width
+/// (each finite and not negative), `focus_on_click` a press on an option focusing it. `chosen` is the choice after this frame's input, `secondary` the option a secondary press began on.
+#[allow(clippy::too_many_arguments)]
+#[inline(always)]
+pub unsafe fn segmented(ui: *mut PxuiUi, key: &str, name: &str, options: &[Segment], selected: Option<usize>, enabled: bool, h: f32, grow: bool, states: Option<&States>,
+    w: f32, padding: f32, min_segment: f32, focus_on_click: bool, out: &mut EngineResponse, chosen: &mut Option<usize>, secondary: &mut Option<usize>) -> i32 {
+    enter!(ui);
+    let name = clip(name);
+    let mut spare = Vec::new();
+    let (options, ok) = checked_segments(options, &mut spare);
+    if bad_key(key) || !ok { return unsafe { fail(ui, "invalid widget strings") }; }
+    unsafe { segmented_body(ui, key, name, options.len(), &|i| options[i], selected, enabled, h, grow, states, w, padding, min_segment, focus_on_click, out, chosen, secondary) }
 }

@@ -960,12 +960,6 @@ impl Ui {
         self.button_opts(text, text, None, &ButtonOpts::DEFAULT, [""; 3], None, None).clicked
     }
 
-    /// `button_opts` in the theme's button (`button_bare` when `bare`) with its text in `ink`.
-    pub fn button_styled(&mut self, text: &str, bare: bool, icon: bool, at_end: bool, ink: Option<Rgba>) -> bool {
-        let opts = ButtonOpts { bare, icon, justify: if at_end { Justify::End } else { Justify::Start }, ink, ..ButtonOpts::DEFAULT };
-        self.button_opts(text, text, None, &opts, [""; 3], None, None).clicked
-    }
-
     /// A button is its text on a 20-point box (6 points of padding in a transparent 1-point edge):
     /// a fill on hover and press, an accent line inside the bottom edge with the keyboard. The box
     /// starts 5 points in so that its text lines up with the labels at 12. `opts` varies it (see `ButtonOpts`); `key` is hashed
