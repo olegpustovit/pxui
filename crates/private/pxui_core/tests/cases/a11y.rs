@@ -150,7 +150,27 @@ pub fn a11y_warm_zero_alloc() {
     ui.destroy();
 }
 
+/// The tree is walked into one of two trees in turn: a frame larger than any before grows both, so the next frame that large, walked
+/// into the other tree, allocates nothing (before, that tree grew a frame or more later, on a warm frame).
+pub fn a11y_alternating_trees_grow_together() {
+    let mut ui = new_ui(None);
+    ui.set_a11y(true);
+    let rows = |ui: &mut Ui, n: usize| for i in 0..n { ui.button(["Alpha", "Beta", "Gamma", "Delta"][i % 4]); };
+    // 4 rows are published from one tree and walked again into the other (unchanged: no swap); 200 rows grow that tree and are
+    // published; the same 200 rows are then walked into the first tree, which had only seen 4
+    for (t, n) in [4, 4, 200].into_iter().enumerate() {
+        ui.frame(&at(t as f64 * 0.1, vec![]), &mut |ui| rows(ui, n));
+    }
+    mem_sys::local_reset();
+    let before = mem_sys::local_alloc_count();
+    ui.frame(&at(0.3, vec![]), &mut |ui| rows(ui, 200));
+    let allocs = mem_sys::local_alloc_count() - before;
+    check(allocs == 0, &format!("{allocs} allocations walking a 200-row tree into the other tree"));
+    ui.destroy();
+}
+
 pub const CASES: &[(&str, fn())] = &[
+    ("a11y_alternating_trees_grow_together", a11y_alternating_trees_grow_together),
     ("a11y_transformed_view_rects", a11y_transformed_view_rects),
     ("a11y_kit_tree", a11y_kit_tree),
     ("a11y_inject_actions", a11y_inject_actions),

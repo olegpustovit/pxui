@@ -2089,6 +2089,13 @@ impl Ui {
         }
         // the spans recorded this walk hold in the published tree (it equals the walk's when unchanged)
         (self.a11y_gen, self.a11y_full) = (self.a11y_gen + 1, false);
+        // the two trees take turns: each keeps the larger one's capacity (a no-op once equal), so a frame no larger than any before
+        // allocates nothing, whichever tree it is walked into
+        let (nodes, strings) = (self.a11y.nodes.capacity().max(t.nodes.capacity()), self.a11y.strings.capacity().max(t.strings.capacity()));
+        for tree in [&mut self.a11y, &mut t] {
+            tree.nodes.reserve(nodes - tree.nodes.len());
+            tree.strings.reserve(strings - tree.strings.len());
+        }
         self.a11y_next = t;
         self.a11y_map = map;
     }
