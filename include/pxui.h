@@ -18,7 +18,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 116u)
+#define PXUI_ABI_BUILT ((1u << 16) | 117u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 typedef struct { uint32_t autocorrect, capitalization, action; } PxuiTextInputOptions;
@@ -375,8 +375,8 @@ typedef struct { uint32_t size; uint8_t disabled, on, passive, reserved; float b
    secondary press follow it through a reorder), 0 by its place; reserved zero; name empty for the text; detail extra body text (may be empty). */
 typedef struct { uint8_t has_id, reserved[7]; int64_t id; PxuiStr text, name, detail; } PxuiPickItem;
 typedef struct { const PxuiPickItem *ptr; size_t len; } PxuiPickItemSpan;
-/* ABI 1.86: one row of a picker fill (the PxuiPickerRows callback): art_kind PXUI_PICK_ART_NONE 0 (art 0), _GLYPH 1 (art a Unicode scalar value, the icon font's character) or _IMAGE 2 (art an Images id, drawn by a registered picker body); heading non-empty starts a group under that heading (a heading is not a row). size must be sizeof(PxuiPickRow) and reserved zero. */
-enum { PXUI_PICK_ART_NONE = 0, PXUI_PICK_ART_GLYPH = 1, PXUI_PICK_ART_IMAGE = 2 };
+/* ABI 1.86: one row of a picker fill (the PxuiPickerRows callback): art_kind PXUI_PICK_ART_NONE 0 (art 0), _GLYPH 1 (art a Unicode scalar value, the icon font's character) _IMAGE 2 (art an Images id, drawn by a registered picker body) or _DRAW 3 (1.117: art the app's 32-bit icon word, drawn by a registered picker body; the built-in body leaves the slot empty); heading non-empty starts a group under that heading (a heading is not a row). size must be sizeof(PxuiPickRow) and reserved zero. */
+enum { PXUI_PICK_ART_NONE = 0, PXUI_PICK_ART_GLYPH = 1, PXUI_PICK_ART_IMAGE = 2, PXUI_PICK_ART_DRAW = 3 };
 typedef struct { uint32_t size; uint8_t art_kind, reserved[3]; uint64_t art; PxuiStr label, detail, heading; } PxuiPickRow;
 typedef struct { const PxuiPickRow *ptr; size_t len; } PxuiPickRowSpan;
 /* ABI 1.86: how pxui_ui_modal presents a modal: present PXUI_PRESENT_CENTERED 0, _BOTTOM 1 (on the content area's bottom edge), _FULL 2 (filling it) or _TOP 3 (1.90: centred across, its top edge top points below the content area's top); width read when has_width is 1 (finite, not negative); a bottom or full sheet takes a downward drag-to-dismiss committing past dismiss_fraction of its height or dismiss_velocity points/s (finite, not negative; 0: a quarter, 600). reserved zero. */

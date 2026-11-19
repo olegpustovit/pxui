@@ -332,6 +332,27 @@ impl IconButtonConfig {
     }
 }
 
+impl PickerConfig {
+    /// The row's artwork or icon slot (`PickRow::art`) as the `PickArt` the fill gave: a glyph, an image id or the app's icon word, so a
+    /// registered row body draws the app's icon by its word (`PickArt::Draw`); `None` for a row without one.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::bodies::PickerConfig;
+    /// fn row(_ui: &mut pxui::Ui, config: &PickerConfig) { if let Some(pxui::PickArt::Draw(word)) = config.art() { let _ = word; } }
+    /// ```
+    pub fn art(&self) -> Option<crate::PickArt> {
+        match self.art_kind {
+            1 => char::from_u32(u32::try_from(self.art).ok()?).map(crate::PickArt::Glyph),
+            2 => usize::try_from(self.art).ok().map(crate::PickArt::Image),
+            3 => u32::try_from(self.art).ok().map(crate::PickArt::Draw),
+            _ => None,
+        }
+    }
+}
+
 /// The `Icon` a config's glyph text or drawing pointers spell. Only a drawing whose callback is this wrapper's own `Icon::Draw`
 /// trampoline (`paint::icon_draw`) carries a Rust `fn` as its user pointer; any other callback (a C caller's) has an opaque user
 /// pointer that must never become callable, so it reads as no icon.

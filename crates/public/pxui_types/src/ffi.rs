@@ -1145,12 +1145,12 @@ pub struct PxuiSheetDesc {
 pub struct PxuiPickRow {
     /// `size_of::<PxuiPickRow>()`.
     pub size: u32,
-    /// `PXUI_PICK_ART_NONE` 0, `PXUI_PICK_ART_GLYPH` 1 (`art` is a Unicode scalar value) or `PXUI_PICK_ART_IMAGE` 2 (`art` is an
-    /// `Images` id).
+    /// `PXUI_PICK_ART_NONE` 0, `PXUI_PICK_ART_GLYPH` 1 (`art` is a Unicode scalar value), `PXUI_PICK_ART_IMAGE` 2 (`art` is an
+    /// `Images` id) or `PXUI_PICK_ART_DRAW` 3 (`art` is the app's 32-bit icon word, ABI 1.117).
     pub art_kind: u8,
     /// Zero.
     pub reserved: [u8; 3],
-    /// The code point or the image id, by `art_kind`.
+    /// The code point, the image id or the icon word, by `art_kind`.
     pub art: u64,
     /// The row's text.
     pub label: Str,
@@ -2243,8 +2243,8 @@ configs! {
         row: PxuiBox, label: Str, detail: Str, query: Str
     } @variant {
         /// ABI 1.86 (extension set; read when `size` covers it): the row's artwork or icon slot, `PXUI_PICK_ART_NONE` 0, `_GLYPH` 1 (`art`
-        /// is the icon font character's code point, which the built-in body draws) or `_IMAGE` 2 (`art` is an `Images` id, drawn by a
-        /// registered body).
+        /// is the icon font character's code point, which the built-in body draws), `_IMAGE` 2 (`art` is an `Images` id, drawn by a
+        /// registered body) or `_DRAW` 3 (ABI 1.117: `art` is the app's icon word, drawn by a registered body).
         art_kind: u8,
         /// Zero.
         reserved3: [u8; 7],

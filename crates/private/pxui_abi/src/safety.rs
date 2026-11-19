@@ -239,7 +239,7 @@ fn text_with_nul_crosses_as_ordinary_text() {
     unsafe { pxui_ui_destroy(ui); }
 }
 
-// ABI 1.86: picker fills hand back `PxuiPickRow`s. The first row's size is read before the span is taken as rows, so a caller built
+// ABI 1.86: picker fills hand back `PxuiPickRow`s (1.117: art kind 3, an app icon's 32-bit word). The first row's size is read before the span is taken as rows, so a caller built
 // before 1.86 (16-byte `PxuiStr`s, twice as many) is refused without a pointer of it being read; every row is checked before any is used.
 #[test]
 fn picker_rows_are_checked_and_old_str_fills_are_refused_unread() {
@@ -261,6 +261,10 @@ fn picker_rows_are_checked_and_old_str_fills_are_refused_unread() {
     let good = [row, PxuiPickRow { art_kind: 2, art: 7, ..PxuiPickRow::new("Album", "") }];
     let mut fill: Fill = (good.as_ptr().cast(), 2, 0);
     assert_eq!(pick(&mut fill), 0, "{}", error(ui));
+    // ABI 1.117 (U2b.4.19): an app icon's word
+    let drawn = [row, PxuiPickRow { art_kind: 3, art: u64::from(u32::MAX), ..PxuiPickRow::new("Folder", "") }];
+    let mut fill: Fill = (drawn.as_ptr().cast(), 2, 0);
+    assert_eq!(pick(&mut fill), 0, "{}", error(ui));
     assert!(fill.2 > 0, "the fill ran");
     // a pre-1.86 fill: two `PxuiStr`s (one label and detail pair) whose pointers would fault if read
     let poison = [Str { ptr: 0xdead_0001usize as *const u8, len: 4 }, Str { ptr: 0xdead_1001usize as *const u8, len: 6 }];
@@ -272,7 +276,8 @@ fn picker_rows_are_checked_and_old_str_fills_are_refused_unread() {
     refused(poison.as_ptr().cast(), 2, "a pre-1.86 PxuiStr fill");
     let bad = |r: PxuiPickRow| [good[0], r];
     refused(bad(PxuiPickRow { size: 48, ..good[1] }).as_ptr().cast(), 2, "a later row of another size");
-    refused(bad(PxuiPickRow { art_kind: 3, ..good[1] }).as_ptr().cast(), 2, "an unknown art kind");
+    refused(bad(PxuiPickRow { art_kind: 4, ..good[1] }).as_ptr().cast(), 2, "an unknown art kind");
+    refused(bad(PxuiPickRow { art_kind: 3, art: 1 << 32, ..good[1] }).as_ptr().cast(), 2, "an icon word past 32 bits");
     refused(bad(PxuiPickRow { art_kind: 1, art: 0xD800, ..good[1] }).as_ptr().cast(), 2, "a glyph that is not a Unicode scalar value");
     refused(bad(PxuiPickRow { art_kind: 0, art: 5, ..good[1] }).as_ptr().cast(), 2, "art with no kind");
     refused(bad(PxuiPickRow { reserved: [0, 1, 0], ..good[1] }).as_ptr().cast(), 2, "a non-zero reserved byte");

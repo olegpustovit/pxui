@@ -225,29 +225,30 @@ mod tests {
         assert_eq!(at.get(), Rect::new(40.0, 50.0, 50.0, 20.0), "below its anchor, start-aligned, the overlay's size");
     }
 
-    const ROWS: [crate::PickRow; 3] = [
+    const ROWS: [crate::PickRow; 4] = [
         crate::PickRow::new("Song").detail("Artist").art(crate::ui::PickArt::Glyph('\u{266b}')).heading("Songs"),
         crate::PickRow::new("Other"),
         crate::PickRow::new("Album").art(crate::ui::PickArt::Image(7)).heading("Albums"),
+        crate::PickRow::new("Folder").art(crate::ui::PickArt::Draw(5)),
     ];
     fn fill(_: &str, rows: &mut crate::PickRows) { for row in ROWS { rows.push(row); } }
 
     thread_local! { static ARTS: RefCell<Vec<Option<crate::ui::PickArt>>> = const { RefCell::new(Vec::new()) }; }
     fn picker_row(ui: &mut Ui, c: &crate::bodies::PickerConfig) {
-        let art = match c.art_kind { 1 => char::from_u32(c.art as u32).map(crate::ui::PickArt::Glyph), 2 => Some(crate::ui::PickArt::Image(c.art as usize)), _ => None };
-        ARTS.with(|a| a.borrow_mut().push(art));
+        ARTS.with(|a| a.borrow_mut().push(c.art()));
         marker(ui, "picker row");
     }
 
     /// A row's heading is a Heading caption above the row that starts its group (not a row: rows stay the picks), the built-in row draws
-    /// a glyph in the art slot before its label, and a registered row body is given each row's art.
+    /// a glyph in the art slot before its label, and a registered row body is given each row's art: a glyph, an image id or the app's
+    /// icon word (U2b.4.19, `PickArt::Draw`). Both link modes.
     #[test]
     fn picker_rows_draw_headings_and_give_their_art_to_the_body() {
         let mut build = |ui: &mut Ui| { ui.picker("find", "Search", "", &Picker::DEFAULT, &mut fill); };
         let ui = crate::doc::frames(2, &mut build);
         for heading in ["Songs", "Albums"] { assert!(testing::find(&ui, Role::Heading, heading).is_some(), "{heading}"); }
         let rows = ui.a11y_nodes().iter().filter(|n| n.is_role(Role::ListItem)).count();
-        assert_eq!(rows, 3, "headings are not rows");
+        assert_eq!(rows, 4, "headings are not rows");
         let (songs, song) = (testing::find(&ui, Role::Heading, "Songs").unwrap(), testing::find(&ui, Role::ListItem, "Song").unwrap());
         assert!(songs.y + songs.h <= song.y, "the heading sits above its row");
         let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
@@ -257,7 +258,7 @@ mod tests {
         ui.frame(&FrameIn::new(400.0, 400.0), &mut build).unwrap();
         ARTS.with(|a| a.borrow_mut().clear());
         ui.frame(&FrameIn::new(400.0, 400.0), &mut build).unwrap();
-        assert_eq!(ARTS.with(|a| a.borrow().clone()), [ROWS[0].art, None, ROWS[2].art]);
+        assert_eq!(ARTS.with(|a| a.borrow().clone()), [ROWS[0].art, None, ROWS[2].art, ROWS[3].art]);
     }
 
     /// The picker's query is a search: focused, it asks for the search keyboard (no autocorrect or capitalisation, the Search key), as

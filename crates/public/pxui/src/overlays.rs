@@ -139,7 +139,7 @@ extern "C" fn rows(user: *mut c_void, query: Str, out: *mut Slice<pxui_types::ff
     if let Err(panic) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| fill(query, owned))) { defer_callback_panic(panic); owned.clear(); }
     ctx.raw.clear();
     for row in (0..ctx.owned.len()).filter_map(|i| ctx.owned.get(i)) {
-        let (art_kind, art) = match row.art { None => (0, 0), Some(crate::PickArt::Glyph(c)) => (1, c as u64), Some(crate::PickArt::Image(id)) => (2, id as u64) };
+        let (art_kind, art) = match row.art { None => (0, 0), Some(crate::PickArt::Glyph(c)) => (1, c as u64), Some(crate::PickArt::Image(id)) => (2, id as u64), Some(crate::PickArt::Draw(word)) => (3, u64::from(word)) };
         ctx.raw.push(pxui_types::ffi::PxuiPickRow { art_kind, art, heading: as_str(row.heading), ..pxui_types::ffi::PxuiPickRow::new(row.label, row.detail) });
     }
     unsafe { *out = Slice { ptr: ctx.raw.as_ptr(), len: ctx.raw.len() }; }

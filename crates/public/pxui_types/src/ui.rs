@@ -472,6 +472,9 @@ pub enum PickArt {
     /// An image by its `Images` id (the id `Images::store` returns and `Images::get` takes): the built-in row body leaves the slot empty
     /// and a registered picker body draws the image.
     Image(usize),
+    /// The app's icon `word` (as `Icon::Draw`'s word, the app's icon id): the built-in row body leaves the slot empty and a registered
+    /// picker body draws the icon by its word (`PickerConfig::art`).
+    Draw(u32),
 }
 
 /// One row of a `Ui::picker` fill, a `Copy` value built with `const fn` builders from `PickRow::new` and given to `PickRows::push`.

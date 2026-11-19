@@ -227,6 +227,7 @@ unsafe fn picker(
                 (0, 0) => Some(None),
                 (1, code) => u32::try_from(code).ok().and_then(char::from_u32).map(|c| Some(pxui_types::ui::PickArt::Glyph(c))),
                 (2, id) => usize::try_from(id).ok().map(|id| Some(pxui_types::ui::PickArt::Image(id))),
+                (3, word) => u32::try_from(word).ok().map(|word| Some(pxui_types::ui::PickArt::Draw(word))),
                 _ => None,
             };
             let texts = (unsafe { checked(row.label) }, unsafe { checked(row.detail) }, unsafe { checked(row.heading) });
