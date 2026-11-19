@@ -1270,10 +1270,12 @@ fn search_field_body(this: &mut Ui, label: &str, icon: &str, value: &str, placeh
     let saved = this.enter(&row);
     let well = this.node_keyed(int_key(key, 0), Node::DEFAULT);
     let mut changed = false;
+    // only a registered body builds its own editor: the kit's path looks for none
+    let bodied = this.theme().body.search_field != BodyId(0);
     let mut editor = |ui: &mut Ui| -> bool {
         let editing = Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | Flags::FOCUS_MARK;
         // a body's own `Part::EDITOR`, built before this slot, is the editing node: it keeps the body's look and its font sizes the text
-        let body_editor = ui.part_built(key, Part::EDITOR);
+        let body_editor = if bodied { ui.part_built(key, Part::EDITOR) } else { None };
         let field = match body_editor {
             Some(part) => {
                 let n = ui.node_mut(&part);
@@ -1349,7 +1351,7 @@ fn search_field_body(this: &mut Ui, label: &str, icon: &str, value: &str, placeh
         filled
     };
     let focus = this.focus_key();
-    let config = SearchFieldConfig { state: State { focused: focus == int_key(key, 1) || focus == part_key(key, Part::EDITOR), ..State::default() }, well, key };
+    let config = SearchFieldConfig { state: State { focused: focus == int_key(key, 1) || bodied && focus == part_key(key, Part::EDITOR), ..State::default() }, well, key };
     in_body!(this, key, well, search_field, default_search_field(&config, icon, &mut editor));
     if let Some(clear) = this.part_built(key, Part::CLEAR) {
         this.set_role(&clear, Role::Button, 0);
