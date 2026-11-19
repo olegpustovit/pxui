@@ -57,7 +57,7 @@ impl Signal {
 
 #[cfg(feature = "static")]
 mod sys {
-    pub use pxui_abi_link::{pxui_ui_focus_box, pxui_ui_focused, pxui_ui_set_state, pxui_ui_signal, pxui_ui_state};
+    pub use pxui_abi_link::{pxui_ui_focus_box, pxui_ui_focus_default, pxui_ui_focused, pxui_ui_set_state, pxui_ui_signal, pxui_ui_state};
 }
 #[cfg(not(feature = "static"))]
 mod sys {
@@ -67,6 +67,7 @@ mod sys {
     unsafe extern "C" {
         // Gives keyboard focus to a live node.
         pub(super) fn pxui_ui_focus_box(ui:*mut PxuiUi,box_:*const PxuiBox)->i32;
+        pub(super) fn pxui_ui_focus_default(ui:*mut PxuiUi,box_:*const PxuiBox)->i32;
         // Writes whether a live node holds keyboard focus.
         pub(super) fn pxui_ui_focused(ui:*mut PxuiUi,box_:*const PxuiBox,out:*mut u8)->i32;
         /// The C entry `Ui::state` calls: writes `box_`'s state slot to `out`, or `default` when never set; the stale code for a node that has gone.
@@ -126,6 +127,14 @@ impl Ui {
     /// assert!(ui.a11y_nodes().iter().any(|node| node.is_role(Role::TextField) && node.states & A11yStates::FOCUSED.bits() != 0));
     /// ```
     #[inline] #[track_caller] pub fn focus_box(&mut self,box_:&Handle) {check(self, unsafe{sys::pxui_ui_focus_box(self.0.as_ptr(),box_)})}
+    /// Names the box a key press takes as its focus while no node holds it: a window's default key target (an initial first
+    /// responder), such as the main list, which then takes the keys it handles and leaves the rest to `key_pressed`. The focus
+    /// goes to the box's nearest focusable box (itself or an ancestor: a list's scroll `handle` names the list), unless a modal
+    /// leaves it out. Stated each build; a build that names none leaves no default. A click elsewhere or Escape out of a field
+    /// gives up the focus, and the next key press comes back here.
+    /// Allocates: never.
+    /// Panics: if the handle has retired or the library refuses the Ui.
+    #[inline] #[track_caller] pub fn focus_default(&mut self,box_:&Handle) {check(self, unsafe{sys::pxui_ui_focus_default(self.0.as_ptr(),box_)})}
     #[inline] #[track_caller] pub(crate) fn focused(&self,box_:&Handle)-> bool {let mut out=0;check(self, unsafe{sys::pxui_ui_focused(self.0.as_ptr(),box_,&mut out)});out!=0}
     /// `box_`'s state slot, or `default` while it was never set: the one per-node value a build keeps across frames.
     ///

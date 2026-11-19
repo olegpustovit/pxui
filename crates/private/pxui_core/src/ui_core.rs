@@ -1184,6 +1184,8 @@ pub struct Ui {
     route_keys: Vec<Key>,
     frame_modifiers: u32,
     pub(crate) edit_focus: i64,
+    /// the box a key press takes as its focus while no node holds it (`focus_default`), stated by the last build
+    default_focus: i64,
     pub(crate) edit_owner: i64,
     pub(crate) text_input_options: pxui_types::TextTraits,
     pub edit_value: String,
@@ -1472,6 +1474,7 @@ impl Ui {
             route_keys: Vec::new(),
             frame_modifiers: 0,
             edit_focus: 0,
+            default_focus: 0,
             edit_owner: 0,
             text_input_options: pxui_types::TextTraits::default(),
             edit_value: String::new(),
@@ -2826,6 +2829,8 @@ impl Ui {
         }
         self.out.cursor = None;
         self.frame_events.clone_from(&frame.input.events);
+        // stated per build: this frame's build names it again
+        let default_focus = std::mem::take(&mut self.default_focus);
         self.taken.clear();
         self.taken.resize(self.frame_events.len(), std::cell::Cell::new(false));
         keep_frame(&mut self.input_frame, frame);
@@ -3120,6 +3125,12 @@ impl Ui {
                         self.keyboard_focus = false;
                     }
                     Event::KeyPressed(_) | Event::KeyReleased(_) | Event::TextInput(_) | Event::TextEditing { .. } | Event::Paste(_) => {
+                        if self.focus == 0 && default_focus != 0 && matches!(event, Event::KeyPressed(_)) {
+                            // the default key target's nearest focusable box takes the focus, unless a modal leaves it out
+                            let mut holder = 0;
+                            self.hit_ancestors(default_focus, &mut |key| if holder == 0 && self.flags_of_key(key).any(Flags::FOCUSABLE) { holder = key; });
+                            if let Some(index) = self.hit_index(holder) && self.eligible(index) { self.focus = holder; }
+                        }
                         if self.focus != 0 {
                             let focus = self.focus;
                             // Empty release buffers must not displace warmed press capacity.
@@ -4139,6 +4150,13 @@ impl Ui {
             self.edit_focus = 0;
         }
         self.focus = b.box_key;
+    }
+
+    /// Names the box a key press takes as its focus while no node holds it (a window's default key target): its nearest
+    /// focusable box (itself or an ancestor; a list's scroll box names the list), unless a modal leaves that out. Stated each
+    /// build: a build that names none leaves no default.
+    pub fn focus_default(&mut self, b: &UiBox) {
+        self.default_focus = b.box_key;
     }
 
     /// The box itself is the topmost under the pointer (none of its children are).

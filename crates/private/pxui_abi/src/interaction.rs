@@ -15,6 +15,15 @@ export!(pub unsafe fn pxui_ui_focus_box(ui: *mut PxuiUi, box_: *const PxuiBox) -
     0
 });
 
+export!(pub unsafe fn pxui_ui_focus_default(ui: *mut PxuiUi, box_: *const PxuiBox) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if box_.is_null() { return unsafe { fail(ui, "null default focus box") }; }
+    let engine = unsafe { &mut *state.engine };
+    let Some(box_) = live_box(engine, unsafe { *box_ }).filter(|box_| engine.live(box_)) else { return unsafe { fail(ui, "stale default focus box") }; };
+    engine.focus_default(&box_);
+    0
+});
+
 export!(pub unsafe fn pxui_ui_focused(ui: *mut PxuiUi, box_: *const PxuiBox, out: *mut u8) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if box_.is_null() || out.is_null() { return unsafe { fail(ui, "null focused argument") }; }

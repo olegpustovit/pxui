@@ -1032,6 +1032,42 @@ mod tests {
         }
     }
 
+    /// `Ui::focus_default` names the list a window's default key target: with nothing focused an arrow press focuses it and moves its
+    /// selection (the list takes the arrow; a Command chord stays the app's), a click on empty space gives the focus up and the next
+    /// press comes back; a build that names no default leaves the keys to the app, and so does a modal over the list.
+    #[test]
+    fn focus_default_names_the_list_keys_go_to_while_nothing_is_focused() {
+        let state = RefCell::new(ListState::new());
+        let (stated, modal, seen) = (Cell::new(true), Cell::new(false), Cell::new((false, false)));
+        let mut build = |ui: &mut Ui| {
+            ui.node("empty", Node { h: Size::Px(40.0), w: Size::Grow, ..Node::DEFAULT });
+            let r = ui.selection_list("files", 3, &|i| i as i64, &mut state.borrow_mut(), &SelectionList::DEFAULT, &mut |ui, part, _| if let SectionPart::Row(row) = part { ui.item_text(["a", "b", "c"][row]) });
+            if stated.get() { ui.focus_default(&r.handle); }
+            if modal.get() { ui.modal("over", &crate::Overlay::DEFAULT, |ui| { ui.label("Sure?", crate::Label::BODY); }); }
+            seen.set((ui.key_pressed(KeyCode::ArrowDown, crate::Mods::ANY), ui.key_pressed(KeyCode::Char('3'), crate::Mods::META)));
+        };
+        let mut ui = crate::doc::frames(2, &mut build);
+        press(&mut ui, 1.0, KeyCode::ArrowDown, &[], &mut build);
+        assert_eq!((on(&state.borrow()), seen.get().0), (vec![1], false), "an arrow with nothing focused goes to the default list");
+        press(&mut ui, 2.0, KeyCode::ArrowDown, &[], &mut build);
+        assert_eq!(on(&state.borrow()), vec![2], "and the list keeps the focus");
+        press(&mut ui, 3.0, KeyCode::Char('3'), &[KeyCode::Meta], &mut build);
+        assert!(seen.get().1, "a Command chord stays the app's");
+        click_at(&mut ui, 4.0, crate::geom::Rect { x: 0.0, y: 0.0, w: 200.0, h: 40.0 }, &[], false, &mut build);
+        press(&mut ui, 5.0, KeyCode::ArrowUp, &[], &mut build);
+        assert_eq!(on(&state.borrow()), vec![1], "after a click on empty space the next press comes back");
+        click_at(&mut ui, 6.0, crate::geom::Rect { x: 0.0, y: 0.0, w: 200.0, h: 40.0 }, &[], false, &mut build);
+        stated.set(false);
+        at(&mut ui, 7.0, &[], &mut build);
+        press(&mut ui, 8.0, KeyCode::ArrowUp, &[], &mut build);
+        assert_eq!(on(&state.borrow()), vec![1], "a build that names no default leaves the keys to the app");
+        stated.set(true);
+        modal.set(true);
+        at(&mut ui, 9.0, &[], &mut build);
+        press(&mut ui, 10.0, KeyCode::ArrowUp, &[], &mut build);
+        assert_eq!(on(&state.borrow()), vec![1], "a modal leaves the list behind it out");
+    }
+
     /// Rows the app flags DISABLED take no selection or presses and read as disabled; `open_on_click` makes a click activate while arrows
     /// only select; a lead-in, heading and trailer reach the cell builder as their `SectionPart`s.
     #[test]

@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 113
+minor 114
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -99,6 +99,7 @@ function pxui_ui_environment int32_t pxui_ui_environment ( PxuiUi * ui , PxuiEnv
 function pxui_ui_expanded int32_t pxui_ui_expanded ( PxuiUi * ui , PxuiStr key , uint8_t * out ) ;
 function pxui_ui_field_drag int32_t pxui_ui_field_drag ( PxuiUi * ui , const PxuiBox * box , uint8_t * present , PxuiPoint * out ) ;
 function pxui_ui_focus_box int32_t pxui_ui_focus_box ( PxuiUi * ui , const PxuiBox * box ) ;
+function pxui_ui_focus_default int32_t pxui_ui_focus_default ( PxuiUi * ui , const PxuiBox * box ) ;
 function pxui_ui_focused int32_t pxui_ui_focused ( PxuiUi * ui , const PxuiBox * box , uint8_t * out ) ;
 function pxui_ui_font_points int32_t pxui_ui_font_points ( PxuiUi * ui , float * out ) ;
 function pxui_ui_footer int32_t pxui_ui_footer ( PxuiUi * ui , const PxuiFooterDesc * desc ) ;

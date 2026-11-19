@@ -56,7 +56,7 @@ The target public surface. **Rule:** a call not marked with a step keeps its HEA
 | Images | `image<K>(key, name, &Image, &ImageStyle) -> Result<Handle, Error>`; `Image::rgba8(width, height, vk_image_view, mtl_texture)` describes native storage; `images::{Want, Request}`, `Images::store/get/requests` | — | U1b.2; builder U1b.5 |
 | A11y | `a11y_name(&Handle, &str) -> bool` with UTF-8-safe display clipping; `a11y_value/a11y_number(&Handle, ..) -> Result<bool, Error>`; `set_role(&Handle, Role, A11yStates)`; `a11y_tree() -> A11yTree<'_>` (borrowed strings, revision and first child); `a11y_nodes`, `a11y_name_of`, `a11y_value_of`, `box_of_a11y` | — | U1a.3 (rule), U1b.4 (types) |
 | Theme | `set_theme(&ThemeHandle) -> Result<(), Error>`, `themed(&ThemeHandle, f)`, `theme()`, `tokens()`, `ThemeHandle::parse/set_color/density/reduced_motion`; `bodies::register_<kind>_body(..) -> Result<BodyId, Error>`; `Rgba::token(T).alpha(a)` (D19); `ColorToken::ACCENT` (= `ColorToken(64)`, the theme's `Tokens::accent`); `Appearance`; sizes `f32` (`font_size`, `row_height`, `density`, `set_font_size`) | — | U1a.2; U1b.3 (units); U2b.7 (alpha, accent) |
-| Frame / lifecycle | `Ui::new(&UiDesc) -> Result<Ui, Error>` with `UiDesc::new(Platform).font_size(f32).fonts(&[FontData])` and `UiDesc::DEFAULT`; one `frame(&FrameIn, build)`; `FrameIn::new(w, h)` with event wire fields and const builders, or `unsafe FrameIn::snapshot(&Input)` for a host's complete borrowed snapshot; `layer(i) -> Option<Layer>`, `layers() -> Layers`, `output() -> Output`; `focus_box(&Handle)` stays public for the registered command editor body, with `focused` crate-private and `enter`/`leave` internal to the engine and C ABI | — | U1a.3 |
+| Frame / lifecycle | `Ui::new(&UiDesc) -> Result<Ui, Error>` with `UiDesc::new(Platform).font_size(f32).fonts(&[FontData])` and `UiDesc::DEFAULT`; one `frame(&FrameIn, build)`; `FrameIn::new(w, h)` with event wire fields and const builders, or `unsafe FrameIn::snapshot(&Input)` for a host's complete borrowed snapshot; `layer(i) -> Option<Layer>`, `layers() -> Layers`, `output() -> Output`; `focus_box(&Handle)` stays public for the registered command editor body, with `focused` crate-private and `enter`/`leave` internal to the engine and C ABI; `focus_default(&Handle)` beside it (U2b.4.24): the box a key press takes as its focus while no node holds it, stated each build (an app's main list as the window's default key target) | — | U1a.3, U2b.4.24 |
 | Host integration | `Renderer::new -> Result<_, Error>`; `Ui::register_<kind>_body(..) -> Result<BodyId, Error>`; `A11yBridge::connect -> Option`; `Gpu`, `Pass`, `Commands`, `Input`, `Output`, `Platform`, `Bytes`; pxui_host `Graphics::open/draw/close`, `Accessibility::open`, `Platform::pump/apply` → `Result<_, Error>` | — | U1a.3 |
 | Diagnostics | `phase_times`, `phase_cpu_times`, `set_timing`, `repaint_after`, `wants_frame`, `library_counter` (D3), `verify_views` (D22: per `Ui`, on under `debug_assertions`; `verify_new_views` deleted) | — | HEAD; U1c.2 |
 | Getters | `keyboard()`, `environment()`, `text_traits()` (was `text_input_options`), `ime() -> Option<Ime>`, `platform()`, `now()`, `frame_index()`, `system_appearance() -> Appearance` | — | U1a.4 (appearance), U1b.2 |
@@ -1234,6 +1234,7 @@ pxui::Ui::environment fn (&self) -> Environment @HEAD
 pxui::Ui::expanded fn <K: Into<Key>>(&self, key: K) -> Option<bool> @U1b.2
 -pxui::Ui::field_drag fn (&self, field: &Handle) -> Option<(f32, f32)> @U1c.3
 pxui::Ui::focus_box fn (&mut self, box_: &Handle) @U1a.3
+pxui::Ui::focus_default fn (&mut self, box_: &Handle) @U2b.4.24
 -pxui::Ui::focused fn (&self, box_: &Handle) -> bool @U1a.3
 pxui::Ui::font_size fn (&self) -> f32 @U1b.3
 -pxui::Ui::font_size fn (&self) -> i64 @U1b.3
@@ -2249,6 +2250,7 @@ pxui::ui::Ui::environment fn (&self) -> Environment @HEAD
 pxui::ui::Ui::expanded fn <K: Into<Key>>(&self, key: K) -> Option<bool> @U1b.2
 -pxui::ui::Ui::field_drag fn (&self, field: &Handle) -> Option<(f32, f32)> @U1c.3
 pxui::ui::Ui::focus_box fn (&mut self, box_: &Handle) @U1a.3
+pxui::ui::Ui::focus_default fn (&mut self, box_: &Handle) @U2b.4.24
 -pxui::ui::Ui::focused fn (&self, box_: &Handle) -> bool @U1a.3
 pxui::ui::Ui::font_size fn (&self) -> f32 @U1b.3
 -pxui::ui::Ui::font_size fn (&self) -> i64 @U1b.3
