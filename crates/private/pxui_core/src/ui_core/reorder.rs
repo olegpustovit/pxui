@@ -80,6 +80,8 @@ impl Ui {
         let owner = core::mem::replace(&mut self.part_owner, row.box_key);
         self.row_handle = None;
         self.movable_rows += 1;
+        // before the content: a selection list's row is this box and says itself whether it is movable
+        self.slots[row.box_slot].movable = a11y;
         f(self);
         self.movable_rows -= 1;
         self.part_owner = owner;
@@ -88,12 +90,11 @@ impl Ui {
         self.rows_move_row(m, row, a11y, handle, index, top, h);
     }
 
-    /// Row `index` (box `row`, `top` and `h` its rest place in the rows; with `a11y` the row carries the Move actions itself, else its
-    /// builder's node does, as a selection list's; `handle` the `Part::HANDLE` its build made): a handle press lifts it, a passed row
+    /// Row `index` (box `row`, `top` and `h` its rest place in the rows; with `a11y` the row's Move actions are read here, else its
+    /// builder reads them, as a selection list's row does; `handle` the `Part::HANDLE` its build made): a handle press lifts it, a passed row
     /// makes room, a focused Alt arrow or a Move action moves it, and it is placed where it shows this frame.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn rows_move_row(&mut self, m: &mut RowsMove, row: &Handle, a11y: bool, handle: Option<Handle>, index: usize, top: f32, h: f32) {
-        self.slots[row.box_slot].movable = a11y;
         let step = match if a11y { self.signal_move(row) } else { 0 } { 0 if m.alt != 0 && self.focus != 0 && self.hit_within(self.focus, row.box_key) => m.alt, s => s };
         if step != 0 && m.moved.is_none() {
             let to = index as i64 + i64::from(step);

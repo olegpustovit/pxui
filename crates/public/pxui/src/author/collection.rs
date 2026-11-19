@@ -496,6 +496,55 @@ mod tests {
     fn table_row(ui: &mut Ui, c: &TableRowConfig) { seen(format!("table row {}", c.index)); marker(ui, "custom table row"); ui.slot(c.content); }
     fn head(ui: &mut Ui, c: &TableHeadConfig) { seen(format!("head {} {}{}", c.text_of(&c.title), c.has_ascending, c.ascending)); marker(ui, "custom head"); }
 
+    /// U4a.6 fix: a selection list row is the list's own row box (no node of its own inside it), so a row costs the list what a section
+    /// list's row does; a row body laying out its row afresh (no place of its own) leaves each row where the list places it. Both link
+    /// modes.
+    #[test]
+    fn a_selection_list_row_is_the_lists_row_box() {
+        fn fresh(ui: &mut Ui, c: &SelectionListConfig) { ui.set_node_layout(&c.row, &Node::column().w(Size::Grow).h(Size::Fit)); ui.slot(c.content); }
+        let state = RefCell::new(ListState::new());
+        let tops = RefCell::new(Vec::new());
+        let selection = Cell::new(true);
+        let mut build = |ui: &mut Ui| {
+            let cell = &mut |ui: &mut Ui, part: SectionPart, cell: CellState| if let SectionPart::Row(_) = part {
+                ui.node("cell", Node::column().w(Size::Grow).h_px(20.0));
+                tops.borrow_mut().push(ui.rect(&cell.handle).y);
+            };
+            if selection.get() { ui.selection_list("rows", 50, &|i| i as i64, &mut state.borrow_mut(), &SelectionList::DEFAULT.row_h(20.0).measured().bare(), cell); }
+            else { ui.section_list("rows", &SectionList::new(50).row_h(20.0).measured(), &|i| i as i64, cell); }
+        };
+        let mut built = |ui: &mut Ui, select: bool, h: f32| -> usize {
+            selection.set(select);
+            for _ in 0..3 { tops.borrow_mut().clear(); ui.frame(&FrameIn::new(200.0, h), &mut build).unwrap(); }
+            ui.built_nodes()
+        };
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
+        ui.register_selection_list_body("fresh", fresh).unwrap();
+        ui.set_theme(&crate::ThemeHandle::parse("selection_list.body = fresh").unwrap()).unwrap();
+        // the same rows twice as tall a window: a selection list builds no more nodes a row than a section list does
+        let (small, large) = ((built(&mut ui, true, 200.0), built(&mut ui, false, 200.0)), (built(&mut ui, true, 400.0), built(&mut ui, false, 400.0)));
+        assert!(large.1 > small.1, "the taller window builds more rows");
+        assert_eq!(large.0 - small.0, large.1 - small.1, "a selection list row costs the nodes a section list row does: {small:?} {large:?}");
+        built(&mut ui, true, 200.0);
+        let tops = tops.borrow();
+        assert!(tops.len() > 2 && tops.windows(2).all(|t| t[1] - t[0] == 20.0), "rows stay where the list places them: {tops:?}");
+    }
+
+    /// U4a.6 fix: a heading without a grip is followed by the 1-point separator as its margin, not a node: the next heading starts a
+    /// point after it, and each heading costs one node (with the kit's title). Both link modes.
+    #[test]
+    fn a_heading_separator_is_a_margin() {
+        const COLUMNS: [Column; 3] = [Column::new("A").id(0).w_px(60.0).grip(false), Column::new("B").id(1).w_px(70.0).grip(false), Column::new("C").id(2).w_px(80.0).grip(false)];
+        let state = RefCell::new(TableState::new());
+        let mut ui = crate::doc::frames(2, &mut |ui| { ui.table_head("head", &COLUMNS, &mut state.borrow_mut(), &TableHead::DEFAULT.h_px(30.0)); });
+        let headers: Vec<_> = ui.a11y_nodes().iter().filter(|n| n.is_role(Role::ColumnHeader)).map(|n| (n.rect.x, n.rect.w)).collect();
+        assert_eq!(headers, [(0.0, 60.0), (61.0, 70.0), (132.0, 80.0)], "each heading a point after the one before");
+        let with = ui.built_nodes();
+        ui.frame(&FrameIn::new(320.0, 240.0), &mut |_| {}).unwrap();
+        ui.frame(&FrameIn::new(320.0, 240.0), &mut |ui| { ui.table_head("head", &COLUMNS[..1], &mut state.borrow_mut(), &TableHead::DEFAULT.h_px(30.0)); }).unwrap();
+        assert_eq!(with - ui.built_nodes(), 4, "two more headings, two nodes each (the heading and its title): no separator nodes");
+    }
+
     /// U2b.4.3: a `bare` selection list draws no frame look and no inset: its rows start at the list's own edges, a framed list's one
     /// point in; the frame's instances are gone; warm frames of a bare list allocate nothing. Both link modes.
     #[test]

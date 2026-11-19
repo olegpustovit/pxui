@@ -381,7 +381,7 @@ pub type MenuRowBody = fn(&mut Ui, &MenuRowConfig, &str, Option<&str>);
 /// What a `selection_list` or `table` row body is given (the row's content beside it: the text, or the caller's cells, which it calls
 /// once where it goes). It runs with the `row` entered (the built-in body is called without owning parts): a full-width row item that
 /// carries the kit's look and padding, its role, selected state and presses; the body may restyle it (`Ui::node_mut`, `set_look`) and
-/// builds what is inside. `state`: hovered, pressed, `checked` (selected), `focused` (the keyboard's row). Which rows are built, the
+/// builds what is inside. The row is the list's own row box: a layout the body sets keeps the row where the list places it. `state`: hovered, pressed, `checked` (selected), `focused` (the keyboard's row). Which rows are built, the
 /// selection and the keys are behaviour's. In a table the content is the cells, built with their widths and roles.
 pub struct RowConfig {
     pub state: State,
