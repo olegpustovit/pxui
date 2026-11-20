@@ -51,11 +51,16 @@ name = "gpu_gallery"
 path = "tests/gpu_gallery.rs"
 harness = false
 
-# The A7 performance gate: the gallery pages through the engine directly, the wrapper in this build's link mode, and the gallery
-# binary as a one-label app.
+# The A7 performance gate: the gallery pages through the engine directly and the wrapper in this build's link mode.
 [[test]]
 name = "abi_bench"
 path = "tests/abi_bench.rs"
+harness = false
+
+# The A7 start-up and footprint gate: the gallery binary as a one-label app, in its own target (about 29 s of the case's 60).
+[[test]]
+name = "abi_bench_start"
+path = "tests/abi_bench_start.rs"
 harness = false
 
 # The default widget bodies draw the same layer bytes as the baseline recorded before bodies existed (static link only).
