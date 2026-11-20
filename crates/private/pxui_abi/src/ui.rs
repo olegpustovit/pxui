@@ -1209,6 +1209,41 @@ mod keyboard_tests {
         assert_eq!(unsafe { super::pxui_ui_destroy(a) } | unsafe { super::pxui_ui_destroy(b) }, 0);
     }
 
+    /// The builder calls that take a box (`within`, `text`, `tip`) refuse another `Ui`'s handle and a zeroed one with the stale status,
+    /// inside a frame, and do the same call with the `Ui`'s own handle.
+    #[test]
+    fn builder_calls_refuse_another_uis_handle_as_stale() {
+        use pxui_types::PxuiBox;
+        struct Case { mine: PxuiBox, wrong: [PxuiBox; 3], checked: bool }
+        extern "C" fn declare(user: *mut core::ffi::c_void, ui: *mut core::ffi::c_void) {
+            let case = unsafe { &mut *user.cast::<Case>() };
+            let ui = ui.cast();
+            assert_eq!(unsafe { crate::pxui_ui_node_keyed(ui, 4242, &pxui_types::Node::DEFAULT, &mut case.mine) }, 0);
+            let text = pxui_types::Str { ptr: b"x".as_ptr(), len: 1 };
+            extern "C" fn nothing(_: *mut core::ffi::c_void, _: *mut core::ffi::c_void) {}
+            assert_eq!(unsafe { crate::pxui_within(ui, &case.mine, Some(nothing), core::ptr::null_mut()) }, 0);
+            assert_eq!(unsafe { crate::pxui_ui_text(ui, &case.mine, text) }, 0);
+            assert_eq!(unsafe { crate::pxui_ui_tip(ui, &case.mine, text) }, 0);
+            for bad in &case.wrong {
+                assert_eq!(unsafe { crate::pxui_within(ui, bad, Some(nothing), core::ptr::null_mut()) }, crate::PXUI_ERR_STALE, "within {bad:?}");
+                assert_eq!(unsafe { crate::pxui_ui_text(ui, bad, text) }, crate::PXUI_ERR_STALE, "text {bad:?}");
+                assert_eq!(unsafe { crate::pxui_ui_tip(ui, bad, text) }, crate::PXUI_ERR_STALE, "tip {bad:?}");
+            }
+            case.checked = true;
+        }
+        let (a, b) = (unsafe { crate::ui::create_test_ui() }, unsafe { crate::ui::create_test_ui() });
+        let mut out = FrameOut::default();
+        let input = FrameIn { width: 100.0, height: 100.0, ..FrameIn::default() };
+        let mut theirs = Case { mine: PxuiBox::default(), wrong: [PxuiBox::default(); 3], checked: false };
+        // the other Ui's box lives in `b`; a zeroed one and one with the serial cleared come from it too
+        assert_eq!(unsafe { super::pxui_frame(b, &input, Some(declare), (&mut theirs as *mut Case).cast(), &mut out) }, 0);
+        let other = theirs.mine;
+        let mut case = Case { mine: PxuiBox::default(), wrong: [other, PxuiBox::default(), PxuiBox { ui: 0, ..other }], checked: false };
+        assert_eq!(unsafe { super::pxui_frame(a, &input, Some(declare), (&mut case as *mut Case).cast(), &mut out) }, 0);
+        assert!(case.checked);
+        assert_eq!(unsafe { super::pxui_ui_destroy(a) } | unsafe { super::pxui_ui_destroy(b) }, 0);
+    }
+
     #[test]
     fn keyboard_tail_validates_before_mutation() {
         use pxui_types::{Environment, Keyboard};

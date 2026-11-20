@@ -5,7 +5,7 @@
 //! stale box, a number that is not finite). Each entry counts itself as one call into the library. A builder entry is refused outside a
 //! frame (`enter!`).
 use crate::node::declare;
-use crate::state::{get, Inner, MAX_KEY_BYTES, MAX_LABEL_BYTES, MAX_TEXT_BYTES, MAX_TOTAL_TEXT_BYTES, PxuiUi, boxed, fail, note_call, to_abi_box};
+use crate::state::{get, Inner, MAX_KEY_BYTES, MAX_LABEL_BYTES, MAX_TEXT_BYTES, MAX_TOTAL_TEXT_BYTES, PxuiUi, fail, note_call, to_abi_box};
 use crate::{PxuiBox, PxuiSignal, Str};
 use pxui_types::ffi::{PxuiResponse, PxuiTextStyle};
 use pxui_types::{text::LabelFields, TextGlyph, TextMetrics, TextSpans};
@@ -110,7 +110,8 @@ pub unsafe fn part(ui: *mut PxuiUi, part: u32, desc: &Node, out: *mut PxuiBox) -
     let key = e.own_part_key(Part(part));
     if key == 0 || key == 1 { return unsafe { fail(ui, "reserved node key; derive integer keys with int_key") }; }
     declare(e, None, key, desc, unsafe { &mut *out });
-    if let Some(b) = crate::state::core_box(e, unsafe { *out }) { e.note_part(Part(part), b) }
+    // the handle the library just wrote: its serial is this `Ui`'s by construction
+    if let Some(b) = crate::state::unconfirmed_box(unsafe { *out }) { e.note_part(Part(part), b) }
     0
 }
 
@@ -304,7 +305,10 @@ pub unsafe fn pxui_ui_theme(ui: *mut PxuiUi) -> *const ThemeSnapshot {
 #[inline]
 pub unsafe fn within(ui: *mut PxuiUi, box_: *const PxuiBox, f: Inner) -> i32 {
     enter!(ui);
-    let (e, b) = match unsafe { boxed(ui, box_) } { Ok(v) => v, Err(code) => return code };
+    if box_.is_null() { return unsafe { fail(ui, "null box") }; }
+    // the handle's `Ui` is checked, its slot is not: `within` reads the node's index and key and indexes no slot
+    let e = unsafe { engine(ui) };
+    let Some(b) = crate::state::core_box(e, unsafe { *box_ }) else { return unsafe { crate::state::fail_code(ui, "stale box", crate::PXUI_ERR_STALE) } };
     e.within(&b, f);
     0
 }

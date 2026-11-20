@@ -383,7 +383,7 @@ unsafe fn part_by_export(ui: *mut PxuiUi, part: u32, node: *const Node, out: *mu
     if !Part::valid(part) { return unsafe { fail(ui, "invalid part number") } }
     let key = unsafe { (*state.engine).own_part_key(Part(part)) };
     let rc = unsafe { crate::pxui_ui_node_keyed(ui, key, node, out) };
-    if rc == 0 { if let Some(b) = unsafe { crate::state::core_box_of(ui, *out) } { unsafe { (*state.engine).note_part(Part(part), b) } } }
+    if rc == 0 { if let Some(b) = unsafe { crate::state::unconfirmed_box(*out) } { unsafe { (*state.engine).note_part(Part(part), b) } } }
     rc
 }
 

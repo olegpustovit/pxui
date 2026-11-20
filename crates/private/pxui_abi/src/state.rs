@@ -515,8 +515,23 @@ pub(crate) fn to_abi_box(b: UiBox) -> PxuiBox { PxuiBox { index: b.index as u64,
 #[inline(always)]
 pub(crate) fn core_box(engine: &Ui, raw: PxuiBox) -> Option<UiBox> {
     if raw.ui != engine.serial() { return None; }
-    Some(UiBox { index: usize::try_from(raw.index).ok()?, box_key: raw.box_key, box_slot: usize::try_from(raw.box_slot).ok()?, generation: raw.generation, ui: raw.ui })
+    unconfirmed_box(raw)
 }
+/// The engine's handle `raw` spells, its serial not yet compared: its caller compares it, or the library itself wrote it.
+#[inline(always)]
+pub(crate) fn unconfirmed_box(raw: PxuiBox) -> Option<UiBox> {
+    #[cfg(target_pointer_width = "64")]
+    { Some(unsafe { core::mem::transmute::<PxuiBox, UiBox>(raw) }) }
+    #[cfg(not(target_pointer_width = "64"))]
+    { Some(UiBox { index: usize::try_from(raw.index).ok()?, box_key: raw.box_key, box_slot: usize::try_from(raw.box_slot).ok()?, generation: raw.generation, ui: raw.ui }) }
+}
+/// On a 64-bit target the engine's handle is `PxuiBox` byte for byte, so it crosses as one copy.
+#[cfg(target_pointer_width = "64")]
+const _: () = {
+    use core::mem::{offset_of, size_of};
+    assert!(size_of::<UiBox>() == size_of::<PxuiBox>() && offset_of!(UiBox, index) == offset_of!(PxuiBox, index) && offset_of!(UiBox, box_key) == offset_of!(PxuiBox, box_key)
+        && offset_of!(UiBox, box_slot) == offset_of!(PxuiBox, box_slot) && offset_of!(UiBox, generation) == offset_of!(PxuiBox, generation) && offset_of!(UiBox, ui) == offset_of!(PxuiBox, ui));
+};
 /// `core_box` against the engine behind `ui` (none: a handle that has none).
 pub(crate) unsafe fn core_box_of(ui: *mut PxuiUi, raw: PxuiBox) -> Option<UiBox> { core_box(unsafe { engine(ui) }?, raw) }
 /// The engine and the live box a call names, or the error code after recording why.

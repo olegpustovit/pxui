@@ -1,4 +1,4 @@
-use crate::state::{PxuiUi, Shared, checked, core_box_of, fail, get};
+use crate::state::{PxuiUi, Shared, checked, fail, get};
 use pxui_core::ui::{Ui, UiBox};
 use core::mem::{align_of, offset_of, size_of};
 use std::rc::Rc;
@@ -302,7 +302,6 @@ fn retire_gone_tracks(shared: &mut Shared, engine: &Ui) {
 export!(trusted pub unsafe fn pxui_ui_rect(ui:*mut PxuiUi,box_:*const PxuiBox,out:*mut Rect)->i32 {
     if unsafe{get(ui)}.is_none() {return crate::PXUI_ERR_ARGUMENT};
     if box_.is_null()||out.is_null(){return unsafe{fail(ui,"null rect argument")};}
-    if unsafe{core_box_of(ui,*box_)}.is_none(){return unsafe{crate::state::fail_code(ui,"stale rect box",crate::PXUI_ERR_STALE)};}
     unsafe{crate::trusted::rect(ui,&*box_,&mut *out)}
 });
 
@@ -324,7 +323,6 @@ export!(trusted pub unsafe fn pxui_ui_text(ui:*mut PxuiUi,box_:*const PxuiBox,va
     if unsafe{get(ui)}.is_none() {return crate::PXUI_ERR_ARGUMENT};
     if box_.is_null(){return unsafe{fail(ui,"null text box")};}
     let Some(value)=(unsafe{checked(value)}) else{return unsafe{fail(ui,"invalid text")};};
-    if unsafe{core_box_of(ui,*box_)}.is_none(){return unsafe{crate::state::fail_code(ui,"stale text box",crate::PXUI_ERR_STALE)};}
     unsafe{crate::trusted::text(ui,box_,value)}
 });
 

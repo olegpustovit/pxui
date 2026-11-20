@@ -1,4 +1,4 @@
-use crate::state::{MAX_TOTAL_TEXT_BYTES, PxuiUi, checked, core_box_of, fail, finite, get, strings};
+use crate::state::{MAX_TOTAL_TEXT_BYTES, PxuiUi, checked, fail, finite, get, strings};
 use crate::{PXUI_ERR_ARGUMENT, PxuiBox, Str};
 use core::{cell::Cell, ffi::c_void};
 use pxui_core::ui_text::{Menu, MenuItem, Chosen, Pick, PickerOpts, PickRows};
@@ -17,7 +17,7 @@ pub type PickerImage = Option<extern "C" fn(*mut c_void, i64, *mut pxui_types::I
 export!(trusted pub unsafe fn pxui_ui_tip(ui: *mut PxuiUi, box_: *const PxuiBox, label: Str) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if box_.is_null() { return unsafe { fail(ui, "null tooltip box") }; }
-    let (Some(label), Some(_)) = (unsafe { checked(label) }, unsafe { core_box_of(ui, *box_) }) else { return unsafe { fail(ui, "invalid tooltip arguments") }; };
+    let Some(label) = (unsafe { checked(label) }) else { return unsafe { fail(ui, "invalid tooltip arguments") }; };
     unsafe { crate::trusted::tooltip(ui, &*box_, label) }
 });
 
