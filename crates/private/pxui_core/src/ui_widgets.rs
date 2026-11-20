@@ -1047,7 +1047,10 @@ impl Ui {
         // the rows kept from the last build: this tree's, derived from these inputs
         let inputs = revision.map(|r| (r, [nodes.as_ptr() as usize, nodes.len(), open.as_ptr() as usize, open.len(), visible.as_ptr() as usize, visible.len()]));
         let same = |t: &TreeRows| (t.frame.box_slot, t.frame.generation, t.frame.box_key) == (frame.box_slot, frame.generation, frame.box_key);
-        let hit = self.tree_rows.iter().find(|t| same(t)).copied().filter(|t| Some(t.inputs) == inputs);
+        // a kept row is trusted only in bounds: a caller that broke its revision promise (wrote `visible`, or changed `nodes` under the
+        // same revision) gets its rows re-derived, never an index past the nodes (review finding 14: a trust boundary, no panic)
+        let in_bounds = |t: &TreeRows| t.cursor <= t.shown && t.shown <= visible.len() && (t.shown == 0 || visible[..t.shown].iter().fold(0u32, |m, v| m.max(*v)) < nodes.len().min(u32::MAX as usize) as u32);
+        let hit = self.tree_rows.iter().find(|t| same(t)).copied().filter(|t| Some(t.inputs) == inputs && in_bounds(t));
         let mut walked = 0u64;
         let mut flatten = |visible: &mut [u32], open: &[u8]| { walked += nodes.len() as u64; flatten_tree(nodes, open, visible) };
         let mut rows_shown = match hit { Some(t) => t.shown, None => flatten(visible, open) };

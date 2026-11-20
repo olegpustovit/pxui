@@ -104,3 +104,61 @@ export!(trusted pub unsafe fn pxui_ui_table(ui: *mut PxuiUi, keyed: *const PxuiK
     if rc == 0 && !name.is_empty() { if let Some(engine) = unsafe { crate::state::engine(ui) } { crate::trusted::name_table(engine, label, name); } }
     rc
 });
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{FrameIn, FrameOut, PxuiUiDesc, pxui_frame, pxui_last_error, pxui_ui_create, pxui_ui_destroy};
+    use core::ffi::c_void;
+
+    /// `f` run in one frame of `ui` (its return code).
+    fn in_frame(ui: *mut PxuiUi, f: &mut dyn FnMut(*mut PxuiUi) -> i32) -> i32 {
+        extern "C" fn build(user: *mut c_void, ui: *mut c_void) {
+            let (f, rc) = unsafe { &mut *user.cast::<(&mut dyn FnMut(*mut PxuiUi) -> i32, i32)>() };
+            *rc = f(ui.cast());
+        }
+        let mut state = (f, i32::MIN);
+        let mut out = FrameOut::default();
+        let input = FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() };
+        assert_eq!(unsafe { pxui_frame(ui, &input, Some(build), (&mut state as *mut (&mut dyn FnMut(*mut PxuiUi) -> i32, i32)).cast(), &mut out) }, 0);
+        state.1
+    }
+    fn error(ui: *mut PxuiUi) -> String { let e = unsafe { pxui_last_error(ui) }; String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(e.ptr, e.len) }).into_owned() }
+
+    /// Review finding 14: a kept tree is a trust boundary. A C caller's `has_revision` past 1 and non-zero `reserved` bytes are
+    /// refused before any effect; a caller that breaks its revision promise (writes `visible` past the nodes under the same revision)
+    /// gets its rows re-derived, never a panic or an error.
+    #[test]
+    fn a_kept_tree_refuses_bad_flags_and_re_derives_a_broken_promise() {
+        let ui = unsafe { pxui_ui_create(&PxuiUiDesc::default()) };
+        // ten roots, each with one child; root 0 open: 11 rows shown
+        let nodes: Vec<PxuiTreeNode> = (0..20).map(|i| PxuiTreeNode { depth: (i % 2) as u16, children: (i % 2 == 0) as u8 }).collect();
+        let (mut open, mut visible, mut selected, mut shown) = (vec![0u8; 20], vec![0u32; 20], usize::MAX, 0usize);
+        open[0] = 1;
+        let label = Str { ptr: b"tree".as_ptr(), len: 4 };
+        let call = |ui: *mut PxuiUi, has_revision: u8, reserved: [u8; 3], open: &mut [u8], visible: &mut [u32], selected: &mut usize, shown: &mut usize| {
+            let desc = PxuiTreeViewDesc { size: core::mem::size_of::<PxuiTreeViewDesc>() as u32, has_revision, reserved, label, nodes: pxui_types::ffi::Slice { ptr: nodes.as_ptr(), len: nodes.len() },
+                open: PxuiU8MutSpan { ptr: open.as_mut_ptr(), len: open.len() }, selected, visible: PxuiU32MutSpan { ptr: visible.as_mut_ptr(), len: visible.len() }, visible_len: shown,
+                build: None, user: core::ptr::null_mut(), revision: 7 };
+            let mut out = usize::MAX;
+            unsafe { pxui_ui_tree(ui, &desc, &mut out) }
+        };
+        for (has_revision, reserved) in [(2u8, [0u8; 3]), (255, [0; 3]), (1, [1, 0, 0]), (0, [0, 0, 9])] {
+            *visible.first_mut().unwrap() = 42;
+            let rc = in_frame(ui, &mut |ui| call(ui, has_revision, reserved, &mut open, &mut visible, &mut selected, &mut shown));
+            assert_eq!(rc, crate::PXUI_ERR_ARGUMENT, "has_revision {has_revision}, reserved {reserved:?}");
+            assert!(error(ui).contains("invalid tree descriptor"), "{}", error(ui));
+            assert_eq!(visible[0], 42, "a refused tree writes nothing");
+        }
+        // kept rows, then the promise broken: rows past the nodes written under the same revision
+        for frame in 0..4 {
+            if frame == 2 { visible[..11].fill(1_000_000); }
+            let rc = in_frame(ui, &mut |ui| call(ui, 1, [0; 3], &mut open, &mut visible, &mut selected, &mut shown));
+            assert_eq!(rc, 0, "frame {frame}: {}", error(ui));
+            assert_eq!(shown, 11, "frame {frame}");
+            assert_eq!(visible[..3], [0, 1, 2], "frame {frame}: the rows re-derived");
+        }
+        assert!(!unsafe { (*(*ui).shared).poisoned });
+        unsafe { pxui_ui_destroy(ui); }
+    }
+}

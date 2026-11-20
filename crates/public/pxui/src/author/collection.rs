@@ -200,7 +200,8 @@ pub struct TreeState {
     pub open: Vec<u8>,
     /// The selected node; `None` before any.
     pub selected: Option<usize>,
-    /// The shown rows' nodes in order, written by the tree: its first `TreeResponse::shown` entries. Keep it as the tree left it.
+    /// The shown rows' nodes in order, written by the tree: its first `TreeResponse::shown` entries. Keep it as the tree left it (kept
+    /// rows that no longer name a node are re-derived, never read past the nodes).
     pub visible: Vec<u32>,
     /// The content revision of the nodes and `open`, as `ListState::revision`: with `Some`, the shown rows stay in `visible` between
     /// frames while it and the tree's own expansions hold, so a frame walks only the rows in view; change it whenever the app
