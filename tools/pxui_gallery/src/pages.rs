@@ -68,6 +68,8 @@ pub struct Gallery {
     pub tree: pxui::TreeState,
     pub table: pxui::TableState,
     pub old_table: pxui::TableState,
+    /// The old-table's cell text, kept so a frame's rows format into the same storage.
+    cell: String,
     pub split: f32,
     // overlays page
     pub dialog: bool,
@@ -106,7 +108,7 @@ impl Gallery {
             hints: &[("enter", "apply"), ("esc", "close")],
             check: true, radio: 1, slider: 0.4, tab: 0, segment: 1, choice: 2, search: String::new(), adds: 0, image: None,
             list: pxui::ListState::new(), nodes: (0..ROWS).map(|i| TreeNode { depth: [0, 1, 2, 2, 1, 2][i % 6], children: matches!(i % 6, 0 | 1 | 4) as u8 }).collect(),
-            tree: pxui::TreeState { open: (0..ROWS).map(|i| (i < 6) as u8).collect(), selected: Some(2), visible: vec![0; ROWS], revision: Some(0) }, table: Gallery::points(), old_table: pxui::TableState::new(), split: 0.34,
+            tree: pxui::TreeState { open: (0..ROWS).map(|i| (i < 6) as u8).collect(), selected: Some(2), visible: vec![0; ROWS], revision: Some(0) }, table: Gallery::points(), old_table: pxui::TableState::new(), cell: String::new(), split: 0.34,
             dialog: false, menu_at: None, picker: false, said: "", bounce: false, toasts: Vec::with_capacity(8), toasted: 0, busy: Vec::with_capacity(4), readout: None,
             queue: (0..8).collect(), playlists: pxui::ListState::new(), palette: false, dropped: "",
         }
@@ -179,11 +181,11 @@ pub fn kit_page(ui: &mut Ui, s: &mut Gallery) {
     column(ui, "old-table", (332.0, 250.0), 296.0, Size::Px(200.0), &mut |ui: &mut Ui| {
         // the read-only text table of 1.x is gone (D28): the same 1,000 rows of text through `table`
         const OLD_COLUMNS: [pxui::Column; 3] = [pxui::Column::new("row").w_px(64.0), pxui::Column::new("name").share(1.0), pxui::Column::new("x").w_px(80.0)];
-        let mut cell = String::new();
-        let _ = ui.table("old-table", &OLD_COLUMNS, 1000, &|i| i as i64, &mut s.old_table, &pxui::Table::DEFAULT, &mut |ui: &mut Ui, r: usize, c: usize, _| {
+        let (cell, table) = (&mut s.cell, &mut s.old_table);
+        let _ = ui.table("old-table", &OLD_COLUMNS, 1000, &|i| i as i64, table, &pxui::Table::DEFAULT, &mut |ui: &mut Ui, r: usize, c: usize, _| {
             cell.clear();
             let _ = if c == 0 { write!(cell, "{r}") } else if c == 1 { cell.write_str(NAMES[r % NAMES.len()]) } else { write!(cell, "{:.2}", r as f64 * 0.25) };
-            ui.item_text(&cell);
+            ui.item_text(cell);
         });
     });
 }

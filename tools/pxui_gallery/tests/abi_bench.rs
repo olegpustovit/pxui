@@ -636,8 +636,26 @@ fn abi_bench_start() {
 }
 
 
+/// The iOS probe's gallery (`tools/ios_spike`): 402x874 points at 3x under the safe area, no input. From the 82nd frame it allocates nothing.
+fn warm_gallery_phone() {
+    let mut ui = pxui::Ui::new(&pxui::UiDesc::new(pxui::Platform::Apple).fonts(&[pxui::FontData(include_bytes!("../../../assets/fonts/Pragmasevka-Regular.ttf"))])).expect("pxui Ui");
+    let (mut state, environment) = (Gallery::new(), pxui::Environment { safe_area: [62.0, 0.0, 34.0, 0.0], ..pxui::Environment::default() });
+    for count in 0..100u64 {
+        let input = FrameIn::new(402.0, 874.0).scale(3.0).time(count as f64 / 60.0).environment(environment);
+        let before = allocations();
+        ui.frame(&input, &mut |ui: &mut pxui::Ui| {
+            use pxui::ui::{Edges, Node, Size};
+            let content = ui.node("iOS safe content", Node { w: Size::Grow, h: Size::Grow, padding: Edges { t: 62.0, r: 0.0, b: 34.0, l: 0.0 }, ..Node::DEFAULT });
+            ui.within(&content, &mut |ui: &mut pxui::Ui| pxui_gallery::app(ui, &mut state));
+        }).expect("frame");
+        let made = allocations() - before;
+        assert!(count < 82 || made == 0, "frame {count} allocated {made} objects");
+    }
+}
+
 fn main() {
     run::run(&[
+        ("warm_gallery_phone", warm_gallery_phone),
         ("abi_bench_pages", abi_bench_pages),
         ("abi_bench_author", abi_bench_author),
         ("abi_bench_instances", abi_bench_instances),
