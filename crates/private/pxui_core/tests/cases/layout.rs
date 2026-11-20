@@ -483,6 +483,40 @@ pub fn layout_grid_list_resize_settles() {
     ui.destroy();
 }
 
+fn layout_section_list_keeps_fitting_rows_on_resize() {
+    let mut ui = new_ui(None);
+    let height = std::cell::Cell::new(100.0);
+    let builds = std::cell::Cell::new(0);
+    let mut build = |ui: &mut Ui| {
+        let bounds = ui.node("bounds".into(), Node::DEFAULT.w_px(60.0).h_px(height.get()));
+        ui.within(&bounds, &mut |ui| {
+            let section = pxui_types::ui::SectionList::new(4).row_h(20.0);
+            ui.section_list("rows", &section, None, false, &mut |ui, i, _| {
+                if i < 4 { builds.set(builds.get() + 1); }
+                ui.node("row".into(), Node::DEFAULT.w(Size::Grow).h(Size::Grow));
+            });
+        });
+        vec![]
+    };
+    lay(&mut ui, 0.0, vec![], &mut build);
+    let before = builds.get();
+    height.set(120.0);
+    lay(&mut ui, 0.1, vec![], &mut build);
+    assert_eq!(builds.get() - before, 4, "all rows still fit: one build");
+    // fewer rows fit: the visible range changes, so the frame builds again (the last row leaves, the rest stay built)
+    height.set(50.0);
+    let before = builds.get();
+    lay(&mut ui, 0.2, vec![], &mut build);
+    assert!(builds.get() - before > 4, "rows that no longer fit rebuild the list: {}", builds.get() - before);
+    height.set(400.0);
+    lay(&mut ui, 0.3, vec![], &mut build);
+    let before = builds.get();
+    height.set(1000.0);
+    lay(&mut ui, 0.4, vec![], &mut build);
+    assert_eq!(builds.get() - before, 4);
+    ui.destroy();
+}
+
 fn layout_grid_keeps_fitting_cells_on_resize() {
     for sideways in [false, true] {
         let mut ui = new_ui(None);
@@ -1064,6 +1098,7 @@ pub const CASES: &[(&str, fn())] = &[
     ("layout_list_measured", layout_list_measured),
     ("layout_grid_list_resize_settles", layout_grid_list_resize_settles),
     ("layout_grid_keeps_fitting_cells_on_resize", layout_grid_keeps_fitting_cells_on_resize),
+    ("layout_section_list_keeps_fitting_rows_on_resize", layout_section_list_keeps_fitting_rows_on_resize),
     ("layout_grid_many_rows", layout_grid_many_rows),
     ("layout_grow_many_frozen", layout_grow_many_frozen),
     ("layout_stress_zero_alloc", layout_stress_zero_alloc),

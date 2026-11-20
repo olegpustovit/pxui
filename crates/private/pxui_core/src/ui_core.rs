@@ -7782,7 +7782,9 @@ impl Ui {
         let seen=self.slots[body.box_slot].rh;
         // a list never laid out guesses the window's height; one laid out to no height stays so (no rebuild every frame)
         let height=if seen>0.0 || self.slots[body.box_slot].rw>0.0 {seen} else {self.view_h};
-        self.expect(body.box_slot,f32::NAN,height);
+        // rows that all fit at rest keep fitting while the room still holds them (the grid's exemption, one column wide)
+        let grid=(height-padding.t-padding.b>=total).then_some(GridFit{extent:total,across:f32::INFINITY,per:1,padding,sideways:false});
+        self.record_size(ExpectedSize{slot:body.box_slot,w:f32::NAN,h:height,grid});
         self.set_l_h(&body,height);
         self.set_l_content(&body,total+padding.t+padding.b);
         if let Some(time)=self.input_frame_time() {self.apply_scroll(true,time,body.index);}
