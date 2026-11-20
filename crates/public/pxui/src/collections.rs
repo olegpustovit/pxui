@@ -232,7 +232,7 @@ impl Ui {
         let drop_look = pxui_types::ffi::PxuiLookDesc::default();
         #[cfg(not(feature = "static"))]
         let drop_look = crate::node::look(list.drop_look.unwrap_or(crate::theme::Look::NONE));
-        let desc = PxuiSelectionListDesc { size: core::mem::size_of::<PxuiSelectionListDesc>() as u32, multi: list.multi as u8, fit: list.fit as u8, open_on_click: list.open_on_click as u8,
+        let desc = PxuiSelectionListDesc { size: core::mem::size_of::<PxuiSelectionListDesc>() as u32, mode: list.mode as u8, fit: list.fit as u8, open_on_click: list.open_on_click as u8,
             overlay_scrollbar: list.overlay_scrollbar as u8, measured: list.measured as u8, reorder: list.reorder as u8, has_drop_look: list.drop_look.is_some() as u8, bare: list.bare as u8, has_revision: state.revision.is_some() as u8, reserved: [0; 3], count, row_height: list.row_height, leading_height: list.leading_height,
             header_height: list.header_height, trailing_height: list.trailing_height, rows: PxuiU8MutSpan { ptr: state.rows.as_mut_ptr(), len: count }, anchor: state.anchor.unwrap_or(usize::MAX),
             drop_look, revision: state.revision.unwrap_or(0) };
@@ -443,7 +443,7 @@ mod tests {
             ui.frame(&input, &mut |ui: &mut Ui| {
                 ui.view_of("page", &count, |ui: &mut Ui| {
                     let ratio = ui.split("split", 0.34, &crate::Split::DEFAULT.min_a(120.0).min_b(200.0), &mut |ui: &mut Ui| {
-                        let _ = ui.selection_list("files", ROWS, &|i| i as i64, &mut list, &crate::SelectionList::DEFAULT.multi(), &mut |ui, part, _| if let crate::ui::SectionPart::Row(i) = part { texts.set(texts.get() + 1); ui.item_text(&format!("file {i}")); });
+                        let _ = ui.selection_list("files", ROWS, &|i| i as i64, &mut list, &crate::SelectionList::DEFAULT.mode(crate::SelectMode::Multi), &mut |ui, part, _| if let crate::ui::SectionPart::Row(i) = part { texts.set(texts.get() + 1); ui.item_text(&format!("file {i}")); });
                     }, &mut |ui: &mut Ui| {
                         shown = ui.tree("outline", &nodes, &mut tree, &mut |ui, i| { texts.set(texts.get() + 1); ui.item_text(&format!("node {i}")); }).shown;
                         let _ = ui.table("points", &COLUMNS, ROWS, &|i| i as i64, &mut table, &crate::Table::DEFAULT, &mut |ui, r, c, _| { cells.set(cells.get() + 1); ui.item_text(&format!("{r}:{c}")); });

@@ -10,7 +10,7 @@ use crate::ui_kit::Response;
 use crate::ui_widgets::{clamp_step, default_row, default_table_head, ITEM_LIST, ITEM_TABLE, ROW_FLAGS};
 use input::{Event, Key, Platform};
 use pxui_types::ffi::PxuiColumnWidth;
-use pxui_types::ui::{SectionList, SelectionList};
+use pxui_types::ui::{SectionList, SelectMode, SelectionList};
 
 /// A row flag the widget writes: the row is selected.
 pub const SELECTED: u8 = 1;
@@ -113,8 +113,10 @@ pub(crate) fn moved_index(k: usize, (from, to): (usize, usize)) -> usize {
 /// The frame's keys on a focused list: the keyboard row before and after, Enter, the row whose selection a key changed and, in a
 /// reorderable list, the keyboard row's move (Alt with Up or Down). Escape clears a multi-selection (not while a row is lifted, whose
 /// drag spends it; a plain held press leaves it to the selection; a carry's `cancel_carry` spends it before). The keys it handles are taken from the app's `key_pressed`.
+/// In `SelectMode::None` keys move the keyboard's row and select nothing, and Enter activates that row whatever its state.
 #[allow(clippy::type_complexity)]
-fn key_selection(this: &Ui, frame: &Handle, count: usize, page: i64, flags: &mut [u8], anchor: &mut Option<usize>, multi: bool, reorder: bool) -> (usize, usize, bool, Option<usize>, Option<(usize, usize)>) {
+fn key_selection(this: &Ui, frame: &Handle, count: usize, page: i64, flags: &mut [u8], anchor: &mut Option<usize>, mode: SelectMode, reorder: bool) -> (usize, usize, bool, Option<usize>, Option<(usize, usize)>) {
+    let (multi, selects) = (matches!(mode, SelectMode::Multi | SelectMode::Toggle), mode != SelectMode::None);
     let mut cursor = (this.state(frame, 0).max(0) as usize).min(count.saturating_sub(1));
     // a selection the app wrote (its anchor selected, the keyboard's row not) brings the keyboard's row to the anchor
     if let Some(a) = *anchor && a < count && flags[a] & SELECTED != 0 && flags[cursor] & SELECTED == 0 { cursor = a; }
@@ -142,7 +144,7 @@ fn key_selection(this: &Ui, frame: &Handle, count: usize, page: i64, flags: &mut
             Key::Home if !command => Some(0),
             Key::End if !command => Some(count.saturating_sub(1)),
             Key::Enter if !command => { enter = true; None }
-            Key::Space | Key::KeyChar(' ') if space_selects && !command => { space = true; None }
+            Key::Space | Key::KeyChar(' ') if space_selects && selects && !command => { space = true; None }
             Key::KeyChar('a' | 'A') if multi && command => { all = true; None }
             Key::Escape if multi && !command && !this.reordering() && flags.iter().any(|f| *f & SELECTED != 0) => { clear = true; None }
             _ => continue,
@@ -150,6 +152,7 @@ fn key_selection(this: &Ui, frame: &Handle, count: usize, page: i64, flags: &mut
         this.take_key(*key);
         if let Some(to) = to.filter(|_| count > 0).and_then(|to| enabled_toward(flags, to, if to < c { -1 } else { 1 })) {
             c = to;
+            if !selects { continue; }
             if multi && mods.contains(&Key::Shift) {
                 select_range(flags, anchor.unwrap_or(cursor).min(count - 1), c);
             } else {
@@ -173,8 +176,10 @@ fn key_selection(this: &Ui, frame: &Handle, count: usize, page: i64, flags: &mut
         for f in flags.iter_mut() { if *f & DISABLED == 0 { *f |= SELECTED; } }
         changed = Some(c);
     }
-    // Enter activates the keyboard's row only while it is selected (a list with no selection activates nothing)
-    (cursor, c, enter && count > 0 && flags[c] & (DISABLED | SELECTED) == SELECTED, changed, moved)
+    // Enter activates the keyboard's row only while it is selected (a list with no selection activates nothing); a list that
+    // selects nothing activates it whatever its state
+    let ready = if selects { flags.get(c).is_some_and(|f| f & (DISABLED | SELECTED) == SELECTED) } else { flags.get(c).is_some_and(|f| f & DISABLED == 0) };
+    (cursor, c, enter && ready, changed, moved)
 }
 
 /// The rows' shared state while a list or table builds.
@@ -185,7 +190,7 @@ struct Rows {
     drop_look: Option<Look>,
     /// a click changed the selection after rows before it were built from the old one
     late: bool,
-    multi: bool,
+    mode: SelectMode,
     open_on_click: bool,
     focused: bool,
     c: usize,
@@ -266,28 +271,29 @@ fn row_in(ui: &mut Ui, r: &mut Rows, flags: &mut [u8], anchor: &mut Option<usize
     if enabled {
         if s.clicked {
             let (shift, command) = ui.press_mods(&n);
-            if r.multi && command {
+            let multi = matches!(r.mode, SelectMode::Multi | SelectMode::Toggle);
+            if multi && (command || r.mode == SelectMode::Toggle && !shift) {
                 flags[i] ^= SELECTED;
                 *anchor = Some(i);
-            } else if r.multi && shift {
+            } else if multi && shift {
                 select_range(flags, anchor.unwrap_or(r.c).min(flags.len() - 1), i);
             } else {
-                select_alone(flags, i);
-                *anchor = Some(i);
+                if r.mode != SelectMode::None { select_alone(flags, i); *anchor = Some(i); }
                 if r.open_on_click { r.out.activated = Some(i); r.out.row = Some(n); }
             }
             r.c = i;
-            r.out.selected = Some(i);
+            if r.mode != SelectMode::None { r.out.selected = Some(i); }
             r.late = true;
         }
-        if s.double_clicked { r.out.activated = Some(i); r.out.row = Some(n); }
+        // a toggling list's quick second tap toggles again, it does not activate
+        if s.double_clicked && r.mode != SelectMode::Toggle { r.out.activated = Some(i); r.out.row = Some(n); }
         if s.pressed && s.button == Some(input::MouseButton::RightButton) { r.out.secondary = Some(i); r.out.row = Some(n); }
     }
     let on = flags[i] & SELECTED != 0;
     let focused = r.focused && i == r.c;
     let state = State { hovered: s.hovered && enabled, pressed: s.held && enabled, checked: on, focused, disabled: !enabled };
     ui.style(&n, &r.states, state);
-    ui.set_role(&n, r.role, st::SELECTABLE | if on { st::SELECTED } else { 0 });
+    ui.set_role(&n, r.role, if r.mode == SelectMode::None { 0 } else { st::SELECTABLE } | if on { st::SELECTED } else { 0 });
     ui.node_new(&n).state.disabled = !enabled;
     ui.set_movable(&n, r.reorder);
     if r.reorder && r.moved.is_none() {
@@ -457,9 +463,9 @@ impl Ui {
         let frame = self.node_ref(label, &Node { flags: Flags::FOCUSABLE | Flags::CLIP, w: Size::Grow, h: if list.fit { Size::Fit } else { Size::Grow }, look, padding, ..Node::DEFAULT });
         let focused = self.focused(&frame);
         let page = (self.rect(&frame).h / list.row_height).floor().max(1.0) as i64;
-        let (cursor, c, enter, changed, key_moved) = key_selection(self, &frame, count, page, flags, anchor, list.multi, list.reorder);
+        let (cursor, c, enter, changed, key_moved) = key_selection(self, &frame, count, page, flags, anchor, list.mode, list.reorder);
         self.list_drop = None;
-        let mut rows = Rows { reorder: list.reorder, drop_look: list.drop_look, late: false, multi: list.multi, open_on_click: list.open_on_click, focused, c, moved: None, out: ListResult { selected: changed, activated: enter.then_some(c), ..ListResult::default() }, kind: ITEM_LIST, role: Role::ListItem, inset: self.space(2), side: self.space(2), gap: 4.0, states: self.theme().listbox, line: list.drop_look.unwrap_or(Look { fill: self.theme().tokens.accent, ..Look::NONE }),
+        let mut rows = Rows { reorder: list.reorder, drop_look: list.drop_look, late: false, mode: list.mode, open_on_click: list.open_on_click, focused, c, moved: None, out: ListResult { selected: changed, activated: enter.then_some(c), ..ListResult::default() }, kind: ITEM_LIST, role: Role::ListItem, inset: self.space(2), side: self.space(2), gap: 4.0, states: self.theme().listbox, line: list.drop_look.unwrap_or(Look { fill: self.theme().tokens.accent, ..Look::NONE }),
             revision: revision.map(|v| mix(v, u64::from(self.bodies.variant))) };
         // the rows take drops themselves (their body draws the line), so the section draws none
         let section = SectionList { count, row_height: list.row_height, leading_height: list.leading_height, header_height: list.header_height, trailing_height: list.trailing_height, overlay_scrollbar: list.overlay_scrollbar, measured: list.measured, reorder: false };
@@ -480,7 +486,7 @@ impl Ui {
         let dragged = if list.fit { None } else { self.list_moved() };
         self.leave(saved);
         if !list.fit { let bar = self.thumb(); self.node_mut(&body).bar = Some(bar).into(); }
-        self.set_role(&body, Role::List, if list.multi { st::SELECTABLE } else { 0 });
+        self.set_role(&body, Role::List, if matches!(list.mode, SelectMode::Multi | SelectMode::Toggle) { st::SELECTABLE } else { 0 });
         self.a11y_name(&body, shown(label));
         let (mut c, mut out) = (rows.c, rows.out);
         out.drop_at = self.list_drop.filter(|d| d.1).map(|d| d.0);
@@ -515,7 +521,8 @@ impl Ui {
         let frame = self.node_ref(label, &Node { flags: Flags::FOCUSABLE | Flags::SCROLL_X | Flags::CLIP, w: Size::Grow, h: Size::Grow, look: frame_look, bar: Some(bar).into(), padding: Edges::all(1.0), role: Role::Table, ..Node::DEFAULT });
         let focused = self.focused(&frame);
         let page = (self.rect(&frame).h / row_h - 1.0).floor().max(1.0) as i64;
-        let (cursor, c, enter, changed, _) = key_selection(self, &frame, count, page, flags, anchor, multi, false);
+        let mode = if multi { SelectMode::Multi } else { SelectMode::Single };
+        let (cursor, c, enter, changed, _) = key_selection(self, &frame, count, page, flags, anchor, mode, false);
         let avail = self.rect(&frame).w - 2.0;
         if columns.iter().any(|c| c.share > 0.0) { self.expect(frame.box_slot, avail + 2.0, f32::NAN); }
         lay_columns(columns, widths, avail);
@@ -532,7 +539,7 @@ impl Ui {
         let widths = &*widths;
         // a kept row's cells are as wide as their columns were: a resized column rebuilds the rows
         let revision = revision.map(|v| widths.iter().fold(mix(v, u64::from(self.bodies.variant)), |h, w| mix(h, u64::from(w.w.to_bits()))));
-        let mut rows = Rows { reorder: false, drop_look: None, late: false, multi, open_on_click: false, focused, c, moved: None, out: ListResult { selected: changed, activated: enter.then_some(c), ..ListResult::default() }, kind: ITEM_TABLE, role: Role::Row, inset: 0.0, side: self.space(2), gap: 1.0, states: self.theme().listbox, line: Look { fill: self.theme().tokens.accent, ..Look::NONE }, revision };
+        let mut rows = Rows { reorder: false, drop_look: None, late: false, mode, open_on_click: false, focused, c, moved: None, out: ListResult { selected: changed, activated: enter.then_some(c), ..ListResult::default() }, kind: ITEM_TABLE, role: Role::Row, inset: 0.0, side: self.space(2), gap: 1.0, states: self.theme().listbox, line: Look { fill: self.theme().tokens.accent, ..Look::NONE }, revision };
         let mut cells = |ui: &mut Ui, row: usize, info: &ListCell| {
             let n = info.handle;
             for (col, (spec, w)) in columns.iter().zip(widths).enumerate() {

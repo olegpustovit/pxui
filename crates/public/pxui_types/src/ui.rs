@@ -115,13 +115,31 @@ impl SectionList {
     pub const fn reorder(mut self, on: bool) -> SectionList { self.reorder = on; self }
 }
 
+/// What a press and the keys do to a `Ui::selection_list`'s selection (`SelectionList::mode`; C `PxuiSelectionListDesc.mode`, the
+/// discriminant). Every mode activates a row on Enter (the keyboard's row, while selected; in `None` whatever its state), on a double
+/// click (not in `Toggle`) and, with `open_on_click`, on a plain click (not in `Toggle`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum SelectMode {
+    /// A click or a key selects one row alone.
+    Single = 0,
+    /// Command (Ctrl) toggles a row and Shift selects a run; a plain click selects a row alone; Command-A selects every row and
+    /// Escape clears the selection (Space toggles the keyboard's row off Apple).
+    Multi = 1,
+    /// As `Multi`, but a plain click toggles its row (a checklist's select mode, as a phone's edit mode).
+    Toggle = 2,
+    /// Rows activate and nothing is selected: presses and keys move the keyboard's row only (a flag the app writes still shows);
+    /// Command-A, Escape and Space stay the app's.
+    None = 3,
+}
+
 /// How `Ui::selection_list` varies the kit's selectable list, as a `Copy` value built with `const fn` builders from
-/// `SelectionList::DEFAULT`: one or many rows selected, the `SectionList` geometry (row height, lead-in, sticky heading, trailer,
+/// `SelectionList::DEFAULT`: how rows are selected (`SelectMode`), the `SectionList` geometry (row height, lead-in, sticky heading, trailer,
 /// measured rows, overlay scrollbar), reordering and the `selection_list` body variant. The row count is the call's runtime parameter.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SelectionList {
-    /// Command (Ctrl) toggles a row and Shift selects a run; without, a click selects a row alone.
-    pub multi: bool,
+    /// What presses and keys do to the selection.
+    pub mode: SelectMode,
     /// Height of each row in points (its estimate until built when `measured`).
     pub row_height: f32,
     /// Height in points of the lead-in that scrolls above the heading (`SectionPart::Leading`).
@@ -151,18 +169,19 @@ pub struct SelectionList {
 }
 
 impl SelectionList {
-    /// One row selected at a time, 24-point fixed rows, no lead-in, heading or trailer, not reorderable, the theme's row body.
-    pub const DEFAULT: SelectionList = SelectionList { multi: false, row_height: 24.0, leading_height: 0.0, header_height: 0.0, trailing_height: 0.0, overlay_scrollbar: false, measured: false, reorder: false, variant: 0, fit: false, open_on_click: false, drop_look: None, bare: false };
+    /// One row selected at a time (`SelectMode::Single`), 24-point fixed rows, no lead-in, heading or trailer, not reorderable, the theme's row body.
+    pub const DEFAULT: SelectionList = SelectionList { mode: SelectMode::Single, row_height: 24.0, leading_height: 0.0, header_height: 0.0, trailing_height: 0.0, overlay_scrollbar: false, measured: false, reorder: false, variant: 0, fit: false, open_on_click: false, drop_look: None, bare: false };
 
-    /// Lets Command (Ctrl) toggle a row and Shift select a run (Space toggles the keyboard's row).
+    /// Sets what presses and keys do to the selection (`SelectMode`; `Single` by default).
     /// Allocates: never.
     /// Panics: never.
     ///
     /// ```
-    /// const FILES: pxui_types::ui::SelectionList = pxui_types::ui::SelectionList::DEFAULT.multi();
-    /// assert!(FILES.multi);
+    /// use pxui_types::ui::{SelectMode, SelectionList};
+    /// const FILES: SelectionList = SelectionList::DEFAULT.mode(SelectMode::Multi);
+    /// assert_eq!(FILES.mode, SelectMode::Multi);
     /// ```
-    pub const fn multi(mut self) -> SelectionList { self.multi = true; self }
+    pub const fn mode(mut self, mode: SelectMode) -> SelectionList { self.mode = mode; self }
 
     /// Sets each row's height in points (positive and finite; the estimate until built when `measured`).
     /// Allocates: never.

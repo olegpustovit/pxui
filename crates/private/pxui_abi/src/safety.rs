@@ -665,7 +665,7 @@ fn selection_list_table_and_heading_refuse_invalid_records_before_effects() {
         assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_selection_list(ui, &keyed, &d, None, Some(cell), user, &mut out) }), PXUI_ERR_ARGUMENT, "{why}");
         assert_eq!(out.selected, 7, "{why}: no result written");
     };
-    refuse_list(PxuiSelectionListDesc { multi: 2, ..list }, "multi not 0 or 1");
+    refuse_list(PxuiSelectionListDesc { mode: 4, ..list }, "mode above 3");
     refuse_list(PxuiSelectionListDesc { fit: 2, ..list }, "fit not 0 or 1");
     refuse_list(PxuiSelectionListDesc { open_on_click: 2, ..list }, "open_on_click not 0 or 1");
     refuse_list(PxuiSelectionListDesc { bare: 2, ..list }, "a bare flag past 1");

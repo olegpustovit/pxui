@@ -246,7 +246,7 @@ pub fn collections_page(ui: &mut Ui, s: &mut Gallery) {
     ui.within(&pad, &mut |ui: &mut Ui| {
         let ratio = s.split;
         if let Some(r) = ui.split("split", ratio, &pxui::Split::DEFAULT.min_a(120.0).min_b(200.0), &mut |ui: &mut Ui| {
-            let _ = ui.selection_list("files", ROWS, &|i| i as i64, &mut s.list, &pxui::SelectionList::DEFAULT.multi(), &mut |ui: &mut Ui, part, _| if let pxui_types::ui::SectionPart::Row(i) = part { names(i, &mut |t| ui.item_text(t)) });
+            let _ = ui.selection_list("files", ROWS, &|i| i as i64, &mut s.list, &pxui::SelectionList::DEFAULT.mode(pxui::SelectMode::Multi), &mut |ui: &mut Ui, part, _| if let pxui_types::ui::SectionPart::Row(i) = part { names(i, &mut |t| ui.item_text(t)) });
         }, &mut |ui: &mut Ui| {
             let half = node(ui, "right", Node { w: Size::Grow, h: Size::Grow, padding: Edges { l: 8.0, ..Edges::ZERO }, gap: 8.0, ..Node::DEFAULT });
             ui.within(&half, &mut |ui: &mut Ui| {

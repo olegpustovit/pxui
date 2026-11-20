@@ -234,7 +234,7 @@ impl Table {
     /// One row selected at a time, 24-point rows, the default heading, the theme's row body.
     pub const DEFAULT: Table = Table { multi: false, row_h: 24.0, head: TableHead::DEFAULT, variant: 0 };
 
-    /// Lets Command (Ctrl) toggle a row and Shift select a run, as `SelectionList::multi`.
+    /// Lets Command (Ctrl) toggle a row and Shift select a run, as `SelectMode::Multi`.
     /// Allocates: never.
     /// Panics: never.
     ///
@@ -415,8 +415,9 @@ impl Ui {
     /// inside the row node the `selection_list` body shapes (`item_text` for the kit's text row; any widgets otherwise), told the row's
     /// `CellState` (selected, enabled, focused, its box, its content Y).
     ///
-    /// Selection lives in the widget and the app-owned `state`: a click selects a row alone and sets the anchor; with
-    /// `SelectionList::multi` Command (Ctrl) toggles one and Shift selects the run from the anchor; arrows, Page keys, Home and End move
+    /// Selection lives in the widget and the app-owned `state`: a click selects a row alone and sets the anchor; in
+    /// `SelectMode::Multi` Command (Ctrl) toggles one and Shift selects the run from the anchor (in `SelectMode::Toggle` a plain click
+    /// also toggles; in `SelectMode::None` nothing is selected, see `SelectMode`); arrows, Page keys, Home and End move
     /// the keyboard's row (Shift extending), Space toggles it (not on Apple, where Space stays the app's as in NSTableView), Command-A
     /// selects every enabled row, Escape clears the selection (U2b.4.25); a focused list takes these keys, so `Ui::key_pressed` no
     /// longer reports them (Command chords other than Command-A stay the app's). A selection the app writes brings the keyboard's
@@ -433,10 +434,10 @@ impl Ui {
     /// rows), or when `cell` or `row_key` panics. A key over 256 bytes panics (a programmer error). Display text past 64 KiB is clipped at a character boundary, never refused.
     ///
     /// ```
-    /// use pxui::{ListState, SelectionList, ui::SectionPart};
+    /// use pxui::{ListState, SelectMode, SelectionList, ui::SectionPart};
     /// let mut state = ListState::new();
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let r = ui.selection_list("files", 3, &|i| i as i64, &mut state, &SelectionList::DEFAULT.multi(), &mut |ui, part, _cell| {
+    ///     let r = ui.selection_list("files", 3, &|i| i as i64, &mut state, &SelectionList::DEFAULT.mode(SelectMode::Multi), &mut |ui, part, _cell| {
     ///         if let SectionPart::Row(row) = part { ui.item_text(["a", "b", "c"][row]) }
     ///     });
     ///     assert_eq!(r.activated, None);
@@ -530,7 +531,7 @@ impl Ui {
 mod tests {
     use crate::bodies::{SelectionListConfig, TableHeadConfig, TableRowConfig, TreeConfig};
     use crate::ui::{Node, Role, SectionList, SectionPart, Size};
-    use crate::{testing, CellState, Column, Event, FrameIn, KeyCode, ListResponse, ListState, SelectionList, Sort, Table, TableHead, TableState, TreeNode, Ui};
+    use crate::{testing, CellState, Column, Event, FrameIn, KeyCode, ListResponse, ListState, SelectMode, SelectionList, Sort, Table, TableHead, TableState, TreeNode, Ui};
     use std::cell::{Cell, RefCell};
     use crate::bodies::BodyConfig;
     use pxui_types::a11y::state;
@@ -663,7 +664,7 @@ mod tests {
         let mut build = |ui: &mut Ui| {
             let mut s = state.borrow_mut();
             s.revision = Some(revision.get());
-            let r = ui.selection_list("rows", 100, &|i| i as i64, &mut s, &SelectionList::DEFAULT.row_h(20.0).multi(), &mut |ui, part, _| if let SectionPart::Row(i) = part {
+            let r = ui.selection_list("rows", 100, &|i| i as i64, &mut s, &SelectionList::DEFAULT.row_h(20.0).mode(SelectMode::Multi), &mut |ui, part, _| if let SectionPart::Row(i) = part {
                 built.borrow_mut().push(i);
                 ui.item_text(NAMES[i % 10]);
             });
@@ -741,7 +742,7 @@ mod tests {
                 ui.column(Node::column().w(Size::Grow).h_px(120.0), |ui| {
                     let mut s = state.borrow_mut();
                     s.revision = kept.then_some(7);
-                    ui.selection_list("rows", 30, &|i| i as i64, &mut s, &SelectionList::DEFAULT.row_h(20.0).multi(), &mut |ui, part, _| if let SectionPart::Row(i) = part { ui.item_text(NAMES[i % 10]) });
+                    ui.selection_list("rows", 30, &|i| i as i64, &mut s, &SelectionList::DEFAULT.row_h(20.0).mode(SelectMode::Multi), &mut |ui, part, _| if let SectionPart::Row(i) = part { ui.item_text(NAMES[i % 10]) });
                 });
                 ui.column(Node::column().w(Size::Grow).h(Size::Grow), |ui| {
                     let mut t = table.borrow_mut();
@@ -789,7 +790,7 @@ mod tests {
             let mut build = |ui: &mut Ui| {
                 let mut s = state.borrow_mut();
                 s.revision = kept.then_some(1);
-                let r = ui.selection_list("rows", 1000, &|i| i as i64, &mut s, &SelectionList::DEFAULT.row_h(20.0).multi().reorder(reorder), &mut |ui, part, _| if let SectionPart::Row(i) = part {
+                let r = ui.selection_list("rows", 1000, &|i| i as i64, &mut s, &SelectionList::DEFAULT.row_h(20.0).mode(SelectMode::Multi).reorder(reorder), &mut |ui, part, _| if let SectionPart::Row(i) = part {
                     built.borrow_mut().push(i);
                     ui.item_text(NAMES[i % 10]);
                 });
@@ -994,7 +995,7 @@ mod tests {
     fn selection_list_selects_with_the_mouse_and_the_keyboard() {
         let state = RefCell::new(ListState::new());
         let last: Cell<ListResponse> = Cell::new(ListResponse::default());
-        let mut build = |ui: &mut Ui| { keep(&last, ui.selection_list("files", 6, &|i| i as i64 * 7, &mut state.borrow_mut(), &SelectionList::DEFAULT.multi(), &mut |ui, part, _| if let SectionPart::Row(row) = part { ui.item_text(["a", "b", "c", "d", "e", "f"][row]) })); };
+        let mut build = |ui: &mut Ui| { keep(&last, ui.selection_list("files", 6, &|i| i as i64 * 7, &mut state.borrow_mut(), &SelectionList::DEFAULT.mode(SelectMode::Multi), &mut |ui, part, _| if let SectionPart::Row(row) = part { ui.item_text(["a", "b", "c", "d", "e", "f"][row]) })); };
         let mut ui = crate::doc::frames(2, &mut build);
         let rows = items(&ui, Role::ListItem);
         assert_eq!(rows.len(), 6);
@@ -1088,7 +1089,7 @@ mod tests {
         let state = RefCell::new(ListState::new());
         let last = Cell::new(ListResponse::default());
         let mut build = |ui: &mut Ui| {
-            let r = ui.selection_list("files", 3, &|i| i as i64, &mut state.borrow_mut(), &SelectionList::DEFAULT.multi(), &mut |ui, part, _| if let SectionPart::Row(row) = part { ui.item_text(["a", "b", "c"][row]) });
+            let r = ui.selection_list("files", 3, &|i| i as i64, &mut state.borrow_mut(), &SelectionList::DEFAULT.mode(SelectMode::Multi), &mut |ui, part, _| if let SectionPart::Row(row) = part { ui.item_text(["a", "b", "c"][row]) });
             ui.focus_default(&r.handle);
             last.set(r);
         };
@@ -1106,6 +1107,56 @@ mod tests {
         assert_eq!(on(&state.borrow()), vec![1], "arrows go on from there");
     }
 
+    /// `SelectMode::Toggle`: a plain click toggles its row (a quick second click toggles back and activates nothing, `open_on_click`
+    /// neither), Shift selects a run, Command-A and Escape as `Multi`. `SelectMode::None`: clicks and keys select nothing and rows are
+    /// not selectable; `open_on_click` and a double click activate the pressed row, Enter the keyboard's (U2b.4.33, the exception to
+    /// U2b.4.26), and Command-A and Escape stay the app's; in both link modes.
+    #[test]
+    fn a_toggle_list_toggles_on_a_plain_click_and_a_none_list_selects_nothing() {
+        let state = RefCell::new(ListState::new());
+        let (mode, last, keys) = (Cell::new(SelectMode::Toggle), Cell::new(ListResponse::default()), Cell::new((false, false)));
+        let mut build = |ui: &mut Ui| {
+            let r = ui.selection_list("files", 3, &|i| i as i64, &mut state.borrow_mut(), &SelectionList::DEFAULT.mode(mode.get()).open_on_click(true), &mut |ui, part, _| if let SectionPart::Row(row) = part { ui.item_text(["a", "b", "c"][row]) });
+            ui.focus_default(&r.handle);
+            keep(&last, r);
+            keys.set((ui.key_pressed(KeyCode::Char('a'), crate::Mods::META), ui.key_pressed(KeyCode::Escape, crate::Mods::ANY)));
+        };
+        let mut ui = crate::doc::frames(2, &mut build);
+        let rows: Vec<_> = items(&ui, Role::ListItem).iter().map(|n| n.rect).collect();
+        click_at(&mut ui, 1.0, rows[0], &[], false, &mut build);
+        click_at(&mut ui, 2.0, rows[2], &[], false, &mut build);
+        assert_eq!((on(&state.borrow()), last.get().selected, last.get().activated), (vec![0, 2], Some(2), None), "plain clicks toggle and do not activate");
+        click_at(&mut ui, 2.2, rows[2], &[], false, &mut build);
+        assert_eq!((on(&state.borrow()), last.get().activated), (vec![0], None), "a quick second click toggles back, no activation");
+        click_at(&mut ui, 3.0, rows[0], &[KeyCode::Shift], false, &mut build);
+        assert_eq!(on(&state.borrow()), vec![0, 1, 2], "Shift selects the run from the anchor (the row last toggled)");
+        press(&mut ui, 4.0, KeyCode::Escape, &[], &mut build);
+        assert_eq!((on(&state.borrow()), keys.get().1), (vec![], false), "Escape clears, as Multi");
+        press(&mut ui, 5.0, KeyCode::Char('a'), &[KeyCode::Meta], &mut build);
+        assert_eq!((on(&state.borrow()), keys.get().0), (vec![0, 1, 2], false), "Command-A selects every row, as Multi");
+
+        mode.set(SelectMode::None);
+        *state.borrow_mut() = ListState::new();
+        last.set(ListResponse::default());
+        at(&mut ui, 6.0, &[], &mut build);
+        assert!(items(&ui, Role::ListItem).iter().all(|r| r.states & (state::SELECTABLE | state::SELECTED) == 0), "rows are not selectable");
+        click_at(&mut ui, 7.0, rows[1], &[], false, &mut build);
+        assert_eq!((on(&state.borrow()), last.get().activated, last.get().selected), (vec![], Some(1), None), "a click activates and selects nothing");
+        last.set(ListResponse::default());
+        click_at(&mut ui, 9.0, rows[2], &[], false, &mut build);
+        click_at(&mut ui, 9.2, rows[2], &[], false, &mut build);
+        assert_eq!((on(&state.borrow()), last.get().activated), (vec![], Some(2)), "a double click activates");
+        last.set(ListResponse::default());
+        press(&mut ui, 10.0, KeyCode::ArrowUp, &[], &mut build);
+        press(&mut ui, 11.0, KeyCode::Enter, &[], &mut build);
+        assert_eq!((on(&state.borrow()), last.get().activated), (vec![], Some(1)), "Enter activates the keyboard's row, selecting nothing");
+        press(&mut ui, 12.0, KeyCode::Char('a'), &[KeyCode::Meta], &mut build);
+        assert_eq!((on(&state.borrow()), keys.get().0), (vec![], true), "Command-A stays the app's");
+        state.borrow_mut().rows[0] = ListState::SELECTED;
+        press(&mut ui, 13.0, KeyCode::Escape, &[], &mut build);
+        assert_eq!((on(&state.borrow()), keys.get().1), (vec![0], true), "Escape stays the app's; an app-written flag holds");
+    }
+
     /// Escape clears a focused multi-selection list's selection and is the list's; with nothing selected, in a single-selection list,
     /// and when the app spends it cancelling a carry (`cancel_carry`), it stays the app's and the selection holds.
     #[test]
@@ -1117,7 +1168,7 @@ mod tests {
                 ui.carry(None, "row", "1");
                 if ui.key_pressed(KeyCode::Escape, crate::Mods::ANY) { ui.cancel_carry(); }
             }
-            let list = if multi.get() { SelectionList::DEFAULT.multi() } else { SelectionList::DEFAULT };
+            let list = if multi.get() { SelectionList::DEFAULT.mode(SelectMode::Multi) } else { SelectionList::DEFAULT };
             let r = ui.selection_list("files", 3, &|i| i as i64, &mut state.borrow_mut(), &list, &mut |ui, part, _| if let SectionPart::Row(row) = part { ui.item_text(["a", "b", "c"][row]) });
             ui.focus_default(&r.handle);
             esc.set(ui.key_pressed(KeyCode::Escape, crate::Mods::ANY));
@@ -1191,7 +1242,7 @@ mod tests {
         let (side_r, main_r) = (Cell::new(ListResponse::default()), Cell::new(ListResponse::default()));
         let mut build = |ui: &mut Ui| {
             keep(&side_r, ui.selection_list("side", 2, &|i| i as i64, &mut side.borrow_mut(), &SelectionList::DEFAULT, &mut |ui, part, _| if let SectionPart::Row(row) = part { ui.item_text(["x", "y"][row]) }));
-            let r = ui.selection_list("main", 3, &|i| i as i64, &mut main.borrow_mut(), &SelectionList::DEFAULT.multi(), &mut |ui, part, _| if let SectionPart::Row(row) = part { ui.item_text(["a", "b", "c"][row]) });
+            let r = ui.selection_list("main", 3, &|i| i as i64, &mut main.borrow_mut(), &SelectionList::DEFAULT.mode(SelectMode::Multi), &mut |ui, part, _| if let SectionPart::Row(row) = part { ui.item_text(["a", "b", "c"][row]) });
             ui.focus_default(&r.handle);
             keep(&main_r, r);
         };
@@ -1292,7 +1343,7 @@ mod tests {
         const COLUMNS: [Column; 2] = [Column::new("Name").sortable(true).share(1.0), Column::new("Size").w_px(50.0)];
         let mut build = |ui: &mut Ui| {
             ui.column(Node { h: Size::Px(100.0), ..Node::DEFAULT }, |ui| {
-                ui.selection_list("list", 1000, &|i| i as i64, &mut list, &SelectionList::DEFAULT.multi().header(20.0), &mut |ui, part, _| if let SectionPart::Row(_) = part { ui.item_text("row") });
+                ui.selection_list("list", 1000, &|i| i as i64, &mut list, &SelectionList::DEFAULT.mode(SelectMode::Multi).header(20.0), &mut |ui, part, _| if let SectionPart::Row(_) = part { ui.item_text("row") });
             });
             ui.column(Node { h: Size::Px(100.0), ..Node::DEFAULT }, |ui| {
                 ui.table("table", &COLUMNS, 1000, &|i| i as i64, &mut table, &Table::DEFAULT, &mut |ui, _, _, _| ui.item_text("cell"));

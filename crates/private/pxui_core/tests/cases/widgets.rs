@@ -47,7 +47,7 @@ pub struct S {
     pub drop: usize,
     pub picked: Option<(usize, usize)>,
     pub list: Vec<u8>,
-    pub multi: bool,
+    pub mode: pxui_core::ui::SelectMode,
     pub activated: Option<usize>,
     pub nodes: Vec<TreeNode>,
     pub open: Vec<u8>,
@@ -76,7 +76,7 @@ impl S {
     pub fn new() -> S {
         let nodes = (0..BIG).map(|i| TreeNode { depth: if i % 10 == 0 { 0 } else { 1 }, children: (i % 10 == 0) as u8 }).collect();
         S {
-            check: false, radio: 0, slider: 0.25, tab: 0, seg: 0, drop: 0, picked: None, list: vec![0; BIG], multi: false, activated: None,
+            check: false, radio: 0, slider: 0.25, tab: 0, seg: 0, drop: 0, picked: None, list: vec![0; BIG], mode: pxui_core::ui::SelectMode::Single, activated: None,
             nodes, open: vec![0; BIG], tree_sel: None, visible: vec![0; BIG], tree_revision: None, shown: 0, list_anchor: None,
             widths: [0, 1, 2].map(|id| pxui_types::ffi::PxuiColumnWidth { id, w: 80.0, reserved: 0 }), table_flags: vec![0; BIG], table_anchor: None, sort: Some((0, true)),
             search: String::new(), icon: 0, toasts: 0, gone: None, busy: Vec::with_capacity(4), image: None, add: None, scroll: None, list_frame: None,
@@ -164,7 +164,7 @@ pub fn body(ui: &mut Ui, s: &mut S) {
         ui.within(&right, &mut |ui| {
             let b = ui.node("list-box".into(), Node { h: Size::Px(120.0), ..Node::DEFAULT });
             ui.within(&b, &mut |ui| {
-                if let Some(a) = ui.selection_rows("List", BIG, &|i| i as i64, &mut s.list, &mut s.list_anchor, None, &pxui_core::ui::SelectionList { multi: s.multi, ..pxui_core::ui::SelectionList::DEFAULT }, &mut |ui, i, _| if i < BIG { names(i, &mut |t| ui.item_text(t)) }).activated {
+                if let Some(a) = ui.selection_rows("List", BIG, &|i| i as i64, &mut s.list, &mut s.list_anchor, None, &pxui_core::ui::SelectionList { mode: s.mode, ..pxui_core::ui::SelectionList::DEFAULT }, &mut |ui, i, _| if i < BIG { names(i, &mut |t| ui.item_text(t)) }).activated {
                     s.activated = Some(a);
                 }
             });
@@ -536,7 +536,7 @@ fn widgets_list() {
 
 fn widgets_list_keys_multi() {
     let mut s = S::new();
-    s.multi = true;
+    s.mode = pxui_core::ui::SelectMode::Multi;
     let mut ui = warm(&mut s);
     let item = |ui: &Ui, i: usize| *ui.output().a11y.nodes.iter().filter(|n| n.role == Role::ListItem).nth(i).unwrap();
     { let p = centre(&item(&ui, 1)); click(&mut ui, &mut s, 1.0, p); }
@@ -559,7 +559,7 @@ fn widgets_list_keys_multi() {
     ui.destroy();
     // elsewhere Space toggles the keyboard's row
     let mut s = S::new();
-    s.multi = true;
+    s.mode = pxui_core::ui::SelectMode::Multi;
     let mut ui = Ui::create(input::Platform::Other, None, golden_text());
     for t in 0..2 { ui.frame(&at(t as f64 * 0.1, vec![]), &mut |ui| all(ui, &mut s)); }
     for i in 0..40 {

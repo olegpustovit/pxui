@@ -1078,12 +1078,14 @@ pub unsafe fn section_list(ui: *mut PxuiUi, key: &str, desc: &PxuiSectionListDes
 /// wrapper passes its own, so it is never encoded and decoded).
 pub unsafe fn selection_list(ui: *mut PxuiUi, key: &str, desc: &PxuiSelectionListDesc, drop_look: Option<pxui_types::theme::Look>, ids: Option<&dyn Fn(usize) -> i64>, cell: &mut dyn FnMut(&mut Ui, usize, &ListCell), out: &mut PxuiListResult) -> i32 {
     enter!(ui);
-    if bad_key(key) || [desc.multi, desc.fit, desc.open_on_click, desc.overlay_scrollbar, desc.measured, desc.reorder, desc.bare, desc.has_revision].iter().any(|f| *f > 1) || desc.reserved != [0; 3]
+    if bad_key(key) || desc.mode > 3 || [desc.fit, desc.open_on_click, desc.overlay_scrollbar, desc.measured, desc.reorder, desc.bare, desc.has_revision].iter().any(|f| *f > 1) || desc.reserved != [0; 3]
         || !geometry_ok(desc.count, desc.row_height, [desc.leading_height, desc.header_height, desc.trailing_height])
         || desc.rows.len < desc.count || (desc.count > 0 && desc.rows.ptr.is_null()) { return unsafe { fail(ui, "invalid selection list descriptor") }; }
     let flags: &mut [u8] = if desc.count == 0 { &mut [] } else { unsafe { core::slice::from_raw_parts_mut(desc.rows.ptr, desc.count) } };
     let mut anchor = (desc.anchor < desc.count).then_some(desc.anchor);
-    let list = pxui_types::ui::SelectionList { multi: desc.multi != 0, row_height: desc.row_height, leading_height: desc.leading_height, header_height: desc.header_height, trailing_height: desc.trailing_height,
+    use pxui_types::ui::SelectMode;
+    let mode = match desc.mode { 0 => SelectMode::Single, 1 => SelectMode::Multi, 2 => SelectMode::Toggle, _ => SelectMode::None };
+    let list = pxui_types::ui::SelectionList { mode, row_height: desc.row_height, leading_height: desc.leading_height, header_height: desc.header_height, trailing_height: desc.trailing_height,
         overlay_scrollbar: desc.overlay_scrollbar != 0, measured: desc.measured != 0, fit: desc.fit != 0, open_on_click: desc.open_on_click != 0,
         reorder: desc.reorder != 0, drop_look, bare: desc.bare != 0, ..pxui_types::ui::SelectionList::DEFAULT };
     let revision = (desc.has_revision != 0).then_some(desc.revision);

@@ -91,7 +91,7 @@ pub use paint::{Fill, Paint, Stroke};
 mod widgets;
 mod composite;
 mod overlays;
-pub use pxui_types::ui::{Checkbox, DismissOpts, Dropdown, ListResponse, Menu, MenuItem, Chosen, Overlay, Pick, PickArt, PickRow, PickRows, PickerResponse, Presentation, SelectionList, Slider, Toast, TreeResponse};
+pub use pxui_types::ui::{Checkbox, DismissOpts, Dropdown, ListResponse, Menu, MenuItem, Chosen, Overlay, Pick, PickArt, PickRow, PickRows, PickerResponse, Presentation, SelectMode, SelectionList, Slider, Toast, TreeResponse};
 mod collections;
 pub mod bodies;
 pub use collections::TreeNode;
