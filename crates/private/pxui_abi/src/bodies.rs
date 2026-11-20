@@ -249,9 +249,24 @@ mod tramps {
     tramp!(tree, |ui, sh, c: &TreeRowConfig, body: &mut dyn FnMut(&mut Ui)| PxuiTreeRowConfig {
         state: st(c.state), has: c.has as u8, open: c.open as u8, index: c.index, node: c.node, depth: c.depth, row: bx(c.row), content: content(sh, body)
     });
-    tramp!(table_head, |ui, sh, c: &TableHeadConfig, title: &str| PxuiTableHeadConfig {
-        state: st(c.state), has_ascending: flag(c.ascending).0, ascending: flag(c.ascending).1, index: c.index, node: bx(c.node), title: pair(title)
-    });
+    // the table heading's trampoline, as the icon button's (U2b.4.36): its record carries the kit's built-in body as a slot
+    pub(super) fn table_head(ui: &mut Ui, c: &TableHeadConfig, title: &str) {
+        let id = ui.theme().body.table_head;
+        let sh = shared(ui);
+        if sh.is_null() { return }
+        let mark = unsafe { (*sh).bodies.slots.len() };
+        let variant = ui.variant_of(BodyKind::table_head as u32);
+        let mut kit = |ui: &mut Ui| pxui_core::ui_widgets::default_table_head(ui, c, title);
+        let cfg = PxuiTableHeadConfig {
+        size: core::mem::size_of::<PxuiTableHeadConfig>() as u32,
+        state: st(c.state), has_ascending: flag(c.ascending).0, ascending: flag(c.ascending).1, index: c.index, node: bx(c.node), title: pair(title),
+        variant, built_in: content(sh, &mut kit)
+        };
+        if variant != 0 { ui.set_variant(0, 0); }
+        invoke(ui, sh, BodyKind::table_head, id, (&cfg as *const PxuiTableHeadConfig).cast());
+        if variant != 0 { ui.set_variant(BodyKind::table_head as u32, variant); }
+        unsafe { (*sh).bodies.slots.truncate(mark) };
+    }
     tramp!(picker, |ui, sh, c: &PickerRowConfig, label: &str, detail: &str, query: &str| PxuiPickerRowConfig {
         state: st(c.state), current: c.current as u8, doomed: c.doomed as u8, unavailable: c.unavailable as u8, marked: c.marked as u8, has_swatch: c.swatch.is_some() as u8,
         swatch: c.swatch.unwrap_or_default(), index: c.index, row: bx(c.row), label: pair(label), detail: pair(detail), query: pair(query),

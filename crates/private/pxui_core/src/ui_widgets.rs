@@ -167,7 +167,7 @@ pub(crate) fn default_tree_row(this: &mut Ui, c: &TreeRowConfig, content: &mut d
 }
 
 /// The built-in table header cell: the column look for its state, the title and, when sorted by it, the sort chevron.
-pub(crate) fn default_table_head(this: &mut Ui, c: &TableHeadConfig, title: &str) {
+pub fn default_table_head(this: &mut Ui, c: &TableHeadConfig, title: &str) {
     let chevron = this.theme().chevron.idle;
     let look = *this.theme().column.pick(c.state);
     this.set_look(&c.node, look, c.state);

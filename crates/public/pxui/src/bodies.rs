@@ -220,8 +220,8 @@ impl Ui {
         self.part_box(owner, part).map(|b| self.rect(&b)).filter(|r| r.w > 0.0 && r.h > 0.0)
     }
 
-    /// Runs a config's slot (the caller's content, built where the body calls this; a button or icon button config's `built_in`, the
-    /// kit's own body for that config, so a registered body draws the kit's widget for configs it does not style); for a search field's editor slot
+    /// Runs a config's slot (the caller's content, built where the body calls this; a button, icon button or table heading config's
+    /// `built_in`, the kit's own body for that config, so a registered body draws the kit's widget for configs it does not style); for a search field's editor slot
     /// the answer is whether the query is not empty, otherwise false. A slot is valid only during the body call that received it, and not inside its own content or a nested body: else this panics.
     #[track_caller]
     pub fn slot(&mut self, slot: PxuiSlot) -> bool {
@@ -920,6 +920,45 @@ mod tests {
             mem_sys::local_reset();
             crate::testing::frame(&mut bodied, &[], &mut build);
             assert_eq!(mem_sys::local_alloc_count(), 0, "a warm frame of icon button built-in slots allocated (round {round})");
+        }
+        drop(scope);
+        assert!(mem_sys::take_reports().is_empty());
+    }
+
+    /// U2b.4.36: a registered table heading body that runs its config's `built_in` slot draws exactly what the kit's body draws
+    /// (instances and accessibility) for plain, sorted, gripped and shared headings, alone and as a table's; warm frames allocate
+    /// nothing. Both link modes.
+    #[test]
+    fn a_table_head_body_running_built_in_draws_the_kit_heading() {
+        use crate::{Column, Sort, Table, TableHead, TableState};
+        fn kit(ui: &mut Ui, c: &TableHeadConfig) { ui.slot(c.built_in); }
+        const COLUMNS: [Column; 3] = [Column::new("Name").sortable(true).share(2.0), Column::new("Kind").w_px(80.0), Column::new("Time").sortable(true).w_px(56.0).grip(false)];
+        let (mut head, mut table) = (TableState { sort: Some((0, Sort::Descending)), ..TableState::new() }, TableState::new());
+        let mut build = |ui: &mut Ui| {
+            ui.column(crate::Node::column().w_px(400.0).h_px(24.0), |ui| { ui.table_head("head", &COLUMNS, &mut head, &TableHead::DEFAULT.h_px(28.0)); });
+            ui.column(crate::Node::column().w_px(400.0).h_px(120.0), |ui| {
+                ui.table("table", &COLUMNS, 2, &|i| i as i64, &mut table, &Table::DEFAULT, &mut |ui, row, column, _| ui.item_text(["a", "b", "c", "d", "e", "f"][row * 3 + column]));
+            });
+        };
+        let draw_of = |ui: &Ui| (format!("{:?}", ui.layers().flat_map(|l| l.instances.iter()).collect::<Vec<_>>()), ui.a11y_nodes().iter().map(|n| (n.role, n.states, ui.a11y_name_of(n).to_owned())).collect::<Vec<_>>());
+        let (mut plain, mut bodied) = (Ui::new(&crate::UiDesc::DEFAULT).unwrap(), Ui::new(&crate::UiDesc::DEFAULT).unwrap());
+        bodied.register_table_head_body("kit", kit).unwrap();
+        bodied.set_theme(&crate::ThemeHandle::parse("table_head.body = kit").unwrap()).unwrap();
+        let mut plain_out = None;
+        for ui in [&mut plain, &mut bodied] {
+            ui.set_a11y(true);
+            for _ in 0..2 { crate::testing::frame(ui, &[], &mut build); }
+            let out = draw_of(ui);
+            assert!(out.1.iter().any(|n| n.2 == "Sort by Name, descending"), "the sorted heading is built");
+            plain_out.get_or_insert(out);
+        }
+        assert_eq!(draw_of(&bodied), plain_out.unwrap(), "the built-in slot draws the kit's heading");
+        mem_sys::set_peer(crate::library_counter);
+        let scope = mem_sys::warm_scope();
+        for round in 0..3 {
+            mem_sys::local_reset();
+            crate::testing::frame(&mut bodied, &[], &mut build);
+            assert_eq!(mem_sys::local_alloc_count(), 0, "a warm frame of table heading built-in slots allocated (round {round})");
         }
         drop(scope);
         assert!(mem_sys::take_reports().is_empty());

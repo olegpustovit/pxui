@@ -2247,7 +2247,11 @@ configs! {
     /// drop look, which behaviour has applied to the row).
     PxuiRowConfig { state: PxuiStateDesc, index: usize, row: PxuiBox, content: PxuiSlot, drop: u8 }
     PxuiTreeRowConfig { state: PxuiStateDesc, has: u8, open: u8, index: usize, node: usize, depth: usize, row: PxuiBox, content: PxuiSlot }
-    PxuiTableHeadConfig { state: PxuiStateDesc, has_ascending: u8, ascending: u8, index: usize, node: PxuiBox, title: Str }
+    PxuiTableHeadConfig { state: PxuiStateDesc, has_ascending: u8, ascending: u8, index: usize, node: PxuiBox, title: Str } @variant {
+        /// ABI 1.129: the kit's built-in table heading body for this config, run with `pxui_slot` (the Rust `Ui::slot`): a registered
+        /// body that does not style a heading (another table's) draws the kit's heading exactly as an unregistered theme would.
+        built_in: PxuiSlot,
+    }
     PxuiPickerRowConfig {
         state: PxuiStateDesc, current: u8, doomed: u8, unavailable: u8, marked: u8, has_swatch: u8, swatch: Rgba, index: i64,
         row: PxuiBox, label: Str, detail: Str, query: Str
