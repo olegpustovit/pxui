@@ -1561,8 +1561,7 @@ pub fn default_icon_button(this: &mut Ui, c: &IconButtonConfig, states: &States,
     let size = |s: Size| match s { Size::Fit => Size::Px(ch), s => s };
     let n = this.node_new(&c.node);
     (n.w, n.h) = (size(c.w), size(c.h));
-    // the caller's table is as given (U2b.4.30): its token colours resolve here, before the look keys the cached visual
-    let look = this.resolve_look(states.pick(c.state)).unwrap_or(*states.pick(c.state));
+    let look = *states.pick(c.state);
     let width = match c.w { Size::Px(w) => w, _ => ch };
     let inset = Edges { l: ((width - tw) / 2.0).floor(), ..Edges::ZERO };
     if c.press_scale == 1.0 {
@@ -1576,6 +1575,8 @@ pub fn default_icon_button(this: &mut Ui, c: &IconButtonConfig, states: &States,
     let word = |color: crate::geom::Rgba| u32::from_le_bytes([color.r, color.g, color.b, color.a]) as i64;
     let bits = (c.state.hovered as i64) | (c.state.pressed as i64) << 1 | (c.state.focused as i64) << 2 | (c.state.disabled as i64) << 3 | (c.state.checked as i64) << 4;
     let art = c.draw.map_or(0, |(f, data)| (f as usize as i64) ^ (data[0] as i64).rotate_left(16) ^ (data[1] as i64).rotate_left(32) ^ (data[3] as i64).rotate_left(48));
+    // the caller's table is as given (U2b.4.30): the cached visual is keyed by the resolved colours, so a theme switch rebuilds it
+    let word = |color: crate::geom::Rgba| word(this.resolve_color(color));
     let mut revision = key_of(word(look.fill) | word(look.text) << 32 ^ art, icon);
     revision = key_of(revision ^ word(look.border) ^ bits << 40 ^ (width.to_bits() as i64) << 8 ^ look.font.size.rotate_left(20) ^ i64::from(look.font.family) << 52, "icon_button");
     let saved = this.enter(&c.node);

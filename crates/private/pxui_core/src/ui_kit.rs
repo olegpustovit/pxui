@@ -282,8 +282,9 @@ fn content_place(axis: Axis, along: crate::layout::Along) -> (Justify, Align) {
 /// caller's `Button::label` style (as `Ui::label` draws it; an unset width is the text's, an unset pad none, an unset colour the
 /// look's text colour for the state).
 fn button_text(this: &mut Ui, c: &ButtonConfig, states: &States, text: &str) {
-    // the caller's table is as given (U2b.4.30): its token colours resolve here, where the look's ink is read
-    let look = this.resolve_look(states.pick(c.state)).unwrap_or(*states.pick(c.state));
+    // the caller's table is as given (U2b.4.30): the ink a label takes directly resolves here; declared looks resolve on declare
+    let mut look = *states.pick(c.state);
+    look.text = this.resolve_color(look.text);
     let saved = this.enter(&c.row);
     button_title(this, c, &look, text, Size::Grow);
     this.leave(saved);
@@ -297,7 +298,8 @@ fn has_parts(c: &ButtonConfig, [lead, detail, accessory]: [&str; 3]) -> bool { !
 /// end. The detail and the accessory are labels in the caller's style or the theme's label style (an unset width is the text's, an unset
 /// pad none).
 fn button_parts(this: &mut Ui, c: &ButtonConfig, states: &States, text: &str, [lead, detail, accessory]: [&str; 3]) {
-    let look = this.resolve_look(states.pick(c.state)).unwrap_or(*states.pick(c.state));
+    let mut look = *states.pick(c.state);
+    look.text = this.resolve_color(look.text);
     let saved = this.enter(&c.row);
     if !lead.is_empty() || c.lead_draw.is_some() {
         let ch = if c.icon_size > 0.0 { c.icon_size } else { this.control_h() };
