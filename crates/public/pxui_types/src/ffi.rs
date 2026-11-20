@@ -2038,7 +2038,7 @@ configs! {
     /// `track` is entered; `fraction` is the value's place, 0 to 1. Behaviour reads `Part::RAIL` and `Part::THUMB`.
     PxuiSliderConfig { state: PxuiStateDesc, fraction: f32, track: PxuiBox, label: Str }
     PxuiProgressConfig { has_value: u8, value: f32, row: PxuiBox, label: Str }
-    /// `states.pick(state)` is the look the caller asked for; `states` is valid for the call.
+    /// `states.pick(state)` is the look the caller asked for, as the caller gave it (U2b.4.30: its colours may name tokens, which `pxui_ui_style` resolves; resolve one with `pxui_ui_color` before a C paint call), or the theme's (resolved); `states` is valid for the call.
     PxuiButtonConfig {
         state: PxuiStateDesc, bare: u8, icon: u8, at_end: u8, line: PxuiBox, row: PxuiBox, states: *const PxuiStates, label: Str,
         /// Width kind the caller asked for: 0 the kit's, 1 `w` points, 2 fill.
@@ -2110,7 +2110,7 @@ configs! {
         /// that does not style a config (its variant 0, say) draws the kit's button exactly as an unregistered theme would.
         built_in: PxuiSlot,
     }
-    /// `states.pick(state)` is the look the caller asked for; `states` is valid for the call.
+    /// `states.pick(state)` is the look the caller asked for, as the caller gave it (U2b.4.30: its colours may name tokens, which `pxui_ui_style` resolves; resolve one with `pxui_ui_color` before a C paint call), or the theme's (resolved); `states` is valid for the call.
     PxuiIconButtonConfig {
         state: PxuiStateDesc, node: PxuiBox, label: Str, icon: Str, states: *const PxuiStates,
         /// Width kind the caller asked for: 0 the kit's square, 1 `w` points, 2 fill.
@@ -2143,8 +2143,8 @@ configs! {
     }
     /// A checkbox or a radio option.
     PxuiCheckConfig { state: PxuiStateDesc, on: u8, row: PxuiBox, label: Str } @variant {
-        /// ABI 1.85 (read when `size` covers it): the box's look per state (`pick(checked)`): the caller's (`Checkbox::look`) or the
-        /// theme's; valid for the call.
+        /// ABI 1.85 (read when `size` covers it): the box's look per state (`pick(checked)`): the caller's (`Checkbox::look`)
+        /// as the caller gave it (U2b.4.30: its colours may name tokens, which `pxui_ui_style` resolves; resolve one with `pxui_ui_color` before a C paint call), or the theme's (resolved); valid for the call.
         states: *const PxuiStates,
         /// The box's side in points (`Checkbox::size`; 12 unless the caller asked for another).
         box_size: f32,
@@ -2204,7 +2204,7 @@ configs! {
     /// segment, else the first).
     PxuiSegmentConfig {
         state: PxuiStateDesc, index: usize, selected: usize, group: i64, node: PxuiBox, text: Str,
-        /// The look per state of a segment: the caller's or the theme's; valid for the call.
+        /// The look per state of a segment: the caller's as the caller gave it (U2b.4.30: its colours may name tokens, which `pxui_ui_style` resolves; resolve one with `pxui_ui_color` before a C paint call), or the theme's (resolved); valid for the call.
         states: *const PxuiStates,
         /// 0 or 1: the segments share the strip's width instead of each being as wide as its text.
         grow: u8,

@@ -282,7 +282,8 @@ fn content_place(axis: Axis, along: crate::layout::Along) -> (Justify, Align) {
 /// caller's `Button::label` style (as `Ui::label` draws it; an unset width is the text's, an unset pad none, an unset colour the
 /// look's text colour for the state).
 fn button_text(this: &mut Ui, c: &ButtonConfig, states: &States, text: &str) {
-    let look = *states.pick(c.state);
+    // the caller's table is as given (U2b.4.30): its token colours resolve here, where the look's ink is read
+    let look = this.resolve_look(states.pick(c.state)).unwrap_or(*states.pick(c.state));
     let saved = this.enter(&c.row);
     button_title(this, c, &look, text, Size::Grow);
     this.leave(saved);
@@ -296,7 +297,7 @@ fn has_parts(c: &ButtonConfig, [lead, detail, accessory]: [&str; 3]) -> bool { !
 /// end. The detail and the accessory are labels in the caller's style or the theme's label style (an unset width is the text's, an unset
 /// pad none).
 fn button_parts(this: &mut Ui, c: &ButtonConfig, states: &States, text: &str, [lead, detail, accessory]: [&str; 3]) {
-    let look = *states.pick(c.state);
+    let look = this.resolve_look(states.pick(c.state)).unwrap_or(*states.pick(c.state));
     let saved = this.enter(&c.row);
     if !lead.is_empty() || c.lead_draw.is_some() {
         let ch = if c.icon_size > 0.0 { c.icon_size } else { this.control_h() };
@@ -993,7 +994,6 @@ impl Ui {
                 look.text = ink;
             }
         }
-        if opts.states.is_some() { self.resolve_states(&mut states); }
         // the caller's contents replace the text and its parts: the leading icon, detail and accessory are not drawn or given to a body
         let (parts, lead_draw) = if content.is_some() { ([""; 3], None) } else { (parts, opts.lead_draw) };
         let config = ButtonConfig { state, bare: opts.bare, icon: opts.icon, at_end: matches!(opts.justify, Justify::End), w: opts.w, h: opts.h, justify: opts.justify, pad: opts.padding, centered: opts.centered, line, row,
@@ -1067,8 +1067,7 @@ impl Ui {
         let (switch_w, switch_h) = opts.switch.unwrap_or((0.0, 0.0));
         let config = ToggleConfig { state: State { hovered: enabled && signal.hovered, disabled: !enabled, ..State::default() }, on: value, row, row_h, switch_w, switch_h,
             inset: opts.inset.unwrap_or(0.0), press_row: opts.press_row, detail: opts.detail, label: opts.label, stored, clicked: signal.clicked };
-        let (track, knob) = (opts.track.map(|mut s| { self.resolve_states(&mut s); s }), opts.knob.map(|mut s| { self.resolve_states(&mut s); s }));
-        in_body!(self, row.box_key, row, toggle, default_toggle(&config, track.as_ref(), knob.as_ref(), text));
+        in_body!(self, row.box_key, row, toggle, default_toggle(&config, opts.track.as_ref(), opts.knob.as_ref(), text));
         if !enabled { self.node_new(&row).state.disabled = true; }
         Response::of(&signal, self.focused(&row), row)
     }

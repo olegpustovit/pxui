@@ -359,7 +359,7 @@ impl Ui {
         let value = value ^ s.clicked;
         self.set_role(&row, Role::CheckBox, st::CHECKABLE | if value { st::CHECKED } else { 0 } | if checkbox.passive { st::READ_ONLY } else { 0 });
         self.a11y_name(&row, text);
-        let states = match checkbox.look { Some(look) => { let mut states = *look; self.resolve_states(&mut states); states } None => self.theme().checkbox };
+        let states = match checkbox.look { Some(look) => *look, None => self.theme().checkbox };
         let config = CheckConfig {
             state: State { hovered: enabled && s.hovered, pressed: enabled && s.held, disabled: !enabled, ..State::default() }, on: value, row,
             size: checkbox.size.filter(|side| *side > 0.0).unwrap_or(12.0), states, passive: checkbox.passive,
@@ -738,7 +738,7 @@ impl Ui {
         let moved = held.is_some() && self.state(&line, code) != code;
         let lost = held.is_none() && focus != 0 && self.state(&strip, 0) == focus;
         let follow = enabled && (moved || lost);
-        let states = opts.states.map(|mut s| { self.resolve_states(&mut s); s });
+        let states = opts.states;
         let (mut clicked, mut by_key, mut secondary, mut tab) = (false, false, None, None);
         let (mut hovered, mut pressed) = (s.hovered, s.held);
         let inner = self.enter(&strip);
@@ -1275,8 +1275,8 @@ impl Ui {
         let focused = self.focused(&b);
         let state = State { hovered: s.hovered, pressed: s.held, focused, disabled: !enabled, checked: button.selected == Some(true) };
         self.a11y_name(&b, shown(name));
-        let states = match button.states { Some(mut states) => { self.resolve_states(&mut states); states }, None => self.theme().icon_button };
-        let ink = states.pick(state).text;
+        let states = match button.states { Some(states) => states, None => self.theme().icon_button };
+        let ink = self.resolve_color(states.pick(state).text);
         let config = IconButtonConfig { state, node: b, w: button.w, h: button.h, press_scale: button.press_scale, ink, draw, press: button.press };
         in_body!(flat; self, b.box_key, b, icon_button, default_icon_button(&config, &states, name, glyph));
         self.node_new(&b).state.disabled = !enabled;
@@ -1561,7 +1561,8 @@ pub fn default_icon_button(this: &mut Ui, c: &IconButtonConfig, states: &States,
     let size = |s: Size| match s { Size::Fit => Size::Px(ch), s => s };
     let n = this.node_new(&c.node);
     (n.w, n.h) = (size(c.w), size(c.h));
-    let look = *states.pick(c.state);
+    // the caller's table is as given (U2b.4.30): its token colours resolve here, before the look keys the cached visual
+    let look = this.resolve_look(states.pick(c.state)).unwrap_or(*states.pick(c.state));
     let width = match c.w { Size::Px(w) => w, _ => ch };
     let inset = Edges { l: ((width - tw) / 2.0).floor(), ..Edges::ZERO };
     if c.press_scale == 1.0 {

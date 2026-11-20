@@ -1206,6 +1206,34 @@ mod tests {
         assert_eq!(TAB_DETAIL.with(|d| d.borrow().clone()), "12");
     }
 
+    thread_local! { static INKS: Cell<[Option<crate::theme::ColorToken>; 2]> = const { Cell::new([None; 2]) }; }
+    fn token_button(_: &mut Ui, c: &crate::bodies::ButtonConfig) {
+        use crate::bodies::BodyConfig;
+        let ink = c.states_of(&c.states).and_then(|s| s.pick(crate::ui::State::default()).text.as_token());
+        INKS.with(|i| i.set([ink, i.get()[1]]));
+    }
+    fn token_icon_button(_: &mut Ui, c: &crate::bodies::IconButtonConfig) {
+        use crate::bodies::BodyConfig;
+        let ink = c.states_of(&c.states).and_then(|s| s.pick(crate::ui::State::default()).text.as_token());
+        INKS.with(|i| i.set([i.get()[0], ink]));
+    }
+
+    /// A body is given the caller's look table as given (U2b.4.30): a look's colour token reaches it as the token, so it can ink a
+    /// `Label` (whose colour is a token) in the caller's colour.
+    #[test]
+    fn a_body_reads_the_callers_looks_with_their_colour_tokens() {
+        const INKED: crate::ui::States = crate::ui::States::of(crate::ui::Look::NONE.text(crate::geom::Rgba::token(crate::theme::ColorToken::ACCENT)));
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
+        ui.register_button_body("tokens", token_button).expect("registered");
+        ui.register_icon_button_body("tokens", token_icon_button).expect("registered");
+        ui.set_theme(&source("button.body = tokens\nicon_button.body = tokens")).expect("theme");
+        ui.frame(&input(0.0), &mut |ui: &mut Ui| {
+            ui.button("b", "Go", &crate::Button::DEFAULT.look(&INKED));
+            ui.icon_button("i", crate::Icon::Glyph('x'), "X", &crate::IconButton::DEFAULT.look(&INKED));
+        }).expect("frame");
+        assert_eq!(INKS.with(Cell::get), [Some(crate::theme::ColorToken::ACCENT); 2]);
+    }
+
     fn tall_bar(ui: &mut Ui, c: &crate::bodies::TabsConfig) {
         ui.set_node_layout(&c.bar, &crate::Node::row().w(Size::Grow).h_px(44.0).gap(20.0));
         ui.text(&c.node, c.text_of(&c.text));

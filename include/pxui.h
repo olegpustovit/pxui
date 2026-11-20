@@ -52,7 +52,7 @@ typedef struct { float x,y; } PxuiPoint;
 typedef struct { uint8_t r,g,b,a; } PxuiColor;
 /* ABI 1.61, 1.91: a colour with a 0 and r 0x54 names colour token b of the theme's palette (pxui_theme_set_color) drawn at opacity g (0x4b reads as 255 until
    2.0; D19); token 64 is the theme's accent, 65 and past are transparent. The library
-   resolves it for the theme in effect where a look or swatch is applied (never on an interpolated look); bodies receive resolved looks.
+   resolves it for the theme in effect where a look or swatch is applied (never on an interpolated look); a body receives the caller's looks as given (U2b.4.30: pxui_ui_style resolves them), the theme's resolved.
    A paint call given a raw token paints nothing: resolve it with pxui_ui_color / pxui_paint_color. */
 typedef struct { float fast,normal,slow,ease[4]; } PxuiMotion;
 typedef struct { uint32_t size; PxuiColor panel,foreground,control,input,track,accent,ink_ground; uint8_t has_ink_ground,reserved[3]; float space[4],radius[3]; int64_t display_size,title_size,font_size,label_size; PxuiMotion motion; uint8_t reduced_motion,reserved_tail[3]; float density; } PxuiThemeTokens;

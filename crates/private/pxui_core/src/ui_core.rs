@@ -1736,21 +1736,13 @@ impl Ui {
 
     /// `look` with every colour that names a token (`Rgba::token`) replaced by `color(token)`, the theme in effect's entry; `None` when
     /// it names none (most looks), so a caller copies nothing. Called only where a look is applied (declared, set, patched, animated
-    /// to, handed to a body), never on an interpolated look: a transition's in-between colour that happens to read as a token is
+    /// to, its ink read by a built-in body), never on an interpolated look: a transition's in-between colour that happens to read as a token is
     /// painted as the clear colour it is.
     pub fn resolve_look(&self, look: &Look) -> Option<Look> {
         if !names_token(look) { return None; }
         let mut out = *look;
         resolve_with(&mut out, self.palette(), self.theme().tokens.accent);
         Some(out)
-    }
-
-    /// `states` with each look's token colours resolved (`resolve_look`) where they lie: what a widget hands its body. The theme in
-    /// effect's own states are resolved already (`set_theme`, `set_colors`, themed scopes), so only a caller's are passed here.
-    pub fn resolve_states(&self, states: &mut States) {
-        for look in [&mut states.idle, &mut states.hover, &mut states.pressed, &mut states.focus, &mut states.disabled, &mut states.checked] {
-            if names_token(look) { resolve_with(look, self.palette(), self.theme().tokens.accent); }
-        }
     }
 
     /// `color` resolved as a look's colour is (`resolve_look`): a token's entry for the theme in effect, else `color` itself.
