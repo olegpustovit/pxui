@@ -250,10 +250,11 @@ fn build_row(ui: &mut Ui, r: &mut Rows, flags: &mut [u8], anchor: &mut Option<us
 /// list that takes drops on its rows (shown in the drop look; not a `NO_DROP` row), else 0. Asked every frame, so the box is a drop
 /// zone while it shows.
 fn drop_over(ui: &mut Ui, r: &Rows, n: &Handle, i: usize, flags: u8) -> u8 {
-    if !ui.drop_pending() { return 0; }
-    let over = if r.reorder { ui.drop_side(n, i).map(|(after, dropped)| if dropped { 0 } else if after { 2 } else { 1 }) }
-        else if r.drop_look.is_some() && flags & NO_DROP == 0 { ui.drop_target_ref(n).map(|_| 3) } else { None };
-    over.unwrap_or(0)
+    use pxui_types::ffi::PxuiRowConfig as R;
+    if !ui.drop_pending() { return R::DROP_NONE; }
+    let over = if r.reorder { ui.drop_side(n, i).map(|(after, dropped)| if dropped { R::DROP_NONE } else if after { R::DROP_AFTER } else { R::DROP_BEFORE }) }
+        else if r.drop_look.is_some() && flags & NO_DROP == 0 { ui.drop_target_ref(n).map(|_| R::DROP_OVER) } else { None };
+    over.unwrap_or(R::DROP_NONE)
 }
 
 /// Row `i` itself on `row` (entered): its signal, the selection its presses make, its look, role and the caller's content through the
@@ -300,7 +301,7 @@ fn row_in(ui: &mut Ui, r: &mut Rows, flags: &mut [u8], anchor: &mut Option<usize
     in_item!(ui, body, n.box_key, n, default_row(&config, &mut |ui| content(ui, i, &cell)));
     (ui.bodies.item, ui.bodies.item_kind) = outer;
     // the list's drop look is the row's while a payload is over it, over any look its body gave the row (U2b.4.21)
-    if let (3, Some(look)) = (drop, r.drop_look) { ui.node_mut(&n).look = ui.resolve_look(&look).unwrap_or(look); }
+    if let (pxui_types::ffi::PxuiRowConfig::DROP_OVER, Some(look)) = (drop, r.drop_look) { ui.node_mut(&n).look = ui.resolve_look(&look).unwrap_or(look); }
 }
 
 /// Every part of `section` built in a column that fits its content (no scrolling, no virtual window): `f(ui, index, y)` as

@@ -246,6 +246,41 @@ impl ButtonConfig {
         icon_of(self.text_of(&self.lead), self.lead_draw, self.lead_user, self.lead_word)
     }
 
+    /// The contents' axis the caller asked for (`Button::axis`); `None` for the kit's (or a value no `Axis` names).
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::bodies::ButtonConfig;
+    /// fn button(_ui: &mut pxui::Ui, config: &ButtonConfig) { let _column = config.content_axis() == Some(pxui::ui::Axis::Column); }
+    /// ```
+    pub fn content_axis(&self) -> Option<pxui_types::Axis> {
+        match self.axis { 1 => Some(pxui_types::Axis::Row), 2 => Some(pxui_types::Axis::Column), 3 => Some(pxui_types::Axis::Stack), _ => None }
+    }
+
+    /// The width the caller asked for (`Button::size`): `Size::Px` points or `Size::Grow`; `None` for the kit's.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::bodies::ButtonConfig;
+    /// fn button(_ui: &mut pxui::Ui, config: &ButtonConfig) { let _w = config.width().unwrap_or(pxui::Size::Fit); }
+    /// ```
+    pub fn width(&self) -> Option<pxui_types::Size> { size_of_kind(self.w_kind, self.w) }
+
+    /// The height the caller asked for (`Button::size`): `Size::Px` points or `Size::Grow`; `None` for the kit's.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::bodies::ButtonConfig;
+    /// fn button(_ui: &mut pxui::Ui, config: &ButtonConfig) { let _h = config.height().unwrap_or(pxui::Size::Fit); }
+    /// ```
+    pub fn height(&self) -> Option<pxui_types::Size> { size_of_kind(self.h_kind, self.h) }
+
     /// The caller's text style (`Button::label`) as the `Label` it gave, so a registered body draws the text with `Ui::label` in it;
     /// `None` without one (the body picks its own) or for a record no `Label` spells (a C caller's out-of-range value).
     ///
@@ -332,7 +367,52 @@ impl IconButtonConfig {
     }
 }
 
+/// A button config's size kind (`w_kind`, `h_kind`: 1 points, 2 fill) as the `Size` it stands for; `None` for the kit's.
+fn size_of_kind(kind: u8, points: f32) -> Option<pxui_types::Size> {
+    match kind { 1 => Some(pxui_types::Size::Px(points)), 2 => Some(pxui_types::Size::Grow), _ => None }
+}
+
+impl ModalConfig {
+    /// How the modal sheet is presented (`Overlay::present`), so a body dresses it by its place; a value no `Presentation` names reads
+    /// as `Centered`, as the record's rule says.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::bodies::ModalConfig;
+    /// fn modal(ui: &mut pxui::Ui, config: &ModalConfig) { if config.presentation() == pxui::Presentation::Bottom { ui.slot(config.content); } }
+    /// ```
+    pub fn presentation(&self) -> pxui_types::ui::Presentation {
+        use pxui_types::ui::Presentation;
+        match self.present { 1 => Presentation::Bottom, 2 => Presentation::Full, 3 => Presentation::Top, _ => Presentation::Centered }
+    }
+}
+
 impl PickerConfig {
+    /// The row's image (`Picker::image`) as the descriptor the picker's image callback gave; `None` when it gave the row none.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::bodies::PickerConfig;
+    /// fn row(_ui: &mut pxui::Ui, config: &PickerConfig) { if let Some(image) = config.image() { let _ = image.width; } }
+    /// ```
+    pub fn image(&self) -> Option<crate::Image> { (self.has_image != 0).then_some(self.image) }
+
+    /// The heading box of the group the row starts (`PickRow::heading`), which the body lays out and styles; `None` for a row that
+    /// starts no group.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::bodies::PickerConfig;
+    /// fn row(ui: &mut pxui::Ui, config: &PickerConfig) { if let Some(head) = config.head() { ui.set_node_layout(&head, &pxui::Node::row()); } }
+    /// ```
+    pub fn head(&self) -> Option<Handle> { (self.has_head != 0).then_some(self.head) }
+
     /// The row's artwork or icon slot (`PickRow::art`) as the `PickArt` the fill gave: a glyph, an image id or the app's icon word, so a
     /// registered row body draws the app's icon by its word (`PickArt::Draw`); `None` for a row without one.
     ///
@@ -549,12 +629,12 @@ mod tests {
     #[test]
     fn a_picker_row_body_gets_its_image_and_heading_and_sets_its_height() {
         use pxui_types::a11y::Role;
-        thread_local! { static GOT: RefCell<Vec<(i64, u8, u32, u8)>> = const { RefCell::new(Vec::new()) }; }
+        thread_local! { static GOT: RefCell<Vec<(i64, u32, bool)>> = const { RefCell::new(Vec::new()) }; }
         const IMAGE: crate::Image = crate::Image { mtl_texture: core::ptr::dangling_mut(), width: 8, height: 4, format: crate::Image::FORMAT_RGBA8, ..crate::Image::rgba8(8, 4, core::ptr::null_mut(), core::ptr::null_mut()) };
         fn row(ui: &mut Ui, c: &PickerConfig) {
-            GOT.with(|g| g.borrow_mut().push((c.index, c.has_image, c.image.width, c.has_head)));
+            GOT.with(|g| g.borrow_mut().push((c.index, c.image().map_or(0, |i| i.width), c.head().is_some())));
             ui.set_node_layout(&c.row, &Node::row().w(Size::Grow).h_px(44.0));
-            if c.has_head == 1 { ui.set_node_layout(&c.head, &Node::row().w(Size::Grow).h_px(30.0)); }
+            if let Some(head) = c.head() { ui.set_node_layout(&head, &Node::row().w(Size::Grow).h_px(30.0)); }
         }
         let labels = ["R0", "R1", "R2"];
         let heads = ["Songs", "", "Albums"];
@@ -573,7 +653,7 @@ mod tests {
         ui.register_picker_body("r", row).unwrap();
         ui.set_theme(&crate::ThemeHandle::parse("picker.body = r").unwrap()).unwrap();
         for _ in 0..3 { GOT.with(|g| g.borrow_mut().clear()); crate::testing::frame(&mut ui, &[], &mut build); }
-        assert_eq!(GOT.with(|g| g.borrow().clone()), [(0, 0, 0, 1), (1, 1, 8, 0), (2, 0, 0, 1)], "image and heading per row");
+        assert_eq!(GOT.with(|g| g.borrow().clone()), [(0, 0, true), (1, 8, false), (2, 0, true)], "image and heading per row (`image()`, `head()`)");
         let at = |role, name| crate::testing::find(&ui, role, name).unwrap();
         let (songs, r0, r1, albums, r2) = (at(Role::Heading, "Songs"), at(Role::ListItem, "R0"), at(Role::ListItem, "R1"), at(Role::Heading, "Albums"), at(Role::ListItem, "R2"));
         assert_eq!((songs.h, r0.h, r1.h, albums.h, r2.h), (30.0, 44.0, 44.0, 30.0, 44.0), "the body's heights");

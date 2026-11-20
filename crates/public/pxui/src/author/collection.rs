@@ -1309,6 +1309,7 @@ mod tests {
         drag_to(&mut ui, 3.0, 50.0, 82.0, &mut build, &mut |_, _| {});
         assert_eq!(dropped.get(), Some(2), "over row 2's upper half: inserted at 2");
 
+        use pxui_types::ffi::PxuiRowConfig;
         thread_local! { static DROPS: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) }; }
         // the body styles its row itself (as LocalWave's sidebar body does): the list's drop look still wins while a payload is over it
         const OWN: crate::theme::States = crate::theme::States::of(crate::theme::Look::NONE.fill(crate::Rgba::rgb(9, 9, 9)));
@@ -1334,20 +1335,20 @@ mod tests {
         let lit = Cell::new(false);
         drag_to(&mut ui, 2.0, 50.0, 41.0 + 20.0 + 10.0, &mut build, &mut |ui, done| if !done { lit.set(lit.get() | fill(ui, [0, 128, 255, 255])) });
         assert_eq!(took.get(), Some(1), "the app took the drop on row 1's box");
-        assert!(DROPS.with(|d| d.borrow().contains(&3)), "the row body was told the payload is over the row");
+        assert!(DROPS.with(|d| d.borrow().contains(&PxuiRowConfig::DROP_OVER)), "the row body was told the payload is over the row");
         assert!(lit.get(), "U2b.4.21: the drop look wins over the body's own row look");
         // U2b.4.21: a NO_DROP row is no drop zone and keeps its look
         state.borrow_mut().rows[1] |= ListState::NO_DROP;
         (took.set(None), lit.set(false));
         DROPS.with(|d| d.borrow_mut().clear());
         drag_to(&mut ui, 3.0, 50.0, 41.0 + 20.0 + 10.0, &mut build, &mut |ui, done| if !done { lit.set(lit.get() | fill(ui, [0, 128, 255, 255])) });
-        assert!(!DROPS.with(|d| d.borrow().contains(&3)) && !lit.get(), "a NO_DROP row neither lights nor is told of the payload");
+        assert!(!DROPS.with(|d| d.borrow().contains(&PxuiRowConfig::DROP_OVER)) && !lit.get(), "a NO_DROP row neither lights nor is told of the payload");
         state.borrow_mut().rows[1] &= !ListState::NO_DROP;
         mode.set(1);
         DROPS.with(|d| d.borrow_mut().clear());
         drag_to(&mut ui, 5.0, 50.0, 41.0 + 20.0 + 15.0, &mut build, &mut |_, _| {});
         assert_eq!(took.get(), Some(102), "a reorderable selection list reports the insertion index");
-        assert!(DROPS.with(|d| d.borrow().contains(&2)), "the row body was told the payload lands after the row");
+        assert!(DROPS.with(|d| d.borrow().contains(&PxuiRowConfig::DROP_AFTER)), "the row body was told the payload lands after the row");
     }
 
     /// U2b.2: carrying a payload across a reorderable list and a drop-look selection list allocates nothing once warm (both link modes).

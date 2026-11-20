@@ -353,8 +353,8 @@ mod tests {
     #[test]
     fn a_top_modal_sits_at_its_y() {
         use crate::Presentation;
-        thread_local! { static PRESENT: std::cell::Cell<u64> = const { std::cell::Cell::new(9) }; }
-        fn modal(ui: &mut Ui, c: &ModalConfig) { PRESENT.with(|p| p.set(c.present)); ui.slot(c.content); }
+        thread_local! { static PRESENT: std::cell::Cell<Option<Presentation>> = const { std::cell::Cell::new(None) }; }
+        fn modal(ui: &mut Ui, c: &ModalConfig) { PRESENT.with(|p| p.set(Some(c.presentation()))); ui.slot(c.content); }
         let rect = std::cell::Cell::new(Rect::default());
         let mut build = |ui: &mut Ui| {
             let r = ui.modal("palette", &Overlay::DEFAULT.name("Palette").w_px(200.0).at(crate::geom::Point::new(0.0, 30.0)).max_h_px(120.0).present(Presentation::Top), |ui| { ui.node("results", Node::DEFAULT.h_px(300.0)); });
@@ -367,7 +367,7 @@ mod tests {
         ui.register_modal_body("dressed", modal).unwrap();
         ui.set_theme(&crate::ThemeHandle::parse("modal.body = dressed").unwrap()).unwrap();
         for _ in 0..2 { testing::frame(&mut ui, &[], &mut build); }
-        assert_eq!(PRESENT.with(|p| p.get()), 3, "the body is told it is top-anchored");
+        assert_eq!(PRESENT.with(|p| p.get()), Some(Presentation::Top), "the body is told it is top-anchored (`presentation()`)");
         mem_sys::set_peer(crate::library_counter);
         let scope = mem_sys::warm_scope();
         for round in 0..4 {

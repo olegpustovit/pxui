@@ -409,7 +409,7 @@ impl Ui {
 mod tests {
     use super::Button;
     use pxui_types::a11y::state;
-    use crate::ui::{Edges, Justify, Node, Role, Size};
+    use crate::ui::{Axis, Edges, Justify, Node, Role, Size};
     use crate::{testing, Response, Ui};
     use std::cell::Cell;
 
@@ -554,6 +554,22 @@ mod tests {
         for (button, seen) in [(Button::sized(120.0, 44.0), (1, 1, 120.0, 44.0)), (Button::DEFAULT.size(Size::Px(120.0), Size::Px(44.0)), (0, 1, 120.0, 44.0))] {
             testing::frame(&mut ui, &[], &mut |ui| { ui.button("b", "Go", &button); });
             assert_eq!(SIZED.with(|s| s.get()), seen);
+        }
+    }
+
+    thread_local! { static ASKED: Cell<(Option<Size>, Option<Size>, Option<Axis>)> = const { Cell::new((None, None, None)) }; }
+
+    /// Review finding 12: a registered button body reads the size and axis the caller asked for as `Size` and `Axis`
+    /// (`ButtonConfig::width`, `height`, `content_axis`), not as the record's kind numbers; the kit's are `None`. Both link modes.
+    #[test]
+    fn a_registered_body_reads_the_asked_size_and_axis() {
+        fn asked(_ui: &mut Ui, c: &crate::bodies::ButtonConfig) { ASKED.with(|a| a.set((c.width(), c.height(), c.content_axis()))); }
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+        ui.register_button_body("asked", asked).expect("registered");
+        ui.set_theme(&crate::ThemeHandle::parse("button.body = asked").unwrap()).unwrap();
+        for (button, seen) in [(Button::DEFAULT, (None, None, None)), (Button::DEFAULT.size(Size::Px(120.0), Size::Grow).axis(Axis::Column), (Some(Size::Px(120.0)), Some(Size::Grow), Some(Axis::Column)))] {
+            testing::frame(&mut ui, &[], &mut |ui| { ui.button("b", "Go", &button); });
+            assert_eq!(format!("{:?}", ASKED.with(|a| a.get())), format!("{seen:?}"));
         }
     }
 

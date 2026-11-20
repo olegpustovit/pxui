@@ -14,6 +14,7 @@ use crate::bodies::{RowConfig, TableHeadConfig, TreeRowConfig, body_of, in_body,
 use crate::draw::Fit;
 use crate::geom::Rgba;
 use crate::ui_core::*;
+use pxui_types::ffi::PxuiRowConfig;
 use crate::ui_kit::{part_key, text_only, ButtonOpts, Response};
 use input::{Event, Key};
 use std::ops::RangeInclusive;
@@ -149,9 +150,9 @@ pub(crate) fn default_scroll(this: &mut Ui, _c: &ScrollConfig, content: &mut dyn
 pub(crate) fn default_row(this: &mut Ui, c: &RowConfig, content: &mut dyn FnMut(&mut Ui)) {
     content(this);
     // the insertion line of a payload carried between the rows, over the row's top or bottom edge
-    if c.drop == 1 || c.drop == 2 {
+    if c.drop == PxuiRowConfig::DROP_BEFORE || c.drop == PxuiRowConfig::DROP_AFTER {
         let h = this.rect(&c.row).h.max(2.0);
-        this.node_keyed(int_key(c.row.box_key, -2), Node { w: Size::Grow, h: Size::Px(2.0), at: Some((0.0, if c.drop == 1 { 0.0 } else { h - 2.0 })).into(), look: c.line, ..Node::DEFAULT });
+        this.node_keyed(int_key(c.row.box_key, -2), Node { w: Size::Grow, h: Size::Px(2.0), at: Some((0.0, if c.drop == PxuiRowConfig::DROP_BEFORE { 0.0 } else { h - 2.0 })).into(), look: c.line, ..Node::DEFAULT });
     }
 }
 

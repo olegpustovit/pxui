@@ -2282,6 +2282,17 @@ configs! {
 }
 
 
+impl PxuiRowConfig {
+    /// `drop`: no payload is carried over the row.
+    pub const DROP_NONE: u8 = 0;
+    /// `drop`: a carried payload would land before the row (a reorderable list's body draws the insertion line at its top).
+    pub const DROP_BEFORE: u8 = 1;
+    /// `drop`: a carried payload would land after the row (the insertion line at its bottom).
+    pub const DROP_AFTER: u8 = 2;
+    /// `drop`: a carried payload is over the row of a list with a drop look, which behaviour has applied to the row.
+    pub const DROP_OVER: u8 = 3;
+}
+
 #[cfg(test)]
 pub(crate) mod layout {
     use super::*;
