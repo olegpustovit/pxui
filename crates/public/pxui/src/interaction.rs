@@ -131,7 +131,9 @@ impl Ui {
     /// responder), such as the main list, which then takes the keys it handles and leaves the rest to `key_pressed`. The focus
     /// goes to the box's nearest focusable box (itself or an ancestor: a list's scroll `handle` names the list), unless a modal
     /// leaves it out. Stated each build; a build that names none leaves no default. A click elsewhere or Escape out of a field
-    /// gives up the focus, and the next key press comes back here.
+    /// gives up the focus, and the next key press comes back here. While another widget (not a text editor) holds the focus, a
+    /// press it leaves untaken falls through here (a focused sidebar leaves Command-A and Escape to the main list and keeps
+    /// Return); the focused widget sees the press first when it builds before this box.
     /// Allocates: never.
     /// Panics: if the handle has retired or the library refuses the Ui.
     #[inline] #[track_caller] pub fn focus_default(&mut self,box_:&Handle) {check(self, unsafe{sys::pxui_ui_focus_default(self.0.as_ptr(),box_)})}

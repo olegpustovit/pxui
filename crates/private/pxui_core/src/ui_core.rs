@@ -3125,14 +3125,20 @@ impl Ui {
                         self.keyboard_focus = false;
                     }
                     Event::KeyPressed(_) | Event::KeyReleased(_) | Event::TextInput(_) | Event::TextEditing { .. } | Event::Paste(_) => {
-                        if self.focus == 0 && default_focus != 0 && matches!(event, Event::KeyPressed(_)) {
-                            // the default key target's nearest focusable box takes the focus, unless a modal leaves it out
-                            let mut holder = 0;
+                        // the default key target's nearest focusable box, unless a modal leaves it out
+                        let mut holder = 0;
+                        if default_focus != 0 && matches!(event, Event::KeyPressed(_)) {
                             self.hit_ancestors(default_focus, &mut |key| if holder == 0 && self.flags_of_key(key).any(Flags::FOCUSABLE) { holder = key; });
-                            if let Some(index) = self.hit_index(holder) && self.eligible(index) { self.focus = holder; }
+                            if !self.hit_index(holder).is_some_and(|index| self.eligible(index)) { holder = 0; }
                         }
-                        if self.focus != 0 {
-                            let focus = self.focus;
+                        // it takes the focus while no node holds it; while a widget other than a text editor holds it, the press
+                        // falls through to it too, which acts only on a press the focused widget left untaken
+                        // shortcut: "left untaken" holds when the focused widget builds before the default target (a sidebar before
+                        // its content); a target built first sees the press first. Upgrade if a window builds its default target first.
+                        if self.focus == 0 { self.focus = holder; }
+                        let fall = if holder != self.focus && self.focus != self.edit_focus { holder } else { 0 };
+                        for target in [self.focus, fall] {
+                            if target == 0 { continue; }
                             // Empty release buffers must not displace warmed press capacity.
                             let reusable = self.spare_modifiers.iter().enumerate()
                                 .filter(|(_, keys)| keys.capacity() >= modifiers.len())
@@ -3143,12 +3149,16 @@ impl Ui {
                             mods.extend_from_slice(&modifiers);
                             // a focus taking its first key this frame takes a warmed key list (recycled accumulators hand theirs to
                             // `spare_key_lists`, so whichever accumulator a node gets, a key it takes reuses one)
-                            // a focused control (not a text editor) presses on Enter and Space: those keys are the control's
-                            let control = step == 0 && focus != self.edit_focus && self.flags_of_key(focus).any(Flags::CLICKABLE);
-                            let warmed = if self.signals.get(&focus).is_none_or(|a| a.keys.capacity() == 0) { self.spare_key_lists.pop() } else { None };
-                            let value = self.accumulator(focus);
+                            let warmed = if self.signals.get(&target).is_none_or(|a| a.keys.capacity() == 0) { self.spare_key_lists.pop() } else { None };
+                            let value = self.accumulator(target);
                             if let Some(keys) = warmed { value.keys = keys; }
                             value.keys.push((event.clone(), mods));
+                        }
+                        if self.focus != 0 {
+                            let focus = self.focus;
+                            // a focused control (not a text editor) presses on Enter and Space: those keys are the control's
+                            let control = step == 0 && focus != self.edit_focus && self.flags_of_key(focus).any(Flags::CLICKABLE);
+                            let value = self.accumulator(focus);
                             if let Event::KeyPressed(Key::Enter) | Event::KeyPressed(Key::Space) | Event::KeyPressed(Key::KeyChar(' ')) = event {
                                 if !command {
                                     value.clicked = true;
@@ -4158,7 +4168,8 @@ impl Ui {
 
     /// Names the box a key press takes as its focus while no node holds it (a window's default key target): its nearest
     /// focusable box (itself or an ancestor; a list's scroll box names the list), unless a modal leaves that out. Stated each
-    /// build: a build that names none leaves no default.
+    /// build: a build that names none leaves no default. While a widget other than a text editor holds the focus, a press it
+    /// leaves untaken falls through to that box.
     pub fn focus_default(&mut self, b: &UiBox) {
         self.default_focus = b.box_key;
     }

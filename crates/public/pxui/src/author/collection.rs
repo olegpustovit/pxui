@@ -1162,6 +1162,34 @@ mod tests {
         assert_eq!(on(&state.borrow()), vec![1], "a modal leaves the list behind it out");
     }
 
+    /// A press the focused widget leaves untaken falls through to the default key target: with a single-selection sidebar focused,
+    /// Command-A and Escape reach the default multi-selection list; Enter stays with the sidebar, which activates its row.
+    #[test]
+    fn a_press_the_focused_list_leaves_falls_through_to_the_default_target() {
+        let (side, main) = (RefCell::new(ListState::new()), RefCell::new(ListState::new()));
+        let (side_r, main_r) = (Cell::new(ListResponse::default()), Cell::new(ListResponse::default()));
+        let mut build = |ui: &mut Ui| {
+            keep(&side_r, ui.selection_list("side", 2, &|i| i as i64, &mut side.borrow_mut(), &SelectionList::DEFAULT, &mut |ui, part, _| if let SectionPart::Row(row) = part { ui.item_text(["x", "y"][row]) }));
+            let r = ui.selection_list("main", 3, &|i| i as i64, &mut main.borrow_mut(), &SelectionList::DEFAULT.multi(), &mut |ui, part, _| if let SectionPart::Row(row) = part { ui.item_text(["a", "b", "c"][row]) });
+            ui.focus_default(&r.handle);
+            keep(&main_r, r);
+        };
+        let mut ui = crate::doc::frames(2, &mut build);
+        let row = items(&ui, Role::ListItem)[0].rect;
+        click_at(&mut ui, 1.0, row, &[], false, &mut build);
+        assert_eq!(on(&side.borrow()), vec![0], "a click focuses the sidebar");
+        press(&mut ui, 2.0, KeyCode::Char('a'), &[KeyCode::Meta], &mut build);
+        assert_eq!(on(&main.borrow()), vec![0, 1, 2], "Command-A falls through to the default list");
+        press(&mut ui, 3.0, KeyCode::Escape, &[], &mut build);
+        assert!(on(&main.borrow()).is_empty(), "Escape falls through and clears it");
+        press(&mut ui, 4.0, KeyCode::Char('a'), &[KeyCode::Meta], &mut build);
+        main_r.set(ListResponse::default());
+        press(&mut ui, 5.0, KeyCode::Enter, &[], &mut build);
+        assert_eq!((side_r.get().activated, main_r.get().activated), (Some(0), None), "Enter stays with the focused sidebar");
+        press(&mut ui, 6.0, KeyCode::ArrowDown, &[], &mut build);
+        assert_eq!((on(&side.borrow()), on(&main.borrow())), (vec![1], vec![0, 1, 2]), "the sidebar keeps its arrows");
+    }
+
     /// Rows the app flags DISABLED take no selection or presses and read as disabled; `open_on_click` makes a click activate while arrows
     /// only select; a lead-in, heading and trailer reach the cell builder as their `SectionPart`s.
     #[test]
