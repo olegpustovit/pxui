@@ -4,7 +4,7 @@ use pxui_types::ui::{Key, ListResponse, SectionPart, SelectionList, TreeResponse
 use pxui_types::ffi::PxuiCellState;
 use pxui_types::ffi::{PxuiColumn, PxuiColumnWidth, PxuiColumnWidthSpan, PxuiHeadResult, PxuiListResult, PxuiResponse, PxuiSelectionListDesc, PxuiTableHeadDesc, PxuiTableDesc, PxuiTableResult, PxuiU8MutSpan, Slice};
 use pxui_types::theme::BodyKind;
-use crate::author::{CellState, Column, HeadResponse, ListState, Sort, Table, TableHead, TableResponse, TableState};
+use crate::author::{CellState, Column, HeadResponse, ListState, Sort, Table, TableHead, TableResponse, TableState, TreeState};
 #[cfg(not(feature = "static"))]
 use pxui_types::Str;
 
@@ -123,21 +123,20 @@ mod link {
     fn as_str(value: &str) -> Str { crate::as_str(value) }
 
     impl Ui {
-        #[allow(clippy::too_many_arguments)]
-        pub(super) fn tree_c(&mut self, label: &str, nodes: &[TreeNode], open: &mut [u8], selected: &mut Option<usize>, visible: &mut [u32], revision: Option<u64>, mut cell: Cell) -> (Option<usize>, usize) {
+        pub(super) fn tree_c(&mut self, label: &str, nodes: &[TreeNode], state: &mut TreeState, mut cell: Cell) -> (Option<usize>, usize) {
             let mut rows_len = 0usize;
-            let mut selected_raw = selected.unwrap_or(usize::MAX);
+            let mut selected_raw = state.selected.unwrap_or(usize::MAX);
             let desc = PxuiTreeViewDesc {
-                size: core::mem::size_of::<PxuiTreeViewDesc>() as u32, has_revision: revision.is_some() as u8, reserved: [0; 3], label: as_str(label), nodes: Slice { ptr: nodes.as_ptr().cast::<TreeNodeDesc>(), len: nodes.len() },
-                open: U8MutSpan { ptr: open.as_mut_ptr(), len: open.len() }, selected: &mut selected_raw,
-                visible: U32MutSpan { ptr: visible.as_mut_ptr(), len: visible.len() }, visible_len: &mut rows_len,
-                build: Some(call_cell), user: (&mut cell as *mut Cell).cast(), revision: revision.unwrap_or(0),
+                size: core::mem::size_of::<PxuiTreeViewDesc>() as u32, has_revision: state.revision.is_some() as u8, reserved: [0; 3], label: as_str(label), nodes: Slice { ptr: nodes.as_ptr().cast::<TreeNodeDesc>(), len: nodes.len() },
+                open: U8MutSpan { ptr: state.open.as_mut_ptr(), len: state.open.len() }, selected: &mut selected_raw,
+                visible: U32MutSpan { ptr: state.visible.as_mut_ptr(), len: state.visible.len() }, visible_len: &mut rows_len,
+                build: Some(call_cell), user: (&mut cell as *mut Cell).cast(), revision: state.revision.unwrap_or(0),
             };
             let mut out = usize::MAX;
             let rc = unsafe { pxui_ui_tree(self.0.as_ptr(), &desc, &mut out) };
             crate::composite::resume_deferred();
             check(self, rc);
-            *selected = (selected_raw != usize::MAX).then_some(selected_raw);
+            state.selected = (selected_raw != usize::MAX).then_some(selected_raw);
             ((out != usize::MAX).then_some(out), rows_len)
         }
     }
@@ -254,19 +253,20 @@ impl Ui {
         list_response(&out)
     }
 
-    /// The one body of `tree`: keyed by `key` (the export's label is identity only).
-    #[allow(clippy::too_many_arguments)]
+    /// The one body of `tree`: keyed by `key` (the export's label is identity only); `state.open` and `state.visible` sized to the nodes.
     #[track_caller]
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn tree_key(&mut self, key: Key, nodes: &[TreeNode], open: &mut [u8], selected: &mut Option<usize>, visible: &mut [u32], revision: Option<u64>, cell: &mut dyn FnMut(&mut Ui, usize)) -> TreeResponse {
+    pub(crate) fn tree_key(&mut self, key: Key, nodes: &[TreeNode], state: &mut TreeState, cell: &mut dyn FnMut(&mut Ui, usize)) -> TreeResponse {
         let mut id_label = [0u8; 17];
         let label = key.label(&mut id_label);
+        // shrink then grow, as `ListState::rows`: a node past the old count starts closed; capacity is kept
+        state.open.resize(nodes.len(), 0);
+        state.visible.resize(nodes.len(), 0);
         #[cfg(feature = "static")]
         let (activated, shown) = {
             let mut out = (None, 0);
             let nodes = unsafe { core::slice::from_raw_parts(nodes.as_ptr().cast::<TreeNodeDesc>(), nodes.len()) };
             let outer = self.0.as_ptr();
-            check(self, unsafe { pxui_abi_link::trusted::tree(outer, label, nodes, open, selected, visible, revision, &mut |engine: &mut pxui_abi_link::trusted::Engine, node| {
+            check(self, unsafe { pxui_abi_link::trusted::tree(outer, label, nodes, &mut state.open, &mut state.selected, &mut state.visible, state.revision, &mut |engine: &mut pxui_abi_link::trusted::Engine, node| {
                 let mut slot = None;
                 let handle = pxui_abi_link::trusted::Borrowed::handle(engine, outer, &mut slot);
                 (&mut *cell)(&mut *core::mem::ManuallyDrop::new(Ui(core::ptr::NonNull::new_unchecked(handle))), node)
@@ -274,7 +274,7 @@ impl Ui {
             out
         };
         #[cfg(not(feature = "static"))]
-        let (activated, shown) = self.tree_c(label, nodes, open, selected, visible, revision, &mut |ui, node, _| cell(ui, node));
+        let (activated, shown) = self.tree_c(label, nodes, state, &mut |ui, node, _| cell(ui, node));
         TreeResponse { activated, shown }
     }
 
@@ -371,14 +371,14 @@ mod item_text_tests {
         let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
         ui.set_a11y(true);
         let nodes = [TreeNode { depth: 0, children: 0 }];
-        let (mut list, mut open, mut selected, mut visible, mut table) = (crate::ListState::new(), [0u8; 1], None, [0u32; 1], crate::TableState::new());
+        let (mut list, mut tree, mut table) = (crate::ListState::new(), crate::TreeState::new(), crate::TableState::new());
         let input = crate::FrameIn::new(400.0, 300.0);
         for _ in 0..2 {
             ui.frame(&input, &mut |ui: &mut Ui| {
                 let half = ui.node("lists", crate::Node { h: crate::ui::Size::Px(80.0), ..crate::Node::DEFAULT });
                 ui.within(&half, &mut |ui| { ui.selection_list("list", 1, &|i| i as i64, &mut list, &crate::SelectionList::DEFAULT, &mut |ui, part, _| if let crate::ui::SectionPart::Row(_) = part { ui.item_text("list row") }); });
                 let half = ui.node("trees", crate::Node { h: crate::ui::Size::Px(80.0), ..crate::Node::DEFAULT });
-                ui.within(&half, &mut |ui| { ui.tree("tree", &nodes, &mut open, &mut selected, &mut visible, None, &mut |ui, _| ui.item_text("tree row")); });
+                ui.within(&half, &mut |ui| { ui.tree("tree", &nodes, &mut tree, &mut |ui, _| ui.item_text("tree row")); });
                 let half = ui.node("tables", crate::Node { h: crate::ui::Size::Px(80.0), ..crate::Node::DEFAULT });
                 ui.within(&half, &mut |ui| { ui.table("table", &[crate::Column::new("A").w_px(80.0)], 1, &|i| i as i64, &mut table, &crate::Table::DEFAULT, &mut |ui, _, _, _| ui.item_text("table cell")); });
             }).expect("frame");
@@ -397,18 +397,19 @@ mod item_text_tests {
         let build = |revision: &dyn Fn(usize) -> Option<u64>, change: usize| {
             let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
             ui.set_a11y(true);
-            let (mut nodes, mut open, mut selected, mut visible, mut shown) = (nodes.clone(), vec![0u8; 1000], None, vec![0u32; 1000], vec![]);
+            let (mut nodes, mut tree, mut shown) = (nodes.clone(), crate::TreeState::new(), vec![]);
             for frame in 0..4 {
                 if frame == change {
-                    open[0] = 1;
+                    tree.open[0] = 1;
                     nodes[10].children = 0;
                 }
+                tree.revision = revision(frame);
                 ui.frame(&crate::FrameIn::new(300.0, 400.0).time(frame as f64 / 60.0), &mut |ui: &mut Ui| {
-                    shown.push(ui.tree("tree", &nodes, &mut open, &mut selected, &mut visible, revision(frame), &mut |ui, node| ui.item_text(&format!("node {node}"))).shown);
+                    shown.push(ui.tree("tree", &nodes, &mut tree, &mut |ui, node| ui.item_text(&format!("node {node}"))).shown);
                 }).expect("frame");
             }
             let items: Vec<(String, u32)> = ui.a11y_nodes().iter().filter(|n| n.role == crate::Role::TreeItem as u32).map(|n| (ui.a11y_name_of(n).to_owned(), n.states)).collect();
-            (visible[..*shown.last().unwrap()].to_vec(), items, shown)
+            (tree.visible[..*shown.last().unwrap()].to_vec(), items, shown)
         };
         // the change at frame 2: held revision (frame 2 keeps 100 rows), then a new one at frame 3
         let kept = build(&|frame| Some(if frame < 3 { 1 } else { 2 }), 2);
@@ -432,8 +433,8 @@ mod tests {
         let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
         let mut list = crate::ListState::new();
         let nodes: Vec<TreeNode> = (0..ROWS).map(|i| TreeNode { depth: [0, 1, 2, 2, 1, 2][i % 6], children: matches!(i % 6, 0 | 1 | 4) as u8 }).collect();
-        let mut open: Vec<u8> = (0..ROWS).map(|i| (i < 6) as u8).collect();
-        let (mut selected, mut visible, mut table) = (Some(2usize), vec![0u32; ROWS], crate::TableState::new());
+        let mut tree = crate::TreeState { open: (0..ROWS).map(|i| (i < 6) as u8).collect(), selected: Some(2), ..crate::TreeState::new() };
+        let mut table = crate::TableState::new();
         table.sort = Some((0, crate::Sort::Ascending));
         const COLUMNS: [crate::Column; 3] = [crate::Column::new("Name").sortable(true).w_px(96.0), crate::Column::new("Group").w_px(72.0), crate::Column::new("Tag").w_px(72.0)];
         let (texts, cells, mut shown) = (core::cell::Cell::new(0usize), core::cell::Cell::new(0usize), 0);
@@ -444,7 +445,7 @@ mod tests {
                     let ratio = ui.split("split", 0.34, &crate::Split::DEFAULT.min_a(120.0).min_b(200.0), &mut |ui: &mut Ui| {
                         let _ = ui.selection_list("files", ROWS, &|i| i as i64, &mut list, &crate::SelectionList::DEFAULT.multi(), &mut |ui, part, _| if let crate::ui::SectionPart::Row(i) = part { texts.set(texts.get() + 1); ui.item_text(&format!("file {i}")); });
                     }, &mut |ui: &mut Ui| {
-                        shown = ui.tree("outline", &nodes, &mut open, &mut selected, &mut visible, None, &mut |ui, i| { texts.set(texts.get() + 1); ui.item_text(&format!("node {i}")); }).shown;
+                        shown = ui.tree("outline", &nodes, &mut tree, &mut |ui, i| { texts.set(texts.get() + 1); ui.item_text(&format!("node {i}")); }).shown;
                         let _ = ui.table("points", &COLUMNS, ROWS, &|i| i as i64, &mut table, &crate::Table::DEFAULT, &mut |ui, r, c, _| { cells.set(cells.get() + 1); ui.item_text(&format!("{r}:{c}")); });
                     });
                     assert!(ratio.ratio.is_none());
@@ -453,6 +454,6 @@ mod tests {
         }
         assert!(texts.get() > 0 && cells.get() > 0, "the virtual rows were asked for their text");
         assert!(shown > 0 && shown <= nodes.len(), "{shown}");
-        assert_eq!(visible[0], 0);
+        assert_eq!(tree.visible[0], 0);
     }
 }

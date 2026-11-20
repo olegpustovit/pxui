@@ -9,7 +9,7 @@ pub mod pxui {
     pub mod collections { pub use pxui_core::ui_widgets::TreeNode; }
     pub use pxui_types::theme;
     pub use pxui_core::ui::Handle;
-    pub use super::shapes::{Badge, Button, DropRef, GridList, MenuBar, MenuBarMenu, OverlayResponse, PickResponse, Progress, Radio, SliderResponse, Spinner, Split, SplitResponse, Tabs, Toggle, Ui, ListState, TableState, Column, Table, TableHead, Sort, CellState, TableResponse, HeadResponse};
+    pub use super::shapes::{Badge, Button, DropRef, GridList, MenuBar, MenuBarMenu, OverlayResponse, PickResponse, Progress, Radio, SliderResponse, Spinner, Split, SplitResponse, Tabs, Toggle, Ui, ListState, TableState, TreeState, Column, Table, TableHead, Sort, CellState, TableResponse, HeadResponse};
     /// The extension set as the wrapper names it (`pxui::ext`): free functions over the engine's own calls.
     pub mod ext {
         use super::{Handle, Ui};
@@ -54,6 +54,7 @@ pub mod shapes {
     }
     #[derive(Clone, Debug, Default)] pub struct TableState { pub widths: Vec<(i64, f32)>, pub sort: Option<(i64, Sort)>, pub selection: ListState }
     impl TableState { pub const fn new() -> TableState { TableState { widths: Vec::new(), sort: None, selection: ListState::new() } } }
+    #[derive(Clone, Debug, Default)] pub struct TreeState { pub open: Vec<u8>, pub selected: Option<usize>, pub visible: Vec<u32>, pub revision: Option<u64> }
     #[derive(Clone, Copy, Debug)] pub struct TableHead { h: f32, variant: u16 }
     impl TableHead { pub const DEFAULT: TableHead = TableHead { h: 24.0, variant: 0 }; pub const fn h_px(mut self, h: f32) -> TableHead { self.h = h; self } pub const fn variant(mut self, v: u16) -> TableHead { self.variant = v; self } }
     #[derive(Clone, Copy, Debug)] pub struct Table { multi: bool, row_h: f32, head: TableHead, variant: u16 }
@@ -233,9 +234,11 @@ pub mod shapes {
         pub fn drop_target(&mut self, b: &Handle) -> Option<DropRef<'_>> {
             self.0.drop_target_ref(b).map(|(dropped, p)| if dropped { DropRef::Dropped(p) } else { DropRef::Hover(p) })
         }
-        #[allow(clippy::too_many_arguments)]
-        pub fn tree(&mut self, key: &str, nodes: &[TreeNode], open: &mut [u8], selected: &mut Option<usize>, visible: &mut [u32], revision: Option<u64>, f: &mut dyn FnMut(&mut Ui, usize)) -> TreeResponse {
-            self.0.tree(key, nodes, open, selected, visible, revision, &mut |e: &mut Engine, i| f(Ui::of(e), i))
+        pub fn tree(&mut self, key: &str, nodes: &[TreeNode], state: &mut TreeState, f: &mut dyn FnMut(&mut Ui, usize)) -> TreeResponse {
+            // sized to the nodes as the wrapper's `TreeState` is
+            state.open.resize(nodes.len(), 0);
+            state.visible.resize(nodes.len(), 0);
+            self.0.tree(key, nodes, &mut state.open, &mut state.selected, &mut state.visible, state.revision, &mut |e: &mut Engine, i| f(Ui::of(e), i))
         }
         #[allow(clippy::too_many_arguments)]
         pub fn table(&mut self, key: &str, columns: &[Column], rows: usize, row_key: &dyn Fn(usize) -> i64, state: &mut TableState, table: &Table, f: &mut dyn FnMut(&mut Ui, usize, usize, CellState)) -> TableResponse {

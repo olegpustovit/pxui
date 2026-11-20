@@ -190,6 +190,35 @@ impl TableState {
     pub const fn new() -> TableState { TableState { widths: Vec::new(), sort: None, selection: ListState::new() } }
 }
 
+/// A tree's app-owned state (`Ui::tree`), passed as one `&mut` every frame as `ListState` is a list's: which nodes are open, the
+/// selected node, the rows the tree shows and the content revision. The tree sizes `open` and `visible` to the nodes every frame
+/// (a node past the old count starts closed) and updates them in place.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TreeState {
+    /// One flag a node, by node index: not 0 while it is open (the app may write it, as for a node revealed by a search; a
+    /// disclosure click or the arrow keys flip it).
+    pub open: Vec<u8>,
+    /// The selected node; `None` before any.
+    pub selected: Option<usize>,
+    /// The shown rows' nodes in order, written by the tree: its first `TreeResponse::shown` entries. Keep it as the tree left it.
+    pub visible: Vec<u32>,
+    /// The content revision of the nodes and `open`, as `ListState::revision`: with `Some`, the shown rows stay in `visible` between
+    /// frames while it and the tree's own expansions hold, so a frame walks only the rows in view; change it whenever the app
+    /// changes the nodes or `open`. With `None` the rows are re-derived every frame, a walk over every node.
+    pub revision: Option<u64>,
+}
+
+impl TreeState {
+    /// Nothing open or selected, no rows yet, no revision.
+    /// Allocates: never (the first frame sizes `open` and `visible` to the nodes).
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert!(pxui::TreeState::new().selected.is_none());
+    /// ```
+    pub const fn new() -> TreeState { TreeState { open: Vec::new(), selected: None, visible: Vec::new(), revision: None } }
+}
+
 /// How `Ui::table` varies the kit's virtual table, as a `Copy` value built with `const fn` builders from `Table::DEFAULT`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Table {
@@ -420,29 +449,24 @@ impl Ui {
     /// Declares a preorder virtual tree: `cell(ui, node)` builds the row that shows tree node `node`, after the disclosure mark
     /// (`item_text` for the kit's text row, which names the row); reports the node a double click or Enter activated and the rows shown.
     ///
-    /// `open` holds one flag a node (not 0: expanded) and `selected` the selected node, both updated in place; the library writes the
-    /// shown rows into the start of `visible` (at least a row a node).
-    ///
-    /// `revision` is the content revision of `nodes` and `open`, as `ListState::revision`: with `Some`, the shown rows stay in
-    /// `visible` between frames while it, the three slices (the same memory) and the tree's own expansions hold, so a frame walks
-    /// only the rows in view; change it whenever the app changes `nodes` or `open`, and keep `visible` as the tree left it. With
-    /// `None` the rows are re-derived every frame, a walk over every node.
-    /// Allocates: never on a warm frame.
+    /// `state` (`TreeState`) holds which nodes are open and the selected node, both updated in place, and the shown rows, which the
+    /// library writes into the start of `state.visible`; `open` and `visible` are sized to `nodes` every frame. With
+    /// `state.revision` set, a frame walks only the rows in view while the revision holds (see `TreeState::revision`).
+    /// Allocates: never on a warm frame (`open` and `visible` grow when the node count does).
     /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); rows are keyed by index.
-    /// Panics: when the library refuses the call (outside a frame, `open` or `visible` too short), or when `cell` panics. A key over 256 bytes panics (a programmer error). Display text past 64 KiB is clipped at a character boundary, never refused.
+    /// Panics: when the library refuses the call (outside a frame), or when `cell` panics. A key over 256 bytes panics (a programmer error). Display text past 64 KiB is clipped at a character boundary, never refused.
     ///
     /// ```
-    /// use pxui::TreeNode;
+    /// use pxui::{TreeNode, TreeState};
     /// let nodes = [TreeNode { depth: 0, children: 1 }, TreeNode { depth: 1, children: 0 }];
-    /// let (mut open, mut selected, mut visible) = ([1u8, 0], None, [0u32; 2]);
-    /// pxui::doc::frames(1, &mut |ui| { assert_eq!(ui.tree("outline", &nodes, &mut open, &mut selected, &mut visible, Some(0), &mut |ui, node| ui.item_text(["root", "leaf"][node])).shown, 2); });
-    /// assert_eq!(visible, [0, 1]);
+    /// let mut state = TreeState { open: vec![1, 0], revision: Some(0), ..TreeState::new() };
+    /// pxui::doc::frames(1, &mut |ui| { assert_eq!(ui.tree("outline", &nodes, &mut state, &mut |ui, node| ui.item_text(["root", "leaf"][node])).shown, 2); });
+    /// assert_eq!(state.visible, [0, 1]);
     /// ```
-    #[allow(clippy::too_many_arguments)]
     #[inline]
     #[track_caller]
-    pub fn tree<K: Into<Key>>(&mut self, key: K, nodes: &[TreeNode], open: &mut [u8], selected: &mut Option<usize>, visible: &mut [u32], revision: Option<u64>, cell: &mut dyn FnMut(&mut Ui, usize)) -> TreeResponse {
-        self.tree_key(key.into(), nodes, open, selected, visible, revision, cell)
+    pub fn tree<K: Into<Key>>(&mut self, key: K, nodes: &[TreeNode], state: &mut TreeState, cell: &mut dyn FnMut(&mut Ui, usize)) -> TreeResponse {
+        self.tree_key(key.into(), nodes, state, cell)
     }
 
     /// Declares a virtual table filling its parent: a `Ui::table_head` of `columns` over `rows` rows; `cell(ui, row, column, cell)`
@@ -855,7 +879,7 @@ mod tests {
         let text = "selection_list.body = c\ntree.body = c\ntable_row.body = c\ntable_head.body = c";
         ui.set_theme(&crate::ThemeHandle::parse(&text).unwrap()).unwrap();
         let nodes = [TreeNode { depth: 0, children: 0 }];
-        let (mut list, mut open, mut visible, mut selected, mut table, mut heading) = (ListState::new(), [0u8; 1], [0u32; 1], None, TableState::new(), TableState::new());
+        let (mut list, mut tree, mut table, mut heading) = (ListState::new(), super::TreeState::new(), TableState::new(), TableState::new());
         table.sort = Some((0, Sort::Descending));
         const COLUMNS: [Column; 1] = [Column::new("Name").sortable(true).share(1.0)];
         SEEN.with(|s| s.borrow_mut().clear());
@@ -864,7 +888,7 @@ mod tests {
                 for (key, kind) in [("lists", 0), ("trees", 1), ("tables", 2), ("heads", 3)] {
                     ui.id(key, |ui| { ui.column(Node { h: Size::Px(80.0), ..Node::DEFAULT }, |ui| match kind {
                         0 => { ui.selection_list("list", 1, &|i| i as i64, &mut list, &SelectionList::DEFAULT, &mut |ui, part, _| if let SectionPart::Row(_) = part { ui.item_text("list row") }); }
-                        1 => { ui.tree("tree", &nodes, &mut open, &mut selected, &mut visible, None, &mut |ui, _| ui.item_text("tree row")); }
+                        1 => { ui.tree("tree", &nodes, &mut tree, &mut |ui, _| ui.item_text("tree row")); }
                         2 => { ui.table("table", &COLUMNS, 1, &|i| i as i64, &mut table, &Table::DEFAULT, &mut |ui, _, _, _| ui.item_text("table cell")); }
                         _ => { ui.table_head("head", &[Column::new("Alone")], &mut heading, &TableHead::DEFAULT); }
                     }); });

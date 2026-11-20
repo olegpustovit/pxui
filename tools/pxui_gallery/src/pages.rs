@@ -64,9 +64,8 @@ pub struct Gallery {
     // collections page
     pub list: pxui::ListState,
     pub nodes: Vec<TreeNode>,
-    pub open: Vec<u8>,
-    pub tree_sel: Option<usize>,
-    pub visible: Vec<u32>,
+    /// the outline's open nodes, selection and shown rows; its nodes never change, so one revision keeps its rows
+    pub tree: pxui::TreeState,
     pub table: pxui::TableState,
     pub old_table: pxui::TableState,
     pub split: f32,
@@ -107,7 +106,7 @@ impl Gallery {
             hints: &[("enter", "apply"), ("esc", "close")],
             check: true, radio: 1, slider: 0.4, tab: 0, segment: 1, choice: 2, search: String::new(), adds: 0, image: None,
             list: pxui::ListState::new(), nodes: (0..ROWS).map(|i| TreeNode { depth: [0, 1, 2, 2, 1, 2][i % 6], children: matches!(i % 6, 0 | 1 | 4) as u8 }).collect(),
-            open: (0..ROWS).map(|i| (i < 6) as u8).collect(), tree_sel: Some(2), visible: vec![0; ROWS], table: Gallery::points(), old_table: pxui::TableState::new(), split: 0.34,
+            tree: pxui::TreeState { open: (0..ROWS).map(|i| (i < 6) as u8).collect(), selected: Some(2), visible: vec![0; ROWS], revision: Some(0) }, table: Gallery::points(), old_table: pxui::TableState::new(), split: 0.34,
             dialog: false, menu_at: None, picker: false, said: "", bounce: false, toasts: Vec::with_capacity(8), toasted: 0, busy: Vec::with_capacity(4), readout: None,
             queue: (0..8).collect(), playlists: pxui::ListState::new(), palette: false, dropped: "",
         }
@@ -254,7 +253,7 @@ pub fn collections_page(ui: &mut Ui, s: &mut Gallery) {
                 let top = node(ui, "tree-box", Node { h: Size::Grow, ..Node::DEFAULT });
                 ui.within(&top, &mut |ui: &mut Ui| {
                     // the outline's nodes never change and only the tree expands them: one revision keeps its rows
-                    let _ = ui.tree("outline", &s.nodes, &mut s.open, &mut s.tree_sel, &mut s.visible, Some(0), &mut |ui: &mut Ui, i: usize| names(i, &mut |t| ui.item_text(t)));
+                    let _ = ui.tree("outline", &s.nodes, &mut s.tree, &mut |ui: &mut Ui, i: usize| names(i, &mut |t| ui.item_text(t)));
                 });
                 let bottom = node(ui, "table-box", Node { h: Size::Grow, ..Node::DEFAULT });
                 ui.within(&bottom, &mut |ui: &mut Ui| {

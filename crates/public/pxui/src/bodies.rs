@@ -1118,21 +1118,21 @@ mod tests {
     #[test]
     fn collections_build_the_callers_cells() {
         let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
-        let (mut list, mut open, mut visible) = (crate::ListState::new(), vec![0u8; 3], vec![0u32; 3]);
+        let (mut list, mut tree) = (crate::ListState::new(), crate::TreeState::new());
         let nodes = [crate::TreeNode { depth: 0, children: 1 }, crate::TreeNode { depth: 1, children: 0 }, crate::TreeNode { depth: 0, children: 0 }];
-        let (mut table, mut tree_selected) = (crate::TableState::new(), None);
+        let mut table = crate::TableState::new();
         const COLUMNS: [crate::Column; 2] = [crate::Column::new("a").w_px(80.0), crate::Column::new("b").w_px(80.0)];
         let (rows, cells, nodes_built) = (Cell::new(0), Cell::new(0), Cell::new(0));
         for n in 0..3 {
             ui.frame(&input(n as f64), &mut |ui: &mut Ui| {
                 ui.selection_list("list", 5, &|i| i as i64, &mut list, &crate::SelectionList::DEFAULT, &mut |ui: &mut Ui, part, _| if let crate::ui::SectionPart::Row(row) = part { rows.set(rows.get() + 1); ui.label(&format!("row {row}"), crate::Label::DEFAULT); });
-                let shown = ui.tree("tree", &nodes, &mut open, &mut tree_selected, &mut visible, None, &mut |ui: &mut Ui, node| { nodes_built.set(nodes_built.get() + 1); ui.label(&format!("node {node}"), crate::Label::DEFAULT); }).shown;
+                let shown = ui.tree("tree", &nodes, &mut tree, &mut |ui: &mut Ui, node| { nodes_built.set(nodes_built.get() + 1); ui.label(&format!("node {node}"), crate::Label::DEFAULT); }).shown;
                 assert_eq!(shown, 2, "the first node's child is closed");
                 let _ = ui.table("table", &COLUMNS, 3, &|i| i as i64, &mut table, &crate::Table::DEFAULT, &mut |ui: &mut Ui, row, column, _| { cells.set(cells.get() + 1); ui.label(&format!("{row}:{column}"), crate::Label::DEFAULT); });
             }).expect("frame");
         }
         assert!(rows.get() > 0 && nodes_built.get() > 0 && cells.get() > 0, "rows {}, nodes {}, cells {}", rows.get(), nodes_built.get(), cells.get());
-        assert_eq!(visible[..2], [0, 2]);
+        assert_eq!(tree.visible[..2], [0, 2]);
     }
 
     thread_local! { static VARIANTS: RefCell<Vec<(&'static str, u16)>> = const { RefCell::new(Vec::new()) }; }
