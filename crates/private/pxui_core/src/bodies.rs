@@ -78,6 +78,8 @@ pub struct ButtonConfig {
     pub pad: Edges,
     /// The caller asked for `Button::centered`: the box exactly `w` by `h` with nothing around it in its line, its text centred.
     pub centered: bool,
+    /// The caller asked for `Button::danger` (a destructive action): the built-in body inks the text in the theme's error colour.
+    pub danger: bool,
     pub line: Handle,
     pub row: Handle,
     /// The caller's `Button::label`: the text drawn through the label line box in this style (`None`: the kit's text).

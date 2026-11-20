@@ -116,7 +116,7 @@ const STOP_FLAGS: Flags = Flags::CLICKABLE.or(Flags::FOCUSABLE).or(Flags::BLOCKI
 /// presses of a disabled one.
 pub(crate) fn default_dialog(this: &mut Ui, title: &str, buttons: &[DialogButton], content: &mut dyn FnMut(&mut Ui)) {
     let t = this.theme();
-    let (bar, invalid) = (t.dialog.idle, t.tokens.invalid);
+    let bar = t.dialog.idle;
     let rh = this.row_px() as f32;
     let head = this.part(Part::TITLE, Node { h: Size::Px(rh + 8.0), look: bar, inset: Edges { l: this.space(2), ..Edges::ZERO }, ..Node::DEFAULT });
     this.text(&head, shown(title));
@@ -124,7 +124,7 @@ pub(crate) fn default_dialog(this: &mut Ui, title: &str, buttons: &[DialogButton
     let row = this.node("buttons".into(), Node { h: Size::Px(rh), axis: Axis::Row, align: Align::Center, justify: Justify::End, gap: 4.0, margin: Edges { t: 6.0, b: 6.0, ..Edges::ZERO }, ..Node::DEFAULT });
     let saved = this.enter(&row);
     for (i, b) in buttons.iter().enumerate() {
-        let opts = ButtonOpts { enabled: b.enabled, justify: Justify::End, ink: b.danger.then_some(invalid), ..ButtonOpts::DEFAULT };
+        let opts = ButtonOpts { enabled: b.enabled, justify: Justify::End, danger: b.danger, ..ButtonOpts::DEFAULT };
         this.button_in(&row, this.own_part_key(Part::button(i as u8)), b.text, &opts, ["", b.detail, ""]);
     }
     // each button's body lays the row out as its line; a button with a detail line makes it as tall as it needs

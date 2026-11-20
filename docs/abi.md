@@ -286,6 +286,7 @@ wrapper) and name the replacement; nothing is removed from the manifest.
 | 1.124 | Changed in place (D28, U2b.4.29): `PxuiTabConfig.bar` (96 -> 128), the bar holding the tabs (Rust `TabsConfig.bar`), read when `size` covers it | A tabs body sizes, spaces and restyles its bar, as a segment body its strip (LocalWave's phone mode tabs and tab bar). |
 | 1.125 | Changed in place (D28, U2b.4.31): behaviour only, no record or export changes: `pxui_ui_tabs`' response clicks (and activates) for a press or key that chooses any tab, the one in use included, as a segmented strip's does | An app tells a re-tap of the tab in use (pop to the root) from no press. |
 | 1.126 | Changed in place (D28, U2b.4.34): `PxuiA11yValue` tag 2 (a number) also carries `text_start`/`text_end`, the number in words when not empty (no layout change); `pxui_ui_section_index` sets it to the current section's letter; the macOS bridge gives it as the element's value description | A screen reader hears a section index's letter, not its position (LocalWave's phone A-Z rail). |
+| 1.127 | Changed in place (D28, U2b.4.35): `PxuiButtonConfig.danger` (the first byte of `reserved2`, now `[u8; 8]`; no size change), 1 when the caller asked for `Button::danger`; Rust `ButtonConfig::danger() -> bool` | A registered button body draws a destructive action its own way (LocalWave's selection deck Remove key). |
 
 Frame extensions retain the frozen 48/56/128-byte prefixes. Validate leading sizes, active
 records, flags and UTF-8 boundaries before mutation; partial tails never justify reading

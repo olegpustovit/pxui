@@ -246,6 +246,17 @@ impl ButtonConfig {
         icon_of(self.text_of(&self.lead), self.lead_draw, self.lead_user, self.lead_word)
     }
 
+    /// Whether the caller asked for `Button::danger` (a destructive action; U2b.4.35): a body inks it in its own danger colour.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::bodies::ButtonConfig;
+    /// fn button(_ui: &mut pxui::Ui, config: &ButtonConfig) { let _destructive = config.danger(); }
+    /// ```
+    pub fn danger(&self) -> bool { self.danger != 0 }
+
     /// The contents' axis the caller asked for (`Button::axis`); `None` for the kit's (or a value no `Axis` names).
     ///
     /// Allocates: never.

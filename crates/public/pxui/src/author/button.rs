@@ -573,6 +573,21 @@ mod tests {
         }
     }
 
+    /// U2b.4.35: a registered button body is told `Button::danger` (`ButtonConfig::danger`), so it can draw a destructive action
+    /// its own way. Both link modes.
+    #[test]
+    fn a_registered_body_is_told_danger() {
+        thread_local! { static DANGER: Cell<Option<bool>> = const { Cell::new(None) }; }
+        fn told(_ui: &mut Ui, c: &crate::bodies::ButtonConfig) { DANGER.with(|d| d.set(Some(c.danger()))); }
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+        ui.register_button_body("told", told).expect("registered");
+        ui.set_theme(&crate::ThemeHandle::parse("button.body = told").unwrap()).unwrap();
+        for (button, seen) in [(Button::DEFAULT, false), (Button::DEFAULT.danger(), true)] {
+            testing::frame(&mut ui, &[], &mut |ui| { ui.button("b", "Remove", &button); });
+            assert_eq!(DANGER.with(|d| d.take()), Some(seen));
+        }
+    }
+
     /// The accessible node named `name` with `role` in the last frame.
     fn a11y(ui: &Ui, role: Role, name: &str) -> crate::A11yNode {
         *ui.a11y_nodes().iter().find(|n| n.is_role(role) && ui.a11y_name_of(n) == name).unwrap_or_else(|| panic!("no {role:?} named {name}"))

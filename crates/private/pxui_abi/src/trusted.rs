@@ -564,10 +564,9 @@ pub unsafe fn button_with(ui: *mut PxuiUi, key: &str, text: &str, name: Option<&
     if !button_size(w) || !button_size(h) || ![pad.l, pad.t, pad.r, pad.b, gap, icon_size].iter().all(|v| (0.0..=f32::MAX).contains(v)) { return unsafe { fail(ui, "invalid button descriptor") }; }
     let (e, shared) = (unsafe { engine(ui) }, unsafe { (*ui).shared });
     if [label, detail_label, accessory_label].iter().any(|l| l.is_some_and(|l| e.resolve(l).is_none())) { return unsafe { fail(ui, "invalid button label") }; }
-    let ink = if danger { Some(e.theme().tokens.invalid) } else { None };
     let lead_draw = lead_draw.map(|f| (crate::paint::icon_bridge as pxui_core::ui::IconDraw, [f as usize, lead_user as usize, shared as usize, lead_word as usize]));
     // the looks and the label are copied only when given: `copied()` copies the whole record either way
-    let mut opts = pxui_core::ui::ButtonOpts { states: None, w, h, enabled, selected, justify, padding: pad, ink, bare: false, icon: false, centered, label: None, axis, gap, content_align, focus_on_click,
+    let mut opts = pxui_core::ui::ButtonOpts { states: None, w, h, enabled, selected, justify, padding: pad, danger, bare: false, icon: false, centered, label: None, axis, gap, content_align, focus_on_click,
         lead_draw, icon_size, detail_label: detail_label.copied(), accessory_label: accessory_label.copied() };
     if let Some(states) = states { opts.states = Some(*states); }
     if let Some(label) = label { opts.label = Some(*label); }

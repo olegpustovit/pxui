@@ -2059,8 +2059,11 @@ configs! {
         /// ABI 1.54 (read when `size` covers it): 1 when the caller asked for `Button::centered`, the box exactly its size with nothing
         /// around it in its line and its text centred in it.
         centered: u8,
+        /// ABI 1.127 (in a reserved byte): 1 when the caller asked for `Button::danger`, a destructive action the built-in body inks in
+        /// the theme's error colour.
+        danger: u8,
         /// Zero.
-        reserved2: [u8; 9],
+        reserved2: [u8; 8],
         /// ABI 1.56 (read when `size` covers it): 1 when the caller gave the text a style (`Button::label`): draw it through the label
         /// line box in `text_style` and `text_box`, inked in the look's text colour when the style sets none.
         has_label: u8,
