@@ -143,7 +143,7 @@ pub(crate) fn build_output(shared: &mut Shared, engine: &Ui, nodes: bool) {
             let value = match n.value {
                 pxui_core::a11y::Value::None => pxui_types::ffi::A11yValue::default(),
                 pxui_core::a11y::Value::Text(r) => pxui_types::ffi::A11yValue { tag: 1, text_start: r.start, text_end: r.end, ..Default::default() },
-                pxui_core::a11y::Value::Number { now, min, max, step } => pxui_types::ffi::A11yValue { tag: 2, now, min, max, step, ..Default::default() },
+                pxui_core::a11y::Value::Number { now, min, max, step, text } => pxui_types::ffi::A11yValue { tag: 2, text_start: text.start, text_end: text.end, now, min, max, step, ..Default::default() },
             };
             shared.nodes.push(A11yNode {
                 id: n.id, parent: n.parent, role: n.role as u32, name_start: n.name.start, name_end: n.name.end,

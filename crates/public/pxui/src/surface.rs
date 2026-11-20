@@ -2852,7 +2852,7 @@ fn accessible_text_values_preserve_utf8_selection_precedence_and_warm_storage() 
         assert_eq!(ui.a11y_number(&node,1.0,0.0,2.0,1.0), Ok(true));
         original = Some(node);
     }).unwrap();
-    let node=ui.a11y_nodes().iter().find(|node|node.is_role(crate::ui::Role::Slider)).unwrap();assert_eq!(node.value.tag,2);assert_eq!(ui.a11y_value_of(node),None);
+    let node=ui.a11y_nodes().iter().find(|node|node.is_role(crate::ui::Role::Slider)).unwrap();assert_eq!(node.value.tag,2);assert_eq!(ui.a11y_value_of(node),Some("one"),"a number keeps its text as its words (ABI 1.126)");
     let retired = original.unwrap();
     ui.frame(&input(), &mut |_| {}).unwrap();
     assert_eq!(ui.a11y_value(&retired, "stale", (0, 0)), Ok(false));

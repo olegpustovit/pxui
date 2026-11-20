@@ -666,9 +666,9 @@ impl Ui {
         text.get(node.name_start as usize..node.name_end as usize).and_then(|name| core::str::from_utf8(name).ok()).unwrap_or("")
     }
 
-    /// The text value of a current accessibility node; None for absent/numeric values.
+    /// The text value of a current accessibility node (a number's words, ABI 1.126); None for no value or a number without words.
     pub fn a11y_value_of(&self,node:&A11yNode)->Option<&str> {
-        if node.value.tag!=1 {return None;}
+        if node.value.tag==0 || (node.value.tag==2 && node.value.text_end<=node.value.text_start) {return None;}
         let strings=self.output().a11y.strings;
         let text=if strings.len==0 {&[][..]} else {unsafe {core::slice::from_raw_parts(strings.ptr,strings.len)}};
         text.get(node.value.text_start as usize..node.value.text_end as usize).and_then(|value|core::str::from_utf8(value).ok())

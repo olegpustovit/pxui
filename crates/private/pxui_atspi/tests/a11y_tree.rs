@@ -105,7 +105,7 @@ fn diff_reports_added_removed_and_changed() {
     let mut edited = sample("Apply", false);
     build(&mut edited, "Apply", false, true);
     let field = edited.find(node_id(4, 7)).unwrap();
-    edited.nodes[field as usize].value = Value::Number { now: 1.0, min: 0.0, max: 2.0, step: 0.5 };
+    edited.nodes[field as usize].value = Value::Number { now: 1.0, min: 0.0, max: 2.0, step: 0.5, text: Default::default() };
     edited.nodes[field as usize].selection = (0, 0);
     diff(&old, &edited, &mut d);
     assert_eq!(d.changed, vec![(node_id(4, 7), change::VALUE | change::SELECTION)]);

@@ -110,7 +110,8 @@ impl A11yStates {
 impl Ui {
     /// Sets the accessible number of `box_`: the current value `now` within `min..=max`, moved by `step` (a slider, spin button or progress).
     ///
-    /// A number takes precedence over a text value on the same box. Returns `Ok(false)` for
+    /// A number takes precedence over a text value on the same box, which then says the number in words (a section index's letter; ABI
+    /// 1.126). Returns `Ok(false)` for
     /// a retired node and `Error::InvalidInput` for nonfinite values, a current value outside
     /// its bounds, or a negative step.
     /// Allocates: never.

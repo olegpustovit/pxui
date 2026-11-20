@@ -98,7 +98,8 @@ pub enum Value {
     None,
     /// a text field's contents or a readout's text
     Text(Str),
-    Number { now: f64, min: f64, max: f64, step: f64 },
+    /// a slider's or progress bar's number; `text` (empty for none) says the value in words (a section index's letter)
+    Number { now: f64, min: f64, max: f64, step: f64, text: Str },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -234,8 +235,9 @@ impl A11yTree {
         self.nodes[node as usize].value = Value::Text(self.intern(text));
     }
 
-    pub fn set_value_number(&mut self, node: u32, now: f64, min: f64, max: f64, step: f64) {
-        self.nodes[node as usize].value = Value::Number { now, min, max, step };
+    pub fn set_value_number(&mut self, node: u32, now: f64, min: f64, max: f64, step: f64, text: &str) {
+        let text = if text.is_empty() { Str::default() } else { self.intern(text) };
+        self.nodes[node as usize].value = Value::Number { now, min, max, step, text };
     }
 
     /// Replace the default states (ENABLED | VISIBLE).
@@ -264,10 +266,10 @@ impl A11yTree {
         &self.strings[range.start as usize..range.end as usize]
     }
 
-    /// A node's text value ("" for none or a number).
+    /// A node's text value: a field's or readout's text, a number's words ("" for none).
     pub fn value_text(&self, node: &A11yNode) -> &str {
         match node.value {
-            Value::Text(range) => self.str(range),
+            Value::Text(range) | Value::Number { text: range, .. } => self.str(range),
             _ => "",
         }
     }

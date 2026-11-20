@@ -2005,7 +2005,7 @@ impl Ui {
     }
 
     /// The node's accessible value as a number in `min..=max` moved by `step` (`a11y::Value::Number`:
-    /// a slider, a determinate progress bar); it wins over a text value.
+    /// a slider, a determinate progress bar); it wins over a text value, which then says the number in words.
     pub fn a11y_number(&mut self, b: &Handle, now: f64, min: f64, max: f64, step: f64) {
         if self.live(b) {
             self.slots[b.box_slot].a11y_number = Some([now, min, max, step]);
@@ -2236,7 +2236,7 @@ impl Ui {
                 let i = t.push(parent, crate::a11y::node_id(slot, s.generation), n.role, rect);
                 t.set_name(i, if s.a11y_name.is_empty() { &s.text } else { &s.a11y_name });
                 if let Some([now, min, max, step]) = s.a11y_number {
-                    t.set_value_number(i, now, min, max, step);
+                    t.set_value_number(i, now, min, max, step, &s.a11y_value);
                 } else if !s.a11y_value.is_empty() || n.a11y & a11y_state::EDITABLE != 0 {
                     t.set_value(i, &s.a11y_value);
                     t.set_selection(i, s.a11y_selection.0, s.a11y_selection.1);

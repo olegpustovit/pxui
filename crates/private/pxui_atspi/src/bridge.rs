@@ -558,7 +558,7 @@ impl Bridge {
                 m.open(b'v', "i").i(map::node_action_count(node.unwrap()) as i32).close();
             }
             (VALUE, _, true) => {
-                let Value::Number { now, min, max, step } = node.unwrap().value else { return false };
+                let Value::Number { now, min, max, step, .. } = node.unwrap().value else { return false };
                 match prop {
                     "CurrentValue" => m.open(b'v', "d").d(now).close(),
                     "MinimumValue" => m.open(b'v', "d").d(min).close(),
@@ -959,7 +959,7 @@ unsafe fn copy_ffi_tree(raw: &FfiA11yTree, out: &mut A11yTree, ids: &mut std::co
         dst.value = match n.value.tag {
             0 => Value::None,
             1 if range_ok(n.value.text_start, n.value.text_end) => Value::Text(pxui_core::a11y::Str { start: n.value.text_start, end: n.value.text_end }),
-            2 => Value::Number { now: n.value.now, min: n.value.min, max: n.value.max, step: n.value.step },
+            2 if range_ok(n.value.text_start, n.value.text_end) => Value::Number { now: n.value.now, min: n.value.min, max: n.value.max, step: n.value.step, text: pxui_core::a11y::Str { start: n.value.text_start, end: n.value.text_end } },
             _ => return Err("invalid accessibility value"),
         };
     }

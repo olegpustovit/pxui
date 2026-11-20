@@ -204,7 +204,7 @@ fn busy_step_with(custom: bool) {
     let tree = ui.output().a11y;
     let find = |name: &str| *tree.nodes.iter().find(|n| n.role == Role::Progress && tree.str(n.name) == name).expect(name);
     check(find("Busy").states & state::BUSY != 0, "the custom track is not busy in the tree");
-    check(find("Done").value == pxui_core::a11y::Value::Number { now: 50.0, min: 0.0, max: 100.0, step: 1.0 }, "the custom track's number");
+    check(find("Done").value == pxui_core::a11y::Value::Number { now: 50.0, min: 0.0, max: 100.0, step: 1.0, text: Default::default() }, "the custom track's number");
     let bar = |ui: &Ui| ui.part_rect(busy.box_key, Part::BAR).expect("the bar part");
     let track = ui.part_rect(busy.box_key, Part::TRACK).expect("the track part");
     check(track.h == if custom { 8.0 } else { 4.0 }, &format!("the track is the body's: {track:?}"));
@@ -336,7 +336,7 @@ pub fn progress_without_track_keeps_accessibility() {
     let tree = ui.output().a11y;
     let find = |name: &str| *tree.nodes.iter().find(|n| n.role == Role::Progress && tree.str(n.name) == name).unwrap_or_else(|| panic!("no progress {name}"));
     check(find("Busy").states & state::BUSY != 0, "no busy state without a track");
-    check(find("Done").value == pxui_core::a11y::Value::Number { now: 25.0, min: 0.0, max: 100.0, step: 1.0 }, "no number without a track");
+    check(find("Done").value == pxui_core::a11y::Value::Number { now: 25.0, min: 0.0, max: 100.0, step: 1.0, text: Default::default() }, "no number without a track");
     ui.destroy();
 }
 

@@ -87,7 +87,7 @@ fn a_disclosure_toggles_and_runs_its_body_only_while_open() {
     assert!(ran.get() > 0);
 }
 
-/// A press and drag on the strip chooses the letter under the pointer; with nothing held there is no choice.
+/// A press and drag on the strip chooses the letter under the pointer; with nothing held there is no choice; its value says the letter.
 #[test]
 fn the_section_index_reports_the_letter_under_the_pointer() {
     let got = Cell::new(None);
@@ -108,6 +108,9 @@ fn the_section_index_reports_the_letter_under_the_pointer() {
     assert_eq!(got.get(), Some(3), "the release frame reports the final letter");
     testing::frame(&mut ui, &[], &mut build);
     assert_eq!(got.get(), None);
+    // U2b.4.34: a screen reader hears the current letter, not its position (both link modes)
+    let node = *ui.a11y_nodes().iter().find(|n| n.is_role(Role::Slider)).expect("the strip");
+    assert_eq!((node.value.now, ui.a11y_value_of(&node)), (3.0, Some("D")), "the strip's value says its letter");
 }
 
 /// What a screen reader is told: the checkbox is a checkable CheckBox with its checked state (a disabled one not enabled), the disclosure

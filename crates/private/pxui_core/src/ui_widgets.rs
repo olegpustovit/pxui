@@ -540,6 +540,8 @@ impl Ui {
         if let Some(i) = chosen { self.set_state(&node, i as i64); }
         let active = chosen.unwrap_or(current);
         self.a11y_number(&node, active as f64, 0.0, last as f64, 1.0);
+        // the number's words: the current section's letter (U2b.4.34)
+        if let Some(letter) = letters.get(active) { self.a11y_value(&node, letter, (0, 0)); }
         let focused = self.focused(&node);
         let config = SectionIndexConfig { state: State { hovered: enabled && s.hovered, pressed: enabled && s.held, focused, disabled: !enabled, ..State::default() }, node, active: (n > 0).then_some(active) };
         in_body!(self, node.box_key, node, section_index, default_section_index(&config, letters));

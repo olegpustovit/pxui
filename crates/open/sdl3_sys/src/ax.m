@@ -247,7 +247,7 @@ static uint64_t contentHash(const PxuiAXNode *x, const char *strings) {
     h = mix(h, strings + x->name_start, x->name_end - x->name_start);
     h = mix(h, &x->name_end, 0);
     h = mix(h, strings + x->description_start, x->description_end - x->description_start);
-    if (x->value.tag == 1) h = mix(h, strings + x->value.text_start, x->value.text_end - x->value.text_start);
+    h = mix(h, strings + x->value.text_start, x->value.text_end - x->value.text_start);
     uint32_t lengths[3] = { x->name_end - x->name_start, x->description_end - x->description_start, x->value.text_end - x->value.text_start };
     return mix(h, lengths, sizeof lengths);
 }
@@ -323,6 +323,8 @@ int pxui_sdl3_ax_sync(void *raw, const PxuiAXNode *nodes, uint32_t n, const char
                 element.now = x->value.now; element.min = x->value.min; element.max = x->value.max; element.step = x->value.step;
                 element.accessibilityMinValue = @(x->value.min);
                 element.accessibilityMaxValue = @(x->value.max);
+                // a number's words (a section index's letter) are what VoiceOver says for the value
+                element.accessibilityValueDescription = x->value.text_end > x->value.text_start ? string(strings, x->value.text_start, x->value.text_end) : nil;
             } else if (x->value.tag == 1) {
                 value = string(strings, x->value.text_start, x->value.text_end);
             } else if (isFlag(x->states, StCheckable)) {

@@ -93,7 +93,7 @@ pub struct Damage {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct A11yValue {
-    /// 0 none, 1 text range, 2 number
+    /// 0 none, 1 text range, 2 number (ABI 1.126: its text range, when not empty, says the number in words, a section index's letter)
     pub tag: u32,
     pub text_start: u32,
     pub text_end: u32,
