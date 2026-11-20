@@ -369,8 +369,6 @@ unsafe fn restore_input(ui: *mut PxuiUi, base: Box<frame::Frame>) {
     unsafe { (*(*ui).shared).spare_input = Some(base); }
 }
 
-const NO_ENVIRONMENT: pxui_types::Environment = pxui_types::Environment { safe_area: [0.0; 4], keyboard_frame: [0.0; 4], keyboard_from: [0.0; 4], keyboard_started: 0.0, keyboard_duration: 0.0, keyboard_curve: 0, keyboard_visible: 0 };
-const NO_KEYBOARD: pxui_types::Keyboard = pxui_types::Keyboard { frame: [0.0; 4], flags: 0 };
 
 /// Whether `len` bytes (a whole number of 4-byte words) at `a` and `b` are equal: a few wide compares where a float-by-float `==` is a
 /// branch each. Used on values with no padding, one of which the engine holds: it was validated when it was set, so identical bytes
@@ -468,21 +466,15 @@ pub(crate) unsafe fn frame_body(ui: *mut PxuiUi, input: &FrameIn, build: Inner, 
     if let Err(code) = unsafe { enter_frame(ui) } { return code; }
     // the frame's surface is one registered on this Ui (the one compare); every event must carry it too (`decode_events`)
     let registered = unsafe { (*(*ui).shared).surface };
-    let named = if input.size as usize >= core::mem::offset_of!(FrameIn, surface) + 8 { input.surface } else { pxui_types::FrameIn::MAIN };
-    if registered == 0 || named != registered { return unsafe { fail(ui, "unknown surface") }; }
+    if registered == 0 || input.surface != registered { return unsafe { fail(ui, "unknown surface") }; }
     // a size within 0..=MAX_SURFACE, a scale in (0, inf) and a finite time: NaN fails every compare, so each is a compare or two
     let surface = |v: f32| (0.0..=MAX_SURFACE as f32).contains(&v);
     if !(input.time.abs() < f64::INFINITY) || !(input.scale > 0.0 && input.scale < f32::INFINITY) || !surface(input.width) || !surface(input.height) { return unsafe { fail(ui, "invalid frame descriptor") }; }
     if input.event_count > 4096 || (input.event_count != 0 && input.events.is_null()) { return unsafe { fail(ui, "invalid frame event slice") }; }
-    let legacy=core::mem::offset_of!(FrameIn,appearance) as u32;
-    let previous=core::mem::offset_of!(FrameIn,environment) as u32;
-    let (appearance,reduced)=if input.size==legacy { (0,0) } else if input.size>=previous {
-        (input.appearance,input.reduced_motion)
-    } else { return unsafe { fail(ui,"invalid frame descriptor size") }; };
+    let (appearance, reduced) = (input.appearance, input.reduced_motion);
     // read where they lie: what the engine holds was validated when it was set (the default is valid), so a frame that repeats it
     // compares bytes and checks nothing, and only a changed value is validated (a NaN never matches)
-    let environment=if input.size>=core::mem::offset_of!(FrameIn,keyboard) as u32 { &input.environment } else { &NO_ENVIRONMENT };
-    let keyboard=if input.size>=core::mem::offset_of!(FrameIn,surface) as u32 { &input.keyboard } else { &NO_KEYBOARD };
+    let (environment, keyboard) = (&input.environment, &input.keyboard);
     let engine=unsafe { &mut *(*ui).engine };
     let environment_changed=!same_environment(environment,engine.environment_ref());
     if environment_changed && !valid_environment(environment) { return unsafe { fail(ui,"invalid host environment") }; }
@@ -511,20 +503,6 @@ pub(crate) unsafe fn frame_body(ui: *mut PxuiUi, input: &FrameIn, build: Inner, 
     rc
 }
 
-// Read only fields the caller supplied: old 48-byte inputs carry no OS preferences.
-unsafe fn read_frame(input:*const FrameIn)->Option<FrameIn> {
-    if input.is_null() { return None; }
-    let size=unsafe { input.cast::<u32>().read_unaligned() } as usize;
-    let legacy=core::mem::offset_of!(FrameIn,appearance);
-    let previous=core::mem::offset_of!(FrameIn,environment);
-    // the sizes FrameIn has had (48, 56, 128, 152) or the whole record and more; no other
-    if !(matches!(size,48|56|128|152) || size>=core::mem::size_of::<FrameIn>()) { return None; }
-    let mut value=FrameIn::default();
-    let copied=if size>=core::mem::size_of::<FrameIn>() { core::mem::size_of::<FrameIn>() } else if size>=core::mem::offset_of!(FrameIn,surface) { core::mem::offset_of!(FrameIn,surface) } else if size>=core::mem::offset_of!(FrameIn,keyboard) { core::mem::offset_of!(FrameIn,keyboard) } else if size>=previous { previous } else { legacy };
-    unsafe { core::ptr::copy_nonoverlapping(input.cast::<u8>(),(&mut value as *mut FrameIn).cast::<u8>(),copied); }
-    Some(value)
-}
-
 export!(pub unsafe fn pxui_ui_system_appearance(ui:*mut PxuiUi,out:*mut u32)->i32 {
     let Some(engine)=(unsafe { crate::state::engine(ui) }) else { return PXUI_ERR_ARGUMENT };
     if out.is_null() { return unsafe { fail(ui,"null appearance output") }; }
@@ -538,11 +516,10 @@ export!(trusted frame pub unsafe fn pxui_frame(ui: *mut PxuiUi, input: *const Fr
     // the frame's callback sees the owner's theme (the `Ui`'s own: no scope is open)
     let theme = if ui.is_null() { core::ptr::null() } else { unsafe { (*ui).theme } };
     let mut build = |engine: &mut Ui| unsafe { crate::state::call_build_seeing(shared, engine, theme, build, user) };
-    // a whole record is read where it lies (`frame_body` reads it before the build runs, so the caller cannot change it under the
-    // engine); an older, shorter one is copied over the defaults
-    if unsafe { input.cast::<u32>().read_unaligned() } as usize >= core::mem::size_of::<FrameIn>() { return unsafe { frame_body(ui, &*input, &mut build, &mut *out) }; }
-    let Some(input) = (unsafe { read_frame(input) }) else { return unsafe { fail(ui, "invalid frame descriptor") }; };
-    unsafe { frame_body(ui, &input, &mut build, &mut *out) }
+    // the whole record is read where it lies (`frame_body` reads it before the build runs, so the caller cannot change it under the
+    // engine): its size covers `FrameIn`, else it is refused (there are no older sizes)
+    if (unsafe { input.cast::<u32>().read_unaligned() } as usize) < core::mem::size_of::<FrameIn>() { return unsafe { fail(ui, "invalid frame descriptor") }; }
+    unsafe { frame_body(ui, &*input, &mut build, &mut *out) }
 });
 
 // The frame's input as the engine routed it to `owner` (a viewport's root key; none: the app's), for the app's own content: the
@@ -877,7 +854,7 @@ mod tests {
     fn frame_fast_paths_match_the_general_decoding_and_comparison() {
         use pxui_types::{Environment, Keyboard};
         let env = Environment { safe_area: [47.0, 0.0, 34.0, 0.0], keyboard_frame: [0.0, 500.0, 390.0, 344.0], keyboard_started: 1.0, keyboard_duration: 0.25, keyboard_curve: 7, keyboard_visible: 1, ..Environment::default() };
-        assert!(super::same_environment(&env, &env.clone()) && super::same_environment(&Environment::default(), &super::NO_ENVIRONMENT));
+        assert!(super::same_environment(&env, &env.clone()));
         for change in 0..4 {
             let mut other = env;
             match change { 0 => other.safe_area[0] = 48.0, 1 => other.keyboard_started = 1.5, 2 => other.keyboard_visible = 0, _ => other.keyboard_from[3] = f32::NAN }
@@ -1054,44 +1031,33 @@ mod tests {
             assert_eq!(unsafe {crate::ui_state::pxui_ui_environment(ui,&mut got)},0);
             assert_eq!(got,value);
         }
-        for size in [56] {
-            let raw=FrameIn { size,environment:Environment {keyboard_visible:2,..value},..input };
-            let decoded=unsafe {super::read_frame(&raw)}.unwrap();
-            assert_eq!(decoded.environment,Environment::default());
-        }
         assert_eq!(unsafe {super::pxui_ui_destroy(ui)},0);
     }
 
+    /// The frame record has one size: it is read whole, a longer one as its first `size_of::<FrameIn>()` bytes, a shorter one (an older
+    /// layout included) or a null one refused; the system preferences are read from it.
     #[test]
-    fn system_frame_tail_accepts_legacy_without_reading_past_it() {
+    fn the_frame_record_has_one_size() {
         use pxui_types::FrameIn;
-        #[repr(C)]
-        struct Legacy { size:u32,events:*const pxui_types::Event,count:usize,width:f32,height:f32,scale:f32,time:f64 }
-        let legacy=Legacy { size:48,events:core::ptr::null(),count:0,width:320.0,height:240.0,scale:1.0,time:9.0 };
-        assert_eq!(core::mem::size_of::<Legacy>(),48);
-        let decoded=unsafe { super::read_frame((&legacy as *const Legacy).cast()) }.unwrap();
-        assert_eq!((decoded.size,decoded.width,decoded.time,decoded.appearance,decoded.reduced_motion),(48,320.0,9.0,0,0));
         let ui=unsafe { crate::ui::create_test_ui() };
-        assert!(!ui.is_null());
         let mut out=crate::FrameOut::default();
-        assert_eq!(unsafe { super::pxui_frame(ui,(&legacy as *const Legacy).cast(),None,core::ptr::null_mut(),&mut out) },0);
-        let mut appearance=99;
-        assert_eq!(unsafe { super::pxui_ui_system_appearance(ui,&mut appearance) },0);
-        assert_eq!(appearance,0);
+        let full=core::mem::size_of::<FrameIn>() as u32;
+        for size in [0,4,48,56,128,152,full-1] {
+            out.size=777;
+            let input=FrameIn { size,..FrameIn::new(320.0,240.0) };
+            assert_eq!(unsafe { super::pxui_frame(ui,&input,None,core::ptr::null_mut(),&mut out) },crate::PXUI_ERR_ARGUMENT,"size {size}");
+            assert_eq!(out.size,777);
+        }
+        assert_eq!(unsafe { super::pxui_frame(ui,core::ptr::null(),None,core::ptr::null_mut(),&mut out) },crate::PXUI_ERR_ARGUMENT);
+        for size in [full,full+8,u32::MAX] {
+            let input=FrameIn { size,appearance:2,reduced_motion:1,..FrameIn::new(320.0,240.0) };
+            assert_eq!(unsafe { super::pxui_frame(ui,&input,None,core::ptr::null_mut(),&mut out) },0,"size {size}");
+            let mut appearance=99;
+            assert_eq!(unsafe { super::pxui_ui_system_appearance(ui,&mut appearance) },0);
+            assert_eq!(appearance,2);
+        }
         assert_eq!(unsafe { super::pxui_ui_system_appearance(ui,core::ptr::null_mut()) },crate::PXUI_ERR_ARGUMENT);
         assert_eq!(unsafe { super::pxui_ui_destroy(ui) },0);
-        let short=[4u32];
-        assert!(unsafe { super::read_frame(short.as_ptr().cast()) }.is_none());
-        assert!(unsafe { super::read_frame(core::ptr::null()) }.is_none());
-        for size in 0..56 {
-            let input=FrameIn { size,..Default::default() };
-            assert_eq!(unsafe { super::read_frame(&input) }.is_some(),size==48);
-        }
-        for size in [56,128,152,160,u32::MAX] {
-            let input=FrameIn { size,appearance:2,reduced_motion:1,..Default::default() };
-            let decoded=unsafe { super::read_frame(&input) }.unwrap();
-            assert_eq!((decoded.appearance,decoded.reduced_motion),(2,1));
-        }
     }
 
     /// The numbering `input` encodes with is the one the C header and `pxui_types` document.
@@ -1204,7 +1170,7 @@ mod keyboard_tests {
     }
 
     #[test]
-    fn keyboard_tail_validates_before_mutation_and_preserves_all_legacy_prefixes() {
+    fn keyboard_tail_validates_before_mutation() {
         use pxui_types::{Environment, Keyboard};
         let ui=unsafe {crate::ui::create_test_ui()};
         let keyboard=Keyboard {frame:[0.0,508.0,390.0,336.0],flags:Keyboard::VALID};
@@ -1226,15 +1192,6 @@ mod keyboard_tests {
             assert_eq!(out.size,123);
             assert_eq!(unsafe {crate::ui_state::pxui_ui_keyboard(ui,&mut got)},0);
             assert_eq!(got,keyboard);
-        }
-        for size in [128] {
-            let current=FrameIn {size,keyboard:Keyboard {flags:2,..keyboard},..input};
-            let mut prefix=[0u8;128];
-            unsafe {core::ptr::copy_nonoverlapping((&current as *const FrameIn).cast::<u8>(),prefix.as_mut_ptr(),128)};
-            let decoded=unsafe {super::read_frame(prefix.as_ptr().cast())}.unwrap();
-            assert_eq!(decoded.environment,environment);
-            assert_eq!(decoded.keyboard,Keyboard::default());
-            assert_eq!(unsafe {super::pxui_frame(ui,prefix.as_ptr().cast(),None,core::ptr::null_mut(),&mut out)},0);
         }
         assert_eq!(unsafe {crate::ui_state::pxui_ui_keyboard(ui,core::ptr::null_mut())},PXUI_ERR_ARGUMENT);
         let prior=got;

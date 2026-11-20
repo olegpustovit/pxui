@@ -91,8 +91,7 @@ export!(trusted pub unsafe fn pxui_ui_dialog(ui: *mut PxuiUi, desc: *const PxuiD
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if desc.is_null() { return unsafe { fail(ui, "null dialog argument") }; }
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short dialog result") } };
-    // the 88-byte record of 1.53 and the whole one; an 88-byte record's `details` are zero (none)
-    let Some((d, _)) = read_desc!(desc, PxuiDialogDesc, [88]) else { return unsafe { fail(ui, "invalid dialog descriptor") } };
+    let Some(d) = read_desc!(desc, PxuiDialogDesc) else { return unsafe { fail(ui, "invalid dialog descriptor") } };
     let mut list = state.shared().take_strs();
     let mut buf = [DialogButton::new(""); MAX_BUTTONS];
     // the labels, then the details after them in the same scratch

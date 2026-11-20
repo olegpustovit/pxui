@@ -18,7 +18,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 134u)
+#define PXUI_ABI_BUILT ((1u << 16) | 135u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 typedef struct { uint32_t autocorrect, capitalization, action; } PxuiTextInputOptions;
@@ -222,7 +222,7 @@ typedef struct {
     size_t event_count;
     float width, height, scale;
     double time;
-    /* ABI 1.8 tail; legacy size=48 defaults both to zero. Partial tails are refused. */
+    /* One size only: a shorter record (an earlier layout) is refused, a longer one is read as its first sizeof(PxuiFrameIn) bytes. */
     uint32_t appearance, reduced_motion;
     /* Read only when size includes this complete tail; otherwise defaults to zero. */
     PxuiEnvironment environment;
@@ -301,7 +301,7 @@ typedef struct { uint64_t index; int64_t box_key; uint64_t box_slot; uint32_t ge
    on the box this frame. */
 typedef struct { uint32_t size, flags; PxuiBox node; } PxuiResponse;
 /* ABI 1.53: a modal dialog (at most 64 buttons; masks as PxuiDialogConfig) and what its frame did (chosen is valid when has_chosen) */
-/* ABI 1.71 (an 88-byte record is still read, without it): details, each button's line under its label (empty: none), as many as buttons or none. */
+/* ABI 1.71: details, each button's line under its label (empty: none), as many as buttons or none. */
 typedef struct { uint32_t size; float width; PxuiStr key, title; PxuiStrSpan buttons; int64_t default_at, cancel_at; uint64_t danger, disabled; PxuiStrSpan details; } PxuiDialogDesc;
 typedef struct { uint32_t size; uint8_t has_chosen, dismissed, reserved[2]; uint64_t chosen; } PxuiDialogResult;
 /* ABI 1.67: what pxui_ui_segmented, pxui_ui_pick or pxui_ui_tabs chose: chosen when has_chosen is 1 (0: no option is chosen), secondary the option a secondary
@@ -351,21 +351,21 @@ typedef struct { uint32_t size, set; float height; uint8_t role, whole_pixels, r
 /* ABI 1.46: a kit icon button with options. w_kind/h_kind 0 the kit square, 1 points, 2 fill; states NULL is the theme's icon button, else six
    PxuiLookDesc (idle, hover, pressed, focus, disabled, checked); press_scale is the plate's scale while held (1 = none); the icon is the
    glyph `icon`, or, when `draw` is set, the app's drawing called at paint time with draw_user, the 20-point square and the look's ink.
-   ABI 1.54 (a 96-byte record is still read, without it): press null for the kit's springs, else two PxuiCurve (in on press, out on
+   ABI 1.54: press null for the kit's springs, else two PxuiCurve (in on press, out on
    release), 4-aligned and valid for the call. */
 /* ABI 1.54: a curve as pxui's Rust `Curve` lays it out (repr(C, u8)): kind 0 bezier, 1 spring, 2 table, 3 steps. */
 typedef struct { uint8_t kind, reserved[3]; union { struct { float duration, points[4]; } bezier; struct { float omega; } spring;
                  struct { float duration; uint32_t count; float positions[16], values[16]; } table; struct { float duration; uint32_t count; } steps; } data; } PxuiCurve;
 typedef struct { uint32_t size; uint8_t enabled,w_kind,h_kind,reserved; float w,h,press_scale; const PxuiLookDesc *states; PxuiStr key,name,icon; PxuiIconDraw draw; void *draw_user;
                  const PxuiCurve *press;
-                 /* ABI 1.71 (a 96- or 104-byte record reads 0): checkable 1 makes the button an on/off key (accessible CHECKABLE, CHECKED and its
+                 /* ABI 1.71: checkable 1 makes the button an on/off key (accessible CHECKABLE, CHECKED and its
                     checked look when checked is 1); checked is 0 unless checkable is 1; reserved2 zero. */
                  uint8_t checkable, checked, reserved2[6]; } PxuiIconButtonDesc;
 /* ABI 1.44: a kit button with options. w_kind/h_kind 0 the kit's size, 1 points, 2 fill; justify 0 start, 1 centre, 2 end; states NULL is the theme's button, else six PxuiLookDesc (idle, hover, pressed, focus, disabled, checked).
-   ABI 1.54 (a 96-byte record is still read, without it): centered 1 makes the box exactly its size with nothing around it in its line, its text centred. */
+   ABI 1.54: centered 1 makes the box exactly its size with nothing around it in its line, its text centred. */
 typedef struct { uint32_t size; uint8_t enabled,selected,danger,justify,w_kind,h_kind,has_name,reserved; float w,h,padding[4]; const PxuiLookDesc *states; PxuiStr key,text,name; uint8_t centered,reserved2[7];
                  /* ABI 1.56 */ uint8_t has_label,axis,content_align,focus_on_click; float gap; PxuiLabelStyle label; PxuiLabelBox label_box;
-                 /* ABI 1.71 (a 96-, 104- or 192-byte record is read without it): lead the leading icon's glyph (empty: none) or lead_draw, the app's
+                 /* ABI 1.71: lead the leading icon's glyph (empty: none) or lead_draw, the app's
                     drawing with lead_user (as PxuiIconButtonDesc.draw; the word pxui_ui_icon_word set is its word), which wins; detail a line under the
                     text and accessory a trailing text at the box's end (empty: none), each in detail_label/detail_box or accessory_label/accessory_box
                     when has_detail_label/has_accessory_label is 1 (else the theme's label style); reserved3 zero. With a build callback the
@@ -375,13 +375,13 @@ typedef struct { uint32_t size; uint8_t enabled,selected,danger,justify,w_kind,h
                  /* ABI 1.91: the leading icon's square in points (0: the control-high one) */ float icon_size; } PxuiButtonDesc;
 /* ABI 1.56: a button's content callback; state is the button's interaction state this frame, valid for the call. */
 typedef void (*PxuiButtonBuild)(void *user, PxuiUi *ui, const PxuiStateDesc *state);
-/* ABI 1.55: PxuiToggleDesc grows by the title's text style (has_style 1: style, else the theme's toggle font; an 88-byte record is still read)
+/* ABI 1.55: PxuiToggleDesc grows by the title's text style (has_style 1: style, else the theme's toggle font; the whole record is read)
    and PxuiSegmentedDesc by the strip's width w (0: as grow says), padding (the text's inset, 8 the kit's), min_segment (0: none) and names
-   (empty: each PxuiPickItem carries its own name; a 64-byte record is still read, padding 8). */
+   (empty: each PxuiPickItem carries its own name; the whole record is read). */
 typedef struct { uint32_t size; uint8_t enabled,on,press_row,reserved; float row_h,switch_w,switch_h,inset; const PxuiLookDesc *track,*knob; PxuiStr key,text,detail; uint8_t has_style, reserved2[7]; PxuiLabelStyle style; } PxuiToggleDesc;
 /* ABI 1.85: a kit checkbox with its style (pxui_ui_checkbox; all zero but size, key and text is the plain checkbox). box_size 0 is the kit's 12 points (finite, not negative); look is NULL for the theme's checkbox, else six looks (idle, hover, pressed, focus, disabled, checked); disabled 1 shows the disabled look and blocks presses and focus; passive 1 makes a mark with no input of its own (with empty text the box alone). key is identity only, as PxuiKeyedDesc.key. */
 typedef struct { uint32_t size; uint8_t disabled, on, passive, reserved; float box_size; const PxuiLookDesc *look; PxuiStr key, text; } PxuiCheckboxDesc;
-/* ABI 1.67 (a 64- or 96-byte record is still read, its selected always the choice): has_selected 1 when selected is the choice (clamped to
+/* ABI 1.67: has_selected 1 when selected is the choice (clamped to
    the options), 0 for no choice (final; selected not read; the result reports none); reserved3 zero. */
 /* ABI 1.76: one pick-one item (pxui_ui_pick, pxui_ui_segmented), borrowed for the call and must not change during the call, including from body callbacks: has_id 1 keys it by id (its node, focus and
    secondary press follow it through a reorder), 0 by its place; reserved zero; name empty for the text; detail extra body text (may be empty). */
@@ -644,11 +644,11 @@ typedef struct { const PxuiSubmenu *ptr; size_t len; } PxuiSubmenuSpan;
 typedef struct { const PxuiSwatch *ptr; size_t len; } PxuiSwatchSpan;
 /* What a context menu has beyond its rows: keys and swatches per row (shorter than the rows is fine), the destructive rows, the
    submenus and the first row drawn without a leading mark. `extra` may be null. */
-/* ABI 1.55: padding above the first row and below the last (a 104-byte record is 6), the sheet's name when has_name is 1, and selected per row
+/* ABI 1.55: padding above the first row and below the last , the sheet's name when has_name is 1, and selected per row
    (1: the current choice, CHECKED and SELECTED with the checked look).
-   ABI 1.58 (a 144-byte record is still read): focus_on_click 1 for a press to focus its row; per row has_id 1 keys the row by ids[row] instead
+   ABI 1.58: focus_on_click 1 for a press to focus its row; per row has_id 1 keys the row by ids[row] instead
    of its position (rows are never keyed by their text; both spans shorter than the rows is fine, has_id no longer than ids).
-   ABI 1.67 (a 184-byte record is still read): max_h the most height of the sheet in points, its edges and padding included (finite, not
+   ABI 1.67: max_h the most height of the sheet in points, its edges and padding included (finite, not
    negative; 0 no bound), the smaller of it and max_rows bounding the sheet, which scrolls past it; reserved4 zero. */
 typedef struct { uint32_t size, reserved; int64_t lead_from; PxuiStrSpan keys; PxuiSwatchSpan swatches; PxuiI64Span danger; PxuiSubmenuSpan submenus; float row_h; uint32_t max_rows; PxuiU8Span checked;
                  float padding; uint8_t has_name, reserved2[3]; PxuiStr name; PxuiU8Span selected; uint8_t focus_on_click, reserved3[7]; PxuiI64Span ids; PxuiU8Span has_id;
@@ -674,7 +674,7 @@ typedef struct { uint32_t size; PxuiStateDesc state; float fraction; PxuiBox tra
 typedef struct { uint32_t size; uint8_t has_value; float value; PxuiBox row; PxuiStr label; uint16_t variant; } PxuiProgressConfig;
 typedef struct { uint32_t size; PxuiStateDesc state; uint8_t bare; uint8_t icon; uint8_t at_end; PxuiBox line; PxuiBox row; const PxuiStates * states; PxuiStr label; uint8_t w_kind,h_kind,justify,reserved; float w,h,padding[4]; uint16_t variant; uint8_t centered,danger,reserved2[8];
                  /* ABI 1.56 */ uint8_t has_label,axis,content_align,reserved3; float gap; PxuiLabelStyle text_style; PxuiLabelBox text_box;
-                 /* ABI 1.71 (read when size covers it): the caller's leading icon (glyph lead, or lead_draw/lead_user as PxuiIconButtonConfig.draw),
+                 /* ABI 1.71 (the whole record is passed): the caller's leading icon (glyph lead, or lead_draw/lead_user as PxuiIconButtonConfig.draw),
                     detail and accessory (empty: none), in detail_style/detail_box and accessory_style/accessory_box when has_detail_style/has_accessory_style is 1. */
                  PxuiStr lead; PxuiIconDraw lead_draw; void *lead_user; PxuiStr detail, accessory; uint8_t has_detail_style, has_accessory_style, reserved4[6];
                  PxuiLabelStyle detail_style; PxuiLabelBox detail_box; PxuiLabelStyle accessory_style; PxuiLabelBox accessory_box;
@@ -683,7 +683,7 @@ typedef struct { uint32_t size; PxuiStateDesc state; uint8_t bare; uint8_t icon;
 typedef struct { uint32_t size; PxuiStateDesc state; PxuiBox node; PxuiStr label; PxuiStr icon; const PxuiStates *states; uint8_t w_kind,h_kind,reserved; float w,h,press_scale; PxuiIconDraw draw; void *draw_user; PxuiColor ink; uint16_t variant; const PxuiCurve *press; /* ABI 1.91: the drawing's word (D18; 0 for a glyph) */ uint32_t draw_word;
                  /* ABI 1.101: the kit's built-in icon button body for this config, run with pxui_slot */ PxuiSlot built_in; } PxuiIconButtonConfig;
 typedef struct { uint32_t size; PxuiStateDesc state; uint8_t on; PxuiBox row; PxuiStr label; uint16_t variant;
-                 /* ABI 1.85 (read when size covers it): the box's look per state (the caller's or the theme's; valid for the call), its side in
+                 /* ABI 1.85 (the whole record is passed): the box's look per state (the caller's or the theme's; valid for the call), its side in
                     points, and passive 1 for a mark that takes no input (with empty text, no label) */
                  const PxuiStates *states; float box_size; uint8_t passive, reserved2[3]; } PxuiCheckConfig;
 typedef struct { uint32_t size; PxuiBox node; PxuiStr label; uint16_t variant; } PxuiSpinnerConfig;
@@ -693,9 +693,9 @@ typedef struct { uint32_t size; uint8_t first; PxuiBox node; PxuiStr text; PxuiL
 typedef struct { uint32_t size; PxuiBox row; uint8_t has_right; PxuiStr right; PxuiHintSpan hints; uint16_t variant; } PxuiFooterConfig;
 typedef struct { uint32_t size; PxuiStateDesc state; uint8_t vertical; uint8_t floating; PxuiBox grip; uint16_t variant; } PxuiGripConfig;
 typedef struct { uint32_t size; PxuiBox node; PxuiStr label; PxuiSlot content; uint16_t variant;
-                 /* ABI 1.86 (read when size covers it): 0 centred, 1 bottom sheet, 2 full sheet, 3 top-anchored (1.90; draw an unknown value as 0) (pxui_ui_modal's present) */ uint64_t present; } PxuiPanelConfig;
+                 /* ABI 1.86 (the whole record is passed): 0 centred, 1 bottom sheet, 2 full sheet, 3 top-anchored (1.90; draw an unknown value as 0) (pxui_ui_modal's present) */ uint64_t present; } PxuiPanelConfig;
 /* ABI 1.53 appends default_at, cancel_at (a button index or -1) and bitmasks danger, disabled (bit i: button i), before variant */
-/* ABI 1.71 (read when size covers it): details, each button's line under its label (empty: none), as many as buttons. */
+/* ABI 1.71 (the whole record is passed): details, each button's line under its label (empty: none), as many as buttons. */
 typedef struct { uint32_t size; PxuiStr title; PxuiStrSpan buttons; PxuiSlot content; int64_t default_at, cancel_at; uint64_t danger, disabled; uint16_t variant; PxuiStrSpan details;
                  /* ABI 1.131: the kit's dialog buttons (each through the button body with the dialog's variant), run with pxui_slot */ PxuiSlot built_in; } PxuiDialogConfig;
 typedef struct { uint32_t size; uint8_t open; float gap; PxuiBox title; PxuiStr label; PxuiSlot content; uint16_t variant; } PxuiSectionConfig;
@@ -705,13 +705,13 @@ typedef struct { uint32_t size; PxuiBox node; PxuiSlot content; uint16_t variant
 typedef struct { uint32_t size; PxuiStateDesc state; PxuiBox node; PxuiStr text; uint16_t variant; } PxuiToastConfig;
 typedef struct { uint32_t size; float width; float height; PxuiBox tip; PxuiStrSpan lines; uint16_t variant; } PxuiTipConfig;
 typedef struct { uint32_t size; PxuiStateDesc state; size_t index; PxuiBox node; PxuiStr text; uint16_t variant;
-                 /* ABI 1.84 (read when size covers it): the tab's detail after its text (a count or badge; empty: none) */ PxuiStr detail;
-                 /* ABI 1.124 (read when size covers it): the bar, the tab list holding the tabs; a body may restyle or resize it, as a segment body its strip */ PxuiBox bar; } PxuiTabConfig;
+                 /* ABI 1.84 (the whole record is passed): the tab's detail after its text (a count or badge; empty: none) */ PxuiStr detail;
+                 /* ABI 1.124 (the whole record is passed): the bar, the tab list holding the tabs; a body may restyle or resize it, as a segment body its strip */ PxuiBox bar; } PxuiTabConfig;
 /* ABI 1.85: a section index body (PXUI_BODY_SECTION_INDEX), entered on the strip `node`; letters valid for the call; active is the letter held
    or last chosen when has_active is 1 */
 typedef struct { uint32_t size; PxuiStateDesc state; uint8_t has_active; size_t active; PxuiBox node; PxuiStrSpan letters; uint16_t variant; } PxuiSectionIndexConfig;
-/* ABI 1.67 (read when size covers it): has_selected 1 when selected is the choice, 0 when none is chosen (selected then 0; final);
-   state.focused marks the option holding the focus. ABI 1.69 (read when size covers it): stored is the choice the caller passed this frame (clamped to
+/* ABI 1.67 (the whole record is passed): has_selected 1 when selected is the choice, 0 when none is chosen (selected then 0; final);
+   state.focused marks the option holding the focus. ABI 1.69 (the whole record is passed): stored is the choice the caller passed this frame (clamped to
    the options) before a press or key moved selected, when has_stored is 1; reserved4 zero. */
 typedef struct { uint32_t size; PxuiStateDesc state; size_t index; size_t selected; int64_t group; PxuiBox node; PxuiStr text; const PxuiStates * states; uint8_t grow; uint16_t variant; float padding, min_segment; PxuiBox line, strip; uint8_t has_selected, reserved3[7]; size_t stored; uint8_t has_stored, reserved4[7]; } PxuiSegmentConfig;
 typedef struct { uint32_t size; PxuiStateDesc state; uint8_t open; int64_t key; PxuiBox button; PxuiStr text; uint16_t variant; } PxuiDropdownConfig;
@@ -727,7 +727,7 @@ typedef struct { uint32_t size; PxuiStateDesc state; uint8_t has; uint8_t open; 
 typedef struct { uint32_t size; PxuiStateDesc state; uint8_t has_ascending; uint8_t ascending; size_t index; PxuiBox node; PxuiStr title; uint16_t variant;
                  /* ABI 1.129: the kit's built-in table heading body for this config, run with pxui_slot */ PxuiSlot built_in; } PxuiTableHeadConfig;
 typedef struct { uint32_t size; PxuiStateDesc state; uint8_t current; uint8_t doomed; uint8_t unavailable; uint8_t marked; uint8_t has_swatch; PxuiColor swatch; int64_t index; PxuiBox row; PxuiStr label; PxuiStr detail; PxuiStr query; uint16_t variant;
-                 /* ABI 1.86 (extension set; read when size covers it): the row's art slot, art_kind as PxuiPickRow's. */
+                 /* ABI 1.86 (extension set; the whole record is passed): the row's art slot, art_kind as PxuiPickRow's. */
                  uint8_t art_kind; uint8_t reserved3[7]; uint64_t art;
                  /* ABI 1.110 (U2b.4.15): has_image 1 when image is the row's image (the picker's image callback; the built-in body draws it
                     in the art slot); has_head 1 when head is the heading of the group the row starts, a box above the row that behaviour made

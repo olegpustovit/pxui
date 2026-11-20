@@ -1111,12 +1111,12 @@ mod sized_records {
         assert_eq!(call(edge(bytes, known, align, u32::MAX)), 0, "huge: {}", error(ui));
     }
 
-    // FrameIn has had 48, 56, 128 and 152 bytes: only those and the whole record (and more) are read.
+    // FrameIn has one size: the whole record (and more) is read, any shorter one (an older layout included) is refused.
     #[test]
     fn frame_in() {
         let ui = create();
         let value = FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() };
-        four_min(ui, ((&value as *const FrameIn).cast(), size_of_val(&value), align_of_val(&value)), &[48, 56, 128, 152], &mut |p| {
+        four_min(ui, ((&value as *const FrameIn).cast(), size_of_val(&value), align_of_val(&value)), &[], &mut |p| {
             let mut out = FrameOut::default();
             unsafe { pxui_frame(ui, p.cast(), None, core::ptr::null_mut(), &mut out) }
         });
@@ -1129,7 +1129,7 @@ mod sized_records {
         let ui = create();
         let mut value: PxuiMenuExtra = unsafe { core::mem::zeroed() };
         value.size = size_of::<PxuiMenuExtra>() as u32;
-        four_min(ui, ((&value as *const PxuiMenuExtra).cast(), size_of_val(&value), align_of_val(&value)), &[80, 104, 144, 184], &mut |p| {
+        four_min(ui, ((&value as *const PxuiMenuExtra).cast(), size_of_val(&value), align_of_val(&value)), &[], &mut |p| {
             let p = p.cast::<PxuiMenuExtra>();
             in_frame(ui, &mut |ui| {
                 let (mut tag, mut index) = (0u32, 0i64);
@@ -1316,8 +1316,8 @@ mod sized_records {
         unsafe { pxui_ui_destroy(ui); }
     }
 
-    /// ABI 1.54: the 96-byte button and icon button records from before `centered` and the press curves are still read (as a plain button and
-    /// the kit's springs); a size between the two, a `centered` past 1, a nonzero reserved byte or an invalid curve is refused.
+    /// The button and icon button records have one size: an earlier layout (96, 104, 150 bytes) is refused, as a `centered` past 1, a nonzero
+    /// reserved byte or an invalid curve.
     #[test]
     fn grown_button_records_take_their_old_size() {
         let ui = create();
@@ -1329,14 +1329,10 @@ mod sized_records {
         let press = |b: &PxuiButtonDesc| in_frame(ui, &mut |ui| { let mut out = PxuiResponse::EMPTY; unsafe { pxui_ui_button(ui, b, None, core::ptr::null_mut(), &mut out) } });
         let tap = |b: &PxuiIconButtonDesc| in_frame(ui, &mut |ui| { let mut out = PxuiResponse::EMPTY; unsafe { pxui_ui_icon_button(ui, b, &mut out) } });
         assert_eq!(press(&button), 0);
-        assert_eq!(press(&PxuiButtonDesc { size: 96, centered: 7, ..button }), 0, "a 96-byte record's tail is not read");
-        assert_eq!(press(&PxuiButtonDesc { size: 100, ..button }), PXUI_ERR_ARGUMENT, "a size that ends inside a field");
-        assert_eq!(press(&PxuiButtonDesc { size: 95, ..button }), PXUI_ERR_ARGUMENT, "below the minimum");
+        for size in [95, 96, 100, 104, 150, 192] { assert_eq!(press(&PxuiButtonDesc { size, ..button }), PXUI_ERR_ARGUMENT, "an earlier size {size}"); }
         assert_eq!(press(&PxuiButtonDesc { centered: 2, ..button }), PXUI_ERR_ARGUMENT);
         assert_eq!(press(&PxuiButtonDesc { reserved2: [0, 0, 1, 0, 0, 0, 0], ..button }), PXUI_ERR_ARGUMENT);
-        // ABI 1.56: the 104-byte record of 1.54 is read without its tail; the label, layout and focus fields are checked
-        assert_eq!(press(&PxuiButtonDesc { size: 104, axis: 9, gap: f32::NAN, has_label: 7, ..button }), 0, "a 104-byte record's tail is not read");
-        assert_eq!(press(&PxuiButtonDesc { size: 150, ..button }), PXUI_ERR_ARGUMENT);
+        // the label, layout and focus fields are checked
         let label = pxui_types::ffi::PxuiLabelStyle::from(&pxui_types::Label::BODY.size(14.0));
         let label_box = pxui_types::ffi::PxuiLabelBox::from(&pxui_types::Label::BODY.h_px(20.0));
         let laid = PxuiButtonDesc { has_label: 1, label, label_box, axis: 2, content_align: 3, gap: 4.0, focus_on_click: 1, ..button };
@@ -1347,9 +1343,8 @@ mod sized_records {
             assert_eq!(press(&bad), PXUI_ERR_ARGUMENT);
         }
         assert_eq!(press(&PxuiButtonDesc { has_label: 0, label: pxui_types::ffi::PxuiLabelStyle { size: 8, ..label }, ..laid }), 0, "the label is read only when has_label is 1");
-        // ABI 1.71: a 192-byte record (1.56) has no leading icon, detail or accessory, whatever its tail holds; the whole record's are checked
+        // the whole record's leading icon, detail and accessory are checked; an earlier size is refused
         let garbage = Str { ptr: b"\xff".as_ptr(), len: 1 };
-        assert_eq!(press(&PxuiButtonDesc { size: 192, has_detail_label: 9, reserved3: [9; 6], detail: garbage, ..laid }), 0, "a 192-byte record's tail is not read");
         assert_eq!(press(&PxuiButtonDesc { size: 200, ..laid }), PXUI_ERR_ARGUMENT);
         let parts = PxuiButtonDesc { lead: k, detail: k, accessory: k, has_detail_label: 1, detail_label: label, detail_box: label_box, has_accessory_label: 1, accessory_label: label, accessory_box: label_box, ..laid };
         assert_eq!(press(&parts), 0, "{}", error(ui));
@@ -1361,7 +1356,7 @@ mod sized_records {
         assert_eq!(press(&PxuiButtonDesc { has_detail_label: 0, detail_label: pxui_types::ffi::PxuiLabelStyle { size: 8, ..label }, ..parts }), 0, "a detail style is read only when has_detail_label is 1");
         // ABI 1.71: the icon button's on/off state: 0 or 1, checked only when checkable; a 104-byte record is a plain button
         assert_eq!(tap(&PxuiIconButtonDesc { checkable: 1, checked: 1, ..icon }), 0);
-        assert_eq!(tap(&PxuiIconButtonDesc { size: 104, checkable: 9, checked: 9, reserved2: [9; 6], ..icon }), 0, "a 104-byte record's tail is not read");
+        assert_eq!(tap(&PxuiIconButtonDesc { size: 104, ..icon }), PXUI_ERR_ARGUMENT, "an earlier size");
         for bad in [PxuiIconButtonDesc { checkable: 2, ..icon }, PxuiIconButtonDesc { checked: 1, ..icon }, PxuiIconButtonDesc { checkable: 1, checked: 2, ..icon }, PxuiIconButtonDesc { reserved2: [0, 1, 0, 0, 0, 0], ..icon }] {
             assert_eq!(tap(&bad), PXUI_ERR_ARGUMENT);
         }
@@ -1370,7 +1365,6 @@ mod sized_records {
         let springs = [Curve::Spring { omega: 30.0 }, Curve::Spring { omega: 10.0 }];
         assert_eq!(tap(&PxuiIconButtonDesc { press: springs.as_ptr(), ..icon }), 0);
         let bad_tag = { let mut raw = [0u32; 70]; raw[0] = 9; raw };
-        assert_eq!(tap(&PxuiIconButtonDesc { size: 96, press: bad_tag.as_ptr().cast(), ..icon }), 0, "a 96-byte record's tail is not read");
         assert_eq!(tap(&PxuiIconButtonDesc { press: bad_tag.as_ptr().cast(), ..icon }), PXUI_ERR_ARGUMENT, "an unknown curve kind is refused before it is read");
         assert_eq!(tap(&PxuiIconButtonDesc { press: springs.as_ptr().cast::<u8>().wrapping_add(1).cast(), ..icon }), PXUI_ERR_ARGUMENT, "a misaligned pointer");
         assert_eq!(tap(&PxuiIconButtonDesc { size: 100, ..icon }), PXUI_ERR_ARGUMENT);
@@ -1388,13 +1382,13 @@ mod sized_records {
         let k = Str { ptr: b"k".as_ptr(), len: 1 };
         let mut value: PxuiButtonDesc = unsafe { core::mem::zeroed() };
         (value.enabled, value.key, value.text) = (1, k, k);
-        four_min(ui, ((&value as *const PxuiButtonDesc).cast(), size_of_val(&value), align_of_val(&value)), &[96, 104, 192], &mut |p| {
+        four_min(ui, ((&value as *const PxuiButtonDesc).cast(), size_of_val(&value), align_of_val(&value)), &[], &mut |p| {
             let p = p.cast::<PxuiButtonDesc>();
             in_frame(ui, &mut |ui| { let mut out = PxuiResponse::EMPTY; unsafe { pxui_ui_button(ui, p, None, core::ptr::null_mut(), &mut out) } })
         });
         let mut icon: PxuiIconButtonDesc = unsafe { core::mem::zeroed() };
         (icon.enabled, icon.press_scale, icon.key, icon.name, icon.icon) = (1, 1.0, k, k, k);
-        four_min(ui, ((&icon as *const PxuiIconButtonDesc).cast(), size_of_val(&icon), align_of_val(&icon)), &[96, 104], &mut |p| {
+        four_min(ui, ((&icon as *const PxuiIconButtonDesc).cast(), size_of_val(&icon), align_of_val(&icon)), &[], &mut |p| {
             let p = p.cast::<PxuiIconButtonDesc>();
             in_frame(ui, &mut |ui| { let mut out = PxuiResponse::EMPTY; unsafe { pxui_ui_icon_button(ui, p, &mut out) } })
         });
@@ -1423,7 +1417,7 @@ mod sized_records {
         let mut value: PxuiDialogDesc = unsafe { core::mem::zeroed() };
         value.size = size_of_val(&value) as u32;
         (value.width, value.key, value.title, value.buttons, value.default_at, value.cancel_at) = (320.0, k, k, Slice { ptr: buttons.as_ptr(), len: 2 }, 1, 0);
-        four_min(ui, ((&value as *const PxuiDialogDesc).cast(), size_of_val(&value), align_of_val(&value)), &[88], &mut |p| {
+        four_min(ui, ((&value as *const PxuiDialogDesc).cast(), size_of_val(&value), align_of_val(&value)), &[], &mut |p| {
             let p = p.cast::<PxuiDialogDesc>();
             in_frame(ui, &mut |ui| { let mut out = PxuiDialogResult::EMPTY; unsafe { pxui_ui_dialog(ui, p, None, core::ptr::null_mut(), &mut out) } })
         });
@@ -1434,11 +1428,11 @@ mod sized_records {
         for bad_out in [core::ptr::null_mut(), &short as *const PxuiDialogResult as *mut PxuiDialogResult] {
             assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_dialog(ui, &value, None, core::ptr::null_mut(), bad_out) }), PXUI_ERR_ARGUMENT);
         }
-        // ABI 1.71: as many details as buttons (or none); an 88-byte record's details are not read
+        // as many details as buttons (or none); the 88-byte record is refused
         let details = [k, Str { ptr: b"\xff".as_ptr(), len: 1 }];
         let mut sink = PxuiDialogResult::EMPTY;
         assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_dialog(ui, &PxuiDialogDesc { details: Slice { ptr: buttons.as_ptr(), len: 2 }, ..value }, None, core::ptr::null_mut(), &mut sink) }), 0, "{}", error(ui));
-        assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_dialog(ui, &PxuiDialogDesc { size: 88, details: Slice { ptr: core::ptr::null(), len: 7 }, ..value }, None, core::ptr::null_mut(), &mut sink) }), 0, "{}", error(ui));
+        assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_dialog(ui, &PxuiDialogDesc { size: 88, ..value }, None, core::ptr::null_mut(), &mut sink) }), PXUI_ERR_ARGUMENT);
         for bad in [Slice { ptr: buttons.as_ptr(), len: 1 }, Slice { ptr: details.as_ptr(), len: 2 }, Slice { ptr: core::ptr::null(), len: 2 }] {
             assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_dialog(ui, &PxuiDialogDesc { details: bad, ..value }, None, core::ptr::null_mut(), &mut sink) }), PXUI_ERR_ARGUMENT);
         }
@@ -1463,20 +1457,17 @@ mod sized_records {
         let span = Slice { ptr: options.as_ptr(), len: 2 };
         let mut value: PxuiSegmentedDesc = unsafe { core::mem::zeroed() };
         (value.size, value.enabled, value.key, value.name, value.padding, value.selected) = (size_of_val(&value) as u32, 1, k, k, 8.0, 5);
-        four_min(ui, ((&value as *const PxuiSegmentedDesc).cast(), size_of_val(&value), align_of_val(&value)), &[64, 96, 104], &mut |p| {
+        four_min(ui, ((&value as *const PxuiSegmentedDesc).cast(), size_of_val(&value), align_of_val(&value)), &[], &mut |p| {
             let p = p.cast::<PxuiSegmentedDesc>();
             in_frame(ui, &mut |ui| { let (mut out, mut result) = (PxuiResponse::EMPTY, PxuiSegmentedResult::EMPTY); unsafe { pxui_ui_segmented(ui, p, span, &mut out, &mut result) } })
         });
         let (mut out, mut result) = (PxuiResponse::EMPTY, PxuiSegmentedResult { has_chosen: 9, has_secondary: 9, reserved: [9; 2], ..PxuiSegmentedResult::EMPTY });
         assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_segmented(ui, &value, span, &mut out, &mut result) }), 0, "{}", error(ui));
         assert_eq!((result.has_chosen, result.has_secondary, result.reserved), (0, 0, [0; 2]), "has_selected 0 is no choice");
-        let old = PxuiSegmentedDesc { size: 96, ..value };
-        assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_segmented(ui, &old, span, &mut out, &mut result) }), 0);
-        assert_eq!((result.has_chosen, result.chosen), (1, 1));
-        // a 1.67 record (104 bytes) has its own has_selected (0 here: none) and never has its `focus_on_click` bytes read
-        let v67 = PxuiSegmentedDesc { size: 104, focus_on_click: 9, reserved4: [9; 7], ..value };
-        assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_segmented(ui, &v67, span, &mut out, &mut result) }), 0, "{}", error(ui));
-        assert_eq!((result.has_chosen, result.chosen), (0, 0), "has_selected 0 at 104 bytes is no choice");
+        for size in [96, 104] {
+            let old = PxuiSegmentedDesc { size, ..value };
+            assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_segmented(ui, &old, span, &mut out, &mut result) }), PXUI_ERR_ARGUMENT, "an earlier size {size}");
+        }
         let fine = PxuiSegmentedDesc { selected: 0, has_selected: 1, focus_on_click: 1, ..value };
         assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_segmented(ui, &fine, span, &mut out, &mut result) }), 0);
         assert_eq!((result.has_chosen, result.chosen), (1, 0));
@@ -1882,9 +1873,9 @@ fn supports_answers_from_the_feature_registry_of_this_build() {
     }
 }
 
-// ABI 1.60: the toggle, segmented and icon button records of earlier minors never have their grown fields read, whatever the bytes after them hold.
+// The toggle and segmented records have one size: an earlier layout is refused, and the whole record's grown fields are checked.
 #[test]
-fn grown_fields_are_read_only_when_the_callers_size_covers_them() {
+fn earlier_toggle_and_segmented_sizes_are_refused() {
     use pxui_types::ffi::{PxuiResponse, PxuiSegmentedDesc, PxuiToggleDesc, Slice};
     let ui = create();
     let k = Str { ptr: b"k".as_ptr(), len: 1 };
@@ -1893,19 +1884,19 @@ fn grown_fields_are_read_only_when_the_callers_size_covers_them() {
     let mut toggle: PxuiToggleDesc = unsafe { core::mem::zeroed() };
     (toggle.size, toggle.enabled, toggle.key, toggle.text) = (size_of::<PxuiToggleDesc>() as u32, 1, k, k);
     let mut response = PxuiResponse::EMPTY;
-    // an 88-byte record: a title style the caller never had is not read, even when has_style and a bad reserved byte are in memory after it
-    assert_eq!(build(&mut |ui| unsafe { pxui_ui_toggle(ui, &PxuiToggleDesc { size: 88, has_style: 7, reserved2: [9; 7], ..toggle }, &mut response) }), 0);
+    assert_eq!(build(&mut |ui| unsafe { pxui_ui_toggle(ui, &toggle, &mut response) }), 0);
+    assert_eq!(build(&mut |ui| unsafe { pxui_ui_toggle(ui, &PxuiToggleDesc { size: 88, ..toggle }, &mut response) }), PXUI_ERR_ARGUMENT, "the 88-byte record");
     assert_eq!(build(&mut |ui| unsafe { pxui_ui_toggle(ui, &PxuiToggleDesc { has_style: 7, ..toggle }, &mut response) }), PXUI_ERR_ARGUMENT);
     let mut seg: PxuiSegmentedDesc = unsafe { core::mem::zeroed() };
     (seg.size, seg.enabled, seg.key, seg.name, seg.has_selected) = (size_of::<PxuiSegmentedDesc>() as u32, 1, k, k, 1);
     let options = [pxui_types::ffi::PxuiPickItem { text: k, ..Default::default() }; 2];
     let mut result = pxui_types::ffi::PxuiSegmentedResult::EMPTY;
     let names = [k];
-    let bad = Slice { ptr: names.as_ptr(), len: 1 }; // a name span: refused only when the caller's size covers it
-    assert_eq!(build(&mut |ui| unsafe { pxui_ui_segmented(ui, &PxuiSegmentedDesc { size: 64, names: bad, reserved2: 5, ..seg }, Slice { ptr: options.as_ptr(), len: 2 }, &mut response, &mut result) }), 0);
-    // a 96-byte (1.55) record: the 1.67 `has_selected` and reserved bytes after it are never read
-    assert_eq!(build(&mut |ui| unsafe { pxui_ui_segmented(ui, &PxuiSegmentedDesc { size: 96, has_selected: 7, reserved3: [9; 7], ..seg }, Slice { ptr: options.as_ptr(), len: 2 }, &mut response, &mut result) }), 0);
-    assert_eq!(build(&mut |ui| unsafe { pxui_ui_segmented(ui, &PxuiSegmentedDesc { names: bad, ..seg }, Slice { ptr: options.as_ptr(), len: 2 }, &mut response, &mut result) }), PXUI_ERR_ARGUMENT);
+    let bad = Slice { ptr: names.as_ptr(), len: 1 };
+    let call = |d: &PxuiSegmentedDesc, build: &dyn Fn(&mut dyn FnMut(*mut PxuiUi) -> i32) -> i32, response: &mut PxuiResponse, result: &mut pxui_types::ffi::PxuiSegmentedResult| build(&mut |ui| unsafe { pxui_ui_segmented(ui, d, Slice { ptr: options.as_ptr(), len: 2 }, response, result) });
+    assert_eq!(call(&seg, &build, &mut response, &mut result), 0);
+    for size in [64, 96, 104] { assert_eq!(call(&PxuiSegmentedDesc { size, ..seg }, &build, &mut response, &mut result), PXUI_ERR_ARGUMENT, "an earlier size {size}"); }
+    assert_eq!(call(&PxuiSegmentedDesc { names: bad, ..seg }, &build, &mut response, &mut result), PXUI_ERR_ARGUMENT);
     unsafe { pxui_ui_destroy(ui); }
 }
 

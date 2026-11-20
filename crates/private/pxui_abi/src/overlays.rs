@@ -84,9 +84,8 @@ export!(trusted pub unsafe fn pxui_ui_context_menu(
     let mut marks = false;
     let mut valid = true;
     if !extra.is_null() {
-        // the size is read before the descriptor is copied; only a size the record has had is read (one that ends inside a field is refused)
-        let size = unsafe { (*extra).size } as usize;
-        valid = (matches!(size, MENU_EXTRA_V1 | MENU_EXTRA_V149 | MENU_EXTRA_V155 | MENU_EXTRA_V158) || size >= core::mem::size_of::<PxuiMenuExtra>()) && unsafe { decode_extra(&*extra, size, &mut menu, &mut subs, &mut options, &mut marks) };
+        // the whole record (its size, or more): an earlier size is refused
+        valid = unsafe { (*extra).size } as usize >= core::mem::size_of::<PxuiMenuExtra>() && unsafe { decode_extra(&*extra, &mut menu, &mut subs, &mut options, &mut marks) };
     }
     if valid && has_selected != 0 && !marks {
         // the current choice: the rows from `lead_from` keep the mark slot, the chosen one is marked
@@ -108,19 +107,10 @@ export!(trusted pub unsafe fn pxui_ui_context_menu(
     0
 });
 
-// `PxuiMenuExtra` as ABI 1.0 had it: the fields before `row_h`.
-const MENU_EXTRA_V1: usize = 80;
-// `PxuiMenuExtra` as ABI 1.49 had it: the fields before `padding`.
-const MENU_EXTRA_V149: usize = 104;
-// `PxuiMenuExtra` as ABI 1.55 had it: the fields before `focus_on_click`.
-const MENU_EXTRA_V155: usize = 144;
-// `PxuiMenuExtra` as ABI 1.58 had it: the fields before `max_h`.
-const MENU_EXTRA_V158: usize = 184;
-
 // Applies a menu's extras to its rows (shortcuts, swatches, destructive rows, marks, submenus) and options, borrowing the caller's
 // strings: false when a span, text or row is invalid. The submenus' rows go flat into `subs` first, then each opening row points
 // into it (`subs` does not grow after that).
-unsafe fn decode_extra(extra: &PxuiMenuExtra, size: usize, menu: &mut [MenuItem<'static>], subs: &mut Vec<MenuItem<'static>>, options: &mut Menu<'static>, marks: &mut bool) -> bool {
+unsafe fn decode_extra(extra: &PxuiMenuExtra, menu: &mut [MenuItem<'static>], subs: &mut Vec<MenuItem<'static>>, options: &mut Menu<'static>, marks: &mut bool) -> bool {
     fn span<'a, T>(s: Slice<T>, max: usize) -> Option<&'a [T]> {
         if s.len > max || (s.len != 0 && s.ptr.is_null()) { return None; }
         Some(if s.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(s.ptr, s.len) } })
@@ -137,8 +127,8 @@ unsafe fn decode_extra(extra: &PxuiMenuExtra, size: usize, menu: &mut [MenuItem<
         let Some(item) = usize::try_from(*row).ok().and_then(|row| menu.get_mut(row)) else { return false };
         item.danger = true;
     }
-    // ABI 1.49: the row height and the marks per row
-    if size >= MENU_EXTRA_V149 {
+    // the row height and the marks per row
+    {
         if !extra.row_h.is_finite() || extra.row_h < 0.0 { return false; }
         if extra.row_h > 0.0 { *options = options.row_h(extra.row_h); }
         if extra.max_rows > 0 { *options = options.max_rows(extra.max_rows as usize); }
@@ -147,8 +137,8 @@ unsafe fn decode_extra(extra: &PxuiMenuExtra, size: usize, menu: &mut [MenuItem<
         *marks = !checked.is_empty();
         for (item, mark) in menu.iter_mut().zip(checked) { item.checked = (*mark != 0).then_some(*mark == 2); }
     }
-    // ABI 1.55: the padding, the sheet's name and the current choice per row
-    if size >= MENU_EXTRA_V155 {
+    // the padding, the sheet's name and the current choice per row
+    {
         if !(0.0..=f32::MAX).contains(&extra.padding) || extra.has_name > 1 || extra.reserved2 != [0; 3] { return false; }
         *options = options.padding(extra.padding);
         if extra.has_name == 1 {
@@ -159,16 +149,16 @@ unsafe fn decode_extra(extra: &PxuiMenuExtra, size: usize, menu: &mut [MenuItem<
         if selected.len() > menu.len() || selected.iter().any(|on| *on > 1) { return false; }
         for (item, on) in menu.iter_mut().zip(selected) { item.selected = *on == 1; }
     }
-    // ABI 1.58: a press focuses its row, and the rows' ids
-    if size >= MENU_EXTRA_V158 {
+    // a press focuses its row, and the rows' ids
+    {
         if extra.focus_on_click > 1 || extra.reserved3 != [0; 7] { return false; }
         *options = options.focus_on_click(extra.focus_on_click == 1);
         let (Some(ids), Some(has_id)) = (span(extra.ids, MAX_ROWS), span(extra.has_id, MAX_ROWS)) else { return false };
         if has_id.len() > menu.len() || has_id.len() > ids.len() || has_id.iter().any(|on| *on > 1) { return false; }
         for ((item, on), id) in menu.iter_mut().zip(has_id).zip(ids) { item.id = (*on == 1).then_some(*id); }
     }
-    // ABI 1.67: the sheet's most height
-    if size >= core::mem::size_of::<PxuiMenuExtra>() {
+    // the sheet's most height
+    {
         if !(0.0..=f32::MAX).contains(&extra.max_h) || extra.reserved4 != 0 { return false; }
         if extra.max_h > 0.0 { *options = options.max_h(extra.max_h); }
     }

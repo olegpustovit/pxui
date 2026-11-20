@@ -1,7 +1,7 @@
-//! Read leading TextStyle size before copying, including legacy measure/quads/raster/canvas calls.
+//! Read the leading TextStyle size before copying: one size, a shorter record is refused.
 //! Reject unknown features/ellipsis, invalid UTF-8 span boundaries, unordered/overlapping/empty
 //! ranges and invalid flags/lengths before mutation. Validate packet count before records; read
-//! only active records and flagged colours. Preserve short-prefix descriptor support. UI system-
+//! only active records and flagged colours. UI system-
 //! font discovery must precede the first frame; standalone enabling invalidates old layouts once
 //! and repeated enabling is idempotent.
 //!
