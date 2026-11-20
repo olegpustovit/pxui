@@ -1327,7 +1327,7 @@ fn queries_boxes_patches_and_text_state_have_the_engine_shape() {
 #[test]
 fn a_caller_bug_panics_with_the_librarys_message_at_the_call() {
     let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
-    let stale = crate::Handle { index: 0, box_key: 1, box_slot: 99, generation: 7 };
+    let stale = crate::Handle { index: 0, box_key: 1, box_slot: 99, generation: 7, ui: 0 };
     let err = catch_unwind(AssertUnwindSafe(|| { let _ = ui.scroll(&stale).settled; })).expect_err("a stale box is refused");
     let message = err.downcast_ref::<String>().expect("a formatted message");
     assert!(message.contains("stale box"), "{message}");
@@ -1486,7 +1486,7 @@ fn a_shaper_of_its_own_measures_and_rasterizes_off_the_ui() {
 fn a_stale_field_patches_nothing_and_whole_source_files_round_trip() {
     use pxui_types::ui::TextEdit;
     let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
-    let stale = crate::Handle { index: 0, box_key: 1, box_slot: 99, generation: 7 };
+    let stale = crate::Handle { index: 0, box_key: 1, box_slot: 99, generation: 7, ui: 0 };
     // the engine answers a stale handle with false, so does the one export that replaced the wrapper's several calls
     assert!(!ui.patch_field(&stale, &crate::ValueField::DEFAULT, "1.5"));
     assert!(!ui.patch_text(&stale, "x"));

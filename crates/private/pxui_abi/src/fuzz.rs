@@ -30,7 +30,7 @@ thread_local! {
     static THEME: Cell<*mut PxuiTheme> = const { Cell::new(core::ptr::null_mut()) };
     static PANICS: Cell<u32> = const { Cell::new(0) };
     /// a box stale since an earlier frame, one of another `Ui`, one declared in the frame being fuzzed (`PxuiBox::arg`)
-    static BOXES: Cell<[PxuiBox; 3]> = const { Cell::new([PxuiBox { index: 0, box_key: 0, box_slot: 0, generation: 0 }; 3]) };
+    static BOXES: Cell<[PxuiBox; 3]> = const { Cell::new([PxuiBox { index: 0, box_key: 0, box_slot: 0, generation: 0, ui: 0 }; 3]) };
     static BOX_SLOT: *mut PxuiBox = Box::leak(Box::new(PxuiBox::default()));
     /// `PXUI_FUZZ_TRACE=1` names each call before it runs: the last line names a call that aborted the process
     static TRACE: bool = std::env::var_os("PXUI_FUZZ_TRACE").is_some();
@@ -109,7 +109,7 @@ arg!(bytes: geom::Rgba, geom::Rect, PxuiSlot);
 impl Arg for PxuiBox {
     fn arg(v: u32) -> Self {
         let [stale, foreign, live] = BOXES.with(Cell::get);
-        match v % VARIANTS { 1 | 5 => PxuiBox { index: u64::MAX, box_key: -1, box_slot: u64::MAX, generation: u32::MAX }, 2 => stale, 3 => foreign, 4 => live, _ => PxuiBox::default() }
+        match v % VARIANTS { 1 | 5 => PxuiBox { index: u64::MAX, box_key: -1, box_slot: u64::MAX, generation: u32::MAX, ui: u32::MAX }, 2 => stale, 3 => foreign, 4 => live, _ => PxuiBox::default() }
     }
 }
 /// A box behind a pointer: null for variant 1, else `PxuiBox::arg` in a slot of its own (the zeroed buffer may hold another argument).
@@ -233,7 +233,7 @@ fuzz!(
     pxui_ui_color/2, pxui_ui_content_rect/2, pxui_ui_context_at/4, pxui_ui_context_menu/13, pxui_ui_density/1,
     pxui_ui_dialog/5, pxui_ui_disabled/4, pxui_ui_dismiss/4, pxui_ui_dismiss_popup/1, pxui_ui_draw/6,
     pxui_ui_drop_target/5, pxui_ui_environment/2, pxui_ui_expanded/3, pxui_ui_field_drag/4, pxui_ui_focus_box/2, pxui_ui_focus_default/2,
-    pxui_ui_focused/3, pxui_ui_font_points/2, pxui_ui_footer/2, pxui_ui_frame/5, pxui_ui_frame_index/1, pxui_ui_gesture/5, pxui_ui_grid_list/3, pxui_ui_grip/7,
+    pxui_ui_focused/3, pxui_ui_font_points/2, pxui_ui_footer/2, pxui_ui_frame_index/1, pxui_ui_gesture/5, pxui_ui_grid_list/3, pxui_ui_grip/7,
     pxui_ui_hover_delay/3, pxui_ui_key_seed/2, pxui_ui_hovered/4, pxui_ui_icon_button_plain/5, pxui_ui_icon_button/3, pxui_ui_icon_word/2, pxui_ui_image/8, pxui_ui_inject_a11y/3, pxui_ui_input/4, pxui_ui_item_text/2, pxui_ui_key_down/3, pxui_ui_key_pressed/4, pxui_ui_keyboard/2, pxui_ui_label_node/5, pxui_ui_label_text_spans/5, pxui_ui_label_text_line_box/5, pxui_ui_label_measure/6,
     pxui_ui_label_quads/9, pxui_ui_label_rasterize_rgba/13, pxui_ui_label_prewarm/4, pxui_ui_layer_drawn/2, pxui_ui_load_text_edit/6, pxui_ui_local_rect/3, pxui_ui_node/4,
     pxui_ui_node_fields/3, pxui_ui_node_keyed/4, pxui_ui_node_layout/3, pxui_ui_now/1, pxui_ui_output/1, pxui_ui_passed_undo/1, pxui_ui_patch_field/5,

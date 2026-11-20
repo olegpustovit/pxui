@@ -11,7 +11,7 @@ use pxui_types::ffi::{PxuiResponse, PxuiTextStyle};
 use pxui_types::{text::LabelFields, TextGlyph, TextMetrics, TextSpans};
 use pxui_core::ui::{Segment, SegmentedOpts, ToggleOpts, Ui};
 use pxui_types::ui::{Checkbox, Overlay, Slider};
-use pxui_types::{Axis, FrameIn, FrameOut, Node, Size, ffi::Input, geom::Edges, layout::{Along, Justify}, theme::{State, States, ThemeSnapshot}};
+use pxui_types::{Axis, FrameIn, FrameOut, Node, Size, geom::Edges, layout::{Along, Justify}, theme::{State, States, ThemeSnapshot}};
 /// What the static wrapper's callbacks are given and build their handle from (`Borrowed`): the engine of the callback, and a
 /// selection list or table row's record (`#[repr(C)]`, the wrapper's `CellState` byte for byte).
 pub use crate::state::Borrowed;
@@ -110,7 +110,7 @@ pub unsafe fn part(ui: *mut PxuiUi, part: u32, desc: &Node, out: *mut PxuiBox) -
     let key = e.own_part_key(Part(part));
     if key == 0 || key == 1 { return unsafe { fail(ui, "reserved node key; derive integer keys with int_key") }; }
     declare(e, None, key, desc, unsafe { &mut *out });
-    if let Some(b) = crate::state::core_box(unsafe { *out }) { e.note_part(Part(part), b) }
+    if let Some(b) = crate::state::core_box(e, unsafe { *out }) { e.note_part(Part(part), b) }
     0
 }
 
@@ -136,8 +136,9 @@ pub unsafe fn pxui_ui_text(ui: *mut PxuiUi, box_: *const PxuiBox, value: Str) ->
 #[inline(always)]
 pub(crate) unsafe fn text(ui: *mut PxuiUi, box_: *const PxuiBox, value: &str) -> i32 {
     enter!(ui);
-    let raw = unsafe { *box_ };
-    unsafe { engine(ui) }.text(&pxui_core::ui::UiBox { index: raw.index as usize, box_key: raw.box_key, box_slot: raw.box_slot as usize, generation: raw.generation }, value);
+    let e = unsafe { engine(ui) };
+    let Some(b) = crate::state::core_box(e, unsafe { *box_ }) else { return unsafe { crate::state::fail_code(ui, "stale box", crate::PXUI_ERR_STALE) } };
+    e.text(&b, value);
     0
 }
 
@@ -333,9 +334,6 @@ fn finite(size: Size) -> bool { !matches!(size, Size::Px(v) | Size::Pct(v) if !v
 #[inline]
 pub unsafe fn frame(ui: *mut PxuiUi, input: &FrameIn, f: Inner, out: &mut FrameOut) -> i32 { unsafe { crate::ui::frame_body(ui, input, f, out) } }
 
-/// One frame over the host's whole input record (`Ui::input_frame`).
-#[inline]
-pub unsafe fn input_frame(ui: *mut PxuiUi, input: &Input, f: Inner, out: &mut FrameOut) -> i32 { unsafe { crate::ui::input_frame_body(ui, input, f, out) } }
 
 // ---- widgets: Rust types in, so the wrapper passes its own `&str` and slices (no `Str` span to build, nothing to decode)
 
@@ -681,17 +679,18 @@ pub unsafe fn menu(ui: *mut PxuiUi, key: pxui_types::ui::Key, at: (f32, f32), it
 pub unsafe fn tooltip(ui: *mut PxuiUi, box_: &PxuiBox, label: &str) -> i32 {
     enter!(ui);
     let label = clip(label);
-    unsafe { engine(ui) }.tooltip(&unbox(box_), label);
+    let e = unsafe { engine(ui) };
+    let Some(b) = crate::state::core_box(e, *box_) else { return unsafe { crate::state::fail_code(ui, "stale box", crate::PXUI_ERR_STALE) } };
+    e.tooltip(&b, label);
     0
 }
 
 #[inline]
-fn unbox(raw: &PxuiBox) -> pxui_core::ui::UiBox { pxui_core::ui::UiBox { index: raw.index as usize, box_key: raw.box_key, box_slot: raw.box_slot as usize, generation: raw.generation } }
-
-#[inline]
 pub unsafe fn rect(ui: *mut PxuiUi, box_: &PxuiBox, out: &mut pxui_types::geom::Rect) -> i32 {
     enter!(any ui);
-    *out = unsafe { engine(ui) }.rect(&unbox(box_));
+    let e = unsafe { engine(ui) };
+    let Some(b) = crate::state::core_box(e, *box_) else { return unsafe { crate::state::fail_code(ui, "stale box", crate::PXUI_ERR_STALE) } };
+    *out = e.rect(&b);
     0
 }
 
@@ -1008,7 +1007,7 @@ const _: () = {
     assert!(size_of::<C>() == size_of::<ListCell>() && align_of::<C>() == align_of::<ListCell>() && size_of::<B>() == size_of::<pxui_core::ui::UiBox>());
     assert!(offset_of!(C, selected) == offset_of!(ListCell, selected) && offset_of!(C, enabled) == offset_of!(ListCell, enabled) && offset_of!(C, focused) == offset_of!(ListCell, focused) && offset_of!(C, held) == offset_of!(ListCell, held));
     assert!(offset_of!(C, size) == offset_of!(ListCell, size) && offset_of!(C, handle) == offset_of!(ListCell, handle) && offset_of!(C, y) == offset_of!(ListCell, y) && offset_of!(C, reserved) == offset_of!(ListCell, reserved));
-    assert!(offset_of!(B, index) == offset_of!(pxui_core::ui::UiBox, index) && offset_of!(B, box_key) == offset_of!(pxui_core::ui::UiBox, box_key) && offset_of!(B, box_slot) == offset_of!(pxui_core::ui::UiBox, box_slot) && offset_of!(B, generation) == offset_of!(pxui_core::ui::UiBox, generation));
+    assert!(offset_of!(B, index) == offset_of!(pxui_core::ui::UiBox, index) && offset_of!(B, box_key) == offset_of!(pxui_core::ui::UiBox, box_key) && offset_of!(B, box_slot) == offset_of!(pxui_core::ui::UiBox, box_slot) && offset_of!(B, generation) == offset_of!(pxui_core::ui::UiBox, generation) && offset_of!(B, ui) == offset_of!(pxui_core::ui::UiBox, ui));
 };
 
 /// `r` and `anchor` written to `out` (its size already checked by the caller).

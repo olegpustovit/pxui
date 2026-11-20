@@ -19,7 +19,6 @@ fn platform() -> Platform {
 
 pub(crate) fn key(code: u32) -> Option<Key> { Key::from_code(code) }
 pub(crate) fn key_code(key: Key) -> u32 { key.code() }
-pub(crate) fn button(code: u32) -> Option<MouseButton> { MouseButton::from_code(code) }
 pub(crate) fn button_code(button: MouseButton) -> u32 { button.code() }
 
 export!(bare pub unsafe fn pxui_abi_version() -> u32 { crate::ABI_VERSION });
@@ -546,51 +545,8 @@ export!(trusted frame pub unsafe fn pxui_frame(ui: *mut PxuiUi, input: *const Fr
     unsafe { frame_body(ui, &input, &mut build, &mut *out) }
 });
 
-pub(crate) unsafe fn input_frame_body(ui: *mut PxuiUi, input: &Input, build: Inner, out: &mut FrameOut) -> i32 {
-    if !ui.is_null() { unsafe { crate::state::note_call((*ui).shared) }; }
-    if let Err(code) = unsafe { enter_frame(ui) } { return code; }
-    let surface = unsafe { (*(*ui).shared).surface };
-    if surface == 0 { return unsafe { fail(ui, "unknown surface") }; }
-    if !input.time.is_finite() || !input.dt.is_finite() || input.dt < 0.0 || !input.fps.is_finite() || input.fps < 0.0 || !input.pointer.iter().all(|v| v.is_finite()) || !input.pixel_scale.iter().all(|v| v.is_finite() && *v > 0.0) || !input.mouse_delta.iter().all(|v| v.is_finite())
-        || !input.logical_size.iter().all(|v| (0..=MAX_SURFACE as i64).contains(v)) { return unsafe { fail(ui, "invalid input frame") }; }
-    if input.events.len > 4096 || input.keys.len > 512 || input.buttons.len > 32 || (input.events.len != 0 && input.events.ptr.is_null()) || (input.keys.len != 0 && input.keys.ptr.is_null()) || (input.buttons.len != 0 && input.buttons.ptr.is_null()) { return unsafe { fail(ui, "invalid input spans") }; }
-    let events=if input.events.len==0 {&[]} else {unsafe {core::slice::from_raw_parts(input.events.ptr,input.events.len)}};
-    if !valid_touches(events) {return unsafe {fail(ui,"invalid touch payload")};}
-    let keys = if input.keys.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(input.keys.ptr, input.keys.len) } };
-    let buttons = if input.buttons.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(input.buttons.ptr, input.buttons.len) } };
-    if keys.iter().any(|code| key(*code).is_none()) { return unsafe { fail(ui, "invalid held key") }; }
-    if buttons.iter().any(|code| button(*code).is_none()) { return unsafe { fail(ui, "invalid held mouse button") }; }
-    let mut held = unsafe { take_input(ui, input.time) };
-    let base = &mut held.input;
-    if !decode_events(&mut base.events, events, surface) {
-        base.events.clear();
-        unsafe { restore_input(ui, held); }
-        return unsafe { fail(ui, "invalid event kind, code, or UTF-8 payload") };
-    }
-    (base.t, base.dt, base.frame, base.tick) = (input.time, input.dt, input.frame, input.tick);
-    base.keys.clear();
-    base.keys.extend(keys.iter().filter_map(|code| key(*code)));
-    base.buttons.clear();
-    base.buttons.extend(buttons.iter().filter_map(|code| button(*code)));
-    base.size = (input.logical_size[0], input.logical_size[1]);
-    base.pointer = (input.pointer[0], input.pointer[1]);
-    fold_input_edges(base);
-    unsafe { &mut *(*ui).engine }.set_environment(pxui_types::Environment::default());
-    unsafe { &mut *(*ui).engine }.set_keyboard(pxui_types::Keyboard::default());
-    (held.pixel_scale, held.fps, held.mouse_delta) = ((input.pixel_scale[0], input.pixel_scale[1]), input.fps, (input.mouse_delta[0], input.mouse_delta[1]));
-    let rc = unsafe { run_frame(ui, &held, build, out) };
-    unsafe { restore_input(ui, held); }
-    rc
-}
-
-export!(trusted frame pub unsafe fn pxui_ui_frame(ui: *mut PxuiUi, input: *const Input, build: Build, user: *mut c_void, out: *mut FrameOut) -> i32 {
-    if input.is_null() || out.is_null() { return unsafe { fail(ui, "null frame argument") }; }
-    let Some(input) = read_desc!(input, Input) else { return unsafe { fail(ui, "invalid input frame") }; };
-    unsafe { let theme = if ui.is_null() { core::ptr::null() } else { (*ui).theme }; input_frame_body(ui, &input, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build_seeing((*ui).shared, engine, theme, build, user), &mut *out) }
-});
-
 // The frame's input as the engine routed it to `owner` (a viewport's root key; none: the app's), for the app's own content: the
-// same record `pxui_ui_frame` takes, borrowed until the next call. Only after a frame has run.
+// `Input` record (an output record now: `pxui_frame` takes a `PxuiFrameIn`), borrowed until the next call. Only after a frame has run.
 export!(pub unsafe fn pxui_ui_input(ui: *mut PxuiUi, has_owner: u8, owner: i64, out: *mut Input) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if out.is_null() || has_owner > 1 { return unsafe { fail(ui, "invalid input query") }; }
@@ -940,37 +896,6 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_retains_geometry_timing_and_held_input_after_rejected_spans() {
-        use super::*;
-        let ui = unsafe { crate::ui::create_test_ui() };
-        let keys = [Key::Meta.code()];
-        let buttons = [MouseButton::LeftButton.code()];
-        let snapshot = Input {
-            logical_size: [320, 240], pixel_scale: [2.0, 3.0],
-            pointer: [42.0, 35.0], mouse_delta: [8.0, 9.0],
-            time: 0.25, dt: 0.125, frame: 7, tick: 11, fps: 120.0,
-            keys: Slice { ptr: keys.as_ptr(), len: keys.len() },
-            buttons: Slice { ptr: buttons.as_ptr(), len: buttons.len() },
-            ..Default::default()
-        };
-        let mut out = FrameOut::default();
-        assert_eq!(unsafe { pxui_ui_frame(ui, &snapshot, None, core::ptr::null_mut(), &mut out) }, 0);
-        let invalid = [Key::Alt.code(), 0];
-        let bad = Input { keys: Slice { ptr: invalid.as_ptr(), len: invalid.len() }, ..snapshot };
-        out.size = 777;
-        assert_eq!(unsafe { pxui_ui_frame(ui, &bad, None, core::ptr::null_mut(), &mut out) }, PXUI_ERR_ARGUMENT);
-        assert_eq!(out.size, 777);
-        let frame = unsafe { &*(*ui).shared }.spare_input.as_ref().unwrap();
-        let input = &frame.input;
-        assert_eq!((input.t, input.dt, input.frame, input.tick), (0.25, 0.125, 7, 11));
-        assert_eq!((input.size, input.pointer), ((320, 240), (42.0, 35.0)));
-        assert_eq!((frame.pixel_scale, frame.fps, frame.mouse_delta), ((2.0, 3.0), 120.0, (8.0, 9.0)));
-        assert_eq!(input.keys, [Key::Meta]);
-        assert_eq!(input.buttons, [MouseButton::LeftButton]);
-        assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
-    }
-
-    #[test]
     fn completed_file_drop_events_preserve_paths_order_and_warm_storage() {
         use super::*;
         use pxui_types::Event as Wire;
@@ -1090,10 +1015,6 @@ mod tests {
             assert_eq!(out.size,777);
             let engine=unsafe {&*(*ui).engine};
             assert!(!engine.key_down(input::Key::Meta));
-            let snapshot=pxui_types::ffi::Input {events:pxui_types::ffi::Slice {ptr:events.as_ptr(),len:events.len()},..Default::default()};
-            assert_eq!(unsafe {super::pxui_ui_frame(ui,&snapshot,None,core::ptr::null_mut(),&mut out)},crate::PXUI_ERR_ARGUMENT);
-            assert_eq!(out.size,777);
-            assert!(!unsafe {&*(*ui).engine}.key_down(input::Key::Meta));
             assert_eq!(unsafe {super::pxui_frame(ui,&input,None,core::ptr::null_mut(),&mut out)},0);
             assert!(!unsafe {&*(*ui).engine}.key_down(input::Key::Meta), "the rejected batch must leave the next frame's held keys intact");
         }
@@ -1238,6 +1159,48 @@ mod keyboard_tests {
         assert_eq!(unsafe { super::pxui_ui_add_surface(ui, 8) }, 0);
         assert_eq!(frame(ui, &FrameIn { surface: 8, ..input }, &mut out), 0);
         assert_eq!(unsafe { super::pxui_ui_destroy(ui) }, 0);
+    }
+
+    #[test]
+    fn a_handle_of_another_ui_or_a_zeroed_one_is_stale_on_every_path() {
+        use pxui_types::{PxuiBox, ffi::PxuiSignal};
+        extern "C" fn declare(user: *mut core::ffi::c_void, ui: *mut core::ffi::c_void) {
+            assert_eq!(unsafe { crate::pxui_ui_node_keyed(ui.cast(), 4242, &pxui_types::Node::DEFAULT, &mut *user.cast::<PxuiBox>()) }, 0);
+        }
+        let (a, b) = (unsafe { crate::ui::create_test_ui() }, unsafe { crate::ui::create_test_ui() });
+        let (mut mine, mut theirs) = (PxuiBox::default(), PxuiBox::default());
+        let mut out = FrameOut::default();
+        let input = FrameIn { width: 100.0, height: 100.0, ..FrameIn::default() };
+        assert_eq!(unsafe { super::pxui_frame(a, &input, Some(declare), (&mut mine as *mut PxuiBox).cast(), &mut out) }, 0);
+        assert_eq!(unsafe { super::pxui_frame(b, &input, Some(declare), (&mut theirs as *mut PxuiBox).cast(), &mut out) }, 0);
+        // the two handles name the same slot and key and differ in the serial only
+        assert_ne!(mine.ui, 0);
+        assert_ne!(mine.ui, theirs.ui);
+        assert_eq!((mine.index, mine.box_key, mine.box_slot, mine.generation), (theirs.index, theirs.box_key, theirs.box_slot, theirs.generation));
+        // refused: a stale-box status where the export has one, an argument error where it never had
+        let refused = |rc: i32| rc == crate::PXUI_ERR_STALE || rc == PXUI_ERR_ARGUMENT;
+        let zeroed = PxuiBox::default();
+        let wrong = [theirs, zeroed, PxuiBox { ui: u32::MAX, ..mine }, PxuiBox { ui: 0, ..mine }];
+        let mut rect = pxui_types::geom::Rect::new(0.0, 0.0, 0.0, 0.0);
+        let (mut value, mut focused, mut signal) = (0i64, 0u8, PxuiSignal::default());
+        let text = pxui_types::Str { ptr: b"x".as_ptr(), len: 1 };
+        // the trusted calls (rect, text), the checked ones (state, focused, signal) and the core-box ones (patch_text, a11y name)
+        assert_eq!(unsafe { crate::pxui_ui_rect(a, &mine, &mut rect) }, 0);
+        assert_eq!(unsafe { crate::pxui_ui_state(a, &mine, 7, &mut value) }, 0);
+        assert_eq!(unsafe { crate::pxui_ui_focused(a, &mine, &mut focused) }, 0);
+        assert_eq!(unsafe { crate::pxui_ui_signal(a, &mine, &mut signal) }, 0);
+        for bad in &wrong {
+            assert!(refused(unsafe { crate::pxui_ui_rect(a, bad, &mut rect) }), "rect {bad:?}");
+            assert!(refused(unsafe { crate::pxui_ui_state(a, bad, 7, &mut value) }), "state {bad:?}");
+            assert!(refused(unsafe { crate::pxui_ui_focused(a, bad, &mut focused) }), "focused {bad:?}");
+            assert!(refused(unsafe { crate::pxui_ui_signal(a, bad, &mut signal) }), "signal {bad:?}");
+            assert!(refused(unsafe { crate::pxui_ui_a11y_name(a, bad, text) }), "a11y name {bad:?}");
+            assert!(refused(unsafe { crate::pxui_ui_set_state(a, bad, 1) }), "set_state {bad:?}");
+        }
+        // the other Ui's own handle works there, and refuses ours
+        assert_eq!(unsafe { crate::pxui_ui_rect(b, &theirs, &mut rect) }, 0);
+        assert!(refused(unsafe { crate::pxui_ui_rect(b, &mine, &mut rect) }));
+        assert_eq!(unsafe { super::pxui_ui_destroy(a) } | unsafe { super::pxui_ui_destroy(b) }, 0);
     }
 
     #[test]

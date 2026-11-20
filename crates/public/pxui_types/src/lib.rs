@@ -785,6 +785,9 @@ pub struct PxuiBox {
     pub box_key: i64,
     pub box_slot: u64,
     pub generation: u32,
+    /// Serial of the `Ui` that made the handle (nonzero): every call compares it with its own `Ui`'s and refuses another's, or a zeroed
+    /// handle (`PxuiBox::default()`), as stale. Fills the padding: still 32 bytes.
+    pub ui: u32,
 }
 
 #[repr(C)]
@@ -914,7 +917,7 @@ pub mod feature {
 }
 
 /// The ABI version this crate's records describe (`major << 16 | minor`); an app states it as `PxuiUiDesc::abi_built`.
-pub const ABI_BUILT: u32 = 1 << 16 | 133;
+pub const ABI_BUILT: u32 = 1 << 16 | 134;
 impl Default for PxuiUiDesc { fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, platform: 0, font_size: 0, abi_built: ABI_BUILT } } }
 
 #[cfg(test)]

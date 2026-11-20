@@ -730,7 +730,7 @@ macro_rules! registry {
 
         impl Default for BodyTable {
             fn default() -> BodyTable {
-                BodyTable { $($kind: Vec::new(),)* names: Bodies::KINDS.iter().map(|_| HashMap::new()).collect(), item: UiBox { index: 0, box_key: 0, box_slot: 0, generation: 0 }, item_kind: crate::ui_widgets::ITEM_NONE, host: core::ptr::null_mut(), variant: 0, variant_kind: 0 }
+                BodyTable { $($kind: Vec::new(),)* names: Bodies::KINDS.iter().map(|_| HashMap::new()).collect(), item: UiBox { index: 0, box_key: 0, box_slot: 0, generation: 0, ui: 0 }, item_kind: crate::ui_widgets::ITEM_NONE, host: core::ptr::null_mut(), variant: 0, variant_kind: 0 }
             }
         }
 

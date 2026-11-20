@@ -13,7 +13,7 @@ use pxui::{Renderer, Ui};
 use pxui_gallery::gpu::{self, fail, Gpu};
 use pxui_gallery::*;
 use pxui_gallery::bodies_page::{self, BodiesPage};
-use pxui_types::{Event, Str, ffi::{Input, Slice}};
+use pxui_types::{Event, Str};
 use std::time::Instant;
 
 const PRAGMASEVKA: &[u8] = include_bytes!("../../../assets/fonts/Pragmasevka-Regular.ttf");
@@ -193,8 +193,6 @@ fn main() {
     let mut raw_events = Vec::with_capacity(256);
     let mut event_text = Vec::new();
     let mut event_touches=Vec::new();
-    let mut key_values = Vec::with_capacity(8);
-    let mut button_values = Vec::with_capacity(4);
     let mut frame = input::frame::Frame { input: input::at_time(0.0), pixel_scale: (1.0, 1.0), fps: 60.0, mouse_delta: (0.0, 0.0) };
     frame.input.keys.reserve(8);
     frame.input.buttons.reserve(4);
@@ -280,23 +278,12 @@ fn main() {
             f.events = std::mem::take(&mut events);
             frame.pixel_scale = (win.scale(), win.scale());
             last = now;
-            key_values.clear();
-            key_values.extend(f.keys.iter().copied().map(Key::code));
-            button_values.clear();
-            button_values.extend(f.buttons.iter().copied().map(input::MouseButton::code));
             encode_events(&f.events, &mut raw_events, &mut event_text,&mut event_touches);
-            let input = Input {
-                size: core::mem::size_of::<Input>() as u32, time: f.t, dt: f.dt, frame: f.frame, tick: f.tick,
-                logical_size: [f.size.0, f.size.1], pointer: [f.pointer.0, f.pointer.1],
-                keys: Slice { ptr: key_values.as_ptr(), len: key_values.len() },
-                buttons: Slice { ptr: button_values.as_ptr(), len: button_values.len() },
-                events: Slice { ptr: raw_events.as_ptr(), len: raw_events.len() },
-                pixel_scale: [frame.pixel_scale.0, frame.pixel_scale.1], mouse_delta: [frame.mouse_delta.0, frame.mouse_delta.1], fps: frame.fps,
-            };
+            let input = pxui::FrameIn::new(f.size.0 as f32, f.size.1 as f32).scale(frame.pixel_scale.0 as f32).time(f.t).events(&raw_events);
             let a0 = mem_sys::local_alloc_count();
             let t0 = Instant::now();
             // the frame borrows the Ui until it is dropped, so the error text is read after it
-            if let Err(code) = ui.frame(&unsafe { pxui::FrameIn::snapshot(&input) }, &mut |ui: &mut Ui| if label_only { ui.label("PXUI", pxui::Label::DEFAULT); } else if bodies_mode { bodies_page::page(ui, &mut bodies) } else { app(ui, &mut s) }).map(|_| ()) { eprintln!("pxui_gallery: frame failed ({code}): {}", ui.last_error()); std::process::exit(1) }
+            if let Err(code) = ui.frame(&input, &mut |ui: &mut Ui| if label_only { ui.label("PXUI", pxui::Label::DEFAULT); } else if bodies_mode { bodies_page::page(ui, &mut bodies) } else { app(ui, &mut s) }).map(|_| ()) { eprintln!("pxui_gallery: frame failed ({code}): {}", ui.last_error()); std::process::exit(1) }
             cost.us = t0.elapsed().as_secs_f64() * 1e6;
             if std::mem::take(&mut bodies.dirty) { s.host_dirty = true; }
             cost.allocs = Some(mem_sys::local_alloc_count() - a0);

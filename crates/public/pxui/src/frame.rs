@@ -1,7 +1,7 @@
-use crate::{Appearance, Environment, Event, Input, Keyboard, WireFrame};
+use crate::{Appearance, Environment, Event, Keyboard, WireFrame};
 
-/// The input to one UI frame. Event frames use the wire record. A host with a complete
-/// input snapshot can supply that record instead.
+/// The input to one UI frame: the surface it is for, its ordered events and the host's geometry and preferences. There is one frame
+/// call and one record; a host that tracks held keys itself sends the key events.
 #[derive(Clone, Copy, Debug)]
 pub struct FrameIn<'a> {
     /// The event-mode record. Keep all of its event records and their payloads alive
@@ -9,7 +9,6 @@ pub struct FrameIn<'a> {
     pub wire: pxui_types::FrameIn,
     /// The frame's events, borrowed for the call (text and touch payloads too); at most 4096, each carrying the frame's surface.
     pub events: &'a [Event],
-    pub(crate) snapshot: Option<&'a Input>,
 }
 
 impl Default for FrameIn<'_> {
@@ -29,7 +28,7 @@ impl<'a> FrameIn<'a> {
     /// assert_eq!((frame.wire.width, frame.wire.height, frame.wire.scale), (320.0, 240.0, 1.0));
     /// ```
     pub const fn new(width: f32, height: f32) -> FrameIn<'a> {
-        FrameIn { wire: WireFrame::new(width, height), events: &[], snapshot: None }
+        FrameIn { wire: WireFrame::new(width, height), events: &[] }
     }
 
     /// Names the surface this frame is for (default `pxui_types::FrameIn::MAIN`); it must be registered on the Ui and carried by every event.

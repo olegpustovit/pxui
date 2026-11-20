@@ -18,7 +18,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 133u)
+#define PXUI_ABI_BUILT ((1u << 16) | 134u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 typedef struct { uint32_t autocorrect, capitalization, action; } PxuiTextInputOptions;
@@ -34,7 +34,7 @@ typedef struct { uint64_t device, finger; double x, y, time; float pressure; uin
    for: it must be the surface of the frame call that carries it, else the frame is PXUI_ERR_ARGUMENT. Per-kind fields: pointer and scroll use x/y;
    TEXT_EDITING carries its start (x) and length (y) in text bytes, both not negative; FILE_DIALOG carries its id in `value`
    (shortcut: an f64, exact up to 2^53; upgrade with an integer id slot when a host numbers dialogs past that).
-   `text` and a touch payload are borrowed for the frame call (pxui_frame, pxui_ui_frame, pxui_ui_wants_frame) only: the library copies what it
+   `text` and a touch payload are borrowed for the frame call (pxui_frame, pxui_ui_wants_frame) only: the library copies what it
    keeps before the call returns. Events the library hands back (PxuiSignal.keys, pxui_ui_input) are borrowed from the Ui until its next frame. */
 typedef struct { uint32_t size, kind; uint64_t surface; uint32_t code, reserved; double x, y, value; PxuiStr text; } PxuiEvent;
 typedef struct { const PxuiEvent *ptr; size_t len; } PxuiEventSpan;
@@ -293,7 +293,9 @@ typedef struct {
     float max_height; PxuiColor stroke;
     const PxuiLookDesc *look; /* ABI 1.132: read where it lies for the call; NULL for the theme's look */
 } PxuiPanel;
-typedef struct { uint64_t index; int64_t box_key; uint64_t box_slot; uint32_t generation; } PxuiBox;
+/* ABI 1.134: `ui` is the serial of the Ui that made the handle (nonzero, one count for the process). Every call that takes a box compares it with its Ui's
+   and refuses a handle of another Ui, or a zeroed one, as a stale box (PXUI_ERR_STALE). Still 32 bytes: `ui` fills the padding. */
+typedef struct { uint64_t index; int64_t box_key; uint64_t box_slot; uint32_t generation, ui; } PxuiBox;
 /* ABI 1.48: what happened to a kit button or icon button this frame, in one record: PXUI_RESPONSE_* bits and the button's box.
    The caller sets size; a null or shorter record is refused. ABI 1.59: PXUI_RESPONSE_SECONDARY, a secondary (right-button) press began
    on the box this frame. */
@@ -537,9 +539,8 @@ int32_t pxui_frame(PxuiUi *ui, const PxuiFrameIn *in, PxuiBuild build, void *use
    upgrade when the engine keeps per-surface focus/a11y/IME state); removing an id that is not registered is PXUI_ERR_ARGUMENT; both are refused in a frame. */
 int32_t pxui_ui_add_surface(PxuiUi *ui, uint64_t surface);
 int32_t pxui_ui_remove_surface(PxuiUi *ui, uint64_t surface);
-int32_t pxui_ui_frame(PxuiUi *ui, const PxuiInput *in, PxuiBuild build, void *user, PxuiFrameOut *out);
 /* The last frame's input as routed to `owner` (a viewport's root key; has_owner 0: the app's), for the app's own content: the record
-   pxui_ui_frame takes, borrowed until the next call. PXUI_ERR_STATE before the first frame. */
+   an output-only PxuiInput (pxui_frame takes a PxuiFrameIn), borrowed until the next call. PXUI_ERR_STATE before the first frame. */
 int32_t pxui_ui_input(PxuiUi *ui, uint8_t has_owner, int64_t owner, PxuiInput *out);
 /* Marks layer `layer` of the last frame drawn (its dirty ranges clear), as pxui_renderer_draw does: for a host that reads the layers itself. */
 int32_t pxui_ui_layer_drawn(PxuiUi *ui, uint64_t layer);

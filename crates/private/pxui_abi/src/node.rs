@@ -1,4 +1,4 @@
-use crate::state::{PxuiUi, Shared, checked, core_box, fail, get};
+use crate::state::{PxuiUi, Shared, checked, core_box_of, fail, get};
 use pxui_core::ui::{Ui, UiBox};
 use core::mem::{align_of, offset_of, size_of};
 use std::rc::Rc;
@@ -133,12 +133,12 @@ pub(crate) fn declare(engine: &mut Ui, label: Option<&str>, key: i64, desc: &Nod
     let mut b = || match label { Some(label) => engine.node_ref(label, desc), None if key == 0 => engine.layout_node(desc), None => engine.node_keyed_ref(key, desc) };
     // written in place: the engine returns the handle straight into `out`
     if SAME_BOX { unsafe { (out as *mut PxuiBox).cast::<UiBox>().write(b()) } }
-    else { let b = b(); (out.index, out.box_key, out.box_slot, out.generation) = (b.index as u64, b.box_key, b.box_slot as u64, b.generation); }
+    else { let b = b(); (out.index, out.box_key, out.box_slot, out.generation, out.ui) = (b.index as u64, b.box_key, b.box_slot as u64, b.generation, b.ui); }
 }
 /// Whether the engine's handle is `PxuiBox` byte for byte (every 64-bit target): its padding is copied too, as padding.
 const SAME_BOX: bool = size_of::<UiBox>() == size_of::<PxuiBox>() && offset_of!(UiBox, index) == offset_of!(PxuiBox, index)
     && offset_of!(UiBox, box_key) == offset_of!(PxuiBox, box_key) && offset_of!(UiBox, box_slot) == offset_of!(PxuiBox, box_slot)
-    && offset_of!(UiBox, generation) == offset_of!(PxuiBox, generation) && size_of::<usize>() == size_of::<u64>();
+    && offset_of!(UiBox, generation) == offset_of!(PxuiBox, generation) && offset_of!(UiBox, ui) == offset_of!(PxuiBox, ui) && size_of::<usize>() == size_of::<u64>();
 
 /// A C node with a grid: its tracks, checked, become the library's own for as long as its box lives (a list equal to one stored is
 /// shared, so a settled frame allocates nothing), and the node pointing at that copy goes through the trusted entry.
@@ -302,7 +302,7 @@ fn retire_gone_tracks(shared: &mut Shared, engine: &Ui) {
 export!(trusted pub unsafe fn pxui_ui_rect(ui:*mut PxuiUi,box_:*const PxuiBox,out:*mut Rect)->i32 {
     if unsafe{get(ui)}.is_none() {return crate::PXUI_ERR_ARGUMENT};
     if box_.is_null()||out.is_null(){return unsafe{fail(ui,"null rect argument")};}
-    if core_box(unsafe{*box_}).is_none(){return unsafe{fail(ui,"invalid rect box")};}
+    if unsafe{core_box_of(ui,*box_)}.is_none(){return unsafe{crate::state::fail_code(ui,"stale rect box",crate::PXUI_ERR_STALE)};}
     unsafe{crate::trusted::rect(ui,&*box_,&mut *out)}
 });
 
@@ -324,7 +324,7 @@ export!(trusted pub unsafe fn pxui_ui_text(ui:*mut PxuiUi,box_:*const PxuiBox,va
     if unsafe{get(ui)}.is_none() {return crate::PXUI_ERR_ARGUMENT};
     if box_.is_null(){return unsafe{fail(ui,"null text box")};}
     let Some(value)=(unsafe{checked(value)}) else{return unsafe{fail(ui,"invalid text")};};
-    if core_box(unsafe{*box_}).is_none(){return unsafe{fail(ui,"invalid text box")};}
+    if unsafe{core_box_of(ui,*box_)}.is_none(){return unsafe{crate::state::fail_code(ui,"stale text box",crate::PXUI_ERR_STALE)};}
     unsafe{crate::trusted::text(ui,box_,value)}
 });
 

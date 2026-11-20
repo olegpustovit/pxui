@@ -157,7 +157,7 @@ pub(crate) fn part_of(index: usize) -> SectionPart {
 #[inline(always)]
 pub(crate) fn cell_from(c: &pxui_abi_link::trusted::ListCell) -> CellState {
     let h = c.handle;
-    let handle = crate::Handle { index: h.index as u64, box_key: h.box_key, box_slot: h.box_slot as u64, generation: h.generation };
+    let handle = crate::Handle { index: h.index as u64, box_key: h.box_key, box_slot: h.box_slot as u64, generation: h.generation, ui: h.ui };
     CellState { selected: c.selected, enabled: c.enabled, focused: c.focused, held: c.held, handle, y: c.y }
 }
 

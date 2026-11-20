@@ -99,7 +99,7 @@ impl Ui {
         let target = target.clamp(0.0, (total - room).max(0.0));
         let axis = usize::from(g.horizontal);
         let changed = target != offset || self.glides[axis][g.slot].visual != 0.0;
-        let body = Handle { index: NONE, box_key: slot.key, box_slot: g.slot, generation: g.generation };
+        let body = Handle { index: NONE, box_key: slot.key, box_slot: g.slot, generation: g.generation, ui: self.ui_serial };
         if g.horizontal { self.set_scroll_offset_x(&body, target); } else { self.set_scroll_offset(&body, target); }
         if !self.glides[0][g.slot].moving() && !self.glides[1][g.slot].moving() { self.moving.retain(|slot| *slot != g.slot); }
         if changed || dirty {

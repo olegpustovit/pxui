@@ -73,7 +73,7 @@ pub mod shapes {
         match index { usize::MAX => SectionPart::Leading, i if i == usize::MAX - 1 => SectionPart::Header, i if i == usize::MAX - 2 => SectionPart::Trailing, i => SectionPart::Row(i) }
     }
     fn cell_of(c: &ListCell) -> CellState { CellState { selected: c.selected, enabled: c.enabled, focused: c.focused, held: c.held, handle: c.handle, y: c.y } }
-    fn abi(b: Handle) -> pxui_types::PxuiBox { pxui_types::PxuiBox { index: b.index as u64, box_key: b.box_key, box_slot: b.box_slot as u64, generation: b.generation } }
+    fn abi(b: Handle) -> pxui_types::PxuiBox { pxui_types::PxuiBox { index: b.index as u64, box_key: b.box_key, box_slot: b.box_slot as u64, generation: b.generation, ui: b.ui } }
     fn list_response(r: &ListResult) -> ListResponse { ListResponse { handle: abi(r.handle), activated: r.activated, selected: r.selected, secondary: r.secondary, row: r.row.map(abi), moved: r.moved, drop_at: r.drop_at } }
 
     #[repr(transparent)]

@@ -55,7 +55,7 @@ export!(bare pub unsafe fn pxui_ui_draw(ui: *mut crate::PxuiUi, box_: *const Pxu
     if !unsafe { crate::state::usable(ui) } { return unsafe { crate::state::refuse(state.shared) }; }
     if !state.shared().in_frame { return unsafe { crate::state::outside_frame(state.shared) }; }
     if box_.is_null() || over > 1 { return unsafe { crate::fail(ui, "invalid paint callback descriptor") }; }
-    let Some(b) = crate::core_box(unsafe { *box_ }) else { return unsafe { crate::fail(ui, "invalid paint box") }; };
+    let Some(b) = (unsafe { crate::state::core_box_of(ui, *box_) }) else { return unsafe { crate::state::fail_code(ui, "stale paint box", crate::PXUI_ERR_STALE) }; };
     // a node of the frame being built: the engine attaches the drawing to it
     if !unsafe { &*state.engine }.is_current_build_box(&b) { return unsafe { crate::state::fail_code(ui, "not a node of the frame being built", crate::PXUI_ERR_STALE) }; }
     let shared = state.shared;

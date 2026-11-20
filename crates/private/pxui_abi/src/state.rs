@@ -509,10 +509,16 @@ pub(crate) unsafe fn append_strings(values: Slice<Str>, max: usize, out: &mut Ve
 
 pub(crate) fn finite(values: &[f32]) -> bool { values.iter().all(|v| v.is_finite()) }
 
-pub(crate) fn to_abi_box(b: UiBox) -> PxuiBox { PxuiBox { index: b.index as u64, box_key: b.box_key, box_slot: b.box_slot as u64, generation: b.generation } }
-pub(crate) fn core_box(raw: PxuiBox) -> Option<UiBox> {
-    Some(UiBox { index: usize::try_from(raw.index).ok()?, box_key: raw.box_key, box_slot: usize::try_from(raw.box_slot).ok()?, generation: raw.generation })
+pub(crate) fn to_abi_box(b: UiBox) -> PxuiBox { PxuiBox { index: b.index as u64, box_key: b.box_key, box_slot: b.box_slot as u64, generation: b.generation, ui: b.ui } }
+/// The engine's handle a caller's `raw` names, or `None` when it is not one of `engine`'s: the serial of another `Ui`, or zero (a zeroed
+/// handle), is refused here, one compare, before any slot is read.
+#[inline(always)]
+pub(crate) fn core_box(engine: &Ui, raw: PxuiBox) -> Option<UiBox> {
+    if raw.ui != engine.serial() { return None; }
+    Some(UiBox { index: usize::try_from(raw.index).ok()?, box_key: raw.box_key, box_slot: usize::try_from(raw.box_slot).ok()?, generation: raw.generation, ui: raw.ui })
 }
+/// `core_box` against the engine behind `ui` (none: a handle that has none).
+pub(crate) unsafe fn core_box_of(ui: *mut PxuiUi, raw: PxuiBox) -> Option<UiBox> { core_box(unsafe { engine(ui) }?, raw) }
 /// The engine and the live box a call names, or the error code after recording why.
 pub(crate) unsafe fn boxed<'a>(ui: *mut PxuiUi, raw: *const PxuiBox) -> Result<(&'a mut Ui, UiBox), i32> {
     let Some(engine) = (unsafe { engine(ui) }) else { return Err(PXUI_ERR_ARGUMENT) };
@@ -524,7 +530,7 @@ pub(crate) unsafe fn boxed<'a>(ui: *mut PxuiUi, raw: *const PxuiBox) -> Result<(
 /// tolerate it as it does (a patch does nothing, a query answers a default, a scroll or state call reads the slot), and the few that
 /// need a live node say so themselves.
 pub(crate) fn live_box(engine: &Ui, raw: PxuiBox) -> Option<UiBox> {
-    let b = core_box(raw)?;
+    let b = core_box(engine, raw)?;
     engine.has_slot(&b).then_some(b)
 }
 

@@ -97,7 +97,7 @@ const SAME_RESPONSE: bool = {
         && offset_of!(Response, changed) == offset_of!(E, secondary) + 1 && offset_of!(Response, changed) < offset_of!(E, handle)
         && size_of::<pxui_abi_link::trusted::EngineBox>() == size_of::<crate::Handle>() && offset_of!(pxui_abi_link::trusted::EngineBox, index) == offset_of!(crate::Handle, index)
         && offset_of!(pxui_abi_link::trusted::EngineBox, box_key) == offset_of!(crate::Handle, box_key) && offset_of!(pxui_abi_link::trusted::EngineBox, box_slot) == offset_of!(crate::Handle, box_slot)
-        && offset_of!(pxui_abi_link::trusted::EngineBox, generation) == offset_of!(crate::Handle, generation)
+        && offset_of!(pxui_abi_link::trusted::EngineBox, generation) == offset_of!(crate::Handle, generation) && offset_of!(pxui_abi_link::trusted::EngineBox, ui) == offset_of!(crate::Handle, ui)
 };
 
 /// The wrapper's `Response` of a button call's record.

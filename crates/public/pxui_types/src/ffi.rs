@@ -1214,7 +1214,7 @@ impl PxuiResponse {
     /// A secondary (right-button) press began on the box this frame (ABI 1.59).
     pub const SECONDARY: u32 = 32;
     /// An empty record of this size, for a call to fill.
-    pub const EMPTY: PxuiResponse = PxuiResponse { size: core::mem::size_of::<PxuiResponse>() as u32, flags: 0, node: PxuiBox { index: 0, box_key: 0, box_slot: 0, generation: 0 } };
+    pub const EMPTY: PxuiResponse = PxuiResponse { size: core::mem::size_of::<PxuiResponse>() as u32, flags: 0, node: PxuiBox { index: 0, box_key: 0, box_slot: 0, generation: 0, ui: 0 } };
 }
 
 /// What a segmented control's frame chose (ABI 1.67, `pxui_ui_segmented`, `pxui_ui_pick`, `pxui_ui_tabs`, `pxui_ui_section_index`): `chosen` is the choice when `has_chosen` is 1 (0: no
@@ -1615,7 +1615,7 @@ pub struct PxuiListResult {
 
 impl PxuiListResult {
     /// An empty record of this size, for a call to fill.
-    pub const EMPTY: PxuiListResult = PxuiListResult { size: core::mem::size_of::<PxuiListResult>() as u32, reserved: 0, handle: PxuiBox { index: 0, box_key: 0, box_slot: 0, generation: 0 }, row: PxuiBox { index: 0, box_key: 0, box_slot: 0, generation: 0 }, activated: usize::MAX, selected: usize::MAX, secondary: usize::MAX, anchor: usize::MAX, drop_at: usize::MAX, moved_from: usize::MAX, moved_to: usize::MAX };
+    pub const EMPTY: PxuiListResult = PxuiListResult { size: core::mem::size_of::<PxuiListResult>() as u32, reserved: 0, handle: PxuiBox { index: 0, box_key: 0, box_slot: 0, generation: 0, ui: 0 }, row: PxuiBox { index: 0, box_key: 0, box_slot: 0, generation: 0, ui: 0 }, activated: usize::MAX, selected: usize::MAX, secondary: usize::MAX, anchor: usize::MAX, drop_at: usize::MAX, moved_from: usize::MAX, moved_to: usize::MAX };
 }
 
 /// A selection list for `pxui_ui_selection_list` (ABI 1.87): the section geometry, the row flags (one byte a row: 1 selected,

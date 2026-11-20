@@ -216,8 +216,7 @@ fn default_descriptors_carry_their_size() {
     // and the library accepts the defaults it is given
     let ui = create();
     let mut out = FrameOut::default();
-    let input = Input { logical_size: [320, 240], ..Input::default() };
-    assert_eq!(unsafe { pxui_ui_frame(ui, &input, Some(nothing), core::ptr::null_mut(), &mut out) }, 0);
+    assert_eq!(unsafe { pxui_frame(ui, &FrameIn::new(320.0, 240.0), Some(nothing), core::ptr::null_mut(), &mut out) }, 0);
     unsafe { pxui_ui_destroy(ui); }
 }
 
@@ -529,12 +528,12 @@ fn accessibility_batches_validate_the_entire_span_before_applying_any_chunk() {
     batch[64].action_code=3;
     assert_eq!(unsafe {pxui_ui_inject_a11y(ui,batch.as_ptr(),batch.len())},PXUI_ERR_ARGUMENT);
     assert_eq!(run(ui,Some(slider),(&mut node as *mut PxuiBox).cast()),0);
-    let value=unsafe {(&*(*ui).engine).signal(&crate::state::core_box(node).unwrap()).a11y_value};
+    let value=unsafe {(&*(*ui).engine).signal(&crate::state::core_box_of(ui, node).unwrap()).a11y_value};
     assert_eq!(value,None,"invalid tail must not deliver earlier chunks");
     batch[64].action_code=4; batch[64].payload=77.0;
     assert_eq!(unsafe {pxui_ui_inject_a11y(ui,batch.as_ptr(),batch.len())},0);
     assert_eq!(run(ui,Some(slider),(&mut node as *mut PxuiBox).cast()),0);
-    let value=unsafe {(&*(*ui).engine).signal(&crate::state::core_box(node).unwrap()).a11y_value};
+    let value=unsafe {(&*(*ui).engine).signal(&crate::state::core_box_of(ui, node).unwrap()).a11y_value};
     assert_eq!(value,Some(77.0));
     assert_eq!(unsafe {pxui_ui_inject_a11y(ui,core::ptr::null(),0)},0);
     assert_eq!(unsafe {pxui_ui_inject_a11y(ui,core::ptr::null(),1)},PXUI_ERR_ARGUMENT);
@@ -882,7 +881,7 @@ fn events_are_validated_alike_on_every_path_with_a_frame_text_budget() {
     assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
 }
 
-/// A frame's size and the host input's logical size are within `0..=MAX_SURFACE`; a held key code must name a key.
+/// A frame's size is within `0..=MAX_SURFACE`; a key event's code must name a key.
 #[test]
 fn frame_sizes_and_held_keys_are_checked() {
     let ui = create();
@@ -890,15 +889,10 @@ fn frame_sizes_and_held_keys_are_checked() {
         assert_eq!(frame_with(ui, &FrameIn { width: w, height: h, ..frame_in() }), PXUI_ERR_ARGUMENT, "{w} x {h}");
     }
     assert_eq!(frame_with(ui, &FrameIn { width: 65_536.0, height: 0.0, ..frame_in() }), 0);
-    let mut out = FrameOut::default();
-    let mut held = |keys: &[u32], size: [i64; 2]| {
-        let input = pxui_types::ffi::Input { logical_size: size, keys: pxui_types::ffi::Slice { ptr: keys.as_ptr(), len: keys.len() }, ..Default::default() };
-        unsafe { pxui_ui_frame(ui, &input, None, core::ptr::null_mut(), &mut out) }
-    };
-    assert_eq!(held(&[], [-1, 10]), PXUI_ERR_ARGUMENT);
-    assert_eq!(held(&[], [10, 1 << 17]), PXUI_ERR_ARGUMENT);
-    assert_eq!(held(&[0], [10, 10]), PXUI_ERR_ARGUMENT, "code 0 names no key");
-    assert_eq!(held(&[input::Key::Enter.code()], [10, 10]), 0);
+    let key = |code| [pxui_types::Event::key(pxui_types::Event::KEY_PRESSED, code)];
+    let with = |events: &[pxui_types::Event]| frame_with(ui, &FrameIn { events: events.as_ptr(), event_count: events.len(), ..frame_in() });
+    assert_eq!(with(&key(0)), PXUI_ERR_ARGUMENT, "code 0 names no key");
+    assert_eq!(with(&key(input::Key::Enter.code())), 0);
     assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
 }
 
@@ -1188,22 +1182,6 @@ mod sized_records {
         if theme.is_null() { return REFUSED; }
         unsafe { pxui_theme_destroy(theme); }
         0
-    }
-        });
-        unsafe { pxui_ui_destroy(ui); }
-    }
-
-    #[test]
-    fn input_frame() {
-        let ui = create();
-        let mut value: Input = unsafe { core::mem::zeroed() };
-        let fix: fn(&mut Input) = |i| *i = Input { logical_size: [320, 240], ..Input::default() };
-        fix(&mut value);
-        four(ui, ((&value as *const Input).cast(), size_of_val(&value), align_of_val(&value)), true, &mut |p| {
-            let p = p.cast::<Input>();
-            {
-        let mut out = FrameOut::default();
-        unsafe { pxui_ui_frame(ui, p, None, core::ptr::null_mut(), &mut out) }
     }
         });
         unsafe { pxui_ui_destroy(ui); }
@@ -2027,7 +2005,7 @@ fn style_applies_one_checked_look() {
         let applied = unsafe { pxui_ui_style(h, &b, &good, &state) };
         let refused = unsafe { pxui_ui_style(h, &b, &bad, &state) };
         let null = unsafe { pxui_ui_style(h, &b, core::ptr::null(), &state) };
-        let opacity = unsafe { (*(*h).engine).node_mut(&crate::state::core_box(b).unwrap()).look.opacity };
+        let opacity = unsafe { (*(*h).engine).node_mut(&crate::state::core_box_of(h, b).unwrap()).look.opacity };
         (applied == 0 && refused == PXUI_ERR_ARGUMENT && null == PXUI_ERR_ARGUMENT && opacity == 0.5) as i32
     });
     assert_eq!(rcs, 1, "{}", error(ui));

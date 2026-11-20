@@ -143,7 +143,7 @@ mod sys {
 mod sys {
     use core::ffi::c_void;
     use pxui_types::{FrameIn, FrameOut, Str};
-    use pxui_types::ffi::{A11yAction, Input};
+    use pxui_types::ffi::A11yAction;
     /// The handle's public head (`include/pxui.h`): the theme in effect for it, null until a theme read fills it.
     #[repr(C)] pub struct PxuiUi { pub theme: *const pxui_types::theme::ThemeSnapshot, _private: [u8; 0] }
     pub use pxui_types::{PxuiBox, PxuiTargetDesc, PxuiUiDesc};
@@ -164,7 +164,6 @@ mod sys {
         pub fn pxui_ui_theme(ui:*mut PxuiUi)->*const pxui_types::theme::ThemeSnapshot;
         pub fn pxui_ui_view_size(ui:*mut PxuiUi,out:*mut pxui_types::geom::Point)->i32;
         pub fn pxui_ui_layer_drawn(ui:*mut PxuiUi,layer:u64)->i32;
-        pub fn pxui_ui_frame(ui:*mut PxuiUi,input:*const Input,build:pxui_types::ffi::UiBuild,user:*mut c_void,out:*mut FrameOut)->i32;
         pub fn pxui_ui_system_appearance(ui:*mut PxuiUi,out:*mut u32)->i32;
         pub fn pxui_ui_set_dir(ui:*mut PxuiUi,dir:u32)->i32;
         pub fn pxui_ui_set_a11y(ui:*mut PxuiUi,on:u8)->i32;
@@ -430,34 +429,6 @@ pub struct A11yTree<'a> {
 #[repr(transparent)]
 pub struct Ui(NonNull<sys::PxuiUi>);
 
-impl<'a> FrameIn<'a> {
-    /// Borrows the host's complete input snapshot for this frame.
-    ///
-    /// The snapshot supplies held keys and buttons, pointer, timing, logical extent,
-    /// pixel scale and ordered events. The event-mode record and its builders apply to
-    /// frames created with `new`.
-    /// Allocates: never.
-    /// Panics: never. The frame call validates the input.
-    ///
-    /// # Safety
-    ///
-    /// Nonempty keys, buttons and event spans must be initialized and properly aligned.
-    /// They and every nonempty payload must be readable for their declared lengths.
-    /// Keep the storage alive and unmodified through each frame call using this
-    /// descriptor or a copy of it.
-    ///
-    /// ```
-    /// use pxui::{FrameIn, Input};
-    /// let snapshot = Input { logical_size: [320, 240], ..Input::default() };
-    /// let mut ui = pxui::doc::frames(1, &mut |_| {});
-    /// // The snapshot has empty spans and stays alive through this call.
-    /// ui.frame(&unsafe { FrameIn::snapshot(&snapshot) }, &mut |_| {}).unwrap();
-    /// ```
-    pub const unsafe fn snapshot(input: &'a Input) -> FrameIn<'a> {
-        FrameIn { wire: WireFrame::new(0.0, 0.0), events: &[], snapshot: Some(input) }
-    }
-}
-
 /// Font bytes borrowed for Ui creation.
 #[derive(Clone, Copy)]
 pub struct FontData<'a>(
@@ -614,19 +585,13 @@ impl Ui {
         let rc = unsafe {
             let outer = self.0.as_ptr();
             let build: &mut dyn FnMut(&mut pxui_abi_link::trusted::Engine) = inner!(outer, |ui: &mut Ui| build(ui));
-            match input.snapshot {
-                Some(snapshot) => pxui_abi_link::trusted::input_frame(self.0.as_ptr(), snapshot, build, &mut out),
-                None => pxui_abi_link::trusted::frame(self.0.as_ptr(), &wire, build, &mut out),
-            }
+            pxui_abi_link::trusted::frame(self.0.as_ptr(), &wire, build, &mut out)
         };
         #[cfg(not(feature = "static"))]
         let rc = unsafe {
             let call: pxui_types::ffi::UiBuild = Some(composite::call);
             let user = (&mut build as *mut &mut dyn FnMut(&mut Ui)).cast::<c_void>();
-            match input.snapshot {
-                Some(snapshot) => sys::pxui_ui_frame(self.0.as_ptr(), snapshot, call, user, &mut out),
-                None => sys::pxui_frame(self.0.as_ptr(), &wire, call, user, &mut out),
-            }
+            sys::pxui_frame(self.0.as_ptr(), &wire, call, user, &mut out)
         };
         composite::resume_deferred();
         if rc==0 { Ok(Frame { out, _ui:PhantomData }) } else { Err(Error::from_code(rc)) }
@@ -1169,19 +1134,5 @@ mod snapshot_tests {
         assert!(!serves(built - 1, built) && !serves(built & !0xFFFF, built), "an older minor");
         assert!(!serves(built + (1 << 16), built) && !serves(built - (1 << 16), built), "another major");
         assert!(Ui::new(&UiDesc::DEFAULT).is_ok(), "this library serves this crate");
-    }
-
-    #[test]
-    fn snapshot_sets_and_clears_held_keys_without_edges() {
-        let mut ui = Ui::new(&UiDesc::DEFAULT).unwrap();
-        let keys = [KeyCode::Meta.wire()];
-        let mut snapshot = Input {
-            logical_size: [320, 240],
-            keys: Slice { ptr: keys.as_ptr(), len: keys.len() },
-            ..Default::default()
-        };
-        ui.frame(&unsafe { FrameIn::snapshot(&snapshot) }, &mut |ui| assert!(ui.key_down(KeyCode::Meta))).unwrap();
-        snapshot.keys = Slice::default();
-        ui.frame(&unsafe { FrameIn::snapshot(&snapshot) }, &mut |ui| assert!(!ui.key_down(KeyCode::Meta))).unwrap();
     }
 }

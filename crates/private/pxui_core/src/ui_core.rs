@@ -640,6 +640,9 @@ pub struct UiBox {
     pub box_key: i64,
     pub box_slot: usize,
     pub generation: u32,
+    /// Serial of the `Ui` that made the handle (the ABI's `PxuiBox.ui`): nonzero, so a zeroed handle names no `Ui`. The ABI layer
+    /// compares it with the engine's own (`Ui::serial`) where a caller's handle enters; the engine's own handles carry its serial.
+    pub ui: u32,
 }
 
 pub type Handle = UiBox;
@@ -1040,6 +1043,8 @@ type Palette = [Rgba; pxui_types::theme::ColorToken::LIMIT];
 
 #[repr(C)]
 pub struct Ui {
+    /// see `Ui::serial`
+    ui_serial: u32,
     /// `themed` overrides in effect (`themes[..theme_depth]`, storage kept), the distinct themes views
     /// were built under (an id is an index) and the id in effect
     // boxed: an entry stays where it is while deeper ones are pushed, so a pointer to the theme in effect (`theme`) stays valid
@@ -1368,6 +1373,11 @@ impl Ui {
     /// `platform` is the host's modifier conventions: the text keys and every Command check follow
     /// it. `text` holds the fonts the host loaded: font 0 is the kit face (`pxui_text::PRAGMASEVKA`
     /// in the default theme); `font_size` is the logical size of kit text.
+    /// Serial of this `Ui` (nonzero), one count for the process: a handle carries it (`UiBox.ui`), so another `Ui`'s handle, or a zeroed
+    /// one, is told apart in one compare. Per process by design: a counter nothing else reads, bounded by `u32` (it skips 0 on wrap).
+    #[inline(always)]
+    pub fn serial(&self) -> u32 { self.ui_serial }
+
     pub fn create(platform: Platform, font_points: Option<f32>, mut text: Text) -> Ui {
         text.set_apple_raster(platform == Platform::Apple);
         let font_points = font_points.unwrap_or(theme::FONT_SIZE as f32);
@@ -1375,7 +1385,13 @@ impl Ui {
         if !(font_points.is_finite() && font_points > 0.0) {
             panic!("Ui.create: font_size must be positive");
         }
+        static SERIAL: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+        let serial = loop {
+            let next = SERIAL.fetch_add(1, core::sync::atomic::Ordering::Relaxed).wrapping_add(1);
+            if next != 0 { break next; }
+        };
         Ui {
+            ui_serial: serial,
             theme: Theme::default(),
             themes: Vec::new(),
             theme_depth: 0,
@@ -2032,14 +2048,14 @@ impl Ui {
                 A11yKind::Press | A11yKind::Expand | A11yKind::Collapse if disabled => {}
                 A11yKind::Press => self.accumulator(key).clicked = true,
                 A11yKind::Focus => {
-                    let b = UiBox { index: NONE, box_key: key, box_slot: slot, generation };
+                    let b = UiBox { index: NONE, box_key: key, box_slot: slot, generation, ui: self.ui_serial };
                     self.focus_box(&b);
                 }
                 A11yKind::Scroll => self.scroll_y[slot] = (self.scroll_y[slot] + a.payload as f32).max(0.0),
                 A11yKind::SetValue => self.accumulator(key).a11y_value = Some(a.payload),
                 // a selection is made in a focused field: focus it, then the widget applies the range
                 A11yKind::Select => {
-                    let b = UiBox { index: NONE, box_key: key, box_slot: slot, generation };
+                    let b = UiBox { index: NONE, box_key: key, box_slot: slot, generation, ui: self.ui_serial };
                     self.focus_box(&b);
                     self.accumulator(key).a11y_select = Some((a.payload.max(0.0) as u32, a.end.max(0.0) as u32));
                 }
@@ -3718,7 +3734,7 @@ impl Ui {
         let index = self.append_box(key, found, parent);
         self.set_box(index, node);
         let slot = self.boxes[index].slot;
-        UiBox { index, box_key: key, box_slot: slot, generation: self.slots[slot].generation }
+        UiBox { index, box_key: key, box_slot: slot, generation: self.slots[slot].generation, ui: self.ui_serial }
     }
 
     /// Declare a node under the current parent by `key` (see `pxui_types::ui::Key`): a label as `key_of`, an id as its NUL-and-hex
@@ -3936,7 +3952,7 @@ impl Ui {
     pub fn entered(&self) -> Handle {
         let index = self.parents.last().copied().unwrap_or(0);
         let slot = self.boxes[index].slot;
-        UiBox { index, box_key: self.current_seed(), box_slot: slot, generation: self.slots[slot].generation }
+        UiBox { index, box_key: self.current_seed(), box_slot: slot, generation: self.slots[slot].generation, ui: self.ui_serial }
     }
 
     pub fn leave(&mut self, saved: Saved) {
@@ -3973,14 +3989,14 @@ impl Ui {
     }
 
     pub fn box_of_key(&self, key: i64) -> Option<UiBox> {
-        self.table.find(key).map(|slot| UiBox { index: NONE, box_key: key, box_slot: slot, generation: self.slots[slot].generation })
+        self.table.find(key).map(|slot| UiBox { index: NONE, box_key: key, box_slot: slot, generation: self.slots[slot].generation, ui: self.ui_serial })
     }
 
     /// Resolve a published accessibility identity without exposing its slot encoding to hosts.
     pub fn box_of_a11y(&self, id: u64) -> Option<UiBox> {
         let (slot, generation) = ((id & 0xffff_ffff) as usize, (id >> 32) as u32);
         let s = self.slots.get(slot).filter(|s| s.generation == generation && s.key != 0)?;
-        Some(UiBox { index: NONE, box_key: s.key, box_slot: slot, generation })
+        Some(UiBox { index: NONE, box_key: s.key, box_slot: slot, generation, ui: self.ui_serial })
     }
 
     /// The box's screen rectangle from the previous frame (empty for a stale handle).
@@ -4348,7 +4364,7 @@ impl Ui {
         let key = crate::ui_kit::part_key(owner, part);
         let index = self.boxes[..self.count].iter().rposition(|b| b.key == key)?;
         let slot = self.boxes[index].slot;
-        Some(UiBox { index, box_key: key, box_slot: slot, generation: self.slots[slot].generation })
+        Some(UiBox { index, box_key: key, box_slot: slot, generation: self.slots[slot].generation, ui: self.ui_serial })
     }
 
     /// `b` takes presses on its own rectangle grown by `outset` on each side (a negative side shrinks it), from this frame's
@@ -4790,7 +4806,7 @@ impl Ui {
             || !self.hit_within(self.hot, key) { return; }
         let slot = self.boxes[index].slot;
         let s = &self.slots[slot];
-        let rect = self.rect(&Handle { index, box_key: key, box_slot: slot, generation: s.generation });
+        let rect = self.rect(&Handle { index, box_key: key, box_slot: slot, generation: s.generation, ui: self.ui_serial });
         let (point, start, extent) = if ax == 0 { (self.pointer.1, rect.y, rect.h) } else { (self.pointer.0, rect.x, rect.w) };
         if extent <= 0.0 { return; }
         let edge = (extent * 0.25).min(32.0);

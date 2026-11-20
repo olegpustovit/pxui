@@ -1,6 +1,6 @@
 use pxui_core::ui::{Look, State, UiBox};
 use pxui_types::ffi::{PxuiLookDesc, PxuiStateDesc};
-use crate::state::{PxuiUi, core_box, fail, get};
+use crate::state::{PxuiUi, core_box_of, fail, get};
 use crate::node::{look, state};
 use crate::{PXUI_ERR_ARGUMENT, PxuiBox};
 
@@ -31,7 +31,7 @@ unsafe fn decode_args<'a>(ui:*mut PxuiUi,box_:*const PxuiBox,state_:*const PxuiS
     let Some(ui)=(unsafe{get(ui)}) else{return Err(PXUI_ERR_ARGUMENT)};
     if box_.is_null()||state_.is_null(){return Err(unsafe{fail(ui,"null style descriptor")});}
     let Some(state)=decode_state(unsafe{*state_}) else{return Err(unsafe{fail(ui,"invalid style state")});};
-    let Some(box_)=core_box(unsafe{*box_}) else{return Err(unsafe{fail(ui,"invalid style box")});};
+    let Some(box_)=(unsafe{core_box_of(ui,*box_)}) else{return Err(unsafe{crate::state::fail_code(ui,"stale style box",crate::PXUI_ERR_STALE)});};
     Ok((ui,box_,state))
 }
 

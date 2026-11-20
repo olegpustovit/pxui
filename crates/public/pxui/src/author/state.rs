@@ -24,7 +24,7 @@ fn round_trips() {
 #[test]
 fn stale_handle_reads_default_and_set_is_a_no_op() {
     let mut ui = crate::Ui::new(&crate::UiDesc::DEFAULT).expect("library");
-    let stale = Handle { index: 9999, box_key: 77, box_slot: 9999, generation: 99 };
+    let stale = Handle { index: 9999, box_key: 77, box_slot: 9999, generation: 99, ui: 0 };
     frame(&mut ui, &mut |ui| {
         let b = ui.node("n", Node::DEFAULT);
         ui.set_state(&b, 5);
