@@ -18,7 +18,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 130u)
+#define PXUI_ABI_BUILT ((1u << 16) | 131u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 typedef struct { uint32_t autocorrect, capitalization, action; } PxuiTextInputOptions;
@@ -680,7 +680,8 @@ typedef struct { uint32_t size; PxuiBox node; PxuiStr label; PxuiSlot content; u
                  /* ABI 1.86 (read when size covers it): 0 centred, 1 bottom sheet, 2 full sheet, 3 top-anchored (1.90; draw an unknown value as 0) (pxui_ui_modal's present) */ uint64_t present; } PxuiPanelConfig;
 /* ABI 1.53 appends default_at, cancel_at (a button index or -1) and bitmasks danger, disabled (bit i: button i), before variant */
 /* ABI 1.71 (read when size covers it): details, each button's line under its label (empty: none), as many as buttons. */
-typedef struct { uint32_t size; PxuiStr title; PxuiStrSpan buttons; PxuiSlot content; int64_t default_at, cancel_at; uint64_t danger, disabled; uint16_t variant; PxuiStrSpan details; } PxuiDialogConfig;
+typedef struct { uint32_t size; PxuiStr title; PxuiStrSpan buttons; PxuiSlot content; int64_t default_at, cancel_at; uint64_t danger, disabled; uint16_t variant; PxuiStrSpan details;
+                 /* ABI 1.131: the kit's dialog buttons (each through the button body with the dialog's variant), run with pxui_slot */ PxuiSlot built_in; } PxuiDialogConfig;
 typedef struct { uint32_t size; uint8_t open; float gap; PxuiBox title; PxuiStr label; PxuiSlot content; uint16_t variant; } PxuiSectionConfig;
 typedef struct { uint32_t size; PxuiStateDesc state; uint8_t has_pin; uint8_t pin; float label_w; PxuiBox row; PxuiStr label; uint16_t variant; } PxuiInspectorRowConfig;
 typedef struct { uint32_t size; uint32_t axis; float ratio; float min_a; float min_b; PxuiBox split; PxuiSlot first; PxuiSlot second; uint16_t variant; } PxuiSplitConfig;
@@ -704,6 +705,8 @@ typedef struct { uint32_t size; PxuiStateDesc state; size_t index; PxuiBox row; 
 /* 1.123: PxuiRowConfig.drop, a carried payload: none, would land before the row, after it (a reorderable list's insertion line), or over
    a row of a list with a drop look (applied by behaviour). */
 enum { PXUI_ROW_DROP_NONE = 0, PXUI_ROW_DROP_BEFORE = 1, PXUI_ROW_DROP_AFTER = 2, PXUI_ROW_DROP_OVER = 3 };
+/* SelectMode (PxuiSelectionListDesc.mode, PxuiTableDesc.mode): rows select one, many, toggle on a plain click, or nothing (rows activate). */
+enum { PXUI_SELECT_SINGLE = 0, PXUI_SELECT_MULTI = 1, PXUI_SELECT_TOGGLE = 2, PXUI_SELECT_NONE = 3 };
 typedef struct { uint32_t size; PxuiStateDesc state; uint8_t has; uint8_t open; size_t index; size_t node; size_t depth; PxuiBox row; PxuiSlot content; uint16_t variant; } PxuiTreeRowConfig;
 typedef struct { uint32_t size; PxuiStateDesc state; uint8_t has_ascending; uint8_t ascending; size_t index; PxuiBox node; PxuiStr title; uint16_t variant;
                  /* ABI 1.129: the kit's built-in table heading body for this config, run with pxui_slot */ PxuiSlot built_in; } PxuiTableHeadConfig;
@@ -1211,7 +1214,7 @@ _Static_assert(sizeof(PxuiLabelConfig) == 144 && offsetof(PxuiLabelConfig, size)
 _Static_assert(sizeof(PxuiFooterConfig) == 88 && offsetof(PxuiFooterConfig, size) == 0 && offsetof(PxuiFooterConfig, row) == 8 && offsetof(PxuiFooterConfig, has_right) == 40 && offsetof(PxuiFooterConfig, right) == 48 && offsetof(PxuiFooterConfig, hints) == 64 && offsetof(PxuiFooterConfig, variant) == 80, "PxuiFooterConfig layout");
 _Static_assert(sizeof(PxuiGripConfig) == 56 && offsetof(PxuiGripConfig, size) == 0 && offsetof(PxuiGripConfig, state) == 4 && offsetof(PxuiGripConfig, vertical) == 12 && offsetof(PxuiGripConfig, floating) == 13 && offsetof(PxuiGripConfig, grip) == 16 && offsetof(PxuiGripConfig, variant) == 48, "PxuiGripConfig layout");
 _Static_assert(sizeof(PxuiPanelConfig) == 80 && offsetof(PxuiPanelConfig, size) == 0 && offsetof(PxuiPanelConfig, node) == 8 && offsetof(PxuiPanelConfig, label) == 40 && offsetof(PxuiPanelConfig, content) == 56 && offsetof(PxuiPanelConfig, variant) == 64 && offsetof(PxuiPanelConfig, present) == 72, "PxuiPanelConfig layout");
-_Static_assert(sizeof(PxuiDialogConfig) == 104 && offsetof(PxuiDialogConfig, size) == 0 && offsetof(PxuiDialogConfig, title) == 8 && offsetof(PxuiDialogConfig, buttons) == 24 && offsetof(PxuiDialogConfig, content) == 40 && offsetof(PxuiDialogConfig, default_at) == 48 && offsetof(PxuiDialogConfig, cancel_at) == 56 && offsetof(PxuiDialogConfig, danger) == 64 && offsetof(PxuiDialogConfig, disabled) == 72 && offsetof(PxuiDialogConfig, variant) == 80 && offsetof(PxuiDialogConfig, details) == 88, "PxuiDialogConfig layout");
+_Static_assert(sizeof(PxuiDialogConfig) == 112 && offsetof(PxuiDialogConfig, size) == 0 && offsetof(PxuiDialogConfig, title) == 8 && offsetof(PxuiDialogConfig, buttons) == 24 && offsetof(PxuiDialogConfig, content) == 40 && offsetof(PxuiDialogConfig, default_at) == 48 && offsetof(PxuiDialogConfig, cancel_at) == 56 && offsetof(PxuiDialogConfig, danger) == 64 && offsetof(PxuiDialogConfig, disabled) == 72 && offsetof(PxuiDialogConfig, variant) == 80 && offsetof(PxuiDialogConfig, details) == 88 && offsetof(PxuiDialogConfig, built_in) == 104, "PxuiDialogConfig layout");
 _Static_assert(sizeof(PxuiSectionConfig) == 80 && offsetof(PxuiSectionConfig, size) == 0 && offsetof(PxuiSectionConfig, open) == 4 && offsetof(PxuiSectionConfig, gap) == 8 && offsetof(PxuiSectionConfig, title) == 16 && offsetof(PxuiSectionConfig, label) == 48 && offsetof(PxuiSectionConfig, content) == 64 && offsetof(PxuiSectionConfig, variant) == 72, "PxuiSectionConfig layout");
 _Static_assert(sizeof(PxuiSplitConfig) == 80 && offsetof(PxuiSplitConfig, size) == 0 && offsetof(PxuiSplitConfig, axis) == 4 && offsetof(PxuiSplitConfig, ratio) == 8 && offsetof(PxuiSplitConfig, min_a) == 12 && offsetof(PxuiSplitConfig, min_b) == 16 && offsetof(PxuiSplitConfig, split) == 24 && offsetof(PxuiSplitConfig, first) == 56 && offsetof(PxuiSplitConfig, second) == 64 && offsetof(PxuiSplitConfig, variant) == 72, "PxuiSplitConfig layout");
 _Static_assert(sizeof(PxuiScrollConfig) == 56 && offsetof(PxuiScrollConfig, size) == 0 && offsetof(PxuiScrollConfig, node) == 8 && offsetof(PxuiScrollConfig, content) == 40 && offsetof(PxuiScrollConfig, variant) == 48, "PxuiScrollConfig layout");

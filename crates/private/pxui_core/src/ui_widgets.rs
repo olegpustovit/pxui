@@ -110,10 +110,7 @@ pub(crate) const ITEM_TEXT_CELL: u8 = 4;
 pub(crate) const ROW_FLAGS: Flags = Flags::CLICKABLE.or(Flags::BLOCKING);
 const STOP_FLAGS: Flags = Flags::CLICKABLE.or(Flags::FOCUSABLE).or(Flags::BLOCKING).or(Flags::TAB_ONLY);
 
-/// The built-in dialog: the title bar, the content, then the buttons at the end of a row. Each button is built through the button
-/// body as `Part::button(i)` of the dialog, in the row (the body's `line`), which is the 20-point row of the buttons with 6 points above
-/// and below (as tall as the buttons when one has a detail line under its label); behaviour finds a button by its part and ignores the
-/// presses of a disabled one.
+/// The built-in dialog: the title bar, the content, then the buttons (`default_dialog_buttons`, with the dialog's variant).
 pub(crate) fn default_dialog(this: &mut Ui, title: &str, buttons: &[DialogButton], content: &mut dyn FnMut(&mut Ui)) {
     let t = this.theme();
     let bar = t.dialog.idle;
@@ -121,12 +118,26 @@ pub(crate) fn default_dialog(this: &mut Ui, title: &str, buttons: &[DialogButton
     let head = this.part(Part::TITLE, Node { h: Size::Px(rh + 8.0), look: bar, inset: Edges { l: this.space(2), ..Edges::ZERO }, ..Node::DEFAULT });
     this.text(&head, shown(title));
     content(this);
+    let variant = this.variant_of(pxui_types::theme::BodyKind::dialog as u32);
+    default_dialog_buttons(this, buttons, variant);
+}
+
+/// The kit's dialog buttons at the end of a row (a registered dialog body builds them with its config's `built_in`, U2b.4.38). Each
+/// button is built through the button body as `Part::button(i)` of the dialog, with the dialog's `variant` as its own (so one app
+/// variant styles a dialog and its buttons), in the row (the body's `line`), which is the 20-point row of the buttons with 6 points
+/// above and below (as tall as the buttons when one has a detail line under its label); behaviour finds a button by its part and
+/// ignores the presses of a disabled one.
+pub fn default_dialog_buttons(this: &mut Ui, buttons: &[DialogButton], variant: u16) {
+    let rh = this.row_px() as f32;
     let row = this.node("buttons".into(), Node { h: Size::Px(rh), axis: Axis::Row, align: Align::Center, justify: Justify::End, gap: 4.0, margin: Edges { t: 6.0, b: 6.0, ..Edges::ZERO }, ..Node::DEFAULT });
     let saved = this.enter(&row);
+    let outer = (this.bodies.variant, this.bodies.variant_kind);
+    this.set_variant(pxui_types::theme::BodyKind::button as u32, variant);
     for (i, b) in buttons.iter().enumerate() {
         let opts = ButtonOpts { enabled: b.enabled, justify: Justify::End, danger: b.danger, ..ButtonOpts::DEFAULT };
         this.button_in(&row, this.own_part_key(Part::button(i as u8)), b.text, &opts, ["", b.detail, ""]);
     }
+    (this.bodies.variant, this.bodies.variant_kind) = outer;
     // each button's body lays the row out as its line; a button with a detail line makes it as tall as it needs
     if buttons.iter().any(|b| !b.detail.is_empty()) { this.node_new(&row).h = Size::Fit; }
     this.leave(saved);

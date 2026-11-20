@@ -2022,7 +2022,8 @@ configs! {
         /// The switch's width and height in points the caller asked for (0 the kit's 28 x 14); the knob is 6 less than its height.
         switch_w: f32,
         switch_h: f32,
-        /// The looks of the switch and of its knob (`pick(checked)`): the caller's or the theme's; valid for the call.
+        /// The looks of the switch and of its knob (`pick(checked)`): the caller's or the theme's; valid for the call. From ABI 1.124 they
+        /// carry the caller's looks as given, with colour tokens intact: a C body resolves them with `pxui_ui_color`.
         track: *const PxuiStates,
         knob: *const PxuiStates,
         /// The distance of the label and the switch from the row's sides in points the caller asked for (0 the kit's).
@@ -2194,6 +2195,10 @@ configs! {
         /// ABI 1.71 (read when `size` covers it): each button's detail line (`DialogButton::detail`; empty: none), as many as `buttons`;
         /// valid for the call.
         details: Slice<Str>,
+        /// ABI 1.131 (U2b.4.38): the kit's buttons for this dialog, run with `pxui_slot` (the Rust `Ui::slot`) where the body places
+        /// them: the row of `Part::button(i)` buttons the built-in dialog builds, each through the button body with the dialog's
+        /// `variant`, so their presses, focus and looks for each state are the kit's and the theme's.
+        built_in: PxuiSlot,
     }
     PxuiSectionConfig { open: u8, gap: f32, title: PxuiBox, label: Str, content: PxuiSlot }
     PxuiInspectorRowConfig { state: PxuiStateDesc, has_pin: u8, pin: u8, label_w: f32, row: PxuiBox, label: Str }

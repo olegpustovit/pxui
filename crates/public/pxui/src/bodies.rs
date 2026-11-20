@@ -221,7 +221,8 @@ impl Ui {
     }
 
     /// Runs a config's slot (the caller's content, built where the body calls this; a button, icon button or table heading config's
-    /// `built_in`, the kit's own body for that config, so a registered body draws the kit's widget for configs it does not style); for a search field's editor slot
+    /// `built_in`, the kit's own body for that config, so a registered body draws the kit's widget for configs it does not style; a
+    /// dialog config's `built_in`, the kit's buttons for the dialog, each through the button body with the dialog's variant); for a search field's editor slot
     /// the answer is whether the query is not empty, otherwise false. A slot is valid only during the body call that received it, and not inside its own content or a nested body: else this panics.
     #[track_caller]
     pub fn slot(&mut self, slot: PxuiSlot) -> bool {

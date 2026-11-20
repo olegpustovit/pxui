@@ -207,15 +207,31 @@ mod tramps {
     tramp!(popup, |ui, sh, c: &PanelConfig, label: &str, body: &mut dyn FnMut(&mut Ui)| PxuiPanelConfig { node: bx(c.node), label: pair(label), content: content(sh, body), present: present(c.present) });
     tramp!(modal, |ui, sh, c: &PanelConfig, label: &str, body: &mut dyn FnMut(&mut Ui)| PxuiPanelConfig { node: bx(c.node), label: pair(label), content: content(sh, body), present: present(c.present) });
     // a dialog has no engine config: its title, buttons (their flags as masks, their details after their labels in the span) and content
-    // are the whole record
-    tramp_span!(dialog, strs, |ui, sh, span, title: &str, buttons: &[pxui_types::ui::DialogButton], body: &mut dyn FnMut(&mut Ui)| {
+    // are the whole record; as the table heading's (U2b.4.38), it carries the kit's buttons as a slot (`built_in`)
+    pub(super) fn dialog(ui: &mut Ui, title: &str, buttons: &[pxui_types::ui::DialogButton], body: &mut dyn FnMut(&mut Ui)) {
+        let id = ui.theme().body.dialog;
+        let sh = shared(ui);
+        if sh.is_null() { return }
+        let mark = unsafe { (*sh).bodies.slots.len() };
+        let mut span = unsafe { (*sh).bodies.strs.pop() }.unwrap_or_default();
+        span.clear();
         span.extend(buttons.iter().map(|b| pair(b.text)));
         span.extend(buttons.iter().map(|b| pair(b.detail)));
-    }, PxuiDialogConfig {
-        title: pair(title), buttons: Slice { ptr: span.as_ptr(), len: buttons.len() }, details: Slice { ptr: span[buttons.len()..].as_ptr(), len: buttons.len() }, content: content(sh, body),
-        default_at: buttons.iter().position(|b| b.primary).map_or(-1, |i| i as i64), cancel_at: buttons.iter().position(|b| b.cancel).map_or(-1, |i| i as i64),
-        danger: buttons.iter().take(64).enumerate().fold(0, |m, (i, b)| m | (b.danger as u64) << i), disabled: buttons.iter().take(64).enumerate().fold(0, |m, (i, b)| m | (!b.enabled as u64) << i)
-    });
+        let variant = ui.variant_of(BodyKind::dialog as u32);
+        let mut kit = |ui: &mut Ui| pxui_core::ui_widgets::default_dialog_buttons(ui, buttons, variant);
+        let cfg = PxuiDialogConfig {
+            size: core::mem::size_of::<PxuiDialogConfig>() as u32,
+            title: pair(title), buttons: Slice { ptr: span.as_ptr(), len: buttons.len() }, details: Slice { ptr: span[buttons.len()..].as_ptr(), len: buttons.len() }, content: content(sh, body),
+            default_at: buttons.iter().position(|b| b.primary).map_or(-1, |i| i as i64), cancel_at: buttons.iter().position(|b| b.cancel).map_or(-1, |i| i as i64),
+            danger: buttons.iter().take(64).enumerate().fold(0, |m, (i, b)| m | (b.danger as u64) << i), disabled: buttons.iter().take(64).enumerate().fold(0, |m, (i, b)| m | (!b.enabled as u64) << i),
+            built_in: content(sh, &mut kit), variant
+        };
+        if variant != 0 { ui.set_variant(0, 0); }
+        invoke(ui, sh, BodyKind::dialog, id, (&cfg as *const PxuiDialogConfig).cast());
+        if variant != 0 { ui.set_variant(BodyKind::dialog as u32, variant); }
+        unsafe { (*sh).bodies.slots.truncate(mark) };
+        unsafe { (*sh).bodies.strs.push(span) };
+    }
     tramp!(inspector_section, |ui, sh, c: &SectionConfig, label: &str, body: &mut dyn FnMut(&mut Ui)| PxuiSectionConfig { open: c.open as u8, gap: c.gap, title: bx(c.title), label: pair(label), content: content(sh, body) });
     tramp!(inspector_row, |ui, sh, c: &InspectorRowConfig, label: &str| PxuiInspectorRowConfig {
         state: st(c.state), has_pin: flag(c.pin).0, pin: flag(c.pin).1, label_w: c.label_w, row: bx(c.row), label: pair(label)

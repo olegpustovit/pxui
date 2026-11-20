@@ -272,6 +272,63 @@ mod tests {
         assert!(testing::find(&ui, Role::Button, "Cancel").unwrap().w > 200.0, "the body's structure shows");
     }
 
+    thread_local! { static BUTTON_VARIANTS: RefCell<Vec<u16>> = const { RefCell::new(Vec::new()) }; }
+
+    /// A dialog body that draws its own title and frame and has the kit's buttons (`DialogConfig.built_in`, U2b.4.38).
+    fn own_title_kit_buttons(ui: &mut Ui, c: &DialogConfig) {
+        let title = ui.part(Part::TITLE, Node { w: Size::Grow, h: Size::Px(30.0), ..Node::DEFAULT });
+        ui.text(&title, c.text_of(&c.title));
+        ui.slot(c.content);
+        ui.slot(c.built_in);
+    }
+
+    /// A button body that records the variant it is given and draws the kit's button.
+    fn variant_button(ui: &mut Ui, c: &crate::bodies::ButtonConfig) {
+        BUTTON_VARIANTS.with(|v| v.borrow_mut().push(c.variant));
+        ui.slot(c.built_in);
+    }
+
+    /// U2b.4.38: a registered dialog body that runs `built_in` has the kit's buttons: the same buttons as the unregistered theme's
+    /// (names, sizes, accessible states), each built through the button body with the dialog's variant; a click chooses, a disabled
+    /// button is inert and Return chooses the default; warm frames allocate nothing. Without the slot the dialog has no buttons. Both
+    /// link modes.
+    #[test]
+    fn a_dialog_body_running_built_in_has_the_kits_buttons() {
+        let buttons_of = |ui: &Ui| ui.a11y_nodes().iter().filter(|n| n.is_role(Role::Button)).map(|n| (ui.a11y_name_of(n).to_owned(), n.rect.w, n.rect.h, n.states)).collect::<Vec<_>>();
+        let mut build = |ui: &mut Ui| {
+            let buttons = [DialogButton::new("Cancel").cancel(), DialogButton::new("Save").primary().disabled(!SAVE.get()), DialogButton::new("Delete").danger()];
+            let r = ui.dialog("layer", "Delete layer", &buttons, &Dialog::DEFAULT.variant(7), &mut |ui: &mut Ui| { ui.label("This cannot be undone.", crate::Label::DEFAULT); });
+            if r.chosen.is_some() || r.dismissed { LAST.set(r); }
+        };
+        SAVE.set(false);
+        let mut kit = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+        kit.set_a11y(true);
+        for _ in 0..3 { kit.frame(&FrameIn::new(320.0, 240.0), &mut build).unwrap(); }
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+        ui.set_a11y(true);
+        ui.register_dialog_body("own", own_title_kit_buttons).expect("dialog body");
+        ui.register_button_body("seen", variant_button).expect("button body");
+        ui.set_theme(&crate::ThemeHandle::parse("dialog.body = own\nbutton.body = seen").unwrap()).unwrap();
+        for _ in 0..3 { BUTTON_VARIANTS.with(|v| v.borrow_mut().clear()); ui.frame(&FrameIn::new(320.0, 240.0), &mut build).unwrap(); }
+        let kit_buttons = buttons_of(&kit);
+        assert_eq!(kit_buttons.len(), 3, "{kit_buttons:?}");
+        assert_eq!(buttons_of(&ui), kit_buttons, "the body's buttons are the kit's");
+        assert_eq!(BUTTON_VARIANTS.with(|v| v.borrow().clone()), [7, 7, 7], "each button's body is given the dialog's variant");
+        let none = Chosen { chosen: None, chosen_id: None, dismissed: false };
+        assert_eq!(click_button(&mut ui, "Delete", &mut build), Chosen { chosen: Some(2), chosen_id: None, dismissed: false });
+        assert_eq!(click_button(&mut ui, "Save", &mut build), none, "a disabled button's press is ignored");
+        SAVE.set(true);
+        testing::frame(&mut ui, &[], &mut build);
+        LAST.set(none);
+        assert_eq!(key(&mut ui, ENTER, &mut build), Chosen { chosen: Some(1), chosen_id: None, dismissed: false }, "Return chooses the default");
+        mem_sys::set_peer(crate::library_counter);
+        for round in 0..8 {
+            mem_sys::local_reset();
+            testing::frame(&mut ui, &[], &mut build);
+            if round > 3 { assert_eq!(mem_sys::local_alloc_count(), 0, "round {round}"); }
+        }
+    }
+
     /// An open dialog (title, body, three buttons) allocates nothing on a warm frame, with and without hover.
     #[test]
     fn warm_frames_allocate_nothing() {
