@@ -700,7 +700,7 @@ fn selection_list_table_and_heading_refuse_invalid_records_before_effects() {
         (head.size, head.columns, head.widths, head.h) = (core::mem::size_of::<PxuiTableHeadDesc>() as u32, t.columns, t.widths, 20.0);
         let mut hout: PxuiHeadResult = unsafe { core::mem::zeroed() };
         (hout.size, hout.sort_id) = (core::mem::size_of::<PxuiHeadResult>() as u32, 7);
-        if t.multi == 0 && t.rows <= t.flags.len {
+        if t.mode == 0 && t.open_on_click == 0 && t.bare == 0 && t.reserved2 == [0; 4] && t.rows <= t.flags.len {
             assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_table_head(ui, &keyed, &head, &mut hout) }), PXUI_ERR_ARGUMENT, "heading: {why}");
             assert_eq!(hout.sort_id, 7, "heading: {why}: no result written");
         }
@@ -719,7 +719,10 @@ fn selection_list_table_and_heading_refuse_invalid_records_before_effects() {
     refuse_table(table_of(&[col(b"A", Some(1)), col(b"B", None)], ws(2), 2), "an index id colliding with an explicit one");
     refuse_table(table_of(&good, ws(2), 1), "fewer widths than columns");
     refuse_table(table_of(&[good[1]; 65], ws(65), 65), "more than 64 columns");
-    refuse_table(PxuiTableDesc { multi: 2, ..table_of(&good, ws(2), 2) }, "multi not 0 or 1");
+    refuse_table(PxuiTableDesc { mode: 4, ..table_of(&good, ws(2), 2) }, "mode past 3");
+    refuse_table(PxuiTableDesc { open_on_click: 2, ..table_of(&good, ws(2), 2) }, "open_on_click not 0 or 1");
+    refuse_table(PxuiTableDesc { bare: 2, ..table_of(&good, ws(2), 2) }, "bare not 0 or 1");
+    refuse_table(PxuiTableDesc { reserved2: [0, 0, 0, 1], ..table_of(&good, ws(2), 2) }, "a reserved byte");
     refuse_table(PxuiTableDesc { flags: PxuiU8MutSpan { ptr: fp, len: 3 }, ..table_of(&good, ws(2), 2) }, "fewer flags than rows");
     assert_eq!(calls, before, "a refused table builds no cell");
     let mut out: PxuiTableResult = unsafe { core::mem::zeroed() };

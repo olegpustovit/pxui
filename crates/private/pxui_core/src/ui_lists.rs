@@ -508,23 +508,25 @@ impl Ui {
 
     /// A table filling its parent: a heading of `columns` (as `table_head`) over `rows` selectable rows `row_h` high, each cell
     /// `widths` wide (laid out here to the table's width); `cell(ui, row, column, cell)` builds one cell. Selection as
-    /// `selection_rows` with `flags`, `anchor` and `multi`; the heading is built with the `table_head` variant `head_variant` (0: the
+    /// `selection_rows` with `flags`, `anchor`, the select mode and `open_on_click` of `select` (whose third part, `bare`, drops the
+    /// frame look and inset as a bare selection list's); the heading is built with the `table_head` variant `head_variant` (0: the
     /// theme's). Reports the rows' and the heading's results.
     #[allow(clippy::too_many_arguments)]
-    pub fn table(&mut self, label: &str, columns: &[ColumnSpec], titles: &[&str], widths: &mut [PxuiColumnWidth], sort: &mut Option<(i64, bool)>, rows: usize, ids: &dyn Fn(usize) -> i64, flags: &mut [u8], anchor: &mut Option<usize>, revision: Option<u64>, multi: bool, row_h: f32, head_h: f32, head_variant: u16, cell: &mut dyn FnMut(&mut Ui, usize, usize, &ListCell)) -> (ListResult, HeadResult) {
+    pub fn table(&mut self, label: &str, columns: &[ColumnSpec], titles: &[&str], widths: &mut [PxuiColumnWidth], sort: &mut Option<(i64, bool)>, rows: usize, ids: &dyn Fn(usize) -> i64, flags: &mut [u8], anchor: &mut Option<usize>, revision: Option<u64>, (mode, open_on_click, bare): (SelectMode, bool, bool), row_h: f32, head_h: f32, head_variant: u16, cell: &mut dyn FnMut(&mut Ui, usize, usize, &ListCell)) -> (ListResult, HeadResult) {
         let count = rows.min(flags.len());
         let flags = &mut flags[..count];
         let columns = &columns[..columns.len().min(widths.len()).min(titles.len()).min(MAX_COLUMNS)];
         let t = self.theme();
         let (frame_look, head_look) = (t.scroll_view.idle, t.table_head.idle);
+        // a bare table has no frame: no look and no inset (as a bare selection list)
+        let (frame_look, inset) = if bare { (Look::NONE, 0.0) } else { (frame_look, 1.0) };
         let bar = self.thumb();
-        let frame = self.node_ref(label, &Node { flags: Flags::FOCUSABLE | Flags::SCROLL_X | Flags::CLIP, w: Size::Grow, h: Size::Grow, look: frame_look, bar: Some(bar).into(), padding: Edges::all(1.0), role: Role::Table, ..Node::DEFAULT });
+        let frame = self.node_ref(label, &Node { flags: Flags::FOCUSABLE | Flags::SCROLL_X | Flags::CLIP, w: Size::Grow, h: Size::Grow, look: frame_look, bar: Some(bar).into(), padding: Edges::all(inset), role: Role::Table, ..Node::DEFAULT });
         let focused = self.focused(&frame);
         let page = (self.rect(&frame).h / row_h - 1.0).floor().max(1.0) as i64;
-        let mode = if multi { SelectMode::Multi } else { SelectMode::Single };
         let (cursor, c, enter, changed, _) = key_selection(self, &frame, count, page, flags, anchor, mode, false);
-        let avail = self.rect(&frame).w - 2.0;
-        if columns.iter().any(|c| c.share > 0.0) { self.expect(frame.box_slot, avail + 2.0, f32::NAN); }
+        let avail = self.rect(&frame).w - 2.0 * inset;
+        if columns.iter().any(|c| c.share > 0.0) { self.expect(frame.box_slot, avail + 2.0 * inset, f32::NAN); }
         lay_columns(columns, widths, avail);
         let total: f32 = columns.iter().zip(widths.iter()).filter(|(c, _)| !c.hidden()).map(|(_, w)| w.w + 1.0).sum();
         let saved = self.enter(&frame);
@@ -539,7 +541,7 @@ impl Ui {
         let widths = &*widths;
         // a kept row's cells are as wide as their columns were: a resized column rebuilds the rows
         let revision = revision.map(|v| widths.iter().fold(mix(v, u64::from(self.bodies.variant)), |h, w| mix(h, u64::from(w.w.to_bits()))));
-        let mut rows = Rows { reorder: false, drop_look: None, late: false, mode, open_on_click: false, focused, c, moved: None, out: ListResult { selected: changed, activated: enter.then_some(c), ..ListResult::default() }, kind: ITEM_TABLE, role: Role::Row, inset: 0.0, side: self.space(2), gap: 1.0, states: self.theme().listbox, line: Look { fill: self.theme().tokens.accent, ..Look::NONE }, revision };
+        let mut rows = Rows { reorder: false, drop_look: None, late: false, mode, open_on_click, focused, c, moved: None, out: ListResult { selected: changed, activated: enter.then_some(c), ..ListResult::default() }, kind: ITEM_TABLE, role: Role::Row, inset: 0.0, side: self.space(2), gap: 1.0, states: self.theme().listbox, line: Look { fill: self.theme().tokens.accent, ..Look::NONE }, revision };
         let mut cells = |ui: &mut Ui, row: usize, info: &ListCell| {
             let n = info.handle;
             for (col, (spec, w)) in columns.iter().zip(widths).enumerate() {

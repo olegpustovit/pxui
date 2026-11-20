@@ -174,7 +174,7 @@ pub fn body(ui: &mut Ui, s: &mut S) {
             });
             sized(ui, "table-box", 150.0, &mut |ui| {
                 let columns = [0, 1, 2].map(|id| pxui_core::ui_lists::ColumnSpec { id, share: 0.0, w: 80.0, grip: true, sortable: true });
-                ui.table("Table", &columns, &["Name", "Next", "More"], &mut s.widths, &mut s.sort, BIG, &|i| i as i64, &mut s.table_flags, &mut s.table_anchor, None, false, 24.0, 24.0, 0, &mut |ui, r, c, _| cells(r, c, &mut |t| ui.item_text(t)));
+                ui.table("Table", &columns, &["Name", "Next", "More"], &mut s.widths, &mut s.sort, BIG, &|i| i as i64, &mut s.table_flags, &mut s.table_anchor, None, (pxui_types::ui::SelectMode::Single, false, false), 24.0, 24.0, 0, &mut |ui, r, c, _| cells(r, c, &mut |t| ui.item_text(t)));
             });
         });
     });

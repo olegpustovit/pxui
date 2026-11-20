@@ -289,9 +289,9 @@ impl Ui {
         state.selection.rows.resize(rows, 0);
         let n = columns.len();
         let (has_sort, ascending, sort_id) = sort_fields(state.sort);
-        let desc = PxuiTableDesc { size: core::mem::size_of::<PxuiTableDesc>() as u32, multi: table.multi as u8, has_sort, ascending, has_revision: state.selection.revision.is_some() as u8,
+        let desc = PxuiTableDesc { size: core::mem::size_of::<PxuiTableDesc>() as u32, mode: table.mode as u8, has_sort, ascending, has_revision: state.selection.revision.is_some() as u8,
             columns: Slice { ptr: specs.as_mut_ptr(), len: n }, widths: PxuiColumnWidthSpan { ptr: widths.as_mut_ptr(), len: n }, sort_id, rows, row_h: table.row_h, head_h: table.head.h,
-            flags: PxuiU8MutSpan { ptr: state.selection.rows.as_mut_ptr(), len: rows }, anchor: state.selection.anchor.unwrap_or(usize::MAX), head_variant: table.head.variant, reserved2: [0; 6], revision: state.selection.revision.unwrap_or(0) };
+            flags: PxuiU8MutSpan { ptr: state.selection.rows.as_mut_ptr(), len: rows }, anchor: state.selection.anchor.unwrap_or(usize::MAX), head_variant: table.head.variant, open_on_click: table.open_on_click as u8, bare: table.bare as u8, reserved2: [0; 4], revision: state.selection.revision.unwrap_or(0) };
         let mut out = PxuiTableResult { size: core::mem::size_of::<PxuiTableResult>() as u32, reserved: 0, rows: PxuiListResult::EMPTY, head: HEAD_EMPTY };
         if table.variant != 0 { self.set_variant(BodyKind::table_row, table.variant); }
         #[cfg(feature = "static")]

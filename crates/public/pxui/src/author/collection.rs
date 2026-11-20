@@ -6,7 +6,7 @@
 use super::{Key, Response};
 use crate::{collections::TreeNode, Ui};
 use crate::Handle;
-use pxui_types::ui::{ListResponse, SectionList, SectionPart, SelectionList, TreeResponse};
+use pxui_types::ui::{ListResponse, SectionList, SectionPart, SelectMode, SelectionList, TreeResponse};
 
 /// A selectable list's app-owned state (`Ui::selection_list`, and a table's rows through `TableState::selection`): one flag byte a
 /// row, the anchor of a Shift-range and the rows' content revision. Keep it beside the data it describes and pass it every frame; the
@@ -224,24 +224,48 @@ impl TreeState {
 /// How `Ui::table` varies the kit's virtual table, as a `Copy` value built with `const fn` builders from `Table::DEFAULT`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Table {
-    pub(crate) multi: bool,
+    pub(crate) mode: SelectMode,
+    pub(crate) open_on_click: bool,
+    pub(crate) bare: bool,
     pub(crate) row_h: f32,
     pub(crate) head: TableHead,
     pub(crate) variant: u16,
 }
 
 impl Table {
-    /// One row selected at a time, 24-point rows, the default heading, the theme's row body.
-    pub const DEFAULT: Table = Table { multi: false, row_h: 24.0, head: TableHead::DEFAULT, variant: 0 };
+    /// One row selected at a time, presses only select, a frame, 24-point rows, the default heading, the theme's row body.
+    pub const DEFAULT: Table = Table { mode: SelectMode::Single, open_on_click: false, bare: false, row_h: 24.0, head: TableHead::DEFAULT, variant: 0 };
 
-    /// Lets Command (Ctrl) toggle a row and Shift select a run, as `SelectMode::Multi`.
+    /// Sets how presses and keys select rows, as `SelectionList::mode` (U2b.4.37): `Single` (the default), `Multi` (Command toggles,
+    /// Shift extends), `Toggle` (a press toggles its row) or `None` (nothing is selected; the arrow keys move the keyboard's row only,
+    /// Enter and a double click activate it).
     /// Allocates: never.
     /// Panics: never.
     ///
     /// ```
-    /// const FILES: pxui::Table = pxui::Table::DEFAULT.multi();
+    /// const FILES: pxui::Table = pxui::Table::DEFAULT.mode(pxui::SelectMode::Multi);
     /// ```
-    pub const fn multi(mut self) -> Table { self.multi = true; self }
+    pub const fn mode(mut self, mode: SelectMode) -> Table { self.mode = mode; self }
+
+    /// Makes a press on a row also report it as `TableResponse::rows.activated` (a folder table that opens on one press), as
+    /// `SelectionList::open_on_click`; Enter and a double click always activate, the arrow, Page, Home and End keys never do.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const FOLDERS: pxui::Table = pxui::Table::DEFAULT.mode(pxui::SelectMode::None).open_on_click(true);
+    /// ```
+    pub const fn open_on_click(mut self, on: bool) -> Table { self.open_on_click = on; self }
+
+    /// Draws the table without its frame: no frame look (the theme's `scroll_view`) and no 1-point inset, as `SelectionList::bare`.
+    /// Keyboard focus and scrolling are unchanged.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const FILES: pxui::Table = pxui::Table::DEFAULT.bare();
+    /// ```
+    pub const fn bare(mut self) -> Table { self.bare = true; self }
 
     /// Sets each row's height in points (positive and finite).
     /// Allocates: never.
@@ -1297,6 +1321,40 @@ mod tests {
         assert_eq!(state.borrow().rows[1] & ListState::SELECTED, 0, "the keyboard never selects a disabled row");
     }
 
+    /// U2b.4.37: a table takes the selection list's `SelectMode` and `open_on_click`: `None` + `open_on_click` activates a pressed row
+    /// and Return's row, selects nothing, and the arrow keys never activate; `bare` drops the frame's 1-point inset (its rows start at
+    /// the table's edge). Both link modes.
+    #[test]
+    fn a_table_takes_select_mode_open_on_click_and_bare() {
+        const COLUMNS: [Column; 1] = [Column::new("Name").share(1.0)];
+        let state = RefCell::new(TableState::new());
+        let last: Cell<ListResponse> = Cell::new(ListResponse::default());
+        let bare = Cell::new(false);
+        let mut build = |ui: &mut Ui| {
+            let table = Table::DEFAULT.mode(SelectMode::None).open_on_click(true);
+            let table = if bare.get() { table.bare() } else { table };
+            keep(&last, ui.table("folders", &COLUMNS, 3, &|i| i as i64, &mut state.borrow_mut(), &table, &mut |ui, row, _, _| ui.item_text(["a", "b", "c"][row])).rows);
+        };
+        let mut ui = crate::doc::frames(2, &mut build);
+        let inset = |ui: &Ui| items(ui, Role::Row)[0].rect.x - items(ui, Role::Table)[0].rect.x;
+        assert_eq!(inset(&ui), 1.0, "a framed table insets its rows a point");
+        let rows = items(&ui, Role::Row);
+        last.set(ListResponse::default());
+        click_at(&mut ui, 1.0, rows[1].rect, &[], false, &mut build);
+        assert_eq!((on(&state.borrow().selection), last.get().activated, last.get().selected), (vec![], Some(1), None), "a press activates and selects nothing");
+        for (t, k) in [(2.0, KeyCode::ArrowDown), (3.0, KeyCode::ArrowUp), (4.0, KeyCode::ArrowDown)] {
+            last.set(ListResponse::default());
+            press(&mut ui, t, k, &[], &mut build);
+            assert_eq!((on(&state.borrow().selection), last.get().activated, last.get().selected), (vec![], None, None), "an arrow never activates or selects");
+        }
+        last.set(ListResponse::default());
+        press(&mut ui, 5.0, KeyCode::Enter, &[], &mut build);
+        assert_eq!(last.get().activated, Some(2), "Return activates the keyboard's row");
+        bare.set(true);
+        for t in [6.0, 6.1] { at(&mut ui, t, &[], &mut build); }
+        assert_eq!(inset(&ui), 0.0, "a bare table has no inset");
+    }
+
     /// The table's heading cycles the sort by column id (none, ascending, descending, none); shared columns split the width the point
     /// columns leave by weight; a `w_px(0.0)` column is not built and lays out to 0; a grip drag widens its column and reports `resized`.
     #[test]
@@ -1305,7 +1363,7 @@ mod tests {
         const COLUMNS: [Column; 4] = [Column::new("Title").sortable(true).share(1.0).id(10), Column::new("Album").sortable(true).share(2.0).id(11),
             Column::new("Hidden").w_px(0.0).id(12), Column::new("Time").w_px(60.0).id(13)];
         let last = Cell::new(None);
-        let mut build = |ui: &mut Ui| { last.set(Some(ui.table("songs", &COLUMNS, 4, &|i| i as i64, &mut state.borrow_mut(), &Table::DEFAULT.multi(), &mut |ui, row, column, _| ui.item_text(["a", "b", "c", "d"][(row + column) % 4])).head)); };
+        let mut build = |ui: &mut Ui| { last.set(Some(ui.table("songs", &COLUMNS, 4, &|i| i as i64, &mut state.borrow_mut(), &Table::DEFAULT.mode(SelectMode::Multi), &mut |ui, row, column, _| ui.item_text(["a", "b", "c", "d"][(row + column) % 4])).head)); };
         let mut ui = crate::doc::frames(2, &mut build);
         let w = |state: &TableState, id: i64| state.widths.iter().find(|(c, _)| *c == id).map(|(_, w)| *w).unwrap();
         assert_eq!(state.borrow().widths.len(), 4);

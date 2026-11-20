@@ -1114,7 +1114,7 @@ pub unsafe fn table(ui: *mut PxuiUi, key: &str, desc: &PxuiTableDesc, ids: Optio
     enter!(ui);
     let (mut columns, mut titles) = ([ColumnSpec::default(); MAX_COLUMNS], [""; MAX_COLUMNS]);
     let positive = |v: f32| v.is_finite() && v > 0.0;
-    let n = if bad_key(key) || desc.multi > 1 || desc.has_sort > 1 || desc.ascending > 1 || desc.has_revision > 1 || desc.reserved2 != [0; 6] || !positive(desc.head_h)
+    let n = if bad_key(key) || desc.mode > 3 || desc.has_sort > 1 || desc.ascending > 1 || desc.has_revision > 1 || desc.open_on_click > 1 || desc.bare > 1 || desc.reserved2 != [0; 4] || !positive(desc.head_h)
         || !geometry_ok(desc.rows, desc.row_h, [0.0; 3]) || desc.flags.len < desc.rows || (desc.rows > 0 && desc.flags.ptr.is_null()) { None } else { unsafe { read_columns(desc.columns, &mut columns, &mut titles) } };
     let Some(n) = n else { return unsafe { fail(ui, "invalid table descriptor") } };
     let Some(widths) = (unsafe { widths_of(desc.widths.ptr, desc.widths.len, n) }) else { return unsafe { fail(ui, "invalid table widths") } };
@@ -1122,7 +1122,9 @@ pub unsafe fn table(ui: *mut PxuiUi, key: &str, desc: &PxuiTableDesc, ids: Optio
     let mut anchor = (desc.anchor < desc.rows).then_some(desc.anchor);
     let mut sort = (desc.has_sort != 0).then_some((desc.sort_id, desc.ascending != 0)).filter(|(id, _)| columns[..n].iter().any(|c| c.id == *id));
     let revision = (desc.has_revision != 0).then_some(desc.revision);
-    let (r, h) = unsafe { engine(ui) }.table(key, &columns[..n], &titles[..n], widths, &mut sort, desc.rows, ids.unwrap_or(&|i| i as i64), flags, &mut anchor, revision, desc.multi != 0, desc.row_h, desc.head_h, desc.head_variant, cell);
+    use pxui_types::ui::SelectMode;
+    let mode = match desc.mode { 0 => SelectMode::Single, 1 => SelectMode::Multi, 2 => SelectMode::Toggle, _ => SelectMode::None };
+    let (r, h) = unsafe { engine(ui) }.table(key, &columns[..n], &titles[..n], widths, &mut sort, desc.rows, ids.unwrap_or(&|i| i as i64), flags, &mut anchor, revision, (mode, desc.open_on_click != 0, desc.bare != 0), desc.row_h, desc.head_h, desc.head_variant, cell);
     out.reserved = 0;
     out.rows.size = core::mem::size_of::<PxuiListResult>() as u32;
     write_list(&r, anchor, &mut out.rows);

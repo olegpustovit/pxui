@@ -57,10 +57,12 @@ pub mod shapes {
     #[derive(Clone, Debug, Default)] pub struct TreeState { pub open: Vec<u8>, pub selected: Option<usize>, pub visible: Vec<u32>, pub revision: Option<u64> }
     #[derive(Clone, Copy, Debug)] pub struct TableHead { h: f32, variant: u16 }
     impl TableHead { pub const DEFAULT: TableHead = TableHead { h: 24.0, variant: 0 }; pub const fn h_px(mut self, h: f32) -> TableHead { self.h = h; self } pub const fn variant(mut self, v: u16) -> TableHead { self.variant = v; self } }
-    #[derive(Clone, Copy, Debug)] pub struct Table { multi: bool, row_h: f32, head: TableHead, variant: u16 }
+    #[derive(Clone, Copy, Debug)] pub struct Table { mode: pxui_types::ui::SelectMode, open_on_click: bool, bare: bool, row_h: f32, head: TableHead, variant: u16 }
     impl Table {
-        pub const DEFAULT: Table = Table { multi: false, row_h: 24.0, head: TableHead::DEFAULT, variant: 0 };
-        pub const fn multi(mut self) -> Table { self.multi = true; self }
+        pub const DEFAULT: Table = Table { mode: pxui_types::ui::SelectMode::Single, open_on_click: false, bare: false, row_h: 24.0, head: TableHead::DEFAULT, variant: 0 };
+        pub const fn mode(mut self, mode: pxui_types::ui::SelectMode) -> Table { self.mode = mode; self }
+        pub const fn open_on_click(mut self, on: bool) -> Table { self.open_on_click = on; self }
+        pub const fn bare(mut self) -> Table { self.bare = true; self }
         pub const fn row_h(mut self, h: f32) -> Table { self.row_h = h; self }
         pub const fn head(mut self, head: TableHead) -> Table { self.head = head; self }
         pub const fn variant(mut self, v: u16) -> Table { self.variant = v; self }
@@ -252,7 +254,7 @@ pub mod shapes {
             state.selection.rows.resize(rows, 0);
             let mut sort = state.sort.map(|(id, s)| (id, s == Sort::Ascending)).filter(|(id, _)| specs[..n].iter().any(|c| c.id == *id));
             if table.variant != 0 { self.0.set_variant(BodyKind::table_row as u32, table.variant); }
-            let (r, h) = self.0.table(key, &specs[..n], &titles[..n], &mut widths[..n], &mut sort, rows, row_key, &mut state.selection.rows, &mut state.selection.anchor, state.selection.revision, table.multi, table.row_h, table.head.h, table.head.variant, &mut |e: &mut Engine, row, c, cell| f(Ui::of(e), row, c, cell_of(cell)));
+            let (r, h) = self.0.table(key, &specs[..n], &titles[..n], &mut widths[..n], &mut sort, rows, row_key, &mut state.selection.rows, &mut state.selection.anchor, state.selection.revision, (table.mode, table.open_on_click, table.bare), table.row_h, table.head.h, table.head.variant, &mut |e: &mut Engine, row, c, cell| f(Ui::of(e), row, c, cell_of(cell)));
             if table.variant != 0 { self.0.set_variant(BodyKind::table_row as u32, 0); }
             for (s, w) in state.widths.iter_mut().zip(&widths[..n]) { *s = (w.id, w.w); }
             state.sort = sort.map(|(id, a)| (id, if a { Sort::Ascending } else { Sort::Descending }));
