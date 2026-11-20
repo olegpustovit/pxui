@@ -306,9 +306,9 @@ pub unsafe fn pxui_ui_theme(ui: *mut PxuiUi) -> *const ThemeSnapshot {
 pub unsafe fn within(ui: *mut PxuiUi, box_: *const PxuiBox, f: Inner) -> i32 {
     enter!(ui);
     if box_.is_null() { return unsafe { fail(ui, "null box") }; }
-    // the handle's `Ui` is checked, its slot is not: `within` reads the node's index and key and indexes no slot
+    // the handle must name a box of this frame's build (its index is where the children attach): a dead or forged one is stale
     let e = unsafe { engine(ui) };
-    let Some(b) = crate::state::core_box(e, unsafe { *box_ }) else { return unsafe { crate::state::fail_code(ui, "stale box", crate::PXUI_ERR_STALE) } };
+    let Some(b) = crate::state::core_box(e, unsafe { *box_ }).filter(|b| e.is_current_build_box(b)) else { return unsafe { crate::state::fail_code(ui, "stale box", crate::PXUI_ERR_STALE) } };
     e.within(&b, f);
     0
 }

@@ -3869,7 +3869,7 @@ impl Ui {
 
     /// The handle points at this frame's build record as well as a live retained slot.
     pub fn is_current_build_box(&self, b: &Handle) -> bool {
-        self.building && self.live(b) && self.boxes.get(b.index).is_some_and(|record| record.key == b.box_key && record.slot == b.box_slot)
+        self.building && b.index < self.count && self.live(b) && self.boxes.get(b.index).is_some_and(|record| record.key == b.box_key && record.slot == b.box_slot)
     }
 
     /// Set the node's text (painted in its look's text colour and font).

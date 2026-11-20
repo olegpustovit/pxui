@@ -1244,6 +1244,56 @@ mod keyboard_tests {
         assert_eq!(unsafe { super::pxui_ui_destroy(a) } | unsafe { super::pxui_ui_destroy(b) }, 0);
     }
 
+    /// `within` compares the Ui serial only. A handle of this Ui that is dead (made in an earlier frame, a forged index, slot or generation)
+    /// must still be harmless: the builder inside it runs, the frame completes and no other box's children change.
+    #[test]
+    fn within_a_dead_or_forged_handle_of_this_ui_is_harmless() {
+        use pxui_types::PxuiBox;
+        struct Case { saved: PxuiBox, tries: [PxuiBox; 4], codes: [i32; 4], within: [i32; 4], asked: usize, frame: u32, built: u32 }
+        extern "C" fn child(user: *mut core::ffi::c_void, ui: *mut core::ffi::c_void) {
+            let case = unsafe { &mut *user.cast::<Case>() };
+            let mut out = PxuiBox::default();
+            // a forged parent may make the declare refuse; it must not be anything else
+            let code = unsafe { crate::pxui_ui_node_keyed(ui.cast(), 9001, &pxui_types::Node::DEFAULT, &mut out) };
+            case.built += 1;
+            case.codes[(case.built as usize - 1) % 4] = code;
+        }
+        extern "C" fn declare(user: *mut core::ffi::c_void, ui: *mut core::ffi::c_void) {
+            let case = unsafe { &mut *user.cast::<Case>() };
+            let ui = ui.cast();
+            if case.frame == 0 {
+                assert_eq!(unsafe { crate::pxui_ui_node_keyed(ui, 4242, &pxui_types::Node::DEFAULT, &mut case.saved) }, 0);
+            } else if case.frame == 2 {
+                // the same box declared in this frame is live: its builder runs
+                let mut mine = PxuiBox::default();
+                assert_eq!(unsafe { crate::pxui_ui_node_keyed(ui, 4242, &pxui_types::Node::DEFAULT, &mut mine) }, 0);
+                assert_eq!(unsafe { crate::pxui_within(ui, &mine, Some(child), (case as *mut Case).cast()) }, 0);
+            } else {
+                for t in case.tries {
+                    let code = unsafe { crate::pxui_within(ui, &t, Some(child), (case as *mut Case).cast()) };
+                    case.within[case.asked] = code;
+                    case.asked += 1;
+                }
+            }
+        }
+        let ui = unsafe { crate::ui::create_test_ui() };
+        let mut out = FrameOut::default();
+        let input = FrameIn { width: 100.0, height: 100.0, ..FrameIn::default() };
+        let mut case = Case { saved: PxuiBox::default(), tries: [PxuiBox::default(); 4], codes: [0; 4], within: [0; 4], asked: 0, frame: 0, built: 0 };
+        assert_eq!(unsafe { super::pxui_frame(ui, &input, Some(declare), (&mut case as *mut Case).cast(), &mut out) }, 0);
+        let s = case.saved;
+        case.tries = [s, PxuiBox { index: u64::MAX >> 1, ..s }, PxuiBox { box_slot: u64::MAX >> 1, generation: s.generation.wrapping_add(7), ..s }, PxuiBox { index: 1 << 40, box_key: 77, ..s }];
+        case.frame = 1;
+        assert_eq!(unsafe { super::pxui_frame(ui, &input, Some(declare), (&mut case as *mut Case).cast(), &mut out) }, 0);
+        // a dead handle (its box is not in this frame's build) and the forged ones are stale and run no builder
+        assert_eq!(case.within, [crate::PXUI_ERR_STALE; 4], "{:?}", case.within);
+        assert_eq!(case.built, 0);
+        case.frame = 2;
+        assert_eq!(unsafe { super::pxui_frame(ui, &input, Some(declare), (&mut case as *mut Case).cast(), &mut out) }, 0);
+        assert_eq!((case.built, case.codes[0]), (1, 0));
+        assert_eq!(unsafe { super::pxui_ui_destroy(ui) }, 0);
+    }
+
     #[test]
     fn keyboard_tail_validates_before_mutation() {
         use pxui_types::{Environment, Keyboard};
