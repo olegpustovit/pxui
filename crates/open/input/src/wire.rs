@@ -55,7 +55,7 @@ pub const SCROLLED: u32 = 7;
 pub const TEXT_INPUT: u32 = 8;
 pub const PASTE: u32 = 9;
 pub const TEXT_EDITING: u32 = 10;
-pub const FILE_DROPPED: u32 = 11;
+// 11 (FILE_DROPPED, one path) is reserved and never reused: FILES_DROPPED carries any number of paths.
 pub const FILE_DRAG_MOVED: u32 = 12;
 pub const FILE_DRAG_ENDED: u32 = 13;
 pub const PINCHED: u32 = 14;
@@ -92,7 +92,6 @@ impl Event {
             Event::TextInput(s) => raw(TEXT_INPUT, 0, 0.0, 0.0, 0.0, s),
             Event::Paste(s) => raw(PASTE, 0, 0.0, 0.0, 0.0, s),
             Event::TextEditing { text, start, length } => raw(TEXT_EDITING, 0, *start as f64, *length as f64, 0.0, text),
-            Event::FileDropped(s) => raw(FILE_DROPPED, 0, 0.0, 0.0, 0.0, s),
             Event::FilesDropped { position: (x,y), paths } => match paths {
                 Ok(paths) => {
                     scratch.clear();
@@ -145,7 +144,6 @@ impl Event {
             TEXT_INPUT => Event::TextInput(s?.to_owned()),
             PASTE => Event::Paste(s?.to_owned()),
             TEXT_EDITING => Event::TextEditing { text: s?.to_owned(), start: e.x as i64, length: e.y as i64 },
-            FILE_DROPPED => Event::FileDropped(s?.to_owned()),
             FILES_DROPPED => {
                 if !e.x.is_finite() || !e.y.is_finite() {return None;}
                 Event::FilesDropped {position:(e.x,e.y),paths:match e.code {
@@ -205,7 +203,7 @@ mod tests {
             Event::KeyPressed(Key::Enter), Event::KeyReleased(Key::KeyChar('x')), Event::PointerMoved((1.5, 2.5)),
             Event::PointerPressed(MouseButton::RightButton, (3.0, 4.0)), Event::PointerReleased(MouseButton::MouseX2, (5.0, 6.0)),
             Event::PointerCancelled(MouseButton::LeftButton), Event::Scrolled((0.0, -1.0)), Event::TextInput("hé".into()), Event::Paste("p".into()),
-            Event::TextEditing { text: "ime".into(), start: 1, length: 2 }, Event::FileDropped("/a".into()), Event::FileDragMoved((1.0, 2.0)),
+            Event::TextEditing { text: "ime".into(), start: 1, length: 2 }, Event::FileDragMoved((1.0, 2.0)),
             Event::FilesDropped {position:(-1.25,123.5),paths:Ok(vec!["/Music/名前.flac".into(),"/Björk.m4a".into()])},
             Event::FilesDropped {position:(0.0,0.0),paths:Ok(Vec::new())},
             Event::FilesDropped {position:(0.0,0.0),paths:Err("limit exceeded".into())},

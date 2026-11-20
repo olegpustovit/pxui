@@ -10,7 +10,7 @@ fn window_completed_drop_spans_pumps_and_cancel_reuses_buffers() {
     assert!(sdl3_sys::test_util::push_drop(0));
     assert!(window.pump(&mut events));
     let start = events.iter().find_map(|event| if let Event::FileDragMoved(p)=event {Some(*p)} else {None}).unwrap();
-    assert!(!events.iter().any(|event|matches!(event,Event::FilesDropped {..}|Event::FileDropped(_)|Event::FileDragEnded)));
+    assert!(!events.iter().any(|event|matches!(event,Event::FilesDropped {..}|Event::FileDragEnded)));
     events.clear();
     assert!(sdl3_sys::test_util::push_drop(1));
     assert!(window.pump(&mut events));

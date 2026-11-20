@@ -377,7 +377,7 @@ impl Window {
             DRAG => events.push(Event::FileDragMoved((raw.x, raw.y))),
             DRAG_END => events.push(Event::FileDragEnded),
             DROP => {
-                events.extend(translate::uri_list(&text).into_iter().map(Event::FileDropped));
+                events.push(Event::FilesDropped { position: (raw.x, raw.y), paths: Ok(translate::uri_list(&text).into_iter().collect()) });
                 events.push(Event::FileDragEnded);
             }
             // the input method deletes around the caret in the surrounding text it was sent: as key presses

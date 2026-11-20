@@ -345,8 +345,7 @@ mod tests {
             let event = Event { kind: Event::TOUCH, text: Str { ptr: (&packet as *const Touch).cast(), len: core::mem::size_of::<Touch>() }, ..Default::default() };
             ui.frame(&{
                 let mut frame = input(at);
-                frame.wire.events = &event;
-                frame.wire.event_count = 1;
+                frame.events = core::slice::from_ref(&event);
                 frame
             }, build).unwrap();
         };

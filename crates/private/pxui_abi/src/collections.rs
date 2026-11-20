@@ -108,7 +108,7 @@ export!(trusted pub unsafe fn pxui_ui_table(ui: *mut PxuiUi, keyed: *const PxuiK
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{FrameIn, FrameOut, PxuiUiDesc, pxui_frame, pxui_last_error, pxui_ui_create, pxui_ui_destroy};
+    use crate::{FrameIn, FrameOut, pxui_frame, pxui_last_error, pxui_ui_destroy};
     use core::ffi::c_void;
 
     /// `f` run in one frame of `ui` (its return code).
@@ -130,7 +130,7 @@ mod tests {
     /// gets its rows re-derived, never a panic or an error.
     #[test]
     fn a_kept_tree_refuses_bad_flags_and_re_derives_a_broken_promise() {
-        let ui = unsafe { pxui_ui_create(&PxuiUiDesc::default()) };
+        let ui = unsafe { crate::ui::create_test_ui() };
         // ten roots, each with one child; root 0 open: 11 rows shown
         let nodes: Vec<PxuiTreeNode> = (0..20).map(|i| PxuiTreeNode { depth: (i % 2) as u16, children: (i % 2 == 0) as u8 }).collect();
         let (mut open, mut visible, mut selected, mut shown) = (vec![0u8; 20], vec![0u32; 20], usize::MAX, 0usize);

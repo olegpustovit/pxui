@@ -263,6 +263,31 @@ export!(pub unsafe fn pxui_ui_request_frame(ui: *mut PxuiUi) -> i32 {
     0
 });
 
+/// A `Ui` with `FrameIn::MAIN` registered, for the tests that run frames.
+#[cfg(test)]
+pub(crate) unsafe fn create_test_ui() -> *mut PxuiUi {
+    let ui = unsafe { pxui_ui_create(&crate::PxuiUiDesc::default()) };
+    if !ui.is_null() { assert_eq!(unsafe { pxui_ui_add_surface(ui, pxui_types::FrameIn::MAIN) }, 0); }
+    ui
+}
+
+export!(pub unsafe fn pxui_ui_add_surface(ui: *mut PxuiUi, surface: u64) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if surface == 0 { return unsafe { fail(ui, "surface id 0 is reserved") }; }
+    // an id twice, or a second surface (one per Ui for now), is a state error; a frame callback cannot register
+    if !state.owner || state.shared().in_frame || state.shared().surface != 0 { return unsafe { fail_code(ui, "a surface is registered already, or a frame is running", PXUI_ERR_STATE) }; }
+    state.shared().surface = surface;
+    0
+});
+
+export!(pub unsafe fn pxui_ui_remove_surface(ui: *mut PxuiUi, surface: u64) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if !state.owner || state.shared().in_frame { return unsafe { fail_code(ui, "a frame is running", PXUI_ERR_STATE) }; }
+    if surface == 0 || state.shared().surface != surface { return unsafe { fail(ui, "unknown surface") }; }
+    state.shared().surface = 0;
+    0
+});
+
 fn touch_event(e:&pxui_types::Event)->Option<input::Touch> {
     if e.text.len!=core::mem::size_of::<pxui_types::Touch>() || e.text.ptr.is_null() {return None;}
     let t=unsafe {e.text.ptr.cast::<pxui_types::Touch>().read_unaligned()};
@@ -277,8 +302,10 @@ pub(crate) const MAX_SURFACE: f64 = (1 << 16) as f64;
 /// One wire event checked and decoded: the one validator of both frame entries and `pxui_ui_wants_frame`. Its `x`, `y` and `value` are
 /// finite whatever its kind; its text (any kind's, read only past these checks) is at most `MAX_TEXT_BYTES` and is taken from `budget`
 /// (`MAX_TOTAL_TEXT_BYTES` a frame, or a `wants_frame` call); a touch's payload is a whole valid `Touch`; a text editing range is not
-/// negative; a resize is within `0..=MAX_SURFACE`; the kind and its code are known. Anything else is refused (`None`), never cut.
-pub(crate) fn translate_event(e: &pxui_types::Event, budget: &mut usize) -> Option<Event> {
+/// negative; a resize is within `0..=MAX_SURFACE`; the kind and its code are known; the record is whole (`size`) and names `surface`. Anything else is refused (`None`), never cut.
+pub(crate) fn translate_event(e: &pxui_types::Event, surface: u64, budget: &mut usize) -> Option<Event> {
+    // a whole record, for the surface of the call that carries it (the frame's, or the Ui's for `wants_frame`)
+    if (e.size as usize) < core::mem::size_of::<pxui_types::Event>() || e.surface != surface { return None; }
     if !(e.x.is_finite() && e.y.is_finite() && e.value.is_finite()) { return None; }
     if e.kind==pxui_types::Event::TOUCH {return touch_event(e).map(Event::Touch);}
     // the commonest event of a frame carries no text or code: no wire record to build and decode
@@ -300,12 +327,12 @@ fn valid_touches(events:&[pxui_types::Event])->bool {
 
 /// Decode the whole batch before any edge changes retained input.
 #[inline(always)]
-fn decode_events(out: &mut Vec<Event>, events: &[pxui_types::Event]) -> bool {
+fn decode_events(out: &mut Vec<Event>, events: &[pxui_types::Event], surface: u64) -> bool {
     let mut budget = crate::state::MAX_TOTAL_TEXT_BYTES;
     for raw in events {
         // the commonest event of a frame, decoded in line (`translate_event` decodes it the same)
-        if raw.kind == pxui_types::Event::POINTER_MOVED && raw.x.is_finite() && raw.y.is_finite() && raw.value.is_finite() { out.push(Event::PointerMoved((raw.x, raw.y))); continue; }
-        let Some(event) = translate_event(raw, &mut budget) else { return false };
+        if raw.kind == pxui_types::Event::POINTER_MOVED && raw.size as usize >= core::mem::size_of::<pxui_types::Event>() && raw.surface == surface && raw.x.is_finite() && raw.y.is_finite() && raw.value.is_finite() { out.push(Event::PointerMoved((raw.x, raw.y))); continue; }
+        let Some(event) = translate_event(raw, surface, &mut budget) else { return false };
         out.push(event);
     }
     true
@@ -440,6 +467,10 @@ unsafe fn enter_frame(ui: *mut PxuiUi) -> Result<(), i32> {
 pub(crate) unsafe fn frame_body(ui: *mut PxuiUi, input: &FrameIn, build: Inner, out: &mut FrameOut) -> i32 {
     if !ui.is_null() { unsafe { crate::state::note_call((*ui).shared) }; }
     if let Err(code) = unsafe { enter_frame(ui) } { return code; }
+    // the frame's surface is one registered on this Ui (the one compare); every event must carry it too (`decode_events`)
+    let registered = unsafe { (*(*ui).shared).surface };
+    let named = if input.size as usize >= core::mem::offset_of!(FrameIn, surface) + 8 { input.surface } else { pxui_types::FrameIn::MAIN };
+    if registered == 0 || named != registered { return unsafe { fail(ui, "unknown surface") }; }
     // a size within 0..=MAX_SURFACE, a scale in (0, inf) and a finite time: NaN fails every compare, so each is a compare or two
     let surface = |v: f32| (0.0..=MAX_SURFACE as f32).contains(&v);
     if !(input.time.abs() < f64::INFINITY) || !(input.scale > 0.0 && input.scale < f32::INFINITY) || !surface(input.width) || !surface(input.height) { return unsafe { fail(ui, "invalid frame descriptor") }; }
@@ -461,7 +492,7 @@ pub(crate) unsafe fn frame_body(ui: *mut PxuiUi, input: &FrameIn, build: Inner, 
     if appearance>FrameIn::APPEARANCE_DARK || reduced>1 { return unsafe { fail(ui,"invalid system preferences") }; }
     let mut base = unsafe { take_input(ui, input.time) };
     let events = if input.event_count == 0 { &[] } else { unsafe { core::slice::from_raw_parts(input.events, input.event_count) } };
-    if !decode_events(&mut base.input.events, events) {
+    if !decode_events(&mut base.input.events, events, registered) {
         let message=if valid_touches(events) { "invalid event kind, code, or UTF-8 payload" } else { "invalid touch payload" };
         base.input.events.clear();
         unsafe { restore_input(ui, base); }
@@ -518,6 +549,8 @@ export!(trusted frame pub unsafe fn pxui_frame(ui: *mut PxuiUi, input: *const Fr
 pub(crate) unsafe fn input_frame_body(ui: *mut PxuiUi, input: &Input, build: Inner, out: &mut FrameOut) -> i32 {
     if !ui.is_null() { unsafe { crate::state::note_call((*ui).shared) }; }
     if let Err(code) = unsafe { enter_frame(ui) } { return code; }
+    let surface = unsafe { (*(*ui).shared).surface };
+    if surface == 0 { return unsafe { fail(ui, "unknown surface") }; }
     if !input.time.is_finite() || !input.dt.is_finite() || input.dt < 0.0 || !input.fps.is_finite() || input.fps < 0.0 || !input.pointer.iter().all(|v| v.is_finite()) || !input.pixel_scale.iter().all(|v| v.is_finite() && *v > 0.0) || !input.mouse_delta.iter().all(|v| v.is_finite())
         || !input.logical_size.iter().all(|v| (0..=MAX_SURFACE as i64).contains(v)) { return unsafe { fail(ui, "invalid input frame") }; }
     if input.events.len > 4096 || input.keys.len > 512 || input.buttons.len > 32 || (input.events.len != 0 && input.events.ptr.is_null()) || (input.keys.len != 0 && input.keys.ptr.is_null()) || (input.buttons.len != 0 && input.buttons.ptr.is_null()) { return unsafe { fail(ui, "invalid input spans") }; }
@@ -529,7 +562,7 @@ pub(crate) unsafe fn input_frame_body(ui: *mut PxuiUi, input: &Input, build: Inn
     if buttons.iter().any(|code| button(*code).is_none()) { return unsafe { fail(ui, "invalid held mouse button") }; }
     let mut held = unsafe { take_input(ui, input.time) };
     let base = &mut held.input;
-    if !decode_events(&mut base.events, events) {
+    if !decode_events(&mut base.events, events, surface) {
         base.events.clear();
         unsafe { restore_input(ui, held); }
         return unsafe { fail(ui, "invalid event kind, code, or UTF-8 payload") };
@@ -575,12 +608,12 @@ export!(pub unsafe fn pxui_ui_input(ui: *mut PxuiUi, has_owner: u8, owner: i64, 
         scratch.clear();
         if let Event::Touch(t)=event {
             shared.routed_touches.push(pxui_types::Touch {device:t.device,finger:t.finger,x:t.point.0,y:t.point.1,time:t.time,pressure:t.pressure,phase:t.phase.code()});
-            shared.routed_events.push(pxui_types::Event {kind:pxui_types::Event::TOUCH,text:Str {ptr:shared.routed_touches.as_ptr().wrapping_add(shared.routed_touches.len()-1).cast(),len:core::mem::size_of::<pxui_types::Touch>()},..Default::default()});
+            shared.routed_events.push(pxui_types::Event {kind:pxui_types::Event::TOUCH,surface:shared.surface,text:Str {ptr:shared.routed_touches.as_ptr().wrapping_add(shared.routed_touches.len()-1).cast(),len:core::mem::size_of::<pxui_types::Touch>()},..Default::default()});
             continue;
         }
         let raw = event.raw(scratch);
         let text = raw.text.unwrap_or("");
-        shared.routed_events.push(pxui_types::Event { kind: raw.kind, code: raw.code, x: raw.x, y: raw.y, value: raw.value, text: Str { ptr: text.as_ptr(), len: text.len() } });
+        shared.routed_events.push(pxui_types::Event { surface: shared.surface, kind: raw.kind, code: raw.code, x: raw.x, y: raw.y, value: raw.value, text: Str { ptr: text.as_ptr(), len: text.len() }, ..Default::default() });
     }
     shared.routed_keys.clear();
     shared.routed_keys.extend(f.input.keys.iter().map(|k| k.code()));
@@ -762,7 +795,7 @@ mod tests {
     fn the_keyed_text_field_refuses_invalid_descriptors_before_output_or_widget_mutation() {
         use super::*;
         use pxui_types::ffi::PxuiTextFieldDesc;
-        let ui=unsafe {pxui_ui_create(&PxuiUiDesc::default())};
+        let ui=unsafe {crate::ui::create_test_ui()};
         let text=|s:&'static str| Str {ptr:s.as_ptr(),len:s.len()};
         let good=PxuiTextFieldDesc {size:core::mem::size_of::<PxuiTextFieldDesc>() as u32,autocorrect:1,capitalization:1,action:0,reserved:0,key:text("k"),name:text("n"),value:text("v")};
         let bad_utf8=Str {ptr:[0xff_u8].as_ptr(),len:1};
@@ -810,7 +843,7 @@ mod tests {
         use crate::widgets::pxui_ui_search_field;
         use pxui_types::ffi::{PxuiResponse, PxuiTextAreaDesc, PxuiTextFieldDesc, PxuiValueFieldDesc};
         let s=|t: &'static str| Str {ptr:t.as_ptr(),len:t.len()};
-        let ui=unsafe {pxui_ui_create(&PxuiUiDesc::default())};
+        let ui=unsafe {crate::ui::create_test_ui()};
         let field=PxuiTextFieldDesc {size:core::mem::size_of::<PxuiTextFieldDesc>() as u32,autocorrect:0,capitalization:0,action:0,reserved:0,key:s("f"),name:s("Field"),value:s("abc")};
         let value=PxuiValueFieldDesc {label:s("v"),value:s("1"),width:40.0,height:20.0,size:core::mem::size_of::<PxuiValueFieldDesc>() as u32,..unsafe {core::mem::zeroed()}};
         let area=PxuiTextAreaDesc {label:s("a"),value:s("x"),size:core::mem::size_of::<PxuiTextAreaDesc>() as u32,..unsafe {core::mem::zeroed()}};
@@ -845,7 +878,7 @@ mod tests {
     fn a_text_area_refuses_negative_offsets_before_output_or_widget_mutation() {
         use super::*;
         use pxui_types::ffi::{PxuiColorSpan, PxuiNote, PxuiRange, PxuiSplice, PxuiTextAreaDesc};
-        let ui=unsafe {pxui_ui_create(&PxuiUiDesc::default())};
+        let ui=unsafe {crate::ui::create_test_ui()};
         let base=|| -> PxuiTextAreaDesc { let mut d: PxuiTextAreaDesc = unsafe { core::mem::zeroed() }; d.size=core::mem::size_of::<PxuiTextAreaDesc>() as u32; d.width=10.0; d.height=10.0; d };
         let negative=[-1_i64];
         let ranges=[PxuiRange {start:-1,end:2}];
@@ -874,7 +907,7 @@ mod tests {
     #[test]
     fn text_input_options_query_refuses_null_arguments_without_writing() {
         use super::*;
-        let ui=unsafe {pxui_ui_create(&PxuiUiDesc::default())};
+        let ui=unsafe {crate::ui::create_test_ui()};
         assert_eq!(unsafe {crate::ui_state::pxui_ui_text_input_options(ui,core::ptr::null_mut())},PXUI_ERR_ARGUMENT);
         let mut options=pxui_types::PxuiTextInputOptions::from(pxui_types::TextTraits::SEARCH);
         assert_eq!(unsafe {crate::ui_state::pxui_ui_text_input_options(core::ptr::null_mut(),&mut options)},PXUI_ERR_ARGUMENT);
@@ -901,7 +934,7 @@ mod tests {
             let event = C { kind: C::POINTER_MOVED, x, y, ..Default::default() };
             let general = input::Event::from_raw(&input::wire::Raw { kind: event.kind, code: event.code, x, y, value: event.value, text: unsafe { super::text(event.text) }, touch: None })
                 .filter(|_| x.is_finite() && y.is_finite());
-            let got = super::translate_event(&event, &mut 0);
+            let got = super::translate_event(&event, event.surface, &mut 0);
             assert_eq!(format!("{got:?}"), format!("{general:?}"));
         }
     }
@@ -909,7 +942,7 @@ mod tests {
     #[test]
     fn snapshot_retains_geometry_timing_and_held_input_after_rejected_spans() {
         use super::*;
-        let ui = unsafe { pxui_ui_create(&PxuiUiDesc::default()) };
+        let ui = unsafe { crate::ui::create_test_ui() };
         let keys = [Key::Meta.code()];
         let buttons = [MouseButton::LeftButton.code()];
         let snapshot = Input {
@@ -944,7 +977,7 @@ mod tests {
         extern "C" fn mark_built(user: *mut c_void, _: *mut c_void) {
             unsafe { user.cast::<bool>().write(true); }
         }
-        let ui = unsafe { pxui_ui_create(&PxuiUiDesc::default()) };
+        let ui = unsafe { crate::ui::create_test_ui() };
         let mut out = FrameOut::default();
         for (code, payload) in [(0, "/Music/名前.flac\0/Music/Björk.m4a"), (1, "transport limit exceeded"), (0, "")] {
             let backing = payload.to_owned();
@@ -995,7 +1028,7 @@ mod tests {
     fn typed_touch_batches_keep_ids_phases_lifetimes_and_zero_warm_allocations() {
         use super::*;
         use pxui_types::{Event as Wire, Touch};
-        let ui = unsafe { pxui_ui_create(&PxuiUiDesc::default()) };
+        let ui = unsafe { crate::ui::create_test_ui() };
         let mut packets = [Touch::default(); 32];
         let mut events = [Wire::default(); 32];
         let mut out = FrameOut::default();
@@ -1030,7 +1063,7 @@ mod tests {
     #[test]
     fn typed_touch_payloads_round_trip_full_ids_and_reject_invalid_tails_atomically() {
         use pxui_types::{Touch,Event as C,FrameIn,Str};
-        let ui=unsafe {super::pxui_ui_create(&crate::PxuiUiDesc::default())};
+        let ui=unsafe {crate::ui::create_test_ui()};
         let mut packet=Touch {device:u64::MAX,finger:0xfedcba9876543210,x:-1.25,y:99.5,time:10.0,pressure:0.375,phase:0};
         let mut out=crate::FrameOut::default();
         for frame in 0..182 {
@@ -1074,7 +1107,7 @@ mod tests {
     #[test]
     fn host_environment_rejects_invalid_geometry_before_mutating_a_frame() {
         use pxui_types::{Environment,FrameIn};
-        let ui=unsafe { super::pxui_ui_create(&crate::PxuiUiDesc::default()) };
+        let ui=unsafe { crate::ui::create_test_ui() };
         let value=Environment { safe_area:[47.0,0.0,34.0,0.0],keyboard_frame:[0.0,500.0,390.0,344.0],keyboard_from:[0.0,844.0,390.0,344.0],
             keyboard_started:1.0,keyboard_duration:0.25,keyboard_curve:7,keyboard_visible:1 };
         let input=FrameIn { width:390.0,height:844.0,environment:value,..Default::default() };
@@ -1117,7 +1150,7 @@ mod tests {
         assert_eq!(core::mem::size_of::<Legacy>(),48);
         let decoded=unsafe { super::read_frame((&legacy as *const Legacy).cast()) }.unwrap();
         assert_eq!((decoded.size,decoded.width,decoded.time,decoded.appearance,decoded.reduced_motion),(48,320.0,9.0,0,0));
-        let ui=unsafe { super::pxui_ui_create(&crate::PxuiUiDesc::default()) };
+        let ui=unsafe { crate::ui::create_test_ui() };
         assert!(!ui.is_null());
         let mut out=crate::FrameOut::default();
         assert_eq!(unsafe { super::pxui_frame(ui,(&legacy as *const Legacy).cast(),None,core::ptr::null_mut(),&mut out) },0);
@@ -1147,7 +1180,7 @@ mod tests {
         assert_eq!((w::KEY_SPECIAL, w::KEY_UNKNOWN), (pxui_types::KEY_SPECIAL, pxui_types::KEY_UNKNOWN));
         let pairs = [(w::KEY_PRESSED, C::KEY_PRESSED), (w::KEY_RELEASED, C::KEY_RELEASED), (w::POINTER_MOVED, C::POINTER_MOVED), (w::POINTER_PRESSED, C::POINTER_PRESSED),
             (w::POINTER_RELEASED, C::POINTER_RELEASED), (w::POINTER_CANCELLED, C::POINTER_CANCELLED), (w::SCROLLED, C::SCROLLED), (w::TEXT_INPUT, C::TEXT_INPUT),
-            (w::PASTE, C::PASTE), (w::TEXT_EDITING, C::TEXT_EDITING), (w::FILE_DROPPED, C::FILE_DROPPED), (w::FILE_DRAG_MOVED, C::FILE_DRAG_MOVED),
+            (w::PASTE, C::PASTE), (w::TEXT_EDITING, C::TEXT_EDITING), (w::FILE_DRAG_MOVED, C::FILE_DRAG_MOVED),
             (w::FILE_DRAG_ENDED, C::FILE_DRAG_ENDED), (w::PINCHED, C::PINCHED), (w::FILE_DIALOG, C::FILE_DIALOG), (w::DIALOG_OPENED, C::DIALOG_OPENED),
             (w::RESIZED, C::RESIZED), (w::FOCUS_LOST, C::FOCUS_LOST), (w::FOCUS_GAINED, C::FOCUS_GAINED), (w::CLOSED, C::CLOSED),
             (w::PIXEL_SIZE_CHANGED, C::PIXEL_SIZE_CHANGED), (w::VISIBILITY_CHANGED, C::VISIBILITY_CHANGED), (w::TRACKPAD_SCROLLED, C::TRACKPAD_SCROLLED), (w::ENVIRONMENT_CHANGED, C::ENVIRONMENT_CHANGED), (w::TOUCH, C::TOUCH), (w::FILES_DROPPED,C::FILES_DROPPED)];
@@ -1159,31 +1192,58 @@ mod tests {
 mod keyboard_tests {
     use super::*;
     #[test]
-    fn surface_is_reserved_and_the_152_byte_record_still_carries_its_keyboard() {
-        use pxui_types::Keyboard;
-        let ui=unsafe {super::pxui_ui_create(&crate::PxuiUiDesc::default())};
-        let keyboard=Keyboard {frame:[0.0,508.0,390.0,336.0],flags:Keyboard::VALID};
-        let input=FrameIn {width:390.0,height:844.0,keyboard,..FrameIn::default()};
-        assert_eq!(core::mem::offset_of!(FrameIn,surface),152);
-        let mut out=FrameOut::default();
-        let mut got=Keyboard::default();
-        // a 152-byte caller (built before `surface`): its keyboard is read, the surface is absent
-        let old=FrameIn {size:152,surface:9,..input};
-        assert_eq!(unsafe {super::pxui_frame(ui,&old,None,core::ptr::null_mut(),&mut out)},0);
-        assert_eq!(unsafe {crate::ui_state::pxui_ui_keyboard(ui,&mut got)},0);
-        assert_eq!(got,keyboard);
-        // a full record with any surface behaves as surface 0
-        for surface in [0,1,u64::MAX] {
-            assert_eq!(unsafe {super::pxui_frame(ui,&FrameIn {surface,..input},None,core::ptr::null_mut(),&mut out)},0);
-            assert_eq!(unsafe {crate::ui_state::pxui_ui_keyboard(ui,&mut got)},0);
-            assert_eq!(got,keyboard);
-        }
+    fn a_frame_names_a_registered_surface_and_every_event_carries_it() {
+        use pxui_types::{Event, Keyboard};
+        let ui = unsafe { pxui_ui_create(&crate::PxuiUiDesc::default()) };
+        let mut out = FrameOut::default();
+        let frame = |ui, input: &FrameIn, out: &mut FrameOut| unsafe { super::pxui_frame(ui, input, None, core::ptr::null_mut(), out) };
+        let input = FrameIn { width: 390.0, height: 844.0, keyboard: Keyboard { frame: [0.0, 508.0, 390.0, 336.0], flags: Keyboard::VALID }, ..FrameIn::default() };
+        // no surface registered yet: the frame is refused, whatever it names
+        assert_eq!(frame(ui, &input, &mut out), PXUI_ERR_ARGUMENT);
+        assert_eq!(unsafe { super::pxui_ui_add_surface(ui, 0) }, PXUI_ERR_ARGUMENT, "0 is no surface");
+        assert_eq!(unsafe { super::pxui_ui_add_surface(core::ptr::null_mut(), 1) }, PXUI_ERR_ARGUMENT);
+        assert_eq!(unsafe { super::pxui_ui_add_surface(ui, 7) }, 0);
+        // a second surface, or the same twice: a state error (one surface per Ui for now)
+        assert_eq!(unsafe { super::pxui_ui_add_surface(ui, 8) }, crate::PXUI_ERR_STATE);
+        assert_eq!(unsafe { super::pxui_ui_add_surface(ui, 7) }, crate::PXUI_ERR_STATE);
+        // an unknown surface: an argument error, the full record or a legacy one (a 152-byte record names the main surface)
+        for surface in [0, 1, 8, u64::MAX] { assert_eq!(frame(ui, &FrameIn { surface, ..input }, &mut out), PXUI_ERR_ARGUMENT, "surface {surface}"); }
+        assert_eq!(frame(ui, &FrameIn { size: 152, surface: 7, ..input }, &mut out), PXUI_ERR_ARGUMENT, "a 152-byte record is for the main surface");
+        assert_eq!(frame(ui, &FrameIn { surface: 7, ..input }, &mut out), 0);
+        let mut got = Keyboard::default();
+        assert_eq!(unsafe { crate::ui_state::pxui_ui_keyboard(ui, &mut got) }, 0);
+        assert_eq!(got, input.keyboard);
+        // events: the frame's surface, a whole record, at most 4096 of them
+        let on = |surface, size| [Event { surface, size, ..Event::new(Event::FOCUS_GAINED) }];
+        let with = |events: &[Event]| FrameIn { surface: 7, events: events.as_ptr(), event_count: events.len(), ..input };
+        assert_eq!(frame(ui, &with(&on(7, 64)), &mut out), 0);
+        assert_eq!(frame(ui, &with(&on(7, 100)), &mut out), 0, "a longer record is read as its first 64 bytes");
+        assert_eq!(frame(ui, &with(&on(1, 64)), &mut out), PXUI_ERR_ARGUMENT, "an event for another surface");
+        assert_eq!(frame(ui, &with(&on(0, 64)), &mut out), PXUI_ERR_ARGUMENT);
+        assert_eq!(frame(ui, &with(&on(7, 48)), &mut out), PXUI_ERR_ARGUMENT, "a short record");
+        assert_eq!(frame(ui, &with(&on(7, 0)), &mut out), PXUI_ERR_ARGUMENT);
+        let many = vec![Event { surface: 7, ..Event::new(Event::FOCUS_GAINED) }; 4097];
+        assert_eq!(frame(ui, &with(&many[..4096]), &mut out), 0);
+        assert_eq!(frame(ui, &with(&many), &mut out), PXUI_ERR_ARGUMENT, "more than 4096 events");
+        // `pxui_ui_wants_frame` holds its events to the Ui's surface too
+        let mut wants = 0u8;
+        let slice = |events: &[Event]| pxui_types::ffi::Slice { ptr: events.as_ptr(), len: events.len() };
+        assert_eq!(unsafe { crate::kit::pxui_ui_wants_frame(ui, slice(&on(7, 64)), 1.0, &mut wants) }, 0);
+        assert_eq!(unsafe { crate::kit::pxui_ui_wants_frame(ui, slice(&on(1, 64)), 1.0, &mut wants) }, PXUI_ERR_ARGUMENT);
+        // removing: an unknown id is an argument error; then the surface is free again
+        assert_eq!(unsafe { super::pxui_ui_remove_surface(ui, 8) }, PXUI_ERR_ARGUMENT);
+        assert_eq!(unsafe { super::pxui_ui_remove_surface(ui, 0) }, PXUI_ERR_ARGUMENT);
+        assert_eq!(unsafe { super::pxui_ui_remove_surface(ui, 7) }, 0);
+        assert_eq!(frame(ui, &FrameIn { surface: 7, ..input }, &mut out), PXUI_ERR_ARGUMENT);
+        assert_eq!(unsafe { super::pxui_ui_add_surface(ui, 8) }, 0);
+        assert_eq!(frame(ui, &FrameIn { surface: 8, ..input }, &mut out), 0);
+        assert_eq!(unsafe { super::pxui_ui_destroy(ui) }, 0);
     }
 
     #[test]
     fn keyboard_tail_validates_before_mutation_and_preserves_all_legacy_prefixes() {
         use pxui_types::{Environment, Keyboard};
-        let ui=unsafe {super::pxui_ui_create(&crate::PxuiUiDesc::default())};
+        let ui=unsafe {crate::ui::create_test_ui()};
         let keyboard=Keyboard {frame:[0.0,508.0,390.0,336.0],flags:Keyboard::VALID};
         let environment=Environment {safe_area:[47.0,0.0,34.0,0.0],..Environment::default()};
         let input=FrameIn {width:390.0,height:844.0,environment,keyboard,..FrameIn::default()};

@@ -790,7 +790,7 @@ mod tests {
             cells.set(0);
             // a wider window widens the shared column: the kept table's cells are rebuilt to it
             let mut wide = FrameIn::new(400.0, 240.0).time(8.0);
-            wide.wire.event_count = 0;
+            wide.events = &[];
             ui.frame(&wide, &mut build).unwrap();
             let widened = cells.get();
             let nodes: Vec<_> = ui.a11y_nodes().iter().map(|n| (n.role, ui.a11y_name_of(n).to_string(), n.states, n.actions, n.rect)).collect();
@@ -984,7 +984,7 @@ mod tests {
     /// A frame at time `t` (seconds) with `events`; a frame's time keeps two clicks apart unless they are meant as a double click.
     fn at(ui: &mut Ui, t: f64, events: &[Event], build: &mut dyn FnMut(&mut Ui)) {
         let mut input = FrameIn::new(320.0, 240.0).time(t);
-        (input.wire.events, input.wire.event_count) = (events.as_ptr(), events.len());
+        input.events = &events[..];
         ui.frame(&input, build).expect("frame");
     }
     fn key(kind: u32, k: KeyCode) -> Event { Event::key(kind, k.wire()) }

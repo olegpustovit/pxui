@@ -54,7 +54,7 @@ export!(pub unsafe fn pxui_ui_set_state(ui: *mut PxuiUi, box_: *const PxuiBox, v
 /// The bytes of the text `event` carries; a file dialog's paths are joined by NUL.
 fn text_len(event: &Event) -> usize {
     match event {
-        Event::TextInput(s) | Event::Paste(s) | Event::FileDropped(s) | Event::TextEditing { text: s, .. } | Event::FileDialog { result: Err(s), .. } | Event::FilesDropped { paths: Err(s), .. } => s.len(),
+        Event::TextInput(s) | Event::Paste(s) | Event::TextEditing { text: s, .. } | Event::FileDialog { result: Err(s), .. } | Event::FilesDropped { paths: Err(s), .. } => s.len(),
         Event::FileDialog { result: Ok(paths), .. } | Event::FilesDropped { paths: Ok(paths), .. } => paths.iter().map(String::len).sum::<usize>() + paths.len().saturating_sub(1),
         _ => 0,
     }
@@ -79,7 +79,6 @@ fn encode(value: &Event, text: &mut String, touches:&mut Vec<pxui_types::Touch>)
         Event::TextInput(s) => { out.kind = FfiEvent::TEXT_INPUT; text.push_str(s); }
         Event::Paste(s) => { out.kind = FfiEvent::PASTE; text.push_str(s); }
         Event::TextEditing { text: s, start, length } => { out.kind = FfiEvent::TEXT_EDITING; out.x = *start as f64; out.y = *length as f64; text.push_str(s); }
-        Event::FileDropped(s) => { out.kind = FfiEvent::FILE_DROPPED; text.push_str(s); }
         Event::FilesDropped { position, paths } => {
             out.kind=FfiEvent::FILES_DROPPED; (out.x,out.y)=*position;
             match paths {
@@ -117,7 +116,7 @@ fn encode(value: &Event, text: &mut String, touches:&mut Vec<pxui_types::Touch>)
 }
 
 /// Encodes `keys` into `chunk`: its events, and their text in one buffer that the events point into.
-fn fill(chunk: &mut KeyChunk, keys: &[Event]) {
+fn fill(chunk: &mut KeyChunk, keys: &[Event], surface: u64) {
     chunk.events.clear();
     chunk.text.clear();
     chunk.touches.clear();
@@ -126,6 +125,7 @@ fn fill(chunk: &mut KeyChunk, keys: &[Event]) {
     for key in keys {
         let start = chunk.text.len();
         let mut event = encode(key, &mut chunk.text,&mut chunk.touches);
+        event.surface = surface;
         let len = chunk.text.len() - start;
         if len != 0 { event.text = Str { ptr: chunk.text.as_ptr().wrapping_add(start), len }; }
         chunk.events.push(event);
@@ -161,7 +161,7 @@ pub(crate) fn write_signal(state: &PxuiUi, signal: &Signal, output: &mut PxuiSig
         if shared.chunks_used == shared.chunks.len() { shared.chunks.push(KeyChunk::default()); }
         let chunk = &mut shared.chunks[shared.chunks_used];
         shared.chunks_used += 1;
-        fill(chunk, &signal.keys);
+        fill(chunk, &signal.keys, shared.surface);
         output.keys = Slice { ptr: chunk.events.as_ptr(), len: chunk.events.len() };
     }
 }
@@ -183,6 +183,7 @@ pub(crate) fn write_borrowed_signal(state: &PxuiUi, signal: &Signal, keys: &[(Ev
         for (event, _) in keys {
             let start = chunk.text.len();
             let mut event = encode(event, &mut chunk.text,&mut chunk.touches);
+            event.surface = shared.surface;
             let len = chunk.text.len() - start;
             if len != 0 { event.text = Str { ptr: chunk.text.as_ptr().wrapping_add(start), len }; }
             chunk.events.push(event);
@@ -216,7 +217,7 @@ mod tests {
             Event::TextInput("é".into()),
         ];
         let mut chunk = KeyChunk::default();
-        fill(&mut chunk, &keys);
+        fill(&mut chunk, &keys, 1);
         let e = &chunk.events;
         assert_eq!((e[0].kind, e[0].x, e[0].y), (FfiEvent::TEXT_EDITING, 2.0, 1.0));
         assert_eq!((e[1].kind, e[1].code, e[1].x, e[1].y, e[1].value), (FfiEvent::TRACKPAD_SCROLLED, 3, 3.0, -4.0, 5.0));

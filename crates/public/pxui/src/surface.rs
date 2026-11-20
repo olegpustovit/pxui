@@ -244,8 +244,7 @@ fn gestures_swipe_long_press_and_stale_handles_through_the_abi_without_warm_allo
         let event = Event { kind: Event::TOUCH, text: Str { ptr: (&packet as *const Touch).cast(), len: core::mem::size_of::<Touch>() }, ..Default::default() };
         ui.frame(&{
             let mut frame = input().time(at);
-            frame.wire.events = &event;
-            frame.wire.event_count = 1;
+            frame.events = core::slice::from_ref(&event);
             frame
         }, build).unwrap();
     };
@@ -324,8 +323,7 @@ fn dismiss_drags_commits_and_springs_back_through_the_abi_without_warm_allocatio
         let event = Event { kind: Event::TOUCH, text: Str { ptr: (&packet as *const Touch).cast(), len: core::mem::size_of::<Touch>() }, ..Default::default() };
         ui.frame(&{
             let mut frame = input().time(at);
-            frame.wire.events = &event;
-            frame.wire.event_count = 1;
+            frame.events = core::slice::from_ref(&event);
             frame
         }, build).unwrap();
     };
@@ -404,8 +402,7 @@ fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_war
             time += 0.01;
             ui.frame(&{
                 let mut frame = input().time(time);
-                frame.wire.events = &event;
-                frame.wire.event_count = 1;
+                frame.events = core::slice::from_ref(&event);
                 frame
             }, &mut build).unwrap();
             let s = result.get().unwrap();
@@ -416,29 +413,25 @@ fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_war
         let press = pointer(Event::POINTER_PRESSED, 50.0, 0);
         ui.frame(&{
             let mut frame = input().time(time);
-            frame.wire.events = &press;
-            frame.wire.event_count = 1;
+            frame.events = core::slice::from_ref(&press);
             frame
         }, &mut build).unwrap();
         let events = [pointer(Event::POINTER_RELEASED, 150.0, 0), pointer(Event::POINTER_MOVED, 5.0, 0)];
         ui.frame(&{
             let mut frame = input().time(time);
-            frame.wire.events = events.as_ptr();
-            frame.wire.event_count = 2;
+            frame.events = &events[..2];
             frame
         }, &mut build).unwrap();
         assert_eq!(result.get().unwrap().commit, Some(85.0));
         ui.frame(&{
             let mut frame = input().time(time);
-            frame.wire.events = &press;
-            frame.wire.event_count = 1;
+            frame.events = core::slice::from_ref(&press);
             frame
         }, &mut build).unwrap();
         let events = [pointer(Event::POINTER_RELEASED,150.0,0),pointer(Event::POINTER_PRESSED,20.0,0)];
         ui.frame(&{
             let mut frame = input().time(time);
-            frame.wire.events = events.as_ptr();
-            frame.wire.event_count = 2;
+            frame.events = &events[..2];
             frame
         }, &mut build).unwrap();
         let s = result.get().unwrap();
@@ -446,23 +439,20 @@ fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_war
         let cancel = pointer(Event::POINTER_CANCELLED,20.0,0);
         ui.frame(&{
             let mut frame = input().time(time);
-            frame.wire.events = &cancel;
-            frame.wire.event_count = 1;
+            frame.events = core::slice::from_ref(&cancel);
             frame
         }, &mut build).unwrap();
         for accessible in [false,true] {
             ui.frame(&{
                 let mut frame = input().time(time);
-                frame.wire.events = &press;
-                frame.wire.event_count = 1;
+                frame.events = core::slice::from_ref(&press);
                 frame
             }, &mut build).unwrap();
             let right=key(crate::KeyCode::ArrowRight);
             if accessible { ui.inject_a11y(&[crate::A11yAction {id:identity,action_code:4,payload:75.0,..Default::default()}]); }
             ui.frame(&{
                 let mut frame = input().time(time);
-                frame.wire.events = if accessible {core::ptr::null()} else {&right};
-                frame.wire.event_count = usize::from(!accessible);
+                frame.events = if accessible { &[] } else { core::slice::from_ref(&right) };
                 frame
             }, &mut build).unwrap();
             let s=result.get().unwrap();let expected=if accessible {75.0} else {40.0};
@@ -470,8 +460,7 @@ fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_war
             let release=pointer(Event::POINTER_RELEASED,150.0,0);
             ui.frame(&{
                 let mut frame = input().time(time);
-                frame.wire.events = &release;
-                frame.wire.event_count = 1;
+                frame.events = core::slice::from_ref(&release);
                 frame
             },&mut build).unwrap();
             assert!(result.get().unwrap().commit.is_none());
@@ -479,16 +468,14 @@ fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_war
         let events = [key(crate::KeyCode::ArrowRight), key(crate::KeyCode::ArrowRight), key(crate::KeyCode::ArrowLeft)];
         ui.frame(&{
             let mut frame = input().time(time);
-            frame.wire.events = events.as_ptr();
-            frame.wire.event_count = events.len();
+            frame.events = &events[..];
             frame
         }, &mut build).unwrap();
         assert_eq!(result.get().unwrap().commit, Some(45.0), "all routed presses retain their order");
         let events = [key(crate::KeyCode::Meta), key(crate::KeyCode::ArrowRight), Event { kind: Event::KEY_RELEASED, code: crate::KeyCode::Meta.wire(), ..Default::default() }];
         ui.frame(&{
             let mut frame = input().time(time);
-            frame.wire.events = events.as_ptr();
-            frame.wire.event_count = events.len();
+            frame.events = &events[..];
             frame
         }, &mut build).unwrap();
         assert!(result.get().unwrap().commit.is_none(),"command chords remain available to the application");
@@ -505,8 +492,7 @@ fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_war
             let event = Event { kind: Event::TOUCH, text: Str { ptr: (&touch as *const Touch).cast(), len: core::mem::size_of::<Touch>() }, ..Default::default() };
             ui.frame(&{
                 let mut frame = input().time(time);
-                frame.wire.events = &event;
-                frame.wire.event_count = 1;
+                frame.events = core::slice::from_ref(&event);
                 frame
             }, &mut build).unwrap();
             let s = result.get().unwrap();
@@ -518,8 +504,7 @@ fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_war
             let event = Event { kind: Event::TOUCH, text: Str { ptr: (&touch as *const Touch).cast(), len: core::mem::size_of::<Touch>() }, ..Default::default() };
             ui.frame(&{
                 let mut frame = input().time(time);
-                frame.wire.events = &event;
-                frame.wire.event_count = 1;
+                frame.events = core::slice::from_ref(&event);
                 frame
             }, &mut build).unwrap();
             let s = result.get().unwrap();
@@ -528,8 +513,7 @@ fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_war
         }
         ui.frame(&{
             let mut frame = input().time(time);
-            frame.wire.events = &press;
-            frame.wire.event_count = 1;
+            frame.events = core::slice::from_ref(&press);
             frame
         }, &mut build).unwrap();
         popup.set(true);
@@ -538,8 +522,7 @@ fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_war
         let release = pointer(Event::POINTER_RELEASED,150.0,0);
         ui.frame(&{
             let mut frame = input().time(time);
-            frame.wire.events = &release;
-            frame.wire.event_count = 1;
+            frame.events = core::slice::from_ref(&release);
             frame
         }, &mut build).unwrap();
         assert!(result.get().unwrap().commit.is_none(),"a modal cancels an outside scrub");
@@ -547,8 +530,7 @@ fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_war
         ui.frame(&input().time(time), &mut build).unwrap();
         ui.frame(&{
             let mut frame = input().time(time);
-            frame.wire.events = &press;
-            frame.wire.event_count = 1;
+            frame.events = core::slice::from_ref(&press);
             frame
         }, &mut build).unwrap();
         present.set(false);
@@ -557,8 +539,7 @@ fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_war
         present.set(true);
         ui.frame(&{
             let mut frame = input().time(time);
-            frame.wire.events = &release;
-            frame.wire.event_count = 1;
+            frame.events = core::slice::from_ref(&release);
             frame
         }, &mut build).unwrap();
         assert!(result.get().unwrap().commit.is_none(),"a retired owner cannot commit after reappearing");
@@ -568,8 +549,7 @@ fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_war
     let press = pointer(Event::POINTER_PRESSED, 50.0, 0);
     ui.frame(&{
         let mut frame = input().time(time);
-        frame.wire.events = &press;
-        frame.wire.event_count = 1;
+        frame.events = core::slice::from_ref(&press);
         frame
     }, &mut build).unwrap();
     range.set((10.0, 10.0)); value.set(10.0);
@@ -580,8 +560,7 @@ fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_war
     let release = pointer(Event::POINTER_RELEASED, 150.0, 0);
     ui.frame(&{
         let mut frame = input().time(time);
-        frame.wire.events = &release;
-        frame.wire.event_count = 1;
+        frame.events = core::slice::from_ref(&release);
         frame
     }, &mut build).unwrap();
     assert!(result.get().unwrap().commit.is_none(), "a read-only transition cancels capture");
@@ -592,23 +571,20 @@ fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_war
     let release = pointer(Event::POINTER_RELEASED, x + 150.0, 0);
     ui.frame(&{
         let mut frame = input().time(time);
-        frame.wire.events = &press;
-        frame.wire.event_count = 1;
+        frame.events = core::slice::from_ref(&press);
         frame
     }, &mut build).unwrap();
     assert_eq!(result.get().unwrap().preview, Some(85.0));
     ui.frame(&{
         let mut frame = input().time(time);
-        frame.wire.events = &release;
-        frame.wire.event_count = 1;
+        frame.events = core::slice::from_ref(&release);
         frame
     }, &mut build).unwrap();
     assert_eq!(result.get().unwrap().commit, Some(35.0));
     let right = key(crate::KeyCode::ArrowRight);
     ui.frame(&{
         let mut frame = input().time(time);
-        frame.wire.events = &right;
-        frame.wire.event_count = 1;
+        frame.events = core::slice::from_ref(&right);
         frame
     }, &mut build).unwrap();
     assert_eq!(result.get().unwrap().commit, Some(35.0));
@@ -810,8 +786,7 @@ fn section_list_scrolls_leading_content_pins_blocks_and_virtualizes_without_warm
             let event=crate::Event {kind,x,y,..Default::default()};
             ui.frame(&{
                 let mut frame = input();
-                frame.wire.events = &event;
-                frame.wire.event_count = 1;
+                frame.events = core::slice::from_ref(&event);
                 frame
             },&mut build).unwrap();
         }
@@ -979,8 +954,7 @@ fn dismissed_popups_do_not_intercept_the_next_press_over_their_previous_bounds()
             let event=Event {kind,x:60.0,y:50.0,..Event::default()};
             ui.frame(&{
                 let mut frame = input();
-                frame.wire.events = &event;
-                frame.wire.event_count = 1;
+                frame.events = core::slice::from_ref(&event);
                 frame
             },&mut build).unwrap();
             assert_eq!(pressed.get(),kind==Event::POINTER_PRESSED);
@@ -1033,8 +1007,7 @@ fn held_keys_include_focused_and_modal_modifiers_without_allocating_or_consuming
                 let event=Event {kind,code,..Event::default()};
                 ui.frame(&{
                     let mut frame = input().time(round as f64+0.01);
-                    frame.wire.events = &event;
-                    frame.wire.event_count = 1;
+                    frame.events = core::slice::from_ref(&event);
                     frame
                 },&mut build).unwrap();
                 assert_eq!(ui.key_down(meta), down);
@@ -1071,8 +1044,7 @@ fn modifier_at_press_queries_keep_event_order_focus_loss_and_warm_storage() {
                     };
                     ui.frame(&{
                         let mut frame = input().time(round as f64);
-                        frame.wire.events = events.as_ptr();
-                        frame.wire.event_count = events.len();
+                        frame.events = &events[..];
                         frame
                     },&mut |ui| {
                         if popup {ui.popup("chord", &crate::Overlay::DEFAULT.at(crate::Point::new(0.0, 0.0)).w_px(120.0).h_px(30.0).attached(), &mut contents);}
@@ -1083,15 +1055,13 @@ fn modifier_at_press_queries_keep_event_order_focus_loss_and_warm_storage() {
                 let press=key(Event::KEY_PRESSED,modifier.wire());
                 ui.frame(&{
                     let mut frame = input();
-                    frame.wire.events = &press;
-                    frame.wire.event_count = 1;
+                    frame.events = core::slice::from_ref(&press);
                     frame
                 },&mut |_| {}).unwrap();
                 let events=[key(Event::KEY_PRESSED,b'k' as u32),key(Event::KEY_RELEASED,modifier.wire())];
                 ui.frame(&{
                     let mut frame = input();
-                    frame.wire.events = events.as_ptr();
-                    frame.wire.event_count = events.len();
+                    frame.events = &events[..];
                     frame
                 },&mut |ui| {
                     assert!(ui.key_pressed(crate::KeyCode::Char('k'), mods),"modifier can be held from the previous frame");
@@ -2009,8 +1979,7 @@ fn public_view_controls_retain_instances_geometry_and_hit_clips_without_warm_all
         let event=pxui_types::Event { kind:pxui_types::Event::POINTER_MOVED,x,y:20.0,..Default::default() };
         ui.frame(&{
             let mut frame = input().time(time);
-            frame.wire.events = &event;
-            frame.wire.event_count = 1;
+            frame.events = core::slice::from_ref(&event);
             frame
         },&mut build).unwrap();
         assert_eq!(ui.signal(&c).hovered,hovered,"a view's window clip also clips hit testing");
@@ -2019,8 +1988,7 @@ fn public_view_controls_retain_instances_geometry_and_hit_clips_without_warm_all
     let event=pxui_types::Event { kind:pxui_types::Event::POINTER_MOVED,x:15.0,y:20.0,..Default::default() };
     ui.frame(&{
         let mut frame = input().time(1.2);
-        frame.wire.events = &event;
-        frame.wire.event_count = 1;
+        frame.events = core::slice::from_ref(&event);
         frame
     },&mut build).unwrap();
     assert!(ui.signal(&c).hovered);
@@ -2101,8 +2069,7 @@ fn short_startup_input_keeps_capacity_for_the_first_background_resume_batch() {
     let first = Event { kind: Event::FOCUS_GAINED, ..Event::default() };
     ui.frame(&{
         let mut frame = input();
-        frame.wire.events = &first;
-        frame.wire.event_count = 1;
+        frame.events = core::slice::from_ref(&first);
         frame
     }, &mut build).unwrap();
     for frame in 0..82 {
@@ -2118,8 +2085,7 @@ fn short_startup_input_keeps_capacity_for_the_first_background_resume_batch() {
     mem_sys::local_reset();
     ui.frame(&{
         let mut frame = input().time(30.0);
-        frame.wire.events = events.as_ptr();
-        frame.wire.event_count = events.len();
+        frame.events = &events[..];
         frame
     }, &mut build).unwrap();
     assert_eq!(mem_sys::local_alloc_count(), 0, "first resume must retain the normal input capacity");
@@ -2139,8 +2105,7 @@ fn focused_text_field_keeps_selection_and_ime_without_warm_allocations() {
     let focus = [key(Event::KEY_PRESSED, crate::KeyCode::Tab)];
     ui.frame(&{
         let mut frame = input().time(0.1);
-        frame.wire.events = focus.as_ptr();
-        frame.wire.event_count = focus.len();
+        frame.events = &focus[..];
         frame
     }, &mut build).unwrap();
     assert!(ui.text_input_focused());
@@ -2149,8 +2114,7 @@ fn focused_text_field_keeps_selection_and_ime_without_warm_allocations() {
         Event { kind: Event::TEXT_EDITING, text: Str { ptr: composition.as_ptr(), len: composition.len() }, y: 1.0, ..Event::default() }];
     ui.frame(&{
         let mut frame = input().time(0.2);
-        frame.wire.events = select.as_ptr();
-        frame.wire.event_count = select.len();
+        frame.events = &select[..];
         frame
     }, &mut build).unwrap();
     for tick in 0..80 {
@@ -2169,8 +2133,7 @@ fn focused_text_field_keeps_selection_and_ime_without_warm_allocations() {
     let mut changed = false;
     ui.frame(&{
         let mut frame = input().time(2.0);
-        frame.wire.events = &commit;
-        frame.wire.event_count = 1;
+        frame.events = core::slice::from_ref(&commit);
         frame
     }, &mut |ui| {
         changed = ui.text_field("Caption", "café track 10", &crate::TextField::DEFAULT).changed == Some("café track 1é");
@@ -2218,8 +2181,7 @@ fn custom_text_field_font_sizes_keep_glyphs_caret_hit_selection_and_ime_without_
             let focus = Event {kind:Event::KEY_PRESSED,code:crate::KeyCode::Tab.wire(),..Default::default()};
             ui.frame(&{
                 let mut frame = frame.time(0.1);
-                frame.wire.events = &focus;
-                frame.wire.event_count = 1;
+                frame.events = core::slice::from_ref(&focus);
                 frame
             },&mut build).unwrap();
             assert_eq!(ui.ime().unwrap().caret,(2.0+full_width).round(),"focused text uses the body's editor font size {size}");
@@ -2233,8 +2195,7 @@ fn custom_text_field_font_sizes_keep_glyphs_caret_hit_selection_and_ime_without_
                 let click = Event {kind,x:x as f64,y:y as f64,..Default::default()};
                 ui.frame(&{
                     let mut frame = frame.time(0.2);
-                    frame.wire.events = &click;
-                    frame.wire.event_count = 1;
+                    frame.events = core::slice::from_ref(&click);
                     frame
                 },&mut build).unwrap();
             }
@@ -2249,8 +2210,7 @@ fn custom_text_field_font_sizes_keep_glyphs_caret_hit_selection_and_ime_without_
             let select = [key(Event::KEY_PRESSED,crate::KeyCode::Shift),key(Event::KEY_PRESSED,crate::KeyCode::ArrowLeft),key(Event::KEY_RELEASED,crate::KeyCode::Shift),Event {kind:Event::TEXT_EDITING,text:Str {ptr:composition.as_ptr(),len:composition.len()},y:1.0,..Default::default()}];
             ui.frame(&{
                 let mut frame = frame.time(0.3);
-                frame.wire.events = select.as_ptr();
-                frame.wire.event_count = select.len();
+                frame.events = &select[..];
                 frame
             },&mut build).unwrap();
             let selected = ui.a11y_nodes().iter().find(|node|node.role==Role::TextField as u32).unwrap();
@@ -2260,8 +2220,7 @@ fn custom_text_field_font_sizes_keep_glyphs_caret_hit_selection_and_ime_without_
                 mem_sys::local_reset();
                 ui.frame(&{
                     let mut frame = frame.time(0.4+tick as f64/60.0);
-                    frame.wire.events = keys.as_ptr();
-                    frame.wire.event_count = keys.len();
+                    frame.events = &keys[..];
                     frame
                 },&mut build).unwrap();
                 if tick>=8 {assert_eq!(mem_sys::local_alloc_count(),0,"warm custom body, focus, selection and composition");}
@@ -2272,8 +2231,7 @@ fn custom_text_field_font_sizes_keep_glyphs_caret_hit_selection_and_ime_without_
             let mut changed = false;
             ui.frame(&{
                 let mut frame = frame.time(1.0);
-                frame.wire.events = &commit;
-                frame.wire.event_count = 1;
+                frame.events = core::slice::from_ref(&commit);
                 frame
             },&mut |ui| {changed=ui.text_field("Styled",value,&crate::TextField::DEFAULT).changed==Some("caféétrack 10");}).unwrap();
             assert!(changed,"composition commit replaces exactly the selected UTF-8 range");
@@ -2305,8 +2263,7 @@ fn numeric_signal_preserves_legacy_keys_without_warm_keyboard_allocations() {
         mem_sys::local_reset();
         ui.frame(&{
             let mut frame = input().time(1.0 + tick as f64 / 60.0);
-            frame.wire.events = events.as_ptr();
-            frame.wire.event_count = events.len();
+            frame.events = &events[..];
             frame
         }, &mut build).unwrap();
         if tick >= 5 { assert_eq!(mem_sys::local_alloc_count(), 0, "numeric keyboard routing and scalar signal across the ABI"); }
@@ -2316,8 +2273,7 @@ fn numeric_signal_preserves_legacy_keys_without_warm_keyboard_allocations() {
     let scope = mem_sys::warm_scope();
     ui.frame(&{
         let mut frame = input().time(9.0);
-        frame.wire.events = events.as_ptr();
-        frame.wire.event_count = events.len();
+        frame.events = &events[..];
         frame
     }, &mut |ui: &mut Ui| {
         let node = ui.node("button", crate::Node::DEFAULT.flags(pxui_types::Flags::CLICKABLE | pxui_types::Flags::TAB_STOP).w_px(120.0).h_px(32.0));
@@ -2340,8 +2296,7 @@ fn numeric_signal_preserves_legacy_keys_without_warm_keyboard_allocations() {
         Event { kind: Event::TEXT_INPUT, text: pxui_types::Str { ptr: text.as_ptr(), len: text.len() }, ..Default::default() }];
     ui.frame(&{
         let mut frame = input().time(3.0);
-        frame.wire.events = events.as_ptr();
-        frame.wire.event_count = events.len();
+        frame.events = &events[..];
         frame
     }, &mut build).unwrap();
     let owned = ui.signal_keys(&node);
@@ -2385,8 +2340,7 @@ fn borrowed_carry_queries_and_whole_warm_pointer_gestures_allocate_nothing() {
             tick += 1;
             ui.frame(&{
                 let mut frame = input().time(tick as f64 / 60.0);
-                frame.wire.events = e.as_ref().map_or(core::ptr::null(), |e| e);
-                frame.wire.event_count = usize::from(e.is_some());
+                frame.events = e.as_slice();
                 frame
             }, &mut build).unwrap();
         }
@@ -2460,8 +2414,7 @@ fn transferred_pointer_carries_survive_virtualization_and_keep_warm_modified_ges
             let count = if events[0].kind == 0 { 0 } else { 1 + usize::from(events[1].kind != 0) };
             ui.frame(&{
                 let mut frame = input().time(time);
-                frame.wire.events = events.as_ptr();
-                frame.wire.event_count = count;
+                frame.events = &events[..count];
                 frame
             }, &mut build).unwrap();
             if round == 0 && events[0].kind == Event::POINTER_RELEASED {
@@ -2481,8 +2434,7 @@ fn transferred_pointer_carries_survive_virtualization_and_keep_warm_modified_ges
             time += 0.02;
             ui.frame(&{
                 let mut frame = input().time(time);
-                frame.wire.events = &e;
-                frame.wire.event_count = 1;
+                frame.events = core::slice::from_ref(&e);
                 frame
             }, &mut build).unwrap();
         }
@@ -2491,8 +2443,7 @@ fn transferred_pointer_carries_survive_virtualization_and_keep_warm_modified_ges
             time += 0.02;
             ui.frame(&{
                 let mut frame = input().time(time);
-                frame.wire.events = &e;
-                frame.wire.event_count = 1;
+                frame.events = core::slice::from_ref(&e);
                 frame
             }, &mut build).unwrap();
         } else { ui.cancel_carry(); }
@@ -2500,8 +2451,7 @@ fn transferred_pointer_carries_survive_virtualization_and_keep_warm_modified_ges
         time += 0.02;
         ui.frame(&{
             let mut frame = input().time(time);
-            frame.wire.events = &e;
-            frame.wire.event_count = 1;
+            frame.events = core::slice::from_ref(&e);
             frame
         }, &mut build).unwrap();
         assert!(dropped.get().is_none() && ui.carrying().is_none());
@@ -2510,8 +2460,7 @@ fn transferred_pointer_carries_survive_virtualization_and_keep_warm_modified_ges
         time += 0.02;
         ui.frame(&{
             let mut frame = input().time(time);
-            frame.wire.events = &e;
-            frame.wire.event_count = 1;
+            frame.events = core::slice::from_ref(&e);
             frame
         }, &mut build).unwrap();
     }
@@ -2977,16 +2926,14 @@ fn touch_gestures_drive_virtual_rows_catch_coasts_and_keep_warm_allocations_zero
     let outside = Event { kind: Event::POINTER_MOVED, x: -1.0, y: -1.0, ..Event::default() };
     ui.frame(&{
         let mut frame = input();
-        frame.wire.events = &outside;
-        frame.wire.event_count = 1;
+        frame.events = core::slice::from_ref(&outside);
         frame
     }, &mut build).unwrap();
     let send = |ui: &mut Ui, packet: &Touch, build: &mut dyn FnMut(&mut Ui)| {
         let event = Event { kind: Event::TOUCH, text: Str { ptr: (packet as *const Touch).cast(), len: core::mem::size_of::<Touch>() }, ..Event::default() };
         ui.frame(&{
             let mut frame = input().time(packet.time);
-            frame.wire.events = &event;
-            frame.wire.event_count = 1;
+            frame.events = core::slice::from_ref(&event);
             frame
         }, build).unwrap();
     };
@@ -3076,8 +3023,7 @@ fn text_field_refocus_reuses_its_warm_editor_storage() {
         if matches!(frame,40|130) { ui.unfocus(); }
         ui.frame(&{
             let mut frame = input().time(frame as f64/60.0);
-            frame.wire.events = if focusing {focus.as_ptr()} else {std::ptr::null()};
-            frame.wire.event_count = if focusing {focus.len()} else {0};
+            frame.events = if focusing { &focus[..] } else { &[] };
             frame
         }, &mut build).unwrap();
         assert_eq!(ui.text_input_focused(),focused);
@@ -3109,8 +3055,7 @@ fn text_input_options_follow_the_focused_field_and_done_keeps_warm_storage() {
         mem_sys::local_reset();
         ui.frame(&{
             let mut frame = input().time(frame as f64);
-            frame.wire.events = events.as_ptr();
-            frame.wire.event_count = if active {2} else {0};
+            frame.events = &events[..if active {2} else {0}];
             frame
         },&mut build).unwrap();
         let expected=match step {0|1=>Options::SEARCH,2|3=>done,_=>Options::default()};
@@ -3149,8 +3094,7 @@ fn marked_text_replaces_the_selection_and_tracks_unicode_caret_without_warm_allo
         Event {kind:Event::KEY_PRESSED,code:'a' as u32,..Default::default()},key(Event::KEY_RELEASED,crate::KeyCode::Meta)];
     ui.frame(&{
         let mut frame = input();
-        frame.wire.events = focus.as_ptr();
-        frame.wire.event_count = focus.len();
+        frame.events = &focus[..];
         frame
     },&mut build).unwrap();
     let value="éix";
@@ -3158,8 +3102,7 @@ fn marked_text_replaces_the_selection_and_tracks_unicode_caret_without_warm_allo
         let event=Event {kind:Event::TEXT_EDITING,text:Str {ptr:value.as_ptr(),len:value.len()},x:start,y:length,..Default::default()};
         ui.frame(&{
             let mut frame = input();
-            frame.wire.events = &event;
-            frame.wire.event_count = 1;
+            frame.events = core::slice::from_ref(&event);
             frame
         },&mut build).unwrap();
         let prefix=if start>3.0 {value} else {"éi"};
@@ -3177,8 +3120,7 @@ fn marked_text_replaces_the_selection_and_tracks_unicode_caret_without_warm_allo
     let mut changed=false;
     ui.frame(&{
         let mut frame = input();
-        frame.wire.events = commit.as_ptr();
-        frame.wire.event_count = commit.len();
+        frame.events = &commit[..];
         frame
     },&mut |ui| {
         changed=ui.text_field("Marked","café track",&crate::TextField::DEFAULT.action(crate::ReturnKey::Done)).changed==Some(value);
@@ -3667,8 +3609,7 @@ fn a_tooltip_waits_by_its_owner_and_allocates_nothing_while_it_waits() {
         time += 0.1;
         let moved = Event { kind: Event::POINTER_MOVED, x, y: 10.0, ..Default::default() };
         let mut frame = FrameIn::new(320.0, 240.0).time(time);
-        frame.wire.events = &moved;
-        frame.wire.event_count = 1;
+        frame.events = core::slice::from_ref(&moved);
         ui.frame(&frame, build).unwrap();
     };
     rest(&mut ui, 10.0, 2, &mut build);
@@ -3744,8 +3685,7 @@ fn u1b2_keys_resolve_once_and_lookups_keep_the_innermost_candidate_without_warm_
     for t in 5..9 {
         let moved = Event { kind: Event::POINTER_MOVED, x: 150.0, y: 10.0, ..Default::default() };
         let mut frame = input().time(t as f64 * 0.1 + 5.0);
-        frame.wire.events = &moved;
-        frame.wire.event_count = 1;
+        frame.events = core::slice::from_ref(&moved);
         if t == 7 { mem_sys::local_reset(); }
         ui.frame(&frame, &mut build).unwrap();
         let _ = ui.root_at(at, &many);
@@ -3883,7 +3823,7 @@ fn tooltip_body_reads_text_at() {
     for k in 0..8 {
         let moved = Event { kind: Event::POINTER_MOVED, x: 10.0, y: 10.0, ..Default::default() };
         let mut frame = FrameIn::new(320.0, 240.0).time(0.2 * k as f64);
-        (frame.wire.events, frame.wire.event_count) = (&moved, 1);
+        frame.events = core::slice::from_ref(&moved);
         ui.frame(&frame, &mut build).unwrap();
     }
     assert_eq!(TIP_LINES.with(|l| l.borrow().clone()), ["Reveal in Finder", ""], "the body read the line, and none past the end");

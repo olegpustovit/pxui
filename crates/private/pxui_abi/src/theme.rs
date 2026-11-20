@@ -176,7 +176,7 @@ export!(object pub unsafe fn pxui_theme_reduced_motion(theme: *mut PxuiTheme, on
 #[test]
 fn editing_a_parsed_theme_updates_its_colour_token_scan() {
     use crate::state::pair;
-    let ui = unsafe { crate::pxui_ui_create(&crate::PxuiUiDesc::default()) };
+    let ui = unsafe { crate::ui::create_test_ui() };
     let theme = unsafe { pxui_theme_create(core::ptr::null()) };
     let color = Rgba::rgb(30, 60, 90);
     assert_eq!(unsafe { pxui_theme_set_color(theme, 0, color) }, 0);
@@ -210,7 +210,7 @@ mod snapshot_tests {
     /// keeps its fraction.
     #[test]
     fn token_text_sizes_are_floats_in_their_slots() {
-        let ui = unsafe { crate::pxui_ui_create(&crate::PxuiUiDesc::default()) };
+        let ui = unsafe { crate::ui::create_test_ui() };
         assert_eq!(unsafe { crate::ui_state::pxui_ui_set_font_points(ui, 14.5) }, 0);
         let exact: &ThemeSnapshot = unsafe { &*super::pxui_ui_theme(ui) };
         let slot = |t: &Tokens, at: usize| unsafe { (t as *const Tokens).cast::<u8>().add(at).cast::<i64>().read() };

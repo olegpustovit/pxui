@@ -182,8 +182,7 @@ fn framework_platform_applies_focused_ime_reuses_warm_frames_and_rejects_dead_wi
     let focus = Event { kind: Event::KEY_PRESSED, code: input::Key::Tab.code(), ..Event::default() };
     ui.frame(&{
         let mut frame = input;
-        frame.wire.events = &focus;
-        frame.wire.event_count = 1;
+        frame.events = core::slice::from_ref(&focus);
         frame
     }, &mut build).unwrap();
     assert!(ui.ime().is_some());

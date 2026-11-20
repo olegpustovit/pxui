@@ -18,7 +18,7 @@ mod curve_tests {
         extern "C" fn build(user: *mut core::ffi::c_void, ui: *mut core::ffi::c_void) {
             assert_eq!(unsafe { crate::pxui_ui_node_keyed(ui.cast(), 77, &pxui_types::Node::DEFAULT, user.cast()) }, 0);
         }
-        let ui = unsafe { crate::pxui_ui_create(&crate::PxuiUiDesc::default()) };
+        let ui = unsafe { crate::ui::create_test_ui() };
         let mut target = PxuiBox::default();
         let mut frame = crate::FrameOut::default();
         assert_eq!(unsafe { crate::pxui_frame(ui, &crate::FrameIn::default(), Some(build), (&mut target as *mut PxuiBox).cast(), &mut frame) }, 0);
@@ -48,7 +48,7 @@ mod curve_tests {
 
     #[test]
     fn scale_keyframes_keep_axes_and_anchor_and_reject_nonfinite_values() {
-        let ui = unsafe { crate::pxui_ui_create(&crate::PxuiUiDesc::default()) };
+        let ui = unsafe { crate::ui::create_test_ui() };
         let key = PxuiKeyframeDesc { size: core::mem::size_of::<PxuiKeyframeDesc>() as u32, target: 3,
             values: [2.0, 0.5, 1.0, 0.0], curve: PxuiCurveDesc { kind: PxuiCurveDesc::STEPS, duration: 0.14, count: 2, ..PxuiCurveDesc::default() }, ..PxuiKeyframeDesc::default() };
         assert_eq!(unsafe { decode_key(ui, &key, -1.0) }, Ok(Keyframe::scale(0.0, 2.0, 0.5).anchor(1.0, 0.0).curve(pxui_types::Curve::Steps { duration: 0.14, count: 2 })));
@@ -125,7 +125,7 @@ export!(pub unsafe fn pxui_ui_wants_frame(ui: *mut PxuiUi, events: Slice<pxui_ty
     let mut budget = MAX_TOTAL_TEXT_BYTES;
     if events.len != 0 {
         for event in unsafe { core::slice::from_raw_parts(events.ptr, events.len) } {
-            let Some(event) = translate_event(event, &mut budget) else { translated.clear(); state.shared().wants = translated; return unsafe { fail(ui, "invalid wants frame event") }; };
+            let Some(event) = translate_event(event, state.shared().surface, &mut budget) else { translated.clear(); state.shared().wants = translated; return unsafe { fail(ui, "invalid wants frame event") }; };
             translated.push(event);
         }
     }

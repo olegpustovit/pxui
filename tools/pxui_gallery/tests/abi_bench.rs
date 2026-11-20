@@ -10,7 +10,7 @@ use abi_bench::{gallery as direct_pages, pxui as engine};
 use input::{frame::Frame, Event as HostEvent, Platform};
 use pxui_gallery::{page, Gallery, PAGES, PAGE_H, PAGE_W};
 use pxui::FrameIn;
-use pxui_types::{geom::Rgba, Event, Size, Str};
+use pxui_types::{geom::Rgba, Event, Size};
 use std::{process::Command, time::{Duration, Instant}};
 
 const DEPARTURE_MONO: &[u8] = include_bytes!("../../../assets/fonts/DepartureMono-Regular.otf");
@@ -83,7 +83,7 @@ fn median(values: &mut [f64]) -> f64 {
 }
 
 fn pointer() -> Event {
-    Event { kind: Event::POINTER_MOVED, code: 0, x: -100.0, y: -100.0, value: 0.0, text: Str::default() }
+    Event::pointer(Event::POINTER_MOVED, 0, -100.0, -100.0)
 }
 
 use pxui_gallery::gpu::allocations;
@@ -96,9 +96,7 @@ fn wrapped() -> Wrapped {
     let mut ui = pxui::Ui::new(&pxui::UiDesc::new(pxui::Platform::Apple).fonts(&[pxui::FontData(DEPARTURE_MONO)])).expect("pxui Ui");
     ui.set_theme(&pxui::ThemeHandle::default()).expect("default theme");
     let events = Box::new([pointer()]);
-    let mut input = FrameIn::new(PAGE_W as f32, PAGE_H as f32).scale(1.0);
-    // the events live in the box, which moves with `Wrapped` but stays where it is
-    input.wire.events = events.as_ptr();
+    let input = FrameIn::new(PAGE_W as f32, PAGE_H as f32).scale(1.0);
     Wrapped { ui, state: Gallery::new(), _events: events, input, moved: true }
 }
 
@@ -114,9 +112,10 @@ fn direct() -> Direct {
 /// One frame of page `index` whose view has revision `revision` (a new one rebuilds the page, the same one settles).
 fn wrapped_frame(w: &mut Wrapped, index: usize, revision: u64, count: u64) {
     w.input.wire.time = count as f64 / 60.0;
-    w.input.wire.event_count = w.moved as usize;
+    // the one pointer event the first frame carries, borrowed for the call
+    let input = w.input.events(if w.moved { &w._events[..] } else { &[] });
     let state = &mut w.state;
-    w.ui.frame(&w.input, &mut |ui: &mut pxui::Ui| { ui.view_of("page", &revision, |ui: &mut pxui::Ui| page(ui, state, index)); }).expect("frame");
+    w.ui.frame(&input, &mut |ui: &mut pxui::Ui| { ui.view_of("page", &revision, |ui: &mut pxui::Ui| page(ui, state, index)); }).expect("frame");
 }
 
 /// The engine's `view_of`, as the wrapper's frame above calls it (sized by its parent), so both sides build the same view.

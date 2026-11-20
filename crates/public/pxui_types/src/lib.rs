@@ -373,16 +373,28 @@ impl Touch {
     }
 }
 
+/// One input event: 64 bytes, size-prefixed, one kind per event (`FILE_DROPPED` 11 is gone and stays reserved).
+///
+/// `surface` is the surface the event is for and must be the surface of the frame that carries it (`FrameIn::surface`); `new` and
+/// `default` name `FrameIn::MAIN`. `text` and the touch payload are borrowed for the frame call only: build events into
+/// `FrameIn::events(&[Event])`, which keeps the borrow. TEXT_EDITING carries its start and length in `x` and `y`; FILE_DIALOG carries
+/// its id in `value`.
+/// shortcut: the FILE_DIALOG id is an f64 (exact up to 2^53), upgrade with an integer id slot when a host numbers dialogs past that.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 pub struct Event {
+    /// `size_of::<Event>()` (64); a longer record is read as its first 64 bytes, a shorter one refused. `new` and `default` set it.
+    pub size: u32,
     pub kind: u32,
+    pub surface: u64,
     pub code: u32,
+    pub reserved: u32,
     pub x: f64,
     pub y: f64,
     pub value: f64,
     pub text: Str,
 }
+impl Default for Event { fn default() -> Self { Event::new(0) } }
 
 impl Event {
     /// Builds an event that carries no borrowed payload.
@@ -396,7 +408,7 @@ impl Event {
     /// const LOST: Event = Event::new(Event::FOCUS_LOST);
     /// ```
     pub const fn new(kind: u32) -> Event {
-        Event { kind, code: 0, x: 0.0, y: 0.0, value: 0.0, text: Str { ptr: core::ptr::null(), len: 0 } }
+        Event { size: core::mem::size_of::<Event>() as u32, kind, surface: FrameIn::MAIN, code: 0, reserved: 0, x: 0.0, y: 0.0, value: 0.0, text: Str { ptr: core::ptr::null(), len: 0 } }
     }
 
     /// Builds a key edge with a raw key code.
@@ -433,7 +445,7 @@ impl Event {
     pub const TEXT_INPUT: u32 = 8;
     pub const PASTE: u32 = 9;
     pub const TEXT_EDITING: u32 = 10;
-    pub const FILE_DROPPED: u32 = 11;
+    // 11 (FILE_DROPPED, one path) is reserved: FILES_DROPPED carries any number of paths.
     pub const FILE_DRAG_MOVED: u32 = 12;
     pub const FILE_DRAG_ENDED: u32 = 13;
     pub const PINCHED: u32 = 14;
@@ -551,13 +563,15 @@ pub struct FrameIn {
     pub environment: Environment,
     /// ABI 1.26 tail: current native keyboard geometry, including intermediate animation frames.
     pub keyboard: Keyboard,
-    /// ABI 1.57 tail: the surface this frame is for. Reserved: the library has one surface, ignores the value and the host passes 0.
+    /// The surface this frame is for: registered on the Ui (`Ui::add_surface`), else the frame is refused; every event carries it.
     pub surface: u64,
 }
 impl Default for FrameIn {
     fn default() -> Self { Self::new(0.0, 0.0) }
 }
 impl FrameIn {
+    /// The surface id `Ui::new` registers and `FrameIn::new` names; an app with another surface registers its own with `Ui::add_surface`.
+    pub const MAIN: u64 = 1;
     /// The wire value for unknown appearance.
     pub const APPEARANCE_UNKNOWN:u32=0;
     /// The wire value for light appearance.
@@ -583,7 +597,7 @@ impl FrameIn {
                 safe_area: [0.0; 4], keyboard_frame: [0.0; 4], keyboard_from: [0.0; 4],
                 keyboard_started: 0.0, keyboard_duration: 0.0, keyboard_curve: 0, keyboard_visible: 0,
             },
-            keyboard: Keyboard { frame: [0.0; 4], flags: 0 }, surface: 0,
+            keyboard: Keyboard { frame: [0.0; 4], flags: 0 }, surface: Self::MAIN,
         }
     }
 
@@ -900,7 +914,7 @@ pub mod feature {
 }
 
 /// The ABI version this crate's records describe (`major << 16 | minor`); an app states it as `PxuiUiDesc::abi_built`.
-pub const ABI_BUILT: u32 = 1 << 16 | 132;
+pub const ABI_BUILT: u32 = 1 << 16 | 133;
 impl Default for PxuiUiDesc { fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, platform: 0, font_size: 0, abi_built: ABI_BUILT } } }
 
 #[cfg(test)]

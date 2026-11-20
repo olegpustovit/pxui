@@ -179,6 +179,8 @@ mod sys {
         pub fn pxui_ui_text(ui:*mut PxuiUi,box_:*const PxuiBox,value:Str)->i32;
         pub fn pxui_ui_destroy(ui: *mut PxuiUi) -> i32;
         pub fn pxui_last_error(ui: *const PxuiUi) -> Str;
+        pub fn pxui_ui_add_surface(ui:*mut PxuiUi,surface:u64)->i32;
+        pub fn pxui_ui_remove_surface(ui:*mut PxuiUi,surface:u64)->i32;
         pub fn pxui_frame(ui:*mut PxuiUi,input:*const FrameIn,build:pxui_types::ffi::UiBuild,user:*mut c_void,out:*mut FrameOut)->i32;
         pub fn pxui_within(ui:*mut PxuiUi,box_:*const PxuiBox,build:pxui_types::ffi::UiBuild,user:*mut c_void)->i32;
         pub fn pxui_scope(ui:*mut PxuiUi,label:Str,build:pxui_types::ffi::UiBuild,user:*mut c_void)->i32;
@@ -452,7 +454,7 @@ impl<'a> FrameIn<'a> {
     /// ui.frame(&unsafe { FrameIn::snapshot(&snapshot) }, &mut |_| {}).unwrap();
     /// ```
     pub const unsafe fn snapshot(input: &'a Input) -> FrameIn<'a> {
-        FrameIn { wire: WireFrame::new(0.0, 0.0), snapshot: Some(input) }
+        FrameIn { wire: WireFrame::new(0.0, 0.0), events: &[], snapshot: Some(input) }
     }
 }
 
@@ -571,6 +573,7 @@ impl Ui {
         };
         let ui = NonNull::new(ui).map(Self).ok_or(Error::InvalidInput)?;
         if let Some(points) = exact { ui.set_font_points(points)?; }
+        status(unsafe { sys::pxui_ui_add_surface(ui.0.as_ptr(), pxui_types::FrameIn::MAIN) })?;
         #[cfg(debug_assertions)]
         let mut ui = ui;
         #[cfg(debug_assertions)]
@@ -603,13 +606,17 @@ impl Ui {
     /// ```
     pub fn frame(&mut self, input: &FrameIn<'_>, mut build: &mut dyn FnMut(&mut Ui)) -> Result<Frame<'_>, Error> {
         let mut out = FrameOut::default();
+        // the wire record points at the borrowed events for this call only, whatever `input.wire.events` held
+        let mut wire = input.wire;
+        wire.events = input.events.as_ptr();
+        wire.event_count = input.events.len();
         #[cfg(feature = "static")]
         let rc = unsafe {
             let outer = self.0.as_ptr();
             let build: &mut dyn FnMut(&mut pxui_abi_link::trusted::Engine) = inner!(outer, |ui: &mut Ui| build(ui));
             match input.snapshot {
                 Some(snapshot) => pxui_abi_link::trusted::input_frame(self.0.as_ptr(), snapshot, build, &mut out),
-                None => pxui_abi_link::trusted::frame(self.0.as_ptr(), &input.wire, build, &mut out),
+                None => pxui_abi_link::trusted::frame(self.0.as_ptr(), &wire, build, &mut out),
             }
         };
         #[cfg(not(feature = "static"))]
@@ -618,12 +625,34 @@ impl Ui {
             let user = (&mut build as *mut &mut dyn FnMut(&mut Ui)).cast::<c_void>();
             match input.snapshot {
                 Some(snapshot) => sys::pxui_ui_frame(self.0.as_ptr(), snapshot, call, user, &mut out),
-                None => sys::pxui_frame(self.0.as_ptr(), &input.wire, call, user, &mut out),
+                None => sys::pxui_frame(self.0.as_ptr(), &wire, call, user, &mut out),
             }
         };
         composite::resume_deferred();
         if rc==0 { Ok(Frame { out, _ui:PhantomData }) } else { Err(Error::from_code(rc)) }
     }
+
+    /// Registers a surface on this `Ui` (`Ui::new` registered `FrameIn::MAIN`).
+    ///
+    /// A frame names its surface (`FrameIn::surface`) and every event carries it; an unregistered surface is `Error::InvalidInput`.
+    /// Focus, the accessibility tree, IME and keyboard geometry belong to a surface. A `Ui` serves one surface for now: adding one while
+    /// another is registered is `Error::State`, as is any call inside a frame; remove the first with `remove_surface`.
+    /// shortcut: one surface per Ui, upgrade when the engine keeps per-surface focus/a11y/IME state.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let mut ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
+    /// ui.remove_surface(pxui_types::FrameIn::MAIN).unwrap();
+    /// ui.add_surface(7).unwrap();
+    /// ui.frame(&pxui::FrameIn::new(10.0, 10.0).surface(7), &mut |_| {}).unwrap();
+    /// ```
+    pub fn add_surface(&mut self, surface: u64) -> Result<(), Error> { status(unsafe { sys::pxui_ui_add_surface(self.0.as_ptr(), surface) }) }
+
+    /// Removes the registered surface (an unregistered id is `Error::InvalidInput`; inside a frame `Error::State`).
+    /// Allocates: never.
+    /// Panics: never.
+    pub fn remove_surface(&mut self, surface: u64) -> Result<(), Error> { status(unsafe { sys::pxui_ui_remove_surface(self.0.as_ptr(), surface) }) }
 
     pub fn last_error(&self) -> &str {
         let s = unsafe { sys::pxui_last_error(self.0.as_ptr()) };

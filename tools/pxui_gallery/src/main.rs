@@ -119,7 +119,7 @@ fn encode_events(events: &[HostEvent], raw: &mut Vec<Event>, scratch: &mut Vec<S
         }
         let r = event.raw(scratch);
         let text = r.text.unwrap_or("");
-        raw.push(Event { kind: r.kind, code: r.code, x: r.x, y: r.y, value: r.value, text: Str { ptr: text.as_ptr(), len: text.len() } });
+        raw.push(Event { kind: r.kind, code: r.code, x: r.x, y: r.y, value: r.value, text: Str { ptr: text.as_ptr(), len: text.len() }, ..Default::default() });
     }
 }
 

@@ -1,4 +1,4 @@
-use crate::{Appearance, Environment, Input, Keyboard, WireFrame};
+use crate::{Appearance, Environment, Event, Input, Keyboard, WireFrame};
 
 /// The input to one UI frame. Event frames use the wire record. A host with a complete
 /// input snapshot can supply that record instead.
@@ -7,6 +7,8 @@ pub struct FrameIn<'a> {
     /// The event-mode record. Keep all of its event records and their payloads alive
     /// through the frame call. The snapshot source carries its own complete input.
     pub wire: pxui_types::FrameIn,
+    /// The frame's events, borrowed for the call (text and touch payloads too); at most 4096, each carrying the frame's surface.
+    pub events: &'a [Event],
     pub(crate) snapshot: Option<&'a Input>,
 }
 
@@ -27,8 +29,33 @@ impl<'a> FrameIn<'a> {
     /// assert_eq!((frame.wire.width, frame.wire.height, frame.wire.scale), (320.0, 240.0, 1.0));
     /// ```
     pub const fn new(width: f32, height: f32) -> FrameIn<'a> {
-        FrameIn { wire: WireFrame::new(width, height), snapshot: None }
+        FrameIn { wire: WireFrame::new(width, height), events: &[], snapshot: None }
     }
+
+    /// Names the surface this frame is for (default `pxui_types::FrameIn::MAIN`); it must be registered on the Ui and carried by every event.
+    ///
+    /// Allocates: never.
+    /// Panics: never. The frame call validates the surface.
+    ///
+    /// ```
+    /// let mut ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
+    /// assert!(ui.frame(&pxui::FrameIn::new(10.0, 10.0).surface(99), &mut |_| {}).is_err());
+    /// ```
+    pub const fn surface(mut self, surface: u64) -> FrameIn<'a> { self.wire.surface = surface; self }
+
+    /// Sets the frame's events, borrowed for the frame call (text and touch payloads included).
+    ///
+    /// At most 4096; each carries the frame's surface (`Event::surface`, `FrameIn::MAIN` by default). The borrow ends with the frame
+    /// call, so no event pointer can dangle; whatever `wire.events` holds is ignored.
+    /// Allocates: never.
+    /// Panics: never. The frame call validates every event.
+    ///
+    /// ```
+    /// let events = [pxui::Event::new(pxui::Event::FOCUS_GAINED)];
+    /// let mut ui = pxui::doc::frames(1, &mut |_| {});
+    /// ui.frame(&pxui::FrameIn::new(10.0, 10.0).events(&events), &mut |_| {}).unwrap();
+    /// ```
+    pub const fn events(mut self, events: &'a [Event]) -> FrameIn<'a> { self.events = events; self }
 
     /// Sets the event frame's drawable pixels per logical point.
     ///

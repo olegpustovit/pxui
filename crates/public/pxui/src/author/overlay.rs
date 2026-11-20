@@ -402,8 +402,7 @@ mod tests {
             let packet = crate::Touch { device: 1, finger: 7, x, y, phase, time: time.get(), pressure: 1.0 };
             let event = Event { kind: Event::TOUCH, text: crate::Str { ptr: (&packet as *const crate::Touch).cast(), len: core::mem::size_of::<crate::Touch>() }, ..Default::default() };
             let mut frame = FrameIn::new(400.0, 400.0).time(time.get());
-            frame.wire.events = &event;
-            frame.wire.event_count = 1;
+            frame.events = core::slice::from_ref(&event);
             ui.frame(&frame, build).unwrap();
         };
         let drag = |ui: &mut Ui, build: &mut dyn FnMut(&mut Ui), to: f32| {

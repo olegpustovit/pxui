@@ -79,7 +79,7 @@ mod held_key_tests {
     use super::*;
     #[test]
     fn held_key_queries_validate_handle_key_and_output_without_changing_failed_output() {
-        let ui=unsafe { crate::pxui_ui_create(&crate::PxuiUiDesc::default()) };
+        let ui=unsafe { crate::ui::create_test_ui() };
         assert!(!ui.is_null());
         let mut out=99u8;
         assert_eq!(unsafe { pxui_ui_key_down(std::ptr::null_mut(),b'a' as u32,&mut out) },PXUI_ERR_ARGUMENT);
@@ -196,7 +196,7 @@ export!(pub unsafe fn pxui_ui_phase_cpu_times(ui: *mut PxuiUi, out: *mut u64, le
 
 #[test]
 fn cpu_phase_output_is_atomic_for_invalid_or_unavailable_requests() {
-    let ui = unsafe { crate::pxui_ui_create(&crate::PxuiUiDesc::default()) };
+    let ui = unsafe { crate::ui::create_test_ui() };
     let mut out = [99; 7];
     assert_eq!(
         unsafe { pxui_ui_phase_cpu_times(core::ptr::null_mut(), out.as_mut_ptr(), 7) },

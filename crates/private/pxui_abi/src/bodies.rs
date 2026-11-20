@@ -418,7 +418,7 @@ export!(trusted pub unsafe fn pxui_slot(ui: *mut PxuiUi, slot: PxuiSlot, out: *m
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{FrameIn, FrameOut, PXUI_ERR_ARGUMENT, PxuiUiDesc, pxui_frame, pxui_last_error, pxui_ui_create, pxui_ui_destroy};
+    use crate::{FrameIn, FrameOut, PXUI_ERR_ARGUMENT, pxui_frame, pxui_last_error, pxui_ui_destroy};
     use core::cell::{Cell, RefCell};
 
     thread_local! {
@@ -474,7 +474,7 @@ mod tests {
     /// refused; an unknown name in a theme text, and every bad registration, are errors.
     #[test]
     fn a_c_body_gets_its_record_and_builds_a_part_and_bad_names_are_errors() {
-        let ui = unsafe { pxui_ui_create(&PxuiUiDesc::default()) };
+        let ui = unsafe { crate::ui::create_test_ui() };
         let user = core::ptr::null_mut();
         let register = |kind: u32, name: &str, body: PxuiBodyFn| unsafe { reg_id(ui, kind, text(name), body, user) };
         assert_eq!(register(BodyKind::toggle as u32, "probe", Some(toggle_body)), 1);
@@ -522,7 +522,7 @@ mod tests {
     /// A body runs the caller's content once through its slot; the slot is stale once the body call has returned.
     #[test]
     fn a_slot_runs_the_callers_content_and_is_stale_after_the_body_returns() {
-        let ui = unsafe { pxui_ui_create(&PxuiUiDesc::default()) };
+        let ui = unsafe { crate::ui::create_test_ui() };
         assert_eq!(unsafe { reg_id(ui, BodyKind::scroll_view as u32, text("probe"), Some(scroll_body), core::ptr::null_mut()) }, 1);
         assert_eq!(theme(ui, "scroll_view.body = probe"), 0);
         frame(ui, scroll_frame);
@@ -559,7 +559,7 @@ mod tests {
     /// A slot is never run inside its own content (the closure it lends is running): refused, and the content ran once.
     #[test]
     fn a_slot_is_refused_inside_its_own_content() {
-        let ui = unsafe { pxui_ui_create(&PxuiUiDesc::default()) };
+        let ui = unsafe { crate::ui::create_test_ui() };
         assert_eq!(unsafe { reg_id(ui, BodyKind::scroll_view as u32, text("own"), Some(own_slot_body), core::ptr::null_mut()) }, 1);
         assert_eq!(theme(ui, "scroll_view.body = own"), 0);
         frame(ui, reentering_frame);
@@ -587,7 +587,7 @@ mod tests {
     /// A slot of one `Ui` names nothing in another, however many slots each has made.
     #[test]
     fn a_slot_of_another_ui_is_stale() {
-        let (a, b) = unsafe { (pxui_ui_create(&PxuiUiDesc::default()), pxui_ui_create(&PxuiUiDesc::default())) };
+        let (a, b) = unsafe { (crate::ui::create_test_ui(), crate::ui::create_test_ui()) };
         for ui in [a, b] {
             assert_eq!(unsafe { reg_id(ui, BodyKind::scroll_view as u32, text("foreign"), Some(foreign_body), core::ptr::null_mut()) }, 1);
             assert_eq!(theme(ui, "scroll_view.body = foreign"), 0);
@@ -602,7 +602,7 @@ mod tests {
     #[test]
     fn a_name_again_keeps_its_id_and_consumes_none() {
         let kind = BodyKind::tabs as u32;
-        let (a, b) = unsafe { (pxui_ui_create(&PxuiUiDesc::default()), pxui_ui_create(&PxuiUiDesc::default())) };
+        let (a, b) = unsafe { (crate::ui::create_test_ui(), crate::ui::create_test_ui()) };
         let register = |ui, name| unsafe { reg_id(ui, kind, text(name), Some(toggle_body), core::ptr::null_mut()) };
         let kept = register(a, "kept_name");
         assert_ne!(kept, 0);
@@ -624,7 +624,7 @@ mod tests {
     #[test]
     fn a_kind_refuses_a_name_past_the_last_id() {
         extern "C" fn other(_: *mut c_void, _: *mut c_void, _: *const c_void) {}
-        let ui = unsafe { pxui_ui_create(&PxuiUiDesc::default()) };
+        let ui = unsafe { crate::ui::create_test_ui() };
         let kind = BodyKind::label as u32;
         let mut name = String::new();
         for id in 1..=u16::MAX {
@@ -669,7 +669,7 @@ mod tests {
     /// `pxui_ui_node_layout` honours the caller's `size`; `pxui_ui_set_node_layout` changes only a node the frame being built declared.
     #[test]
     fn node_layout_honours_the_record_size_and_only_this_frames_nodes() {
-        let ui = unsafe { pxui_ui_create(&PxuiUiDesc::default()) };
+        let ui = unsafe { crate::ui::create_test_ui() };
         frame(ui, layout_frame);
         let b = LAID.with(Cell::get);
         let mut node = Node::DEFAULT;
@@ -699,7 +699,7 @@ mod tests {
     #[test]
     fn nested_dialogs_with_registered_bodies_allocate_nothing_once_settled() {
         use mem_sys as _;
-        let ui = unsafe { pxui_ui_create(&PxuiUiDesc::default()) };
+        let ui = unsafe { crate::ui::create_test_ui() };
         assert_eq!(unsafe { reg_id(ui, BodyKind::dialog as u32, text("probe"), Some(dialog_body), core::ptr::null_mut()) }, 1);
         assert_eq!(theme(ui, "dialog.body = probe"), 0);
         let mut depth = 3u32;
@@ -728,7 +728,7 @@ mod tests {
     /// same numbers in its own registration order, never run for it.
     #[test]
     fn a_theme_applied_against_one_ui_never_selects_another_uis_body() {
-        let (a, b) = (unsafe { pxui_ui_create(&PxuiUiDesc::default()) }, unsafe { pxui_ui_create(&PxuiUiDesc::default()) });
+        let (a, b) = (unsafe { crate::ui::create_test_ui() }, unsafe { crate::ui::create_test_ui() });
         let reg = |ui, name: &str, body: PxuiBodyFn| unsafe { reg_id(ui, BodyKind::toggle as u32, text(name), body, core::ptr::null_mut()) };
         let (alpha, beta) = (reg(a, "alpha", Some(toggle_body)), reg(a, "beta", Some(toggle_body)));
         let (gamma, delta) = (reg(b, "gamma", Some(wrong_body)), reg(b, "delta", Some(wrong_body)));

@@ -43,6 +43,9 @@ pub(crate) struct Shared {
     /// `current` while a frame builds, else null: the handle a builder call (`enter!`) may use, so its checks are one compare
     pub building: *mut PxuiUi,
     pub in_frame: bool,
+    /// the surface registered on this `Ui` (0: none). shortcut: one surface per Ui, upgrade when the engine keeps per-surface
+    /// focus/a11y/IME state (then a small fixed table of ids)
+    pub surface: u64,
     pub poisoned: bool,
     /// a paint call was refused (a span left open, a library call under an open span): the frame that ran the callback reports it
     pub paint_error: bool,
@@ -123,7 +126,7 @@ impl Shared {
     pub fn put_strs(&mut self, mut strs: Vec<&'static str>) { strs.clear(); self.strs.push(strs); }
     pub fn new() -> Self {
         Self {
-            error: String::new(), poisoned: false, calls: 0, paint_error: false, icon_word: 0, in_frame: false, current: core::ptr::null_mut(), building: core::ptr::null_mut(), frame_ended: false, draw_acknowledged: false, renderers: 0, returned: Vec::new(), area: Default::default(), area_ad: None, lent: Vec::new(), lent_used: 0, returned_bytes: 0,
+            error: String::new(), poisoned: false, calls: 0, paint_error: false, icon_word: 0, in_frame: false, surface: 0, current: core::ptr::null_mut(), building: core::ptr::null_mut(), frame_ended: false, draw_acknowledged: false, renderers: 0, returned: Vec::new(), area: Default::default(), area_ad: None, lent: Vec::new(), lent_used: 0, returned_bytes: 0,
             grid_tracks: HashMap::new(), grid_shared: HashMap::new(), grid_retired: Vec::new(), output: Output::default(), nodes: Vec::new(),
             layers: Vec::new(), dirty: Vec::new(), last_children: Vec::new(), chunks: Vec::new(), chunks_used: 0, spare_input: None, wants: Vec::new(), key_codes: Vec::new(), menu: Vec::new(), menu_sub: Vec::new(), routed: None, routed_events: Vec::new(), routed_text: Vec::new(),routed_touches:Vec::new(), routed_keys: Vec::new(), routed_buttons: Vec::new(),
             hints: Vec::new(), actions: Vec::new(), rename: None, strs: Vec::new(), raster_glyphs: Vec::new(), menus: Vec::new(), bodies: Default::default(), images: crate::image::Handles::new(),

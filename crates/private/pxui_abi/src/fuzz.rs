@@ -225,7 +225,7 @@ fuzz!(
     pxui_shaper_prepare/7, pxui_shaper_rasterize_rgba/14, pxui_shaper_system_fonts/1, pxui_shaper_width/6,
     pxui_shaper_width_spans/7, pxui_slot/3, pxui_supports/1, pxui_text_add_font/2, pxui_text_install/2, pxui_text_system_fonts/1, pxui_theme_density/2, pxui_theme_last_error/1, pxui_theme_parse/2,
     pxui_theme_reduced_motion/2, pxui_theme_set_color/3, pxui_ui_a11y_name/3, pxui_ui_a11y_number/6, pxui_ui_a11y_value/5, pxui_ui_animate/4,
-    pxui_ui_animate_keys/4, pxui_ui_animate_keys_repeat/7, pxui_ui_box_of_a11y/3, pxui_ui_box_of_key/3, pxui_ui_busy_step/4,
+    pxui_ui_add_surface/2, pxui_ui_remove_surface/2, pxui_ui_animate_keys/4, pxui_ui_animate_keys_repeat/7, pxui_ui_box_of_a11y/3, pxui_ui_box_of_key/3, pxui_ui_busy_step/4,
     pxui_ui_button/5, pxui_ui_button_plain/4, pxui_ui_bytes/3,
     pxui_ui_cached_label/5, pxui_ui_calls/1, pxui_ui_cancel_carry/1, pxui_ui_captured/1, pxui_ui_reordering/1, pxui_ui_carry/5, pxui_ui_carrying/4, pxui_ui_progress/5, pxui_ui_spinner/3,
     pxui_ui_badge/4, pxui_ui_anchored/8, pxui_ui_scroll_view/6, pxui_ui_view/6,
@@ -325,7 +325,7 @@ extern "C" fn fuzz_in_frame(_: *mut c_void, ui: *mut c_void) {
 #[test]
 fn every_export_refuses_bad_arguments_without_panicking() {
     hook();
-    let ui = unsafe { pxui_ui_create(&PxuiUiDesc::default()) };
+    let ui = unsafe { crate::ui::create_test_ui() };
     CUR.with(|c| c.set(ui));
     SHAPER.with(|s| s.set({ let font = unsafe { pxui_default_font() }; unsafe { pxui_shaper_create(&font, 1) } }));
     THEME.with(|t| t.set(unsafe { pxui_theme_create(core::ptr::null()) }));
@@ -334,7 +334,7 @@ fn every_export_refuses_bad_arguments_without_panicking() {
     let input = FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() };
     let mut out = FrameOut::default();
     let (mut stale, mut foreign) = (PxuiBox::default(), PxuiBox::default());
-    let other = unsafe { pxui_ui_create(&PxuiUiDesc::default()) };
+    let other = unsafe { crate::ui::create_test_ui() };
     unsafe {
         assert_eq!(pxui_frame(ui, &input, Some(declare), (&mut stale as *mut PxuiBox).cast(), &mut out), 0);
         assert_eq!(pxui_frame(ui, &input, None, core::ptr::null_mut(), &mut out), 0);
@@ -345,6 +345,8 @@ fn every_export_refuses_bad_arguments_without_panicking() {
     fuzz_all();
     let calls = unsafe { pxui_ui_calls(ui) };
     for _ in 0..2 {
+        // the fuzz may have removed or replaced the surface: register the one the frame names again
+        unsafe { crate::ui::pxui_ui_remove_surface(ui, 1); crate::ui::pxui_ui_add_surface(ui, 1); }
         let panics = PANICS.with(Cell::get);
         let rc = unsafe { pxui_frame(ui, &input, Some(fuzz_in_frame), core::ptr::null_mut(), &mut out) };
         check("pxui_frame (the fuzzed frame)", &rc, panics);
@@ -406,7 +408,7 @@ fn unusable_resolved_labels_are_refused_with_the_argument_error() {
         assert_eq!(PANICS.with(Cell::get), panics, "no call panicked");
         assert!(!unsafe { (*(*ui).shared).poisoned });
     }
-    let ui = unsafe { pxui_ui_create(&PxuiUiDesc::default()) };
+    let ui = unsafe { crate::ui::create_test_ui() };
     let input = FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() };
     let mut out = FrameOut::default();
     assert_eq!(unsafe { pxui_frame(ui, &input, Some(build), core::ptr::null_mut(), &mut out) }, 0);

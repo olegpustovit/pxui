@@ -84,7 +84,6 @@ pub enum Event {
     /// The clipboard's text, sent by the host with the frame after the UI asked for it.
     Paste(String),
     TextEditing { text: String, start: i64, length: i64 },
-    FileDropped(String),
     /// A completed host drop; transport failures reject the whole set.
     FilesDropped { position: (f64, f64), paths: Result<Vec<String>, String> },
     FileDragMoved((f64, f64)),
@@ -380,7 +379,6 @@ fn put_event(out: &mut String, event: &Event) {
         Event::TextInput(text) => { put_byte(out, 7); put_str(out, text); }
         Event::Paste(text) => { put_byte(out, 22); put_str(out, text); }
         Event::TextEditing { text, start, length } => { put_byte(out, 8); put_str(out, text); put_int(out, *start); put_int(out, *length); }
-        Event::FileDropped(path) => { put_byte(out, 9); put_str(out, path); }
         Event::FilesDropped { position, paths } => {
             put_byte(out, 25); put_pair(out, *position);
             match paths {
@@ -429,7 +427,7 @@ fn event_eq(a: &Event, b: &Event) -> bool {
         (PointerMoved(a), PointerMoved(b)) | (Scrolled(a), Scrolled(b)) | (FileDragMoved(a), FileDragMoved(b)) => pair_eq(*a, *b),
         (PointerPressed(ab, ap), PointerPressed(bb, bp)) | (PointerReleased(ab, ap), PointerReleased(bb, bp)) => ab == bb && pair_eq(*ap, *bp),
         (PointerCancelled(a), PointerCancelled(b)) => a == b,
-        (TextInput(a), TextInput(b)) | (Paste(a), Paste(b)) | (FileDropped(a), FileDropped(b)) => a == b,
+        (TextInput(a), TextInput(b)) | (Paste(a), Paste(b)) => a == b,
         (TextEditing { text: at, start: as_, length: al }, TextEditing { text: bt, start: bs, length: bl }) => at == bt && as_ == bs && al == bl,
         (EnvironmentChanged, EnvironmentChanged) | (FileDragEnded, FileDragEnded) | (FocusLost, FocusLost) | (FocusGained, FocusGained) | (Closed, Closed) => true,
         (Pinched(a), Pinched(b)) => float_eq(*a, *b),
@@ -790,7 +788,6 @@ mod tests {
             (Event::PointerPressed(MouseButton::LeftButton, (1.0, 2.0)), Event::PointerPressed(MouseButton::RightButton, (1.0, 2.0))),
             (Event::TextInput("first".into()), Event::TextInput("other".into())),
             (Event::TextEditing { text: "x".into(), start: 1, length: 2 }, Event::TextEditing { text: "x".into(), start: 2, length: 2 }),
-            (Event::FileDropped("a".into()), Event::FileDropped("b".into())),
             (Event::FilesDropped {position:(1.0,2.0),paths:Ok(vec!["a".into()])}, Event::FilesDropped {position:(1.0,2.0),paths:Ok(vec!["b".into()])}),
             (Event::FilesDropped {position:(0.0,2.0),paths:Err("limit".into())}, Event::FilesDropped {position:(-0.0,2.0),paths:Err("limit".into())}),
             (Event::Pinched(1.0), Event::Pinched(2.0)),

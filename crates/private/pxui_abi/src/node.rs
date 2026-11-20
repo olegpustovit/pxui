@@ -331,7 +331,7 @@ export!(trusted pub unsafe fn pxui_ui_text(ui:*mut PxuiUi,box_:*const PxuiBox,va
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{FrameIn, FrameOut, PXUI_ERR_ARGUMENT, PxuiUiDesc, pxui_frame, pxui_ui_create, pxui_ui_destroy};
+    use crate::{FrameIn, FrameOut, PXUI_ERR_ARGUMENT, pxui_frame, pxui_ui_destroy};
     use core::ffi::c_void;
     use pxui_types::{Size, layout::Placement, node::Transition, theme::Curve};
 
@@ -349,7 +349,7 @@ mod tests {
             assert_eq!(unsafe { pxui_ui_box_of_a11y(raw.cast(), id, &mut out) }, 1);
             assert_eq!(out.box_key, target.box_key);
         }
-        let ui = unsafe { pxui_ui_create(&PxuiUiDesc::default()) };
+        let ui = unsafe { crate::ui::create_test_ui() };
         let mut state = State { owner: ui };
         let mut frame = FrameOut::default();
         assert_eq!(unsafe { pxui_frame(ui, &FrameIn::default(), Some(build), (&mut state as *mut State).cast(), &mut frame) }, 0);
@@ -437,7 +437,7 @@ mod tests {
 
     #[test]
     fn a_node_crosses_as_its_bytes_and_any_unknown_tag_or_flag_is_refused() {
-        let ui = unsafe { pxui_ui_create(&PxuiUiDesc::default()) };
+        let ui = unsafe { crate::ui::create_test_ui() };
         let mut out = FrameOut::default();
         assert_eq!(unsafe { pxui_frame(ui, &FrameIn { width: 100.0, height: 100.0, ..FrameIn::default() }, Some(build), core::ptr::null_mut(), &mut out) }, 0);
         assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);

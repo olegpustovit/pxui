@@ -56,6 +56,7 @@ impl Events {
                     ptr: std::ptr::null(),
                     len: text.len(),
                 },
+                ..Default::default()
             });
         }
         let mut offset = 0;

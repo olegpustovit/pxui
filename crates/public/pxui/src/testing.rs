@@ -15,8 +15,7 @@ use crate::{Event, FrameIn, Handle, KeyCode, Ui};
 /// ```
 pub fn frame(ui: &mut Ui, events: &[Event], build: &mut dyn FnMut(&mut Ui)) {
     let mut input = FrameIn::new(320.0, 240.0);
-    input.wire.events = events.as_ptr();
-    input.wire.event_count = events.len();
+    input.events = &events[..];
     ui.frame(&input, build).expect("pxui: a testing frame failed");
 }
 

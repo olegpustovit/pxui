@@ -354,8 +354,7 @@ mod ios {
                         let mut frame = pxui::FrameIn::new(extent.logical.0 as f32, extent.logical.1 as f32).scale(window.scale() as f32).time(window.time()).environment(self.platform.environment()).keyboard(self.platform.keyboard());
                         frame.wire.appearance = self.system.appearance;
                         frame.wire.reduced_motion = self.system.reduced_motion;
-                        frame.wire.events = wire.as_ptr();
-                        frame.wire.event_count = wire.len();
+                        frame.events = &wire[..];
                         frame
                     },
                     &mut |ui| {

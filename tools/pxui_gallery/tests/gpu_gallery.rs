@@ -8,7 +8,7 @@ use pxui::{Renderer, Ui};
 use pxui_gallery::gpu::{self, Gpu};
 use pxui_gallery::*;
 use pxui_gallery::bodies_page::{self, BodiesPage};
-use pxui_types::{Event, Str, ffi::{Input, Slice}};
+use pxui_types::{Event, ffi::{Input, Slice}};
 use std::time::Instant;
 
 const DEPARTURE_MONO: &[u8] = include_bytes!("../../../assets/fonts/DepartureMono-Regular.otf");
@@ -22,7 +22,7 @@ fn theme(source: &str) -> pxui::ThemeHandle {
 }
 
 fn pointer_event() -> Event {
-    Event { kind: Event::POINTER_MOVED, code: 0, x: -100.0, y: -100.0, value: 0.0, text: Str::default() }
+    Event::pointer(Event::POINTER_MOVED, 0, -100.0, -100.0)
 }
 
 fn frame_at(count: i64, size: (i64, i64), density: i64, events: &[Event]) -> Input {

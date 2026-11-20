@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 132
+minor 133
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -63,6 +63,7 @@ function pxui_theme_set_color int32_t pxui_theme_set_color ( PxuiTheme * theme ,
 function pxui_ui_a11y_name int32_t pxui_ui_a11y_name ( PxuiUi * ui , const PxuiBox * box , PxuiStr name ) ;
 function pxui_ui_a11y_number int32_t pxui_ui_a11y_number ( PxuiUi * ui , const PxuiBox * box , double now , double min , double max , double step ) ;
 function pxui_ui_a11y_value int32_t pxui_ui_a11y_value ( PxuiUi * ui , const PxuiBox * box , PxuiStr value , uint32_t anchor , uint32_t caret ) ;
+function pxui_ui_add_surface int32_t pxui_ui_add_surface ( PxuiUi * ui , uint64_t surface ) ;
 function pxui_ui_anchored int32_t pxui_ui_anchored ( PxuiUi * ui , const PxuiKeyedDesc * keyed , const PxuiAnchorDesc * anchor , PxuiSizeDesc width , PxuiSizeDesc height , PxuiBuild build , void * user , PxuiBox * out ) ;
 function pxui_ui_animate int32_t pxui_ui_animate ( PxuiUi * ui , const PxuiBox * box , const PxuiKeyframeDesc * key , uint8_t * out ) ;
 function pxui_ui_animate_keys int32_t pxui_ui_animate_keys ( PxuiUi * ui , const PxuiBox * box , PxuiKeyframeSpan keys , uint8_t * out ) ;
@@ -158,6 +159,7 @@ function pxui_ui_progress int32_t pxui_ui_progress ( PxuiUi * ui , const PxuiKey
 function pxui_ui_rebuilt_named int32_t pxui_ui_rebuilt_named ( PxuiUi * ui , PxuiStr prefix , uint64_t * out ) ;
 function pxui_ui_rect int32_t pxui_ui_rect ( PxuiUi * ui , const PxuiBox * box , PxuiRect * out ) ;
 function pxui_ui_remember int32_t pxui_ui_remember ( PxuiUi * ui , int64_t key , PxuiStr text , uint64_t caret , uint64_t anchor , uint8_t typing ) ;
+function pxui_ui_remove_surface int32_t pxui_ui_remove_surface ( PxuiUi * ui , uint64_t surface ) ;
 function pxui_ui_reordering uint8_t pxui_ui_reordering ( PxuiUi * ui ) ;
 function pxui_ui_repaint_after int32_t pxui_ui_repaint_after ( PxuiUi * ui , double seconds ) ;
 function pxui_ui_request_cursor int32_t pxui_ui_request_cursor ( PxuiUi * ui , uint32_t shape ) ;
@@ -238,7 +240,7 @@ layout Commands 24 8 0 8 16
 layout Damage 20 4 0 1 4
 layout Edges 16 4 0 4 8 12
 layout Environment 72 8 0 16 32 48 56 64 68
-layout Event 48 8 0 4 8 16 24 32
+layout Event 64 8 4 16 24 32 40 48
 layout Flags 8 8
 layout FrameIn 48 8 0 8 16 24 28 32 40
 layout FrameInV1_24 128 8 0 8 16 24 28 32 40 48 52 56

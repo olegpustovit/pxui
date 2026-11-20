@@ -242,8 +242,8 @@ mod prepared_tests {
             }
         }
         unsafe {
-            let ui=crate::pxui_ui_create(&crate::PxuiUiDesc::default());
-            let other=crate::pxui_ui_create(&crate::PxuiUiDesc::default());
+            let ui=crate::ui::create_test_ui();
+            let other=crate::ui::create_test_ui();
             let shaper=pxui_text_fork(ui);
             let other_shaper=pxui_text_fork(other);
             assert!(!shaper.is_null() && !other_shaper.is_null());

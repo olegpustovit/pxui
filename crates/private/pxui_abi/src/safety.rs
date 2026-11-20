@@ -3,7 +3,7 @@ use crate::state::{PxuiUi, panicked};
 use crate::*;
 use core::ffi::c_void;
 
-fn create() -> *mut PxuiUi { unsafe { pxui_ui_create(&PxuiUiDesc::default()) } }
+fn create() -> *mut PxuiUi { unsafe { crate::ui::create_test_ui() } }
 fn frame_in() -> FrameIn { FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() } }
 fn error(ui: *mut PxuiUi) -> String { let e = unsafe { pxui_last_error(ui) }; String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(e.ptr, e.len) }).into_owned() }
 fn run(ui: *mut PxuiUi, build: Build, user: *mut c_void) -> i32 {

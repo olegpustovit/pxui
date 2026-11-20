@@ -29,7 +29,7 @@ mod reveal_tests {
             assert_eq!(unsafe { pxui_ui_reveal(state.owner, &state.list, 99) }, crate::PXUI_ERR_STATE);
             assert_eq!(unsafe { pxui_ui_reveal(raw.cast(), &state.list, 0) }, 0);
         }
-        let owner = unsafe { crate::pxui_ui_create(&crate::PxuiUiDesc::default()) };
+        let owner = unsafe { crate::ui::create_test_ui() };
         let mut state = State { owner, list: PxuiBox::default() };
         let mut out = crate::FrameOut::default();
         assert_eq!(unsafe { crate::pxui_frame(owner, &crate::FrameIn { width: 100.0, height: 100.0, ..Default::default() }, Some(build), (&mut state as *mut State).cast(), &mut out) }, 0);
@@ -107,7 +107,7 @@ mod gesture_tests {
             assert_eq!(unsafe { pxui_ui_gesture(raw.cast(), &stale, &good, 0, &mut out) }, crate::PXUI_ERR_STALE);
             assert_eq!(unsafe { pxui_ui_gesture(raw.cast(), core::ptr::null(), &good, 0, &mut out) }, PXUI_ERR_ARGUMENT);
         }
-        let ui = unsafe { crate::pxui_ui_create(&crate::PxuiUiDesc::default()) };
+        let ui = unsafe { crate::ui::create_test_ui() };
         let mut node = PxuiBox::default();
         let mut out = crate::FrameOut::default();
         assert_eq!(unsafe { crate::pxui_frame(ui, &crate::FrameIn { width: 100.0, height: 100.0, ..Default::default() }, Some(build), (&mut node as *mut PxuiBox).cast(), &mut out) }, 0);
@@ -211,7 +211,7 @@ fn text_layout_count_checks_outputs_before_writing() {
     let mut out=77;
     assert_eq!(unsafe {pxui_ui_text_layout_count(core::ptr::null_mut(),&mut out)},PXUI_ERR_ARGUMENT);
     assert_eq!(out,77);
-    let ui=unsafe {crate::pxui_ui_create(&crate::PxuiUiDesc::default())};
+    let ui=unsafe {crate::ui::create_test_ui()};
     assert_eq!(unsafe {pxui_ui_text_layout_count(ui,core::ptr::null_mut())},PXUI_ERR_ARGUMENT);
     assert_eq!(unsafe {pxui_ui_text_layout_count(ui,&mut out)},0);
     assert_eq!(out,0);
@@ -462,7 +462,7 @@ mod view_tests {
     #[test]
     fn public_view_controls_refuse_null_and_invalid_handles_without_poisoning() {
         use crate::*;
-        let ui=unsafe { pxui_ui_create(&PxuiUiDesc::default()) };
+        let ui=unsafe { crate::ui::create_test_ui() };
         assert!(!ui.is_null());
         let invalid=PxuiBox { box_slot:u64::MAX,..Default::default() };
         for (handle,expected) in [(core::ptr::null(),PXUI_ERR_ARGUMENT),(&invalid as *const PxuiBox,PXUI_ERR_STALE)] {

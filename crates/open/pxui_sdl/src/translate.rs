@@ -120,7 +120,8 @@ pub fn translate(event: SdlEvent) -> Option<Event> {
         SdlEvent::Quit => Some(Event::Closed),
         SdlEvent::Pinch { phase: PinchPhase::Updated, scale } => Some(Event::Pinched(scale)),
         SdlEvent::Pinch { phase: PinchPhase::Began | PinchPhase::Ended, .. } => None,
-        SdlEvent::Drop { change: DropChange::File(path), .. } => Some(Event::FileDropped(path)),
+        // the drop collector (`drops.rs`) joins the files of one drop into FilesDropped before this runs
+        SdlEvent::Drop { change: DropChange::File(_), .. } => None,
         SdlEvent::Drop { change: DropChange::Position, x, y } => {
             Some(Event::FileDragMoved((x, y)))
         }

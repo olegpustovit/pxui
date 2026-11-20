@@ -18,7 +18,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 132u)
+#define PXUI_ABI_BUILT ((1u << 16) | 133u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 typedef struct { uint32_t autocorrect, capitalization, action; } PxuiTextInputOptions;
@@ -29,7 +29,14 @@ typedef struct { const PxuiStr *ptr; size_t len; } PxuiStrSpan;
    IDs retain all 64 bits. Phase: 0 began, 1 moved, 2 ended, 3 cancelled. Positions are logical points
    and may be outside the window. Time is source monotonic seconds; finite pressure is in [0,1]. */
 typedef struct { uint64_t device, finger; double x, y, time; float pressure; uint32_t phase; } PxuiTouch;
-typedef struct { uint32_t kind, code; double x, y, value; PxuiStr text; } PxuiEvent;
+/* ABI 1.133: one input event, 64 bytes, size-prefixed (size >= 64: a longer record is read as its first 64 bytes, a shorter one refused). One kind
+   per event; the twin FILE_DROPPED (11) is gone and stays reserved (FILES_DROPPED carries any number of paths). `surface` is the surface the event is
+   for: it must be the surface of the frame call that carries it, else the frame is PXUI_ERR_ARGUMENT. Per-kind fields: pointer and scroll use x/y;
+   TEXT_EDITING carries its start (x) and length (y) in text bytes, both not negative; FILE_DIALOG carries its id in `value`
+   (shortcut: an f64, exact up to 2^53; upgrade with an integer id slot when a host numbers dialogs past that).
+   `text` and a touch payload are borrowed for the frame call (pxui_frame, pxui_ui_frame, pxui_ui_wants_frame) only: the library copies what it
+   keeps before the call returns. Events the library hands back (PxuiSignal.keys, pxui_ui_input) are borrowed from the Ui until its next frame. */
+typedef struct { uint32_t size, kind; uint64_t surface; uint32_t code, reserved; double x, y, value; PxuiStr text; } PxuiEvent;
 typedef struct { const PxuiEvent *ptr; size_t len; } PxuiEventSpan;
 typedef struct {
     uint32_t size, flags;
@@ -220,7 +227,8 @@ typedef struct {
     /* Read only when size includes this complete tail; otherwise defaults to zero. */
     PxuiEnvironment environment;
     PxuiKeyboard keyboard;
-    /* ABI 1.57 tail, reserved: the surface this frame is for. The library has one surface and ignores the value; pass 0. */
+    /* ABI 1.133: the surface this frame is for: it must be registered on the Ui (pxui_ui_add_surface), else PXUI_ERR_ARGUMENT, and every event carries it.
+       Focus, the accessibility tree, IME and keyboard geometry belong to a surface (today a Ui serves one, so they are the Ui's). */
     uint64_t surface;
 } PxuiFrameIn;
 #define PXUI_APPEARANCE_UNKNOWN 0u
@@ -238,7 +246,8 @@ enum PxuiEventKind {
     PXUI_POINTER_PRESSED=4, PXUI_POINTER_RELEASED=5, PXUI_POINTER_CANCELLED=6,
     PXUI_SCROLLED=7, PXUI_TEXT_INPUT=8, PXUI_PASTE=9, PXUI_TEXT_EDITING=10,
     /* FILES_DROPPED (ABI 1.33): x/y position; code 0 NUL-separated paths, code 1 error text. */
-    PXUI_FILE_DROPPED=11, PXUI_FILE_DRAG_MOVED=12, PXUI_FILE_DRAG_ENDED=13,
+    /* 11 (FILE_DROPPED, one path) is reserved and never reused. */
+    PXUI_FILE_DRAG_MOVED=12, PXUI_FILE_DRAG_ENDED=13,
     PXUI_PINCHED=14, PXUI_FILE_DIALOG=15, PXUI_DIALOG_OPENED=16, PXUI_RESIZED=17,
     PXUI_FOCUS_LOST=18, PXUI_FOCUS_GAINED=19, PXUI_CLOSED=20,
     PXUI_PIXEL_SIZE_CHANGED=21, PXUI_VISIBILITY_CHANGED=22, PXUI_TRACKPAD_SCROLLED=23, PXUI_ENVIRONMENT_CHANGED=24, PXUI_TOUCH=25, PXUI_FILES_DROPPED=26
@@ -523,6 +532,11 @@ int32_t pxui_ui_keyboard(PxuiUi *ui, PxuiKeyboard *out);
 int32_t pxui_ui_text_input_options(PxuiUi *ui, PxuiTextInputOptions *out);
 int32_t pxui_ui_content_rect(PxuiUi *ui, PxuiRect *out);
 int32_t pxui_frame(PxuiUi *ui, const PxuiFrameIn *in, PxuiBuild build, void *user, PxuiFrameOut *out);
+/* ABI 1.133: register / remove the surface of a Ui (a nonzero id). A Ui is created with none: register one before the first frame (an unregistered
+   surface is PXUI_ERR_ARGUMENT there). Adding while one is registered (a second id, or the same twice) is PXUI_ERR_STATE (shortcut: one surface per Ui,
+   upgrade when the engine keeps per-surface focus/a11y/IME state); removing an id that is not registered is PXUI_ERR_ARGUMENT; both are refused in a frame. */
+int32_t pxui_ui_add_surface(PxuiUi *ui, uint64_t surface);
+int32_t pxui_ui_remove_surface(PxuiUi *ui, uint64_t surface);
 int32_t pxui_ui_frame(PxuiUi *ui, const PxuiInput *in, PxuiBuild build, void *user, PxuiFrameOut *out);
 /* The last frame's input as routed to `owner` (a viewport's root key; has_owner 0: the app's), for the app's own content: the record
    pxui_ui_frame takes, borrowed until the next call. PXUI_ERR_STATE before the first frame. */
@@ -1110,7 +1124,7 @@ _Static_assert(sizeof(PxuiEdges) == 16 && offsetof(PxuiEdges, l) == 0 && offseto
 _Static_assert(sizeof(PxuiSize) == 16, "Size layout");
 _Static_assert(sizeof(PxuiInstance) == 64 && offsetof(PxuiInstance, rect) == 0 && offsetof(PxuiInstance, clip) == 16 && offsetof(PxuiInstance, color) == 24 && offsetof(PxuiInstance, color2) == 28 && offsetof(PxuiInstance, aux) == 32 && offsetof(PxuiInstance, radii) == 40 && offsetof(PxuiInstance, width) == 48 && offsetof(PxuiInstance, kind) == 50 && offsetof(PxuiInstance, flags) == 51 && offsetof(PxuiInstance, view) == 52 && offsetof(PxuiInstance, clip_radius) == 54 && offsetof(PxuiInstance, extra) == 56, "Instance layout");
 _Static_assert(sizeof(PxuiStr) == 16 && offsetof(PxuiStr, ptr) == 0 && offsetof(PxuiStr, len) == 8, "Str layout");
-_Static_assert(sizeof(PxuiEvent) == 48 && offsetof(PxuiEvent, kind) == 0 && offsetof(PxuiEvent, code) == 4 && offsetof(PxuiEvent, x) == 8 && offsetof(PxuiEvent, y) == 16 && offsetof(PxuiEvent, value) == 24 && offsetof(PxuiEvent, text) == 32, "Event layout");
+_Static_assert(sizeof(PxuiEvent) == 64 && offsetof(PxuiEvent, kind) == 4 && offsetof(PxuiEvent, code) == 16 && offsetof(PxuiEvent, x) == 24 && offsetof(PxuiEvent, y) == 32 && offsetof(PxuiEvent, value) == 40 && offsetof(PxuiEvent, text) == 48, "Event layout");
 _Static_assert(offsetof(PxuiFrameIn, appearance) == 48 && offsetof(PxuiFrameIn, size) == 0 && offsetof(PxuiFrameIn, events) == 8 && offsetof(PxuiFrameIn, event_count) == 16 && offsetof(PxuiFrameIn, width) == 24 && offsetof(PxuiFrameIn, height) == 28 && offsetof(PxuiFrameIn, scale) == 32 && offsetof(PxuiFrameIn, time) == 40, "FrameIn layout");
 _Static_assert(sizeof(PxuiFrameOut) == 40 && offsetof(PxuiFrameOut, size) == 0 && offsetof(PxuiFrameOut, damage) == 4 && offsetof(PxuiFrameOut, has_damage) == 20 && offsetof(PxuiFrameOut, reserved) == 21 && offsetof(PxuiFrameOut, layer_count) == 24 && offsetof(PxuiFrameOut, layers) == 32, "FrameOut layout");
 _Static_assert(sizeof(PxuiGpu) == 128 && offsetof(PxuiGpu, size) == 0 && offsetof(PxuiGpu, backend) == 4 && offsetof(PxuiGpu, instance) == 8 && offsetof(PxuiGpu, physical_device) == 16 && offsetof(PxuiGpu, device) == 24 && offsetof(PxuiGpu, queue) == 32 && offsetof(PxuiGpu, queue_family) == 40 && offsetof(PxuiGpu, api_version) == 44 && offsetof(PxuiGpu, features) == 48 && offsetof(PxuiGpu, get_instance_proc_addr) == 56 && offsetof(PxuiGpu, pipeline_cache) == 64 && offsetof(PxuiGpu, mtl_device) == 72 && offsetof(PxuiGpu, wl_display) == 80 && offsetof(PxuiGpu, wl_surface) == 88 && offsetof(PxuiGpu, metal_layer) == 96 && offsetof(PxuiGpu, hwnd) == 104 && offsetof(PxuiGpu, owner_token) == 112 && offsetof(PxuiGpu, release_owner) == 120, "Gpu layout");

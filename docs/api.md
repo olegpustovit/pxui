@@ -56,7 +56,7 @@ The target public surface. **Rule:** a call not marked with a step keeps its HEA
 | Images | `image<K>(key, name, &Image, &ImageStyle) -> Result<Handle, Error>`; `Image::rgba8(width, height, vk_image_view, mtl_texture)` describes native storage; `images::{Want, Request}`, `Images::store/get/requests` | — | U1b.2; builder U1b.5 |
 | A11y | `a11y_name(&Handle, &str) -> bool` with UTF-8-safe display clipping; `a11y_value/a11y_number(&Handle, ..) -> Result<bool, Error>`; `set_role(&Handle, Role, A11yStates)`; `a11y_tree() -> A11yTree<'_>` (borrowed strings, revision and first child); `a11y_nodes`, `a11y_name_of`, `a11y_value_of`, `box_of_a11y` | — | U1a.3 (rule), U1b.4 (types) |
 | Theme | `set_theme(&ThemeHandle) -> Result<(), Error>`, `themed(&ThemeHandle, f)`, `theme()`, `tokens()`, `ThemeHandle::parse/set_color/density/reduced_motion`; `bodies::register_<kind>_body(..) -> Result<BodyId, Error>`; `Rgba::token(T).alpha(a)` (D19); `ColorToken::ACCENT` (= `ColorToken(64)`, the theme's `Tokens::accent`); `Appearance`; sizes `f32` (`font_size`, `row_height`, `density`, `set_font_size`) | — | U1a.2; U1b.3 (units); U2b.7 (alpha, accent) |
-| Frame / lifecycle | `Ui::new(&UiDesc) -> Result<Ui, Error>` with `UiDesc::new(Platform).font_size(f32).fonts(&[FontData])` and `UiDesc::DEFAULT`; one `frame(&FrameIn, build)`; `FrameIn::new(w, h)` with event wire fields and const builders, or `unsafe FrameIn::snapshot(&Input)` for a host's complete borrowed snapshot; `layer(i) -> Option<Layer>`, `layers() -> Layers`, `output() -> Output`; `focus_box(&Handle)` stays public for the registered command editor body, with `focused` crate-private and `enter`/`leave` internal to the engine and C ABI; `focus_default(&Handle)` beside it (U2b.4.24): the box a key press takes as its focus while no node holds it, stated each build (an app's main list as the window's default key target); while another widget (not a text editor) holds the focus, a press it leaves untaken falls through to it (U4a re-review R1: a focused sidebar leaves ⌘A/Esc to the main list, keeps Return) | — | U1a.3, U2b.4.24 |
+| Frame / lifecycle | `Ui::new(&UiDesc) -> Result<Ui, Error>` with `UiDesc::new(Platform).font_size(f32).fonts(&[FontData])` and `UiDesc::DEFAULT`; one `frame(&FrameIn, build)`; `FrameIn::new(w, h)` with const builders (`surface(u64)`; `events(&'a [Event])`, borrowed for the frame call, U5.1; the snapshot form is deleted in U5.2), `Ui::add_surface(u64)`/`remove_surface(u64)` (`Ui::new` registers `FrameIn::MAIN`; an unregistered surface is `InvalidInput`; one surface per Ui), or `unsafe FrameIn::snapshot(&Input)` for a host's complete borrowed snapshot; `layer(i) -> Option<Layer>`, `layers() -> Layers`, `output() -> Output`; `focus_box(&Handle)` stays public for the registered command editor body, with `focused` crate-private and `enter`/`leave` internal to the engine and C ABI; `focus_default(&Handle)` beside it (U2b.4.24): the box a key press takes as its focus while no node holds it, stated each build (an app's main list as the window's default key target); while another widget (not a text editor) holds the focus, a press it leaves untaken falls through to it (U4a re-review R1: a focused sidebar leaves ⌘A/Esc to the main list, keeps Return) | — | U1a.3, U2b.4.24 |
 | Host integration | `Renderer::new -> Result<_, Error>`; `Ui::register_<kind>_body(..) -> Result<BodyId, Error>`; `A11yBridge::connect -> Option`; `Gpu`, `Pass`, `Commands`, `Input`, `Output`, `Platform`, `Bytes`; pxui_host `Graphics::open/draw/close`, `Accessibility::open`, `Platform::pump/apply` → `Result<_, Error>` | — | U1a.3 |
 | Diagnostics | `phase_times`, `phase_cpu_times`, `set_timing`, `repaint_after`, `wants_frame`, `library_counter` (D3), `verify_views` (D22: per `Ui`, on under `debug_assertions`; `verify_new_views` deleted) | — | HEAD; U1c.2 |
 | Getters | `keyboard()`, `environment()`, `text_traits()` (was `text_input_options`), `ime() -> Option<Ime>`, `platform()`, `now()`, `frame_index()`, `system_appearance() -> Appearance` | — | U1a.4 (appearance), U1b.2 |
@@ -414,11 +414,14 @@ pxui::FrameIn impl Default @U1a.3
 pxui::FrameIn struct <'a> @U1a.3
 pxui::FrameIn::appearance fn const (self, appearance: Appearance) -> FrameIn<'a> @U1a.3
 pxui::FrameIn::environment fn const (self, environment: Environment) -> FrameIn<'a> @U1a.3
+pxui::FrameIn::events field &'a [Event] @U5.1
+pxui::FrameIn::events fn const (self, events: &'a [Event]) -> FrameIn<'a> @U5.1
 pxui::FrameIn::keyboard fn const (self, keyboard: Keyboard) -> FrameIn<'a> @U1a.3
 pxui::FrameIn::new fn const (width: f32, height: f32) -> FrameIn<'a> @U1a.3
 pxui::FrameIn::reduced_motion fn const (self, on: bool) -> FrameIn<'a> @U1a.3
 pxui::FrameIn::scale fn const (self, scale: f32) -> FrameIn<'a> @U1a.3
 pxui::FrameIn::snapshot fn const unsafe (input: &'a Input) -> FrameIn<'a> @U1a.3
+pxui::FrameIn::surface fn const (self, surface: u64) -> FrameIn<'a> @U5.1
 pxui::FrameIn::time fn const (self, time: f64) -> FrameIn<'a> @U1a.3
 pxui::FrameIn::wire field FrameIn @U1a.3
 pxui::FrameOut use pxui_types::FrameOut @HEAD
@@ -1196,6 +1199,7 @@ pxui::Ui::a11y_number fn (&mut self, box_: &Handle, now: f64, min: f64, max: f64
 pxui::Ui::a11y_tree fn (&self) -> A11yTree<'_> @U1b.4
 pxui::Ui::a11y_value fn (&mut self, box_: &Handle, value: &str, selection: (u32, u32)) -> Result<bool, Error> @U1a.3
 pxui::Ui::a11y_value_of fn (&self, node: &A11yNode) -> Option<&str> @HEAD
+pxui::Ui::add_surface fn (&mut self, surface: u64) -> Result<(), Error> @U5.1
 -pxui::Ui::anchored fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, anchor: Rect, overlay: &Overlay<'_>, f: F) -> Handle @U1b.1
 pxui::Ui::anchored fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, anchor: Rect, overlay: &Overlay<'_>, f: F) -> OverlayResponse @U1b.1
 pxui::Ui::animate fn (&mut self, b: &Handle, target: Target, curve: Curve) -> bool @HEAD
@@ -1397,6 +1401,7 @@ pxui::Ui::register_value_field_body fn (&mut self, name: &str, body: fn(&mut Ui,
 pxui::Ui::register_window_body fn (&mut self, name: &str, body: fn(&mut Ui, &WindowConfig)) -> Result<BodyId, Error> @U1a.3
 -pxui::Ui::remember fn (&mut self, edit: &TextEdit, typing: bool) @U1b.2
 pxui::Ui::remember fn <K: Into<Key>>(&mut self, key: K, edit: &TextEdit, typing: bool) @U1b.2
+pxui::Ui::remove_surface fn (&mut self, surface: u64) -> Result<(), Error> @U5.1
 pxui::Ui::reordering fn (&self) -> bool @U2b.4.12
 pxui::Ui::repaint_after fn (&mut self, seconds: f64) @HEAD
 pxui::Ui::repaint_at fn (&self) -> Option<f64> @HEAD
@@ -2226,6 +2231,7 @@ pxui::ui::Ui::a11y_number fn (&mut self, box_: &Handle, now: f64, min: f64, max:
 pxui::ui::Ui::a11y_tree fn (&self) -> A11yTree<'_> @U1b.4
 pxui::ui::Ui::a11y_value fn (&mut self, box_: &Handle, value: &str, selection: (u32, u32)) -> Result<bool, Error> @U1a.3
 pxui::ui::Ui::a11y_value_of fn (&self, node: &A11yNode) -> Option<&str> @HEAD
+pxui::ui::Ui::add_surface fn (&mut self, surface: u64) -> Result<(), Error> @U5.1
 -pxui::ui::Ui::anchored fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, anchor: Rect, overlay: &Overlay<'_>, f: F) -> Handle @U1b.1
 pxui::ui::Ui::anchored fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, anchor: Rect, overlay: &Overlay<'_>, f: F) -> OverlayResponse @U1b.1
 pxui::ui::Ui::animate fn (&mut self, b: &Handle, target: Target, curve: Curve) -> bool @HEAD
@@ -2427,6 +2433,7 @@ pxui::ui::Ui::register_value_field_body fn (&mut self, name: &str, body: fn(&mut
 pxui::ui::Ui::register_window_body fn (&mut self, name: &str, body: fn(&mut Ui, &WindowConfig)) -> Result<BodyId, Error> @U1a.3
 -pxui::ui::Ui::remember fn (&mut self, edit: &TextEdit, typing: bool) @U1b.2
 pxui::ui::Ui::remember fn <K: Into<Key>>(&mut self, key: K, edit: &TextEdit, typing: bool) @U1b.2
+pxui::ui::Ui::remove_surface fn (&mut self, surface: u64) -> Result<(), Error> @U5.1
 pxui::ui::Ui::reordering fn (&self) -> bool @U2b.4.12
 pxui::ui::Ui::repaint_after fn (&mut self, seconds: f64) @HEAD
 pxui::ui::Ui::repaint_at fn (&self) -> Option<f64> @HEAD
@@ -3171,7 +3178,6 @@ pxui_types::Event::FILES_DROPPED const u32 @HEAD
 pxui_types::Event::FILE_DIALOG const u32 @HEAD
 pxui_types::Event::FILE_DRAG_ENDED const u32 @HEAD
 pxui_types::Event::FILE_DRAG_MOVED const u32 @HEAD
-pxui_types::Event::FILE_DROPPED const u32 @HEAD
 pxui_types::Event::FOCUS_GAINED const u32 @HEAD
 pxui_types::Event::FOCUS_LOST const u32 @HEAD
 pxui_types::Event::KEY_PRESSED const u32 @HEAD
@@ -3195,6 +3201,9 @@ pxui_types::Event::key fn const (kind: u32, code: u32) -> Event @U1b.5
 pxui_types::Event::kind field u32 @HEAD
 pxui_types::Event::new fn const (kind: u32) -> Event @U1b.5
 pxui_types::Event::pointer fn const (kind: u32, code: u32, x: f64, y: f64) -> Event @U1b.5
+pxui_types::Event::reserved field u32 @U5.1
+pxui_types::Event::size field u32 @U5.1
+pxui_types::Event::surface field u64 @U5.1
 pxui_types::Event::text field Str @HEAD
 pxui_types::Event::value field f64 @HEAD
 pxui_types::Event::x field f64 @HEAD
@@ -3264,6 +3273,7 @@ pxui_types::FrameIn struct @HEAD
 pxui_types::FrameIn::APPEARANCE_DARK const u32 @HEAD
 pxui_types::FrameIn::APPEARANCE_LIGHT const u32 @HEAD
 pxui_types::FrameIn::APPEARANCE_UNKNOWN const u32 @HEAD
+pxui_types::FrameIn::MAIN const u64 @U5.1
 pxui_types::FrameIn::appearance field u32 @HEAD
 pxui_types::FrameIn::environment field Environment @HEAD
 pxui_types::FrameIn::event_count field usize @HEAD

@@ -799,7 +799,7 @@ mod tests {
         let mut step = |ui: &mut Ui, events: &[Event]| {
             time += 1.0 / 60.0;
             let mut input = FrameIn::new(320.0, 240.0).time(time);
-            (input.wire.events, input.wire.event_count) = (events.as_ptr(), events.len());
+            input.events = &events[..];
             ui.frame(&input, &mut build).unwrap();
         };
         for _ in 0..3 { step(&mut ui, &[]); }

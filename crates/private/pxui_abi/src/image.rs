@@ -129,7 +129,7 @@ mod tests {
             assert_eq!(unsafe { crate::paint::pxui_ui_draw(ui, &out, 0, Some(paint), core::ptr::null_mut(), None) }, 0);
         }
         thread_local! { static PAINTED: std::cell::RefCell<Vec<(i32, usize)>> = const { std::cell::RefCell::new(Vec::new()) }; }
-        let mut ui = unsafe { crate::pxui_ui_create(&crate::PxuiUiDesc::default()) };
+        let mut ui = unsafe { crate::ui::create_test_ui() };
         let mut frame = crate::FrameOut::default();
         assert_eq!(unsafe { crate::pxui_frame(ui, &crate::FrameIn { width: 320.0, height: 240.0, ..Default::default() }, Some(build), (&mut ui as *mut *mut crate::PxuiUi).cast(), &mut frame) }, 0);
         let painted = PAINTED.with(|p| p.borrow().clone());

@@ -43,7 +43,7 @@ mod scrub_tests {
             assert_eq!(forward.out.flags,0);
             assert_ne!(forward.out.node.box_key,777);
         }
-        let mut ui = unsafe { crate::pxui_ui_create(&crate::PxuiUiDesc::default()) };
+        let mut ui = unsafe { crate::ui::create_test_ui() };
         let mut out = PxuiScrubOut {flags:99,..Default::default()};
         assert_eq!(unsafe { pxui_ui_scrub(ui,Str::default(),0.5,0.0,1.0,0.1,&mut { PxuiResponse::EMPTY },&mut out) },crate::PXUI_ERR_STATE);
         assert_eq!(out.flags,99);
@@ -91,7 +91,7 @@ mod keyed_tests {
             assert_eq!(b.box_key, pxui_types::ui::key_of(pxui_types::ui::ROOT_KEY, "view"));
             let _ = user;
         }
-        let mut ui = unsafe { crate::pxui_ui_create(&crate::PxuiUiDesc::default()) };
+        let mut ui = unsafe { crate::ui::create_test_ui() };
         let mut frame = crate::FrameOut::default();
         assert_eq!(unsafe { crate::pxui_frame(ui, &crate::FrameIn { width: 320.0, height: 240.0, ..Default::default() }, Some(build), (&mut ui as *mut *mut PxuiUi).cast(), &mut frame) }, 0);
         assert_eq!(unsafe { crate::pxui_ui_destroy(ui) }, 0);
