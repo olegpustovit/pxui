@@ -56,6 +56,7 @@ impl Probe {
                 trailing_height: 0.0,
                 overlay_scrollbar: true,
                 measured: false,
+                reorder: false,
             },
             &|i| i as i64,
             &mut |ui, part, _| {
@@ -76,7 +77,7 @@ impl Probe {
                     self.clicked |= ui.signal(&row).clicked;
                 }
             },
-        ));
+        ).handle);
     }
     pub fn check(&mut self, ui: &Ui, frame: usize) -> Result<(), String> {
         if self.rows > 30 {
