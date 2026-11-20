@@ -701,6 +701,13 @@ pub struct PxuiStateDesc {
     pub checked: u8,
     pub reserved: [u8; 3],
 }
+impl From<PxuiStateDesc> for crate::theme::State {
+    /// The record as a `State` (a nonzero byte is true), so a body config's `state` (and a search field's `clear`) reads typed:
+    /// `State::from(config.state)`, for `States::pick` and `Ui::style`.
+    fn from(s: PxuiStateDesc) -> crate::theme::State {
+        crate::theme::State { hovered: s.hovered != 0, pressed: s.pressed != 0, focused: s.focused != 0, disabled: s.disabled != 0, checked: s.checked != 0 }
+    }
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]

@@ -12,7 +12,7 @@ use pxui::theme::{Look, State};
 use pxui::{Image, ImageStyle, Overlay, Part, SearchField, Ui};
 use std::cell::Cell;
 use pxui_types::Flags;
-use pxui_types::{ffi::PxuiStateDesc, geom::Edges, layout::Align, Axis, Node, Size};
+use pxui_types::{geom::Edges, layout::Align, Axis, Node, Size};
 
 /// The theme lines that select the proof bodies, on top of any base theme text.
 pub const THEME_LINES: &str = "toggle.body = checkbox\nslider.body = round\nsegmented.body = sliding\ntable_row.body = ruled\nsearch_field.body = boxed\nsection_index.body = pills\ninspector_section.body = signed\nmodal.body = handle\ntabs.body = counted\ncheckbox.body = dotted\npicker.body = covers\n";
@@ -58,15 +58,11 @@ impl BodiesPage {
     }
 }
 
-fn state_of(s: &PxuiStateDesc) -> State {
-    State { hovered: s.hovered != 0, pressed: s.pressed != 0, focused: s.focused != 0, disabled: s.disabled != 0, checked: s.checked != 0 }
-}
-
 fn ink(ui: &Ui) -> Look { Look { fill: ui.theme().tokens.accent, ..Look::NONE } }
 
 /// A toggle as a checkbox: a 12-point box at the row's start is the hit area, the label after it.
 fn checkbox_toggle(ui: &mut Ui, c: &ToggleConfig) {
-    let state = state_of(&c.state);
+    let state = State::from(c.state);
     let (look, boxes) = { let t = ui.theme(); (*t.toggle.pick(state), t.checkbox) };
     ui.style(&c.row, &pxui::theme::States::of(look), state);
     ui.node_mut(&c.row, &mut |n| n.inset = Edges { l: 24.0, ..Edges::ZERO });
@@ -77,7 +73,7 @@ fn checkbox_toggle(ui: &mut Ui, c: &ToggleConfig) {
 
 /// A slider with a round 24-point thumb on a 4-point rail: behaviour maps the pointer across the rail, half the thumb kept at each end.
 fn round_slider(ui: &mut Ui, c: &SliderConfig) {
-    let state = state_of(&c.state);
+    let state = State::from(c.state);
     let (rail, fill, thumb) = { let t = ui.theme(); (t.separator.idle, t.mark.idle, t.slider) };
     let fraction = c.fraction;
     ui.part(Part::RAIL, Node { h: Size::Px(4.0), look: rail, ..Node::DEFAULT });
@@ -94,7 +90,7 @@ fn round_slider(ui: &mut Ui, c: &SliderConfig) {
 /// Segments with no outline of their own and one marker, built by the chosen segment into the strip under one key, so it slides
 /// between segments: placed from the chosen segment's rectangle last frame, it follows the choice a frame later.
 fn sliding_segment(ui: &mut Ui, c: &SegmentedConfig) {
-    let state = state_of(&c.state);
+    let state = State::from(c.state);
     let look = *ui.theme().segment.pick(state);
     let mut node = ui.node_layout(&c.node);
     node.w = Size::Px(70.0);
@@ -111,7 +107,7 @@ fn sliding_segment(ui: &mut Ui, c: &SegmentedConfig) {
 
 /// A table row with a hairline, the caller's cells inside.
 fn ruled_row(ui: &mut Ui, c: &TableRowConfig) {
-    let state = state_of(&c.state);
+    let state = State::from(c.state);
     let accent = ui.theme().tokens.accent;
     let look = if state.checked { Look { fill: accent, ..Look::NONE } } else { Look { border: accent, border_w: 1.0, ..Look::NONE } };
     ui.style(&c.row, &pxui::theme::States::of(look), state);
@@ -120,7 +116,7 @@ fn ruled_row(ui: &mut Ui, c: &TableRowConfig) {
 
 /// A search field as a 24-point well (the row the kit gives it): a 14-point round icon, the editing surface (the slot) and, with a query, a 20-point clear button.
 fn boxed_search(ui: &mut Ui, c: &SearchFieldConfig) {
-    let state = state_of(&c.state);
+    let state = State::from(c.state);
     let (look, hint, accent) = { let t = ui.theme(); (*t.search.pick(state), t.placeholder.idle, t.tokens.accent) };
     let mut well = ui.node_layout(&c.well);
     (well.h, well.axis, well.align, well.gap, well.padding) = (Size::Px(24.0), Axis::Row, Align::Center, 6.0, Edges { l: 6.0, ..Edges::ZERO });
@@ -172,7 +168,7 @@ fn handle_sheet(ui: &mut Ui, c: &ModalConfig) {
 
 /// A tab whose detail (a count) follows its text in an accent pill.
 fn counted_tab(ui: &mut Ui, c: &TabsConfig) {
-    let state = state_of(&c.state);
+    let state = State::from(c.state);
     let (look, accent, panel) = { let t = ui.theme(); (*t.tab.pick(state), t.tokens.accent, t.tokens.panel) };
     let mut node = ui.node_layout(&c.node);
     (node.w, node.axis, node.align, node.gap) = (Size::Fit, Axis::Row, Align::Center, 4.0);
@@ -191,7 +187,7 @@ fn counted_tab(ui: &mut Ui, c: &TabsConfig) {
 
 /// A checkbox whose box (the caller's side and looks, or the theme's) marks on with a round dot; a passive one with no text is the box alone.
 fn dotted_checkbox(ui: &mut Ui, c: &CheckboxConfig) {
-    let state = state_of(&c.state);
+    let state = State::from(c.state);
     let (themed, text, accent) = { let t = ui.theme(); (t.checkbox, t.toggle.pick(state).text, t.tokens.accent) };
     let states = c.states_of(&c.states).copied().unwrap_or(themed);
     let side = c.box_size;
@@ -217,7 +213,7 @@ thread_local! {
 /// A picker row whose art is a 20-point cover (`PickArt::Image`: the app's image for the id, an accent tile until there is one) or its
 /// glyph, then its label and, at the end, its detail; a group heading above it in the hint look, a row high, the spacing scale's third step in.
 fn cover_row(ui: &mut Ui, c: &PickerConfig) {
-    let state = state_of(&c.state);
+    let state = State::from(c.state);
     let (look, hint, accent, heading, inset) = { let t = ui.theme(); (*t.list.pick(state), t.hint.idle.text, t.tokens.accent, t.hint.idle, (t.tokens.space[2] * t.tokens.density).round()) };
     if c.has_head == 1 {
         ui.style(&c.head, &pxui::theme::States::of(heading), pxui::theme::State::default());

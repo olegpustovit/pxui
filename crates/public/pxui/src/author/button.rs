@@ -588,6 +588,23 @@ mod tests {
         }
     }
 
+    /// U4b review 3: a registered body reads its interaction state and `Button::centered` typed (`State::from(config.state)`,
+    /// `ButtonConfig::centered`), as the record carries them: a plain button rests; a selected, disabled, centred one reads checked, disabled and
+    /// centred. Both link modes.
+    #[test]
+    fn a_registered_body_reads_its_state_and_centred_typed() {
+        thread_local! { static SEEN: Cell<Option<(crate::theme::State, bool)>> = const { Cell::new(None) }; }
+        fn told(_ui: &mut Ui, c: &crate::bodies::ButtonConfig) { SEEN.with(|d| d.set(Some((crate::theme::State::from(c.state), c.centered())))); }
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+        ui.register_button_body("told", told).expect("registered");
+        ui.set_theme(&crate::ThemeHandle::parse("button.body = told").unwrap()).unwrap();
+        let on = crate::theme::State::default().checked(true).disabled(true);
+        for (button, seen) in [(Button::DEFAULT, (crate::theme::State::default(), false)), (Button::DEFAULT.selected(true).disabled(true).centered(), (on, true))] {
+            testing::frame(&mut ui, &[], &mut |ui| { ui.button("b", "Go", &button); });
+            assert_eq!(SEEN.with(|d| d.take()), Some(seen));
+        }
+    }
+
     /// The accessible node named `name` with `role` in the last frame.
     fn a11y(ui: &Ui, role: Role, name: &str) -> crate::A11yNode {
         *ui.a11y_nodes().iter().find(|n| n.is_role(role) && ui.a11y_name_of(n) == name).unwrap_or_else(|| panic!("no {role:?} named {name}"))

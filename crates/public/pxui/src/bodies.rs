@@ -257,6 +257,17 @@ impl ButtonConfig {
     /// ```
     pub fn danger(&self) -> bool { self.danger != 0 }
 
+    /// Whether the caller asked for `Button::centered` (the contents centred along the row): a body justifies them to the centre.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::bodies::ButtonConfig;
+    /// fn button(_ui: &mut pxui::Ui, config: &ButtonConfig) { let _centred = config.centered(); }
+    /// ```
+    pub fn centered(&self) -> bool { self.centered != 0 }
+
     /// The contents' axis the caller asked for (`Button::axis`); `None` for the kit's (or a value no `Axis` names).
     ///
     /// Allocates: never.
@@ -652,7 +663,7 @@ mod tests {
         assert_eq!(changed.borrow().as_deref(), Some(""), "Escape clears the query on the body's editor");
     }
 
-    /// U2b.4.23: a search field body styles the clear key it builds for the state behaviour gives it (`SearchFieldConfig.clear`), with
+    /// U2b.4.23: a search field body styles the clear key it builds for the state behaviour gives it (`SearchFieldConfig.clear`, read with `State::from`), with
     /// no signal of its own: idle, then hovered under the pointer, then pressed (the kit's priority over hovered) while held; the
     /// release clears the query. Both link modes.
     #[test]
@@ -662,7 +673,7 @@ mod tests {
         const KEY: crate::theme::States = crate::theme::States::of(crate::theme::Look::NONE.fill(crate::Rgba::rgb(1, 1, 1)))
             .hover(crate::theme::Look::NONE.fill(crate::Rgba::rgb(2, 2, 2))).pressed(crate::theme::Look::NONE.fill(crate::Rgba::rgb(3, 3, 3)));
         fn search(ui: &mut Ui, c: &SearchFieldConfig) {
-            let state = crate::theme::State::default().hovered(c.clear.hovered != 0).pressed(c.clear.pressed != 0);
+            let state = crate::theme::State::from(c.clear);
             SEEN.with(|s| s.set(state));
             ui.part(Part::EDITOR, Node::DEFAULT.w_px(200.0).h_px(40.0));
             ui.slot(c.editor);
