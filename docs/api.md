@@ -5934,11 +5934,11 @@ pxui_types::ffi::Strided impl Copy @U5.4
 pxui_types::ffi::Strided impl Debug @U5.4
 pxui_types::ffi::Strided impl Default @U5.4
 pxui_types::ffi::Strided struct <T> @U5.4
-pxui_types::ffi::Strided::as_slice fn unsafe (&self) -> Option<&'a [T]> @U5.4
-pxui_types::ffi::Strided::at fn unsafe (&self, index: usize) -> &'a T @U5.4
+pxui_types::ffi::Strided::as_slice fn unsafe <'a>(&self) -> Option<&'a [T]> where T: 'a @U5.4
+pxui_types::ffi::Strided::at fn unsafe <'a>(&self, index: usize) -> &'a T where T: 'a @U5.4
 pxui_types::ffi::Strided::is_valid fn (&self) -> bool @U5.4
 pxui_types::ffi::Strided::len field usize @U5.4
-pxui_types::ffi::Strided::of fn const (records: &[T]) -> Strided<T> @U5.4
+pxui_types::ffi::Strided::of fn const (records: &[T]) -> Self @U5.4
 pxui_types::ffi::Strided::ptr field *const T @U5.4
 pxui_types::ffi::Strided::stride field usize @U5.4
 -pxui_types::ffi::ThemeSource impl Clone @U2c.5
