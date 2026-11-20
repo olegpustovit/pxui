@@ -273,17 +273,17 @@ pub fn collections_page(ui: &mut Ui, s: &mut Gallery) {
 pub fn overlays_page(ui: &mut Ui, s: &mut Gallery) {
     ui.panel("overlays", &Overlay::DEFAULT.w_px(296.0), &mut |ui: &mut Ui| {
         ui.label("Overlays", pxui::Label::DEFAULT);
-        if ui.button("button", "Open dialog", &pxui::Button::DEFAULT).clicked {
-            s.dialog = true;
-        }
-        if ui.button("button", "Context menu", &pxui::Button::DEFAULT).clicked {
-            s.menu_at = Some(pxui_types::geom::Point::new(140.0, 120.0));
-        }
-        if ui.button("button", "Pick a preset", &pxui::Button::DEFAULT).clicked {
-            s.picker = true;
-        }
-        if ui.button("button", "Show a toast", &pxui::Button::DEFAULT).clicked {
-            s.toast("Saved to disk");
+        // One call site for the four buttons: the page's code no longer depends on how many `button::<&str>` calls the inliner takes
+        // (a sixth swung abi_bench's static Overlays by about 180 instructions); the same four buttons, keys and actions.
+        for (i, text) in ["Open dialog", "Context menu", "Pick a preset", "Show a toast"].into_iter().enumerate() {
+            if ui.button("button", text, &pxui::Button::DEFAULT).clicked {
+                match i {
+                    0 => s.dialog = true,
+                    1 => s.menu_at = Some(pxui_types::geom::Point::new(140.0, 120.0)),
+                    2 => s.picker = true,
+                    _ => s.toast("Saved to disk"),
+                }
+            }
         }
         let row = node(ui, "tip-row", Node { h: Size::Px(28.0), axis: Axis::Row, align: Align::Center, padding: Edges { l: 12.0, ..Edges::ZERO }, ..Node::DEFAULT });
         ui.within(&row, &mut |ui: &mut Ui| {
