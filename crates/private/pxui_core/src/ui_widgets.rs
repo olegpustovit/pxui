@@ -658,7 +658,7 @@ impl Ui {
             if before == Some(i) {
                 old = Some((n, state));
             }
-            let config = TabConfig { state: State { checked: sel == Some(i), ..state }, index: i, node: n };
+            let config = TabConfig { state: State { checked: sel == Some(i), ..state }, index: i, node: n, bar };
             self.set_role(&n, Role::Tab, st::SELECTABLE | if sel == Some(i) { st::SELECTED } else { 0 });
             self.a11y_name(&n, tab.name.unwrap_or(tab.text));
             in_item!(flat; self, body, n.box_key, n, default_tab(&config, tab.text, tab.detail));

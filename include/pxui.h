@@ -18,7 +18,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 123u)
+#define PXUI_ABI_BUILT ((1u << 16) | 124u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 typedef struct { uint32_t autocorrect, capitalization, action; } PxuiTextInputOptions;
@@ -688,7 +688,8 @@ typedef struct { uint32_t size; PxuiBox node; PxuiSlot content; uint16_t variant
 typedef struct { uint32_t size; PxuiStateDesc state; PxuiBox node; PxuiStr text; uint16_t variant; } PxuiToastConfig;
 typedef struct { uint32_t size; float width; float height; PxuiBox tip; PxuiStrSpan lines; uint16_t variant; } PxuiTipConfig;
 typedef struct { uint32_t size; PxuiStateDesc state; size_t index; PxuiBox node; PxuiStr text; uint16_t variant;
-                 /* ABI 1.84 (read when size covers it): the tab's detail after its text (a count or badge; empty: none) */ PxuiStr detail; } PxuiTabConfig;
+                 /* ABI 1.84 (read when size covers it): the tab's detail after its text (a count or badge; empty: none) */ PxuiStr detail;
+                 /* ABI 1.124 (read when size covers it): the bar, the tab list holding the tabs; a body may restyle or resize it, as a segment body its strip */ PxuiBox bar; } PxuiTabConfig;
 /* ABI 1.85: a section index body (PXUI_BODY_SECTION_INDEX), entered on the strip `node`; letters valid for the call; active is the letter held
    or last chosen when has_active is 1 */
 typedef struct { uint32_t size; PxuiStateDesc state; uint8_t has_active; size_t active; PxuiBox node; PxuiStrSpan letters; uint16_t variant; } PxuiSectionIndexConfig;
@@ -1215,7 +1216,7 @@ _Static_assert(sizeof(PxuiSplitConfig) == 80 && offsetof(PxuiSplitConfig, size) 
 _Static_assert(sizeof(PxuiScrollConfig) == 56 && offsetof(PxuiScrollConfig, size) == 0 && offsetof(PxuiScrollConfig, node) == 8 && offsetof(PxuiScrollConfig, content) == 40 && offsetof(PxuiScrollConfig, variant) == 48, "PxuiScrollConfig layout");
 _Static_assert(sizeof(PxuiToastConfig) == 72 && offsetof(PxuiToastConfig, size) == 0 && offsetof(PxuiToastConfig, state) == 4 && offsetof(PxuiToastConfig, node) == 16 && offsetof(PxuiToastConfig, text) == 48 && offsetof(PxuiToastConfig, variant) == 64, "PxuiToastConfig layout");
 _Static_assert(sizeof(PxuiTipConfig) == 72 && offsetof(PxuiTipConfig, size) == 0 && offsetof(PxuiTipConfig, width) == 4 && offsetof(PxuiTipConfig, height) == 8 && offsetof(PxuiTipConfig, tip) == 16 && offsetof(PxuiTipConfig, lines) == 48 && offsetof(PxuiTipConfig, variant) == 64, "PxuiTipConfig layout");
-_Static_assert(sizeof(PxuiTabConfig) == 96 && offsetof(PxuiTabConfig, size) == 0 && offsetof(PxuiTabConfig, state) == 4 && offsetof(PxuiTabConfig, index) == 16 && offsetof(PxuiTabConfig, node) == 24 && offsetof(PxuiTabConfig, text) == 56 && offsetof(PxuiTabConfig, variant) == 72 && offsetof(PxuiTabConfig, detail) == 80, "PxuiTabConfig layout");
+_Static_assert(sizeof(PxuiTabConfig) == 128 && offsetof(PxuiTabConfig, size) == 0 && offsetof(PxuiTabConfig, state) == 4 && offsetof(PxuiTabConfig, index) == 16 && offsetof(PxuiTabConfig, node) == 24 && offsetof(PxuiTabConfig, text) == 56 && offsetof(PxuiTabConfig, variant) == 72 && offsetof(PxuiTabConfig, detail) == 80 && offsetof(PxuiTabConfig, bar) == 96, "PxuiTabConfig layout");
 _Static_assert(sizeof(PxuiSegmentConfig) == 200 && offsetof(PxuiSegmentConfig, size) == 0 && offsetof(PxuiSegmentConfig, state) == 4 && offsetof(PxuiSegmentConfig, index) == 16 && offsetof(PxuiSegmentConfig, selected) == 24 && offsetof(PxuiSegmentConfig, group) == 32 && offsetof(PxuiSegmentConfig, node) == 40 && offsetof(PxuiSegmentConfig, text) == 72 && offsetof(PxuiSegmentConfig, states) == 88 && offsetof(PxuiSegmentConfig, grow) == 96 && offsetof(PxuiSegmentConfig, variant) == 98 && offsetof(PxuiSegmentConfig, padding) == 100 && offsetof(PxuiSegmentConfig, min_segment) == 104 && offsetof(PxuiSegmentConfig, line) == 112 && offsetof(PxuiSegmentConfig, strip) == 144 && offsetof(PxuiSegmentConfig, has_selected) == 176 && offsetof(PxuiSegmentConfig, reserved3) == 177 && offsetof(PxuiSegmentConfig, stored) == 184 && offsetof(PxuiSegmentConfig, has_stored) == 192 && offsetof(PxuiSegmentConfig, reserved4) == 193, "PxuiSegmentConfig layout");
 _Static_assert(sizeof(PxuiDropdownConfig) == 80 && offsetof(PxuiDropdownConfig, size) == 0 && offsetof(PxuiDropdownConfig, state) == 4 && offsetof(PxuiDropdownConfig, open) == 12 && offsetof(PxuiDropdownConfig, key) == 16 && offsetof(PxuiDropdownConfig, button) == 24 && offsetof(PxuiDropdownConfig, text) == 56 && offsetof(PxuiDropdownConfig, variant) == 72, "PxuiDropdownConfig layout");
 _Static_assert(sizeof(PxuiMenuItemConfig) == 80 && offsetof(PxuiMenuItemConfig, size) == 0 && offsetof(PxuiMenuItemConfig, state) == 4 && offsetof(PxuiMenuItemConfig, index) == 16 && offsetof(PxuiMenuItemConfig, node) == 24 && offsetof(PxuiMenuItemConfig, text) == 56 && offsetof(PxuiMenuItemConfig, variant) == 72, "PxuiMenuItemConfig layout");

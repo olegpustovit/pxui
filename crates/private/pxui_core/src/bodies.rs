@@ -294,10 +294,13 @@ pub type TipBody = fn(&mut Ui, &TipConfig, &[String]);
 /// a growing-height row item, keyed by its place in the bar, with the tab role, its name and its selected state; behaviour reads
 /// its presses. The body gives it its width (`Size::Px`, the text's by default), its look for `state` (`checked`: it is the tab in
 /// use) and the text. A click on a later tab unselects an earlier one in the same frame; a body's own look follows on the next frame.
+/// `bar` is the tab list holding the tabs (a row the theme's row high, `space(2)` padding and gap, the header look): a body may
+/// restyle or resize it, as a segment body its strip.
 pub struct TabConfig {
     pub state: State,
     pub index: usize,
     pub node: Handle,
+    pub bar: Handle,
 }
 
 pub type TabBody = fn(&mut Ui, &TabConfig, &str, &str);

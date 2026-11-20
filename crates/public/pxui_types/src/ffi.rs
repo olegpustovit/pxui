@@ -2191,6 +2191,10 @@ configs! {
         /// ABI 1.84 (read when `size` covers it): the tab's detail after its text (`Segment::detail`: a count or badge; empty: none);
         /// valid for the call.
         detail: Str,
+        /// ABI 1.124 (U2b.4.29; read when `size` covers it): the bar, the tab list holding the tabs (the theme's row high, `space(2)`
+        /// padding and gap, the header look): a body may restyle or resize it (`pxui_ui_set_node_layout`, `pxui_ui_style`), as a
+        /// segment body its `strip`.
+        bar: PxuiBox,
     }
     /// A section index (ABI 1.85): the strip of letters of `Ui::section_index`, entered as `node`; `letters` are the letters (valid for the
     /// call), `active` the letter the pointer holds or the last one chosen when `has_active` is 1.

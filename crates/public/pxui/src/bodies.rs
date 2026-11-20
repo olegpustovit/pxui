@@ -1206,6 +1206,26 @@ mod tests {
         assert_eq!(TAB_DETAIL.with(|d| d.borrow().clone()), "12");
     }
 
+    fn tall_bar(ui: &mut Ui, c: &crate::bodies::TabsConfig) {
+        ui.set_node_layout(&c.bar, &crate::Node::row().w(Size::Grow).h_px(44.0).gap(20.0));
+        ui.text(&c.node, c.text_of(&c.text));
+    }
+
+    /// A tabs body owns its bar (`TabsConfig.bar`, U2b.4.29): it sizes it 44 points high and spaces its tabs 20 apart.
+    #[test]
+    fn a_tabs_body_sizes_and_spaces_its_bar() {
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
+        ui.set_a11y(true);
+        ui.register_tabs_body("tall", tall_bar).expect("registered");
+        ui.set_theme(&source("tabs.body = tall")).expect("theme");
+        const BAR: crate::Tabs = crate::Tabs::DEFAULT.name("Bar");
+        for n in 0..3 { ui.frame(&input(n as f64), &mut |ui: &mut Ui| { ui.tabs("t", &[crate::Segment::new("a"), crate::Segment::new("b")], Some(0), &BAR); }).expect("frame"); }
+        let bar = crate::testing::find(&ui, crate::Role::TabList, "Bar").expect("the bar");
+        let (a, b) = (crate::testing::find(&ui, crate::Role::Tab, "a").expect("a"), crate::testing::find(&ui, crate::Role::Tab, "b").expect("b"));
+        assert_eq!(bar.h, 44.0, "{bar:?}");
+        assert_eq!(b.x - (a.x + a.w), 20.0, "{a:?} {b:?}");
+    }
+
     /// The `_with` forms build the caller's own children for each row and cell, in both link modes.
     #[test]
     fn collections_build_the_callers_cells() {
