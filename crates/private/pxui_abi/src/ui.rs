@@ -611,13 +611,13 @@ export!(pub unsafe fn pxui_ui_layer_drawn(ui: *mut PxuiUi, layer: u64) -> i32 {
 
 export!(trusted pub unsafe fn pxui_within(ui: *mut PxuiUi, box_: *const PxuiBox, build: Build, user: *mut c_void) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
-    unsafe { trusted::within(ui, box_, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, build, user)) }
+    unsafe { trusted::within(ui, box_, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build_seeing((*ui).shared, engine, (*ui).theme, build, user)) }
 });
 
 export!(trusted pub unsafe fn pxui_scope(ui: *mut PxuiUi, label: Str, build: Build, user: *mut c_void) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     let Some(label) = (unsafe { crate::state::checked_key(label) }) else { return unsafe { fail(ui, "invalid scope label") }; };
-    unsafe { trusted::scope(ui, label, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, build, user)) }
+    unsafe { trusted::scope(ui, label, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build_seeing((*ui).shared, engine, (*ui).theme, build, user)) }
 });
 
 /// The panel of `panel`'s record keyed by `key` and named `name`, the body of `pxui_ui_panel`.

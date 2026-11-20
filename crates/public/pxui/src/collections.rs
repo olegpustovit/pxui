@@ -162,12 +162,30 @@ pub(crate) fn cell_from(c: &pxui_abi_link::trusted::ListCell) -> CellState {
     CellState { selected: c.selected, enabled: c.enabled, focused: c.focused, held: c.held, handle, y: c.y }
 }
 
-/// The library's cell record as the row's `CellState`: its flags read as `!= 0` (a byte is never taken as a `bool`).
+/// The library's cell record as the row's `CellState`: its flags read as `!= 0` (a byte is never taken as a `bool`). The two
+/// records share the handle's and the Y's offsets (checked below), so the record is copied whole and its four flag bytes, made 0 or 1
+/// together (one word: a byte's high bit, or its low seven bits plus 0x7f carrying into it, is set when the byte is not zero), go
+/// over the `CellState`'s four `bool`s.
 #[cfg(not(feature = "static"))]
 #[inline(always)]
 fn cell_of(c: &PxuiCellState) -> CellState {
-    CellState { selected: c.selected != 0, enabled: c.enabled != 0, focused: c.focused != 0, held: c.held != 0, handle: c.handle, y: c.y }
+    let flags = u32::from_ne_bytes([c.selected, c.enabled, c.focused, c.held]);
+    let set = ((((flags & 0x7f7f_7f7f) + 0x7f7f_7f7f) | flags) >> 7) & 0x0101_0101;
+    let mut out = core::mem::MaybeUninit::<CellState>::uninit();
+    // both are 48-byte `repr(C)` records: the copy writes every byte, then the flags' word is the four bools (each 0 or 1)
+    unsafe {
+        core::ptr::copy_nonoverlapping((c as *const PxuiCellState).cast::<u8>(), out.as_mut_ptr().cast::<u8>(), core::mem::size_of::<CellState>());
+        out.as_mut_ptr().cast::<u32>().write(set);
+        out.assume_init()
+    }
 }
+#[cfg(not(feature = "static"))]
+const _: () = {
+    use core::mem::{align_of, offset_of, size_of};
+    assert!(size_of::<CellState>() == size_of::<PxuiCellState>() && align_of::<CellState>() == align_of::<PxuiCellState>());
+    assert!(offset_of!(CellState, selected) == 0 && offset_of!(CellState, enabled) == 1 && offset_of!(CellState, focused) == 2 && offset_of!(CellState, held) == 3);
+    assert!(offset_of!(CellState, handle) == offset_of!(PxuiCellState, handle) && offset_of!(CellState, y) == offset_of!(PxuiCellState, y));
+};
 
 /// The library's list record as a `ListResponse`.
 pub(crate) fn list_response(out: &PxuiListResult) -> ListResponse {

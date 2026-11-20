@@ -230,6 +230,15 @@ impl Borrowed {
         handle
     }
 }
+/// The handle a C collection's row callbacks build through, made once per call over `outer`'s engine and state (its theme cached as
+/// `Borrowed::new` caches it) and made current for each row with `Current::set`: one handle a list, not one a row. A row's handle
+/// is no more valid in the next row than before (the per-row handle sat at the same stack address too).
+/// # Safety
+/// `outer` is the live handle whose collection call runs the row callbacks.
+#[inline(always)]
+pub(crate) unsafe fn row_handle(outer: *mut PxuiUi) -> PxuiUi {
+    unsafe { PxuiUi { theme: (*outer).theme, engine: (*outer).engine, shared: (*outer).shared, owner: false } }
+}
 // as `Current`: a poisoned `Ui` keeps no current handle
 impl Drop for Borrowed { #[inline(always)] fn drop(&mut self) { let shared = self.handle.shared; unsafe { if !(*shared).poisoned { (*shared).current = self.prev; (*shared).building = self.prev; } } } }
 

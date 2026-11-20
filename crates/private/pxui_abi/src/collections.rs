@@ -43,7 +43,8 @@ export!(trusted pub unsafe fn pxui_ui_tree(ui: *mut PxuiUi, desc: *const PxuiTre
     let mut selected = (unsafe { *desc.selected } != usize::MAX).then_some(unsafe { *desc.selected });
     let visible: &mut [u32] = if desc.visible.len == 0 { &mut [] } else { unsafe { core::slice::from_raw_parts_mut(desc.visible.ptr, desc.visible.len) } };
     let mut result = (None, 0);
-    let rc = unsafe { crate::trusted::tree(ui, label, raw_nodes, open, &mut selected, visible, (desc.has_revision != 0).then_some(desc.revision), &mut |engine: &mut pxui_core::ui::Ui, node| if let Some(build) = desc.build { { let mut b = crate::state::Borrowed::new(engine, ui); let h = b.enter(); build(desc.user, h.cast(), node, 0) } }, &mut result) };
+    let mut row = unsafe { crate::state::row_handle(ui) };
+    let rc = unsafe { crate::trusted::tree(ui, label, raw_nodes, open, &mut selected, visible, (desc.has_revision != 0).then_some(desc.revision), &mut |engine: &mut pxui_core::ui::Ui, node| if let Some(build) = desc.build { debug_assert!(core::ptr::eq(engine, row.engine)); let h: *mut PxuiUi = &mut row; let _current = crate::state::Current::set(row.shared, h); build(desc.user, h.cast(), node, 0) }, &mut result) };
     if rc != 0 { return rc; }
     unsafe { *desc.visible_len = result.1; *desc.selected = selected.unwrap_or(usize::MAX); *out = result.0.unwrap_or(usize::MAX); }
     0
@@ -64,7 +65,8 @@ export!(trusted pub unsafe fn pxui_ui_section_list(ui: *mut PxuiUi, keyed: *cons
     let Some((label, name)) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
     let Some(desc) = sized!(desc) else { return unsafe { fail(ui, "invalid section list descriptor") } };
     let ids = key.map(|key| move |row| key(user, row));
-    let rc = unsafe { crate::trusted::section_list(ui, label, desc, ids.as_ref().map(|ids| ids as &dyn Fn(usize) -> i64), &mut |engine: &mut pxui_core::ui::Ui, index, c| if let Some(build) = build { { let mut b = crate::state::Borrowed::new(engine, ui); let h = b.enter(); build(user, h.cast(), index, crate::trusted::cell_state(c)) } }, out) };
+    let mut row = unsafe { crate::state::row_handle(ui) };
+    let rc = unsafe { crate::trusted::section_list(ui, label, desc, ids.as_ref().map(|ids| ids as &dyn Fn(usize) -> i64), &mut |engine: &mut pxui_core::ui::Ui, index, c| if let Some(build) = build { debug_assert!(core::ptr::eq(engine, row.engine)); let h: *mut PxuiUi = &mut row; let _current = crate::state::Current::set(row.shared, h); build(user, h.cast(), index, crate::trusted::cell_state(c)) }, out) };
     if rc == 0 { unsafe { name_box(ui, &out.handle, name) }; }
     rc
 });
@@ -77,7 +79,8 @@ export!(trusted pub unsafe fn pxui_ui_selection_list(ui: *mut PxuiUi, keyed: *co
     let drop_look = match desc.has_drop_look { 0 => None, 1 => crate::style::decode_look(desc.drop_look), _ => None };
     if desc.has_drop_look > 1 || (desc.has_drop_look == 1 && drop_look.is_none()) { enter!(ui); return unsafe { fail(ui, "invalid selection list descriptor") } }
     let ids = key.map(|key| move |row| key(user, row));
-    let rc = unsafe { crate::trusted::selection_list(ui, label, desc, drop_look, ids.as_ref().map(|ids| ids as &dyn Fn(usize) -> i64), &mut |engine: &mut pxui_core::ui::Ui, index, c| if let Some(cell) = cell { { let mut b = crate::state::Borrowed::new(engine, ui); let h = b.enter(); cell(user, h.cast(), index, crate::trusted::cell_state(c)) } }, out) };
+    let mut row = unsafe { crate::state::row_handle(ui) };
+    let rc = unsafe { crate::trusted::selection_list(ui, label, desc, drop_look, ids.as_ref().map(|ids| ids as &dyn Fn(usize) -> i64), &mut |engine: &mut pxui_core::ui::Ui, index, c| if let Some(cell) = cell { debug_assert!(core::ptr::eq(engine, row.engine)); let h: *mut PxuiUi = &mut row; let _current = crate::state::Current::set(row.shared, h); cell(user, h.cast(), index, crate::trusted::cell_state(c)) }, out) };
     if rc == 0 { unsafe { name_box(ui, &out.handle, name) }; }
     rc
 });
@@ -96,7 +99,8 @@ export!(trusted pub unsafe fn pxui_ui_table(ui: *mut PxuiUi, keyed: *const PxuiK
     let Some((label, name)) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
     let Some(desc) = sized!(desc) else { return unsafe { fail(ui, "invalid table descriptor") } };
     let ids = key.map(|key| move |row| key(user, row));
-    let rc = unsafe { crate::trusted::table(ui, label, desc, ids.as_ref().map(|ids| ids as &dyn Fn(usize) -> i64), &mut |engine: &mut pxui_core::ui::Ui, row, column, c| if let Some(cell) = cell { { let mut b = crate::state::Borrowed::new(engine, ui); let h = b.enter(); cell(user, h.cast(), row, column, crate::trusted::cell_state(c)) } }, out) };
+    let mut handle = unsafe { crate::state::row_handle(ui) };
+    let rc = unsafe { crate::trusted::table(ui, label, desc, ids.as_ref().map(|ids| ids as &dyn Fn(usize) -> i64), &mut |engine: &mut pxui_core::ui::Ui, row, column, c| if let Some(cell) = cell { debug_assert!(core::ptr::eq(engine, handle.engine)); let h: *mut PxuiUi = &mut handle; let _current = crate::state::Current::set(handle.shared, h); cell(user, h.cast(), row, column, crate::trusted::cell_state(c)) }, out) };
     if rc == 0 && !name.is_empty() { if let Some(engine) = unsafe { crate::state::engine(ui) } { crate::trusted::name_table(engine, label, name); } }
     rc
 });
