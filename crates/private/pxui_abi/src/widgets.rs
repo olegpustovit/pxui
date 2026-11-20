@@ -127,12 +127,13 @@ fn write_scrub(result: &pxui_core::ui::Scrub, out: &mut pxui_types::ffi::PxuiScr
     };
 }
 
-/// A `PxuiKeyedDesc` read whole: `size` at least the record's, `reserved` zero, `key` an identifier (UTF-8, at most `MAX_KEY_BYTES`) and
-/// `name` display text (UTF-8, at most `MAX_LABEL_BYTES`); `None` refuses the call.
+/// A `PxuiKeyedDesc` read whole: `size` at least the record's, `reserved` zero, `key` UTF-8 of at most `MAX_KEY_BYTES` and `name` display
+/// text (UTF-8, at most `MAX_LABEL_BYTES`); `None` refuses the call. The key's other check (a 0x01-led label that is not a usable resolved
+/// key, `state::unusable`) is the trusted entry's `bad_key`, made once; a caller whose entry has none filters with `unusable` itself.
 pub(crate) unsafe fn read_keyed<'a>(desc: *const PxuiKeyedDesc) -> Option<(&'a str, &'a str)> {
     let d = sized!(desc)?;
-    if d.reserved != 0 { return None; }
-    Some((unsafe { crate::state::checked_key(d.key) }?, unsafe { checked(d.name) }?))
+    if d.reserved != 0 || d.key.len > crate::state::MAX_KEY_BYTES { return None; }
+    Some((unsafe { crate::state::text(d.key) }?, unsafe { checked(d.name) }?))
 }
 
 // ABI 1.76: the kit slider keyed by `keyed.key`, showing and named `keyed.name`, reporting into one `PxuiResponse` and a
@@ -153,7 +154,7 @@ export!(trusted pub unsafe fn pxui_ui_section_index(ui: *mut PxuiUi, keyed: *con
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short section index response") } };
     let Some(result) = sized_mut!(result) else { return unsafe { fail(ui, "null or short section index result") } };
-    let Some((key, name)) = (unsafe { read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
+    let Some((key, name)) = (unsafe { read_keyed(keyed) }).filter(|(key, _)| !crate::state::unusable(key)) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
     let mut list = state.shared().take_strs();
     if !unsafe { strings(letters, MAX_OPTIONS, &mut list) } { state.shared().put_strs(list); return unsafe { fail(ui, "invalid widget strings") }; }
     let mut at = None;

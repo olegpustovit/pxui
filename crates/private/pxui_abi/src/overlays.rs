@@ -271,6 +271,6 @@ export!(build pub unsafe fn pxui_ui_picker(
     rows_cb: PickerRows, mark_cb: PickerMark, off_cb: PickerOff, image_cb: PickerImage, user: *mut c_void, out_query: *mut Str, out_tag: *mut u32, out_index: *mut i64,
 ) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
-    let Some((key, placeholder)) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
+    let Some((key, placeholder)) = (unsafe { crate::widgets::read_keyed(keyed) }).filter(|(key, _)| !crate::state::unusable(key)) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
     unsafe { picker(ui, limit, slash, at_rest, key, placeholder, query, rows_cb, mark_cb, off_cb, image_cb, user, out_query, out_tag, out_index) }
 });

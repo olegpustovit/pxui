@@ -789,11 +789,16 @@ fn overlay_ok(overlay: &Overlay) -> bool {
 
 /// A panel keyed by `key`, placed, dressed and named by `overlay`.
 #[inline]
-pub unsafe fn panel(ui: *mut PxuiUi, key: &str, overlay: &Overlay, f: Inner, root: &mut PxuiBox) -> i32 {
+pub unsafe fn panel(ui: *mut PxuiUi, key: &str, overlay: &Overlay, f: Inner, root: &mut PxuiBox) -> i32 { unsafe { panel_keyed(ui, key, bad_key(key), overlay, f, root) } }
+
+/// `panel` whose key the caller checked (`bad`: refused): `pxui_ui_panel`, whose `read_keyed` has checked the key's length, passes
+/// `unusable`. Always inline, the export is one body (24 instructions a call fewer, dynamic abi_bench probe).
+#[inline(always)]
+pub(crate) unsafe fn panel_keyed(ui: *mut PxuiUi, key: &str, bad: bool, overlay: &Overlay, f: Inner, root: &mut PxuiBox) -> i32 {
     enter!(ui);
     let mut clipped = None;
     let overlay = clipped_overlay(overlay, &mut clipped);
-    if bad_key(key) || !overlay_ok(overlay) { return unsafe { fail(ui, "invalid panel descriptor") }; }
+    if bad || !overlay_ok(overlay) { return unsafe { fail(ui, "invalid panel descriptor") }; }
     *root = to_abi_box(unsafe { engine(ui) }.panel_root(key, overlay, f));
     0
 }

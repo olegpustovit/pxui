@@ -391,6 +391,13 @@ fn unusable_resolved_labels_are_refused_with_the_argument_error() {
             if rc == PXUI_ERR_ARGUMENT { failed(format!("a plain label refused: {}", lent(unsafe { pxui_last_error(ui) }))); }
             for label in UNRESOLVED { let rc = call(ui, Str { ptr: label.as_ptr(), len: 17 }); if rc != PXUI_ERR_ARGUMENT { failed(format!("{label:?} answered {rc}")); } }
         }
+        // each keyed-record export (`read_keyed`, whose key's resolved form is checked once, by the entry or the export), likewise
+        for (name, call) in KEYED {
+            let failed = |what: String| FAILURES.with(|f| f.borrow_mut().push(format!("{name}: {what}")));
+            let rc = call(ui, Str { ptr: b"k".as_ptr(), len: 1 });
+            if rc == PXUI_ERR_ARGUMENT { failed(format!("a plain key refused: {}", lent(unsafe { pxui_last_error(ui) }))); }
+            for label in UNRESOLVED { let rc = call(ui, Str { ptr: label.as_ptr(), len: 17 }); if rc != PXUI_ERR_ARGUMENT { failed(format!("{label:?} answered {rc}")); } }
+        }
         // a usable resolved label is still taken as the key itself
         let mut b = PxuiBox::default();
         assert_eq!(unsafe { pxui_ui_image(ui, Str { ptr: b"img".as_ptr(), len: 3 }, Str::default(), &VALID_IMAGE, 0, PX, PX, &mut b) }, 0);
@@ -424,6 +431,25 @@ const VALID_IMAGE: pxui_types::Image = pxui_types::Image {
     size: core::mem::size_of::<pxui_types::Image>() as u32, vk_image_view: core::ptr::null_mut(), mtl_texture: core::ptr::dangling_mut(), width: 1, height: 1,
     format: pxui_types::Image::FORMAT_RGBA8,
 };
+/// A keyed record of `key`, named `n`.
+fn keyed(key: Str) -> PxuiKeyedDesc { PxuiKeyedDesc { size: core::mem::size_of::<PxuiKeyedDesc>() as u32, reserved: 0, key, name: Str { ptr: b"n".as_ptr(), len: 1 } } }
+/// Every export that takes its key in a `PxuiKeyedDesc`, each called with otherwise valid arguments and `key`.
+static KEYED: &[(&str, LegacyCall)] = &[
+        ("pxui_ui_panel", |ui, k| unsafe { pxui_ui_panel(ui, &keyed(k), &PxuiPanel { width: 100.0, ..PxuiPanel::default() }, None, core::ptr::null_mut(), &mut PxuiBox::default()) }),
+        ("pxui_ui_view", |ui, k| unsafe { pxui_ui_view(ui, &PxuiKeyedDesc { name: Str::default(), ..keyed(k) }, 0, None, core::ptr::null_mut(), &mut PxuiBox::default()) }),
+        ("pxui_ui_scroll_view", |ui, k| unsafe { pxui_ui_scroll_view(ui, &keyed(k), &Node::DEFAULT, None, core::ptr::null_mut(), &mut PxuiBox::default()) }),
+        ("pxui_ui_modal", |ui, k| { let d = PxuiSheetDesc { size: core::mem::size_of::<PxuiSheetDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_modal(ui, &keyed(k), &d, None, core::ptr::null_mut(), &mut 0, &mut PxuiBox::default()) } }),
+        ("pxui_ui_anchored", |ui, k| { let d = PxuiAnchorDesc { has_anchor: 1, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_anchored(ui, &keyed(k), &d, PX, PX, None, core::ptr::null_mut(), &mut PxuiBox::default()) } }),
+        ("pxui_ui_popup", |ui, k| { let d = PxuiPopupDesc { size: core::mem::size_of::<PxuiPopupDesc>() as u32, width: 10.0, height: 10.0, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_popup(ui, &keyed(k), &d, None, core::ptr::null_mut(), &mut 0, &mut PxuiBox::default()) } }),
+        ("pxui_ui_toasts", |ui, k| unsafe { pxui_ui_toasts(ui, &keyed(k), Slice { ptr: core::ptr::null(), len: 0 }, Slice { ptr: core::ptr::null(), len: 0 }, 1.0, &mut 0) }),
+        ("pxui_ui_slider", |ui, k| unsafe { pxui_ui_slider(ui, &keyed(k), 0.5, 0.0, 1.0, &mut response(), &mut PxuiScrubOut::default()) }),
+        ("pxui_ui_spinner", |ui, k| unsafe { pxui_ui_spinner(ui, &keyed(k), &mut PxuiBox::default()) }),
+        ("pxui_ui_badge", |ui, k| unsafe { pxui_ui_badge(ui, &keyed(k), Str { ptr: b"1".as_ptr(), len: 1 }, &mut PxuiBox::default()) }),
+        ("pxui_ui_disclosure", |ui, k| unsafe { pxui_ui_disclosure(ui, &keyed(k), 0, None, core::ptr::null_mut(), &mut response()) }),
+        ("pxui_ui_pick", |ui, k| unsafe { pxui_ui_pick(ui, &keyed(k), 0, Slice { ptr: core::ptr::null(), len: 0 }, 0, 0, &mut response(), &mut { PxuiSegmentedResult::EMPTY }) }),
+        ("pxui_ui_section_index", |ui, k| unsafe { pxui_ui_section_index(ui, &keyed(k), Slice { ptr: core::ptr::null(), len: 0 }, &mut response(), &mut { PxuiSegmentedResult::EMPTY }) }),
+        ("pxui_ui_picker", |ui, k| unsafe { pxui_ui_picker(ui, &keyed(k), 8, 0, 0, Str::default(), None, None, None, None, core::ptr::null_mut(), &mut Str::default(), &mut 0, &mut 0) }),
+];
 static LEGACY_KEYED: &[(&str, LegacyCall)] = &[
         ("pxui_ui_grip", |ui, l| unsafe { pxui_ui_grip(ui, l, 0, 0, geom::Rect::default(), &mut PxuiBox::default(), &mut PxuiSignal::default()) }),
         ("pxui_ui_grid_list", |ui, l| { let d = PxuiGridListDesc { label: l, cell_w: 10.0, cell_h: 10.0, size: core::mem::size_of::<PxuiGridListDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_grid_list(ui, &d, &mut PxuiBox::default()) } }),

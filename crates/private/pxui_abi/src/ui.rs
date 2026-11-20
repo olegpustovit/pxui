@@ -627,11 +627,12 @@ unsafe fn panel(ui: *mut PxuiUi, key: &str, name: &str, panel: *const PxuiPanel,
     if panel.padding < 0 { return unsafe { fail(ui, "invalid panel padding") }; }
     // the fractional padding counts only where it agrees with the integer one (a 1.x record leaves the hole unset)
     let padding = if (panel.padding_points - panel.padding as f32).abs() <= 0.5 && panel.padding_points >= 0.0 { panel.padding_points } else { panel.padding as f32 };
-    let mut overlay = pxui_types::ui::Overlay { at: (panel.x, panel.y), w: Some(panel.width), h: (panel.has_height != 0).then_some(panel.height),
-        max_h: (panel.has_max_height != 0).then_some(panel.max_height), window: panel.window != 0, padding, name: Some(name), ..pxui_types::ui::Overlay::DEFAULT };
-    if panel.has_stroke != 0 { overlay.stroke = Some(panel.stroke); }
-    if panel.has_look != 0 { let Some(look) = crate::style::decode_look(panel.look) else { return unsafe { fail(ui, "invalid panel look") }; }; overlay.look = Some(look); }
-    unsafe { trusted::panel(ui, key, &overlay, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, build, user), root) }
+    // the look decoded first, so the overlay is written once
+    let look = if panel.has_look == 0 { None } else { let Some(look) = crate::style::decode_look(panel.look) else { return unsafe { fail(ui, "invalid panel look") }; }; Some(look) };
+    let overlay = pxui_types::ui::Overlay { at: (panel.x, panel.y), w: Some(panel.width), h: (panel.has_height != 0).then_some(panel.height),
+        max_h: (panel.has_max_height != 0).then_some(panel.max_height), window: panel.window != 0, padding, name: Some(name),
+        stroke: (panel.has_stroke != 0).then_some(panel.stroke), look, ..pxui_types::ui::Overlay::DEFAULT };
+    unsafe { trusted::panel_keyed(ui, key, crate::state::unusable(key), &overlay, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, build, user), root) }
 }
 
 // ABI 1.76: a panel keyed by `keyed.key`, named `keyed.name`, placed and dressed by `panel`, writing its root to `root`.

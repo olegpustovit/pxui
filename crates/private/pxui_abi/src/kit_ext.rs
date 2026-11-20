@@ -238,7 +238,7 @@ unsafe fn pick_export(ui: *mut PxuiUi, keyed: *const pxui_types::ffi::PxuiKeyedD
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short pick response") } };
     let Some(result) = sized_mut!(result) else { return unsafe { fail(ui, "null or short pick result") } };
-    let Some((key, name)) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
+    let Some((key, name)) = (unsafe { crate::widgets::read_keyed(keyed) }).filter(|(key, _)| !crate::state::unusable(key)) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
     if has_selected > 1 || focus > 1 { return unsafe { fail(ui, "invalid pick arguments") }; }
     let Some(items) = (unsafe { checked_items(items) }) else { return unsafe { fail(ui, "invalid pick items") } };
     let (mut at, mut secondary) = (None, None);
