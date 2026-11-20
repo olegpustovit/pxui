@@ -578,6 +578,26 @@ mod tests {
         assert!(tops.len() > 2 && tops.windows(2).all(|t| t[1] - t[0] == 20.0), "rows stay where the list places them: {tops:?}");
     }
 
+    /// U2b.4.32 fix: a widget given a variant in a selection list's lead-in (a part: no row body runs around it) leaves the list's
+    /// variant to its rows: every row's body still gets it. Both link modes.
+    #[test]
+    fn a_variant_widget_in_a_lists_lead_in_keeps_the_rows_variant() {
+        thread_local! { static VARIANTS: RefCell<Vec<u16>> = const { RefCell::new(Vec::new()) }; }
+        fn row(ui: &mut Ui, c: &SelectionListConfig) { VARIANTS.with(|v| v.borrow_mut().push(c.variant)); ui.slot(c.content); }
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
+        ui.register_selection_list_body("seen", row).unwrap();
+        ui.set_theme(&crate::ThemeHandle::parse("selection_list.body = seen").unwrap()).unwrap();
+        let mut state = ListState::new();
+        ui.frame(&FrameIn::new(200.0, 200.0), &mut |ui| {
+            let list = SelectionList::DEFAULT.row_h(20.0).lead(30.0).variant(7);
+            ui.selection_list("rows", 2, &|i| i as i64, &mut state, &list, &mut |ui, part, _| if matches!(part, SectionPart::Leading) {
+                ui.button("key", "Key", &crate::Button::DEFAULT.variant(9));
+            });
+        }).unwrap();
+        let variants = VARIANTS.with(|v| v.take());
+        assert!(!variants.is_empty() && variants.iter().all(|&v| v == 7), "every row's body gets the list's variant: {variants:?}");
+    }
+
     /// U4a.6 fix: a heading without a grip is followed by the 1-point separator as its margin, not a node: the next heading starts a
     /// point after it, and each heading costs one node (with the kit's title). Both link modes.
     #[test]

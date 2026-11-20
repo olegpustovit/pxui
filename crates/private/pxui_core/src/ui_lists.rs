@@ -465,7 +465,13 @@ impl Ui {
         let section = SectionList { count, row_height: list.row_height, leading_height: list.leading_height, header_height: list.header_height, trailing_height: list.trailing_height, overlay_scrollbar: list.overlay_scrollbar, measured: list.measured, reorder: false };
         let saved = self.enter(&frame);
         let mut part = |ui: &mut Ui, index: usize, y: f32| {
-            if index >= usize::MAX - 2 { cell(ui, index, &ListCell { enabled: true, y, ..ListCell::default() }) } else { build_row(ui, &mut rows, flags, anchor, index, y, cell) }
+            if index < usize::MAX - 2 { return build_row(ui, &mut rows, flags, anchor, index, y, cell); }
+            // a part runs the caller's widgets outside any row body: the call's one variant slot (the rows') is clear around them, as
+            // a trampoline clears it around its body, and the rows' is back after (a widget's own variant call ends by clearing it)
+            let rows_variant = (ui.bodies.variant, ui.bodies.variant_kind);
+            ui.set_variant(0, 0);
+            cell(ui, index, &ListCell { enabled: true, y, ..ListCell::default() });
+            (ui.bodies.variant, ui.bodies.variant_kind) = rows_variant;
         };
         // a handle drag moves the rows of a scrolling list (a fitted one moves rows by the keyboard and accessibility only)
         self.row_moves = list.reorder && !list.fit;
