@@ -790,16 +790,17 @@ pub struct PxuiPanel {
     pub window: u8,
     pub has_max_height: u8,
     pub has_stroke: u8,
-    pub has_look: u8,
-    pub reserved: [u8; 3],
+    pub reserved: [u8; 4],
     pub max_height: f32,
     pub stroke: geom::Rgba,
-    pub look: ffi::PxuiLookDesc,
+    /// The look in place of the theme's, read where it lies for the call (ABI 1.132: a pointer, the record no longer carries the 152-byte
+    /// look); null for the theme's.
+    pub look: *const ffi::PxuiLookDesc,
 }
 impl Default for PxuiPanel {
     fn default() -> Self {
         Self { size: core::mem::size_of::<Self>() as u32, x: 0.0, y: 0.0, width: 0.0, height: 0.0, padding_points: 0.0, padding: 0, has_height: 0, window: 0,
-            has_max_height: 0, has_stroke: 0, has_look: 0, reserved: [0; 3], max_height: 0.0, stroke: geom::Rgba::default(), look: ffi::PxuiLookDesc::default() }
+            has_max_height: 0, has_stroke: 0, reserved: [0; 4], max_height: 0.0, stroke: geom::Rgba::default(), look: core::ptr::null() }
     }
 }
 
@@ -899,7 +900,7 @@ pub mod feature {
 }
 
 /// The ABI version this crate's records describe (`major << 16 | minor`); an app states it as `PxuiUiDesc::abi_built`.
-pub const ABI_BUILT: u32 = 1 << 16 | 131;
+pub const ABI_BUILT: u32 = 1 << 16 | 132;
 impl Default for PxuiUiDesc { fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, platform: 0, font_size: 0, abi_built: ABI_BUILT } } }
 
 #[cfg(test)]
@@ -915,7 +916,7 @@ mod abi_layout {
         assert_layout("PxuiPanel", size_of::<PxuiPanel>(), align_of::<PxuiPanel>(), &[
             ("size", core::mem::offset_of!(PxuiPanel, size)), ("x", core::mem::offset_of!(PxuiPanel, x)), ("y", core::mem::offset_of!(PxuiPanel, y)), ("width", core::mem::offset_of!(PxuiPanel, width)),
             ("height", core::mem::offset_of!(PxuiPanel, height)), ("padding", core::mem::offset_of!(PxuiPanel, padding)), ("has_height", core::mem::offset_of!(PxuiPanel, has_height)), ("window", core::mem::offset_of!(PxuiPanel, window)),
-            ("has_max_height", core::mem::offset_of!(PxuiPanel, has_max_height)), ("has_stroke", core::mem::offset_of!(PxuiPanel, has_stroke)), ("has_look", core::mem::offset_of!(PxuiPanel, has_look)), ("reserved", core::mem::offset_of!(PxuiPanel, reserved)),
+            ("has_max_height", core::mem::offset_of!(PxuiPanel, has_max_height)), ("has_stroke", core::mem::offset_of!(PxuiPanel, has_stroke)), ("reserved", core::mem::offset_of!(PxuiPanel, reserved)),
             ("max_height", core::mem::offset_of!(PxuiPanel, max_height)), ("stroke", core::mem::offset_of!(PxuiPanel, stroke)), ("look", core::mem::offset_of!(PxuiPanel, look)),
         ]);
         assert_layout("PxuiTargetDesc", size_of::<PxuiTargetDesc>(), align_of::<PxuiTargetDesc>(), &[

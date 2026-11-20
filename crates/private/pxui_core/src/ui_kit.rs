@@ -1127,6 +1127,6 @@ impl Ui {
 
 /// The engine's panel record of `overlay` for a call whose own width is `width`.
 fn panel_opts(overlay: &Overlay, width: f32) -> PanelOpts {
-    PanelOpts { stroke: overlay.stroke, look: overlay.look, window: overlay.window, x: overlay.at.0, y: overlay.at.1, width: overlay.w.unwrap_or(width), height: overlay.h,
+    PanelOpts { stroke: overlay.stroke, look: overlay.look.copied(), window: overlay.window, x: overlay.at.0, y: overlay.at.1, width: overlay.w.unwrap_or(width), height: overlay.h,
         max_height: overlay.max_h, padding: overlay.padding }
 }

@@ -66,8 +66,8 @@ const GATE_DYNAMIC_SMALL_PAGE_US: f64 = 1.5;
 const GATE_STATIC_KIT_INSTRUCTION_RATIO: f64 = 1.013;
 const GATE_DYNAMIC_LAYOUT_INSTRUCTION_RATIO: f64 = 1.045; // the wrapper is 37,676 instructions over the engine's 855,031 (4.41%). The ratio rose from 4.02% because the page stopped copying the theme (the engine frame was 975,138, the wrapper 39,201 over it); 3.84% before the current-handle check of every call (OPEN_ISSUES.md)
 const GATE_STATIC_OVERLAYS_INSTRUCTION_RATIO: f64 = 1.011; // 1.01 before the current-handle check: about 118 instructions on a 60,429-instruction frame (1.0102)
-// Margin at U2b.10 is about 27 instructions; whether the gallery crate inlines a sixth `button::<&str>` call swings Overlays by about
-// 180. The limit stays: fix that by making the page's call shape deterministic, never by raising it.
+// The Overlays page builds its four `button::<&str>` calls from one call site (pages.rs), so the inliner's choice for a further call no
+// longer swings its count (a sixth moved it by about 180). The limit stays: a miss is cut by wrapper work, never by raising it.
 /// Draw calls per page at 1x in the default theme: the A0 baseline (the engine's, before the migration).
 const DRAW_CALLS: [u64; 6] = [1, 2, 1, 1, 1, 1];
 

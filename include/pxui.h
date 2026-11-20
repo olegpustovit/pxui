@@ -18,7 +18,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 131u)
+#define PXUI_ABI_BUILT ((1u << 16) | 132u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 typedef struct { uint32_t autocorrect, capitalization, action; } PxuiTextInputOptions;
@@ -280,8 +280,9 @@ typedef struct {
     float x, y, width, height;
     float padding_points; /* ABI 1.78: padding in points, fractions kept; read only while it agrees with padding within half a point */
     int64_t padding;
-    uint8_t has_height, window, has_max_height, has_stroke, has_look, reserved[3];
-    float max_height; PxuiColor stroke; PxuiLookDesc look;
+    uint8_t has_height, window, has_max_height, has_stroke, reserved[4];
+    float max_height; PxuiColor stroke;
+    const PxuiLookDesc *look; /* ABI 1.132: read where it lies for the call; NULL for the theme's look */
 } PxuiPanel;
 typedef struct { uint64_t index; int64_t box_key; uint64_t box_slot; uint32_t generation; } PxuiBox;
 /* ABI 1.48: what happened to a kit button or icon button this frame, in one record: PXUI_RESPONSE_* bits and the button's box.
@@ -1118,7 +1119,7 @@ _Static_assert(sizeof(PxuiPass) == 72 && offsetof(PxuiPass, size) == 0 && offset
 _Static_assert(sizeof(PxuiImage) == 40 && offsetof(PxuiImage, size) == 0 && offsetof(PxuiImage, vk_image_view) == 8 && offsetof(PxuiImage, mtl_texture) == 16 && offsetof(PxuiImage, width) == 24 && offsetof(PxuiImage, height) == 28 && offsetof(PxuiImage, format) == 32, "Image layout");
 _Static_assert(sizeof(PxuiSpan) == 32 && offsetof(PxuiSpan, size) == 0 && offsetof(PxuiSpan, view) == 4 && offsetof(PxuiSpan, clip_radius_f16) == 6 && offsetof(PxuiSpan, clip) == 8 && offsetof(PxuiSpan, at) == 16 && offsetof(PxuiSpan, end) == 24, "Span layout");
 _Static_assert(sizeof(PxuiBox) == 32 && offsetof(PxuiBox, index) == 0 && offsetof(PxuiBox, box_key) == 8 && offsetof(PxuiBox, box_slot) == 16 && offsetof(PxuiBox, generation) == 24, "PxuiBox layout");
-_Static_assert(sizeof(PxuiPanel) == 200 && offsetof(PxuiPanel, size) == 0 && offsetof(PxuiPanel, x) == 4 && offsetof(PxuiPanel, y) == 8 && offsetof(PxuiPanel, width) == 12 && offsetof(PxuiPanel, height) == 16 && offsetof(PxuiPanel, padding) == 24 && offsetof(PxuiPanel, has_height) == 32 && offsetof(PxuiPanel, window) == 33 && offsetof(PxuiPanel, has_max_height) == 34 && offsetof(PxuiPanel, has_stroke) == 35 && offsetof(PxuiPanel, has_look) == 36 && offsetof(PxuiPanel, reserved) == 37 && offsetof(PxuiPanel, max_height) == 40 && offsetof(PxuiPanel, stroke) == 44 && offsetof(PxuiPanel, look) == 48, "PxuiPanel layout");
+_Static_assert(sizeof(PxuiPanel) == 56 && offsetof(PxuiPanel, size) == 0 && offsetof(PxuiPanel, x) == 4 && offsetof(PxuiPanel, y) == 8 && offsetof(PxuiPanel, width) == 12 && offsetof(PxuiPanel, height) == 16 && offsetof(PxuiPanel, padding) == 24 && offsetof(PxuiPanel, has_height) == 32 && offsetof(PxuiPanel, window) == 33 && offsetof(PxuiPanel, has_max_height) == 34 && offsetof(PxuiPanel, has_stroke) == 35 && offsetof(PxuiPanel, reserved) == 36 && offsetof(PxuiPanel, max_height) == 40 && offsetof(PxuiPanel, stroke) == 44 && offsetof(PxuiPanel, look) == 48, "PxuiPanel layout");
 _Static_assert(sizeof(PxuiTargetDesc) == 32 && offsetof(PxuiTargetDesc, size) == 0 && offsetof(PxuiTargetDesc, format) == 4 && offsetof(PxuiTargetDesc, samples) == 8 && offsetof(PxuiTargetDesc, reserved) == 9 && offsetof(PxuiTargetDesc, mask_width) == 12 && offsetof(PxuiTargetDesc, mask_height) == 16 && offsetof(PxuiTargetDesc, color_width) == 20 && offsetof(PxuiTargetDesc, color_height) == 24 && offsetof(PxuiTargetDesc, reserved_tail) == 28, "PxuiTargetDesc layout");
 _Static_assert(offsetof(PxuiUiDesc, abi_built) == 12 && offsetof(PxuiUiDesc, size) == 0 && offsetof(PxuiUiDesc, platform) == 4 && offsetof(PxuiUiDesc, font_size) == 8, "PxuiUiDesc layout");
 _Static_assert(sizeof(PxuiInput) == 160 && offsetof(PxuiInput, size) == 0 && offsetof(PxuiInput, time) == 8 && offsetof(PxuiInput, dt) == 16 && offsetof(PxuiInput, frame) == 24 && offsetof(PxuiInput, tick) == 32 && offsetof(PxuiInput, logical_size) == 40 && offsetof(PxuiInput, pointer) == 56 && offsetof(PxuiInput, keys) == 72 && offsetof(PxuiInput, buttons) == 88 && offsetof(PxuiInput, events) == 104 && offsetof(PxuiInput, pixel_scale) == 120 && offsetof(PxuiInput, mouse_delta) == 136 && offsetof(PxuiInput, fps) == 152, "Input layout");

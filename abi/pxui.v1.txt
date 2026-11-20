@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 131
+minor 132
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -328,7 +328,7 @@ layout PxuiOptGrid 40 8
 layout PxuiOptPoint 12 4
 layout PxuiOptTransition 28 4
 layout PxuiPaintInfo 192 8 0 4 5 8 16 24 32 48 56
-layout PxuiPanel 200 8 0 4 8 12 16 24 32 33 34 35 36 37 40 44 48
+layout PxuiPanel 56 8 0 4 8 12 16 24 32 33 34 35 36 40 44 48
 layout PxuiPanelConfig 80 8 0 8 40 56 64 72
 layout PxuiPickItem 64 8 0 1 8 16 32 48
 layout PxuiPickRow 64 8 0 4 5 8 16 32 48

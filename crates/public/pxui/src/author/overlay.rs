@@ -429,4 +429,20 @@ mod tests {
         drag(&mut ui, &mut build, 80.0);
         assert!(!open.get(), "a drag past a quarter of its height dismisses it");
     }
+
+    /// A panel's look in place of the theme's reaches the drawing in either link mode (the keyed record carries it by pointer): the panel
+    /// fills in the look's colour, and the panel without one does not.
+    #[test]
+    fn a_panel_look_is_drawn_and_a_plain_panel_keeps_the_theme_look() {
+        use pxui_types::{geom::Rgba, theme::Look};
+        static LOOK: Look = Look::NONE.fill(Rgba { r: 201, g: 13, b: 77, a: 255 });
+        let painted = |overlay: &Overlay| {
+            let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
+            let mut build = |ui: &mut Ui| { ui.panel("p", overlay, |ui| { ui.label("x", crate::Label::BODY); }); };
+            for _ in 0..2 { ui.frame(&FrameIn::new(400.0, 400.0), &mut build).unwrap(); }
+            (0..ui.layer_count()).any(|l| ui.layer(l).unwrap().instances.iter().any(|i| i.color == [201, 13, 77, 255]))
+        };
+        assert!(painted(&Overlay::DEFAULT.look(&LOOK)), "the panel's own look is drawn");
+        assert!(!painted(&Overlay::DEFAULT), "a panel without one is in the theme's");
+    }
 }

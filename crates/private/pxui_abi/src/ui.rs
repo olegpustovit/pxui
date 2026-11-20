@@ -628,10 +628,10 @@ unsafe fn panel(ui: *mut PxuiUi, key: &str, name: &str, panel: *const PxuiPanel,
     // the fractional padding counts only where it agrees with the integer one (a 1.x record leaves the hole unset)
     let padding = if (panel.padding_points - panel.padding as f32).abs() <= 0.5 && panel.padding_points >= 0.0 { panel.padding_points } else { panel.padding as f32 };
     // the look decoded first, so the overlay is written once
-    let look = if panel.has_look == 0 { None } else { let Some(look) = crate::style::decode_look(panel.look) else { return unsafe { fail(ui, "invalid panel look") }; }; Some(look) };
+    let look = if panel.look.is_null() { None } else { let Some(look) = crate::style::decode_look(unsafe { *panel.look }) else { return unsafe { fail(ui, "invalid panel look") }; }; Some(look) };
     let overlay = pxui_types::ui::Overlay { at: (panel.x, panel.y), w: Some(panel.width), h: (panel.has_height != 0).then_some(panel.height),
         max_h: (panel.has_max_height != 0).then_some(panel.max_height), window: panel.window != 0, padding, name: Some(name),
-        stroke: (panel.has_stroke != 0).then_some(panel.stroke), look, ..pxui_types::ui::Overlay::DEFAULT };
+        stroke: (panel.has_stroke != 0).then_some(panel.stroke), look: look.as_ref(), ..pxui_types::ui::Overlay::DEFAULT };
     unsafe { trusted::panel_keyed(ui, key, crate::state::unusable(key), &overlay, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, build, user), root) }
 }
 

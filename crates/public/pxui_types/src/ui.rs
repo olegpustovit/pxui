@@ -679,7 +679,7 @@ pub struct Overlay<'a> {
     /// A floating sheet's hairline: the theme's popup look in this colour (panel, popup).
     pub stroke: Option<Rgba>,
     /// A look in place of the theme's (panel).
-    pub look: Option<Look>,
+    pub look: Option<&'a Look>,
     /// The inner padding in points (panel), fractions kept.
     pub padding: f32,
     /// Lays the sheet out as a window with inspector rows (panel).
@@ -811,10 +811,10 @@ impl<'a> Overlay<'a> {
     ///
     /// ```
     /// use pxui_types::{theme::Look, ui::Overlay};
-    /// const BARE: Overlay = Overlay::DEFAULT.look(Look::NONE);
+    /// const BARE: Overlay = Overlay::DEFAULT.look(&Look::NONE);
     /// assert!(BARE.look.is_some());
     /// ```
-    pub const fn look(mut self, look: Look) -> Overlay<'a> { self.look = Some(look); self }
+    pub const fn look(mut self, look: &'a Look) -> Overlay<'a> { self.look = Some(look); self }
 
     /// Sets the panel's inner padding in points, fractions kept.
     ///

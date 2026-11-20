@@ -103,7 +103,9 @@ impl Ui {
             if let Some(height) = overlay.h { (panel.has_height, panel.height) = (1, height); }
             if let Some(height) = overlay.max_h { (panel.has_max_height, panel.max_height) = (1, height); }
             if let Some(stroke) = overlay.stroke { (panel.has_stroke, panel.stroke) = (1, stroke); }
-            if let Some(look) = overlay.look { panel_look(&mut panel, look); }
+            // the encoded look lives to the end of the call, which reads it where it lies; a plain panel only tests the option
+            let encoded;
+            if let Some(look) = overlay.look { encoded = crate::node::look(*look); panel.look = &encoded; }
             let keyed = PxuiKeyedDesc::new(key, crate::clip(overlay.name.unwrap_or("")));
             unsafe { keyed_sys::pxui_ui_panel(self.0.as_ptr(), &keyed, &panel, Some(call), &mut f as *mut _ as *mut c_void, &mut handle) }
         };
@@ -156,12 +158,6 @@ impl Ui {
         OverlayResponse { handle: out, open: true }
     }
 }
-
-/// A panel descriptor's look, out of line: inlined, its encoding made the plain panel's descriptor a select of every field.
-#[cfg(not(feature = "static"))]
-#[cold]
-#[inline(never)]
-fn panel_look(panel: &mut PxuiPanel, look: pxui_types::theme::Look) { (panel.has_look, panel.look) = (1, crate::node::look(look)); }
 
 
 // The keyed container exports (ABI 1.68): key and name apart in a `PxuiKeyedDesc`.
