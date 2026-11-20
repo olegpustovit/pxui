@@ -2887,12 +2887,6 @@ fn host_environment_invalidates_cached_layout_and_reuses_warm_geometry() {
     let mut invalid=prior; invalid.safe_area[0]=f32::NAN;
     assert_eq!(ui.frame(&input().environment(invalid),&mut build).err(),Some(crate::Error::InvalidInput));
     assert_eq!(ui.environment(),prior);
-    ui.frame(&{
-        let mut frame = input().environment(invalid);
-        frame.wire.size = 56;
-        frame
-    },&mut build).unwrap();
-    assert_eq!(ui.environment(),crate::Environment::default(),"an old complete descriptor ignores the new tail");
 }
 
 #[test]

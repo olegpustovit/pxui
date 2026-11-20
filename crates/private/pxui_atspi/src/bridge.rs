@@ -9,7 +9,7 @@
 use crate::map;
 use crate::wire::{Conn, ERROR, METHOD_CALL, METHOD_RETURN, Msg};
 use pxui_core::a11y::{A11yAction, A11yDiff, A11yNode, A11yTree, Action, NO_PARENT, Role, Value, actions, change, diff, state};
-use pxui_types::ffi::A11yTree as FfiA11yTree;
+use pxui_types::ffi::{A11yNode as FfiNode, A11yTree as FfiA11yTree};
 use std::io::Write as _;
 
 pub const ROOT_PATH: &str = "/org/a11y/atspi/accessible/root";
@@ -265,7 +265,7 @@ impl Bridge {
         pending.clear();
         let alive = self.pump(&mut pending);
         out.extend(pending.iter().map(|(surface, a)| (*surface, pxui_types::ffi::A11yAction {
-            id: a.id, action_code: a.action as u32, reserved: 0, payload: a.payload, end: a.end as u32, reserved_tail: 0,
+            id: a.id, action_code: a.action as u32, payload: a.payload, end: a.end as u32, ..Default::default()
         })));
         self.action_buf = pending;
         alive
@@ -923,19 +923,21 @@ fn chars(text: &str, start: i32, end: i32) -> &str {
 /// Validates the public ABI tree and copies it into `out`, reusing `out`'s and `ids`' buffers.
 unsafe fn copy_ffi_tree(raw: &FfiA11yTree, out: &mut A11yTree, ids: &mut std::collections::HashSet<u64>) -> Result<(), &'static str> {
     if raw.nodes.len > 1_000_000 || raw.strings.len > 16 * 1024 * 1024
-        || (raw.nodes.len != 0 && raw.nodes.ptr.is_null())
+        || !raw.nodes.is_valid()
         || (raw.strings.len != 0 && raw.strings.ptr.is_null())
     {
         return Err("invalid accessibility tree storage");
     }
-    let nodes = if raw.nodes.len == 0 { &[] } else { unsafe { std::slice::from_raw_parts(raw.nodes.ptr, raw.nodes.len) } };
+    // each node is read at `nodes.stride`; a node whose own size is below the record this build knows is refused
     let bytes = if raw.strings.len == 0 { &[] } else { unsafe { std::slice::from_raw_parts(raw.strings.ptr, raw.strings.len) } };
     let strings = std::str::from_utf8(bytes).map_err(|_| "invalid accessibility strings")?;
     out.begin();
     out.strings.push_str(strings);
     ids.clear();
-    ids.reserve(nodes.len());
-    for (i, n) in nodes.iter().enumerate() {
+    ids.reserve(raw.nodes.len);
+    for i in 0..raw.nodes.len {
+        let n = unsafe { raw.nodes.at(i) };
+        if (n.size as usize) < std::mem::size_of::<FfiNode>() { return Err("invalid accessibility node size"); }
         if (n.parent != NO_PARENT && n.parent as usize >= i) || n.role > Role::Separator as u32 || !ids.insert(n.id) {
             return Err("invalid accessibility node");
         }
@@ -971,18 +973,36 @@ unsafe fn copy_ffi_tree(raw: &FfiA11yTree, out: &mut A11yTree, ids: &mut std::co
 #[cfg(test)]
 mod ffi_tests {
     use super::*;
-    use pxui_types::{Str, a11y::Role, ffi::{A11yNode as FfiNode, A11yValue, Slice}};
+    use pxui_types::{Str, a11y::Role, ffi::{A11yNode as FfiNode, A11yValue, Strided}};
 
     #[test]
     fn public_tree_copy_keeps_ranges_and_parent_links() {
         let text = b"GalleryButton";
         let nodes = [FfiNode { id: 9, parent: NO_PARENT, role: Role::Button as u32, name_start: 0, name_end: 7, value: A11yValue::default(), ..FfiNode::default() },
             FfiNode { id: 10, parent: 0, role: Role::Label as u32, name_start: 7, name_end: 13, value: A11yValue::default(), ..FfiNode::default() }];
-        let raw = FfiA11yTree { nodes: Slice { ptr: nodes.as_ptr(), len: nodes.len() }, strings: Str { ptr: text.as_ptr(), len: text.len() }, revision: 4, first_child: 0, child_count: 1, actions: Slice { ptr: std::ptr::null(), len: 0 } };
+        let raw = FfiA11yTree { nodes: Strided::of(&nodes), strings: Str { ptr: text.as_ptr(), len: text.len() }, revision: 4, first_child: 0, child_count: 1, actions: Strided::default() };
         let (mut tree, mut ids) = (A11yTree::new(), std::collections::HashSet::new());
         unsafe { copy_ffi_tree(&raw, &mut tree, &mut ids) }.unwrap();
         assert_eq!(tree.revision, 4);
         assert_eq!(tree.child_count(NO_PARENT), 1);
         assert_eq!(tree.str(tree.nodes[1].name), "Button");
+    }
+
+    #[test]
+    fn public_tree_copy_steps_by_stride_and_refuses_a_stride_or_size_below_the_node() {
+        #[repr(C)] #[derive(Clone, Copy)] struct Wide { node: FfiNode, tail: [u8; 8] }
+        let text = b"GalleryButton";
+        let first = FfiNode { id: 9, parent: NO_PARENT, role: Role::Button as u32, name_start: 0, name_end: 7, ..FfiNode::default() };
+        let second = FfiNode { id: 10, parent: 0, role: Role::Label as u32, name_start: 7, name_end: 13, ..FfiNode::default() };
+        let wide = [Wide { node: first, tail: [0; 8] }, Wide { node: second, tail: [0; 8] }];
+        let raw = |nodes: Strided<FfiNode>| FfiA11yTree { nodes, strings: Str { ptr: text.as_ptr(), len: text.len() }, revision: 1, first_child: 0, child_count: 1, actions: Strided::default() };
+        let copy = |tree: &FfiA11yTree| { let (mut out, mut ids) = (A11yTree::new(), std::collections::HashSet::new()); unsafe { copy_ffi_tree(tree, &mut out, &mut ids) }.map(|_| out) };
+        let stride = std::mem::size_of::<Wide>();
+        let tree = copy(&raw(Strided { ptr: wide.as_ptr().cast(), len: 2, stride })).unwrap();
+        assert_eq!(tree.str(tree.nodes[1].name), "Button");
+        assert!(copy(&raw(Strided { ptr: wide.as_ptr().cast(), len: 2, stride: std::mem::size_of::<FfiNode>() })).is_err(), "the second node read at the dense stride is not a node");
+        assert!(copy(&raw(Strided { ptr: wide.as_ptr().cast(), len: 2, stride: std::mem::size_of::<FfiNode>() - 8 })).is_err(), "a stride below the node");
+        let short = [FfiNode { size: 100, ..first }];
+        assert!(copy(&raw(Strided::of(&short))).is_err(), "a node whose own size is short");
     }
 }

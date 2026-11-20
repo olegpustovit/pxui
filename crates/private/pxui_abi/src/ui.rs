@@ -10,7 +10,7 @@ use crate::{PXUI_ERR_ARGUMENT, PXUI_ERR_PANIC, PXUI_ERR_STATE, FrameIn, FrameOut
 use core::ffi::c_void;
 use input::{Event, Key, MouseButton, Platform, frame};
 use pxui_core::ui::Ui;
-use pxui_types::ffi::{A11yNode, A11yTree, Damage, Input, Output, PlatformOut, Slice};
+use pxui_types::ffi::{A11yNode, A11yTree, Damage, Input, Output, PlatformOut, Slice, Strided};
 
 fn platform() -> Platform {
     #[cfg(any(target_os = "macos", target_os = "ios"))] { Platform::Apple }
@@ -148,7 +148,7 @@ pub(crate) fn build_output(shared: &mut Shared, engine: &Ui, nodes: bool) {
                 id: n.id, parent: n.parent, role: n.role as u32, name_start: n.name.start, name_end: n.name.end,
                 description_start: n.description.start, description_end: n.description.end, value, rect: n.rect, states: n.states,
                 actions: n.actions, selection: [n.selection.0, n.selection.1], child_count: n.child_count, first_child: n.first_child,
-                next_sibling: n.next_sibling, last_child: shared.last_children[index],
+                next_sibling: n.next_sibling, last_child: shared.last_children[index], ..A11yNode::default()
             });
         }
     }
@@ -164,7 +164,7 @@ pub(crate) fn build_output(shared: &mut Shared, engine: &Ui, nodes: bool) {
         for l in output.draw.iter() {
             let dirty = Slice { ptr: shared.dirty.as_ptr().wrapping_add(at), len: l.dirty.len() };
             at += l.dirty.len();
-            shared.layers.push(pxui_types::ffi::PxuiLayerInfo { key: l.key, id: l.id, breaks: l.breaks.len() as u32, instances: Slice { ptr: l.instances.as_ptr(), len: l.instances.len() }, dirty });
+            shared.layers.push(pxui_types::ffi::PxuiLayerInfo { size: core::mem::size_of::<pxui_types::ffi::PxuiLayerInfo>() as u32, reserved: 0, key: l.key, id: l.id, breaks: l.breaks.len() as u32, instances: Slice { ptr: l.instances.as_ptr(), len: l.instances.len() }, dirty });
         }
     } else if acknowledged {
         // The renderer can acknowledge a draw while Rust readers still hold the published slices.
@@ -192,10 +192,10 @@ pub(crate) fn build_output(shared: &mut Shared, engine: &Ui, nodes: bool) {
         },
         damage: output.damage.map_or_else(Damage::default, |r| Damage { has_damage: 1, reserved: [0; 3], rect: r }),
         a11y: A11yTree {
-            nodes: Slice { ptr: shared.nodes.as_ptr(), len: shared.nodes.len() }, strings: Str { ptr: tree.strings.as_ptr(), len: tree.strings.len() },
-            revision: tree.revision, first_child: tree.first_child(u32::MAX), child_count: tree.child_count(u32::MAX), actions: Slice::default(),
+            nodes: Strided::of(&shared.nodes), strings: Str { ptr: tree.strings.as_ptr(), len: tree.strings.len() },
+            revision: tree.revision, first_child: tree.first_child(u32::MAX), child_count: tree.child_count(u32::MAX), actions: Strided::default(),
         },
-        layers: Slice { ptr: shared.layers.as_ptr(), len: shared.layers.len() },
+        layers: Strided::of(&shared.layers),
     };
 }
 
@@ -222,22 +222,23 @@ export!(pub unsafe fn pxui_ui_set_a11y(ui: *mut PxuiUi, on: u8) -> i32 {
     0
 });
 
-export!(pub unsafe fn pxui_ui_inject_a11y(ui: *mut PxuiUi, actions: *const pxui_types::ffi::A11yAction, count: usize) -> i32 {
+export!(pub unsafe fn pxui_ui_inject_a11y(ui: *mut PxuiUi, actions: pxui_types::ffi::A11yActionSpan) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    if count > 4096 || (count != 0 && actions.is_null()) { return unsafe { fail(ui, "invalid accessibility action span") }; }
-    let actions = if count == 0 { &[] } else { unsafe { std::slice::from_raw_parts(actions, count) } };
-    // Reject the whole batch before feeding any chunk to the retained engine queue.
-    if actions.iter().any(|a| !matches!(a.action_code,1|2|4|8|16|32|64|128|256)) {
-        return unsafe { fail(ui, "invalid accessibility action code") };
+    if actions.len > 4096 || !actions.is_valid() { return unsafe { fail(ui, "invalid accessibility action span (a stride below the action size, or no pointer)") }; }
+    // Reject the whole batch before feeding any chunk to the retained engine queue; each record's own size must cover the action.
+    if (0..actions.len).any(|i| { let a = unsafe { actions.at(i) }; (a.size as usize) < core::mem::size_of::<pxui_types::ffi::A11yAction>() || !matches!(a.action_code,1|2|4|8|16|32|64|128|256) }) {
+        return unsafe { fail(ui, "invalid accessibility action record or code") };
     }
     use pxui_core::a11y::{Action, A11yAction};
     const KINDS: [Action;9] = [Action::Press,Action::Focus,Action::SetValue,Action::Scroll,Action::Expand,Action::Collapse,Action::Select,Action::MoveUp,Action::MoveDown];
     let mut translated = [A11yAction { id:0,action:Action::Press,payload:0.0,end:0.0 };32];
-    for chunk in actions.chunks(translated.len()) {
-        for (to,from) in translated.iter_mut().zip(chunk) {
-            *to=A11yAction { id:from.id,action:KINDS[from.action_code.trailing_zeros() as usize],payload:from.payload,end:from.end as f64 };
+    for start in (0..actions.len).step_by(translated.len()) {
+        let n = translated.len().min(actions.len - start);
+        for (k, to) in translated[..n].iter_mut().enumerate() {
+            let from = unsafe { actions.at(start + k) };
+            *to = A11yAction { id:from.id,action:KINDS[from.action_code.trailing_zeros() as usize],payload:from.payload,end:from.end as f64 };
         }
-        unsafe { (&mut *state.engine).inject_a11y(&translated[..chunk.len()]); }
+        unsafe { (&mut *state.engine).inject_a11y(&translated[..n]); }
     }
     0
 });
@@ -322,15 +323,17 @@ pub(crate) fn translate_event(e: &pxui_types::Event, surface: u64, budget: &mut 
     }
 }
 
-fn valid_touches(events:&[pxui_types::Event])->bool {
-    events.iter().all(|e|e.kind!=pxui_types::Event::TOUCH || touch_event(e).is_some())
+fn valid_touches(events:&Strided<pxui_types::Event>)->bool {
+    (0..events.len).all(|i| { let e = unsafe { events.at(i) }; e.kind!=pxui_types::Event::TOUCH || touch_event(e).is_some() })
 }
 
 /// Decode the whole batch before any edge changes retained input.
 #[inline(always)]
-fn decode_events(out: &mut Vec<Event>, events: &[pxui_types::Event], surface: u64) -> bool {
+fn decode_events(out: &mut Vec<Event>, events: &Strided<pxui_types::Event>, surface: u64) -> bool {
     let mut budget = crate::state::MAX_TOTAL_TEXT_BYTES;
-    for raw in events {
+    // the span was checked by the caller (`is_valid`: a stride that holds an event, a pointer); each event's own size is checked by `translate_event`
+    for i in 0..events.len {
+        let raw = unsafe { events.at(i) };
         // the commonest event of a frame, decoded in line (`translate_event` decodes it the same)
         if raw.kind == pxui_types::Event::POINTER_MOVED && raw.size as usize >= core::mem::size_of::<pxui_types::Event>() && raw.surface == surface && raw.x.is_finite() && raw.y.is_finite() && raw.value.is_finite() { out.push(Event::PointerMoved((raw.x, raw.y))); continue; }
         let Some(event) = translate_event(raw, surface, &mut budget) else { return false };
@@ -473,7 +476,7 @@ pub(crate) unsafe fn frame_body(ui: *mut PxuiUi, input: &FrameIn, build: Inner, 
     // a size within 0..=MAX_SURFACE, a scale in (0, inf) and a finite time: NaN fails every compare, so each is a compare or two
     let surface = |v: f32| (0.0..=MAX_SURFACE as f32).contains(&v);
     if !(input.time.abs() < f64::INFINITY) || !(input.scale > 0.0 && input.scale < f32::INFINITY) || !surface(input.width) || !surface(input.height) { return unsafe { fail(ui, "invalid frame descriptor") }; }
-    if input.event_count > 4096 || (input.event_count != 0 && input.events.is_null()) { return unsafe { fail(ui, "invalid frame event slice") }; }
+    if input.events.len > 4096 || !input.events.is_valid() { return unsafe { fail(ui, "invalid frame event span (a stride below the event size, or no pointer)") }; }
     let (appearance, reduced) = (input.appearance, input.reduced_motion);
     // read where they lie: what the engine holds was validated when it was set (the default is valid), so a frame that repeats it
     // compares bytes and checks nothing, and only a changed value is validated (a NaN never matches)
@@ -485,7 +488,7 @@ pub(crate) unsafe fn frame_body(ui: *mut PxuiUi, input: &FrameIn, build: Inner, 
     if keyboard_changed && !keyboard.valid() { return unsafe { fail(ui,"invalid keyboard geometry") }; }
     if appearance>FrameIn::APPEARANCE_DARK || reduced>1 { return unsafe { fail(ui,"invalid system preferences") }; }
     let mut base = unsafe { take_input(ui, input.time) };
-    let events = if input.event_count == 0 { &[] } else { unsafe { core::slice::from_raw_parts(input.events, input.event_count) } };
+    let events = &input.events;
     if !decode_events(&mut base.input.events, events, registered) {
         let message=if valid_touches(events) { "invalid event kind, code, or UTF-8 payload" } else { "invalid touch payload" };
         base.input.events.clear();
@@ -560,7 +563,7 @@ export!(pub unsafe fn pxui_ui_input(ui: *mut PxuiUi, has_owner: u8, owner: i64, 
             size: core::mem::size_of::<Input>() as u32, time: f.input.t, dt: f.input.dt, frame: f.input.frame, tick: f.input.tick,
             logical_size: [f.input.size.0, f.input.size.1], pointer: [f.input.pointer.0, f.input.pointer.1],
             keys: Slice { ptr: shared.routed_keys.as_ptr(), len: shared.routed_keys.len() }, buttons: Slice { ptr: shared.routed_buttons.as_ptr(), len: shared.routed_buttons.len() },
-            events: Slice { ptr: shared.routed_events.as_ptr(), len: shared.routed_events.len() },
+            events: Strided::of(&shared.routed_events),
             pixel_scale: [f.pixel_scale.0, f.pixel_scale.1], mouse_delta: [f.mouse_delta.0, f.mouse_delta.1], fps: f.fps,
         };
     }
@@ -887,7 +890,7 @@ mod tests {
         for (code, payload) in [(0, "/Music/名前.flac\0/Music/Björk.m4a"), (1, "transport limit exceeded"), (0, "")] {
             let backing = payload.to_owned();
             let event = Wire { kind: Wire::FILES_DROPPED, code, x: -12.5, y: 31.25, text: pair(&backing), ..Default::default() };
-            let frame = FrameIn { events: &event, event_count: 1, ..FrameIn::new(320.0, 240.0) };
+            let frame = FrameIn { events: pxui_types::ffi::Strided { ptr: &event, len: 1, stride: core::mem::size_of::<pxui_types::Event>() }, ..FrameIn::new(320.0, 240.0) };
             assert_eq!(unsafe { pxui_frame(ui, &frame, None, core::ptr::null_mut(), &mut out) }, 0);
             drop(backing);
             for (has_owner, owner) in [(0, 0), (1, 123)] {
@@ -908,7 +911,7 @@ mod tests {
             Wire { text: Str { ptr: core::ptr::null(), len: 1 }, ..empty },
             Wire { text: Str { ptr: bad_utf8.as_ptr(), len: 1 }, ..empty },
         ] {
-            let frame = FrameIn { events: &invalid, event_count: 1, ..FrameIn::new(320.0, 240.0) };
+            let frame = FrameIn { events: pxui_types::ffi::Strided { ptr: &invalid, len: 1, stride: core::mem::size_of::<pxui_types::Event>() }, ..FrameIn::new(320.0, 240.0) };
             let mut built = false;
             out.size = 777;
             assert_eq!(unsafe {
@@ -917,7 +920,7 @@ mod tests {
             assert!(!built);
             assert_eq!(out.size, 777);
         }
-        let frame = FrameIn { events: &empty, event_count: 1, ..FrameIn::new(320.0, 240.0) };
+        let frame = FrameIn { events: pxui_types::ffi::Strided { ptr: &empty, len: 1, stride: core::mem::size_of::<pxui_types::Event>() }, ..FrameIn::new(320.0, 240.0) };
         for round in 0..20 {
             mem_sys::local_reset();
             assert_eq!(unsafe { pxui_frame(ui, &frame, None, core::ptr::null_mut(), &mut out) }, 0);
@@ -946,7 +949,7 @@ mod tests {
                     ..Default::default() };
             }
             let expected = packets;
-            let frame = FrameIn { time: tick as f64 / 120.0, events: events.as_ptr(), event_count: count, ..FrameIn::new(320.0, 240.0) };
+            let frame = FrameIn { time: tick as f64 / 120.0, events: pxui_types::ffi::Strided { ptr: events.as_ptr(), len: count, stride: core::mem::size_of::<pxui_types::Event>() }, ..FrameIn::new(320.0, 240.0) };
             mem_sys::local_reset();
             assert_eq!(unsafe { pxui_frame(ui, &frame, None, core::ptr::null_mut(), &mut out) }, 0);
             packets.fill(Touch::default());
@@ -974,7 +977,7 @@ mod tests {
             packet.phase=(frame%4) as u32;
             let event=C {kind:C::TOUCH,text:Str {ptr:(&packet as *const Touch).cast(),len:core::mem::size_of::<Touch>()},..Default::default()};
             mem_sys::local_reset();
-            assert_eq!(unsafe {super::pxui_frame(ui,&FrameIn {events:&event,event_count:1,width:320.0,height:240.0,time:frame as f64,..Default::default()},None,core::ptr::null_mut(),&mut out)},0);
+            assert_eq!(unsafe {super::pxui_frame(ui,&FrameIn {events: pxui_types::ffi::Strided { ptr: &event, len: 1, stride: core::mem::size_of::<pxui_types::Event>() },width:320.0,height:240.0,time:frame as f64,..Default::default()},None,core::ptr::null_mut(),&mut out)},0);
             let mut input=pxui_types::ffi::Input::default();
             assert_eq!(unsafe {super::pxui_ui_input(ui,0,0,&mut input)},0);
             assert_eq!(input.events.len,1);
@@ -990,7 +993,7 @@ mod tests {
             match field {0=>bad.phase=4,1=>bad.x=f64::NAN,2=>bad.y=f64::INFINITY,3=>bad.time=f64::NAN,4=>bad.pressure=-1.0,5=>bad.pressure=1.01,_=>bad.pressure=f32::NAN}
             let events=[C {kind:C::KEY_PRESSED,code:input::Key::Meta.code(),..Default::default()},C {kind:C::TOUCH,text:Str {ptr:(&bad as *const Touch).cast(),len:core::mem::size_of::<Touch>()},..Default::default()}];
             out.size=777;
-            assert_eq!(unsafe {super::pxui_frame(ui,&FrameIn {events:events.as_ptr(),event_count:2,..input},None,core::ptr::null_mut(),&mut out)},crate::PXUI_ERR_ARGUMENT);
+            assert_eq!(unsafe {super::pxui_frame(ui,&FrameIn {events: pxui_types::ffi::Strided { ptr: events.as_ptr(), len: 2, stride: core::mem::size_of::<pxui_types::Event>() },..input},None,core::ptr::null_mut(),&mut out)},crate::PXUI_ERR_ARGUMENT);
             assert_eq!(out.size,777);
             let engine=unsafe {&*(*ui).engine};
             assert!(!engine.key_down(input::Key::Meta));
@@ -999,12 +1002,12 @@ mod tests {
         }
         for text in [Str::default(),Str {ptr:(&packet as *const Touch).cast(),len:47}] {
             let event=C {kind:C::TOUCH,text,..Default::default()};
-            assert_eq!(unsafe {super::pxui_frame(ui,&FrameIn {events:&event,event_count:1,..input},None,core::ptr::null_mut(),&mut out)},crate::PXUI_ERR_ARGUMENT);
+            assert_eq!(unsafe {super::pxui_frame(ui,&FrameIn {events: pxui_types::ffi::Strided { ptr: &event, len: 1, stride: core::mem::size_of::<pxui_types::Event>() },..input},None,core::ptr::null_mut(),&mut out)},crate::PXUI_ERR_ARGUMENT);
         }
         // the record's own size: short, or past the payload, is refused; a longer payload than the record is read as its first bytes
         let mut frame=|touch:&Touch,len:usize| {
             let event=C {kind:C::TOUCH,text:Str {ptr:(touch as *const Touch).cast(),len},..Default::default()};
-            unsafe {super::pxui_frame(ui,&FrameIn {events:&event,event_count:1,..input},None,core::ptr::null_mut(),&mut out)}
+            unsafe {super::pxui_frame(ui,&FrameIn {events: pxui_types::ffi::Strided { ptr: &event, len: 1, stride: core::mem::size_of::<pxui_types::Event>() },..input},None,core::ptr::null_mut(),&mut out)}
         };
         let whole=Touch::new(1,2,[10.0,20.0],1.0,1.0,0);
         for size in [0,4,55] { assert_eq!(frame(&Touch {size,..whole},core::mem::size_of::<Touch>()),crate::PXUI_ERR_ARGUMENT,"touch size {size}"); }
@@ -1142,7 +1145,7 @@ mod keyboard_tests {
         assert_eq!(got, input.keyboard);
         // events: the frame's surface, a whole record, at most 4096 of them
         let on = |surface, size| [Event { surface, size, ..Event::new(Event::FOCUS_GAINED) }];
-        let with = |events: &[Event]| FrameIn { surface: 7, events: events.as_ptr(), event_count: events.len(), ..input };
+        let with = |events: &[Event]| FrameIn { surface: 7, events: pxui_types::ffi::Strided { ptr: events.as_ptr(), len: events.len(), stride: core::mem::size_of::<pxui_types::Event>() }, ..input };
         assert_eq!(frame(ui, &with(&on(7, 64)), &mut out), 0);
         assert_eq!(frame(ui, &with(&on(7, 100)), &mut out), 0, "a longer record is read as its first 64 bytes");
         assert_eq!(frame(ui, &with(&on(1, 64)), &mut out), PXUI_ERR_ARGUMENT, "an event for another surface");
@@ -1154,7 +1157,7 @@ mod keyboard_tests {
         assert_eq!(frame(ui, &with(&many), &mut out), PXUI_ERR_ARGUMENT, "more than 4096 events");
         // `pxui_ui_wants_frame` holds its events to the Ui's surface too
         let mut wants = 0u8;
-        let slice = |events: &[Event]| pxui_types::ffi::Slice { ptr: events.as_ptr(), len: events.len() };
+        let slice = |events: &[Event]| pxui_types::ffi::Strided::of(events);
         assert_eq!(unsafe { crate::kit::pxui_ui_wants_frame(ui, slice(&on(7, 64)), 1.0, &mut wants) }, 0);
         assert_eq!(unsafe { crate::kit::pxui_ui_wants_frame(ui, slice(&on(1, 64)), 1.0, &mut wants) }, PXUI_ERR_ARGUMENT);
         // removing: an unknown id is an argument error; then the surface is free again

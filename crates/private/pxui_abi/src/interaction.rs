@@ -4,7 +4,7 @@ use crate::ui::{button_code, key_code};
 use crate::{PXUI_ERR_ARGUMENT, PxuiBox, PxuiSignal, Str};
 use input::{Event, ScrollPhase};
 use pxui_core::ui::Signal;
-use pxui_types::{Event as FfiEvent, ffi::Slice};
+use pxui_types::Event as FfiEvent;
 
 export!(pub unsafe fn pxui_ui_focus_box(ui: *mut PxuiUi, box_: *const PxuiBox) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
@@ -162,7 +162,7 @@ pub(crate) fn write_signal(state: &PxuiUi, signal: &Signal, output: &mut PxuiSig
         let chunk = &mut shared.chunks[shared.chunks_used];
         shared.chunks_used += 1;
         fill(chunk, &signal.keys, shared.surface);
-        output.keys = Slice { ptr: chunk.events.as_ptr(), len: chunk.events.len() };
+        output.keys = pxui_types::ffi::Strided::of(&chunk.events);
     }
 }
 
@@ -188,7 +188,7 @@ pub(crate) fn write_borrowed_signal(state: &PxuiUi, signal: &Signal, keys: &[(Ev
             if len != 0 { event.text = Str { ptr: chunk.text.as_ptr().wrapping_add(start), len }; }
             chunk.events.push(event);
         }
-        output.keys = Slice { ptr: chunk.events.as_ptr(), len: chunk.events.len() };
+        output.keys = pxui_types::ffi::Strided::of(&chunk.events);
     }
 }
 

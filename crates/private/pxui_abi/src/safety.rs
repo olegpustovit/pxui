@@ -526,18 +526,18 @@ fn accessibility_batches_validate_the_entire_span_before_applying_any_chunk() {
     let id=nodes.iter().find(|node|node.role==pxui_types::a11y::Role::Slider as u32).unwrap().id;
     let mut batch=[pxui_types::ffi::A11yAction {id,action_code:4,payload:3.0,..Default::default()};65];
     batch[64].action_code=3;
-    assert_eq!(unsafe {pxui_ui_inject_a11y(ui,batch.as_ptr(),batch.len())},PXUI_ERR_ARGUMENT);
+    assert_eq!(unsafe {pxui_ui_inject_a11y(ui,pxui_types::ffi::Strided::of(&batch))},PXUI_ERR_ARGUMENT);
     assert_eq!(run(ui,Some(slider),(&mut node as *mut PxuiBox).cast()),0);
     let value=unsafe {(&*(*ui).engine).signal(&crate::state::core_box_of(ui, node).unwrap()).a11y_value};
     assert_eq!(value,None,"invalid tail must not deliver earlier chunks");
     batch[64].action_code=4; batch[64].payload=77.0;
-    assert_eq!(unsafe {pxui_ui_inject_a11y(ui,batch.as_ptr(),batch.len())},0);
+    assert_eq!(unsafe {pxui_ui_inject_a11y(ui,pxui_types::ffi::Strided::of(&batch))},0);
     assert_eq!(run(ui,Some(slider),(&mut node as *mut PxuiBox).cast()),0);
     let value=unsafe {(&*(*ui).engine).signal(&crate::state::core_box_of(ui, node).unwrap()).a11y_value};
     assert_eq!(value,Some(77.0));
-    assert_eq!(unsafe {pxui_ui_inject_a11y(ui,core::ptr::null(),0)},0);
-    assert_eq!(unsafe {pxui_ui_inject_a11y(ui,core::ptr::null(),1)},PXUI_ERR_ARGUMENT);
-    assert_eq!(unsafe {pxui_ui_inject_a11y(ui,batch.as_ptr(),4097)},PXUI_ERR_ARGUMENT);
+    assert_eq!(unsafe {pxui_ui_inject_a11y(ui,pxui_types::ffi::Strided{ptr:core::ptr::null(),len:0,stride:32})},0);
+    assert_eq!(unsafe {pxui_ui_inject_a11y(ui,pxui_types::ffi::Strided{ptr:core::ptr::null(),len:1,stride:32})},PXUI_ERR_ARGUMENT);
+    assert_eq!(unsafe {pxui_ui_inject_a11y(ui,pxui_types::ffi::Strided{ptr:batch.as_ptr(),len:4097,stride:32})},PXUI_ERR_ARGUMENT);
     unsafe {pxui_ui_destroy(ui);}
 }
 
@@ -862,22 +862,66 @@ fn events_are_validated_alike_on_every_path_with_a_frame_text_budget() {
         vec![E { kind: E::TEXT_INPUT, text: Str { ptr: b"x".as_ptr(), len: crate::state::MAX_TEXT_BYTES + 1 }, ..E::default() }],
     ];
     for (i, events) in refused.iter().enumerate() {
-        let input = FrameIn { events: events.as_ptr(), event_count: events.len(), ..frame_in() };
+        let input = FrameIn { events: pxui_types::ffi::Strided { ptr: events.as_ptr(), len: events.len(), stride: core::mem::size_of::<pxui_types::Event>() }, ..frame_in() };
         assert_eq!(frame_with(ui, &input), PXUI_ERR_ARGUMENT, "frame, case {i}");
         let mut wants = 7u8;
-        assert_eq!(unsafe { pxui_ui_wants_frame(ui, pxui_types::ffi::Slice { ptr: events.as_ptr(), len: events.len() }, 0.0, &mut wants) }, PXUI_ERR_ARGUMENT, "wants_frame, case {i}");
+        assert_eq!(unsafe { pxui_ui_wants_frame(ui, pxui_types::ffi::Strided { ptr: events.as_ptr(), len: events.len(), stride: 64 }, 0.0, &mut wants) }, PXUI_ERR_ARGUMENT, "wants_frame, case {i}");
         assert_eq!(wants, 7);
     }
     // one paste of half the budget is fine, and so is a resize at the limit
     let fine = [E { kind: E::PASTE, text: str_of(&big), ..E::default() }, E { kind: E::RESIZED, x: 65_536.0, y: 0.0, ..E::default() }];
-    assert_eq!(frame_with(ui, &FrameIn { events: fine.as_ptr(), event_count: 2, ..frame_in() }), 0, "{}", error(ui));
+    assert_eq!(frame_with(ui, &FrameIn { events: pxui_types::ffi::Strided { ptr: fine.as_ptr(), len: 2, stride: core::mem::size_of::<pxui_types::Event>() }, ..frame_in() }), 0, "{}", error(ui));
     let moves = [E { kind: E::POINTER_MOVED, x: 1.0, y: 2.0, ..E::default() }; 3];
     let mut wants = 0u8;
-    for _ in 0..2 { assert_eq!(unsafe { pxui_ui_wants_frame(ui, pxui_types::ffi::Slice { ptr: moves.as_ptr(), len: 3 }, 0.0, &mut wants) }, 0); }
+    for _ in 0..2 { assert_eq!(unsafe { pxui_ui_wants_frame(ui, pxui_types::ffi::Strided { ptr: moves.as_ptr(), len: 3, stride: 64 }, 0.0, &mut wants) }, 0); }
     mem_sys::local_reset();
     let before = mem_sys::local_alloc_count();
-    assert_eq!(unsafe { pxui_ui_wants_frame(ui, pxui_types::ffi::Slice { ptr: moves.as_ptr(), len: 3 }, 0.0, &mut wants) }, 0);
+    assert_eq!(unsafe { pxui_ui_wants_frame(ui, pxui_types::ffi::Strided { ptr: moves.as_ptr(), len: 3, stride: 64 }, 0.0, &mut wants) }, 0);
     assert_eq!(mem_sys::local_alloc_count() - before, 0, "a settled wants_frame allocates");
+    assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
+}
+
+/// U5.4: a record array crosses as {ptr, len, stride}. The reader steps by the stride (a wider record than this build's is read as its
+/// prefix), refuses a stride below the record size, one that is not a multiple of the alignment and a null pointer with a length;
+/// each record's own size must still cover the record. The same rules for events (frame, wants_frame) and accessibility actions.
+#[test]
+fn strided_spans_step_by_stride_and_refuse_a_stride_below_the_record() {
+    use pxui_types::{Event as E, ffi::{A11yAction, Strided}};
+    #[repr(C)] #[derive(Clone, Copy)] struct WideEvent { e: E, tail: [u8; 8] }
+    #[repr(C)] #[derive(Clone, Copy)] struct WideAction { a: A11yAction, tail: [u8; 8] }
+    let ui = create();
+    let moved = E { kind: E::POINTER_MOVED, x: 1.0, y: 2.0, ..E::default() };
+    let wide = [WideEvent { e: moved, tail: [0; 8] }; 2];
+    let span = |stride: usize, len: usize| Strided::<E> { ptr: wide.as_ptr().cast(), len, stride };
+    let frame = |events: Strided<E>| frame_with(ui, &FrameIn { events, ..frame_in() });
+    let mut wants = 0u8;
+    let mut ask = |events: Strided<E>| unsafe { pxui_ui_wants_frame(ui, events, 0.0, &mut wants) };
+    // the real stride of the wide record reads both events; the dense one reads the second at the tail (size 0, refused)
+    assert_eq!(frame(span(72, 2)), 0, "{}", error(ui));
+    assert_eq!(ask(span(72, 2)), 0);
+    assert_eq!(frame(span(64, 2)), PXUI_ERR_ARGUMENT, "a second record read at the wrong stride is not an event");
+    assert_eq!(ask(span(64, 2)), PXUI_ERR_ARGUMENT);
+    for (stride, what) in [(63, "one byte below the event"), (0, "zero"), (4, "a field"), (68, "not a multiple of the alignment")] {
+        assert_eq!(frame(span(stride, 2)), PXUI_ERR_ARGUMENT, "frame, stride {stride} ({what})");
+        assert_eq!(ask(span(stride, 2)), PXUI_ERR_ARGUMENT, "wants_frame, stride {stride} ({what})");
+    }
+    assert_eq!(frame(Strided { ptr: core::ptr::null(), len: 1, stride: 64 }), PXUI_ERR_ARGUMENT, "a null pointer with a length");
+    assert_eq!(frame(Strided { ptr: core::ptr::null(), len: 0, stride: 64 }), 0, "an empty span needs no pointer");
+    assert_eq!(frame(Strided { ptr: core::ptr::null(), len: 0, stride: 0 }), PXUI_ERR_ARGUMENT, "a stride below the record is refused even when empty");
+    // actions: a set-value on the slider's role is not needed, an unknown id is dropped by the engine; the span rules are what is checked
+    let action = A11yAction { id: 1, action_code: 4, payload: 1.0, ..A11yAction::default() };
+    let actions = [WideAction { a: action, tail: [0; 8] }; 2];
+    let aspan = |stride: usize| Strided::<A11yAction> { ptr: actions.as_ptr().cast(), len: 2, stride };
+    assert_eq!(unsafe { pxui_ui_inject_a11y(ui, aspan(40)) }, 0, "{}", error(ui));
+    assert_eq!(unsafe { pxui_ui_inject_a11y(ui, aspan(32)) }, PXUI_ERR_ARGUMENT, "the second action read at the dense stride is not one");
+    assert_eq!(unsafe { pxui_ui_inject_a11y(ui, aspan(31)) }, PXUI_ERR_ARGUMENT);
+    assert_eq!(unsafe { pxui_ui_inject_a11y(ui, aspan(36)) }, PXUI_ERR_ARGUMENT, "not a multiple of the alignment");
+    let short = [A11yAction { size: 28, ..action }];
+    assert_eq!(unsafe { pxui_ui_inject_a11y(ui, Strided::of(&short)) }, PXUI_ERR_ARGUMENT, "an action whose own size is short");
+    // what the library writes is dense: the output's spans step by the record sizes
+    assert_eq!(frame(span(72, 0)), 0);
+    let output = unsafe { &*pxui_ui_output(ui) };
+    assert_eq!((output.a11y.nodes.stride, output.layers.stride), (core::mem::size_of::<pxui_types::ffi::A11yNode>(), core::mem::size_of::<pxui_types::ffi::PxuiLayerInfo>()));
     assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
 }
 
@@ -890,7 +934,7 @@ fn frame_sizes_and_held_keys_are_checked() {
     }
     assert_eq!(frame_with(ui, &FrameIn { width: 65_536.0, height: 0.0, ..frame_in() }), 0);
     let key = |code| [pxui_types::Event::key(pxui_types::Event::KEY_PRESSED, code)];
-    let with = |events: &[pxui_types::Event]| frame_with(ui, &FrameIn { events: events.as_ptr(), event_count: events.len(), ..frame_in() });
+    let with = |events: &[pxui_types::Event]| frame_with(ui, &FrameIn { events: pxui_types::ffi::Strided { ptr: events.as_ptr(), len: events.len(), stride: core::mem::size_of::<pxui_types::Event>() }, ..frame_in() });
     assert_eq!(with(&key(0)), PXUI_ERR_ARGUMENT, "code 0 names no key");
     assert_eq!(with(&key(input::Key::Enter.code())), 0);
     assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);

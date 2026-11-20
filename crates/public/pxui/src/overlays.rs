@@ -344,39 +344,39 @@ mod tests {
         unsafe { pxui_ui_context_menu(ui.0.as_ptr(), 10.0, 10.0, as_str("m"), Slice { ptr: rows.as_ptr(), len: 2 }, Slice { ptr: enabled.as_ptr(), len: 2 }, 0, 0.0, 0, 0, extra, &mut tag, &mut index) }
     }
 
-    /// A caller built before 1.49 passes the 80-byte extra and is served (and one of 1.49, 104 bytes); a shorter one, a negative row height,
-    /// a submenu on a row that is not there or out of order, a mark byte over 2, and from 1.55 a negative padding, a name flag or a
-    /// current-choice byte over 1 or more choices than rows are refused; from 1.58 an id flag or focus flag over 1, more id flags than ids,
-    /// or a reserved byte set; from 1.67 a negative or non-finite `max_h` or a reserved word set (the 1.58 record is still read).
+    /// One size: the 80, 104, 144 and 184-byte records of earlier builds and a short one are refused (1.135); the whole record is validated: a
+    /// negative row height, a submenu on a row that is not there or out of order, a mark byte over 2, a negative padding, a name flag or
+    /// a current-choice byte over 1 or more choices than rows, an id flag or focus flag over 1, more id flags than ids, a reserved byte
+    /// set, a negative or non-finite `max_h` and a reserved word set.
     #[test]
     fn the_extra_is_read_by_its_size_and_validated_whole() {
         let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
         let mut results = Vec::new();
         ui.frame(&FrameIn::new(320.0, 240.0), &mut |ui: &mut Ui| {
+            let full = core::mem::size_of::<PxuiMenuExtra>() as u32;
             let danger = [1i64];
             let old = PxuiMenuExtra { danger: Slice { ptr: danger.as_ptr(), len: 1 }, ..extra(80) };
             results.push(call(ui, &old));
             results.push(call(ui, &extra(79)));
-            results.push(call(ui, &PxuiMenuExtra { row_h: -1.0, ..extra(104) }));
-            results.push(call(ui, &PxuiMenuExtra { row_h: 30.0, ..extra(104) }));
+            results.push(call(ui, &PxuiMenuExtra { row_h: -1.0, ..extra(full) }));
+            results.push(call(ui, &PxuiMenuExtra { row_h: 30.0, ..extra(full) }));
             let marks = [0u8, 3];
-            results.push(call(ui, &PxuiMenuExtra { checked: Slice { ptr: marks.as_ptr(), len: 2 }, ..extra(104) }));
+            results.push(call(ui, &PxuiMenuExtra { checked: Slice { ptr: marks.as_ptr(), len: 2 }, ..extra(full) }));
             let (texts, enabled) = ([as_str("a")], [1u8]);
             let sub = |row| PxuiSubmenu { row, current: 0, has_current: 0, reserved: [0; 7], rows: Slice { ptr: texts.as_ptr(), len: 1 }, enabled: Slice { ptr: enabled.as_ptr(), len: 1 }, keys: Slice { ptr: core::ptr::null::<Str>(), len: 0 } };
             let subs = [sub(1), sub(0)];
-            results.push(call(ui, &PxuiMenuExtra { submenus: Slice { ptr: subs.as_ptr(), len: 2 }, ..extra(104) }));
+            results.push(call(ui, &PxuiMenuExtra { submenus: Slice { ptr: subs.as_ptr(), len: 2 }, ..extra(full) }));
             let subs = [sub(2)];
-            results.push(call(ui, &PxuiMenuExtra { submenus: Slice { ptr: subs.as_ptr(), len: 1 }, ..extra(104) }));
+            results.push(call(ui, &PxuiMenuExtra { submenus: Slice { ptr: subs.as_ptr(), len: 1 }, ..extra(full) }));
             let subs = [sub(0), sub(1)];
-            results.push(call(ui, &PxuiMenuExtra { submenus: Slice { ptr: subs.as_ptr(), len: 2 }, ..extra(104) }));
-            let full = core::mem::size_of::<PxuiMenuExtra>() as u32;
+            results.push(call(ui, &PxuiMenuExtra { submenus: Slice { ptr: subs.as_ptr(), len: 2 }, ..extra(full) }));
             let (on, over, three) = ([0u8, 1], [2u8], [1u8, 0, 0]);
             results.push(call(ui, &PxuiMenuExtra { padding: 10.0, has_name: 1, name: as_str("Sizes"), selected: Slice { ptr: on.as_ptr(), len: 2 }, ..extra(full) }));
             results.push(call(ui, &PxuiMenuExtra { padding: -1.0, ..extra(full) }));
             results.push(call(ui, &PxuiMenuExtra { has_name: 2, ..extra(full) }));
             results.push(call(ui, &PxuiMenuExtra { selected: Slice { ptr: over.as_ptr(), len: 1 }, ..extra(full) }));
             results.push(call(ui, &PxuiMenuExtra { selected: Slice { ptr: three.as_ptr(), len: 3 }, ..extra(full) }));
-            // 1.58: the 144-byte record of 1.55 is still read; ids with their flags, a flag over 1, more flags than ids or rows, a
+            // the 144-byte record of 1.55 is refused; ids with their flags, a flag over 1, more flags than ids or rows, a
             // focus flag over 1 and a non-zero reserved byte
             let (ids, has, bad) = ([7i64, 9], [1u8, 0], [2u8]);
             results.push(call(ui, &PxuiMenuExtra { padding: 10.0, ..extra(144) }));
@@ -385,7 +385,7 @@ mod tests {
             results.push(call(ui, &PxuiMenuExtra { ids: Slice { ptr: ids.as_ptr(), len: 1 }, has_id: Slice { ptr: has.as_ptr(), len: 2 }, ..extra(full) }));
             results.push(call(ui, &PxuiMenuExtra { focus_on_click: 2, ..extra(full) }));
             results.push(call(ui, &PxuiMenuExtra { reserved3: [0, 1, 0, 0, 0, 0, 0], ..extra(full) }));
-            // 1.67: the 184-byte record of 1.58 is still read (its tail never), one ending inside `max_h` is refused; a negative or
+            // the 184-byte record of 1.58 and one ending inside `max_h` are refused; a negative or
             // non-finite height and a non-zero reserved word are refused
             results.push(call(ui, &PxuiMenuExtra { focus_on_click: 1, max_h: -1.0, reserved4: 9, ..extra(184) }));
             results.push(call(ui, &extra(186)));
@@ -395,8 +395,8 @@ mod tests {
             results.push(call(ui, &PxuiMenuExtra { max_h: 120.0, reserved4: 1, ..extra(full) }));
         }).ok();
         let accepted: Vec<bool> = results.iter().map(|status| *status == 0).collect();
-        assert_eq!(accepted, [true, false, false, true, false, false, false, true, true, false, false, false, false, true, true, false, false, false, false,
-            true, false, true, false, false, false]);
+        assert_eq!(accepted, [false, false, false, true, false, false, false, true, true, false, false, false, false, false, true, false, false, false, false,
+            false, false, true, false, false, false]);
     }
 
     /// U1c.2 (OS-grade 4): a menu past the library's row cap is refused before a row is copied, so the columns the dynamic wrapper keeps

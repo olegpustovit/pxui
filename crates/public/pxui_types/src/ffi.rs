@@ -11,6 +11,70 @@ impl From<&'static [u8]> for Slice<u8> {
 }
 impl<T> Default for Slice<T> { fn default() -> Self { Self { ptr: core::ptr::null(), len: 0 } } }
 
+/// An array of records that crosses as `{ptr, len, stride}`: record `i` starts at `ptr + i * stride` bytes. A record grows at its end, so
+/// the stride is the writer's record size and a reader steps by it, reading the prefix it knows (each record's own `size` says how much
+/// it holds). `stride` below `size_of::<T>()` (or not a multiple of the record's alignment) is refused; the library always writes
+/// `size_of::<T>()`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct Strided<T> { pub ptr: *const T, pub len: usize, pub stride: usize }
+impl<T> Default for Strided<T> { fn default() -> Self { Self { ptr: core::ptr::null(), len: 0, stride: core::mem::size_of::<T>() } } }
+impl<T> Strided<T> {
+    /// `records` as a dense span (stride the record size).
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::ffi::Strided;
+    /// let span = Strided::of(&[1u32, 2, 3]);
+    /// assert_eq!((span.len, span.stride), (3, 4));
+    /// ```
+    pub const fn of(records: &[T]) -> Self { Self { ptr: records.as_ptr(), len: records.len(), stride: core::mem::size_of::<T>() } }
+
+    /// Whether a reader may step through it: a pointer when there are records, and a stride that holds one and keeps each aligned.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::ffi::Strided;
+    /// let data = [1u32, 2];
+    /// assert!(Strided::of(&data).is_valid());
+    /// assert!(!Strided { stride: 3, ..Strided::of(&data) }.is_valid());
+    /// ```
+    pub fn is_valid(&self) -> bool {
+        (self.len == 0 || !self.ptr.is_null()) && self.stride >= core::mem::size_of::<T>() && self.stride % core::mem::align_of::<T>() == 0
+    }
+
+    /// Record `index`, read at `ptr + index * stride`. The span must be valid, `index` below `len`, and the records live for `'a`.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::ffi::Strided;
+    /// let data = [7u32, 8];
+    /// assert_eq!(unsafe { *Strided::of(&data).at(1) }, 8);
+    /// ```
+    pub unsafe fn at<'a>(&self, index: usize) -> &'a T where T: 'a { unsafe { &*self.ptr.cast::<u8>().add(index * self.stride).cast::<T>() } }
+
+    /// The records as a slice when the stride is the record size (what this library writes), else none.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::ffi::Strided;
+    /// let data = [7u32, 8];
+    /// assert_eq!(unsafe { Strided::of(&data).as_slice() }, Some(&data[..]));
+    /// ```
+    pub unsafe fn as_slice<'a>(&self) -> Option<&'a [T]> where T: 'a {
+        if self.len == 0 { return Some(&[]); }
+        (self.stride == core::mem::size_of::<T>()).then(|| unsafe { core::slice::from_raw_parts(self.ptr, self.len) })
+    }
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct Input {
@@ -23,7 +87,7 @@ pub struct Input {
     pub pointer: [f64; 2],
     pub keys: Slice<u32>,
     pub buttons: Slice<u32>,
-    pub events: Slice<Event>,
+    pub events: Strided<Event>,
     pub pixel_scale: [f64; 2],
     pub mouse_delta: [f64; 2],
     pub fps: f64,
@@ -32,7 +96,7 @@ pub struct Input {
 impl Default for Input {
     fn default() -> Self {
         Self { size: core::mem::size_of::<Self>() as u32, time: 0.0, dt: 0.0, frame: 0, tick: 0, logical_size: [0; 2], pointer: [0.0; 2],
-            keys: Slice::default(), buttons: Slice::default(), events: Slice::default(), pixel_scale: [1.0; 2], mouse_delta: [0.0; 2], fps: 60.0 }
+            keys: Slice::default(), buttons: Slice::default(), events: Strided::default(), pixel_scale: [1.0; 2], mouse_delta: [0.0; 2], fps: 60.0 }
     }
 }
 
@@ -75,9 +139,12 @@ pub struct PxuiDirty {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct PxuiLayerInfo {
-    pub key: i64,
+    /// `size_of::<PxuiLayerInfo>()`; the library writes it (a reader steps by `PxuiLayerSpan.stride`).
+    pub size: u32,
     pub id: u32,
     pub breaks: u32,
+    pub reserved: u32,
+    pub key: i64,
     pub instances: Slice<crate::draw::Instance>,
     pub dirty: Slice<PxuiDirty>,
 }
@@ -109,11 +176,13 @@ impl A11yNode {
     #[inline] pub fn is_role(&self, role: crate::a11y::Role) -> bool { self.role == role as u32 }
 }
 
+/// One accessibility node, size-prefixed: `size` is the writer's record size, read as the prefix a reader knows; the tree's `nodes.stride` steps.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 pub struct A11yNode {
-    pub id: u64,
+    pub size: u32,
     pub parent: u32,
+    pub id: u64,
     pub role: u32,
     pub name_start: u32,
     pub name_end: u32,
@@ -130,29 +199,40 @@ pub struct A11yNode {
     pub next_sibling: u32,
     pub last_child: u32,
 }
+impl Default for A11yNode {
+    fn default() -> Self {
+        Self { size: core::mem::size_of::<Self>() as u32, parent: 0, id: 0, role: 0, name_start: 0, name_end: 0, description_start: 0, description_end: 0, value: A11yValue::default(),
+            rect: Rect::default(), states: 0, actions: 0, selection: [0; 2], child_count: 0, first_child: 0, next_sibling: 0, last_child: 0 }
+    }
+}
 
+/// One action an assistive technology asked for, size-prefixed like `A11yNode` (`size_of::<A11yAction>()`, 32; `Default` sets it).
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 pub struct A11yAction {
-    pub id: u64,
+    pub size: u32,
     /// One action bit: 1 press, 2 focus, 4 set value, 8 scroll, 16 expand, 32 collapse, 64 select, 128 move up and 256 move down
     /// (ABI 1.89: a reorderable list row, offered in its node's `actions`).
     pub action_code: u32,
-    pub reserved: u32,
+    pub id: u64,
     pub payload: f64,
     pub end: u32,
-    pub reserved_tail: u32,
+    pub reserved: u32,
+}
+impl Default for A11yAction {
+    fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, action_code: 0, id: 0, payload: 0.0, end: 0, reserved: 0 } }
 }
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct A11yTree {
-    pub nodes: Slice<A11yNode>,
+    /// `nodes.stride` is the node record the writer used.
+    pub nodes: Strided<A11yNode>,
     pub strings: Str,
     pub revision: u64,
     pub first_child: u32,
     pub child_count: u32,
-    pub actions: Slice<A11yAction>,
+    pub actions: Strided<A11yAction>,
 }
 
 #[repr(C)]
@@ -170,13 +250,13 @@ pub struct Output {
     pub damage: Damage,
     pub a11y: A11yTree,
     /// the last frame's layers in draw order, borrowed until the next frame
-    pub layers: Slice<PxuiLayerInfo>,
+    pub layers: Strided<PxuiLayerInfo>,
 }
 impl Default for Output {
     fn default() -> Self {
         Self { size: core::mem::size_of::<Self>() as u32, reserved: 0, draw_revision: 0, repaint_at: f64::INFINITY, built_nodes: 0, rebuilt_views: 0, arranged_nodes: 0,
             platform: PlatformOut { size: core::mem::size_of::<PlatformOut>() as u32, ..PlatformOut::default() }, damage: Damage::default(),
-            a11y: A11yTree { nodes: Slice::default(), strings: Str::default(), revision: 0, first_child: u32::MAX, child_count: 0, actions: Slice::default() }, layers: Slice::default() }
+            a11y: A11yTree { nodes: Strided::default(), strings: Str::default(), revision: 0, first_child: u32::MAX, child_count: 0, actions: Strided::default() }, layers: Strided::default() }
     }
 }
 
@@ -772,7 +852,7 @@ pub struct PxuiSignal {
     pub pinch: f64,
     pub a11y_value: f64,
     pub a11y_select: [u32; 2],
-    pub keys: Slice<Event>,
+    pub keys: Strided<Event>,
 }
 
 /// Result of a behavior-only scrubber; flag bits are preview, commit and held, respectively.
@@ -861,7 +941,7 @@ impl Default for PxuiSignal {
     fn default() -> Self {
         Self { size: core::mem::size_of::<Self>() as u32, flags: 0, has_subtree_press: 0, button: u8::MAX, has_a11y_value: 0, has_a11y_select: 0,
             reserved: [0; 4], subtree_press: 0, clicks: 0, drag: [0.0; 2], pointer: [0.0; 2], press_point: [0.0; 2],
-            release_point: [0.0; 2], scroll: [0.0; 2], pinch: 1.0, a11y_value: 0.0, a11y_select: [0; 2], keys: Slice::default() }
+            release_point: [0.0; 2], scroll: [0.0; 2], pinch: 1.0, a11y_value: 0.0, a11y_select: [0; 2], keys: Strided::default() }
     }
 }
 impl PxuiSignal {
@@ -882,7 +962,7 @@ pub type PxuiA11yValue = A11yValue;
 pub type PxuiA11yNode = A11yNode;
 pub type PxuiA11yAction = A11yAction;
 /// A span of actions, as `pxui_a11y_pump` hands them out.
-pub type A11yActionSpan = Slice<A11yAction>;
+pub type A11yActionSpan = Strided<A11yAction>;
 pub type PxuiA11yTree = A11yTree;
 pub type PxuiThemeTokens = ThemeTokens;
 
@@ -2370,15 +2450,16 @@ pub(crate) mod layout {
         check("PxuiSubmenu", size_of::<PxuiSubmenu>(), align_of::<PxuiSubmenu>(), &[("row", core::mem::offset_of!(PxuiSubmenu, row)), ("current", core::mem::offset_of!(PxuiSubmenu, current)), ("has_current", core::mem::offset_of!(PxuiSubmenu, has_current)), ("reserved", core::mem::offset_of!(PxuiSubmenu, reserved)), ("rows", core::mem::offset_of!(PxuiSubmenu, rows)), ("enabled", core::mem::offset_of!(PxuiSubmenu, enabled)), ("keys", core::mem::offset_of!(PxuiSubmenu, keys))]);
         check("PxuiMenuExtra", size_of::<PxuiMenuExtra>(), align_of::<PxuiMenuExtra>(), &[("size", core::mem::offset_of!(PxuiMenuExtra, size)), ("reserved", core::mem::offset_of!(PxuiMenuExtra, reserved)), ("lead_from", core::mem::offset_of!(PxuiMenuExtra, lead_from)), ("keys", core::mem::offset_of!(PxuiMenuExtra, keys)), ("swatches", core::mem::offset_of!(PxuiMenuExtra, swatches)), ("danger", core::mem::offset_of!(PxuiMenuExtra, danger)), ("submenus", core::mem::offset_of!(PxuiMenuExtra, submenus)), ("row_h", core::mem::offset_of!(PxuiMenuExtra, row_h)), ("max_rows", core::mem::offset_of!(PxuiMenuExtra, max_rows)), ("checked", core::mem::offset_of!(PxuiMenuExtra, checked)), ("padding", core::mem::offset_of!(PxuiMenuExtra, padding)), ("has_name", core::mem::offset_of!(PxuiMenuExtra, has_name)), ("reserved2", core::mem::offset_of!(PxuiMenuExtra, reserved2)), ("name", core::mem::offset_of!(PxuiMenuExtra, name)), ("selected", core::mem::offset_of!(PxuiMenuExtra, selected)), ("focus_on_click", core::mem::offset_of!(PxuiMenuExtra, focus_on_click)), ("reserved3", core::mem::offset_of!(PxuiMenuExtra, reserved3)), ("ids", core::mem::offset_of!(PxuiMenuExtra, ids)), ("has_id", core::mem::offset_of!(PxuiMenuExtra, has_id)), ("max_h", core::mem::offset_of!(PxuiMenuExtra, max_h)), ("reserved4", core::mem::offset_of!(PxuiMenuExtra, reserved4))]);
         check("Slice", size_of::<Slice<u32>>(), align_of::<Slice<u32>>(), &[("ptr", core::mem::offset_of!(Slice<u32>, ptr)), ("len", core::mem::offset_of!(Slice<u32>, len))]);
+        check("Strided", size_of::<Strided<u32>>(), align_of::<Strided<u32>>(), &[("ptr", core::mem::offset_of!(Strided<u32>, ptr)), ("len", core::mem::offset_of!(Strided<u32>, len)), ("stride", core::mem::offset_of!(Strided<u32>, stride))]);
         check("Input", size_of::<Input>(), align_of::<Input>(), &[("size", core::mem::offset_of!(Input, size)), ("time", core::mem::offset_of!(Input, time)), ("dt", core::mem::offset_of!(Input, dt)), ("frame", core::mem::offset_of!(Input, frame)), ("tick", core::mem::offset_of!(Input, tick)), ("logical_size", core::mem::offset_of!(Input, logical_size)), ("pointer", core::mem::offset_of!(Input, pointer)), ("keys", core::mem::offset_of!(Input, keys)), ("buttons", core::mem::offset_of!(Input, buttons)), ("events", core::mem::offset_of!(Input, events)), ("pixel_scale", core::mem::offset_of!(Input, pixel_scale)), ("mouse_delta", core::mem::offset_of!(Input, mouse_delta)), ("fps", core::mem::offset_of!(Input, fps))]);
         check("PlatformOut", size_of::<PlatformOut>(), align_of::<PlatformOut>(), &[("size", core::mem::offset_of!(PlatformOut, size)), ("cursor", core::mem::offset_of!(PlatformOut, cursor)), ("has_cursor", core::mem::offset_of!(PlatformOut, has_cursor)), ("has_ime", core::mem::offset_of!(PlatformOut, has_ime)), ("has_background", core::mem::offset_of!(PlatformOut, has_background)), ("has_clipboard", core::mem::offset_of!(PlatformOut, has_clipboard)), ("ime_rect", core::mem::offset_of!(PlatformOut, ime_rect)), ("ime_caret", core::mem::offset_of!(PlatformOut, ime_caret)), ("clipboard", core::mem::offset_of!(PlatformOut, clipboard)), ("background", core::mem::offset_of!(PlatformOut, background)), ("paste", core::mem::offset_of!(PlatformOut, paste)), ("reserved", core::mem::offset_of!(PlatformOut, reserved))]);
         check("Damage", size_of::<Damage>(), align_of::<Damage>(), &[("has_damage", core::mem::offset_of!(Damage, has_damage)), ("reserved", core::mem::offset_of!(Damage, reserved)), ("rect", core::mem::offset_of!(Damage, rect))]);
         check("A11yValue", size_of::<A11yValue>(), align_of::<A11yValue>(), &[("tag", core::mem::offset_of!(A11yValue, tag)), ("text_start", core::mem::offset_of!(A11yValue, text_start)), ("text_end", core::mem::offset_of!(A11yValue, text_end)), ("reserved", core::mem::offset_of!(A11yValue, reserved)), ("now", core::mem::offset_of!(A11yValue, now)), ("min", core::mem::offset_of!(A11yValue, min)), ("max", core::mem::offset_of!(A11yValue, max)), ("step", core::mem::offset_of!(A11yValue, step))]);
-        check("A11yNode", size_of::<A11yNode>(), align_of::<A11yNode>(), &[("id", core::mem::offset_of!(A11yNode, id)), ("parent", core::mem::offset_of!(A11yNode, parent)), ("role", core::mem::offset_of!(A11yNode, role)), ("name_start", core::mem::offset_of!(A11yNode, name_start)), ("name_end", core::mem::offset_of!(A11yNode, name_end)), ("description_start", core::mem::offset_of!(A11yNode, description_start)), ("description_end", core::mem::offset_of!(A11yNode, description_end)), ("value", core::mem::offset_of!(A11yNode, value)), ("rect", core::mem::offset_of!(A11yNode, rect)), ("states", core::mem::offset_of!(A11yNode, states)), ("actions", core::mem::offset_of!(A11yNode, actions)), ("selection", core::mem::offset_of!(A11yNode, selection)), ("child_count", core::mem::offset_of!(A11yNode, child_count)), ("first_child", core::mem::offset_of!(A11yNode, first_child)), ("next_sibling", core::mem::offset_of!(A11yNode, next_sibling)), ("last_child", core::mem::offset_of!(A11yNode, last_child))]);
-        check("A11yAction", size_of::<A11yAction>(), align_of::<A11yAction>(), &[("id", core::mem::offset_of!(A11yAction, id)), ("action_code", core::mem::offset_of!(A11yAction, action_code)), ("reserved", core::mem::offset_of!(A11yAction, reserved)), ("payload", core::mem::offset_of!(A11yAction, payload)), ("end", core::mem::offset_of!(A11yAction, end)), ("reserved_tail", core::mem::offset_of!(A11yAction, reserved_tail))]);
-        check("A11yTree", size_of::<A11yTree>(), align_of::<A11yTree>(), &[("nodes", core::mem::offset_of!(A11yTree, nodes)), ("strings", core::mem::offset_of!(A11yTree, strings)), ("revision", core::mem::offset_of!(A11yTree, revision)), ("first_child", core::mem::offset_of!(A11yTree, first_child)), ("child_count", core::mem::offset_of!(A11yTree, child_count)), ("actions", core::mem::offset_of!(A11yTree, actions)), ("actions.len", core::mem::offset_of!(A11yTree, actions.len))]);
+        check("A11yNode", size_of::<A11yNode>(), align_of::<A11yNode>(), &[("size", core::mem::offset_of!(A11yNode, size)), ("parent", core::mem::offset_of!(A11yNode, parent)), ("id", core::mem::offset_of!(A11yNode, id)), ("role", core::mem::offset_of!(A11yNode, role)), ("name_start", core::mem::offset_of!(A11yNode, name_start)), ("name_end", core::mem::offset_of!(A11yNode, name_end)), ("description_start", core::mem::offset_of!(A11yNode, description_start)), ("description_end", core::mem::offset_of!(A11yNode, description_end)), ("value", core::mem::offset_of!(A11yNode, value)), ("rect", core::mem::offset_of!(A11yNode, rect)), ("states", core::mem::offset_of!(A11yNode, states)), ("actions", core::mem::offset_of!(A11yNode, actions)), ("selection", core::mem::offset_of!(A11yNode, selection)), ("child_count", core::mem::offset_of!(A11yNode, child_count)), ("first_child", core::mem::offset_of!(A11yNode, first_child)), ("next_sibling", core::mem::offset_of!(A11yNode, next_sibling)), ("last_child", core::mem::offset_of!(A11yNode, last_child))]);
+        check("A11yAction", size_of::<A11yAction>(), align_of::<A11yAction>(), &[("size", core::mem::offset_of!(A11yAction, size)), ("action_code", core::mem::offset_of!(A11yAction, action_code)), ("id", core::mem::offset_of!(A11yAction, id)), ("payload", core::mem::offset_of!(A11yAction, payload)), ("end", core::mem::offset_of!(A11yAction, end)), ("reserved", core::mem::offset_of!(A11yAction, reserved))]);
+        check("A11yTree", size_of::<A11yTree>(), align_of::<A11yTree>(), &[("nodes", core::mem::offset_of!(A11yTree, nodes)), ("nodes.len", core::mem::offset_of!(A11yTree, nodes.len)), ("nodes.stride", core::mem::offset_of!(A11yTree, nodes.stride)), ("strings", core::mem::offset_of!(A11yTree, strings)), ("revision", core::mem::offset_of!(A11yTree, revision)), ("first_child", core::mem::offset_of!(A11yTree, first_child)), ("child_count", core::mem::offset_of!(A11yTree, child_count)), ("actions", core::mem::offset_of!(A11yTree, actions)), ("actions.len", core::mem::offset_of!(A11yTree, actions.len)), ("actions.stride", core::mem::offset_of!(A11yTree, actions.stride))]);
         check("Output", size_of::<Output>(), align_of::<Output>(), &[("size", core::mem::offset_of!(Output, size)), ("reserved", core::mem::offset_of!(Output, reserved)), ("draw_revision", core::mem::offset_of!(Output, draw_revision)), ("repaint_at", core::mem::offset_of!(Output, repaint_at)), ("built_nodes", core::mem::offset_of!(Output, built_nodes)), ("rebuilt_views", core::mem::offset_of!(Output, rebuilt_views)), ("arranged_nodes", core::mem::offset_of!(Output, arranged_nodes)), ("platform", core::mem::offset_of!(Output, platform)), ("damage", core::mem::offset_of!(Output, damage)), ("a11y", core::mem::offset_of!(Output, a11y)), ("layers", core::mem::offset_of!(Output, layers))]);
-        check("PxuiLayerInfo", size_of::<PxuiLayerInfo>(), align_of::<PxuiLayerInfo>(), &[("key", core::mem::offset_of!(PxuiLayerInfo, key)), ("id", core::mem::offset_of!(PxuiLayerInfo, id)), ("breaks", core::mem::offset_of!(PxuiLayerInfo, breaks)), ("instances", core::mem::offset_of!(PxuiLayerInfo, instances)), ("dirty", core::mem::offset_of!(PxuiLayerInfo, dirty))]);
+        check("PxuiLayerInfo", size_of::<PxuiLayerInfo>(), align_of::<PxuiLayerInfo>(), &[("size", core::mem::offset_of!(PxuiLayerInfo, size)), ("id", core::mem::offset_of!(PxuiLayerInfo, id)), ("breaks", core::mem::offset_of!(PxuiLayerInfo, breaks)), ("reserved", core::mem::offset_of!(PxuiLayerInfo, reserved)), ("key", core::mem::offset_of!(PxuiLayerInfo, key)), ("instances", core::mem::offset_of!(PxuiLayerInfo, instances)), ("dirty", core::mem::offset_of!(PxuiLayerInfo, dirty))]);
         check("PxuiDirty", size_of::<PxuiDirty>(), align_of::<PxuiDirty>(), &[("start", core::mem::offset_of!(PxuiDirty, start)), ("end", core::mem::offset_of!(PxuiDirty, end))]);
         check("PxuiMotion", size_of::<PxuiMotion>(), align_of::<PxuiMotion>(), &[("fast", core::mem::offset_of!(PxuiMotion, fast)), ("normal", core::mem::offset_of!(PxuiMotion, normal)), ("slow", core::mem::offset_of!(PxuiMotion, slow)), ("ease", core::mem::offset_of!(PxuiMotion, ease))]);
         check("PxuiThemeTokens", size_of::<ThemeTokens>(), align_of::<ThemeTokens>(), &[("size", core::mem::offset_of!(ThemeTokens, size)), ("panel", core::mem::offset_of!(ThemeTokens, panel)), ("foreground", core::mem::offset_of!(ThemeTokens, foreground)), ("control", core::mem::offset_of!(ThemeTokens, control)), ("input", core::mem::offset_of!(ThemeTokens, input)), ("track", core::mem::offset_of!(ThemeTokens, track)), ("accent", core::mem::offset_of!(ThemeTokens, accent)), ("ink_ground", core::mem::offset_of!(ThemeTokens, ink_ground)), ("has_ink_ground", core::mem::offset_of!(ThemeTokens, has_ink_ground)), ("reserved", core::mem::offset_of!(ThemeTokens, reserved)), ("space", core::mem::offset_of!(ThemeTokens, space)), ("radius", core::mem::offset_of!(ThemeTokens, radius)), ("display_size", core::mem::offset_of!(ThemeTokens, display_size)), ("title_size", core::mem::offset_of!(ThemeTokens, title_size)), ("font_size", core::mem::offset_of!(ThemeTokens, font_size)), ("label_size", core::mem::offset_of!(ThemeTokens, label_size)), ("motion", core::mem::offset_of!(ThemeTokens, motion)), ("reduced_motion", core::mem::offset_of!(ThemeTokens, reduced_motion)), ("reserved_tail", core::mem::offset_of!(ThemeTokens, reserved_tail)), ("density", core::mem::offset_of!(ThemeTokens, density))]);

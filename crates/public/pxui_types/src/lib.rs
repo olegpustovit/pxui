@@ -577,10 +577,9 @@ impl Keyboard {
 pub struct FrameIn {
     /// The byte size of the ABI record supplied by the host.
     pub size: u32,
-    /// An event span whose records and payloads must live through the frame call.
-    pub events: *const Event,
-    /// The number of records at `events`.
-    pub event_count: usize,
+    /// The frame's events, at most 4096: `events.stride` (not below the event size) steps, each event's own `size` says what it holds. The records and
+    /// the payloads they point at must live through the frame call.
+    pub events: ffi::Strided<Event>,
     /// The logical width of the surface in points.
     pub width: f32,
     /// The logical height of the surface in points.
@@ -625,7 +624,7 @@ impl FrameIn {
     /// ```
     pub const fn new(width: f32, height: f32) -> FrameIn {
         FrameIn {
-            size: core::mem::size_of::<FrameIn>() as u32, events: core::ptr::null(), event_count: 0,
+            size: core::mem::size_of::<FrameIn>() as u32, events: ffi::Strided { ptr: core::ptr::null(), len: 0, stride: core::mem::size_of::<Event>() },
             width, height, scale: 1.0, time: 0.0, appearance: Self::APPEARANCE_UNKNOWN, reduced_motion: 0,
             environment: Environment::new([0.0; 4]),
             keyboard: Keyboard::new(geom::Rect::new(0.0, 0.0, 0.0, 0.0), 0), surface: Self::MAIN,
@@ -948,7 +947,7 @@ pub mod feature {
 }
 
 /// The ABI version this crate's records describe (`major << 16 | minor`); an app states it as `PxuiUiDesc::abi_built`.
-pub const ABI_BUILT: u32 = 1 << 16 | 138;
+pub const ABI_BUILT: u32 = 1 << 16 | 139;
 impl Default for PxuiUiDesc { fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, platform: 0, font_size: 0, abi_built: ABI_BUILT } } }
 
 #[cfg(test)]
@@ -1151,44 +1150,20 @@ mod abi_layout {
                 ("text", core::mem::offset_of!(Event, text)),
             ],
         );
-        assert_layout(
-            "FrameIn",
-            core::mem::offset_of!(FrameIn,appearance), // frozen v1 prefix, accepted from older callers
-            align_of::<FrameIn>(),
-            &[
-                ("size", core::mem::offset_of!(FrameIn, size)),
-                ("events", core::mem::offset_of!(FrameIn, events)),
-                ("event_count", core::mem::offset_of!(FrameIn, event_count)),
-                ("width", core::mem::offset_of!(FrameIn, width)),
-                ("height", core::mem::offset_of!(FrameIn, height)),
-                ("scale", core::mem::offset_of!(FrameIn, scale)),
-                ("time", core::mem::offset_of!(FrameIn, time)),
-            ],
-        );
-        assert_layout("FrameInV1_8",core::mem::offset_of!(FrameIn,environment),align_of::<FrameIn>(),&[
-            ("size", core::mem::offset_of!(FrameIn, size)),("events", core::mem::offset_of!(FrameIn, events)),("event_count", core::mem::offset_of!(FrameIn, event_count)),
-            ("width", core::mem::offset_of!(FrameIn, width)),("height", core::mem::offset_of!(FrameIn, height)),("scale", core::mem::offset_of!(FrameIn, scale)),("time", core::mem::offset_of!(FrameIn, time)),
-            ("appearance", core::mem::offset_of!(FrameIn, appearance)),("reduced_motion", core::mem::offset_of!(FrameIn, reduced_motion)),
+        assert_layout("FrameIn", size_of::<FrameIn>(), align_of::<FrameIn>(), &[
+            ("size", core::mem::offset_of!(FrameIn, size)), ("events", core::mem::offset_of!(FrameIn, events)), ("events.len", core::mem::offset_of!(FrameIn, events.len)),
+            ("events.stride", core::mem::offset_of!(FrameIn, events.stride)), ("width", core::mem::offset_of!(FrameIn, width)), ("height", core::mem::offset_of!(FrameIn, height)),
+            ("scale", core::mem::offset_of!(FrameIn, scale)), ("time", core::mem::offset_of!(FrameIn, time)), ("appearance", core::mem::offset_of!(FrameIn, appearance)),
+            ("reduced_motion", core::mem::offset_of!(FrameIn, reduced_motion)), ("environment", core::mem::offset_of!(FrameIn, environment)),
+            ("keyboard", core::mem::offset_of!(FrameIn, keyboard)), ("surface", core::mem::offset_of!(FrameIn, surface)),
         ]);
         assert_layout("Touch",size_of::<Touch>(),align_of::<Touch>(),&[("device", core::mem::offset_of!(Touch, device)),("finger", core::mem::offset_of!(Touch, finger)),("x", core::mem::offset_of!(Touch, x)),("y", core::mem::offset_of!(Touch, y)),("time", core::mem::offset_of!(Touch, time)),("pressure", core::mem::offset_of!(Touch, pressure)),("phase", core::mem::offset_of!(Touch, phase))]);
         assert_layout("Environment",size_of::<Environment>(),align_of::<Environment>(),&[
             ("safe_area", core::mem::offset_of!(Environment, safe_area)),("keyboard_frame", core::mem::offset_of!(Environment, keyboard_frame)),("keyboard_from", core::mem::offset_of!(Environment, keyboard_from)),
             ("keyboard_started", core::mem::offset_of!(Environment, keyboard_started)),("keyboard_duration", core::mem::offset_of!(Environment, keyboard_duration)),("keyboard_curve", core::mem::offset_of!(Environment, keyboard_curve)),("keyboard_visible", core::mem::offset_of!(Environment, keyboard_visible)),
         ]);
-        assert_layout("FrameInV1_24",core::mem::offset_of!(FrameIn,keyboard),align_of::<FrameIn>(),&[
-            ("size", core::mem::offset_of!(FrameIn, size)),("events", core::mem::offset_of!(FrameIn, events)),("event_count", core::mem::offset_of!(FrameIn, event_count)),("width", core::mem::offset_of!(FrameIn, width)),
-            ("height", core::mem::offset_of!(FrameIn, height)),("scale", core::mem::offset_of!(FrameIn, scale)),("time", core::mem::offset_of!(FrameIn, time)),("appearance", core::mem::offset_of!(FrameIn, appearance)),("reduced_motion", core::mem::offset_of!(FrameIn, reduced_motion)),("environment", core::mem::offset_of!(FrameIn, environment)),
-        ]);
         assert_layout("Keyboard",size_of::<Keyboard>(),align_of::<Keyboard>(),&[("frame", core::mem::offset_of!(Keyboard, frame)),("flags", core::mem::offset_of!(Keyboard, flags))]);
         assert_layout("TextInputOptions",size_of::<PxuiTextInputOptions>(),align_of::<PxuiTextInputOptions>(),&[("autocorrect", core::mem::offset_of!(PxuiTextInputOptions, autocorrect)),("capitalization", core::mem::offset_of!(PxuiTextInputOptions, capitalization)),("action", core::mem::offset_of!(PxuiTextInputOptions, action))]);
-        assert_layout("FrameInV1_26",core::mem::offset_of!(FrameIn,surface),align_of::<FrameIn>(),&[
-            ("size", core::mem::offset_of!(FrameIn, size)),("events", core::mem::offset_of!(FrameIn, events)),("event_count", core::mem::offset_of!(FrameIn, event_count)),("width", core::mem::offset_of!(FrameIn, width)),
-            ("height", core::mem::offset_of!(FrameIn, height)),("scale", core::mem::offset_of!(FrameIn, scale)),("time", core::mem::offset_of!(FrameIn, time)),("appearance", core::mem::offset_of!(FrameIn, appearance)),("reduced_motion", core::mem::offset_of!(FrameIn, reduced_motion)),("environment", core::mem::offset_of!(FrameIn, environment)),("keyboard", core::mem::offset_of!(FrameIn, keyboard)),
-        ]);
-        assert_layout("FrameInV1_57",size_of::<FrameIn>(),align_of::<FrameIn>(),&[
-            ("size", core::mem::offset_of!(FrameIn, size)),("events", core::mem::offset_of!(FrameIn, events)),("event_count", core::mem::offset_of!(FrameIn, event_count)),("width", core::mem::offset_of!(FrameIn, width)),
-            ("height", core::mem::offset_of!(FrameIn, height)),("scale", core::mem::offset_of!(FrameIn, scale)),("time", core::mem::offset_of!(FrameIn, time)),("appearance", core::mem::offset_of!(FrameIn, appearance)),("reduced_motion", core::mem::offset_of!(FrameIn, reduced_motion)),("environment", core::mem::offset_of!(FrameIn, environment)),("keyboard", core::mem::offset_of!(FrameIn, keyboard)),("surface", core::mem::offset_of!(FrameIn, surface)),
-        ]);
         assert_layout(
             "FrameOut",
             size_of::<FrameOut>(),

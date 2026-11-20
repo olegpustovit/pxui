@@ -80,7 +80,7 @@ export!(object pub unsafe fn pxui_a11y_pump(a11y: *mut PxuiA11y, out: *mut pxui_
         let alive = a.bridge.pump_ffi(&mut a.actions);
         a.span.clear();
         a.span.extend(a.actions.iter().map(|(_, action)| *action));
-        unsafe { *out = pxui_types::ffi::Slice { ptr: a.span.as_ptr(), len: a.span.len() }; }
+        unsafe { *out = pxui_types::ffi::Strided::of(&a.span); }
         return alive as i32;
     }
     #[cfg(not(target_os = "linux"))]

@@ -11,7 +11,7 @@ Instance 64 4 0 16 24 28 32 40 48 50 51 52 54 56
 View 56 4 0 8 12 28 32 48
 Str 16 8 0 8
 Event 64 8 4 16 24 32 40 48
-FrameIn 48 8 0 8 16 24 28 32 40
+FrameIn 176 8 0 8 16 24 32 36 40 48 56 60 64 144 168
 FrameOut 40 8 0 4 20 21 24 32
 Gpu 128 8 0 4 8 16 24 32 40 44 48 56 64 72 80 88 96 104 112 120
 Commands 24 8 0 8 16
@@ -23,14 +23,14 @@ PxuiPanel 56 8 0 4 8 12 16 24 32 33 34 35 36 40 44 48
 PxuiTargetDesc 32 4 0 4 8 9 12 16 20 24 28
 PxuiUiDesc 12 4 0 4 8
 Slice 16 8 0 8
-Input 160 8 0 8 16 24 32 40 56 72 88 104 120 136 152
+Input 168 8 0 8 16 24 32 40 56 72 88 104 128 144 160
 PlatformOut 88 8 0 4 8 9 10 11 16 48 56 72 76 77
 Damage 20 4 0 1 4
 A11yValue 48 8 0 4 8 12 16 24 32 40
-A11yNode 128 8 0 8 12 16 20 24 28 32 80 96 100 104 112 116 120 124
-A11yAction 32 8 0 8 12 16 24 28
-A11yTree 64 8 0 16 32 40 44 48 56
-Output 240 8 0 4 8 16 24 32 40 48 136 160 224
+A11yNode 136 8 0 4 8 16 20 24 28 32 40 88 104 108 112 120 124 128 132
+A11yAction 32 8 0 4 8 16 24 28
+A11yTree 80 8 0 8 16 24 40 48 52 56 64 72
+Output 264 8 0 4 8 16 24 32 40 48 136 160 240
 PxuiMotion 28 4 0 4 8 12
 PxuiThemeTokens 136 8 0 4 8 12 16 20 24 28 32 33 36 52 64 72 80 88 96 124 125 128
 PxuiSizeDesc 16 8 0 4 8
@@ -51,7 +51,7 @@ PxuiHintDesc 40 8 0 4 8 24
 PxuiFooterDesc 40 8 0 4 5 8 24
 PxuiKeyframeDesc 344 8 0 4 8 12 16 32 184
 PxuiTableDesc 104 8 0 4 5 6 7 8 24 40 48 56 60 64 80 88 90 91 92 96
-PxuiSignal 112 8 0 4 8 9 10 11 12 16 24 32 40 48 56 64 72 80 88 96
+PxuiSignal 120 8 0 4 8 9 10 11 12 16 24 32 40 48 56 64 72 80 88 96
 TextStyle 36 4 0 4 6 8 12 16 20 24 26 27 28 32
 TextMetrics 16 4 0 4 8 12
 TextGlyph 40 4 0 16 32 36
@@ -77,7 +77,7 @@ PxuiAreaCallbacks 144 8 0 4 8 16 24 32 40 48 56 64 72 80 88 96 104 112 120 128 1
 PxuiSwatch 8 1 0 1 4
 PxuiSubmenu 72 8 0 8 16 17 24 40 56
 PxuiMenuExtra 192 8 0 4 8 16 32 48 64 80 84 88 104 108 109 112 128 144 145 152 168 184 188
-PxuiLayerInfo 48 8 0 8 12 16 32
+PxuiLayerInfo 56 8 0 4 8 12 16 24 40
 PxuiDirty 8 4 0 4
 PxuiSize 16 8
 PxuiTrack 8 4
@@ -138,13 +138,10 @@ TextSpan 24 4 0 4 8 10 12 16 20
 TextSpans 200 4 0 4 8
 
 # FrameIn above freezes the accepted v1 prefix; the complete ABI 1.8 descriptor follows.
-FrameInV1_8 56 8 0 8 16 24 28 32 40 48 52
 PxuiSectionListDesc 32 8 0 4 5 7 8 16 20 24 28
 Environment 80 8 16 32 48 64 72 4 8
-FrameInV1_24 136 8 0 8 16 24 28 32 40 48 52 56
 Touch 56 8 8 16 24 32 40 48 4
 Keyboard 24 4 8 4
-FrameInV1_26 160 8 0 8 16 24 28 32 40 48 52 56 136
 TextInputOptions 12 4 0 4 8
 PxuiScrubOut 48 8 0 4 8 40 44
 PxuiGestureIn 16 4 0 4 8 12
@@ -162,7 +159,6 @@ PxuiDialogDesc 104 8 0 4 8 24 40 56 64 72 80 88
 PxuiDialogResult 16 8 0 4 5 6 8
 PxuiCurve 140 4 0 4
 PxuiLabelBox 16 4 0 4 8 12 13 14
-FrameInV1_57 168 8 0 8 16 24 28 32 40 48 52 56 136 160
 PxuiUiDescV1_60 16 4 0 4 8 12
 PxuiTextFieldDesc 56 8 0 4 5 6 7 8 24 40
 PxuiSegmentedResult 24 8 0 4 5 6 8 16
@@ -181,3 +177,4 @@ PxuiColumnWidthSpan 16 8 0 8
 PxuiTableHeadDesc 56 8 0 4 5 6 8 24 40 48 52
 PxuiHeadResult 56 8 0 4 5 6 7 8 16
 PxuiTableResult 192 8 0 4 8 136
+Strided 24 8 0 8 16

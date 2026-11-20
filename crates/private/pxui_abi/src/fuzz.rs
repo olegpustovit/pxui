@@ -64,6 +64,13 @@ macro_rules! arg {
                 3 => Slice { ptr, len: usize::MAX }, 4 => Slice { ptr, len: 1 }, _ => Slice { ptr, len: usize::MAX / 2 } }
         }
     } };
+    (strided $t:ty) => { impl Arg for Strided<$t> {
+        fn arg(v: u32) -> Self {
+            let (ptr, size) = (buf().cast::<$t>().cast_const(), core::mem::size_of::<$t>());
+            match v % VARIANTS { 0 => Strided { ptr: core::ptr::null(), len: 0, stride: size }, 1 => Strided { ptr: core::ptr::null(), len: 4, stride: size }, 2 => Strided { ptr, len: 3, stride: size },
+                3 => Strided { ptr, len: 3, stride: size - 1 }, 4 => Strided { ptr, len: usize::MAX, stride: size }, _ => Strided { ptr, len: 2, stride: usize::MAX / 2 } }
+        }
+    } };
     (sized $t:ty) => {
         impl Arg for *const $t { fn arg(v: u32) -> Self { <*mut $t>::arg(v).cast_const() } }
         impl Arg for *mut $t {
@@ -89,7 +96,8 @@ macro_rules! arg {
 arg!(int: u8, u16, u32, u64, usize);
 arg!(signed: i32, i64);
 arg!(float: f32, f64);
-arg!(span: Str, u8, i64, Event, A11yAction, PxuiHintDesc, PxuiKeyframeDesc, pxui_types::ffi::PxuiPickItem);
+arg!(strided: Event, A11yAction);
+arg!(span: Str, u8, i64, PxuiHintDesc, PxuiKeyframeDesc, pxui_types::ffi::PxuiPickItem);
 arg!(sized: PxuiTextFieldDesc, Environment, Gpu, Keyboard, Pass, pxui_text::TextSpans, Commands, A11yAction, Input, PxuiButtonDesc, PxuiDialogDesc, PxuiDialogResult, PxuiSegmentedResult,
     PxuiDismissIn, PxuiDismissOut, PxuiFooterDesc, PxuiGestureIn, PxuiGestureOut, PxuiGridListDesc, PxuiHeaderDesc, PxuiHeadOut, PxuiIconButtonDesc,
     PxuiInspectorRowDesc, PxuiInspectorSectionDesc, PxuiInspectorTextDesc, PxuiInspectorValueDesc, PxuiKeyframeDesc, PxuiLabelStyle, PxuiLookDesc, PxuiMenuBarDesc, PxuiMenuExtra, PxuiMenuOut, PxuiNodeFields, PxuiPopupDesc, PxuiResponse,
@@ -97,7 +105,7 @@ arg!(sized: PxuiTextFieldDesc, Environment, Gpu, Keyboard, Pass, pxui_text::Text
     PxuiTargetDesc, PxuiUiDesc, TextMetrics, PxuiTextStyle, PxuiAnchorDesc, PxuiAreaCallbacks, PxuiLabelBox, PxuiMarkDesc, PxuiSegmentedDesc,
     PxuiTextAreaDesc, PxuiTextInputOptions, PxuiToggleDesc, PxuiCheckboxDesc, PxuiSheetDesc, Span, TextGlyph,
     PxuiSectionListDesc, PxuiListResult, PxuiSelectionListDesc, PxuiTableHeadDesc, PxuiHeadResult, PxuiTableDesc, PxuiTableResult);
-arg!(plain: u16, *mut PxuiRenderer, u8, u32, u64, i64, usize, f32, c_void, Str, geom::Rgba, geom::Rect, geom::Point, *const u32, *mut PxuiPreparedText, A11yTree, Slice<A11yAction>);
+arg!(plain: u16, *mut PxuiRenderer, u8, u32, u64, i64, usize, f32, c_void, Str, geom::Rgba, geom::Rect, geom::Point, *const u32, *mut PxuiPreparedText, A11yTree, Strided<A11yAction>);
 arg!(null: PxuiRenderer, PxuiPaint, PxuiPreparedText, PxuiA11y, PxuiTextWorker);
 arg!(none: UiBuild, PxuiGridBuild, PxuiButtonBuild, PxuiBodyFn, crate::paint::PaintBuild, crate::paint::PaintRelease, crate::paint::SpanBuild,
     crate::overlays::PickerRows, crate::overlays::PickerMark, crate::overlays::PickerOff, crate::overlays::PickerImage, crate::text_inputs::TextValid, crate::text_inputs::SlideText,
@@ -234,7 +242,7 @@ fuzz!(
     pxui_ui_dialog/5, pxui_ui_disabled/4, pxui_ui_dismiss/4, pxui_ui_dismiss_popup/1, pxui_ui_draw/6,
     pxui_ui_drop_target/5, pxui_ui_environment/2, pxui_ui_expanded/3, pxui_ui_field_drag/4, pxui_ui_focus_box/2, pxui_ui_focus_default/2,
     pxui_ui_focused/3, pxui_ui_font_points/2, pxui_ui_footer/2, pxui_ui_frame_index/1, pxui_ui_gesture/5, pxui_ui_grid_list/3, pxui_ui_grip/7,
-    pxui_ui_hover_delay/3, pxui_ui_key_seed/2, pxui_ui_hovered/4, pxui_ui_icon_button_plain/5, pxui_ui_icon_button/3, pxui_ui_icon_word/2, pxui_ui_image/8, pxui_ui_inject_a11y/3, pxui_ui_input/4, pxui_ui_item_text/2, pxui_ui_key_down/3, pxui_ui_key_pressed/4, pxui_ui_keyboard/2, pxui_ui_label_node/5, pxui_ui_label_text_spans/5, pxui_ui_label_text_line_box/5, pxui_ui_label_measure/6,
+    pxui_ui_hover_delay/3, pxui_ui_key_seed/2, pxui_ui_hovered/4, pxui_ui_icon_button_plain/5, pxui_ui_icon_button/3, pxui_ui_icon_word/2, pxui_ui_image/8, pxui_ui_inject_a11y/2, pxui_ui_input/4, pxui_ui_item_text/2, pxui_ui_key_down/3, pxui_ui_key_pressed/4, pxui_ui_keyboard/2, pxui_ui_label_node/5, pxui_ui_label_text_spans/5, pxui_ui_label_text_line_box/5, pxui_ui_label_measure/6,
     pxui_ui_label_quads/9, pxui_ui_label_rasterize_rgba/13, pxui_ui_label_prewarm/4, pxui_ui_layer_drawn/2, pxui_ui_load_text_edit/6, pxui_ui_local_rect/3, pxui_ui_node/4,
     pxui_ui_node_fields/3, pxui_ui_node_keyed/4, pxui_ui_node_layout/3, pxui_ui_now/1, pxui_ui_output/1, pxui_ui_passed_undo/1, pxui_ui_patch_field/5,
     pxui_ui_patch_look/4, pxui_ui_patch_mark/4, pxui_ui_patch_rect/4, pxui_ui_patch_text/4, pxui_ui_phase_cpu_times/3, pxui_ui_phase_times/3, pxui_ui_platform/1,

@@ -390,7 +390,8 @@ mod tests {
             if !open.get() { return; }
             // a sheet of 160 points of content: a quarter of its height is 40 points of drag
             let r = ui.modal("sheet", &Overlay::DEFAULT.w_px(200.0).present(present.get()).dismiss(DismissOpts::DEFAULT.fraction(0.25)), |ui| { ui.node("queue", Node::DEFAULT.h_px(160.0)); });
-            if !r.open { open.set(false); }
+            // a closed sheet has no node: its handle is the zeroed one, which is stale (U5.2)
+            if !r.open { open.set(false); return; }
             sheet.set(ui.rect(&r.handle));
         };
         let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");

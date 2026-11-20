@@ -117,17 +117,16 @@ export!(trusted pub unsafe fn pxui_ui_grid_list(ui: *mut PxuiUi, desc: *const Px
     }, &mut *out) }
 });
 
-export!(pub unsafe fn pxui_ui_wants_frame(ui: *mut PxuiUi, events: Slice<pxui_types::Event>, now: f64, out: *mut u8) -> i32 {
+export!(pub unsafe fn pxui_ui_wants_frame(ui: *mut PxuiUi, events: pxui_types::ffi::Strided<pxui_types::Event>, now: f64, out: *mut u8) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    if out.is_null() || !now.is_finite() || events.len > 4096 || (events.len != 0 && events.ptr.is_null()) { return unsafe { fail(ui, "invalid wants frame arguments") }; }
+    if out.is_null() || !now.is_finite() || events.len > 4096 || !events.is_valid() { return unsafe { fail(ui, "invalid wants frame arguments") }; }
     // the events decode into a buffer the `Ui` keeps (an idle host asks on every wake), checked as a frame checks them
     let mut translated = core::mem::take(&mut state.shared().wants);
     let mut budget = MAX_TOTAL_TEXT_BYTES;
-    if events.len != 0 {
-        for event in unsafe { core::slice::from_raw_parts(events.ptr, events.len) } {
-            let Some(event) = translate_event(event, state.shared().surface, &mut budget) else { translated.clear(); state.shared().wants = translated; return unsafe { fail(ui, "invalid wants frame event") }; };
-            translated.push(event);
-        }
+    for i in 0..events.len {
+        let event = unsafe { events.at(i) };
+        let Some(event) = translate_event(event, state.shared().surface, &mut budget) else { translated.clear(); state.shared().wants = translated; return unsafe { fail(ui, "invalid wants frame event") }; };
+        translated.push(event);
     }
     unsafe { *out = (&*state.engine).wants_frame(&translated, now) as u8; }
     translated.clear();

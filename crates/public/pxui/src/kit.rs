@@ -29,7 +29,7 @@ mod sys {
     pub fn pxui_ui_inspector_button(ui: *mut PxuiUi, key: Str, label: Str, out: *mut u8) -> i32;
     pub fn pxui_ui_inspector_readout(ui: *mut PxuiUi, desc: *const InspectorValueDesc) -> i32;
     pub fn pxui_ui_inspector_message(ui: *mut PxuiUi, desc: *const InspectorTextDesc) -> i32;
-    pub fn pxui_ui_wants_frame(ui: *mut PxuiUi, events: Slice<pxui_types::Event>, now: f64, out: *mut u8) -> i32;
+    pub fn pxui_ui_wants_frame(ui: *mut PxuiUi, events: pxui_types::ffi::Strided<pxui_types::Event>, now: f64, out: *mut u8) -> i32;
     pub fn pxui_ui_footer(ui: *mut PxuiUi, desc: *const FooterDesc) -> i32;
     /// The C entry `Ui::animate_keys` calls: plays the 1 to 8 keyframes `keys` on `box_` once and writes 1 to `out` while the run is going; an error code for an invalid keyframe or a stale box.
     /// Allocates: never.
@@ -312,7 +312,7 @@ impl Ui {
     #[inline]
     #[track_caller] pub fn wants_frame(&self, events: &[pxui_types::Event], now: f64) -> bool {
         let mut out = 0;
-        check(self, unsafe { sys::pxui_ui_wants_frame(self.0.as_ptr(), Slice { ptr: events.as_ptr(), len: events.len() }, now, &mut out) });
+        check(self, unsafe { sys::pxui_ui_wants_frame(self.0.as_ptr(), pxui_types::ffi::Strided::of(events), now, &mut out) });
         out != 0
     }
     /// Runs the keyframes `keys` (1 to 8, times ascending from 0) on the box `box_` as `play` says: how often they repeat (a count includes the reverse legs), whether each cycle plays back, and how far into the first cycle they start.

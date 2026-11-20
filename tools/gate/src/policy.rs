@@ -114,6 +114,7 @@ pub const UNSAFE_CRATES: &[&str] = &["pxui_wayland", "pxui_atspi"]; // own their
 
 /// Files besides those of `UNSAFE_CRATES` that may use `unsafe`, each with its reason.
 pub const UNSAFE_FILES: &[(&str, &str)] = &[
+    ("crates/public/pxui_types/src/ffi.rs", "Strided reads a caller-owned {ptr, len, stride} span: the one unsafe stepping reader the library, the wrapper and the AT-SPI bridge share"),
     ("crates/private/pxui_abi/src/lib.rs", "the stable ABI requires an unmangled C symbol export"),
     ("crates/private/pxui_abi/src/macros.rs", "the export macro declares the unmangled C symbols and wraps each body against unwinding"),
     ("crates/private/pxui_abi/src/trusted.rs", "the entries the static wrapper calls without the C checks: raw handles in, the same bodies the exports run"),

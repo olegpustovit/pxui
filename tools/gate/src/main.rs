@@ -1683,7 +1683,7 @@ fn c_exports(header: &str) -> BTreeMap<String, String> {
 // ponytail: every `*Span` is one `Slice`, so its element type is not compared here (layout rows pin the structs); compare it when a Span mix-up ships.
 fn canonical_name(name: &str) -> &str {
     let name = name.strip_prefix("Pxui").filter(|rest| !rest.is_empty() && name != "PxuiUi").unwrap_or(name);
-    if name.ends_with("Span") || name == "Slice" { return "Slice"; }
+    if name.ends_with("Span") || name == "Slice" || name == "Strided" { return "Slice"; }
     match name {
         "Color" => "Rgba",
         "FfiEvent" => "Event",

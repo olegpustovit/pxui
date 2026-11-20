@@ -3278,8 +3278,7 @@ pxui_types::FrameIn::APPEARANCE_UNKNOWN const u32 @HEAD
 pxui_types::FrameIn::MAIN const u64 @U5.1
 pxui_types::FrameIn::appearance field u32 @HEAD
 pxui_types::FrameIn::environment field Environment @HEAD
-pxui_types::FrameIn::event_count field usize @HEAD
-pxui_types::FrameIn::events field *const Event @HEAD
+pxui_types::FrameIn::events field Strided<Event> @U5.4
 pxui_types::FrameIn::height field f32 @HEAD
 pxui_types::FrameIn::keyboard field Keyboard @HEAD
 pxui_types::FrameIn::new fn const (width: f32, height: f32) -> FrameIn @U1a.3
@@ -4104,8 +4103,8 @@ pxui_types::ffi::A11yAction::end field u32 @HEAD
 pxui_types::ffi::A11yAction::id field u64 @HEAD
 pxui_types::ffi::A11yAction::payload field f64 @HEAD
 pxui_types::ffi::A11yAction::reserved field u32 @HEAD
-pxui_types::ffi::A11yAction::reserved_tail field u32 @HEAD
-pxui_types::ffi::A11yActionSpan type = Slice<A11yAction> @HEAD
+pxui_types::ffi::A11yAction::size field u32 @U5.4
+pxui_types::ffi::A11yActionSpan type = Strided<A11yAction> @U5.4
 pxui_types::ffi::A11yNode impl Clone @HEAD
 pxui_types::ffi::A11yNode impl Copy @HEAD
 pxui_types::ffi::A11yNode impl Debug @HEAD
@@ -4126,16 +4125,17 @@ pxui_types::ffi::A11yNode::parent field u32 @HEAD
 pxui_types::ffi::A11yNode::rect field Rect @HEAD
 pxui_types::ffi::A11yNode::role field u32 @HEAD
 pxui_types::ffi::A11yNode::selection field [u32; 2] @HEAD
+pxui_types::ffi::A11yNode::size field u32 @U5.4
 pxui_types::ffi::A11yNode::states field u32 @HEAD
 pxui_types::ffi::A11yNode::value field A11yValue @HEAD
 pxui_types::ffi::A11yTree impl Clone @HEAD
 pxui_types::ffi::A11yTree impl Copy @HEAD
 pxui_types::ffi::A11yTree impl Debug @HEAD
 pxui_types::ffi::A11yTree struct @HEAD
-pxui_types::ffi::A11yTree::actions field Slice<A11yAction> @HEAD
+pxui_types::ffi::A11yTree::actions field Strided<A11yAction> @U5.4
 pxui_types::ffi::A11yTree::child_count field u32 @HEAD
 pxui_types::ffi::A11yTree::first_child field u32 @HEAD
-pxui_types::ffi::A11yTree::nodes field Slice<A11yNode> @HEAD
+pxui_types::ffi::A11yTree::nodes field Strided<A11yNode> @U5.4
 pxui_types::ffi::A11yTree::revision field u64 @HEAD
 pxui_types::ffi::A11yTree::strings field Str @HEAD
 pxui_types::ffi::A11yValue impl Clone @HEAD
@@ -4167,7 +4167,7 @@ pxui_types::ffi::Input impl Default @HEAD
 pxui_types::ffi::Input struct @HEAD
 pxui_types::ffi::Input::buttons field Slice<u32> @HEAD
 pxui_types::ffi::Input::dt field f64 @HEAD
-pxui_types::ffi::Input::events field Slice<Event> @HEAD
+pxui_types::ffi::Input::events field Strided<Event> @U5.4
 pxui_types::ffi::Input::fps field f64 @HEAD
 pxui_types::ffi::Input::frame field i64 @HEAD
 pxui_types::ffi::Input::keys field Slice<u32> @HEAD
@@ -4188,7 +4188,7 @@ pxui_types::ffi::Output::arranged_nodes field u64 @HEAD
 pxui_types::ffi::Output::built_nodes field u64 @HEAD
 pxui_types::ffi::Output::damage field Damage @HEAD
 pxui_types::ffi::Output::draw_revision field u64 @HEAD
-pxui_types::ffi::Output::layers field Slice<PxuiLayerInfo> @HEAD
+pxui_types::ffi::Output::layers field Strided<PxuiLayerInfo> @U5.4
 pxui_types::ffi::Output::platform field PlatformOut @HEAD
 pxui_types::ffi::Output::rebuilt_views field u64 @HEAD
 pxui_types::ffi::Output::repaint_at field f64 @HEAD
@@ -4874,6 +4874,8 @@ pxui_types::ffi::PxuiLayerInfo::dirty field Slice<PxuiDirty> @HEAD
 pxui_types::ffi::PxuiLayerInfo::id field u32 @HEAD
 pxui_types::ffi::PxuiLayerInfo::instances field Slice<Instance> @HEAD
 pxui_types::ffi::PxuiLayerInfo::key field i64 @HEAD
+pxui_types::ffi::PxuiLayerInfo::reserved field u32 @U5.4
+pxui_types::ffi::PxuiLayerInfo::size field u32 @U5.4
 pxui_types::ffi::PxuiLineFieldConfig impl Clone @HEAD
 pxui_types::ffi::PxuiLineFieldConfig impl Copy @HEAD
 pxui_types::ffi::PxuiLineFieldConfig struct @HEAD
@@ -5449,7 +5451,7 @@ pxui_types::ffi::PxuiSignal::flags field u32 @HEAD
 pxui_types::ffi::PxuiSignal::has_a11y_select field u8 @HEAD
 pxui_types::ffi::PxuiSignal::has_a11y_value field u8 @HEAD
 pxui_types::ffi::PxuiSignal::has_subtree_press field u8 @HEAD
-pxui_types::ffi::PxuiSignal::keys field Slice<Event> @HEAD
+pxui_types::ffi::PxuiSignal::keys field Strided<Event> @U5.4
 pxui_types::ffi::PxuiSignal::pinch field f64 @HEAD
 pxui_types::ffi::PxuiSignal::pointer field [f32; 2] @HEAD
 pxui_types::ffi::PxuiSignal::press_point field [f32; 2] @HEAD
@@ -5927,6 +5929,18 @@ pxui_types::ffi::Slice impl From<&'static [u8]> @U1b.5
 pxui_types::ffi::Slice struct <T> @HEAD
 pxui_types::ffi::Slice::len field usize @HEAD
 pxui_types::ffi::Slice::ptr field *const T @HEAD
+pxui_types::ffi::Strided impl Clone @U5.4
+pxui_types::ffi::Strided impl Copy @U5.4
+pxui_types::ffi::Strided impl Debug @U5.4
+pxui_types::ffi::Strided impl Default @U5.4
+pxui_types::ffi::Strided struct <T> @U5.4
+pxui_types::ffi::Strided::as_slice fn unsafe (&self) -> Option<&'a [T]> @U5.4
+pxui_types::ffi::Strided::at fn unsafe (&self, index: usize) -> &'a T @U5.4
+pxui_types::ffi::Strided::is_valid fn (&self) -> bool @U5.4
+pxui_types::ffi::Strided::len field usize @U5.4
+pxui_types::ffi::Strided::of fn const (records: &[T]) -> Strided<T> @U5.4
+pxui_types::ffi::Strided::ptr field *const T @U5.4
+pxui_types::ffi::Strided::stride field usize @U5.4
 -pxui_types::ffi::ThemeSource impl Clone @U2c.5
 -pxui_types::ffi::ThemeSource impl Copy @U2c.5
 -pxui_types::ffi::ThemeSource impl Debug @U2c.5

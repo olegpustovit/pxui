@@ -143,7 +143,6 @@ mod sys {
 mod sys {
     use core::ffi::c_void;
     use pxui_types::{FrameIn, FrameOut, Str};
-    use pxui_types::ffi::A11yAction;
     /// The handle's public head (`include/pxui.h`): the theme in effect for it, null until a theme read fills it.
     #[repr(C)] pub struct PxuiUi { pub theme: *const pxui_types::theme::ThemeSnapshot, _private: [u8; 0] }
     pub use pxui_types::{PxuiBox, PxuiTargetDesc, PxuiUiDesc};
@@ -167,7 +166,7 @@ mod sys {
         pub fn pxui_ui_system_appearance(ui:*mut PxuiUi,out:*mut u32)->i32;
         pub fn pxui_ui_set_dir(ui:*mut PxuiUi,dir:u32)->i32;
         pub fn pxui_ui_set_a11y(ui:*mut PxuiUi,on:u8)->i32;
-        pub fn pxui_ui_inject_a11y(ui:*mut PxuiUi,actions:*const A11yAction,count:usize)->i32;
+        pub fn pxui_ui_inject_a11y(ui:*mut PxuiUi,actions:pxui_types::ffi::A11yActionSpan)->i32;
         pub fn pxui_ui_patch_text(ui:*mut PxuiUi,box_:*const PxuiBox,value:Str,out:*mut u8)->i32;
         pub fn pxui_ui_busy_step(ui:*mut PxuiUi,box_:*const PxuiBox,now:f64,out:*mut u8)->i32;
         pub fn pxui_ui_request_frame(ui:*mut PxuiUi)->i32;
@@ -283,16 +282,16 @@ pub struct Layer<'a> {
 
 /// The last frame's draw layers in order, borrowed from their Ui.
 pub struct Layers<'a> {
-    raw: Slice<pxui_types::ffi::PxuiLayerInfo>,
+    raw: pxui_types::ffi::Strided<pxui_types::ffi::PxuiLayerInfo>,
     next: usize,
     _ui: PhantomData<&'a Ui>,
 }
 
 impl<'a> Layers<'a> {
     fn get(&self, index: usize) -> Option<Layer<'a>> {
-        if index >= self.raw.len { return None; }
         // Acknowledgment may update metadata, but the span stays in place until a frame or patch.
-        let raw = unsafe { self.raw.ptr.add(index).read() };
+        if index >= self.raw.len { return None; }
+        let raw = unsafe { *self.raw.at(index) };
         let instances = if raw.instances.len == 0 { &[] } else {
             unsafe { core::slice::from_raw_parts(raw.instances.ptr, raw.instances.len) }
         };
@@ -579,8 +578,7 @@ impl Ui {
         let mut out = FrameOut::default();
         // the wire record points at the borrowed events for this call only, whatever `input.wire.events` held
         let mut wire = input.wire;
-        wire.events = input.events.as_ptr();
-        wire.event_count = input.events.len();
+        wire.events = pxui_types::ffi::Strided::of(input.events);
         // the records' sizes are the library's own, whatever the caller's `wire` holds
         wire.size = core::mem::size_of::<WireFrame>() as u32;
         wire.environment.size = core::mem::size_of::<Environment>() as u32;
@@ -636,8 +634,8 @@ impl Ui {
     /// assert!(!ui.a11y_nodes().is_empty());
     /// ```
     pub fn a11y_nodes(&self) -> &[A11yNode] {
-        let nodes = self.output().a11y.nodes;
-        if nodes.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(nodes.ptr, nodes.len) } }
+        // shortcut: the library writes the record it was built with (stride = size_of::<A11yNode>()), so the span is a slice; a wider stride from a newer library needs a stepping reader
+        unsafe { self.output().a11y.nodes.as_slice() }.expect("a11y node stride is the record size")
     }
 
     /// Borrows the text and ordering of the last published accessibility tree.
@@ -804,7 +802,7 @@ impl Ui {
 
     #[track_caller] pub fn set_dir(&mut self,rtl:bool) {check(self, unsafe{sys::pxui_ui_set_dir(self.0.as_ptr(),rtl as u32)})}
     #[track_caller] pub fn set_a11y(&mut self,on:bool) {check(self, unsafe{sys::pxui_ui_set_a11y(self.0.as_ptr(),on as u8)})}
-    #[track_caller] pub fn inject_a11y(&mut self,actions:&[A11yAction]) {check(self, unsafe{sys::pxui_ui_inject_a11y(self.0.as_ptr(),actions.as_ptr(),actions.len())})}
+    #[track_caller] pub fn inject_a11y(&mut self,actions:&[A11yAction]) {check(self, unsafe{sys::pxui_ui_inject_a11y(self.0.as_ptr(),pxui_types::ffi::Strided::of(actions))})}
     #[inline] #[track_caller] pub fn patch_text(&mut self,box_:&Handle,value:&str)->bool{let mut out=0;let rc=unsafe{sys::pxui_ui_patch_text(self.0.as_ptr(),box_,as_str(value),&mut out)};live(self,rc)&&out!=0}
     #[inline] #[track_caller] pub fn busy_step(&mut self,box_:&Handle,now:f64)->bool{let mut out=0;let rc=unsafe{sys::pxui_ui_busy_step(self.0.as_ptr(),box_,now,&mut out)};live(self,rc)&&out!=0}
     #[track_caller] pub fn request_frame(&mut self) {check(self, unsafe{sys::pxui_ui_request_frame(self.0.as_ptr())})}

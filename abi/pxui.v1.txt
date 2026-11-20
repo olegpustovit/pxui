@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 138
+minor 139
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -114,7 +114,7 @@ function pxui_ui_icon_button int32_t pxui_ui_icon_button ( PxuiUi * ui , const P
 function pxui_ui_icon_button_plain int32_t pxui_ui_icon_button_plain ( PxuiUi * ui , PxuiStr key , PxuiStr icon , PxuiStr name , PxuiResponse * out ) ;
 function pxui_ui_icon_word int32_t pxui_ui_icon_word ( PxuiUi * ui , uint32_t word ) ;
 function pxui_ui_image int32_t pxui_ui_image ( PxuiUi * ui , PxuiStr key , PxuiStr name , const PxuiImage * image , uint32_t fit , PxuiSizeDesc width , PxuiSizeDesc height , PxuiBox * out ) ;
-function pxui_ui_inject_a11y int32_t pxui_ui_inject_a11y ( PxuiUi * ui , const PxuiA11yAction * actions , size_t count ) ;
+function pxui_ui_inject_a11y int32_t pxui_ui_inject_a11y ( PxuiUi * ui , PxuiA11yActionSpan actions ) ;
 function pxui_ui_input int32_t pxui_ui_input ( PxuiUi * ui , uint8_t has_owner , int64_t owner , PxuiInput * out ) ;
 function pxui_ui_item_text int32_t pxui_ui_item_text ( PxuiUi * ui , PxuiStr text ) ;
 function pxui_ui_key_down int32_t pxui_ui_key_down ( PxuiUi * ui , uint32_t code , uint8_t * out ) ;
@@ -231,9 +231,9 @@ function pxui_ui_view_size int32_t pxui_ui_view_size ( PxuiUi * ui , PxuiPoint *
 function pxui_ui_view_transform_about int32_t pxui_ui_view_transform_about ( PxuiUi * ui , const PxuiBox * box , float scale , const float * transform , float px , float py ) ;
 function pxui_ui_wants_frame int32_t pxui_ui_wants_frame ( PxuiUi * ui , PxuiEventSpan events , double now , uint8_t * out ) ;
 function pxui_within int32_t pxui_within ( PxuiUi * ui , const PxuiBox * box , PxuiBuild build , void * user ) ;
-layout A11yAction 32 8 0 8 12 16 24 28
-layout A11yNode 128 8 0 8 12 16 20 24 28 32 80 96 100 104 112 116 120 124
-layout A11yTree 64 8 0 16 32 40 44 48 56
+layout A11yAction 32 8 0 4 8 16 24 28
+layout A11yNode 136 8 0 4 8 16 20 24 28 32 40 88 104 108 112 120 124 128 132
+layout A11yTree 80 8 0 8 16 24 40 48 52 56 64 72
 layout A11yValue 48 8 0 4 8 12 16 24 32 40
 layout Commands 24 8 0 8 16
 layout Damage 20 4 0 1 4
@@ -241,18 +241,14 @@ layout Edges 16 4 0 4 8 12
 layout Environment 80 8 16 32 48 64 72 4 8
 layout Event 64 8 4 16 24 32 40 48
 layout Flags 8 8
-layout FrameIn 48 8 0 8 16 24 28 32 40
-layout FrameInV1_24 136 8 0 8 16 24 28 32 40 48 52 56
-layout FrameInV1_26 160 8 0 8 16 24 28 32 40 48 52 56 136
-layout FrameInV1_57 168 8 0 8 16 24 28 32 40 48 52 56 136 160
-layout FrameInV1_8 56 8 0 8 16 24 28 32 40 48 52
+layout FrameIn 176 8 0 8 16 24 32 36 40 48 56 60 64 144 168
 layout FrameOut 40 8 0 4 20 21 24 32
 layout Gpu 128 8 0 4 8 16 24 32 40 44 48 56 64 72 80 88 96 104 112 120
 layout Image 40 8 0 8 16 24 28 32
-layout Input 160 8 0 8 16 24 32 40 56 72 88 104 120 136 152
+layout Input 168 8 0 8 16 24 32 40 56 72 88 104 128 144 160
 layout Instance 64 4 0 16 24 28 32 40 48 50 51 52 54 56
 layout Keyboard 24 4 8 4
-layout Output 240 8 0 4 8 16 24 32 40 48 136 160 224
+layout Output 264 8 0 4 8 16 24 32 40 48 136 160 240
 layout Pass 72 8 0 8 16 24 28 32 40 48 52 56 64
 layout PlatformOut 88 8 0 4 8 9 10 11 16 48 56 72 76 77
 layout Point 8 4 0 4
@@ -303,7 +299,7 @@ layout PxuiKeyframeDesc 344 8 0 4 8 12 16 32 184
 layout PxuiLabelBox 16 4 0 4 8 12 13 14
 layout PxuiLabelConfig 144 8 0 4 8 40 56 120 124
 layout PxuiLabelStyle 64 8 0 4 8 10 12 14 16 17 18 19 20 24 28 32 36 40 44 48
-layout PxuiLayerInfo 48 8 0 8 12 16 32
+layout PxuiLayerInfo 56 8 0 4 8 12 16 24 40
 layout PxuiLineFieldConfig 72 8 0 4 12 16 48 64
 layout PxuiListResult 128 8 0 4 8 40 72 80 88 96
 layout PxuiLook 160 8 0 4 12 16 20 24 28 44 92 96 128 132 144 148 152
@@ -356,7 +352,7 @@ layout PxuiSelectionListDesc 224 8 0 4 5 6 7 8 11 12 13 16 24 28 32 36 40 56 216
 layout PxuiShadow 24 4 0 4 12 16 20
 layout PxuiShadowDesc 24 4 0 4 12 16 20 21
 layout PxuiSheetDesc 28 4 0 4 5 6 8 12 16
-layout PxuiSignal 112 8 0 4 8 9 10 11 12 16 24 32 40 48 56 64 72 80 88 96
+layout PxuiSignal 120 8 0 4 8 9 10 11 12 16 24 32 40 48 56 64 72 80 88 96
 layout PxuiSize 16 8
 layout PxuiSizeDesc 16 8 0 4 8
 layout PxuiSliderConfig 72 8 0 4 12 16 48 64
@@ -403,6 +399,7 @@ layout Size 16 8
 layout Slice 16 8 0 8
 layout Span 32 8 0 4 6 8 16 24
 layout Str 16 8 0 8
+layout Strided 24 8 0 8 16
 layout TextGlyph 40 4 0 16 32 36
 layout TextInputOptions 12 4 0 4 8
 layout TextMetrics 16 4 0 4 8 12

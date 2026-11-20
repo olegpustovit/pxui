@@ -183,9 +183,9 @@ impl A11yBridge {
     /// }
     /// ```
     pub fn pump(&mut self, out: &mut dyn FnMut(pxui_types::ffi::A11yAction)) -> bool {
-        let mut actions = pxui_types::ffi::Slice::default();
+        let mut actions = pxui_types::ffi::Strided::default();
         let alive = unsafe { sys::pxui_a11y_pump(self.0.as_ptr(), &mut actions) } == 1;
-        if actions.len != 0 { for action in unsafe { core::slice::from_raw_parts(actions.ptr, actions.len) } { out(*action); } }
+        for i in 0..actions.len { out(unsafe { *actions.at(i) }); }
         alive
     }
 }
