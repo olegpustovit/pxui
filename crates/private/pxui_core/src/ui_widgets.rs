@@ -1026,7 +1026,8 @@ impl Ui {
     /// (`Ui::item`); `item_text` puts the kit's text there and names the row.
     /// Keyed by `key` (hashed under the parent's seed).
     /// With `revision` (the content revision of `nodes` and `open`, as `ListState::revision`) the shown rows stay in `visible` between
-    /// builds while it, the slices and the tree's own expansions hold: a warm frame walks no node, only the rows in view. Without it
+    /// builds while it, the slices and the tree's own expansions hold: a warm frame walks no node; it reads and bounds-checks only the
+    /// keyboard's row and the rows in view, and a kept row past the nodes re-derives the rows (the frame builds again). Without it
     /// they are re-derived every build, a walk over every node. Change it when the app changes `nodes` or `open`.
     #[allow(clippy::too_many_arguments)]
     pub fn tree(&mut self, key: &str, nodes: &[TreeNode], open: &mut [u8], selected: &mut Option<usize>, visible: &mut [u32], revision: Option<u64>, cell: &mut dyn FnMut(&mut Ui, usize)) -> TreeResponse {
@@ -1039,6 +1040,12 @@ impl Ui {
         self.tree_walked
     }
 
+    /// Kept tree rows checked against the nodes since the UI began, each where it was read (a diagnostic: a warm frame checks the
+    /// rows in view and the keyboard's row, not every shown row).
+    pub fn tree_rows_checked(&self) -> u64 {
+        self.tree_checked
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn tree_label(&mut self, label: &str, nodes: &[TreeNode], open: &mut [u8], selected: &mut Option<usize>, visible: &mut [u32], revision: Option<u64>, cell: &mut dyn FnMut(&mut Ui, usize)) -> (Option<usize>, usize) {
         assert!(visible.len() >= nodes.len(), "tree: `visible` holds at least a row per node");
@@ -1048,9 +1055,15 @@ impl Ui {
         let inputs = revision.map(|r| (r, [nodes.as_ptr() as usize, nodes.len(), open.as_ptr() as usize, open.len(), visible.as_ptr() as usize, visible.len()]));
         let same = |t: &TreeRows| (t.frame.box_slot, t.frame.generation, t.frame.box_key) == (frame.box_slot, frame.generation, frame.box_key);
         // a kept row is trusted only in bounds: a caller that broke its revision promise (wrote `visible`, or changed `nodes` under the
-        // same revision) gets its rows re-derived, never an index past the nodes (review finding 14: a trust boundary, no panic)
-        let in_bounds = |t: &TreeRows| t.cursor <= t.shown && t.shown <= visible.len() && (t.shown == 0 || visible[..t.shown].iter().fold(0u32, |m, v| m.max(*v)) < nodes.len().min(u32::MAX as usize) as u32);
-        let hit = self.tree_rows.iter().find(|t| same(t)).copied().filter(|t| Some(t.inputs) == inputs && in_bounds(t));
+        // same revision) gets its rows re-derived, never an index past the nodes (review finding 14: a trust boundary, no panic). Each
+        // row is checked where it is read (`nodes.get`), so a warm frame checks the rows in view, not every shown row (re-review R3)
+        let in_bounds = |t: &TreeRows| t.cursor <= t.shown && t.shown <= visible.len();
+        let mut hit = self.tree_rows.iter().find(|t| same(t)).copied().filter(|t| Some(t.inputs) == inputs && in_bounds(t));
+        // the keyboard's row is read before the rows are built: a bad one re-derives them now
+        if let Some(t) = hit {
+            self.tree_checked += 1;
+            if visible[..t.shown].get(t.cursor).is_some_and(|v| *v as usize >= nodes.len()) { hit = None; }
+        }
         let mut walked = 0u64;
         let mut flatten = |visible: &mut [u32], open: &[u8]| { walked += nodes.len() as u64; flatten_tree(nodes, open, visible) };
         let mut rows_shown = match hit { Some(t) => t.shown, None => flatten(visible, open) };
@@ -1064,7 +1077,7 @@ impl Ui {
         };
         let (mut c, enter, space) = self.list_keys(&s.keys, cursor, rows_shown, page);
         let mut activated = None;
-        if let Some(&node) = visible[..rows_shown].get(c) {
+        if let Some(&node) = visible[..rows_shown].get(c).filter(|v| (**v as usize) < nodes.len()) {
             let node = node as usize;
             let is_open = open.get(node).copied().unwrap_or(0) != 0;
             let mut toggle = space && nodes[node].children != 0;
@@ -1073,7 +1086,7 @@ impl Ui {
                 1 if nodes[node].children != 0 && !is_open => { toggle = true; true }
                 1 if nodes[node].children != 0 => { c = clamp_step(c, 1, rows_shown); true }
                 -1 if nodes[node].children != 0 && is_open => { toggle = true; true }
-                -1 => { c = visible[..c].iter().rposition(|v| nodes[*v as usize].depth < nodes[node].depth).unwrap_or(c); true }
+                -1 => { c = visible[..c].iter().rposition(|v| nodes.get(*v as usize).is_some_and(|n| n.depth < nodes[node].depth)).unwrap_or(c); true }
                 _ => false,
             });
             if toggle {
@@ -1094,10 +1107,14 @@ impl Ui {
         let row_body = body_of!(self, tree);
         let saved = self.enter(&frame);
         let mut toggled = None;
+        let (mut bad, mut checked) = (false, 0u64);
         let rows: &[u32] = &visible[..rows_shown];
         let body = self.list("rows", rows_shown, rh, &mut |ui, i| {
             let node = rows[i] as usize;
-            let (has, is_open) = (nodes[node].children != 0, open.get(node).copied().unwrap_or(0) != 0);
+            checked += u64::from(hit.is_some());
+            // a kept row past the nodes (a broken promise): the rows are re-derived and the frame built again
+            let Some(tree_node) = nodes.get(node) else { bad = true; return };
+            let (has, is_open) = (tree_node.children != 0, open.get(node).copied().unwrap_or(0) != 0);
             let on = *selected == Some(node);
             let a11y = st::SELECTABLE | if on { st::SELECTED } else { 0 } | if has { st::EXPANDABLE | if is_open { st::EXPANDED } else { 0 } } else { 0 };
             let inset = ui.space(2) + 14.0 * nodes[node].depth as f32;
@@ -1120,6 +1137,12 @@ impl Ui {
             }
         });
         self.leave(saved);
+        self.tree_checked += checked;
+        if bad {
+            rows_shown = flatten(visible, open);
+            c = c.min(rows_shown.saturating_sub(1));
+            self.build_again(&frame);
+        }
         if let Some(o) = toggled.and_then(|node| open.get_mut(node)) {
             *o = (*o == 0) as u8;
         }

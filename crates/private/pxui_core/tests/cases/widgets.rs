@@ -613,7 +613,7 @@ fn widgets_tree_kept_rows() {
         check(kept.shown == fresh.shown && tree_facts(a, kept) == tree_facts(b, fresh), &format!("{what}: the kept rows match a rebuild"));
     };
     same(&a, &kept, &b, &fresh, "warm");
-    let (wa, wb) = (a.tree_nodes_walked(), b.tree_nodes_walked());
+    let (wa, wb, ca) = (a.tree_nodes_walked(), b.tree_nodes_walked(), a.tree_rows_checked());
     mem_sys::local_reset();
     let before = mem_sys::local_alloc_count();
     for t in 0..10 {
@@ -624,6 +624,9 @@ fn widgets_tree_kept_rows() {
         b.frame(&at(0.3 + t as f64 * 0.01, vec![]), &mut |ui| all(ui, &mut fresh));
     }
     check(a.tree_nodes_walked() == wa, &format!("a warm frame of the kept tree walked {} nodes", a.tree_nodes_walked() - wa));
+    // re-review R3: kept rows are bounds-checked where they are read (the keyboard's row and the rows in view), not all shown rows
+    let checked = a.tree_rows_checked() - ca;
+    check(checked > 0 && checked <= 10 * 64 && kept.shown >= 1000, &format!("10 warm frames checked {checked} kept rows of {} shown", kept.shown));
     check(b.tree_nodes_walked() - wb == 10 * BIG as u64, "the re-deriving tree walks every node every frame");
     check(allocs == 0, &format!("the kept tree: {allocs} allocations in 10 warm frames"));
     // the chevron of node 0, then a click on its child (selects and focuses), then the keys

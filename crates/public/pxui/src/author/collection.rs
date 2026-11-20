@@ -204,7 +204,8 @@ pub struct TreeState {
     /// rows that no longer name a node are re-derived, never read past the nodes).
     pub visible: Vec<u32>,
     /// The content revision of the nodes and `open`, as `ListState::revision`: with `Some`, the shown rows stay in `visible` between
-    /// frames while it and the tree's own expansions hold, so a frame walks only the rows in view; change it whenever the app
+    /// frames while it and the tree's own expansions hold, so a frame reads and bounds-checks only the keyboard's row and the rows in
+    /// view (a kept row past the nodes re-derives the rows); change it whenever the app
     /// changes the nodes or `open`. With `None` the rows are re-derived every frame, a walk over every node.
     pub revision: Option<u64>,
 }

@@ -151,12 +151,14 @@ mod tests {
             assert_eq!(visible[0], 42, "a refused tree writes nothing");
         }
         // kept rows, then the promise broken: rows past the nodes written under the same revision
-        for frame in 0..4 {
+        // frame 2 breaks the keyboard's row (read before the rows are built), frame 4 only a row in view (read while building them)
+        for frame in 0..6 {
             if frame == 2 { visible[..11].fill(1_000_000); }
+            if frame == 4 { visible[5] = 1_000_000; }
             let rc = in_frame(ui, &mut |ui| call(ui, 1, [0; 3], &mut open, &mut visible, &mut selected, &mut shown));
             assert_eq!(rc, 0, "frame {frame}: {}", error(ui));
             assert_eq!(shown, 11, "frame {frame}");
-            assert_eq!(visible[..3], [0, 1, 2], "frame {frame}: the rows re-derived");
+            assert_eq!((&visible[..3], visible[5]), (&[0, 1, 2][..], 8), "frame {frame}: the rows re-derived");
         }
         assert!(!unsafe { (*(*ui).shared).poisoned });
         unsafe { pxui_ui_destroy(ui); }

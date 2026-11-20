@@ -1339,6 +1339,8 @@ pub struct Ui {
     pub(crate) tree_rows: Vec<crate::ui_widgets::TreeRows>,
     /// nodes the trees' row derivation walked (`Ui::tree_nodes_walked`)
     pub(crate) tree_walked: u64,
+    /// kept tree rows checked against the nodes where they were read (`Ui::tree_rows_checked`)
+    pub(crate) tree_checked: u64,
     /// last, and `repr(C)` to keep it so: the 57 KB theme inline anywhere earlier puts every hot field past one aarch64
     /// load's reach (32 KB scaled, 4 KB for bytes), an address instruction per access (measured: see git log)
     theme: Theme,
@@ -1585,6 +1587,7 @@ impl Ui {
             destroyed: false,
             tree_rows: Vec::new(),
             tree_walked: 0,
+            tree_checked: 0,
         }
     }
 
