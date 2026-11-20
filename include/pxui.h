@@ -18,7 +18,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 122u)
+#define PXUI_ABI_BUILT ((1u << 16) | 123u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 typedef struct { uint32_t autocorrect, capitalization, action; } PxuiTextInputOptions;
@@ -700,6 +700,9 @@ typedef struct { uint32_t size; PxuiStateDesc state; uint8_t open; int64_t key; 
 typedef struct { uint32_t size; PxuiStateDesc state; size_t index; PxuiBox node; PxuiStr text; uint16_t variant; } PxuiMenuItemConfig;
 typedef struct { uint32_t size; PxuiStateDesc state; uint8_t selected; uint8_t chevron; uint8_t danger; uint8_t has_swatch; PxuiColor swatch; uint8_t has_shortcut; int64_t index; float lead; float swatch_pad; PxuiBox row; PxuiStr text; PxuiStr shortcut; float row_h; uint16_t variant; } PxuiMenuRowConfig;
 typedef struct { uint32_t size; PxuiStateDesc state; size_t index; PxuiBox row; PxuiSlot content; uint8_t drop /* 1.88 */; uint16_t variant; } PxuiRowConfig;
+/* 1.123: PxuiRowConfig.drop, a carried payload: none, would land before the row, after it (a reorderable list's insertion line), or over
+   a row of a list with a drop look (applied by behaviour). */
+enum { PXUI_ROW_DROP_NONE = 0, PXUI_ROW_DROP_BEFORE = 1, PXUI_ROW_DROP_AFTER = 2, PXUI_ROW_DROP_OVER = 3 };
 typedef struct { uint32_t size; PxuiStateDesc state; uint8_t has; uint8_t open; size_t index; size_t node; size_t depth; PxuiBox row; PxuiSlot content; uint16_t variant; } PxuiTreeRowConfig;
 typedef struct { uint32_t size; PxuiStateDesc state; uint8_t has_ascending; uint8_t ascending; size_t index; PxuiBox node; PxuiStr title; uint16_t variant; } PxuiTableHeadConfig;
 typedef struct { uint32_t size; PxuiStateDesc state; uint8_t current; uint8_t doomed; uint8_t unavailable; uint8_t marked; uint8_t has_swatch; PxuiColor swatch; int64_t index; PxuiBox row; PxuiStr label; PxuiStr detail; PxuiStr query; uint16_t variant;

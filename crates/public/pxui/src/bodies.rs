@@ -433,6 +433,58 @@ impl PickerConfig {
     }
 }
 
+impl TableHeadConfig {
+    /// The heading's sort direction: `Some(true)` ascending, `Some(false)` descending, `None` when the table is not sorted by this
+    /// column (the record's `has_ascending`/`ascending`).
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::bodies::TableHeadConfig;
+    /// fn head(_ui: &mut pxui::Ui, config: &TableHeadConfig) { let _mark = match config.ascending() { Some(true) => "▲", Some(false) => "▼", None => "" }; }
+    /// ```
+    pub fn ascending(&self) -> Option<bool> { (self.has_ascending != 0).then_some(self.ascending != 0) }
+}
+
+impl SegmentedConfig {
+    /// The chosen option's index (`has_selected`/`selected`), after this frame's press or key; `None` when no option is chosen.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::bodies::SegmentedConfig;
+    /// fn segment(_ui: &mut pxui::Ui, config: &SegmentedConfig) { let _chosen = config.selected() == Some(config.index); }
+    /// ```
+    pub fn selected(&self) -> Option<usize> { (self.has_selected != 0).then_some(self.selected) }
+
+    /// The choice the caller passed this frame (`has_stored`/`stored`), before a press or key moved `selected`, as a toggle's stored
+    /// value; `None` when the caller passed none.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::bodies::SegmentedConfig;
+    /// fn segment(_ui: &mut pxui::Ui, config: &SegmentedConfig) { let _shown = config.stored().or(config.selected()) == Some(config.index); }
+    /// ```
+    pub fn stored(&self) -> Option<usize> { (self.has_stored != 0).then_some(self.stored) }
+}
+
+impl ProgressConfig {
+    /// The progress fraction the caller gave (`has_value`/`value`; the body clamps it to 0..=1); `None` for an indeterminate track.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::bodies::ProgressConfig;
+    /// fn progress(_ui: &mut pxui::Ui, config: &ProgressConfig) { let _fraction = config.value().map_or(0.0, |v| v.clamp(0.0, 1.0)); }
+    /// ```
+    pub fn value(&self) -> Option<f32> { (self.has_value != 0).then_some(self.value) }
+}
+
 /// The `Icon` a config's glyph text or drawing pointers spell. Only a drawing whose callback is this wrapper's own `Icon::Draw`
 /// trampoline (`paint::icon_draw`) carries a Rust `fn` as its user pointer; any other callback (a C caller's) has an opaque user
 /// pointer that must never become callable, so it reads as no icon.

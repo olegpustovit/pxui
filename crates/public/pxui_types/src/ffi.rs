@@ -1612,7 +1612,8 @@ impl PxuiListResult {
 }
 
 /// A selection list for `pxui_ui_selection_list` (ABI 1.87): the section geometry, the row flags (one byte a row: 1 selected,
-/// written by the list; 2 disabled and 4 live, written by the caller) and the anchor (`usize::MAX`: none); with `has_revision` 1 the
+/// written by the list; 2 disabled, 4 live and 8 no drop (ABI 1.120: with `has_drop_look` the row is no drop zone and keeps its
+/// look), written by the caller) and the anchor (`usize::MAX`: none); with `has_revision` 1 the
 /// rows are kept while `revision`, their keys and their state hold (ABI 1.106). The caller sets `size`; a shorter record, a flag
 /// above 1, non-zero `reserved` or a flag span shorter than `count` are refused.
 #[repr(C)]
