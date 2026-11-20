@@ -1234,6 +1234,24 @@ mod tests {
         assert_eq!(INKS.with(Cell::get), [Some(crate::theme::ColorToken::ACCENT); 2]);
     }
 
+    /// A press on the tab in use clicks the bar (U2b.4.31, as a segmented strip): `chosen` is unchanged and `changed` false, so an
+    /// app can tell a re-tap (pop to the root) from no press.
+    #[test]
+    fn a_press_on_the_tab_in_use_clicks_the_bar() {
+        const BAR: crate::Tabs = crate::Tabs::DEFAULT.name("Bar");
+        let items = [crate::Segment::new("a"), crate::Segment::new("b")];
+        let last = Cell::new((false, false, None));
+        let mut build = |ui: &mut Ui| {
+            let r = ui.tabs("t", &items, Some(0), &BAR);
+            last.set((r.response.clicked, r.response.changed, r.chosen));
+        };
+        let mut ui = crate::doc::frames(2, &mut build);
+        assert_eq!(last.get(), (false, false, Some(0)), "no press");
+        let a = crate::testing::find(&ui, crate::Role::Tab, "a").expect("the tab in use");
+        crate::testing::click(&mut ui, f64::from(a.x + 4.0), f64::from(a.y + 4.0), &mut build);
+        assert_eq!(last.get(), (true, false, Some(0)), "a re-tap clicks without a change");
+    }
+
     fn tall_bar(ui: &mut Ui, c: &crate::bodies::TabsConfig) {
         ui.set_node_layout(&c.bar, &crate::Node::row().w(Size::Grow).h_px(44.0).gap(20.0));
         ui.text(&c.node, c.text_of(&c.text));

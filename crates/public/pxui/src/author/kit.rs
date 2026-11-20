@@ -269,7 +269,8 @@ impl Ui {
     ///
     /// One Tab stop, the bar; Left and Right (Home, End) switch the tab in use (from none, Right takes the first and Left the last), a
     /// press on a tab chooses it. `selected` is the tab in use (`None`: none is, as a bottom bar while another screen shows; past the
-    /// tabs: the last); `response.changed` says `chosen` differs from it, `chosen_id` is the chosen item's `Segment::id`, and
+    /// tabs: the last); `response.changed` says `chosen` differs from it, `response.clicked` (and `activated`) that a press or key chose a
+    /// tab, the one in use included (a re-tap), `chosen_id` is the chosen item's `Segment::id`, and
     /// `secondary` is the tab a secondary press began on (never a choice). Each tab is named by its `Segment::name`, else its text; its
     /// `Segment::detail` (a count) is drawn after the text by the built-in body. The bar is named by `Tabs::name`; with
     /// `Tabs::focus_on_click` a press focuses the bar on the press itself, and the bar keeps the focus when the caller does not apply the

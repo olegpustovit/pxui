@@ -614,7 +614,7 @@ impl Ui {
 
     /// A row of tabs, the one in use underlined: `count` tabs, tab `i` being `tab(i)` (the C ABI's texts without a copy). One Tab stop
     /// (the bar); Left and Right (Home, End) switch (from no tab in use, Right takes the first and Left the last), a press on a tab
-    /// chooses it. A tab is keyed as `item_key` keys a segment: by its id, else by its place in a separate namespace, never by its
+    /// chooses it; the bar's response clicks (`clicked`, `activated`) for a press or key that chooses any tab, the one in use included. A tab is keyed as `item_key` keys a segment: by its id, else by its place in a separate namespace, never by its
     /// text. `selected` is the tab in use (`None`: none is; past the tabs: the last); the bar is named `name`, `variant` is given to the
     /// tabs' bodies and each tab's detail is drawn beside its text by the built-in body. With `focus_on_click` a press (not a secondary
     /// one) on a tab focuses the bar on the press itself, whether or not the caller applies the choice. Reports the bar's response, the
@@ -629,6 +629,8 @@ impl Ui {
         self.a11y_name(&bar, name);
         let s = self.signal_owned(&bar);
         let mut sel = selected.filter(|_| count > 0).map(|i| i.min(count - 1));
+        // a press or key that chooses a tab, the one in use included (a re-tap: an app pops that tab's stack to its root)
+        let mut chose = false;
         pressed(self, &s.keys, &mut |k| {
             if count == 0 { return false; }
             match k {
@@ -640,6 +642,7 @@ impl Ui {
                     sel = Some(sel.map_or(if by > 0 { 0 } else { count - 1 }, |i| wrap(i, by, count)));
                 }
             }
+            chose = true;
             true
         });
         let saved = self.enter(&bar);
@@ -650,6 +653,7 @@ impl Ui {
             let ts = self.signal_owned(&n);
             if ts.clicked {
                 sel = Some(i);
+                chose = true;
             }
             let right = ts.button == Some(input::MouseButton::RightButton);
             focus |= ts.pressed && !right;
@@ -677,6 +681,7 @@ impl Ui {
         if variant != 0 { self.set_variant(BodyKind::tabs as u32, 0); }
         let mut response = Response::of(&s, self.focused(&bar), bar);
         response.secondary |= secondary.is_some();
+        (response.clicked, response.activated) = (response.clicked | chose, response.activated | chose);
         (response, sel, secondary)
     }
 
