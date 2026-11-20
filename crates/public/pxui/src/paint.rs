@@ -257,7 +257,7 @@ impl<'a> Paint<'a> {
     /// assert!(width.get() > 0.0);
     /// ```
     pub fn text_spans(&mut self,at:crate::Point,style:Label,width:f32,text:&str,spans:&[pxui_types::TextSpan])->Result<TextMetrics,crate::Error> {
-        let spans=pxui_types::TextSpans::new(spans).ok_or(crate::Error::InvalidInput)?;
+        let spans=pxui_types::TextSpans::new(spans);
         let mut out=TextMetrics::default();
         let rc=unsafe { lib::pxui_paint_label_spans(self.raw(),at.x,at.y,&PxuiLabelStyle::from(&style),width,crate::as_str(text),&spans,&mut out) };
         if rc==0 { Ok(out) } else { Err(crate::Error::from_code(rc)) }

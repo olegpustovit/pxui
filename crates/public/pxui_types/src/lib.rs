@@ -952,7 +952,7 @@ pub mod feature {
 }
 
 /// The ABI version this crate's records describe (`major << 16 | minor`); an app states it as `PxuiUiDesc::abi_built`.
-pub const ABI_BUILT: u32 = 1 << 16 | 140;
+pub const ABI_BUILT: u32 = 1 << 16 | 141;
 impl Default for PxuiUiDesc { fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, platform: 0, font_size: 0, abi_built: ABI_BUILT } } }
 
 #[cfg(test)]
@@ -991,7 +991,7 @@ mod abi_layout {
         assert_layout("TextSpan",size_of::<TextSpan>(),align_of::<TextSpan>(),&[
             ("start", core::mem::offset_of!(TextSpan, start)),("end", core::mem::offset_of!(TextSpan, end)),("weight", core::mem::offset_of!(TextSpan, weight)),("flags", core::mem::offset_of!(TextSpan, flags)),("color", core::mem::offset_of!(TextSpan, color)),("background", core::mem::offset_of!(TextSpan, background)),("underline", core::mem::offset_of!(TextSpan, underline)),
         ]);
-        assert_layout("TextSpans",size_of::<TextSpans>(),align_of::<TextSpans>(),&[("size", core::mem::offset_of!(TextSpans, size)),("count", core::mem::offset_of!(TextSpans, count)),("spans", core::mem::offset_of!(TextSpans, spans))]);
+        assert_layout("TextSpans",size_of::<TextSpans>(),align_of::<TextSpans>(),&[("size", core::mem::offset_of!(TextSpans, size)),("reserved", core::mem::offset_of!(TextSpans, reserved)),("spans", core::mem::offset_of!(TextSpans, spans)),("spans.len", core::mem::offset_of!(TextSpans, spans.len)),("spans.stride", core::mem::offset_of!(TextSpans, spans.stride))]);
         assert_layout("TextMetrics", size_of::<TextMetrics>(), align_of::<TextMetrics>(), &[
             ("size", core::mem::offset_of!(TextMetrics, size)),
             ("width", core::mem::offset_of!(TextMetrics, width)), ("height", core::mem::offset_of!(TextMetrics, height)), ("baseline", core::mem::offset_of!(TextMetrics, baseline)), ("lines", core::mem::offset_of!(TextMetrics, lines)),

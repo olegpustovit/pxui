@@ -51,6 +51,9 @@ fn c_size(row: &str, c: &str) -> String {
 fn c_field<'a>(row: &str, field: &'a str) -> &'a str {
     match (row, field) {
         ("PxuiFooterDesc" | "PxuiTreeViewDesc", "hints" | "nodes") => "ptr",
+        ("TextSpans", "spans") => "ptr",
+        ("TextSpans", "spans.len") => "len",
+        ("TextSpans", "spans.stride") => "stride",
         ("PxuiThemeSnapshot", "panel") => "parts",
         ("PxuiThemeSnapshot", "body") => "bodies",
         _ => field,

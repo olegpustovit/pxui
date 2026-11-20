@@ -522,7 +522,11 @@ fn inline_spans_validate_ranges_and_keep_colors_rules_and_warm_replay() {
     assert!(text.layout_spans(1,"é",&style,0.0,&[TextSpan { start:1,end:2,..span }]).is_none());
     let eight:[TextSpan;8]=std::array::from_fn(|i|TextSpan { start:i as u32,end:i as u32+1,..span });
     assert!(text.layout_spans(2,"12345678",&style,0.0,&eight).is_some());
-    assert!(TextSpans::new(&[span;9]).is_none());
+    // up to `TextSpans::MAX` (256) spans, one per byte; one more is refused
+    let long="x".repeat(TextSpans::MAX+1);
+    let many:Vec<TextSpan>=(0..TextSpans::MAX+1).map(|i|TextSpan { start:i as u32,end:i as u32+1,..span }).collect();
+    assert!(text.layout_spans(3,&long,&style,0.0,&many[..TextSpans::MAX]).is_some());
+    assert!(text.layout_spans(4,&long,&style,0.0,&many).is_none());
 }
 
 #[test]

@@ -715,6 +715,42 @@ fn shrinking_virtual_sections_select_the_clamped_rows_in_one_build_without_warm_
     }
 }
 
+/// Rows carrying text spans (1 to 4 spans a row, so a row's span count differs from the row it replaces) scroll into view from far away, row
+/// after row, and a warm frame allocates nothing: the spans of every styled node live in one arena of the `Ui` (compacted when it is full and
+/// mostly dead) and in the retained layouts, never in a vector of their own.
+#[test]
+fn fresh_rows_carrying_text_spans_scroll_into_view_without_warm_allocations() {
+    use std::cell::Cell;
+    use crate::{ui::{SectionList, SectionPart}, Label, TextSpan};
+    mem_sys::set_peer(crate::library_counter);
+    const TEXTS: [&str; 4] = ["abcdefghijklmnopqrstuvwx", "the quick brown fox jumps", "0123456789 0123456789 01", "lorem ipsum dolor sit am"];
+    let bold = TextSpan { weight: 700, ..TextSpan::default() };
+    let spans: [TextSpan; 4] = std::array::from_fn(|i| TextSpan { start: 3 * i as u32, end: 3 * i as u32 + 2, ..bold });
+    let (body, styled) = (Cell::new(None), Cell::new(0usize));
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+    let mut build = |ui: &mut Ui| {
+        styled.set(0);
+        body.set(Some(ui.section_list("spans", &SectionList::new(20_000).row_h(20.0).overlay_scrollbar(), &|i| i as i64, &mut |ui, part, _| {
+            if let SectionPart::Row(index) = part {
+                let node = ui.node(index as i64, crate::Node::DEFAULT.h_px(20.0));
+                ui.text_spans(&node, TEXTS[index % 4], Label::BODY, &spans[..1 + index % 4]).unwrap();
+                styled.set(styled.get() + 1);
+            }
+        }).handle));
+    };
+    ui.frame(&input(), &mut build).unwrap();
+    for cycle in 0..40 {
+        mem_sys::local_reset();
+        for jump in 0..20 {
+            // 19 rows past the last window (a prime step): every jump brings fresh rows, with other span counts than the rows they replace
+            ui.set_scroll_offset(&body.get().unwrap(), 20.0 * ((cycle * 20 + jump) * 19 % 19_000) as f32);
+            ui.frame(&input(), &mut build).unwrap();
+            assert!(styled.get() >= 10, "the window shows rows with spans");
+        }
+        if cycle >= 30 { assert_eq!(mem_sys::local_alloc_count(), 0, "warm fresh rows with text spans, cycle {cycle}"); }
+    }
+}
+
 #[test]
 fn section_list_scrolls_leading_content_pins_blocks_and_virtualizes_without_warm_allocations() {
     use std::cell::Cell;

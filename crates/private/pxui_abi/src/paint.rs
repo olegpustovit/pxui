@@ -162,7 +162,7 @@ export!(pub unsafe fn pxui_paint_label_measure(p:*mut PxuiPaint,text:Str,style:*
     if !max_width.is_finite() || !crate::text::metrics_out(out) { return PXUI_ERR_ARGUMENT; }
     let (Some(p),Some((label,_)),Some(text))=(unsafe { value(p) },crate::ui::label_style(style),unsafe { string(text) }) else { return PXUI_ERR_ARGUMENT };
     let spans=if spans.is_null() { None } else { let Some(packet)=(unsafe { crate::text::span_packet(spans) }) else { return PXUI_ERR_ARGUMENT }; Some(packet) };
-    let Some(m)=p.label_metrics(&label,max_width,text,spans.as_ref().map_or(&[][..],|s| s.as_slice())) else { return PXUI_ERR_ARGUMENT };
+    let Some(m)=p.label_metrics(&label,max_width,text,spans.unwrap_or(&[])) else { return PXUI_ERR_ARGUMENT };
     unsafe { out.write(metrics(m)); }
     0
 });
@@ -171,7 +171,7 @@ export!(pub unsafe fn pxui_paint_label_measure(p:*mut PxuiPaint,text:Str,style:*
 export!(pub unsafe fn pxui_paint_label_spans(p:*mut PxuiPaint,x:f32,y:f32,style:*const pxui_types::ffi::PxuiLabelStyle,width:f32,text:Str,spans:*const pxui_types::TextSpans,out:*mut TextMetrics)->i32 {
     if !finite(&[x,y,width]) || !crate::text::metrics_out(out) { return PXUI_ERR_ARGUMENT; }
     let (Some(p),Some((label,_)),Some(text),Some(spans))=(unsafe { value(p) },crate::ui::label_style(style),unsafe { string(text) },unsafe { crate::text::span_packet(spans) }) else { return PXUI_ERR_ARGUMENT };
-    let Some(m)=p.label_spans((x,y),&label,width,text,spans.as_slice()) else { return PXUI_ERR_ARGUMENT };
+    let Some(m)=p.label_spans((x,y),&label,width,text,spans) else { return PXUI_ERR_ARGUMENT };
     unsafe { out.write(metrics(m)); }
     0
 });

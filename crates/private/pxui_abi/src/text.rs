@@ -6,7 +6,6 @@
 //! and repeated enabling is idempotent.
 //!
 use pxui_text::{Align, AtlasKind, Ellipsis, Style, Text, Wrap};
-use pxui_core::ui::UiBox;
 use crate::state::{PxuiUi, engine};
 use crate::PXUI_ERR_ARGUMENT;
 use pxui_types::{ffi::PxuiTextStyle as TextStyle, text as T, Str, TextGlyph, TextMetrics, TextSpans};
@@ -53,57 +52,22 @@ pub(crate) unsafe fn read_style(value:*const TextStyle)->Option<Style> {
     style(read_desc!(value,TextStyle)?)
 }
 
-pub(crate) enum SpanPacket {
-    Empty,
-    Ranges(TextSpans),
-}
-
-impl SpanPacket {
-    pub(crate) fn as_slice(&self) -> &[pxui_types::TextSpan] {
-        match self {
-            Self::Empty => &[],
-            Self::Ranges(packet) => &packet.spans[..packet.count as usize],
-        }
-    }
-}
-
-pub(crate) unsafe fn span_packet(value:*const TextSpans)->Option<SpanPacket> {
-    let count = unsafe { span_count(value) }?;
-    if count == 0 { return Some(SpanPacket::Empty); }
-    unsafe { read_spans(value, count) }.map(SpanPacket::Ranges)
-}
-
-unsafe fn span_count(value: *const TextSpans) -> Option<usize> {
+/// The spans a call borrows from the caller's record, read where they lie (no copy): the record's `size` covers `TextSpans`, at most
+/// `TextSpans::MAX` of them, a dense stride (the span size), an aligned pointer when there are any, every flag in range; none for a null
+/// record or any of those failing. The slice lives as long as the caller keeps the record, which is the call.
+pub(crate) unsafe fn span_packet<'a>(value:*const TextSpans) -> Option<&'a [pxui_types::TextSpan]> {
     if value.is_null() { return None; }
-    let size=unsafe { value.cast::<u32>().read_unaligned() };
-    if size<(core::mem::size_of::<TextSpans>() as u32) { return None; }
-    let count=unsafe { core::ptr::addr_of!((*value).count).read_unaligned() };
-    (count <= TextSpans::MAX as u32).then_some(count as usize)
-}
-
-/// Copies only the active fields after `span_count` validated the header.
-unsafe fn read_spans(value: *const TextSpans, count: usize) -> Option<TextSpans> {
-    let mut packet=TextSpans { count: count as u32,..Default::default() };
-    for i in 0..count {
-        let raw=unsafe { core::ptr::addr_of!((*value).spans).cast::<pxui_types::TextSpan>().add(i) };
-        let flags=unsafe { core::ptr::addr_of!((*raw).flags).read_unaligned() };
-        if flags & !(pxui_types::TextSpan::COLOR|pxui_types::TextSpan::BACKGROUND|pxui_types::TextSpan::UNDERLINE)!=0 { return None; }
-        let span=&mut packet.spans[i];
-        span.flags=flags;
-        span.start=unsafe { core::ptr::addr_of!((*raw).start).read_unaligned() };
-        span.end=unsafe { core::ptr::addr_of!((*raw).end).read_unaligned() };
-        span.weight=unsafe { core::ptr::addr_of!((*raw).weight).read_unaligned() };
-        if flags & pxui_types::TextSpan::COLOR!=0 { span.color=unsafe { core::ptr::addr_of!((*raw).color).read_unaligned() }; }
-        if flags & pxui_types::TextSpan::BACKGROUND!=0 { span.background=unsafe { core::ptr::addr_of!((*raw).background).read_unaligned() }; }
-        if flags & pxui_types::TextSpan::UNDERLINE!=0 { span.underline=unsafe { core::ptr::addr_of!((*raw).underline).read_unaligned() }; }
-    }
-    Some(packet)
+    let record = read_desc!(value, TextSpans)?;
+    let spans = record.spans;
+    if spans.len > TextSpans::MAX || !spans.is_valid() || spans.stride != core::mem::size_of::<pxui_types::TextSpan>() { return None; }
+    let spans = unsafe { spans.as_slice() }?;
+    let known = pxui_types::TextSpan::COLOR | pxui_types::TextSpan::BACKGROUND | pxui_types::TextSpan::UNDERLINE;
+    spans.iter().all(|span| span.flags & !known == 0).then_some(spans)
 }
 
 unsafe fn measure_spans(text:&mut Text,key:u64,value:Str,style_:*const TextStyle,max_width:f32,spans:*const TextSpans,out:*mut TextMetrics)->i32 {
     if style_.is_null() || !metrics_out(out) || !max_width.is_finite() { return PXUI_ERR_ARGUMENT; }
     let (Some(value),Some(style),Some(spans))=(unsafe { utf8(value) },unsafe { read_style(style_) },unsafe { span_packet(spans) }) else { return PXUI_ERR_ARGUMENT };
-    let spans=spans.as_slice();
     let key=if key==0 {pxui_text::content_key(&style,max_width,value,spans)} else {key};
     let Some(value)=text.layout_spans(key,value,&style,max_width,spans) else { return PXUI_ERR_ARGUMENT };
     unsafe { out.write(metrics(value)); }
@@ -124,7 +88,7 @@ pub(crate) unsafe fn ui_text_spans(ui:*mut PxuiUi,box_:*const crate::PxuiBox,val
     let Some(state)=(unsafe { crate::state::get(ui) }) else { return PXUI_ERR_ARGUMENT };
     if !state.shared().in_frame || box_.is_null() || style_.is_null() { return unsafe { crate::fail(ui,"text spans need a frame, a node and a style") }; }
     let (Some(value),Some(style),Some(spans),Some(box_))=(unsafe { crate::state::checked(value) },unsafe { read_style(style_) },unsafe { span_packet(spans) },unsafe { crate::state::core_box_of(ui, *box_) }) else { return unsafe { crate::fail(ui,"invalid text spans") } };
-    if !unsafe { &mut *state.engine }.text_spans(&box_,value,&style,spans.as_slice()) { return unsafe { crate::fail(ui,"invalid text span ranges or node") }; }
+    if !unsafe { &mut *state.engine }.text_spans(&box_,value,&style,spans) { return unsafe { crate::fail(ui,"invalid text span ranges or node") }; }
     0
 }
 
@@ -135,24 +99,9 @@ pub(crate) unsafe fn ui_text_line_box(ui:*mut PxuiUi,box_:*const crate::PxuiBox,
 }
 
 unsafe fn write_line_box(ui:*mut PxuiUi,state:&mut PxuiUi,box_:*const crate::PxuiBox,value:Str,style:Option<Style>,spans:*const TextSpans)->i32 {
-    let (Some(value),Some(style),Some(count),Some(box_))=(unsafe { crate::state::checked(value) },style,unsafe { span_count(spans) },unsafe { crate::state::core_box_of(ui, *box_) }) else { return unsafe { crate::fail(ui,"invalid line-box text") } };
-    let written = if count == 0 {
-        unsafe { &mut *state.engine }.text_line_box(&box_, value, &style, &[])
-    } else {
-        let Some(written) = (unsafe { write_spanned_line_box(state, &box_, value, &style, spans, count) }) else {
-            return unsafe { crate::fail(ui, "invalid line-box text") };
-        };
-        written
-    };
-    if !written { return unsafe { crate::fail(ui,"invalid line-box font, height, spans or node") }; }
+    let (Some(value),Some(style),Some(spans),Some(box_))=(unsafe { crate::state::checked(value) },style,unsafe { span_packet(spans) },unsafe { crate::state::core_box_of(ui, *box_) }) else { return unsafe { crate::fail(ui,"invalid line-box text") } };
+    if !unsafe { &mut *state.engine }.text_line_box(&box_, value, &style, spans) { return unsafe { crate::fail(ui,"invalid line-box font, height, spans or node") }; }
     0
-}
-
-/// Keep the span array in the call frame that reads it.
-#[inline(never)]
-unsafe fn write_spanned_line_box(state: &mut PxuiUi, box_: &UiBox, text: &str, style: &Style, spans: *const TextSpans, count: usize) -> Option<bool> {
-    let packet = unsafe { read_spans(spans, count) }?;
-    Some(unsafe { &mut *state.engine }.text_line_box(box_, text, style, &packet.spans[..count]))
 }
 
 /// A caller's metrics out record: not null and its `size` covers the record (the call writes it whole).
@@ -178,7 +127,7 @@ export!(pub unsafe fn pxui_text_fork(ui:*mut PxuiUi)->*mut PxuiShaper {
 export!(object pub unsafe fn pxui_shaper_prepare(shaper:*mut PxuiShaper,value:Str,style_:*const TextStyle,max_width:f32,spans:*const TextSpans,out:*mut *mut PxuiPreparedText,out_metrics:*mut TextMetrics)->i32 {
     if out.is_null() || !metrics_out(out_metrics) { return PXUI_ERR_ARGUMENT; }
     let (Some(shaper),Some(value),Some(style),Some(spans))=(unsafe { shaper.as_mut() },unsafe { utf8(value) },unsafe { read_style(style_) },unsafe { span_packet(spans) }) else { return PXUI_ERR_ARGUMENT };
-    let Some(prepared)=shaper.text.prepare(value,&style,max_width,spans.as_slice()) else { return PXUI_ERR_ARGUMENT };
+    let Some(prepared)=shaper.text.prepare(value,&style,max_width,spans) else { return PXUI_ERR_ARGUMENT };
     let measured=metrics(prepared.metrics());
     let record=Box::into_raw(Box::new(PxuiPreparedText { prepared }));
     unsafe { out.write(record); out_metrics.write(measured); }
@@ -209,8 +158,10 @@ mod prepared_tests {
             let style=TextStyle::default();
             let spans=TextSpans::default();
             let short=4u32;
-            let oversized_count=[core::mem::size_of::<TextSpans>() as u32,9];
-            let mid_utf8=TextSpans::new(&[pxui_types::TextSpan {start:1,end:2,..Default::default()}]).unwrap();
+            let mut oversized_count=TextSpans::default();
+            oversized_count.spans.len=TextSpans::MAX+1;
+            let one=[pxui_types::TextSpan {start:1,end:2,..Default::default()}];
+            let mid_utf8=TextSpans::new(&one);
             let bad_utf8=[255u8];
             let mut out=core::ptr::dangling_mut();
             let sentinel=out;
@@ -218,7 +169,7 @@ mod prepared_tests {
             for (text,style,width,spans) in [
                 (value("valid"),(&short as *const u32).cast(),200.0,&spans as *const TextSpans),
                 (value("valid"),&style,200.0,(&short as *const u32).cast()),
-                (value("valid"),&style,200.0,oversized_count.as_ptr().cast()),
+                (value("valid"),&style,200.0,&oversized_count),
                 (value("é"),&style,200.0,&mid_utf8),
                 (value("valid"),&style,f32::NAN,&spans),
                 (Str {ptr:bad_utf8.as_ptr(),len:1},&style,200.0,&spans),
@@ -575,24 +526,28 @@ mod tests {
 
     #[test]
     fn span_packets_refuse_null_short_records_and_excess_counts() {
+        use pxui_types::{TextSpan, TextSpans, ffi::Strided};
         assert!(unsafe { super::span_packet(core::ptr::null()) }.is_none());
         let short=[8u32,0];
         assert!(unsafe { super::span_packet(short.as_ptr().cast()) }.is_none());
-        let invalid_header=[core::mem::size_of::<pxui_types::TextSpans>() as u32,9];
-        assert!(unsafe { super::span_packet(invalid_header.as_ptr().cast()) }.is_none());
-        let empty_header=[core::mem::size_of::<pxui_types::TextSpans>() as u32,0];
-        assert!(matches!(unsafe { super::span_packet(empty_header.as_ptr().cast()) }, Some(super::SpanPacket::Empty)));
-        let invalid=pxui_types::TextSpans { count:9,..Default::default() };
-        assert!(unsafe { super::span_packet(&invalid) }.is_none());
-        let full=pxui_types::TextSpans::default();
-        assert!(unsafe { super::span_packet(&full) }.is_some());
-        #[repr(C)]
-        struct Prefix { size:u32,count:u32,start:u32,end:u32,weight:u16,flags:u16 }
-        let prefix=Prefix { size:core::mem::size_of::<pxui_types::TextSpans>() as u32,count:1,start:0,end:2,weight:700,flags:0 };
-        let decoded=unsafe { super::span_packet((&prefix as *const Prefix).cast()) }.unwrap();
-        assert_eq!(decoded.as_slice().len(),1);
-        assert_eq!(decoded.as_slice()[0].weight,700);
-        assert_eq!(decoded.as_slice()[0].color,Default::default(),"unflagged colour fields are not read");
+        assert_eq!(unsafe { super::span_packet(&TextSpans::default()) }.map(<[TextSpan]>::len),Some(0));
+        let bold=TextSpan { start:0,end:2,weight:700,..Default::default() };
+        let many=[bold;TextSpans::MAX+1];
+        assert_eq!(unsafe { super::span_packet(&TextSpans::new(&many[..TextSpans::MAX])) }.map(<[TextSpan]>::len),Some(TextSpans::MAX));
+        assert!(unsafe { super::span_packet(&TextSpans::new(&many)) }.is_none(),"257 spans");
+        let one=[bold];
+        let record=|spans:Strided<TextSpan>| { let mut record=TextSpans::new(&one); record.spans=spans; record };
+        let dense=Strided::of(&one);
+        assert_eq!(unsafe { super::span_packet(&record(dense)) }.map(|s|s[0].weight),Some(700));
+        assert!(unsafe { super::span_packet(&record(Strided { ptr:core::ptr::null(),len:1,..dense })) }.is_none(),"a null pointer with a length");
+        assert!(unsafe { super::span_packet(&record(Strided { stride:dense.stride-1,..dense })) }.is_none(),"a stride below the span");
+        assert!(unsafe { super::span_packet(&record(Strided { stride:dense.stride*2,..dense })) }.is_none(),"a wider stride is not read (spans carry no size)");
+        assert!(unsafe { super::span_packet(&record(Strided { ptr:dense.ptr.cast::<u8>().wrapping_add(1).cast(),..dense })) }.is_none(),"a misaligned pointer");
+        let bad_flags=[TextSpan { flags:8,..bold }];
+        assert!(unsafe { super::span_packet(&TextSpans::new(&bad_flags)) }.is_none(),"an unknown flag");
+        let mut grown=TextSpans::new(&one);
+        grown.size-=1;
+        assert!(unsafe { super::span_packet(&grown) }.is_none(),"a record whose size is short");
     }
 
     #[test]

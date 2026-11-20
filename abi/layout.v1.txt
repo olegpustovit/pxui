@@ -135,7 +135,7 @@ PxuiTextFieldConfig 88 8 0 4 16 48 64 80
 PxuiLineFieldConfig 80 8 0 4 16 24 56 72
 PxuiSlot 8 8 0
 TextSpan 24 4 0 4 8 10 12 16 20
-TextSpans 200 4 0 4 8
+TextSpans 32 8 0 4 8 16 24
 
 # FrameIn above freezes the accepted v1 prefix; the complete ABI 1.8 descriptor follows.
 PxuiSectionListDesc 32 8 0 4 5 7 8 16 20 24 28

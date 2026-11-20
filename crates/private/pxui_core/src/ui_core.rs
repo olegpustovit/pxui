@@ -36,7 +36,7 @@ pub use crate::draw::Fit;
 use crate::arena::{self, Arena};
 pub use crate::geom::Edges;
 use std::any::Any;
-use pxui_text::{Metrics, Style, Text, TextSpan, TextSpans};
+use pxui_text::{Metrics, Style, Text, TextSpan};
 use std::collections::HashMap;
 use std::rc::Rc;
 mod string_pool;
@@ -651,11 +651,12 @@ pub fn key(b: &UiBox) -> i64 {
     b.box_key
 }
 
-struct NodeText { style:Style, spans:Option<Box<TextSpans>>, line_box:bool }
+/// The spans of one styled node: a range of `Ui::span_arena`.
+#[derive(Clone, Copy, Default)]
+struct SpanRange { start: u32, len: u32 }
+struct NodeText { style:Style, spans:SpanRange, line_box:bool }
 impl NodeText {
-    fn spans(&self) -> &[TextSpan] {
-        self.spans.as_deref().map_or(&[][..], |spans| spans.as_slice().expect("validated span count"))
-    }
+    fn spans<'a>(&self, arena: &'a [TextSpan]) -> &'a [TextSpan] { &arena[self.spans.start as usize..][..self.spans.len as usize] }
 
     /// The top of the em box when the text does not use CSS line boxes.
     fn top(&self,y:f32,h:f32,metrics:Metrics)->f32 {
@@ -1084,7 +1085,13 @@ pub struct Ui {
     table: SlotTable,
     slots: Vec<Slot>,
     empty_strings: EmptyStrings,
-    free_spans: Vec<Box<TextSpans>>,
+    /// The spans of every styled node, one range each (`NodeText::spans`): one arena for the `Ui`, reused across frames. A node's spans are
+    /// overwritten in place when their count is unchanged, else appended; freed ranges are dead space that `store_spans` compacts away
+    /// (into `span_spare`, kept at the arena's capacity) once the arena is full and at least half dead, so a warm frame allocates nothing.
+    span_arena: Vec<TextSpan>,
+    span_spare: Vec<TextSpan>,
+    /// the spans the nodes' ranges cover
+    span_live: usize,
     free: Vec<usize>,
     /// slots whose scroll may be in motion (`apply_scroll` adds, `prune` drops the settled), and
     /// `prune`'s scratch
@@ -1418,7 +1425,9 @@ impl Ui {
             table: SlotTable::create(),
             slots: Vec::new(),
             empty_strings: EmptyStrings::default(),
-            free_spans: Vec::new(),
+            span_arena: Vec::new(),
+            span_spare: Vec::new(),
+            span_live: 0,
             free: Vec::new(),
             moving: Vec::new(),
             gone: Vec::new(),
@@ -3881,9 +3890,7 @@ impl Ui {
     }
 
     fn clear_rich(&mut self, slot: usize) {
-        if let Some(spans) = self.slots[slot].rich.take().and_then(|rich| rich.spans) {
-            self.free_spans.push(spans);
-        }
+        if let Some(rich) = self.slots[slot].rich.take() { self.span_live -= rich.spans.len as usize; }
     }
 
     fn write_text(&mut self, slot: usize, text: &str) {
@@ -3904,22 +3911,43 @@ impl Ui {
         if !self.live(b) || !pxui_text::valid_spans(text,spans) { return false; }
         let slot = b.box_slot;
         self.write_text(slot, text);
-        let previous = self.slots[slot].rich.as_mut().and_then(|rich| rich.spans.take());
-        let spans = if spans.is_empty() {
-            if let Some(previous) = previous { self.free_spans.push(previous); }
-            None
-        } else {
-            let mut storage = previous.or_else(|| self.free_spans.pop()).unwrap_or_else(|| {
-                    // Each existing record belongs to one slot, so all can retire without growing this pool.
-                    self.free_spans.reserve(self.slots.capacity());
-                    Box::new(TextSpans::default())
-                });
-            storage.count = spans.len() as u32;
-            storage.spans[..spans.len()].copy_from_slice(spans);
-            Some(storage)
-        };
+        let spans = self.store_spans(slot, spans);
         self.slots[slot].rich = Some(NodeText { style: *style, spans, line_box });
         true
+    }
+
+    /// Puts `spans` in the arena as `slot`'s: over its old range when the count is the same, else at the end (the old range is dead
+    /// space). A full arena that is at least half dead is compacted first, so the arena grows only while it is mostly live.
+    fn store_spans(&mut self, slot: usize, spans: &[TextSpan]) -> SpanRange {
+        let old = self.slots[slot].rich.as_mut().map_or_else(SpanRange::default, |rich| core::mem::take(&mut rich.spans));
+        if old.len as usize == spans.len() {
+            self.span_arena[old.start as usize..][..spans.len()].copy_from_slice(spans);
+            return old;
+        }
+        self.span_live = self.span_live - old.len as usize + spans.len();
+        if spans.is_empty() { return SpanRange::default(); }
+        let len = self.span_arena.len();
+        if len + spans.len() > self.span_arena.capacity() && len - (self.span_live - spans.len()) >= len / 2 { self.compact_spans(); }
+        let start = self.span_arena.len();
+        self.span_arena.extend_from_slice(spans);
+        // the spare keeps room for every span the arena can hold, so a compaction never allocates
+        self.span_spare.reserve(self.span_arena.capacity());
+        SpanRange { start: start as u32, len: spans.len() as u32 }
+    }
+
+    /// Packs the live ranges to the front of a fresh arena (the spare, swapped in).
+    fn compact_spans(&mut self) {
+        let mut packed = core::mem::take(&mut self.span_spare);
+        packed.clear();
+        for slot in &mut self.slots {
+            if let Some(rich) = slot.rich.as_mut().filter(|rich| rich.spans.len != 0) {
+                let at = packed.len();
+                packed.extend_from_slice(&self.span_arena[rich.spans.start as usize..][..rich.spans.len as usize]);
+                rich.spans.start = at as u32;
+            }
+        }
+        self.span_spare = core::mem::replace(&mut self.span_arena, packed);
+        self.span_spare.clear();
     }
 
     /// Explicit CSS line boxes: primary-face rounded metrics set the first baseline.
@@ -4535,7 +4563,7 @@ impl Ui {
                     self.label.as_str()
                 } else {stored.text.as_str()};
                 let text=self.text.as_mut().expect("Ui: the text engine is lent out");
-                let spans=rich.map_or(&[][..], NodeText::spans);
+                let spans=rich.map_or(&[][..], |r|r.spans(&self.span_arena));
                 let ahead=self.boxes[index].ahead;
                 let deferred=text.queue_counts().0;
                 let mut natural=if matches!(n.w,Size::Fit) {
@@ -5116,7 +5144,7 @@ impl Ui {
         } else {stored.text.as_str()};
         let text=self.text.as_mut().expect("Ui: the text engine is lent out");
         let ahead=self.boxes[c].ahead;
-        let m=if let Some(rich)=rich {lay_out_node(text,&stored.text_layout,flags,&rich.style(&stored.node,self.dir==Direction::Rtl),self.l_w[c]-inset.l-inset.r,value,rich.spans(),ahead).unwrap().1}
+        let m=if let Some(rich)=rich {lay_out_node(text,&stored.text_layout,flags,&rich.style(&stored.node,self.dir==Direction::Rtl),self.l_w[c]-inset.l-inset.r,value,rich.spans(&self.span_arena),ahead).unwrap().1}
             else {lay_out_node(text,&stored.text_layout,flags,&style,0.0,value,&[],ahead).unwrap().1};
         if let Some(rich)=rich.filter(|r|r.line_box) { return rich.line_box_baseline(inset.t,h-inset.t-inset.b,m); }
         let top=rich.map_or_else(||text_top_at(size,inset.t,h-inset.t-inset.b),|r|r.top(inset.t,h-inset.t-inset.b,m));
@@ -5699,10 +5727,10 @@ impl Paint {
     /// The text `look` would lay out for a node `w` points wide, deferred to the prepare queue when unseen (`Text::defer`):
     /// rich text at its inner width, plain text at its natural width, in capitals when its font says so (as `look`). Fitted
     /// plain text's cut depends on its natural layout: only the natural one is requested. Shapes nothing, draws nothing.
-    fn defer_text(&mut self, w: f32, node: &Node, text: &str, rich: Option<&NodeText>, memo: &std::cell::Cell<Option<(u64, u64)>>) {
+    fn defer_text(&mut self, w: f32, node: &Node, text: &str, rich: Option<&NodeText>, arena: &[TextSpan], memo: &std::cell::Cell<Option<(u64, u64)>>) {
         if let Some(rich) = rich {
             let style = rich.style(node, self.rtl);
-            let spans = rich.spans();
+            let spans = rich.spans(arena);
             let width = w - node.inset.l - node.inset.r;
             // not placed yet (its natural width is still on its way): nothing to request at this width
             if width <= 0.0 {
@@ -5732,7 +5760,7 @@ impl Paint {
     /// with no closure. Square, solid looks paint as hard rectangles on the pixel grid; rounded,
     /// gradient and shadowed ones as distance fields. `steady` (a running transition) emits the same
     /// instances whatever the colours, keeping only shadows that can show during the run.
-    fn look(&mut self, r: Rect, node: &Node, look: &Look, text: &str, rich:Option<&NodeText>, memo:&std::cell::Cell<Option<(u64,u64)>>, focused: bool, steady: Option<[bool; 2]>) {
+    fn look(&mut self, r: Rect, node: &Node, look: &Look, text: &str, rich:Option<&NodeText>, arena: &[TextSpan], memo:&std::cell::Cell<Option<(u64,u64)>>, focused: bool, steady: Option<[bool; 2]>) {
         let background = steady.is_some() || node.flags.any(Flags::KEEP_ROOM) || look.gradient.is_some()
             || (look.fill.a | look.border.a | look.shadows[0].color.a | look.shadows[1].color.a) != 0;
         if !background && text.is_empty() && rich.is_none() && matches!(node.mark, Mark::None) && (!focused || look.ring.color.a == 0) {
@@ -5793,7 +5821,7 @@ impl Paint {
         if let Some(rich)=rich {
             let width=w-node.inset.l-node.inset.r;
             let style=rich.style(node,self.rtl);
-            let spans=rich.spans();
+            let spans=rich.spans(arena);
             // Explicit line boxes with a fixed width also reuse their last painted layout.
             let memo_flags=if rich.line_box && spans.is_empty() && matches!(node.w,Size::Px(_)) { node.flags | Flags::FIT_TEXT_PIXEL } else { node.flags };
             if let Some((key,metrics))=lay_out_node(&mut self.text,memo,memo_flags,&style,width,text,spans,self.ahead) {
@@ -6278,7 +6306,7 @@ impl Ui {
         // an ahead row's node out of view (a view row paints wherever it is) leaves unseen text to the prepare queue
         paint.ahead = self.boxes[index].ahead && { let seen = r.intersect(clip_rect); seen.w <= 0.0 || seen.h <= 0.0 };
         let deferred = paint.ahead.then(|| paint.text.queue_counts().0);
-        paint.look(Rect::new(r.x + dx, r.y + dy, r.w, r.h), &s.node, look, &s.text, s.rich.as_ref(), &s.text_layout, focused, steady);
+        paint.look(Rect::new(r.x + dx, r.y + dy, r.w, r.h), &s.node, look, &s.text, s.rich.as_ref(), &self.span_arena, &s.text_layout, focused, steady);
         // its kept output would lack that text: the view builds again
         if deferred.is_some_and(|before| paint.text.queue_counts().0 != before) { self.mark_view(self.slots[slot].owner); }
         paint.ahead = false;
@@ -6454,7 +6482,7 @@ impl Ui {
         let slot = self.boxes[index].slot;
         let before = paint.text.queue_counts().0;
         let s = &self.slots[slot];
-        paint.defer_text(s.rw, &s.node, &s.text, s.rich.as_ref(), &s.text_layout);
+        paint.defer_text(s.rw, &s.node, &s.text, s.rich.as_ref(), &self.span_arena, &s.text_layout);
         if paint.text.queue_counts().0 != before {
             self.mark_view(self.slots[slot].owner);
         }
@@ -6631,7 +6659,7 @@ impl Ui {
             paint.text.set_marks([0; 8]);
             outer
         });
-        paint.look(Rect::new(s.rx + pose.dx, s.ry + pose.dy, s.rw, s.rh), &s.node, &look, &s.text, s.rich.as_ref(), &s.text_layout, focused, steady);
+        paint.look(Rect::new(s.rx + pose.dx, s.ry + pose.dy, s.rw, s.rh), &s.node, &look, &s.text, s.rich.as_ref(), &self.span_arena, &s.text_layout, focused, steady);
         if let Some(outer) = outer {
             let shelves = paint.text.marks();
             paint.text.set_marks(outer);

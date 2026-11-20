@@ -3787,16 +3787,12 @@ pxui_types::TextSpans impl Clone @HEAD
 pxui_types::TextSpans impl Copy @HEAD
 pxui_types::TextSpans impl Debug @HEAD
 pxui_types::TextSpans impl Default @HEAD
-pxui_types::TextSpans impl Eq @HEAD
-pxui_types::TextSpans impl PartialEq @HEAD
-pxui_types::TextSpans impl StructuralPartialEq @HEAD
-pxui_types::TextSpans struct @HEAD
+pxui_types::TextSpans struct <'a> @U5.4
 pxui_types::TextSpans::MAX const usize @HEAD
-pxui_types::TextSpans::as_slice fn (&self) -> Option<&[TextSpan]> @HEAD
-pxui_types::TextSpans::count field u32 @HEAD
-pxui_types::TextSpans::new fn (spans: &[TextSpan]) -> Option<Self> @HEAD
+pxui_types::TextSpans::new fn const (spans: &'a [TextSpan]) -> Self @U5.4
+pxui_types::TextSpans::reserved field u32 @U5.4
 pxui_types::TextSpans::size field u32 @HEAD
-pxui_types::TextSpans::spans field [TextSpan; 8] @HEAD
+pxui_types::TextSpans::spans field Strided<TextSpan> @U5.4
 pxui_types::TextTraits impl Clone @HEAD
 pxui_types::TextTraits impl Copy @HEAD
 pxui_types::TextTraits impl Debug @HEAD
@@ -6572,16 +6568,12 @@ pxui_types::text::TextSpans impl Clone @HEAD
 pxui_types::text::TextSpans impl Copy @HEAD
 pxui_types::text::TextSpans impl Debug @HEAD
 pxui_types::text::TextSpans impl Default @HEAD
-pxui_types::text::TextSpans impl Eq @HEAD
-pxui_types::text::TextSpans impl PartialEq @HEAD
-pxui_types::text::TextSpans impl StructuralPartialEq @HEAD
-pxui_types::text::TextSpans struct @HEAD
+pxui_types::text::TextSpans struct <'a> @U5.4
 pxui_types::text::TextSpans::MAX const usize @HEAD
-pxui_types::text::TextSpans::as_slice fn (&self) -> Option<&[TextSpan]> @HEAD
-pxui_types::text::TextSpans::count field u32 @HEAD
-pxui_types::text::TextSpans::new fn (spans: &[TextSpan]) -> Option<Self> @HEAD
+pxui_types::text::TextSpans::new fn const (spans: &'a [TextSpan]) -> Self @U5.4
+pxui_types::text::TextSpans::reserved field u32 @U5.4
 pxui_types::text::TextSpans::size field u32 @HEAD
-pxui_types::text::TextSpans::spans field [TextSpan; 8] @HEAD
+pxui_types::text::TextSpans::spans field Strided<TextSpan> @U5.4
 pxui_types::text::Wrap enum @HEAD
 pxui_types::text::Wrap impl Clone @HEAD
 pxui_types::text::Wrap impl Copy @HEAD

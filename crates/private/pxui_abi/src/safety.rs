@@ -1926,9 +1926,7 @@ mod sized_records {
     #[test]
     fn text_spans() {
         let ui = create();
-        let mut value: pxui_types::TextSpans = unsafe { core::mem::zeroed() };
-        let fix: fn(&mut pxui_types::TextSpans) = |_| {};
-        fix(&mut value);
+        let value = pxui_types::TextSpans::default();
         four(ui, ((&value as *const pxui_types::TextSpans).cast(), size_of_val(&value), align_of_val(&value)), true, &mut |p| {
             let p = p.cast::<pxui_types::TextSpans>();
             {

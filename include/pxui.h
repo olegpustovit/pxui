@@ -18,7 +18,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 140u)
+#define PXUI_ABI_BUILT ((1u << 16) | 141u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 /* U5.4: size-prefixed (16 bytes); pxui_ui_text_input_options needs the caller's size to cover it. */
@@ -196,10 +196,12 @@ typedef struct { uint32_t size; uint16_t font,weight; float size_points,line_hei
 #define PXUI_TEXT_ELLIPSIS_MIDDLE 2u
 #define PXUI_TEXT_ELLIPSIS_HEAD 3u
 /* Ordered, disjoint, nonempty UTF-8 byte ranges. Weight 0 inherits the style.
-   Only active spans and flagged colours are read. Flagged colours are independent;
-   underline is a 1.5-point rule at the bottom of the line box. */
+   Flagged colours are independent; underline is a 1.5-point rule at the bottom of the line box. */
 typedef struct { uint32_t start,end; uint16_t weight,flags; PxuiColor color,background,underline; } PxuiTextSpan;
-typedef struct { uint32_t size,count; PxuiTextSpan spans[8]; } PxuiTextSpans;
+/* U5.4: the spans of one call are a borrowed run, not a fixed array: at most 256 (more is PXUI_ERR_ARGUMENT), `ptr` aligned for PxuiTextSpan when len > 0
+   and `stride` sizeof(PxuiTextSpan) (a span carries no size, so no other stride is read; a record shorter than sizeof(PxuiTextSpans) is refused). The ranges must be
+   ordered, nonempty, disjoint and on UTF-8 boundaries, the flags known. The library copies what it keeps before the call returns. */
+typedef struct { uint32_t size, reserved; const PxuiTextSpan *ptr; size_t len; size_t stride; } PxuiTextSpans;
 #define PXUI_TEXT_SPAN_COLOR 1u
 #define PXUI_TEXT_SPAN_BACKGROUND 2u
 #define PXUI_TEXT_SPAN_UNDERLINE 4u
@@ -1264,7 +1266,7 @@ _Static_assert(sizeof(PxuiTextFieldConfig) == 88 && offsetof(PxuiTextFieldConfig
 _Static_assert(sizeof(PxuiLineFieldConfig) == 80 && offsetof(PxuiLineFieldConfig, size) == 0 && offsetof(PxuiLineFieldConfig, state) == 4 && offsetof(PxuiLineFieldConfig, empty) == 16 && offsetof(PxuiLineFieldConfig, field) == 24 && offsetof(PxuiLineFieldConfig, text) == 56 && offsetof(PxuiLineFieldConfig, variant) == 72, "PxuiLineFieldConfig layout");
 _Static_assert(sizeof(PxuiSlot) == 8 && offsetof(PxuiSlot, serial) == 0, "PxuiSlot layout");
 _Static_assert(sizeof(PxuiTextSpan) == 24 && offsetof(PxuiTextSpan, start) == 0 && offsetof(PxuiTextSpan, end) == 4 && offsetof(PxuiTextSpan, weight) == 8 && offsetof(PxuiTextSpan, flags) == 10 && offsetof(PxuiTextSpan, color) == 12 && offsetof(PxuiTextSpan, background) == 16 && offsetof(PxuiTextSpan, underline) == 20, "TextSpan layout");
-_Static_assert(sizeof(PxuiTextSpans) == 200 && offsetof(PxuiTextSpans, size) == 0 && offsetof(PxuiTextSpans, count) == 4 && offsetof(PxuiTextSpans, spans) == 8, "TextSpans layout");
+_Static_assert(sizeof(PxuiTextSpans) == 32 && offsetof(PxuiTextSpans, size) == 0 && offsetof(PxuiTextSpans, reserved) == 4 && offsetof(PxuiTextSpans, ptr) == 8 && offsetof(PxuiTextSpans, len) == 16 && offsetof(PxuiTextSpans, stride) == 24, "TextSpans layout");
 _Static_assert(sizeof(PxuiSectionListDesc) == 32 && offsetof(PxuiSectionListDesc, size) == 0 && offsetof(PxuiSectionListDesc, overlay_scrollbar) == 4 && offsetof(PxuiSectionListDesc, measured) == 5 && offsetof(PxuiSectionListDesc, reserved) == 7 && offsetof(PxuiSectionListDesc, count) == 8 && offsetof(PxuiSectionListDesc, row_height) == 16 && offsetof(PxuiSectionListDesc, leading_height) == 20 && offsetof(PxuiSectionListDesc, header_height) == 24 && offsetof(PxuiSectionListDesc, trailing_height) == 28, "PxuiSectionListDesc layout");
 _Static_assert(sizeof(PxuiEnvironment) == 80 && offsetof(PxuiEnvironment, safe_area) == 16 && offsetof(PxuiEnvironment, keyboard_frame) == 32 && offsetof(PxuiEnvironment, keyboard_from) == 48 && offsetof(PxuiEnvironment, keyboard_started) == 64 && offsetof(PxuiEnvironment, keyboard_duration) == 72 && offsetof(PxuiEnvironment, keyboard_curve) == 4 && offsetof(PxuiEnvironment, keyboard_visible) == 8, "Environment layout");
 _Static_assert(sizeof(PxuiTouch) == 56 && offsetof(PxuiTouch, device) == 8 && offsetof(PxuiTouch, finger) == 16 && offsetof(PxuiTouch, x) == 24 && offsetof(PxuiTouch, y) == 32 && offsetof(PxuiTouch, time) == 40 && offsetof(PxuiTouch, pressure) == 48 && offsetof(PxuiTouch, phase) == 4, "Touch layout");

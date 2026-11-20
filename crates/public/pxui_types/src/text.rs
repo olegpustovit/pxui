@@ -547,45 +547,40 @@ impl TextSpan {
     pub const UNDERLINE: u16=4;
 }
 
+/// The inline spans of one text call: a borrowed run of up to 256 `TextSpan`s (`TextSpans::MAX`), `{size, reserved, ptr, len, stride}` on the wire.
+/// `new` borrows the slice and always succeeds; the library checks the count, the ranges (ordered, nonempty, disjoint, on character
+/// boundaries) and the flags, and refuses a bad record, so a Rust caller sees `Error::InvalidInput` from the call.
+/// shortcut: the library reads dense spans only (`stride` is the `TextSpan` size, which carries no size prefix and so cannot grow in
+/// place), upgrade with a stepping reader when `TextSpan` grows one.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct TextSpans {
+#[derive(Clone, Copy, Debug)]
+pub struct TextSpans<'a> {
+    /// `size_of::<TextSpans>()` (32); a shorter record is refused.
     pub size: u32,
-    pub count: u32,
-    pub spans: [TextSpan;8],
+    pub reserved: u32,
+    pub spans: crate::ffi::Strided<TextSpan>,
+    borrowed: core::marker::PhantomData<&'a [TextSpan]>,
 }
-impl Default for TextSpans {
-    fn default() -> Self { Self { size:core::mem::size_of::<Self>() as u32,count:0,spans:[TextSpan::default();8] } }
+impl Default for TextSpans<'_> {
+    fn default() -> Self { Self::new(&[]) }
 }
-impl TextSpans {
-    pub const MAX: usize=8;
-    /// Packs `spans` into the fixed record the library takes; `None` for more than eight (`TextSpans::MAX`).
-    /// This checks the count only; the library checks that ranges are ordered, nonempty, disjoint and on character boundaries.
+impl<'a> TextSpans<'a> {
+    /// The most spans one call takes.
+    pub const MAX: usize = 256;
+    /// Borrows `spans` as the record a text call takes. This does not check anything: the library checks the count (at most
+    /// `TextSpans::MAX`), that ranges are ordered, nonempty, disjoint and on character boundaries, and the flags.
     /// Allocates: never.
     /// Panics: never.
     ///
     /// ```
     /// use pxui_types::{TextSpan, TextSpans};
     /// let bold = TextSpan { start: 0, end: 4, weight: 700, ..Default::default() };
-    /// assert!(TextSpans::new(&[bold]).is_some());
-    /// assert!(TextSpans::new(&[bold; 9]).is_none());
+    /// let list = [bold];
+    /// let spans = TextSpans::new(&list);
+    /// assert_eq!((spans.spans.len, spans.size), (1, 32));
+    /// assert_eq!(TextSpans::default().spans.len, 0);
     /// ```
-    pub fn new(spans: &[TextSpan]) -> Option<Self> {
-        if spans.len()>Self::MAX { return None; }
-        let mut value=Self::default();
-        value.count=spans.len() as u32;
-        value.spans[..spans.len()].copy_from_slice(spans);
-        Some(value)
+    pub const fn new(spans: &'a [TextSpan]) -> Self {
+        Self { size: core::mem::size_of::<TextSpans>() as u32, reserved: 0, spans: crate::ffi::Strided::of(spans), borrowed: core::marker::PhantomData }
     }
-    /// The spans the record holds, in order; `None` when its count is over eight (a record built by hand, not by `new`).
-    /// Allocates: never.
-    /// Panics: never.
-    ///
-    /// ```
-    /// use pxui_types::{TextSpan, TextSpans};
-    /// let bold = TextSpan { start: 0, end: 4, weight: 700, ..Default::default() };
-    /// let spans = TextSpans::new(&[bold, TextSpan { start: 5, end: 8, ..bold }]).unwrap();
-    /// assert_eq!(spans.as_slice().map(|s| s.len()), Some(2));
-    /// ```
-    pub fn as_slice(&self) -> Option<&[TextSpan]> { self.spans.get(..self.count as usize) }
 }

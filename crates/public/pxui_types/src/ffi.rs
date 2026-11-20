@@ -32,7 +32,7 @@ impl<T> Strided<T> {
     /// ```
     pub const fn of(records: &[T]) -> Self { Self { ptr: records.as_ptr(), len: records.len(), stride: core::mem::size_of::<T>() } }
 
-    /// Whether a reader may step through it: a pointer when there are records, and a stride that holds one and keeps each aligned.
+    /// Whether a reader may step through it: a pointer (aligned for the record) when there are records, and a stride that holds one and keeps each aligned.
     ///
     /// Allocates: never.
     /// Panics: never.
@@ -45,6 +45,7 @@ impl<T> Strided<T> {
     /// ```
     pub fn is_valid(&self) -> bool {
         (self.len == 0 || !self.ptr.is_null()) && self.stride >= core::mem::size_of::<T>() && self.stride % core::mem::align_of::<T>() == 0
+            && (self.ptr as usize) % core::mem::align_of::<T>() == 0
     }
 
     /// Record `index`, read at `ptr + index * stride`. The span must be valid, `index` below `len`, and the records live for `'a`.

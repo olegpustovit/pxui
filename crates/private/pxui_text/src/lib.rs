@@ -269,8 +269,6 @@ pub fn layout_key(style: &Style, width: f32, text_hash: u64, spans: &[TextSpan])
 }
 
 
-struct Rich { spans:TextSpans }
-
 
 /// Age before incremental expiry and the fraction of remaining layouts inspected per frame.
 /// Removing entries shrinks each following sweep budget; MAX_LAYOUTS also bounds storage.
@@ -711,7 +709,9 @@ struct Entry {
     buf: Buffer,
     text: String,
     style: Style,
-    rich: Option<Box<Rich>>,
+    /// the spans this layout was made with (kept while the entry is recycled, so a layout with spans reuses their storage), and whether it has had any
+    rich: Vec<TextSpan>,
+    is_rich: bool,
     width: u32,
     frame: u32,
     /// the virtual list (0: none) and row that last asked for this layout
@@ -736,7 +736,8 @@ struct Entry {
 impl Entry {
     /// An evicted entry made ready to be laid out again; its storage is kept.
     fn recycle(&mut self, frame: u32) {
-        self.rich = None;
+        self.rich.clear();
+        self.is_rich = false;
         self.width = 0;
         self.frame = frame;
         (self.list, self.row, self.view) = (0, 0, 0);
@@ -752,7 +753,7 @@ impl Entry {
         let lh = if style.line_height > 0.0 { style.line_height } else { style.size * 1.2 };
         Self {
             buf: Buffer::new_empty(CMetrics::new(style.size, lh)),
-            text: String::new(), style: *style, rich: None, width: 0, frame, list: 0, row: 0, view: 0,
+            text: String::new(), style: *style, rich: Vec::new(), is_rich: false, width: 0, frame, list: 0, row: 0, view: 0,
             m: Metrics::default(), raw_baseline: 0.0, glyphs: Vec::new(), cached: false, cacheable: true,
             cached_scale: 0, cached_evictions: 0, shelves: [0; 8],
         }
@@ -985,7 +986,7 @@ impl Text {
         if !(max_width.is_finite() && max_width > 0.0) { return None; }
         let frame = self.frame;
         let e = self.entries.get_mut(&key)?;
-        if e.style != *style || e.text != text || e.rich.is_some() || e.m.w > max_width { return None; }
+        if e.style != *style || e.text != text || e.is_rich || e.m.w > max_width { return None; }
         let built = f32::from_bits(e.width);
         let fits = if built.is_infinite() { style.align == Align::Left || e.m.w == max_width }
             else {
@@ -1029,7 +1030,7 @@ impl Text {
             e.frame = frame;
             if self.scope.0 != 0 { (e.list, e.row) = self.scope; }
             if e.width == width.to_bits() && e.style == *style && e.text == text
-                && e.rich.as_ref().and_then(|r|r.spans.as_slice()).unwrap_or(&[])==spans {
+                && e.rich==spans {
                 return e.m;
             }
         } else if self.keys.len() >= MAX_LAYOUTS {
@@ -1165,9 +1166,10 @@ impl Text {
             }
             m.w=rows.iter().fold(m.w,|width,row|width.max(row.3));
         }
-        if !spans.is_empty() || e.rich.is_some() {
-            let rich=e.rich.get_or_insert_with(||Box::new(Rich { spans:TextSpans::default() }));
-            rich.spans=TextSpans::new(spans).expect("validated span count");
+        if !spans.is_empty() || e.is_rich {
+            e.is_rich = true;
+            e.rich.clear();
+            e.rich.extend_from_slice(spans);
         }
         e.m = m;
         e.raw_baseline = raw;
@@ -1201,9 +1203,9 @@ impl Text {
     /// Line boxes from the retained shaped runs, with no temporary allocation.
     pub fn decorations(&self,key:u64,underline:bool,f:&mut dyn FnMut(Decoration)) {
         let Some(entry)=self.entries.get(&key) else { return };
-        let Some(rich)=&entry.rich else { return };
+        if !entry.is_rich { return; }
         let flag=if underline { TextSpan::UNDERLINE } else { TextSpan::BACKGROUND };
-        for span in rich.spans.as_slice().unwrap().iter().filter(|s|s.flags & flag!=0) {
+        for span in entry.rich.iter().filter(|s|s.flags & flag!=0) {
             let (a,b)=(Self::line_of(&entry.buf,span.start as usize),Self::line_of(&entry.buf,span.end as usize));
             for run in entry.buf.layout_runs().filter(|r|r.line_i>=a.line && r.line_i<=b.line) {
                 let start=if run.line_i==a.line { a.index } else { 0 };
@@ -1323,7 +1325,7 @@ impl Text {
         e.glyphs.clear();
         e.shelves = [0; 8];
         e.cached = keep;
-        let spans=e.rich.as_ref().and_then(|r|r.spans.as_slice()).unwrap_or(&[]);
+        let spans=&e.rich[..];
         let (mut line,mut base)=(0,0);
         for run in e.buf.layout_runs() {
             while line<run.line_i { base+=e.buf.lines[line].text().len()+e.buf.lines[line].ending().as_str().len(); line+=1; }
