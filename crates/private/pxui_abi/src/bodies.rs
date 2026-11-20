@@ -262,7 +262,7 @@ mod tramps {
         image: c.image.as_ref().and_then(crate::image::raw_image).unwrap_or_default(), head: c.head.map(bx).unwrap_or_default()
     });
     tramp!(search_field, |ui, sh, c: &SearchFieldConfig, icon: &str, body: &mut dyn FnMut(&mut Ui) -> bool| PxuiSearchFieldConfig {
-        state: st(c.state), key: c.key, well: bx(c.well), icon: pair(icon), editor: editor(sh, body), line: bx(c.line)
+        state: st(c.state), key: c.key, well: bx(c.well), icon: pair(icon), editor: editor(sh, body), line: bx(c.line), clear: st(c.clear)
     });
     tramp!(text_field, |ui, sh, c: &TextFieldConfig, label: &str, value: &str| PxuiTextFieldConfig { state: st(c.state), row: bx(c.row), label: pair(label), value: pair(value) });
     tramp!(line_field, |ui, sh, c: &LineFieldConfig, text: &str| PxuiLineFieldConfig { state: st(c.state), empty: c.empty as u8, field: bx(c.field), text: pair(text) });

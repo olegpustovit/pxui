@@ -3828,7 +3828,11 @@ impl Ui {
     /// What the pointer and keyboard do to the node now: hovered, pressed (it holds the capture),
     /// focused. A widget adds `checked` and `disabled`.
     pub fn node_state(&self, b: &Handle) -> State {
-        let key = if self.live(b) { b.box_key } else { 0 };
+        self.key_state(if self.live(b) { b.box_key } else { 0 })
+    }
+
+    /// `node_state` of the node keyed `key` as the last frame left it: a kit part's state before its body builds it.
+    pub(crate) fn key_state(&self, key: i64) -> State {
         State { hovered: key != 0 && self.hot == key && !self.touches.using_touch, pressed: key != 0 && self.active == Some(key), focused: key != 0 && self.focus == key, ..State::default() }
     }
 

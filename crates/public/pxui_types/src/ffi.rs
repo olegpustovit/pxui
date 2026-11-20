@@ -2268,6 +2268,9 @@ configs! {
         /// ABI 1.102: the field's line (the kit's row: the control height, `space(2)` at each side, `well` inside it), which a body
         /// sizes with `pxui_ui_set_node_layout` as a button body sizes `PxuiButtonConfig.line`.
         line: PxuiBox,
+        /// ABI 1.122 (U2b.4.23): the clear key's state (the node the body builds as `Part::CLEAR`: hovered, pressed), which
+        /// behaviour owns with the key's press, role and name; the body styles the key for it (`pxui_ui_style`).
+        clear: PxuiStateDesc,
     }
     PxuiTextFieldConfig { state: PxuiStateDesc, row: PxuiBox, label: Str, value: Str }
     PxuiLineFieldConfig { state: PxuiStateDesc, empty: u8, field: PxuiBox, text: Str }

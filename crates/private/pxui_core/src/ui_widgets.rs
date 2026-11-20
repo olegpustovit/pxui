@@ -1421,9 +1421,13 @@ fn search_field_body(this: &mut Ui, label: &str, icon: &str, value: &str, placeh
         filled
     };
     let focus = this.focus_key();
-    let config = SearchFieldConfig { state: State { focused: focus == int_key(key, 1) || bodied && focus == part_key(key, Part::EDITOR), ..State::default() }, well, key, line: row };
+    let config = SearchFieldConfig { state: State { focused: focus == int_key(key, 1) || bodied && focus == part_key(key, Part::EDITOR), ..State::default() }, well, key, line: row,
+        clear: this.key_state(crate::ui_kit::part_key(key, Part::CLEAR)) };
     in_body!(this, key, well, search_field, default_search_field(&config, icon, &mut editor));
     if let Some(clear) = this.part_built(key, Part::CLEAR) {
+        // behaviour owns the key's hit-testing: a body's plain node takes the pointer as the built-in key does
+        let n = this.node_mut(&clear);
+        n.flags = n.flags | ROW_FLAGS;
         this.set_role(&clear, Role::Button, 0);
         this.a11y_name(&clear, "Clear");
         if this.signal_owned(&clear).clicked {

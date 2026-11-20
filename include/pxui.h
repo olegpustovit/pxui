@@ -18,7 +18,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 121u)
+#define PXUI_ABI_BUILT ((1u << 16) | 122u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 typedef struct { uint32_t autocorrect, capitalization, action; } PxuiTextInputOptions;
@@ -710,7 +710,8 @@ typedef struct { uint32_t size; PxuiStateDesc state; uint8_t current; uint8_t do
                     (its text, the heading role and name), which the body lays out (pxui_ui_set_node_layout) and styles. */
                  uint8_t has_image, has_head, reserved4[6]; PxuiImage image; PxuiBox head; } PxuiPickerRowConfig;
 typedef struct { uint32_t size; PxuiStateDesc state; int64_t key; PxuiBox well; PxuiStr icon; PxuiSlot editor; uint16_t variant;
-                 /* ABI 1.102: the field's line (the kit's row, well inside it), which a body sizes with pxui_ui_set_node_layout */ PxuiBox line; } PxuiSearchFieldConfig;
+                 /* ABI 1.102: the field's line (the kit's row, well inside it), which a body sizes with pxui_ui_set_node_layout */ PxuiBox line;
+                 /* ABI 1.122: the clear key's state (Part::CLEAR: hovered, pressed), which behaviour owns; the body styles the key for it */ PxuiStateDesc clear; } PxuiSearchFieldConfig;
 typedef struct { uint32_t size; PxuiStateDesc state; PxuiBox row; PxuiStr label; PxuiStr value; uint16_t variant; } PxuiTextFieldConfig;
 typedef struct { uint32_t size; PxuiStateDesc state; uint8_t empty; PxuiBox field; PxuiStr text; uint16_t variant; } PxuiLineFieldConfig;
 typedef struct { uint32_t size; PxuiStateDesc state; uint8_t invalid; float w; float h; PxuiBox field; PxuiValueFieldDesc opts; PxuiStr text; uint16_t variant; } PxuiValueFieldConfig;
@@ -1219,7 +1220,7 @@ _Static_assert(sizeof(PxuiMenuRowConfig) == 112 && offsetof(PxuiMenuRowConfig, s
 _Static_assert(sizeof(PxuiRowConfig) == 72 && offsetof(PxuiRowConfig, size) == 0 && offsetof(PxuiRowConfig, state) == 4 && offsetof(PxuiRowConfig, index) == 16 && offsetof(PxuiRowConfig, row) == 24 && offsetof(PxuiRowConfig, content) == 56 && offsetof(PxuiRowConfig, drop) == 64 && offsetof(PxuiRowConfig, variant) == 66, "PxuiRowConfig layout");
 _Static_assert(sizeof(PxuiTreeRowConfig) == 88 && offsetof(PxuiTreeRowConfig, size) == 0 && offsetof(PxuiTreeRowConfig, state) == 4 && offsetof(PxuiTreeRowConfig, has) == 12 && offsetof(PxuiTreeRowConfig, open) == 13 && offsetof(PxuiTreeRowConfig, index) == 16 && offsetof(PxuiTreeRowConfig, node) == 24 && offsetof(PxuiTreeRowConfig, depth) == 32 && offsetof(PxuiTreeRowConfig, row) == 40 && offsetof(PxuiTreeRowConfig, content) == 72 && offsetof(PxuiTreeRowConfig, variant) == 80, "PxuiTreeRowConfig layout");
 _Static_assert(sizeof(PxuiTableHeadConfig) == 80 && offsetof(PxuiTableHeadConfig, size) == 0 && offsetof(PxuiTableHeadConfig, state) == 4 && offsetof(PxuiTableHeadConfig, has_ascending) == 12 && offsetof(PxuiTableHeadConfig, ascending) == 13 && offsetof(PxuiTableHeadConfig, index) == 16 && offsetof(PxuiTableHeadConfig, node) == 24 && offsetof(PxuiTableHeadConfig, title) == 56 && offsetof(PxuiTableHeadConfig, variant) == 72, "PxuiTableHeadConfig layout");
-_Static_assert(sizeof(PxuiSearchFieldConfig) == 120 && offsetof(PxuiSearchFieldConfig, size) == 0 && offsetof(PxuiSearchFieldConfig, state) == 4 && offsetof(PxuiSearchFieldConfig, key) == 16 && offsetof(PxuiSearchFieldConfig, well) == 24 && offsetof(PxuiSearchFieldConfig, icon) == 56 && offsetof(PxuiSearchFieldConfig, editor) == 72 && offsetof(PxuiSearchFieldConfig, variant) == 80 && offsetof(PxuiSearchFieldConfig, line) == 88, "PxuiSearchFieldConfig layout");
+_Static_assert(sizeof(PxuiSearchFieldConfig) == 128 && offsetof(PxuiSearchFieldConfig, size) == 0 && offsetof(PxuiSearchFieldConfig, state) == 4 && offsetof(PxuiSearchFieldConfig, key) == 16 && offsetof(PxuiSearchFieldConfig, well) == 24 && offsetof(PxuiSearchFieldConfig, icon) == 56 && offsetof(PxuiSearchFieldConfig, editor) == 72 && offsetof(PxuiSearchFieldConfig, variant) == 80 && offsetof(PxuiSearchFieldConfig, line) == 88 && offsetof(PxuiSearchFieldConfig, clear) == 120, "PxuiSearchFieldConfig layout");
 _Static_assert(sizeof(PxuiTextFieldConfig) == 88 && offsetof(PxuiTextFieldConfig, size) == 0 && offsetof(PxuiTextFieldConfig, state) == 4 && offsetof(PxuiTextFieldConfig, row) == 16 && offsetof(PxuiTextFieldConfig, label) == 48 && offsetof(PxuiTextFieldConfig, value) == 64 && offsetof(PxuiTextFieldConfig, variant) == 80, "PxuiTextFieldConfig layout");
 _Static_assert(sizeof(PxuiLineFieldConfig) == 72 && offsetof(PxuiLineFieldConfig, size) == 0 && offsetof(PxuiLineFieldConfig, state) == 4 && offsetof(PxuiLineFieldConfig, empty) == 12 && offsetof(PxuiLineFieldConfig, field) == 16 && offsetof(PxuiLineFieldConfig, text) == 48 && offsetof(PxuiLineFieldConfig, variant) == 64, "PxuiLineFieldConfig layout");
 _Static_assert(sizeof(PxuiSlot) == 8 && offsetof(PxuiSlot, serial) == 0, "PxuiSlot layout");

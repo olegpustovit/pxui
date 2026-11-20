@@ -454,7 +454,7 @@ pub type PickerRowBody = fn(&mut Ui, &PickerRowConfig, &str, &str, &str);
 /// with no layout or look yet, which the body sizes and styles for `state`) and builds what is in it, in order: the icon,
 /// the editing surface (it calls `editor` once, which builds the editing node, runs the editing and returns whether the query is not
 /// empty) and, when it is not, the clear button. `key` is the field's own. Behaviour reads one part: the node built as `Part::CLEAR`
-/// (a press on it clears the query; behaviour gives it the button role and the name Clear). Caret, selection, undo and the
+/// (it takes the pointer, a press on it clears the query; behaviour gives it the button role and the name Clear, and its state as `clear`). Caret, selection, undo and the
 /// accessible text are the editing node's, which behaviour made. A body that builds `Part::EDITOR` before calling `editor` gets that
 /// node as the editing node (U2b.4.4, as a text field body's): behaviour makes it focusable with the text field role, keeps its look
 /// (a body restyles it for the placeholder after `editor` answers empty) and places the caret and paints focused text in its font.
@@ -465,6 +465,9 @@ pub struct SearchFieldConfig {
     /// The field's line (the kit's row: the control height, `space(2)` at each side), which a body sizes with `set_node_layout` as a
     /// button body sizes its `line` (U2b.4.8).
     pub line: Handle,
+    /// The clear key's state (`Part::CLEAR`: hovered, pressed), which behaviour owns as it owns the key's press, role and name; a
+    /// body styles the key it builds for it (`style`), so every state's look follows the kit's priority (U2b.4.23).
+    pub clear: State,
 }
 
 pub type SearchFieldBody = fn(&mut Ui, &SearchFieldConfig, &str, &mut dyn FnMut(&mut Ui) -> bool);

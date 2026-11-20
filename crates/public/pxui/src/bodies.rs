@@ -589,6 +589,46 @@ mod tests {
         assert_eq!(changed.borrow().as_deref(), Some(""), "Escape clears the query on the body's editor");
     }
 
+    /// U2b.4.23: a search field body styles the clear key it builds for the state behaviour gives it (`SearchFieldConfig.clear`), with
+    /// no signal of its own: idle, then hovered under the pointer, then pressed (the kit's priority over hovered) while held; the
+    /// release clears the query. Both link modes.
+    #[test]
+    fn a_search_body_styles_its_clear_key_for_the_kits_state() {
+        use pxui_types::a11y::Role;
+        thread_local! { static SEEN: Cell<crate::theme::State> = const { Cell::new(crate::theme::State { hovered: false, pressed: false, focused: false, disabled: false, checked: false }) }; }
+        const KEY: crate::theme::States = crate::theme::States::of(crate::theme::Look::NONE.fill(crate::Rgba::rgb(1, 1, 1)))
+            .hover(crate::theme::Look::NONE.fill(crate::Rgba::rgb(2, 2, 2))).pressed(crate::theme::Look::NONE.fill(crate::Rgba::rgb(3, 3, 3)));
+        fn search(ui: &mut Ui, c: &SearchFieldConfig) {
+            let state = crate::theme::State::default().hovered(c.clear.hovered != 0).pressed(c.clear.pressed != 0);
+            SEEN.with(|s| s.set(state));
+            ui.part(Part::EDITOR, Node::DEFAULT.w_px(200.0).h_px(40.0));
+            ui.slot(c.editor);
+            let clear = ui.part(Part::CLEAR, Node::DEFAULT.w_px(40.0).h_px(40.0));
+            ui.style(&clear, &KEY, state);
+        }
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+        ui.set_a11y(true);
+        ui.register_search_field_body("s", search).unwrap();
+        ui.set_theme(&crate::ThemeHandle::parse("search_field.body = s").unwrap()).unwrap();
+        let changed = RefCell::new(None::<String>);
+        let mut build = |ui: &mut Ui| {
+            if let Some(q) = ui.search_field("find", "query", &crate::SearchField::DEFAULT.name("Find")).changed { *changed.borrow_mut() = Some(q.to_owned()); }
+        };
+        let filled = |ui: &Ui, v: u8| ui.layers().flat_map(|l| l.instances.iter()).any(|i| i.color == [v, v, v, 255]);
+        crate::testing::frame(&mut ui, &[], &mut build);
+        let key = crate::testing::find(&ui, Role::Button, "Clear").expect("behaviour names the body's clear key");
+        let (x, y) = (f64::from(key.x + key.w / 2.0), f64::from(key.y + key.h / 2.0));
+        assert!(filled(&ui, 1) && SEEN.with(|s| s.get()) == crate::theme::State::default(), "idle");
+        crate::testing::frame(&mut ui, &[crate::Event { kind: crate::Event::POINTER_MOVED, x, y, ..Default::default() }], &mut build);
+        crate::testing::frame(&mut ui, &[], &mut build);
+        assert!(SEEN.with(|s| s.get()).hovered && filled(&ui, 2), "the body sees the key hovered and shows its hovered look");
+        crate::testing::frame(&mut ui, &[crate::Event { kind: crate::Event::POINTER_PRESSED, x, y, ..Default::default() }], &mut build);
+        crate::testing::frame(&mut ui, &[], &mut build);
+        assert!(SEEN.with(|s| s.get()).pressed && filled(&ui, 3), "held: the pressed look wins over hovered");
+        crate::testing::frame(&mut ui, &[crate::Event { kind: crate::Event::POINTER_RELEASED, x, y, ..Default::default() }], &mut build);
+        assert_eq!(changed.borrow().as_deref(), Some(""), "the release clears the query");
+    }
+
     /// U2b.4.15: a picker field body that builds `Part::EDITOR` gets the query painted on that part in its look's font, 2 points in;
     /// warm frames with the body's editor allocate nothing. Both link modes.
     #[test]
@@ -693,7 +733,7 @@ mod tests {
         assert_eq!(list.h, 5.0 * row.h, "limit rows of the kit's height show");
         let first = row.y;
         let over = (f64::from(list.x + 10.0), f64::from(list.y + 10.0));
-        step(&mut ui, &[Event { kind: Event::POINTER_MOVED, x: over.0, y: over.1, ..Default::default() }]);
+        step(&mut ui, &[crate::Event { kind: crate::Event::POINTER_MOVED, x: over.0, y: over.1, ..Default::default() }]);
         step(&mut ui, &[Event { kind: Event::SCROLLED, y: -3.0 * f64::from(row.h), ..Default::default() }]);
         for _ in 0..30 { step(&mut ui, &[]); }
         assert!(crate::testing::find(&ui, Role::ListItem, "P00").is_none_or(|r| r.y < first), "the wheel scrolled the results");
