@@ -65,7 +65,7 @@ fn encode(value: &Event, text: &mut String, touches:&mut Vec<pxui_types::Touch>)
     let mut out = FfiEvent::default();
     match value {
         Event::Touch(t)=> {
-            touches.push(pxui_types::Touch {device:t.device,finger:t.finger,x:t.point.0,y:t.point.1,time:t.time,pressure:t.pressure,phase:t.phase.code()});
+            touches.push(pxui_types::Touch::new(t.device,t.finger,[t.point.0,t.point.1],t.time,t.pressure,t.phase.code()));
             out.kind=FfiEvent::TOUCH;
             out.text=Str {ptr:touches.as_ptr().wrapping_add(touches.len()-1).cast(),len:core::mem::size_of::<pxui_types::Touch>()};
         }

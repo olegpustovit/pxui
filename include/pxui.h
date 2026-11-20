@@ -18,7 +18,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 135u)
+#define PXUI_ABI_BUILT ((1u << 16) | 136u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 typedef struct { uint32_t autocorrect, capitalization, action; } PxuiTextInputOptions;
@@ -28,7 +28,8 @@ typedef struct { const PxuiStr *ptr; size_t len; } PxuiStrSpan;
 /* ABI 1.25: TOUCH borrows this numeric payload through Event.text; len is sizeof(PxuiTouch).
    IDs retain all 64 bits. Phase: 0 began, 1 moved, 2 ended, 3 cancelled. Positions are logical points
    and may be outside the window. Time is source monotonic seconds; finite pressure is in [0,1]. */
-typedef struct { uint64_t device, finger; double x, y, time; float pressure; uint32_t phase; } PxuiTouch;
+/* U5.4: size-prefixed (56 bytes): size is sizeof(PxuiTouch) and covers the record without running past text.len; a longer payload is read as its first 56 bytes. */
+typedef struct { uint32_t size, phase; uint64_t device, finger; double x, y, time; float pressure; uint32_t reserved; } PxuiTouch;
 /* ABI 1.133: one input event, 64 bytes, size-prefixed (size >= 64: a longer record is read as its first 64 bytes, a shorter one refused). One kind
    per event; the twin FILE_DROPPED (11) is gone and stays reserved (FILES_DROPPED carries any number of paths). `surface` is the surface the event is
    for: it must be the surface of the frame call that carries it, else the frame is PXUI_ERR_ARGUMENT. Per-kind fields: pointer and scroll use x/y;
@@ -205,14 +206,15 @@ typedef struct { float rect[4],uv[4]; uint32_t atlas,reserved; } PxuiTextGlyph;
    extra[0] packs two f16 (ppem in device pixels low, device scale high); the shader grows ink by the fill colour's luminance level.
    Renderers that predate it ignore the bit and the extra words and draw the plain mask. */
 #define PXUI_LIGHT 16u
-/* ABI 1.24: logical window points; insets are top/right/bottom/left, rectangles x/y/w/h. */
+/* ABI 1.24: logical window points; insets are top/right/bottom/left, rectangles x/y/w/h. U5.4: size-prefixed (80 bytes); the frame call refuses a record
+   whose size is short and stores its own size. An out record (pxui_ui_environment) needs the caller's size to cover it (else PXUI_ERR_ARGUMENT). */
 typedef struct {
+    uint32_t size, keyboard_curve, keyboard_visible, reserved;
     float safe_area[4], keyboard_frame[4], keyboard_from[4];
     double keyboard_started, keyboard_duration;
-    uint32_t keyboard_curve, keyboard_visible;
 } PxuiEnvironment;
-/* ABI 1.26: current UIKit keyboard presentation frame, including intermediate geometry. */
-typedef struct { float frame[4]; uint32_t flags; } PxuiKeyboard;
+/* Current UIKit keyboard presentation frame, including intermediate geometry. U5.4: size-prefixed (24 bytes), as PxuiEnvironment. */
+typedef struct { uint32_t size, flags; float frame[4]; } PxuiKeyboard;
 #define PXUI_KEYBOARD_VALID 1u
 #define PXUI_KEYBOARD_ANIMATING 2u
 typedef struct {
@@ -1252,11 +1254,11 @@ _Static_assert(sizeof(PxuiTextSpan) == 24 && offsetof(PxuiTextSpan, start) == 0 
 _Static_assert(sizeof(PxuiTextSpans) == 200 && offsetof(PxuiTextSpans, size) == 0 && offsetof(PxuiTextSpans, count) == 4 && offsetof(PxuiTextSpans, spans) == 8, "TextSpans layout");
 _Static_assert(offsetof(PxuiFrameIn, environment) == 56 && offsetof(PxuiFrameIn, size) == 0 && offsetof(PxuiFrameIn, events) == 8 && offsetof(PxuiFrameIn, event_count) == 16 && offsetof(PxuiFrameIn, width) == 24 && offsetof(PxuiFrameIn, height) == 28 && offsetof(PxuiFrameIn, scale) == 32 && offsetof(PxuiFrameIn, time) == 40 && offsetof(PxuiFrameIn, appearance) == 48 && offsetof(PxuiFrameIn, reduced_motion) == 52, "FrameInV1_8 layout");
 _Static_assert(sizeof(PxuiSectionListDesc) == 32 && offsetof(PxuiSectionListDesc, size) == 0 && offsetof(PxuiSectionListDesc, overlay_scrollbar) == 4 && offsetof(PxuiSectionListDesc, measured) == 5 && offsetof(PxuiSectionListDesc, reserved) == 7 && offsetof(PxuiSectionListDesc, count) == 8 && offsetof(PxuiSectionListDesc, row_height) == 16 && offsetof(PxuiSectionListDesc, leading_height) == 20 && offsetof(PxuiSectionListDesc, header_height) == 24 && offsetof(PxuiSectionListDesc, trailing_height) == 28, "PxuiSectionListDesc layout");
-_Static_assert(sizeof(PxuiEnvironment) == 72 && offsetof(PxuiEnvironment, safe_area) == 0 && offsetof(PxuiEnvironment, keyboard_frame) == 16 && offsetof(PxuiEnvironment, keyboard_from) == 32 && offsetof(PxuiEnvironment, keyboard_started) == 48 && offsetof(PxuiEnvironment, keyboard_duration) == 56 && offsetof(PxuiEnvironment, keyboard_curve) == 64 && offsetof(PxuiEnvironment, keyboard_visible) == 68, "Environment layout");
-_Static_assert(offsetof(PxuiFrameIn, keyboard) == 128 && offsetof(PxuiFrameIn, size) == 0 && offsetof(PxuiFrameIn, events) == 8 && offsetof(PxuiFrameIn, event_count) == 16 && offsetof(PxuiFrameIn, width) == 24 && offsetof(PxuiFrameIn, height) == 28 && offsetof(PxuiFrameIn, scale) == 32 && offsetof(PxuiFrameIn, time) == 40 && offsetof(PxuiFrameIn, appearance) == 48 && offsetof(PxuiFrameIn, reduced_motion) == 52 && offsetof(PxuiFrameIn, environment) == 56, "FrameInV1_24 layout");
-_Static_assert(sizeof(PxuiTouch) == 48 && offsetof(PxuiTouch, device) == 0 && offsetof(PxuiTouch, finger) == 8 && offsetof(PxuiTouch, x) == 16 && offsetof(PxuiTouch, y) == 24 && offsetof(PxuiTouch, time) == 32 && offsetof(PxuiTouch, pressure) == 40 && offsetof(PxuiTouch, phase) == 44, "Touch layout");
-_Static_assert(sizeof(PxuiKeyboard) == 20 && offsetof(PxuiKeyboard, frame) == 0 && offsetof(PxuiKeyboard, flags) == 16, "Keyboard layout");
-_Static_assert(offsetof(PxuiFrameIn, surface) == 152 && offsetof(PxuiFrameIn, size) == 0 && offsetof(PxuiFrameIn, events) == 8 && offsetof(PxuiFrameIn, event_count) == 16 && offsetof(PxuiFrameIn, width) == 24 && offsetof(PxuiFrameIn, height) == 28 && offsetof(PxuiFrameIn, scale) == 32 && offsetof(PxuiFrameIn, time) == 40 && offsetof(PxuiFrameIn, appearance) == 48 && offsetof(PxuiFrameIn, reduced_motion) == 52 && offsetof(PxuiFrameIn, environment) == 56 && offsetof(PxuiFrameIn, keyboard) == 128, "FrameInV1_26 layout");
+_Static_assert(sizeof(PxuiEnvironment) == 80 && offsetof(PxuiEnvironment, safe_area) == 16 && offsetof(PxuiEnvironment, keyboard_frame) == 32 && offsetof(PxuiEnvironment, keyboard_from) == 48 && offsetof(PxuiEnvironment, keyboard_started) == 64 && offsetof(PxuiEnvironment, keyboard_duration) == 72 && offsetof(PxuiEnvironment, keyboard_curve) == 4 && offsetof(PxuiEnvironment, keyboard_visible) == 8, "Environment layout");
+_Static_assert(offsetof(PxuiFrameIn, keyboard) == 136 && offsetof(PxuiFrameIn, size) == 0 && offsetof(PxuiFrameIn, events) == 8 && offsetof(PxuiFrameIn, event_count) == 16 && offsetof(PxuiFrameIn, width) == 24 && offsetof(PxuiFrameIn, height) == 28 && offsetof(PxuiFrameIn, scale) == 32 && offsetof(PxuiFrameIn, time) == 40 && offsetof(PxuiFrameIn, appearance) == 48 && offsetof(PxuiFrameIn, reduced_motion) == 52 && offsetof(PxuiFrameIn, environment) == 56, "FrameInV1_24 layout");
+_Static_assert(sizeof(PxuiTouch) == 56 && offsetof(PxuiTouch, device) == 8 && offsetof(PxuiTouch, finger) == 16 && offsetof(PxuiTouch, x) == 24 && offsetof(PxuiTouch, y) == 32 && offsetof(PxuiTouch, time) == 40 && offsetof(PxuiTouch, pressure) == 48 && offsetof(PxuiTouch, phase) == 4, "Touch layout");
+_Static_assert(sizeof(PxuiKeyboard) == 24 && offsetof(PxuiKeyboard, frame) == 8 && offsetof(PxuiKeyboard, flags) == 4, "Keyboard layout");
+_Static_assert(offsetof(PxuiFrameIn, surface) == 160 && offsetof(PxuiFrameIn, size) == 0 && offsetof(PxuiFrameIn, events) == 8 && offsetof(PxuiFrameIn, event_count) == 16 && offsetof(PxuiFrameIn, width) == 24 && offsetof(PxuiFrameIn, height) == 28 && offsetof(PxuiFrameIn, scale) == 32 && offsetof(PxuiFrameIn, time) == 40 && offsetof(PxuiFrameIn, appearance) == 48 && offsetof(PxuiFrameIn, reduced_motion) == 52 && offsetof(PxuiFrameIn, environment) == 56 && offsetof(PxuiFrameIn, keyboard) == 136, "FrameInV1_26 layout");
 _Static_assert(sizeof(PxuiTextInputOptions) == 12 && offsetof(PxuiTextInputOptions, autocorrect) == 0 && offsetof(PxuiTextInputOptions, capitalization) == 4 && offsetof(PxuiTextInputOptions, action) == 8, "TextInputOptions layout");
 _Static_assert(sizeof(PxuiScrubOut) == 48 && offsetof(PxuiScrubOut, size) == 0 && offsetof(PxuiScrubOut, flags) == 4 && offsetof(PxuiScrubOut, node) == 8 && offsetof(PxuiScrubOut, preview) == 40 && offsetof(PxuiScrubOut, commit) == 44, "PxuiScrubOut layout");
 _Static_assert(sizeof(PxuiGestureIn) == 16 && offsetof(PxuiGestureIn, size) == 0 && offsetof(PxuiGestureIn, kinds) == 4 && offsetof(PxuiGestureIn, reveal) == 8 && offsetof(PxuiGestureIn, threshold) == 12, "PxuiGestureIn layout");
@@ -1274,7 +1276,7 @@ _Static_assert(sizeof(PxuiDialogDesc) == 104 && offsetof(PxuiDialogDesc, size) =
 _Static_assert(sizeof(PxuiDialogResult) == 16 && offsetof(PxuiDialogResult, size) == 0 && offsetof(PxuiDialogResult, has_chosen) == 4 && offsetof(PxuiDialogResult, dismissed) == 5 && offsetof(PxuiDialogResult, reserved) == 6 && offsetof(PxuiDialogResult, chosen) == 8, "PxuiDialogResult layout");
 _Static_assert(sizeof(PxuiCurve) == 140 && offsetof(PxuiCurve, kind) == 0 && offsetof(PxuiCurve, data) == 4, "PxuiCurve layout");
 _Static_assert(sizeof(PxuiLabelBox) == 16 && offsetof(PxuiLabelBox, size) == 0 && offsetof(PxuiLabelBox, set) == 4 && offsetof(PxuiLabelBox, height) == 8 && offsetof(PxuiLabelBox, role) == 12 && offsetof(PxuiLabelBox, whole_pixels) == 13 && offsetof(PxuiLabelBox, reserved) == 14, "PxuiLabelBox layout");
-_Static_assert(sizeof(PxuiFrameIn) == 160 && offsetof(PxuiFrameIn, size) == 0 && offsetof(PxuiFrameIn, events) == 8 && offsetof(PxuiFrameIn, event_count) == 16 && offsetof(PxuiFrameIn, width) == 24 && offsetof(PxuiFrameIn, height) == 28 && offsetof(PxuiFrameIn, scale) == 32 && offsetof(PxuiFrameIn, time) == 40 && offsetof(PxuiFrameIn, appearance) == 48 && offsetof(PxuiFrameIn, reduced_motion) == 52 && offsetof(PxuiFrameIn, environment) == 56 && offsetof(PxuiFrameIn, keyboard) == 128 && offsetof(PxuiFrameIn, surface) == 152, "FrameInV1_57 layout");
+_Static_assert(sizeof(PxuiFrameIn) == 168 && offsetof(PxuiFrameIn, size) == 0 && offsetof(PxuiFrameIn, events) == 8 && offsetof(PxuiFrameIn, event_count) == 16 && offsetof(PxuiFrameIn, width) == 24 && offsetof(PxuiFrameIn, height) == 28 && offsetof(PxuiFrameIn, scale) == 32 && offsetof(PxuiFrameIn, time) == 40 && offsetof(PxuiFrameIn, appearance) == 48 && offsetof(PxuiFrameIn, reduced_motion) == 52 && offsetof(PxuiFrameIn, environment) == 56 && offsetof(PxuiFrameIn, keyboard) == 136 && offsetof(PxuiFrameIn, surface) == 160, "FrameInV1_57 layout");
 _Static_assert(sizeof(PxuiUiDesc) == 16 && offsetof(PxuiUiDesc, size) == 0 && offsetof(PxuiUiDesc, platform) == 4 && offsetof(PxuiUiDesc, font_size) == 8 && offsetof(PxuiUiDesc, abi_built) == 12, "PxuiUiDescV1_60 layout");
 _Static_assert(sizeof(PxuiTextFieldDesc) == 56 && offsetof(PxuiTextFieldDesc, size) == 0 && offsetof(PxuiTextFieldDesc, autocorrect) == 4 && offsetof(PxuiTextFieldDesc, capitalization) == 5 && offsetof(PxuiTextFieldDesc, action) == 6 && offsetof(PxuiTextFieldDesc, reserved) == 7 && offsetof(PxuiTextFieldDesc, key) == 8 && offsetof(PxuiTextFieldDesc, name) == 24 && offsetof(PxuiTextFieldDesc, value) == 40, "PxuiTextFieldDesc layout");
 _Static_assert(sizeof(PxuiSegmentedResult) == 24 && offsetof(PxuiSegmentedResult, size) == 0 && offsetof(PxuiSegmentedResult, has_chosen) == 4 && offsetof(PxuiSegmentedResult, has_secondary) == 5 && offsetof(PxuiSegmentedResult, reserved) == 6 && offsetof(PxuiSegmentedResult, chosen) == 8 && offsetof(PxuiSegmentedResult, secondary) == 16, "PxuiSegmentedResult layout");

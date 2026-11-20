@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 135
+minor 136
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -238,20 +238,20 @@ layout A11yValue 48 8 0 4 8 12 16 24 32 40
 layout Commands 24 8 0 8 16
 layout Damage 20 4 0 1 4
 layout Edges 16 4 0 4 8 12
-layout Environment 72 8 0 16 32 48 56 64 68
+layout Environment 80 8 16 32 48 64 72 4 8
 layout Event 64 8 4 16 24 32 40 48
 layout Flags 8 8
 layout FrameIn 48 8 0 8 16 24 28 32 40
-layout FrameInV1_24 128 8 0 8 16 24 28 32 40 48 52 56
-layout FrameInV1_26 152 8 0 8 16 24 28 32 40 48 52 56 128
-layout FrameInV1_57 160 8 0 8 16 24 28 32 40 48 52 56 128 152
+layout FrameInV1_24 136 8 0 8 16 24 28 32 40 48 52 56
+layout FrameInV1_26 160 8 0 8 16 24 28 32 40 48 52 56 136
+layout FrameInV1_57 168 8 0 8 16 24 28 32 40 48 52 56 136 160
 layout FrameInV1_8 56 8 0 8 16 24 28 32 40 48 52
 layout FrameOut 40 8 0 4 20 21 24 32
 layout Gpu 128 8 0 4 8 16 24 32 40 44 48 56 64 72 80 88 96 104 112 120
 layout Image 40 8 0 8 16 24 28 32
 layout Input 160 8 0 8 16 24 32 40 56 72 88 104 120 136 152
 layout Instance 64 4 0 16 24 28 32 40 48 50 51 52 54 56
-layout Keyboard 20 4 0 16
+layout Keyboard 24 4 8 4
 layout Output 240 8 0 4 8 16 24 32 40 48 136 160 224
 layout Pass 72 8 0 8 16 24 28 32 40 48 52 56 64
 layout PlatformOut 88 8 0 4 8 9 10 11 16 48 56 72 76 77
@@ -409,5 +409,5 @@ layout TextMetrics 16 4 0 4 8 12
 layout TextSpan 24 4 0 4 8 10 12 16 20
 layout TextSpans 200 4 0 4 8
 layout TextStyle 36 4 0 4 6 8 12 16 20 24 26 27 28 32
-layout Touch 48 8 0 8 16 24 32 40 44
+layout Touch 56 8 8 16 24 32 40 48 4
 layout View 56 4 0 8 12 28 32 48

@@ -20,14 +20,15 @@ export!(pub unsafe fn pxui_ui_row_points(ui: *mut PxuiUi, out: *mut f32) -> i32 
 export!(pub unsafe fn pxui_ui_density(ui: *mut PxuiUi) -> i64 { unsafe { engine(ui) }.map_or(0, |e| e.density()) });
 export!(pub unsafe fn pxui_ui_environment(ui:*mut PxuiUi,out:*mut pxui_types::Environment)->i32 {
     let Some(e)=(unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    if out.is_null() { return unsafe { fail(ui,"null environment output") }; }
-    unsafe { out.write(e.environment()); }
+    // an out record: the caller's `size` covers the library's, else it is refused; the library's own is written
+    let Some(out)=sized_mut!(out) else { return unsafe { fail(ui,"null or short environment output") }; };
+    *out=pxui_types::Environment { size: core::mem::size_of::<pxui_types::Environment>() as u32, ..e.environment() };
     0
 });
 export!(pub unsafe fn pxui_ui_keyboard(ui:*mut PxuiUi,out:*mut pxui_types::Keyboard)->i32 {
     let Some(e)=(unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    if out.is_null() { return unsafe { fail(ui,"null keyboard output") }; }
-    unsafe { out.write(e.keyboard()); }
+    let Some(out)=sized_mut!(out) else { return unsafe { fail(ui,"null or short keyboard output") }; };
+    *out=pxui_types::Keyboard { size: core::mem::size_of::<pxui_types::Keyboard>() as u32, ..e.keyboard() };
     0
 });
 export!(pub unsafe fn pxui_ui_text_input_options(ui:*mut PxuiUi,out:*mut pxui_types::PxuiTextInputOptions)->i32 {

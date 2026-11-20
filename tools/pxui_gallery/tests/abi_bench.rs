@@ -501,7 +501,7 @@ fn abi_bench_idle() {
 /// The iOS probe's gallery (`tools/ios_spike`): 402x874 points at 3x under the safe area, no input. From the 82nd frame it allocates nothing.
 fn warm_gallery_phone() {
     let mut ui = pxui::Ui::new(&pxui::UiDesc::new(pxui::Platform::Apple).fonts(&[pxui::FontData(include_bytes!("../../../assets/fonts/Pragmasevka-Regular.ttf"))])).expect("pxui Ui");
-    let (mut state, environment) = (Gallery::new(), pxui::Environment { safe_area: [62.0, 0.0, 34.0, 0.0], ..pxui::Environment::default() });
+    let (mut state, environment) = (Gallery::new(), pxui::Environment::new([62.0, 0.0, 34.0, 0.0]));
     for count in 0..100u64 {
         let input = FrameIn::new(402.0, 874.0).scale(3.0).time(count as f64 / 60.0).environment(environment);
         let before = allocations();

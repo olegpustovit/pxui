@@ -288,8 +288,10 @@ export!(pub unsafe fn pxui_ui_remove_surface(ui: *mut PxuiUi, surface: u64) -> i
 });
 
 fn touch_event(e:&pxui_types::Event)->Option<input::Touch> {
-    if e.text.len!=core::mem::size_of::<pxui_types::Touch>() || e.text.ptr.is_null() {return None;}
+    // the record is the payload's length, whole: its own `size` covers `Touch` and does not run past the payload
+    if e.text.len<core::mem::size_of::<pxui_types::Touch>() || e.text.ptr.is_null() {return None;}
     let t=unsafe {e.text.ptr.cast::<pxui_types::Touch>().read_unaligned()};
+    if (t.size as usize)<core::mem::size_of::<pxui_types::Touch>() || t.size as usize>e.text.len {return None;}
     let value=input::Touch {device:t.device,finger:t.finger,point:(t.x,t.y),time:t.time,pressure:t.pressure,phase:input::TouchPhase::from_code(t.phase)?};
     value.valid().then_some(value)
 }
@@ -395,6 +397,7 @@ fn same_keyboard(a: &pxui_types::Keyboard, b: &pxui_types::Keyboard) -> bool {
 }
 
 fn valid_environment(value:&pxui_types::Environment)->bool {
+    if (value.size as usize)<core::mem::size_of::<pxui_types::Environment>() { return false; }
     let rect=|r:&[f32;4]| r.iter().all(|v|v.is_finite()) && r[2]>=0.0 && r[3]>=0.0 && (r[0]+r[2]).is_finite() && (r[1]+r[3]).is_finite();
     value.safe_area.iter().all(|v|v.is_finite() && *v>=0.0)
         && (value.safe_area[0]+value.safe_area[2]).is_finite() && (value.safe_area[1]+value.safe_area[3]).is_finite()
@@ -406,12 +409,12 @@ fn valid_environment(value:&pxui_types::Environment)->bool {
 /// A changed host environment, given to the engine out of line: a frame that repeats it (the most) keeps none of it in registers.
 #[cold]
 #[inline(never)]
-fn set_environment(engine: &mut Ui, environment: &pxui_types::Environment) { engine.set_environment(*environment); }
+fn set_environment(engine: &mut Ui, environment: &pxui_types::Environment) { engine.set_environment(pxui_types::Environment { size: core::mem::size_of::<pxui_types::Environment>() as u32, ..*environment }); }
 
 /// A changed keyboard geometry, given to the engine out of line (as `set_environment`).
 #[cold]
 #[inline(never)]
-fn set_keyboard(engine: &mut Ui, keyboard: &pxui_types::Keyboard) { engine.set_keyboard(*keyboard); }
+fn set_keyboard(engine: &mut Ui, keyboard: &pxui_types::Keyboard) { engine.set_keyboard(pxui_types::Keyboard { size: core::mem::size_of::<pxui_types::Keyboard>() as u32, ..*keyboard }); }
 
 /// Runs one frame of `ui` over `frame`. Both frame entry points call it after decoding their input (inline: one frame call fewer).
 #[inline(always)]
@@ -540,7 +543,7 @@ export!(pub unsafe fn pxui_ui_input(ui: *mut PxuiUi, has_owner: u8, owner: i64, 
     for (event, scratch) in f.input.events.iter().zip(shared.routed_text.iter_mut()) {
         scratch.clear();
         if let Event::Touch(t)=event {
-            shared.routed_touches.push(pxui_types::Touch {device:t.device,finger:t.finger,x:t.point.0,y:t.point.1,time:t.time,pressure:t.pressure,phase:t.phase.code()});
+            shared.routed_touches.push(pxui_types::Touch::new(t.device,t.finger,[t.point.0,t.point.1],t.time,t.pressure,t.phase.code()));
             shared.routed_events.push(pxui_types::Event {kind:pxui_types::Event::TOUCH,surface:shared.surface,text:Str {ptr:shared.routed_touches.as_ptr().wrapping_add(shared.routed_touches.len()-1).cast(),len:core::mem::size_of::<pxui_types::Touch>()},..Default::default()});
             continue;
         }
@@ -860,7 +863,7 @@ mod tests {
             match change { 0 => other.safe_area[0] = 48.0, 1 => other.keyboard_started = 1.5, 2 => other.keyboard_visible = 0, _ => other.keyboard_from[3] = f32::NAN }
             assert!(!super::same_environment(&env, &other), "change {change}");
         }
-        let keyboard = Keyboard { frame: [0.0, 500.0, 390.0, 344.0], flags: Keyboard::VALID };
+        let keyboard = Keyboard::new(pxui_types::geom::Rect::new(0.0, 500.0, 390.0, 344.0), Keyboard::VALID);
         assert!(super::same_keyboard(&keyboard, &keyboard.clone()) && !super::same_keyboard(&keyboard, &Keyboard { flags: 0, ..keyboard }));
         // a pointer that is not finite is refused before either path
         for (x, y) in [(1.5, -2.0), (f64::NAN, 0.0), (f64::INFINITY, -0.0)] {
@@ -937,8 +940,7 @@ mod tests {
         for tick in 0..182 {
             let count = [32, 1, 0, 3][tick % 4];
             for (index, packet) in packets.iter_mut().enumerate() {
-                *packet = Touch { device: u64::MAX, finger: u64::MAX - index as u64, x: -1.25, y: 99.5,
-                    time: tick as f64 / 120.0, pressure: 0.375, phase: (tick % 4) as u32 };
+                *packet = Touch::new(u64::MAX, u64::MAX - index as u64, [-1.25, 99.5], tick as f64 / 120.0, 0.375, (tick % 4) as u32);
                 events[index] = Wire { kind: Wire::TOUCH,
                     text: Str { ptr: (packet as *const Touch).cast(), len: core::mem::size_of::<Touch>() },
                     ..Default::default() };
@@ -966,7 +968,7 @@ mod tests {
     fn typed_touch_payloads_round_trip_full_ids_and_reject_invalid_tails_atomically() {
         use pxui_types::{Touch,Event as C,FrameIn,Str};
         let ui=unsafe {crate::ui::create_test_ui()};
-        let mut packet=Touch {device:u64::MAX,finger:0xfedcba9876543210,x:-1.25,y:99.5,time:10.0,pressure:0.375,phase:0};
+        let mut packet=Touch::new(u64::MAX, 0xfedcba9876543210, [-1.25, 99.5], 10.0, 0.375, 0);
         let mut out=crate::FrameOut::default();
         for frame in 0..182 {
             packet.phase=(frame%4) as u32;
@@ -999,6 +1001,17 @@ mod tests {
             let event=C {kind:C::TOUCH,text,..Default::default()};
             assert_eq!(unsafe {super::pxui_frame(ui,&FrameIn {events:&event,event_count:1,..input},None,core::ptr::null_mut(),&mut out)},crate::PXUI_ERR_ARGUMENT);
         }
+        // the record's own size: short, or past the payload, is refused; a longer payload than the record is read as its first bytes
+        let mut frame=|touch:&Touch,len:usize| {
+            let event=C {kind:C::TOUCH,text:Str {ptr:(touch as *const Touch).cast(),len},..Default::default()};
+            unsafe {super::pxui_frame(ui,&FrameIn {events:&event,event_count:1,..input},None,core::ptr::null_mut(),&mut out)}
+        };
+        let whole=Touch::new(1,2,[10.0,20.0],1.0,1.0,0);
+        for size in [0,4,55] { assert_eq!(frame(&Touch {size,..whole},core::mem::size_of::<Touch>()),crate::PXUI_ERR_ARGUMENT,"touch size {size}"); }
+        assert_eq!(frame(&Touch {size:57,..whole},core::mem::size_of::<Touch>()),crate::PXUI_ERR_ARGUMENT,"a record claiming more than its payload");
+        let padded=[whole,whole];
+        assert_eq!(frame(&padded[0],core::mem::size_of::<Touch>()),0);
+        assert_eq!(frame(&Touch {size:64,..padded[0]},64),0,"a longer record");
         assert_eq!(unsafe {super::pxui_ui_destroy(ui)},0);
     }
 
@@ -1006,8 +1019,7 @@ mod tests {
     fn host_environment_rejects_invalid_geometry_before_mutating_a_frame() {
         use pxui_types::{Environment,FrameIn};
         let ui=unsafe { crate::ui::create_test_ui() };
-        let value=Environment { safe_area:[47.0,0.0,34.0,0.0],keyboard_frame:[0.0,500.0,390.0,344.0],keyboard_from:[0.0,844.0,390.0,344.0],
-            keyboard_started:1.0,keyboard_duration:0.25,keyboard_curve:7,keyboard_visible:1 };
+        let value=Environment::new([47.0,0.0,34.0,0.0]).keyboard_animation([0.0,500.0,390.0,344.0],[0.0,844.0,390.0,344.0],1.0,0.25,7,true);
         let input=FrameIn { width:390.0,height:844.0,environment:value,..Default::default() };
         let mut out=crate::FrameOut::default();
         assert_eq!(unsafe {super::pxui_frame(ui,&input,None,core::ptr::null_mut(),&mut out)},0);
@@ -1057,6 +1069,34 @@ mod tests {
             assert_eq!(appearance,2);
         }
         assert_eq!(unsafe { super::pxui_ui_system_appearance(ui,core::ptr::null_mut()) },crate::PXUI_ERR_ARGUMENT);
+        // the embedded environment and keyboard records carry their own sizes: a short one is refused before anything changes
+        let good=FrameIn::new(320.0,240.0);
+        for size in [0,4,79] {
+            out.size=777;
+            let bad=FrameIn { environment:pxui_types::Environment { size,..good.environment },..good };
+            assert_eq!(unsafe { super::pxui_frame(ui,&bad,None,core::ptr::null_mut(),&mut out) },crate::PXUI_ERR_ARGUMENT,"environment size {size}");
+            assert_eq!(out.size,777);
+        }
+        for size in [0,4,23] {
+            let bad=FrameIn { keyboard:pxui_types::Keyboard { size,..good.keyboard },..good };
+            assert_eq!(unsafe { super::pxui_frame(ui,&bad,None,core::ptr::null_mut(),&mut out) },crate::PXUI_ERR_ARGUMENT,"keyboard size {size}");
+        }
+        // a longer one is read as its first bytes and stored with the library's own size
+        let longer=FrameIn { environment:pxui_types::Environment { size:200,..pxui_types::Environment::new([7.0,0.0,0.0,0.0]) },..good };
+        assert_eq!(unsafe { super::pxui_frame(ui,&longer,None,core::ptr::null_mut(),&mut out) },0);
+        // the out records: the caller's size must cover the library's
+        let mut environment=pxui_types::Environment::default();
+        let mut keyboard=pxui_types::Keyboard::default();
+        assert_eq!(unsafe { crate::ui_state::pxui_ui_environment(ui,&mut environment) },0);
+        assert_eq!((environment.size as usize,environment.safe_area[0]),(core::mem::size_of::<pxui_types::Environment>(),7.0));
+        for size in [0,4,79] {
+            let mut short=pxui_types::Environment { size,..environment };
+            assert_eq!(unsafe { crate::ui_state::pxui_ui_environment(ui,&mut short) },crate::PXUI_ERR_ARGUMENT);
+            assert_eq!(short.size,size);
+        }
+        assert_eq!(unsafe { crate::ui_state::pxui_ui_keyboard(ui,&mut keyboard) },0);
+        let mut short=pxui_types::Keyboard { size:20,..keyboard };
+        assert_eq!(unsafe { crate::ui_state::pxui_ui_keyboard(ui,&mut short) },crate::PXUI_ERR_ARGUMENT);
         assert_eq!(unsafe { super::pxui_ui_destroy(ui) },0);
     }
 
@@ -1084,7 +1124,7 @@ mod keyboard_tests {
         let ui = unsafe { pxui_ui_create(&crate::PxuiUiDesc::default()) };
         let mut out = FrameOut::default();
         let frame = |ui, input: &FrameIn, out: &mut FrameOut| unsafe { super::pxui_frame(ui, input, None, core::ptr::null_mut(), out) };
-        let input = FrameIn { width: 390.0, height: 844.0, keyboard: Keyboard { frame: [0.0, 508.0, 390.0, 336.0], flags: Keyboard::VALID }, ..FrameIn::default() };
+        let input = FrameIn { width: 390.0, height: 844.0, keyboard: Keyboard::new(pxui_types::geom::Rect::new(0.0, 508.0, 390.0, 336.0), Keyboard::VALID), ..FrameIn::default() };
         // no surface registered yet: the frame is refused, whatever it names
         assert_eq!(frame(ui, &input, &mut out), PXUI_ERR_ARGUMENT);
         assert_eq!(unsafe { super::pxui_ui_add_surface(ui, 0) }, PXUI_ERR_ARGUMENT, "0 is no surface");
@@ -1173,8 +1213,8 @@ mod keyboard_tests {
     fn keyboard_tail_validates_before_mutation() {
         use pxui_types::{Environment, Keyboard};
         let ui=unsafe {crate::ui::create_test_ui()};
-        let keyboard=Keyboard {frame:[0.0,508.0,390.0,336.0],flags:Keyboard::VALID};
-        let environment=Environment {safe_area:[47.0,0.0,34.0,0.0],..Environment::default()};
+        let keyboard=Keyboard::new(pxui_types::geom::Rect::new(0.0, 508.0, 390.0, 336.0), Keyboard::VALID);
+        let environment=Environment::new([47.0,0.0,34.0,0.0]);
         let input=FrameIn {width:390.0,height:844.0,environment,keyboard,..FrameIn::default()};
         let mut out=FrameOut::default();
         assert_eq!(unsafe {super::pxui_frame(ui,&input,None,core::ptr::null_mut(),&mut out)},0);

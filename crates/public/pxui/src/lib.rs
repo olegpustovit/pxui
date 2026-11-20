@@ -581,6 +581,10 @@ impl Ui {
         let mut wire = input.wire;
         wire.events = input.events.as_ptr();
         wire.event_count = input.events.len();
+        // the records' sizes are the library's own, whatever the caller's `wire` holds
+        wire.size = core::mem::size_of::<WireFrame>() as u32;
+        wire.environment.size = core::mem::size_of::<Environment>() as u32;
+        wire.keyboard.size = core::mem::size_of::<Keyboard>() as u32;
         #[cfg(feature = "static")]
         let rc = unsafe {
             let outer = self.0.as_ptr();

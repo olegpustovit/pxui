@@ -341,7 +341,7 @@ mod tests {
         };
         let input = |time: f64| FrameIn::new(320.0, 240.0).time(time);
         let touch = |ui: &mut Ui, phase: u32, at: f64, build: &mut dyn FnMut(&mut Ui)| {
-            let packet = Touch { device: 1, finger: 7, x: 100.0, y: 25.0, phase, time: at, pressure: 1.0 };
+            let packet = Touch::new(1, 7, [100.0, 25.0], at, 1.0, phase);
             let event = Event { kind: Event::TOUCH, text: Str { ptr: (&packet as *const Touch).cast(), len: core::mem::size_of::<Touch>() }, ..Default::default() };
             ui.frame(&{
                 let mut frame = input(at);

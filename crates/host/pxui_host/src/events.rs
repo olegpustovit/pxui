@@ -23,15 +23,7 @@ impl Events {
         self.touches.clear();
         for event in events {
             if let input::Event::Touch(t) = event {
-                self.touches.push(pxui::Touch {
-                    device: t.device,
-                    finger: t.finger,
-                    x: t.point.0,
-                    y: t.point.1,
-                    time: t.time,
-                    pressure: t.pressure,
-                    phase: t.phase.code(),
-                });
+                self.touches.push(pxui::Touch::new(t.device, t.finger, [t.point.0, t.point.1], t.time, t.pressure, t.phase.code()));
                 self.wire.push(pxui::Event {
                     kind: pxui::Event::TOUCH,
                     text: pxui::Str {

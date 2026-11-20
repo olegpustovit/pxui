@@ -240,7 +240,7 @@ fn gestures_swipe_long_press_and_stale_handles_through_the_abi_without_warm_allo
         state.set(ui.gesture(&row, &GestureOpts::DEFAULT.long_press().swipe_actions(SwipeActions::DEFAULT.leading(60.0).trailing(80.0).full(120.0))));
     };
     let touch = |ui: &mut Ui, phase: u32, x: f64, at: f64, build: &mut dyn FnMut(&mut Ui)| {
-        let packet = Touch { device: 1, finger: 7, x, y: 25.0, phase, time: at, pressure: 1.0 };
+        let packet = Touch::new(1, 7, [x, 25.0], at, 1.0, phase);
         let event = Event { kind: Event::TOUCH, text: Str { ptr: (&packet as *const Touch).cast(), len: core::mem::size_of::<Touch>() }, ..Default::default() };
         ui.frame(&{
             let mut frame = input().time(at);
@@ -319,7 +319,7 @@ fn dismiss_drags_commits_and_springs_back_through_the_abi_without_warm_allocatio
         state.set(ui.gesture(&sheet, &GestureOpts::DEFAULT.dismiss(DismissOpts::DEFAULT)));
     };
     let touch = |ui: &mut Ui, phase: u32, y: f64, at: f64, build: &mut dyn FnMut(&mut Ui)| {
-        let packet = Touch { device: 1, finger: 7, x: 100.0, y, phase, time: at, pressure: 1.0 };
+        let packet = Touch::new(1, 7, [100.0, y], at, 1.0, phase);
         let event = Event { kind: Event::TOUCH, text: Str { ptr: (&packet as *const Touch).cast(), len: core::mem::size_of::<Touch>() }, ..Default::default() };
         ui.frame(&{
             let mut frame = input().time(at);
@@ -488,7 +488,7 @@ fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_war
         }
         for (phase, x, preview, commit) in [(0,50.0,Some(35.0),None),(1,250.0,Some(110.0),None),(2,150.0,Some(85.0),Some(85.0)),(0,50.0,Some(35.0),None),(3,150.0,None,None)] {
             time += 0.01;
-            let touch = Touch { device: 1, finger: 7, x, y: 10.0, phase, time, pressure: 1.0 };
+            let touch = Touch::new(1, 7, [x, 10.0], time, 1.0, phase);
             let event = Event { kind: Event::TOUCH, text: Str { ptr: (&touch as *const Touch).cast(), len: core::mem::size_of::<Touch>() }, ..Default::default() };
             ui.frame(&{
                 let mut frame = input().time(time);
@@ -500,7 +500,7 @@ fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_war
         }
         for (phase, finger, held) in [(0,7,true),(0,8,false),(2,7,false),(2,8,false)] {
             time += 0.01;
-            let touch = Touch { device: 1, finger, x: 50.0, y: 10.0, phase, time, pressure: 1.0 };
+            let touch = Touch::new(1, finger, [50.0, 10.0], time, 1.0, phase);
             let event = Event { kind: Event::TOUCH, text: Str { ptr: (&touch as *const Touch).cast(), len: core::mem::size_of::<Touch>() }, ..Default::default() };
             ui.frame(&{
                 let mut frame = input().time(time);
@@ -2871,8 +2871,8 @@ fn host_environment_invalidates_cached_layout_and_reuses_warm_geometry() {
         });
     };
     for round in 0..100 {
-        let environment=crate::Environment { safe_area:[47.0,0.0,34.0,0.0],keyboard_frame:[0.0,if round%2==0 {500.0} else {844.0},390.0,344.0],
-            keyboard_from:[0.0,844.0,390.0,344.0],keyboard_started:1.0,keyboard_duration:0.25,keyboard_curve:7,keyboard_visible:u32::from(round%2==0) };
+        let environment=crate::Environment::new([47.0,0.0,34.0,0.0]).keyboard_animation([0.0,if round%2==0 {500.0} else {844.0},390.0,344.0],
+            [0.0,844.0,390.0,344.0],1.0,0.25,7,round%2==0);
         mem_sys::local_reset();
         let previous=builds.get();
         ui.frame(&input().time(round as f64).environment(environment),&mut build).unwrap();
@@ -2978,11 +2978,11 @@ fn keyboard_presentation_updates_cached_content_bounds_without_warm_allocations(
             node.set(Some(ui.node("visible content", crate::Node::DEFAULT.at(rect.x, rect.y).w_px(rect.w).h_px(rect.h))));
         });
     };
-    let environment = Environment {safe_area:[47.0,0.0,34.0,0.0],..Environment::default()};
+    let environment = Environment::new([47.0,0.0,34.0,0.0]);
     for frame in 0..182 {
         let y = [810.0,750.0,600.0,508.0,600.0,750.0][frame%6];
         let flags = Keyboard::VALID | if matches!(frame%6,0|3) {0} else {Keyboard::ANIMATING};
-        let keyboard = Keyboard {frame:[0.0,y,390.0,844.0-y],flags};
+        let keyboard = Keyboard::new(pxui_types::geom::Rect::new(0.0, y, 390.0, 844.0-y), flags);
         expected.set([0.0,47.0,390.0,y.min(810.0)-47.0]);
         mem_sys::local_reset();
         ui.frame(&FrameIn::new(390.0, 844.0).time(frame as f64/120.0).environment(environment).keyboard(keyboard), &mut build).unwrap();
@@ -2996,9 +2996,9 @@ fn keyboard_presentation_updates_cached_content_bounds_without_warm_allocations(
         if frame>=82 {assert_eq!(mem_sys::local_alloc_count(),0,"warm keyboard frame {frame}");}
     }
     for (keyboard,height) in [
-        (Keyboard {frame:[100.0,400.0,200.0,200.0],flags:Keyboard::VALID},763.0),
-        (Keyboard {frame:[0.0,900.0,390.0,100.0],flags:Keyboard::VALID},763.0),
-        (Keyboard {frame:[0.0,-100.0,390.0,1000.0],flags:Keyboard::VALID},0.0),
+        (Keyboard::new(pxui_types::geom::Rect::new(100.0, 400.0, 200.0, 200.0), Keyboard::VALID),763.0),
+        (Keyboard::new(pxui_types::geom::Rect::new(0.0, 900.0, 390.0, 100.0), Keyboard::VALID),763.0),
+        (Keyboard::new(pxui_types::geom::Rect::new(0.0, -100.0, 390.0, 1000.0), Keyboard::VALID),0.0),
     ] {
         expected.set([0.0,47.0,390.0,height]);
         ui.frame(&FrameIn::new(390.0, 844.0).environment(environment).keyboard(keyboard),&mut build).unwrap();

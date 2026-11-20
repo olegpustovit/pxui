@@ -113,7 +113,7 @@ fn encode_events(events: &[HostEvent], raw: &mut Vec<Event>, scratch: &mut Vec<S
     for (event, scratch) in events.iter().zip(scratch.iter_mut()) {
         scratch.clear();
         if let HostEvent::Touch(t)=event {
-            touches.push(pxui::Touch {device:t.device,finger:t.finger,x:t.point.0,y:t.point.1,time:t.time,pressure:t.pressure,phase:t.phase.code()});
+            touches.push(pxui::Touch::new(t.device, t.finger, [t.point.0, t.point.1], t.time, t.pressure, t.phase.code()));
             raw.push(Event {kind:Event::TOUCH,text:Str {ptr:touches.as_ptr().wrapping_add(touches.len()-1).cast(),len:core::mem::size_of::<pxui::Touch>()},..Default::default()});
             continue;
         }

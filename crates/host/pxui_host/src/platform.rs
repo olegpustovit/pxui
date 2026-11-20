@@ -30,20 +30,14 @@ impl Platform {
             let offset = *self
                 .ios_clock
                 .get_or_insert_with(|| window.time() - raw.timestamp);
-            let value = pxui::Environment {
-                safe_area: raw.safe_area,
-                keyboard_frame: raw.keyboard_frame,
-                keyboard_from: raw.keyboard_from,
-                keyboard_started: if raw.keyboard_started == 0.0 {
-                    0.0
-                } else {
-                    raw.keyboard_started + offset
-                },
-                keyboard_duration: raw.keyboard_duration,
-                keyboard_curve: raw.keyboard_curve,
-                keyboard_visible: raw.keyboard_visible,
-            };
-            let keyboard = pxui::Keyboard { frame: raw.keyboard_current, flags: raw.keyboard_flags };
+            let started = if raw.keyboard_started == 0.0 { 0.0 } else { raw.keyboard_started + offset };
+            let mut value = pxui::Environment::new(raw.safe_area).keyboard_animation(
+                raw.keyboard_frame, raw.keyboard_from, started, raw.keyboard_duration, raw.keyboard_curve, raw.keyboard_visible != 0,
+            );
+            // the native flag is the 0 or 1 UIKit reports: keep it as given, the frame call validates it
+            value.keyboard_visible = raw.keyboard_visible;
+            let mut keyboard = pxui::Keyboard::default();
+            (keyboard.frame, keyboard.flags) = (raw.keyboard_current, raw.keyboard_flags);
             if value != self.environment || keyboard != self.keyboard {
                 self.keyboard = keyboard;
                 self.environment = value;

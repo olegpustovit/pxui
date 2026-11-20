@@ -347,16 +347,22 @@ impl TextTraits {
 /// Phase: 0 began, 1 moved, 2 ended, 3 cancelled. Position: logical points; time: source monotonic seconds.
 /// Pressure is finite in 0..=1. Positions may lie outside the window; identities retain all 64 bits.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Touch {
+    /// `size_of::<Touch>()` (56): `Touch::new` and `default` set it; `Event::text.len` carries the record's length and the library
+    /// refuses a record whose `size` is short or past it.
+    pub size:u32,
+    /// Phase: 0 began, 1 moved, 2 ended, 3 cancelled; any other value is refused.
+    pub phase:u32,
     pub device:u64,
     pub finger:u64,
     pub x:f64,
     pub y:f64,
     pub time:f64,
     pub pressure:f32,
-    pub phase:u32,
+    pub reserved:u32,
 }
+impl Default for Touch { fn default() -> Self { Touch::new(0, 0, [0.0; 2], 0.0, 0.0, 0) } }
 
 impl Touch {
     /// Builds a touch sample from its native scalar values.
@@ -369,7 +375,7 @@ impl Touch {
     /// let _ = pxui_types::Touch::new(1, 2, [10.0, 20.0], 0.0, 1.0, 0);
     /// ```
     pub const fn new(device: u64, finger: u64, at: [f64; 2], time: f64, pressure: f32, phase: u32) -> Touch {
-        Touch { device, finger, x: at[0], y: at[1], time, pressure, phase }
+        Touch { size: core::mem::size_of::<Touch>() as u32, phase, device, finger, x: at[0], y: at[1], time, pressure, reserved: 0 }
     }
 }
 
@@ -465,8 +471,15 @@ impl Event {
 
 /// Host geometry in logical window points. Rectangles are [x, y, width, height].
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Environment {
+    /// `size_of::<Environment>()` (80): `new` and `default` set it, and the frame call writes it itself.
+    pub size: u32,
+    /// UIKit's raw animation curve, including platform values beyond 0..3.
+    pub keyboard_curve: u32,
+    /// 0 or 1; set after native did-show, cleared after native did-hide.
+    pub keyboard_visible: u32,
+    pub reserved: u32,
     /// Insets in top, right, bottom, left order; backgrounds may draw behind them.
     pub safe_area: [f32; 4],
     /// Keyboard's animation target and starting frame, including offscreen hide targets.
@@ -475,11 +488,8 @@ pub struct Environment {
     /// Start time uses FrameIn::time's clock. Duration and curve come from the host.
     pub keyboard_started: f64,
     pub keyboard_duration: f64,
-    /// UIKit's raw animation curve, including platform values beyond 0..3.
-    pub keyboard_curve: u32,
-    /// 0 or 1; set after native did-show, cleared after native did-hide.
-    pub keyboard_visible: u32,
 }
+impl Default for Environment { fn default() -> Self { Environment::new([0.0; 4]) } }
 
 impl Environment {
     /// Builds the environment with the surface's safe-area insets.
@@ -492,18 +502,42 @@ impl Environment {
     /// const ENV: pxui_types::Environment = pxui_types::Environment::new([24.0, 0.0, 0.0, 0.0]);
     /// ```
     pub const fn new(safe_area: [f32; 4]) -> Environment {
-        Environment { safe_area, keyboard_frame: [0.0; 4], keyboard_from: [0.0; 4],
-            keyboard_started: 0.0, keyboard_duration: 0.0, keyboard_curve: 0, keyboard_visible: 0 }
+        Environment { size: core::mem::size_of::<Environment>() as u32, keyboard_curve: 0, keyboard_visible: 0, reserved: 0, safe_area,
+            keyboard_frame: [0.0; 4], keyboard_from: [0.0; 4], keyboard_started: 0.0, keyboard_duration: 0.0 }
+    }
+
+    /// Adds the keyboard's animation: its target and starting frames, start time (`FrameIn::time`'s clock), duration, UIKit curve and
+    /// whether it is shown.
+    ///
+    /// Frames are [x, y, width, height] in logical points; the frame call validates them.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let env = pxui_types::Environment::new([0.0; 4]).keyboard_animation([0.0, 500.0, 390.0, 344.0], [0.0, 844.0, 390.0, 344.0], 1.0, 0.25, 7, true);
+    /// assert_eq!(env.keyboard_visible, 1);
+    /// ```
+    pub const fn keyboard_animation(mut self, frame: [f32; 4], from: [f32; 4], started: f64, duration: f64, curve: u32, visible: bool) -> Environment {
+        self.keyboard_frame = frame;
+        self.keyboard_from = from;
+        self.keyboard_started = started;
+        self.keyboard_duration = duration;
+        self.keyboard_curve = curve;
+        self.keyboard_visible = visible as u32;
+        self
     }
 }
 
 /// Native presentation geometry, in logical window points; does not change Environment's frozen layout.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Keyboard {
-    pub frame: [f32; 4],
+    /// `size_of::<Keyboard>()` (24): `new` and `default` set it, and the frame call writes it itself.
+    pub size: u32,
     pub flags: u32,
+    pub frame: [f32; 4],
 }
+impl Default for Keyboard { fn default() -> Self { Keyboard::new(geom::Rect::new(0.0, 0.0, 0.0, 0.0), 0) } }
 impl Keyboard {
     /// Builds native keyboard presentation geometry.
     ///
@@ -516,12 +550,12 @@ impl Keyboard {
     /// assert!(Keyboard::new(Rect::new(0.0, 0.0, 320.0, 200.0), Keyboard::VALID).valid());
     /// ```
     pub const fn new(frame: geom::Rect, flags: u32) -> Keyboard {
-        Keyboard { frame: [frame.x, frame.y, frame.w, frame.h], flags }
+        Keyboard { size: core::mem::size_of::<Keyboard>() as u32, flags, frame: [frame.x, frame.y, frame.w, frame.h] }
     }
 
     pub const VALID: u32 = 1;
     pub const ANIMATING: u32 = 2;
-    /// Whether the geometry is valid: flags 0..=3 without ANIMATING alone, finite non-negative frame.
+    /// Whether the geometry is valid: a whole record (`size`), flags 0..=3 without ANIMATING alone, finite non-negative frame.
     ///
     /// Allocates: never.
     /// Panics: never.
@@ -531,7 +565,7 @@ impl Keyboard {
     /// assert!(Keyboard::default().valid() && !Keyboard { flags: Keyboard::ANIMATING, ..Keyboard::default() }.valid());
     /// ```
     pub fn valid(&self) -> bool {
-        self.flags <= 3 && self.flags != Self::ANIMATING
+        self.size as usize >= core::mem::size_of::<Keyboard>() && self.flags <= 3 && self.flags != Self::ANIMATING
             && self.frame.iter().all(|v| v.is_finite()) && self.frame[2] >= 0.0 && self.frame[3] >= 0.0
             && (self.frame[0]+self.frame[2]).is_finite() && (self.frame[1]+self.frame[3]).is_finite()
     }
@@ -593,11 +627,8 @@ impl FrameIn {
         FrameIn {
             size: core::mem::size_of::<FrameIn>() as u32, events: core::ptr::null(), event_count: 0,
             width, height, scale: 1.0, time: 0.0, appearance: Self::APPEARANCE_UNKNOWN, reduced_motion: 0,
-            environment: Environment {
-                safe_area: [0.0; 4], keyboard_frame: [0.0; 4], keyboard_from: [0.0; 4],
-                keyboard_started: 0.0, keyboard_duration: 0.0, keyboard_curve: 0, keyboard_visible: 0,
-            },
-            keyboard: Keyboard { frame: [0.0; 4], flags: 0 }, surface: Self::MAIN,
+            environment: Environment::new([0.0; 4]),
+            keyboard: Keyboard::new(geom::Rect::new(0.0, 0.0, 0.0, 0.0), 0), surface: Self::MAIN,
         }
     }
 
@@ -917,7 +948,7 @@ pub mod feature {
 }
 
 /// The ABI version this crate's records describe (`major << 16 | minor`); an app states it as `PxuiUiDesc::abi_built`.
-pub const ABI_BUILT: u32 = 1 << 16 | 135;
+pub const ABI_BUILT: u32 = 1 << 16 | 136;
 impl Default for PxuiUiDesc { fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, platform: 0, font_size: 0, abi_built: ABI_BUILT } } }
 
 #[cfg(test)]

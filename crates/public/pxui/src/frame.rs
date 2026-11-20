@@ -105,7 +105,7 @@ impl<'a> FrameIn<'a> {
     ///
     /// ```
     /// use pxui::{Environment, FrameIn};
-    /// let environment = Environment { safe_area: [10.0, 0.0, 0.0, 0.0], ..Environment::default() };
+    /// let environment = Environment::new([10.0, 0.0, 0.0, 0.0]);
     /// assert_eq!(FrameIn::new(20.0, 20.0).environment(environment).wire.environment.safe_area[0], 10.0);
     /// ```
     pub const fn environment(mut self, environment: Environment) -> FrameIn<'a> { self.wire.environment = environment; self }
@@ -117,7 +117,7 @@ impl<'a> FrameIn<'a> {
     ///
     /// ```
     /// use pxui::{FrameIn, Keyboard};
-    /// let keyboard = Keyboard { frame: [0.0, 10.0, 20.0, 10.0], flags: Keyboard::VALID };
+    /// let keyboard = Keyboard::new(pxui_types::geom::Rect::new(0.0, 10.0, 20.0, 10.0), Keyboard::VALID);
     /// assert_eq!(FrameIn::new(20.0, 20.0).keyboard(keyboard).wire.keyboard, keyboard);
     /// ```
     pub const fn keyboard(mut self, keyboard: Keyboard) -> FrameIn<'a> { self.wire.keyboard = keyboard; self }
