@@ -271,8 +271,10 @@ impl Default for TextTraits {
 /// The C record of the text input traits (`PxuiTextFieldDesc`, `pxui_ui_text_input_options`): `TextTraits` as three numbers. For C
 /// callers and the library's own conversions, not for authoring.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PxuiTextInputOptions {
+    /// `size_of::<PxuiTextInputOptions>()` (16): a record whose size is short is refused; `Default` and `From<TextTraits>` set it.
+    pub size: u32,
     /// 0 or 1: the platform keyboard corrects words while typing.
     pub autocorrect: u32,
     /// 0 none, 1 sentences, 2 words, 3 letters.
@@ -280,8 +282,11 @@ pub struct PxuiTextInputOptions {
     /// The return key: 0 Return, 1 Done (Enter ends editing), 2 Search (submission is the app's).
     pub action: u32,
 }
+impl Default for PxuiTextInputOptions {
+    fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, autocorrect: 0, capitalization: 0, action: 0 } }
+}
 impl From<TextTraits> for PxuiTextInputOptions {
-    fn from(o: TextTraits) -> Self { Self {autocorrect:o.autocorrect as u32,capitalization:o.capitalization as u32,action:o.action as u32} }
+    fn from(o: TextTraits) -> Self { Self {size:core::mem::size_of::<Self>() as u32,autocorrect:o.autocorrect as u32,capitalization:o.capitalization as u32,action:o.action as u32} }
 }
 impl TextTraits {
     /// The traits of three numbers as the C records carry them, or none when one is out of range (autocorrect over 1, capitalization over 3,
@@ -947,7 +952,7 @@ pub mod feature {
 }
 
 /// The ABI version this crate's records describe (`major << 16 | minor`); an app states it as `PxuiUiDesc::abi_built`.
-pub const ABI_BUILT: u32 = 1 << 16 | 139;
+pub const ABI_BUILT: u32 = 1 << 16 | 140;
 impl Default for PxuiUiDesc { fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, platform: 0, font_size: 0, abi_built: ABI_BUILT } } }
 
 #[cfg(test)]
@@ -988,6 +993,7 @@ mod abi_layout {
         ]);
         assert_layout("TextSpans",size_of::<TextSpans>(),align_of::<TextSpans>(),&[("size", core::mem::offset_of!(TextSpans, size)),("count", core::mem::offset_of!(TextSpans, count)),("spans", core::mem::offset_of!(TextSpans, spans))]);
         assert_layout("TextMetrics", size_of::<TextMetrics>(), align_of::<TextMetrics>(), &[
+            ("size", core::mem::offset_of!(TextMetrics, size)),
             ("width", core::mem::offset_of!(TextMetrics, width)), ("height", core::mem::offset_of!(TextMetrics, height)), ("baseline", core::mem::offset_of!(TextMetrics, baseline)), ("lines", core::mem::offset_of!(TextMetrics, lines)),
         ]);
         assert_layout("TextGlyph", size_of::<TextGlyph>(), align_of::<TextGlyph>(), &[
@@ -1046,6 +1052,8 @@ mod abi_layout {
             ("tokens", core::mem::offset_of!(ThemeSnapshot, tokens)), ("row_h", core::mem::offset_of!(ThemeSnapshot, row_h)), ("control_h", core::mem::offset_of!(ThemeSnapshot, control_h)), ("ring", core::mem::offset_of!(ThemeSnapshot, ring)),
             ("scrollbar_w", core::mem::offset_of!(ThemeSnapshot, scrollbar_w)), ("scrollbar_gap", core::mem::offset_of!(ThemeSnapshot, scrollbar_gap)), ("panel", core::mem::offset_of!(ThemeSnapshot, panel)), ("body", core::mem::offset_of!(ThemeSnapshot, body)),
         ]);
+        assert_layout("PxuiBodies", size_of::<theme::Bodies>(), align_of::<theme::Bodies>(), &[("size", core::mem::offset_of!(theme::Bodies, size)), ("toggle", core::mem::offset_of!(theme::Bodies, toggle)),
+            ("section_index", core::mem::offset_of!(theme::Bodies, section_index)), ("reserved", core::mem::offset_of!(theme::Bodies, reserved))]);
         assert_eq!(core::mem::offset_of!(ThemeSnapshot, body), core::mem::offset_of!(ThemeSnapshot, panel) + WIDGET_COUNT * size_of::<States>(), "the parts are an array of States, then the bodies");
     }
 
@@ -1163,7 +1171,7 @@ mod abi_layout {
             ("keyboard_started", core::mem::offset_of!(Environment, keyboard_started)),("keyboard_duration", core::mem::offset_of!(Environment, keyboard_duration)),("keyboard_curve", core::mem::offset_of!(Environment, keyboard_curve)),("keyboard_visible", core::mem::offset_of!(Environment, keyboard_visible)),
         ]);
         assert_layout("Keyboard",size_of::<Keyboard>(),align_of::<Keyboard>(),&[("frame", core::mem::offset_of!(Keyboard, frame)),("flags", core::mem::offset_of!(Keyboard, flags))]);
-        assert_layout("TextInputOptions",size_of::<PxuiTextInputOptions>(),align_of::<PxuiTextInputOptions>(),&[("autocorrect", core::mem::offset_of!(PxuiTextInputOptions, autocorrect)),("capitalization", core::mem::offset_of!(PxuiTextInputOptions, capitalization)),("action", core::mem::offset_of!(PxuiTextInputOptions, action))]);
+        assert_layout("TextInputOptions",size_of::<PxuiTextInputOptions>(),align_of::<PxuiTextInputOptions>(),&[("size", core::mem::offset_of!(PxuiTextInputOptions, size)),("autocorrect", core::mem::offset_of!(PxuiTextInputOptions, autocorrect)),("capitalization", core::mem::offset_of!(PxuiTextInputOptions, capitalization)),("action", core::mem::offset_of!(PxuiTextInputOptions, action))]);
         assert_layout(
             "FrameOut",
             size_of::<FrameOut>(),

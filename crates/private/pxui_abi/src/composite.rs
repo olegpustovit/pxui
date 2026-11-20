@@ -67,7 +67,7 @@ export!(trusted pub unsafe fn pxui_ui_view(ui: *mut PxuiUi, keyed: *const PxuiKe
 /// `anchor`'s placement, or `None` for an invalid descriptor. `align` 3 and 4 (PXUI_ALIGN_STRETCH, _BASELINE) are accepted for 1.x
 /// and align as Start, as they always did; 2.0 refuses them (abi2_cut: validation tightened).
 fn placement(anchor: &PxuiAnchorDesc) -> Option<pxui_types::layout::Placement> {
-    if anchor.has_anchor != 1 || anchor.flip > 1 || anchor.side > 3 || anchor.align > 4 { return None; }
+    if anchor.has_anchor != 1 || anchor.flip > 1 || anchor.reserved != [0; 2] || anchor.side > 3 || anchor.align > 4 { return None; }
     let side = match anchor.side { 0 => pxui_types::layout::Side::Below, 1 => pxui_types::layout::Side::Above, 2 => pxui_types::layout::Side::Right, _ => pxui_types::layout::Side::Left };
     let align = match anchor.align { 1 => pxui_types::layout::Along::Center, 2 => pxui_types::layout::Along::End, _ => pxui_types::layout::Along::Start };
     Some(pxui_types::layout::Placement { side, align, gap: anchor.gap, margin: anchor.margin, flip: anchor.flip != 0 })
@@ -80,7 +80,7 @@ export!(trusted pub unsafe fn pxui_ui_anchored(ui: *mut PxuiUi, keyed: *const Px
     if anchor.is_null() || out.is_null() { return unsafe { fail(ui, "null anchored argument") }; }
     let points = |s: Option<pxui_types::Size>| match s { Some(pxui_types::Size::Fit) => Some(None), Some(pxui_types::Size::Px(v)) => Some(Some(v)), _ => None };
     let (Some(w), Some(h)) = (points(size(width)), points(size(height))) else { return unsafe { fail(ui, "invalid anchored size: points or fit") }; };
-    let anchor = unsafe { *anchor };
+    let Some(anchor) = read_desc!(anchor, PxuiAnchorDesc) else { return unsafe { fail(ui, "invalid anchor descriptor: a short size") }; };
     let Some(place) = placement(&anchor) else { return unsafe { fail(ui, "invalid anchor descriptor") }; };
     let overlay = Overlay { w, h, place, name: (!name.is_empty()).then_some(name), ..Overlay::DEFAULT };
     unsafe { crate::trusted::anchored(ui, key, anchor.rect, &overlay, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, callback, user), &mut *out) }

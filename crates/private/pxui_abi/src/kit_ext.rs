@@ -18,7 +18,7 @@ export!(trusted pub unsafe fn pxui_ui_button(ui: *mut PxuiUi, desc: *const PxuiB
     if desc.is_null() { return unsafe { fail(ui, "null button argument") }; }
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short button response") } };
     let mut content = |engine: &mut pxui_core::ui::Ui, s: State| if let Some(build) = build {
-        let state = PxuiStateDesc { hovered: s.hovered as u8, pressed: s.pressed as u8, focused: s.focused as u8, disabled: s.disabled as u8, checked: s.checked as u8, reserved: [0; 3] };
+        let state = PxuiStateDesc { size: core::mem::size_of::<PxuiStateDesc>() as u32, hovered: s.hovered as u8, pressed: s.pressed as u8, focused: s.focused as u8, disabled: s.disabled as u8, checked: s.checked as u8, reserved: [0; 3] };
         { let mut b = unsafe { crate::state::Borrowed::new(engine, ui) }; let h = unsafe { b.enter() }; build(user, h.cast(), &state) }
     };
     unsafe { button_call(ui, desc, if build.is_some() { Some(&mut content) } else { None }, out, None) }
@@ -120,9 +120,17 @@ fn size(kind: u8, value: f32) -> Option<Size> { match kind { 0 => Some(Size::Fit
 /// The six looks behind `states` (none when null); `Err` when one does not decode.
 unsafe fn looks(states: *const pxui_types::ffi::PxuiLookDesc) -> Result<Option<States>, ()> {
     if states.is_null() { return Ok(None); }
-    let raw = unsafe { core::slice::from_raw_parts(states, 6) };
-    let mut it = raw.iter().copied().map(crate::style::decode_look);
-    let mut next = || it.next().flatten();
+    // the six are spaced by the first one's size (a caller's record may be longer than ours): every one carries that same size, and
+    // none is read before the first one's size covers the record
+    let first = unsafe { states.cast::<u32>().read_unaligned() } as usize;
+    if first < core::mem::size_of::<pxui_types::ffi::PxuiLookDesc>() { return Err(()); }
+    let at = |i: usize| -> Option<pxui_core::ui::Look> {
+        let p = unsafe { states.cast::<u8>().add(i * first) }.cast::<pxui_types::ffi::PxuiLookDesc>();
+        if unsafe { p.cast::<u32>().read_unaligned() } as usize != first { return None; }
+        read_desc!(p, pxui_types::ffi::PxuiLookDesc).and_then(crate::style::decode_look)
+    };
+    let mut it = 0..6usize;
+    let mut next = || it.next().and_then(at);
     match (next(), next(), next(), next(), next(), next()) {
         (Some(idle), Some(hover), Some(pressed), Some(focus), Some(disabled), Some(checked)) => Ok(Some(States { idle, hover, pressed, focus, disabled, checked })),
         _ => Err(()),

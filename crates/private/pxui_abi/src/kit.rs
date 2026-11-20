@@ -94,6 +94,7 @@ mod curve_tests {
 }
 
 pub(crate) fn curve(value: PxuiCurveDesc) -> Option<pxui_types::Curve> {
+    if (value.size as usize) < core::mem::size_of::<PxuiCurveDesc>() { return None; }
     if !value.duration.is_finite() || !value.omega.is_finite() || !value.points.iter().all(|v| v.is_finite()) { return None; }
     let decoded = match value.kind {
         PxuiCurveDesc::BEZIER => pxui_types::Curve::Bezier { duration: value.duration, points: value.points },

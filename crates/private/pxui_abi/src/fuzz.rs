@@ -449,7 +449,7 @@ static KEYED: &[(&str, LegacyCall)] = &[
         ("pxui_ui_view", |ui, k| unsafe { pxui_ui_view(ui, &PxuiKeyedDesc { name: Str::default(), ..keyed(k) }, 0, None, core::ptr::null_mut(), &mut PxuiBox::default()) }),
         ("pxui_ui_scroll_view", |ui, k| unsafe { pxui_ui_scroll_view(ui, &keyed(k), &Node::DEFAULT, None, core::ptr::null_mut(), &mut PxuiBox::default()) }),
         ("pxui_ui_modal", |ui, k| { let d = PxuiSheetDesc { size: core::mem::size_of::<PxuiSheetDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_modal(ui, &keyed(k), &d, None, core::ptr::null_mut(), &mut 0, &mut PxuiBox::default()) } }),
-        ("pxui_ui_anchored", |ui, k| { let d = PxuiAnchorDesc { has_anchor: 1, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_anchored(ui, &keyed(k), &d, PX, PX, None, core::ptr::null_mut(), &mut PxuiBox::default()) } }),
+        ("pxui_ui_anchored", |ui, k| { let d = PxuiAnchorDesc { has_anchor: 1, ..PxuiAnchorDesc::default() }; unsafe { pxui_ui_anchored(ui, &keyed(k), &d, PX, PX, None, core::ptr::null_mut(), &mut PxuiBox::default()) } }),
         ("pxui_ui_popup", |ui, k| { let d = PxuiPopupDesc { size: core::mem::size_of::<PxuiPopupDesc>() as u32, width: 10.0, height: 10.0, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_popup(ui, &keyed(k), &d, None, core::ptr::null_mut(), &mut 0, &mut PxuiBox::default()) } }),
         ("pxui_ui_toasts", |ui, k| unsafe { pxui_ui_toasts(ui, &keyed(k), Slice { ptr: core::ptr::null(), len: 0 }, Slice { ptr: core::ptr::null(), len: 0 }, 1.0, &mut 0) }),
         ("pxui_ui_slider", |ui, k| unsafe { pxui_ui_slider(ui, &keyed(k), 0.5, 0.0, 1.0, &mut response(), &mut PxuiScrubOut::default()) }),

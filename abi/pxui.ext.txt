@@ -16,12 +16,12 @@ function pxui_ui_picker int32_t pxui_ui_picker ( PxuiUi * ui , const PxuiKeyedDe
 function pxui_ui_value_field int32_t pxui_ui_value_field ( PxuiUi * ui , const PxuiValueFieldDesc * desc , PxuiTextValid valid , PxuiSlideText slide , PxuiScrubText scrub , void * user , PxuiStr name , PxuiStr * out_text , uint8_t * out_changed , uint8_t * out_editing , PxuiResponse * response ) ;
 layout PxuiHeadOut 32 8 0 4 5 6 8 24
 layout PxuiHeaderDesc 144 8 0 4 5 6 7 8 9 16 32 48 64 80 96 112 128
-layout PxuiInspectorRowConfig 80 8 0 4 12 13 16 24 56 72
+layout PxuiInspectorRowConfig 80 8 0 4 16 17 20 24 56 72
 layout PxuiInspectorRowDesc 96 8 0 4 5 6 7 8 24 40 44 48 80 84 88
 layout PxuiInspectorSectionDesc 64 8 0 4 5 6 7 8 24 40 48 56
 layout PxuiInspectorTextDesc 40 8 0 4 8 24
 layout PxuiInspectorValueDesc 64 8 0 4 5 8 24 40 56
-layout PxuiPickerFieldConfig 112 8 0 4 12 13 16 20 24 56 72 80
-layout PxuiPickerRowConfig 216 8 0 4 12 13 14 15 16 17 24 32 64 80 96 112 114 115 128 136 137 138 144 184
-layout PxuiValueFieldConfig 232 8 0 4 12 16 20 24 56 208 224
+layout PxuiPickerFieldConfig 120 8 0 4 16 17 20 24 32 64 80 88
+layout PxuiPickerRowConfig 224 8 0 4 16 17 18 19 20 21 32 40 72 88 104 120 122 123 136 144 145 146 152 192
+layout PxuiValueFieldConfig 240 8 0 4 16 20 24 32 64 216 232
 layout PxuiValueFieldDesc 152 8 0 4 8 16 20 24 28 32 36 40 44 48 52 56 72 88 104 120 136

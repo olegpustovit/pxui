@@ -3615,6 +3615,7 @@ pxui_types::PxuiTextInputOptions struct @HEAD
 pxui_types::PxuiTextInputOptions::action field u32 @HEAD
 pxui_types::PxuiTextInputOptions::autocorrect field u32 @HEAD
 pxui_types::PxuiTextInputOptions::capitalization field u32 @HEAD
+pxui_types::PxuiTextInputOptions::size field u32 @U5.4
 pxui_types::PxuiUiDesc impl Clone @HEAD
 pxui_types::PxuiUiDesc impl Copy @HEAD
 pxui_types::PxuiUiDesc impl Debug @HEAD
@@ -3757,6 +3758,7 @@ pxui_types::TextMetrics struct @HEAD
 pxui_types::TextMetrics::baseline field f32 @HEAD
 pxui_types::TextMetrics::height field f32 @HEAD
 pxui_types::TextMetrics::lines field u32 @HEAD
+pxui_types::TextMetrics::size field u32 @U5.4
 pxui_types::TextMetrics::width field f32 @HEAD
 pxui_types::TextSpan impl Clone @HEAD
 pxui_types::TextSpan impl Copy @HEAD
@@ -4226,9 +4228,9 @@ pxui_types::ffi::PxuiAnchorDesc::gap field f32 @HEAD
 pxui_types::ffi::PxuiAnchorDesc::has_anchor field u8 @HEAD
 pxui_types::ffi::PxuiAnchorDesc::margin field f32 @HEAD
 pxui_types::ffi::PxuiAnchorDesc::rect field Rect @HEAD
-pxui_types::ffi::PxuiAnchorDesc::reserved field [u8; 3] @HEAD
-pxui_types::ffi::PxuiAnchorDesc::reserved_tail field [u8; 3] @HEAD
+pxui_types::ffi::PxuiAnchorDesc::reserved field [u8; 2] @U5.4
 pxui_types::ffi::PxuiAnchorDesc::side field u32 @HEAD
+pxui_types::ffi::PxuiAnchorDesc::size field u32 @U5.4
 pxui_types::ffi::PxuiAreaCallbacks impl Clone @HEAD
 pxui_types::ffi::PxuiAreaCallbacks impl Copy @HEAD
 pxui_types::ffi::PxuiAreaCallbacks impl Debug @HEAD
@@ -4473,6 +4475,7 @@ pxui_types::ffi::PxuiCurveDesc::kind field u32 @HEAD
 pxui_types::ffi::PxuiCurveDesc::omega field f32 @HEAD
 pxui_types::ffi::PxuiCurveDesc::points field [f32; 4] @HEAD
 pxui_types::ffi::PxuiCurveDesc::positions field [f32; 16] @HEAD
+pxui_types::ffi::PxuiCurveDesc::size field u32 @U5.4
 pxui_types::ffi::PxuiCurveDesc::values field [f32; 16] @HEAD
 pxui_types::ffi::PxuiDamage type = Damage @HEAD
 pxui_types::ffi::PxuiDescription impl Clone @HEAD
@@ -4946,6 +4949,7 @@ pxui_types::ffi::PxuiLookDesc::ring field PxuiRingDesc @HEAD
 pxui_types::ffi::PxuiLookDesc::selection field Rgba @HEAD
 pxui_types::ffi::PxuiLookDesc::shadows field [PxuiShadowDesc; 2] @HEAD
 pxui_types::ffi::PxuiLookDesc::sides field u32 @HEAD
+pxui_types::ffi::PxuiLookDesc::size field u32 @U5.4
 pxui_types::ffi::PxuiLookDesc::text field Rgba @HEAD
 pxui_types::ffi::PxuiMarkDesc impl Clone @HEAD
 pxui_types::ffi::PxuiMarkDesc impl Copy @HEAD
@@ -5541,6 +5545,7 @@ pxui_types::ffi::PxuiStateDesc::focused field u8 @HEAD
 pxui_types::ffi::PxuiStateDesc::hovered field u8 @HEAD
 pxui_types::ffi::PxuiStateDesc::pressed field u8 @HEAD
 pxui_types::ffi::PxuiStateDesc::reserved field [u8; 3] @HEAD
+pxui_types::ffi::PxuiStateDesc::size field u32 @U5.4
 pxui_types::ffi::PxuiSubmenu impl Clone @HEAD
 pxui_types::ffi::PxuiSubmenu impl Copy @HEAD
 pxui_types::ffi::PxuiSubmenu impl Debug @HEAD
@@ -6538,6 +6543,7 @@ pxui_types::text::TextMetrics struct @HEAD
 pxui_types::text::TextMetrics::baseline field f32 @HEAD
 pxui_types::text::TextMetrics::height field f32 @HEAD
 pxui_types::text::TextMetrics::lines field u32 @HEAD
+pxui_types::text::TextMetrics::size field u32 @U5.4
 pxui_types::text::TextMetrics::width field f32 @HEAD
 pxui_types::text::TextSpan impl Clone @HEAD
 pxui_types::text::TextSpan impl Copy @HEAD
@@ -6600,9 +6606,9 @@ pxui_types::theme::Bodies impl Debug @HEAD
 pxui_types::theme::Bodies impl Default @HEAD
 pxui_types::theme::Bodies impl Eq @HEAD
 pxui_types::theme::Bodies impl PartialEq @HEAD
-pxui_types::theme::Bodies impl StructuralPartialEq @HEAD
 pxui_types::theme::Bodies struct @HEAD
 pxui_types::theme::Bodies::KINDS const &'static [&'static str] @HEAD
+pxui_types::theme::Bodies::SLOTS const usize @U5.4
 pxui_types::theme::Bodies::badge field BodyId @HEAD
 pxui_types::theme::Bodies::button field BodyId @HEAD
 pxui_types::theme::Bodies::checkbox field BodyId @HEAD
@@ -6625,12 +6631,14 @@ pxui_types::theme::Bodies::picker_field field BodyId @HEAD
 pxui_types::theme::Bodies::popup field BodyId @HEAD
 pxui_types::theme::Bodies::progress field BodyId @HEAD
 pxui_types::theme::Bodies::radio field BodyId @HEAD
+pxui_types::theme::Bodies::reserved field [BodyId; 24] @U5.4
 pxui_types::theme::Bodies::scroll_view field BodyId @HEAD
 pxui_types::theme::Bodies::search_field field BodyId @HEAD
 pxui_types::theme::Bodies::section_index field BodyId @U2a.3
 pxui_types::theme::Bodies::segmented field BodyId @HEAD
 pxui_types::theme::Bodies::selection_list field BodyId @HEAD
 pxui_types::theme::Bodies::set fn (&mut self, kind: &str, id: BodyId) -> bool @HEAD
+pxui_types::theme::Bodies::size field u32 @U5.4
 pxui_types::theme::Bodies::slider field BodyId @HEAD
 pxui_types::theme::Bodies::spinner field BodyId @HEAD
 pxui_types::theme::Bodies::split field BodyId @HEAD

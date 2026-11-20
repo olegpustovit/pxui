@@ -1244,11 +1244,75 @@ mod sized_records {
         unsafe { pxui_ui_destroy(ui); }
     }
 
+    // U5.4: the value records that carry their own size are read at one size only: a size short of the record is refused before a byte past
+    // it is read, a longer one is read as its first sizeof bytes. The look and the state through `pxui_ui_style`, the anchor through
+    // `pxui_ui_anchored`, the text input options and the text metrics as out records.
+    #[test]
+    fn look_state_anchor_options_and_metrics() {
+        use pxui_types::ffi::{PxuiAnchorDesc, PxuiLookDesc, PxuiStateDesc, PxuiLabelStyle, PxuiSizeDesc};
+        let ui = create();
+        let (look, state, anchor) = (PxuiLookDesc::default(), PxuiStateDesc::default(), PxuiAnchorDesc { has_anchor: 1, ..PxuiAnchorDesc::default() });
+        four(ui, ((&look as *const PxuiLookDesc).cast(), size_of_val(&look), align_of_val(&look)), true, &mut |p| {
+            in_frame(ui, &mut |ui| { let b = a_box(ui); unsafe { pxui_ui_style(ui, &b, p.cast(), &state) } })
+        });
+        four(ui, ((&look as *const PxuiLookDesc).cast(), size_of_val(&look), align_of_val(&look)), true, &mut |p| {
+            in_frame(ui, &mut |ui| { let b = a_box(ui); let mut changed = 0u8; unsafe { pxui_ui_patch_look(ui, &b, p.cast(), &mut changed) } })
+        });
+        four(ui, ((&state as *const PxuiStateDesc).cast(), size_of_val(&state), align_of_val(&state)), true, &mut |p| {
+            in_frame(ui, &mut |ui| { let b = a_box(ui); unsafe { pxui_ui_style(ui, &b, &look, p.cast()) } })
+        });
+        four(ui, ((&anchor as *const PxuiAnchorDesc).cast(), size_of_val(&anchor), align_of_val(&anchor)), true, &mut |p| {
+            let px = PxuiSizeDesc { kind: PxuiSizeDesc::PX, value: 40.0, relative: None };
+            in_frame(ui, &mut |ui| unsafe { pxui_ui_anchored(ui, &pxui_types::ffi::PxuiKeyedDesc::new("a", ""), p.cast(), px, px, None, core::ptr::null_mut(), &mut PxuiBox::default()) })
+        });
+        let options = pxui_types::PxuiTextInputOptions::default();
+        four(ui, ((&options as *const pxui_types::PxuiTextInputOptions).cast(), size_of_val(&options), align_of_val(&options)), true, &mut |p| unsafe { pxui_ui_text_input_options(ui, p.cast()) });
+        let metrics = pxui_types::TextMetrics::default();
+        let (label, text) = (PxuiLabelStyle::from(&pxui_types::Label::BODY), Str { ptr: b"x".as_ptr(), len: 1 });
+        four(ui, ((&metrics as *const pxui_types::TextMetrics).cast(), size_of_val(&metrics), align_of_val(&metrics)), true, &mut |p| unsafe { pxui_ui_label_measure(ui, text, &label, 0.0, core::ptr::null(), p.cast()) });
+        // an anchor with a reserved byte set is refused (the reserved bytes are zero)
+        let reserved = PxuiAnchorDesc { reserved: [0, 1], ..anchor };
+        let px = PxuiSizeDesc { kind: PxuiSizeDesc::PX, value: 40.0, relative: None };
+        assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_anchored(ui, &pxui_types::ffi::PxuiKeyedDesc::new("a", ""), &reserved, px, px, None, core::ptr::null_mut(), &mut PxuiBox::default()) }), REFUSED);
+        unsafe { pxui_ui_destroy(ui); }
+    }
+
+    // An array of looks (`states`: six) is spaced by its first element's size: elements of a longer record are read as their prefix at that
+    // spacing, a first size short of the record or an element that disagrees with it is refused, and none is read past the array.
+    #[test]
+    fn six_looks_are_spaced_by_the_first_size() {
+        use pxui_types::ffi::{PxuiButtonDesc, PxuiLookDesc};
+        let ui = create();
+        let k = Str { ptr: b"k".as_ptr(), len: 1 };
+        let full = size_of::<PxuiLookDesc>();
+        let wide = full + 8;
+        let build = |size: usize, stride: usize, disagree: Option<usize>| {
+            let mut bytes = vec![0u8; 6 * stride + 8];
+            for i in 0..6 {
+                let mut look = PxuiLookDesc::default();
+                look.size = if disagree == Some(i) { size as u32 + 8 } else { size as u32 };
+                unsafe { core::ptr::copy_nonoverlapping((&look as *const PxuiLookDesc).cast::<u8>(), bytes.as_mut_ptr().add(i * stride), full) };
+            }
+            bytes
+        };
+        let press = |bytes: &[u8]| {
+            let mut value: PxuiButtonDesc = unsafe { core::mem::zeroed() };
+            (value.size, value.enabled, value.key, value.text, value.states) = (size_of::<PxuiButtonDesc>() as u32, 1, k, k, bytes.as_ptr().cast());
+            in_frame(ui, &mut |ui| { let mut out = PxuiResponse::EMPTY; unsafe { pxui_ui_button(ui, &value, None, core::ptr::null_mut(), &mut out) } })
+        };
+        assert_eq!(press(&build(full, full, None)), 0, "dense: {}", error(ui));
+        assert_eq!(press(&build(wide, wide, None)), 0, "a longer record spaced by its size: {}", error(ui));
+        assert_eq!(press(&build(wide, full, None)), REFUSED, "elements read at the wrong spacing are not looks");
+        assert_eq!(press(&build(full - 1, full, None)), REFUSED, "a first size short of the record");
+        assert_eq!(press(&build(full, full, Some(3))), REFUSED, "one element with another size");
+        unsafe { pxui_ui_destroy(ui); }
+    }
+
     #[test]
     fn node_fields_in() {
         let ui = create();
         let mut value: PxuiNodeFields = unsafe { core::mem::zeroed() };
-        let fix: fn(&mut PxuiNodeFields) = |_| {};
+        let fix: fn(&mut PxuiNodeFields) = |f| f.look = pxui_types::ffi::PxuiLookDesc::default();
         fix(&mut value);
         four(ui, ((&value as *const PxuiNodeFields).cast(), size_of_val(&value), align_of_val(&value)), true, &mut |p| {
             let p = p.cast::<PxuiNodeFields>();
@@ -1665,7 +1729,7 @@ mod sized_records {
     fn keyframe() {
         let ui = create();
         let mut value: PxuiKeyframeDesc = unsafe { core::mem::zeroed() };
-        let fix: fn(&mut PxuiKeyframeDesc) = |k| { k.target = 1; k.values[0] = 1.0; k.curve.kind = PxuiCurveDesc::SPRING; k.curve.omega = 20.0; };
+        let fix: fn(&mut PxuiKeyframeDesc) = |k| { k.target = 1; k.values[0] = 1.0; k.look = pxui_types::ffi::PxuiLookDesc::default(); k.curve = PxuiCurveDesc { kind: PxuiCurveDesc::SPRING, omega: 20.0, ..PxuiCurveDesc::default() }; };
         fix(&mut value);
         four(ui, ((&value as *const PxuiKeyframeDesc).cast(), size_of_val(&value), align_of_val(&value)), true, &mut |p| {
             let p = p.cast::<PxuiKeyframeDesc>();
@@ -2029,7 +2093,7 @@ fn label_text_calls_resolve_in_the_same_call_and_refuse_bad_records() {
 fn style_applies_one_checked_look() {
     use pxui_types::ffi::{PxuiLookDesc, PxuiStateDesc};
     let ui = create();
-    let mut good = unsafe { core::mem::zeroed::<PxuiLookDesc>() };
+    let mut good = PxuiLookDesc::default();
     good.opacity = 0.5;
     let mut bad = good;
     bad.opacity = f32::NAN;

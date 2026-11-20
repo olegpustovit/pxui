@@ -58,7 +58,7 @@ pub(crate) extern "C" fn call(user: *mut c_void, raw: *mut c_void) {
 fn encode_placement(value: Placement) -> PxuiAnchorDesc {
     let side = match value.side { Side::Below => 0, Side::Above => 1, Side::Right => 2, Side::Left => 3 };
     let align = match value.align { Along::Start => 0, Along::Center => 1, Along::End => 2 };
-    PxuiAnchorDesc { has_anchor: 1, reserved: [0; 3], rect: Rect::default(), side, align, gap: value.gap, margin: value.margin, flip: value.flip as u8, reserved_tail: [0; 3] }
+    PxuiAnchorDesc { has_anchor: 1, rect: Rect::default(), side, align, gap: value.gap, margin: value.margin, flip: value.flip as u8, ..PxuiAnchorDesc::default() }
 }
 
 

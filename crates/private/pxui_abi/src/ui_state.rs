@@ -33,8 +33,8 @@ export!(pub unsafe fn pxui_ui_keyboard(ui:*mut PxuiUi,out:*mut pxui_types::Keybo
 });
 export!(pub unsafe fn pxui_ui_text_input_options(ui:*mut PxuiUi,out:*mut pxui_types::PxuiTextInputOptions)->i32 {
     let Some(e)=(unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    if out.is_null() { return unsafe { fail(ui,"null text input options output") }; }
-    unsafe { out.write(e.text_input_options().into()); }
+    let Some(out)=sized_mut!(out) else { return unsafe { fail(ui,"null or short text input options output") }; };
+    *out=e.text_input_options().into();
     0
 });
 export!(pub unsafe fn pxui_ui_content_rect(ui:*mut PxuiUi,out:*mut pxui_types::geom::Rect)->i32 {

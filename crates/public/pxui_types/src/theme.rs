@@ -358,17 +358,31 @@ macro_rules! body_kinds {
 macro_rules! bodies {
     ($($kind:ident $register:ident $body:ident $config:ident $wrapper:ident),* $(,)?) => {
         /// The body each widget kind builds with, in a theme: ids, never function pointers, so a `Theme` stays `Copy` and comparable
-        /// and a theme file can pick one by name (`toggle.body = checkbox`). One field per `body_kinds!` line, in its order; grows at
-        /// the end only.
+        /// and a theme file can pick one by name (`toggle.body = checkbox`). Size-prefixed (`size`, `Default` sets it): one field per
+        /// `body_kinds!` line, in its order, then reserved slots up to `Bodies::SLOTS` (64), so a kind added at the end takes a reserved
+        /// slot and the record, and the snapshot that holds it, keep their size.
         #[repr(C)]
-        #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+        #[derive(Clone, Copy, Debug)]
         pub struct Bodies {
+            /// `size_of::<Bodies>()`.
+            pub size: u32,
             $(#[doc = concat!("Body id for the `", stringify!($kind), "` widget kind.")] pub $kind: BodyId,)*
+            /// Slots for kinds added later; zero.
+            pub reserved: [BodyId; Bodies::SLOTS - Bodies::KINDS.len()],
         }
+        impl Default for Bodies {
+            fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, $($kind: BodyId::default(),)* reserved: [BodyId::default(); Bodies::SLOTS - Bodies::KINDS.len()] } }
+        }
+        impl PartialEq for Bodies {
+            fn eq(&self, other: &Self) -> bool { true $(&& self.$kind == other.$kind)* && self.reserved == other.reserved }
+        }
+        impl Eq for Bodies {}
 
         impl Bodies {
             /// The kind names, in field order: what a theme file's `KIND.body` may name.
             pub const KINDS: &'static [&'static str] = &[$(stringify!($kind)),*];
+            /// The body slots of the record: the kinds and the reserved ones.
+            pub const SLOTS: usize = 64;
 
             /// Sets the body of the widget kind named `kind` (one of `Bodies::KINDS`) to `id`; false, changing nothing, for a name that is no kind.
             ///
@@ -521,7 +535,7 @@ impl From<Look> for crate::ffi::PxuiLookDesc {
     fn from(v: Look) -> Self {
         let shadow = |s: Shadow| crate::ffi::PxuiShadowDesc { color: s.color, offset: s.offset, blur: s.blur, spread: s.spread, inner: s.inner as u8, reserved: [0; 3] };
         Self {
-            fill: v.fill, gradient: v.gradient.get().unwrap_or_default(), has_gradient: v.gradient.is_some() as u8, reserved: [0; 3], angle: v.angle,
+            size: core::mem::size_of::<Self>() as u32, fill: v.fill, gradient: v.gradient.get().unwrap_or_default(), has_gradient: v.gradient.is_some() as u8, reserved: [0; 3], angle: v.angle,
             border: v.border, border_w: v.border_w, sides: v.sides as u32, radius: v.radius, shadows: [shadow(v.shadows[0]), shadow(v.shadows[1])], text: v.text,
             font: crate::ffi::PxuiFontDesc { family: v.font.family, weight: v.font.weight, size_points: v.font.size_points, size: v.font.size, tracking: v.font.tracking, caps: v.font.caps as u8, reserved: [0; 3] },
             opacity: v.opacity, ring: crate::ffi::PxuiRingDesc { color: v.ring.color, width: v.ring.width, sides: v.ring.sides as u32 },

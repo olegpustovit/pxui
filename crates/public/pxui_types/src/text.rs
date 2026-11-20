@@ -443,15 +443,20 @@ impl Label {
     pub const fn fields(&self) -> &LabelFields { &self.0 }
 }
 
+/// Size-prefixed (`size_of::<TextMetrics>()`, 20): the library writes it (`Default` sets it); a caller's out record whose `size` is short is refused.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TextMetrics {
+    pub size: u32,
     pub width: f32,
     pub height: f32,
     /// Distance, in points, from the top of the layout to its first line's baseline: `Paint::text`, `text_spans` and `text_chars` put
     /// the first baseline this far below `at`.
     pub baseline: f32,
     pub lines: u32,
+}
+impl Default for TextMetrics {
+    fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, width: 0.0, height: 0.0, baseline: 0.0, lines: 0 } }
 }
 
 #[repr(C)]

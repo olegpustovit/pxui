@@ -101,7 +101,7 @@ unsafe fn read_spans(value: *const TextSpans, count: usize) -> Option<TextSpans>
 }
 
 unsafe fn measure_spans(text:&mut Text,key:u64,value:Str,style_:*const TextStyle,max_width:f32,spans:*const TextSpans,out:*mut TextMetrics)->i32 {
-    if style_.is_null() || out.is_null() || !max_width.is_finite() { return PXUI_ERR_ARGUMENT; }
+    if style_.is_null() || !metrics_out(out) || !max_width.is_finite() { return PXUI_ERR_ARGUMENT; }
     let (Some(value),Some(style),Some(spans))=(unsafe { utf8(value) },unsafe { read_style(style_) },unsafe { span_packet(spans) }) else { return PXUI_ERR_ARGUMENT };
     let spans=spans.as_slice();
     let key=if key==0 {pxui_text::content_key(&style,max_width,value,spans)} else {key};
@@ -155,8 +155,11 @@ unsafe fn write_spanned_line_box(state: &mut PxuiUi, box_: &UiBox, text: &str, s
     Some(unsafe { &mut *state.engine }.text_line_box(box_, text, style, &packet.spans[..count]))
 }
 
+/// A caller's metrics out record: not null and its `size` covers the record (the call writes it whole).
+pub(crate) fn metrics_out(out: *mut TextMetrics) -> bool { !out.is_null() && unsafe { out.cast::<u32>().read_unaligned() } as usize >= core::mem::size_of::<TextMetrics>() }
+
 pub(crate) fn metrics(value: pxui_text::Metrics) -> TextMetrics {
-    TextMetrics { width: value.w, height: value.h, baseline: value.baseline, lines: value.lines }
+    TextMetrics { width: value.w, height: value.h, baseline: value.baseline, lines: value.lines, ..TextMetrics::default() }
 }
 
 /// A text shaper of its own, for text laid out off the `Ui` (on any thread): its own font system and no GPU atlas.
@@ -173,7 +176,7 @@ export!(pub unsafe fn pxui_text_fork(ui:*mut PxuiUi)->*mut PxuiShaper {
 });
 
 export!(object pub unsafe fn pxui_shaper_prepare(shaper:*mut PxuiShaper,value:Str,style_:*const TextStyle,max_width:f32,spans:*const TextSpans,out:*mut *mut PxuiPreparedText,out_metrics:*mut TextMetrics)->i32 {
-    if out.is_null() || out_metrics.is_null() { return PXUI_ERR_ARGUMENT; }
+    if out.is_null() || !metrics_out(out_metrics) { return PXUI_ERR_ARGUMENT; }
     let (Some(shaper),Some(value),Some(style),Some(spans))=(unsafe { shaper.as_mut() },unsafe { utf8(value) },unsafe { read_style(style_) },unsafe { span_packet(spans) }) else { return PXUI_ERR_ARGUMENT };
     let Some(prepared)=shaper.text.prepare(value,&style,max_width,spans.as_slice()) else { return PXUI_ERR_ARGUMENT };
     let measured=metrics(prepared.metrics());
@@ -211,7 +214,7 @@ mod prepared_tests {
             let bad_utf8=[255u8];
             let mut out=core::ptr::dangling_mut();
             let sentinel=out;
-            let mut measured=TextMetrics {width:-99.0,height:-99.0,baseline:-99.0,lines:777};
+            let mut measured=TextMetrics {width:-99.0,height:-99.0,baseline:-99.0,lines:777,..TextMetrics::default()};
             for (text,style,width,spans) in [
                 (value("valid"),(&short as *const u32).cast(),200.0,&spans as *const TextSpans),
                 (value("valid"),&style,200.0,(&short as *const u32).cast()),
@@ -340,7 +343,7 @@ export!(failing(u32::MAX) pub unsafe fn pxui_text_add_font(ui: *mut PxuiUi, font
 });
 
 unsafe fn measure(text: &mut Text, key: u64, value: Str, style_: *const TextStyle, max_width: f32, out: *mut TextMetrics) -> i32 {
-    if style_.is_null() || out.is_null() || !max_width.is_finite() { return PXUI_ERR_ARGUMENT; }
+    if style_.is_null() || !metrics_out(out) || !max_width.is_finite() { return PXUI_ERR_ARGUMENT; }
     let Some(value) = (unsafe { utf8(value) }) else { return PXUI_ERR_ARGUMENT; };
     let Some(style) = (unsafe { read_style(style_) }) else { return PXUI_ERR_ARGUMENT; };
     let key = if key == 0 { pxui_text::content_key(&style, max_width, value, &[]) } else { key };

@@ -126,7 +126,7 @@ export!(build pub unsafe fn pxui_ui_set_at(ui: *mut PxuiUi, box_: *const PxuiBox
 export!(pub unsafe fn pxui_ui_patch_look(ui: *mut PxuiUi, box_: *const PxuiBox, value: *const PxuiLookDesc, out: *mut u8) -> i32 {
     let (e, b) = match unsafe { boxed(ui, box_) } { Ok(v) => v, Err(code) => return code };
     if value.is_null() || out.is_null() { return unsafe { fail(ui, "null patch argument") }; }
-    let Some(value) = decode_look(unsafe { *value }) else { return unsafe { fail(ui, "invalid look") }; };
+    let Some(value) = read_desc!(value, PxuiLookDesc).and_then(decode_look) else { return unsafe { fail(ui, "invalid look") }; };
     unsafe { *out = e.patch_look(&b, &value) as u8; }
     0
 });

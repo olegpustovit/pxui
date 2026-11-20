@@ -62,7 +62,7 @@ fn push(sh: *mut Shared, slot: Slot) -> PxuiSlot {
 fn content(sh: *mut Shared, f: &mut dyn FnMut(&mut Ui)) -> PxuiSlot { push(sh, Slot::Content(unsafe { core::mem::transmute::<&mut dyn FnMut(&mut Ui), *mut (dyn FnMut(&mut Ui) + 'static)>(f) })) }
 fn editor(sh: *mut Shared, f: &mut dyn FnMut(&mut Ui) -> bool) -> PxuiSlot { push(sh, Slot::Editor(unsafe { core::mem::transmute::<&mut dyn FnMut(&mut Ui) -> bool, *mut (dyn FnMut(&mut Ui) -> bool + 'static)>(f) })) }
 
-fn st(s: State) -> PxuiStateDesc { PxuiStateDesc { hovered: s.hovered as u8, pressed: s.pressed as u8, focused: s.focused as u8, disabled: s.disabled as u8, checked: s.checked as u8, reserved: [0; 3] } }
+fn st(s: State) -> PxuiStateDesc { PxuiStateDesc { size: core::mem::size_of::<PxuiStateDesc>() as u32, hovered: s.hovered as u8, pressed: s.pressed as u8, focused: s.focused as u8, disabled: s.disabled as u8, checked: s.checked as u8, reserved: [0; 3] } }
 fn bx(b: pxui_core::ui::UiBox) -> PxuiBox { to_abi_box(b) }
 fn opt(s: Option<&str>) -> Str { s.map_or(Str::default(), pair) }
 fn flag(b: Option<bool>) -> (u8, u8) { (b.is_some() as u8, b.unwrap_or(false) as u8) }
