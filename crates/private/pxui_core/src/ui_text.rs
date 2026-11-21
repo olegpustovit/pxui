@@ -1342,6 +1342,9 @@ struct MenuLook {
 /// The mark slot of a row that keeps one: the accent square sits in it before the label.
 const MENU_LEAD: f32 = 14.0;
 
+// Rust menu rows reach the engine directly in the static build; keep its display cap equal to the ABI wrapper's.
+fn menu_text(text: &str) -> &str { &text[..text.floor_char_boundary(64 << 10)] }
+
 impl Ui {
     /// the rows of one menu: the row picked, and the row the pointer is on
     fn menu_rows(&mut self, items: &[MenuItem], m: &MenuLook) -> (Option<i64>, Option<i64>) {
@@ -1355,13 +1358,13 @@ impl Ui {
         let mut w = base;
         for item in items {
             let extra = if !item.shortcut.is_empty() {
-                24.0 + self.text_width(Some(key_size), item.shortcut)
+                24.0 + self.text_width(Some(key_size), menu_text(item.shortcut))
             } else if top && !item.submenu.is_empty() {
                 32.5
             } else {
                 0.0
             };
-            w = w.max(self.text_width(None, item.text) + 26.0 + lead + swatch_pad + extra);
+            w = w.max(self.text_width(None, menu_text(item.text)) + 26.0 + lead + swatch_pad + extra);
         }
         w
     }
@@ -2216,7 +2219,7 @@ fn menu_rows_body(this: &mut Ui, items: &[MenuItem], m: &MenuLook) -> (Option<i6
     let body = body_of!(this, menu_row);
     for (index, item) in items.iter().enumerate() {
         let index = index as i64;
-        let (text, enabled) = (item.text, item.enabled);
+        let (text, enabled) = (menu_text(item.text), item.enabled);
         let t = this.theme();
         if text.is_empty() {
             let look = t.separator.idle;
@@ -2251,7 +2254,7 @@ fn menu_rows_body(this: &mut Ui, items: &[MenuItem], m: &MenuLook) -> (Option<i6
                 state, index, row, selected, chevron, danger: item.danger, lead: if item.checked.is_some() { MENU_LEAD } else { 0.0 },
                 swatch_pad: m.swatch_pad, swatch: item.swatch.map(|c| this.resolve_color(c)), row_h: m.row_h,
             };
-            let key = Some(item.shortcut).filter(|k| !k.is_empty());
+            let key = Some(menu_text(item.shortcut)).filter(|k| !k.is_empty());
             in_item!(this, body, row.box_key, row, default_menu_row(&config, text, key));
             if enabled && signal.clicked && !chevron && picked.is_none() {
                 picked = Some(index);

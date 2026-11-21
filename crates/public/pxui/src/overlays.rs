@@ -246,7 +246,7 @@ impl Ui {
         let row_of = |item: &MenuItem| PxuiMenuRow {
             enabled: item.enabled as u8, danger: item.danger as u8, checked: item.checked.map_or(0, |mark| 1 + mark as u8), selected: item.selected as u8,
             has_swatch: item.swatch.is_some() as u8, swatch: item.swatch.unwrap_or_default(), has_id: item.id.is_some() as u8, id: item.id.unwrap_or(0),
-            shortcut: as_str(item.shortcut), ..PxuiMenuRow::new(item.text)
+            shortcut: as_str(item.shortcut), ..PxuiMenuRow::new(crate::clip(item.text))
         };
         let n = items.len();
         let mut stack = [PxuiMenuRow::new(""); ROWS];

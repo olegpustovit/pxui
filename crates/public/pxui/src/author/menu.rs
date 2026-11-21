@@ -205,6 +205,25 @@ mod tests {
         assert_eq!(last.get().chosen, Some(0));
     }
 
+    #[test]
+    fn menu_and_submenu_text_clip_at_a_utf8_boundary_in_both_link_modes() {
+        // The 64 KiB boundary deliberately falls inside a two-byte scalar; shaping this limit is the work under test.
+        let text = format!("a{}", "é".repeat(32768));
+        let expected = &text[..65535];
+        let child = [MenuItem::new(&text).shortcut(&text)];
+        let items = [MenuItem::new(&text).shortcut(&text).submenu(&child)];
+        let mut build = |ui: &mut Ui| { ui.menu("utf8", crate::Point::new(10.0, 10.0), &items, &Menu::DEFAULT); };
+        let mut ui = crate::doc::frames(2, &mut build);
+        let row = ui.a11y_nodes().iter().find(|n| n.is_role(Role::MenuItem)).unwrap();
+        assert_eq!(ui.a11y_name_of(row), expected);
+        let (x, y) = (f64::from(row.rect.x + 10.0), f64::from(row.rect.y + 10.0));
+        testing::frame(&mut ui, &[Event { kind: Event::POINTER_MOVED, x, y, ..Default::default() }], &mut build);
+        testing::frame(&mut ui, &[], &mut build);
+        let rows: Vec<_> = ui.a11y_nodes().iter().filter(|n| n.is_role(Role::MenuItem)).collect();
+        assert_eq!(rows.len(), 2, "the clipped submenu still opens");
+        for row in rows { assert_eq!(ui.a11y_name_of(row), expected); }
+    }
+
     /// Open, held open, closed and reopened, with a mark slot, a shortcut, a danger row and a 40-row scrolling menu, a warm frame allocates nothing, and
     /// neither does the frame a settled menu opens on.
     #[test]
