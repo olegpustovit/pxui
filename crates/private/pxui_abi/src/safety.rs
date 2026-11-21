@@ -571,10 +571,29 @@ fn accessibility_batches_validate_the_entire_span_before_applying_any_chunk() {
     assert_eq!(run(ui,Some(slider),(&mut node as *mut PxuiBox).cast()),0);
     assert_eq!(unsafe {(&*(*ui).engine).signal(&crate::state::core_box_of(ui, node).unwrap()).a11y_value},None,"a foreign surface in the tail refuses every chunk");
     batch[64].surface=FrameIn::MAIN;
+    for payload in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        batch[64].payload=payload;
+        assert_eq!(unsafe {pxui_ui_inject_a11y(ui,pxui_types::ffi::Strided::of(&batch))},PXUI_ERR_ARGUMENT);
+        assert_eq!(unsafe {(&*(*ui).engine).pending_a11y_actions()},0,"invalid payload refuses every chunk");
+    }
+    batch[64].payload=77.0;
+    batch[64].reserved=1;
+    assert_eq!(unsafe {pxui_ui_inject_a11y(ui,pxui_types::ffi::Strided::of(&batch))},PXUI_ERR_ARGUMENT);
+    assert_eq!(unsafe {(&*(*ui).engine).pending_a11y_actions()},0);
+    batch[64].reserved=0;
     assert_eq!(unsafe {pxui_ui_inject_a11y(ui,pxui_types::ffi::Strided::of(&batch))},0);
     assert_eq!(run(ui,Some(slider),(&mut node as *mut PxuiBox).cast()),0);
     let value=unsafe {(&*(*ui).engine).signal(&crate::state::core_box_of(ui, node).unwrap()).a11y_value};
     assert_eq!(value,Some(77.0));
+    batch[0].action_code=8; batch[0].payload=f64::MAX;
+    assert_eq!(unsafe {pxui_ui_inject_a11y(ui,pxui_types::ffi::Strided::of(&[batch[0];2]))},0);
+    assert_eq!(in_frame(ui,&mut |h| {
+        let b=unsafe {crate::state::core_box_of(h,node)}.unwrap();
+        assert!(unsafe {(&*(*h).engine).scroll_offset(&b)}.is_finite(),"finite deltas cannot overflow point storage before layout");
+        slider((&mut node as *mut PxuiBox).cast(),h.cast());
+        0
+    }),0);
+    batch[0].action_code=4;
     batch[0].payload=123.0;
     assert_eq!(unsafe {pxui_ui_inject_a11y(ui,pxui_types::ffi::Strided::of(&batch[..1]))},0);
     assert_eq!(unsafe {pxui_ui_remove_surface(ui,FrameIn::MAIN)},0);

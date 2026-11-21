@@ -238,7 +238,7 @@ export!(pub unsafe fn pxui_ui_inject_a11y(ui: *mut PxuiUi, actions: pxui_types::
         return unsafe { fail_code(ui, "accessibility action queue is full until the next frame", PXUI_ERR_STATE) };
     }
     // Reject the whole batch before feeding any chunk to the retained engine queue, including actions addressed to another surface.
-    if (0..actions.len).any(|i| { let a = unsafe { actions.at(i) }; (a.size as usize) < core::mem::size_of::<pxui_types::ffi::A11yAction>() || a.surface == 0 || a.surface != state.shared().surface || !matches!(a.action_code,1|2|4|8|16|32|64|128|256) }) {
+    if (0..actions.len).any(|i| { let a = unsafe { actions.at(i) }; (a.size as usize) < core::mem::size_of::<pxui_types::ffi::A11yAction>() || a.surface == 0 || a.surface != state.shared().surface || a.reserved != 0 || !a.payload.is_finite() || !matches!(a.action_code,1|2|4|8|16|32|64|128|256) }) {
         return unsafe { fail(ui, "invalid accessibility action record or code") };
     }
     use pxui_core::a11y::{Action, A11yAction};

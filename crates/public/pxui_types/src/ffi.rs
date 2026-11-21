@@ -221,8 +221,10 @@ pub struct A11yAction {
     /// (ABI 1.89: a reorderable list row, offered in its node's `actions`).
     pub action_code: u32,
     pub id: u64,
+    /// Finite action data; scroll deltas saturate to the finite point range before layout clamps them to content.
     pub payload: f64,
     pub end: u32,
+    /// Zero on input.
     pub reserved: u32,
     /// The registered destination surface; defaults to `FrameIn::MAIN` and must match the receiving Ui.
     pub surface: u64,

@@ -627,7 +627,8 @@ int32_t pxui_ui_set_dir(PxuiUi *ui, uint32_t dir);
 int32_t pxui_ui_set_a11y(PxuiUi *ui, uint8_t on);
 /* action_code: one bit, 1 press, 2 focus, 4 set value, 8 scroll, 16 expand, 32 collapse, 64 select, 128 move up, 256 move down
    (a reorderable list row). */
-/* At most 4096 pending actions per Ui until the next frame; a whole batch past the available room is refused with PXUI_ERR_STATE. */
+/* Each action has finite payload and zero reserved; scroll deltas saturate to finite points before content clamping.
+   At most 4096 pending actions per Ui until the next frame; a whole batch past the available room is refused with PXUI_ERR_STATE. */
 int32_t pxui_ui_inject_a11y(PxuiUi *ui, PxuiA11yActionSpan actions);
 int32_t pxui_ui_a11y_name(PxuiUi *ui, const PxuiBox *box, PxuiStr name);
 int32_t pxui_ui_a11y_value(PxuiUi *ui, const PxuiBox *box, PxuiStr value, uint32_t anchor, uint32_t caret);

@@ -2066,7 +2066,7 @@ impl Ui {
                     let b = UiBox { index: NONE, box_key: key, box_slot: slot, generation, ui: self.ui_serial };
                     self.focus_box(&b);
                 }
-                A11yKind::Scroll => self.scroll_y[slot] = (self.scroll_y[slot] + a.payload as f32).max(0.0),
+                A11yKind::Scroll => self.scroll_y[slot] = (self.scroll_y[slot] + a.payload as f32).clamp(0.0, f32::MAX),
                 A11yKind::SetValue => self.accumulator(key).a11y_value = Some(a.payload),
                 // a selection is made in a focused field: focus it, then the widget applies the range
                 A11yKind::Select => {
