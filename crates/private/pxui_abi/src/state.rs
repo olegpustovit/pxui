@@ -93,9 +93,10 @@ pub(crate) struct Shared {
     pub wants: Vec<input::Event>,
     /// key codes of a box's held keys, valid until the next frame
     pub key_codes: Vec<u32>,
-    /// a menu's rows and its submenus' rows borrowed from the caller for one call: empty between calls
-    pub menu: Vec<pxui_types::ui::MenuItem<'static>>,
-    pub menu_sub: Vec<pxui_types::ui::MenuItem<'static>>,
+    /// Menu scratch pools, like `strs`: one buffer per simultaneous call, reused after a nested body returns. Each buffer is bounded by
+    /// 4096 top rows / 64 * 4096 child rows; its borrowed rows are cleared before return to the pool.
+    pub menu: Vec<Vec<pxui_types::ui::MenuItem<'static>>>,
+    pub menu_sub: Vec<Vec<pxui_types::ui::MenuItem<'static>>>,
     /// the input frame `pxui_ui_input` last handed out, and its wire form (the events point into the frame's own strings)
     pub routed: Option<input::frame::Frame>,
     pub routed_events: Vec<FfiEvent>,

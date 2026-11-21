@@ -68,7 +68,7 @@ export!(trusted pub unsafe fn pxui_ui_context_menu(
     }
     let Some(label) = (unsafe { crate::state::checked_label(label) }) else { return unsafe { fail(ui, "invalid context menu strings") }; };
     // the rows borrow the caller's strings for this call, in vectors reused between frames
-    let (mut menu, mut subs) = { let shared = state.shared(); (core::mem::take(&mut shared.menu), core::mem::take(&mut shared.menu_sub)) };
+    let (mut menu, mut subs) = { let shared = state.shared(); (shared.menu.pop().unwrap_or_default(), shared.menu_sub.pop().unwrap_or_default()) };
     let mut valid = unsafe { decode_rows(&rows, &mut menu, &mut subs) };
     let mut menu_options = Menu::DEFAULT;
     if has_width != 0 { menu_options = menu_options.w_px(width); }
@@ -81,7 +81,7 @@ export!(trusted pub unsafe fn pxui_ui_context_menu(
     let status = if valid { with_variant!(ui, pxui_types::theme::BodyKind::menu_row, variant, unsafe { crate::trusted::menu(ui, NodeKey::Label(label), (x, y), &menu, &menu_options, &mut result) }) } else { 0 };
     menu.clear();
     subs.clear();
-    { let shared = state.shared(); (shared.menu, shared.menu_sub) = (menu, subs); }
+    { let shared = state.shared(); shared.menu.push(menu); shared.menu_sub.push(subs); }
     if !valid { return unsafe { fail(ui, "invalid context menu rows or options") }; }
     if status != 0 { return status; }
     let (tag, index) = match (result.dismissed, result.chosen) { (true, _) => (2, -1), (_, Some(index)) => (1, index as i64), _ => (0, -1) };

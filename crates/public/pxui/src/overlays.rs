@@ -90,15 +90,15 @@ thread_local! { static ROWS: Cell<(PickRows, Vec<pxui_types::ffi::PxuiPickRow>)>
 /// The most rows a menu takes: the library's row cap (it refuses more); `Ui::menu` refuses a longer one before copying a row.
 pub(crate) const MENU_ROWS: usize = 4096;
 
-// The row records of a menu of more than 32 rows, kept on this thread between calls so a settled long menu allocates nothing here; at most
-// `MENU_ROWS` rows' worth, the longest menu built on the thread.
+// Per-thread scratch pools, one buffer per simultaneous menu call (as the ABI's per-Ui string pool), reused after nested bodies return.
+// A top-row buffer holds at most MENU_ROWS rows (capacity below twice that bound); borrowed rows are cleared before storage.
 #[cfg(not(feature = "static"))]
-thread_local! { static MENU_KEPT: Cell<Vec<PxuiMenuRow>> = const { Cell::new(Vec::new()) }; }
+thread_local! { static MENU_KEPT: Cell<Vec<Vec<PxuiMenuRow>>> = const { Cell::new(Vec::new()) }; }
 
 // Call-scoped row scratch shared by menus on this thread, taken during callbacks: at most 64 * MENU_ROWS children (capacity below
 // twice that bound). Strings remain borrowed only until the call returns; clear every row before returning the storage.
 #[cfg(not(feature = "static"))]
-thread_local! { static MENU_SUB_KEPT: Cell<Vec<PxuiMenuRow>> = const { Cell::new(Vec::new()) }; }
+thread_local! { static MENU_SUB_KEPT: Cell<Vec<Vec<PxuiMenuRow>>> = const { Cell::new(Vec::new()) }; }
 
 struct Rows<'a, 'f> {
     fill: &'a mut (dyn FnMut(&str, &mut PickRows) + 'f),
@@ -250,12 +250,22 @@ impl Ui {
         };
         let n = items.len();
         let mut stack = [PxuiMenuRow::new(""); ROWS];
-        let mut kept = if n > ROWS { MENU_KEPT.take() } else { Vec::new() };
+        let mut kept = if n > ROWS {
+            let mut pool = MENU_KEPT.take();
+            let rows = pool.pop().unwrap_or_default();
+            MENU_KEPT.set(pool);
+            rows
+        } else { Vec::new() };
         let rows: &mut [PxuiMenuRow] = if n <= ROWS { &mut stack[..n] } else { kept.clear(); kept.resize(n, PxuiMenuRow::new("")); &mut kept };
         for (row, item) in rows.iter_mut().zip(items) { *row = row_of(item); }
         // the submenus' rows, flat: each opening row's span points at its run (the vector grows no more once they are set)
         let children: usize = items.iter().map(|item| item.submenu.len()).sum();
-        let mut flat = if children != 0 { MENU_SUB_KEPT.take() } else { Vec::new() };
+        let mut flat = if children != 0 {
+            let mut pool = MENU_SUB_KEPT.take();
+            let rows = pool.pop().unwrap_or_default();
+            MENU_SUB_KEPT.set(pool);
+            rows
+        } else { Vec::new() };
         flat.clear();
         if children != 0 {
             for item in items { flat.extend(item.submenu.iter().map(row_of)); }
@@ -278,8 +288,8 @@ impl Ui {
             self.0.as_ptr(), at.0, at.1, as_str(label), Strided { ptr: rows.as_ptr(), len: n, stride: core::mem::size_of::<PxuiMenuRow>() }, has_width, width,
             if optioned { &options } else { core::ptr::null() }, &mut tag, &mut index,
         ) });
-        if n > ROWS { MENU_KEPT.set(kept); }
-        if children != 0 { flat.clear(); MENU_SUB_KEPT.set(flat); }
+        if n > ROWS { kept.clear(); let mut pool = MENU_KEPT.take(); pool.push(kept); MENU_KEPT.set(pool); }
+        if children != 0 { flat.clear(); let mut pool = MENU_SUB_KEPT.take(); pool.push(flat); MENU_SUB_KEPT.set(pool); }
         match tag { 0 => Chosen::default(), 1 => Chosen { chosen: Some(index as usize), ..Chosen::default() }, 2 => Chosen { dismissed: true, ..Chosen::default() }, _ => unreachable!("the library answers a menu with tag 0, 1 or 2") }
     }
 
@@ -383,11 +393,11 @@ mod tests {
         let message = panic.downcast_ref::<String>().map(String::as_str).or_else(|| panic.downcast_ref::<&str>().copied()).unwrap_or("");
         assert!(message.contains("at most 4096 rows"), "{message}");
         #[cfg(not(feature = "static"))]
-        { let kept = super::MENU_KEPT.take(); assert_eq!(kept.capacity(), 0, "nothing was copied for the refused menu"); }
+        assert!(super::MENU_KEPT.take().is_empty(), "nothing was copied for the refused menu");
         let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
         ui.frame(&FrameIn::new(200.0, 100.0), &mut |ui: &mut Ui| { ui.menu("long", Point::new(0.0, 0.0), &items[..super::MENU_ROWS], &Menu::DEFAULT); }).expect("a menu at the cap is served");
         #[cfg(not(feature = "static"))]
-        { let kept = super::MENU_KEPT.take(); assert!(kept.capacity() <= super::MENU_ROWS + super::MENU_ROWS / 2, "kept columns stay near the cap"); }
+        { let kept = super::MENU_KEPT.take().pop().unwrap(); assert!(kept.capacity() <= super::MENU_ROWS + super::MENU_ROWS / 2, "kept columns stay near the cap"); }
     }
 
     #[test]
@@ -406,7 +416,7 @@ mod tests {
             }));
             assert!(refused.is_err());
             #[cfg(not(feature = "static"))]
-            assert_eq!(super::MENU_SUB_KEPT.take().capacity(), 0, "no child row copied before refusal");
+            assert!(super::MENU_SUB_KEPT.take().is_empty(), "no child row copied before refusal");
         }
     }
 }

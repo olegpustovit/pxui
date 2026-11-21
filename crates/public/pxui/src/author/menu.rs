@@ -224,6 +224,39 @@ mod tests {
         for row in rows { assert_eq!(ui.a11y_name_of(row), expected); }
     }
 
+    thread_local! { static IN_NESTED_MENU: Cell<bool> = const { Cell::new(false) }; }
+
+    fn nesting_row(ui: &mut Ui, c: &MenuRowConfig) {
+        ui.label(c.text_of(&c.text), crate::Label::DEFAULT);
+        if IN_NESTED_MENU.replace(true) { return; }
+        const CHILD: [MenuItem; 1] = [MenuItem::new("Nested child")];
+        let mut rows = [MenuItem::new("Nested row"); 40];
+        rows[0] = rows[0].submenu(&CHILD);
+        ui.menu("nested-menu", crate::Point::new(220.0, 10.0), &rows, &Menu::DEFAULT.max_rows(4));
+        IN_NESTED_MENU.set(false);
+    }
+
+    #[test]
+    fn menus_built_from_a_registered_row_reuse_their_warm_scratch() {
+        mem_sys::set_peer(crate::library_counter);
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+        ui.register_menu_row_body("nesting", nesting_row).unwrap();
+        ui.set_theme(&crate::ThemeHandle::parse("menu_row.body = nesting").unwrap()).unwrap();
+        const CHILD: [MenuItem; 1] = [MenuItem::new("Outer child")];
+        const ITEMS: [MenuItem; 1] = [MenuItem::new("Outer row").submenu(&CHILD)];
+        let input = FrameIn::new(640.0, 480.0);
+        let mut build = |ui: &mut Ui| { ui.menu("outer-menu", crate::Point::new(10.0, 10.0), &ITEMS, &Menu::DEFAULT); };
+        for _ in 0..8 { ui.frame(&input, &mut build).unwrap(); }
+        let scope = mem_sys::warm_scope();
+        for _ in 0..8 {
+            mem_sys::local_reset();
+            ui.frame(&input, &mut build).unwrap();
+            assert_eq!(mem_sys::local_alloc_count(), 0, "nested menu scratch must survive the outer call's return");
+        }
+        drop(scope);
+        assert!(mem_sys::take_reports().is_empty());
+    }
+
     /// Open, held open, closed and reopened, with a mark slot, a shortcut, a danger row and a 40-row scrolling menu, a warm frame allocates nothing, and
     /// neither does the frame a settled menu opens on.
     #[test]
