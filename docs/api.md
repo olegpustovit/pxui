@@ -366,32 +366,10 @@ pxui::Feature impl Eq @HEAD
 pxui::Feature impl PartialEq @HEAD
 pxui::Feature impl StructuralPartialEq @HEAD
 pxui::Feature::A11yBridge variant = pxui_types::feature::A11Y_BRIDGE @HEAD
-pxui::Feature::ButtonContent variant = pxui_types::feature::BUTTON_CONTENT @HEAD
-pxui::Feature::ButtonParts variant = pxui_types::feature::BUTTON_PARTS @HEAD
-pxui::Feature::ColorTokens variant = pxui_types::feature::COLOR_TOKENS @HEAD
-pxui::Feature::DialogResponse variant = pxui_types::feature::DIALOG_RESPONSE @HEAD
-pxui::Feature::Dismiss variant = pxui_types::feature::DISMISS @HEAD
 pxui::Feature::ExtensionSet variant = pxui_types::feature::EXTENSION_SET @HEAD
-pxui::Feature::FrameSurface variant = pxui_types::feature::FRAME_SURFACE @HEAD
-pxui::Feature::IconButtonCurves variant = pxui_types::feature::ICON_BUTTON_CURVES @HEAD
-pxui::Feature::IconWord variant = pxui_types::feature::ICON_WORD @HEAD
-pxui::Feature::ImageChecked variant = pxui_types::feature::IMAGE_CHECKED @HEAD
-pxui::Feature::ItemText variant = pxui_types::feature::ITEM_TEXT @HEAD
-pxui::Feature::LabelNode variant = pxui_types::feature::LABEL_NODE @HEAD
-pxui::Feature::LookTokens variant = pxui_types::feature::LOOK_TOKENS @HEAD
-pxui::Feature::MenuItemIds variant = pxui_types::feature::MENU_ITEM_IDS @HEAD
-pxui::Feature::MenuMaxH variant = pxui_types::feature::MENU_MAX_H @HEAD
 pxui::Feature::Metal variant = pxui_types::feature::METAL @HEAD
 -pxui::Feature::SegmentedResponse variant = pxui_types::feature::SEGMENTED_RESPONSE @U1b.1
-pxui::Feature::SegmentedResult variant = pxui_types::feature::SEGMENTED_RESULT @HEAD
-pxui::Feature::SegmentedStoredFocus variant = pxui_types::feature::SEGMENTED_STORED_FOCUS @HEAD
-pxui::Feature::SwipeActions variant = pxui_types::feature::SWIPE_ACTIONS @HEAD
-pxui::Feature::TextWorker variant = pxui_types::feature::TEXT_WORKER @HEAD
-pxui::Feature::ToggleResponse variant = pxui_types::feature::TOGGLE_RESPONSE @HEAD
-pxui::Feature::ViewKeyed variant = pxui_types::feature::VIEW_KEYED @HEAD
 pxui::Feature::Vulkan variant = pxui_types::feature::VULKAN @HEAD
-pxui::Feature::WidgetVariants variant = pxui_types::feature::WIDGET_VARIANTS @HEAD
-pxui::Feature::WidgetsKeyed variant = pxui_types::feature::WIDGETS_KEYED @HEAD
 pxui::Fill impl Clone @HEAD
 pxui::Fill impl Copy @HEAD
 pxui::Fill impl Debug @HEAD
@@ -4062,34 +4040,9 @@ pxui_types::draw::kind::TRIANGLE const u8 @HEAD
 pxui_types::draw::nine_slice fn (rect: [f32; 4], uv: [f32; 4], image: [f32; 2], inset: [f32; 4], tint: [u8; 4]) -> [Instance; 9] @HEAD
 pxui_types::feature mod @HEAD
 pxui_types::feature::A11Y_BRIDGE const u32 @HEAD
-pxui_types::feature::BUTTON_CONTENT const u32 @HEAD
-pxui_types::feature::BUTTON_PARTS const u32 @HEAD
-pxui_types::feature::COLOR_TOKENS const u32 @HEAD
-pxui_types::feature::DIALOG_RESPONSE const u32 @HEAD
-pxui_types::feature::DISMISS const u32 @HEAD
 pxui_types::feature::EXTENSION_SET const u32 @HEAD
-pxui_types::feature::FRAME_SURFACE const u32 @HEAD
-pxui_types::feature::ICON_BUTTON_CURVES const u32 @HEAD
-pxui_types::feature::ICON_WORD const u32 @HEAD
-pxui_types::feature::IMAGE_CHECKED const u32 @HEAD
-pxui_types::feature::ITEM_TEXT const u32 @HEAD
-pxui_types::feature::LABEL_NODE const u32 @HEAD
-pxui_types::feature::LABEL_TEXT const u32 @HEAD
-pxui_types::feature::LOOK_TOKENS const u32 @HEAD
-pxui_types::feature::MENU_ITEM_IDS const u32 @HEAD
-pxui_types::feature::MENU_MAX_H const u32 @HEAD
 pxui_types::feature::METAL const u32 @HEAD
-pxui_types::feature::SEGMENTED_RESPONSE const u32 @HEAD
-pxui_types::feature::SEGMENTED_RESULT const u32 @HEAD
-pxui_types::feature::SEGMENTED_STORED_FOCUS const u32 @HEAD
-pxui_types::feature::SWIPE_ACTIONS const u32 @HEAD
-pxui_types::feature::TEXT_FIELD_KEYED const u32 @HEAD
-pxui_types::feature::TEXT_WORKER const u32 @HEAD
-pxui_types::feature::TOGGLE_RESPONSE const u32 @HEAD
-pxui_types::feature::VIEW_KEYED const u32 @HEAD
 pxui_types::feature::VULKAN const u32 @HEAD
-pxui_types::feature::WIDGETS_KEYED const u32 @HEAD
-pxui_types::feature::WIDGET_VARIANTS const u32 @HEAD
 pxui_types::ffi mod @HEAD
 pxui_types::ffi::A11yAction impl Clone @HEAD
 pxui_types::ffi::A11yAction impl Copy @HEAD

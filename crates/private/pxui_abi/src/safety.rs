@@ -2188,19 +2188,15 @@ fn the_library_checks_the_version_the_app_was_built_against_once_at_create() {
 fn supports_answers_from_the_feature_registry_of_this_build() {
     use pxui_types::feature as f;
     let has = |id: u32| unsafe { pxui_supports(id) };
-    assert_eq!((has(0), has(30), has(u32::MAX), has(ABI_VERSION)), (0, 0, 0, 0), "no id 0, none past the registry, versions are not ids");
+    assert_eq!((has(0), has(5), has(30), has(u32::MAX), has(ABI_VERSION)), (0, 0, 0, 0, 0), "no id 0, none past the registry, versions are not ids");
     assert_eq!((has(f::A11Y_BRIDGE) == 1, has(f::METAL) == 1, has(f::VULKAN) == 1), (cfg!(target_os = "linux"), cfg!(any(target_os = "macos", target_os = "ios")), cfg!(any(windows, target_os = "linux"))));
-    for id in [f::EXTENSION_SET, f::BUTTON_CONTENT, f::ICON_BUTTON_CURVES, f::TOGGLE_RESPONSE, f::SEGMENTED_RESPONSE, f::DIALOG_RESPONSE, f::WIDGET_VARIANTS, f::LABEL_NODE, f::MENU_ITEM_IDS, f::FRAME_SURFACE, f::ITEM_TEXT, f::COLOR_TOKENS, f::SWIPE_ACTIONS, f::DISMISS, f::LOOK_TOKENS, f::ICON_WORD, f::TEXT_WORKER, f::TEXT_FIELD_KEYED, f::LABEL_TEXT, f::MENU_MAX_H, f::SEGMENTED_RESULT, f::WIDGETS_KEYED, f::SEGMENTED_STORED_FOCUS, f::IMAGE_CHECKED, f::BUTTON_PARTS, f::VIEW_KEYED] {
-        assert_eq!(has(id), 1, "feature {id}");
-    }
+    assert_eq!(has(f::EXTENSION_SET), 1);
     // pxui.h numbers the same ids
     let header = include_str!("../../../../include/pxui.h");
     // pxui.h names the version the app is built for
     let built: u32 = header.split("#define PXUI_ABI_BUILT ((1u << 16) | ").nth(1).and_then(|rest| rest.split('u').next()).and_then(|minor| minor.parse().ok()).expect("PXUI_ABI_BUILT in pxui.h");
     assert_eq!(1 << 16 | built, ABI_VERSION, "pxui.h PXUI_ABI_BUILT");
-    for (name, id) in [("A11Y_BRIDGE", f::A11Y_BRIDGE), ("METAL", f::METAL), ("VULKAN", f::VULKAN), ("EXTENSION_SET", f::EXTENSION_SET), ("BUTTON_CONTENT", f::BUTTON_CONTENT), ("ICON_BUTTON_CURVES", f::ICON_BUTTON_CURVES),
-        ("TOGGLE_RESPONSE", f::TOGGLE_RESPONSE), ("SEGMENTED_RESPONSE", f::SEGMENTED_RESPONSE), ("DIALOG_RESPONSE", f::DIALOG_RESPONSE), ("WIDGET_VARIANTS", f::WIDGET_VARIANTS), ("LABEL_NODE", f::LABEL_NODE),
-        ("MENU_ITEM_IDS", f::MENU_ITEM_IDS), ("FRAME_SURFACE", f::FRAME_SURFACE), ("ITEM_TEXT", f::ITEM_TEXT), ("COLOR_TOKENS", f::COLOR_TOKENS), ("SWIPE_ACTIONS", f::SWIPE_ACTIONS), ("DISMISS", f::DISMISS), ("LOOK_TOKENS", f::LOOK_TOKENS), ("ICON_WORD", f::ICON_WORD), ("TEXT_WORKER", f::TEXT_WORKER), ("TEXT_FIELD_KEYED", f::TEXT_FIELD_KEYED), ("LABEL_TEXT", f::LABEL_TEXT), ("MENU_MAX_H", f::MENU_MAX_H), ("SEGMENTED_RESULT", f::SEGMENTED_RESULT), ("WIDGETS_KEYED", f::WIDGETS_KEYED), ("SEGMENTED_STORED_FOCUS", f::SEGMENTED_STORED_FOCUS), ("IMAGE_CHECKED", f::IMAGE_CHECKED), ("BUTTON_PARTS", f::BUTTON_PARTS), ("VIEW_KEYED", f::VIEW_KEYED)] {
+    for (name, id) in [("A11Y_BRIDGE", f::A11Y_BRIDGE), ("METAL", f::METAL), ("VULKAN", f::VULKAN), ("EXTENSION_SET", f::EXTENSION_SET)] {
         assert!(header.contains(&format!("PXUI_FEATURE_{name} = {id}")), "{name}");
     }
 }

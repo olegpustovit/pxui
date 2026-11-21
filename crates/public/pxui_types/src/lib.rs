@@ -881,8 +881,9 @@ pub struct PxuiUiDesc {
     /// library and ask `pxui_supports`); 0 (a 12-byte record from before 1.60) means "unstated".
     pub abi_built: u32,
 }
-/// The ids `pxui_supports` answers for (`PXUI_FEATURE_*` in `pxui.h`). Append only: an id is never reused or renumbered, 0 is never an id, and a
-/// library answers 0 for an id it does not know. The three backend ids depend on the build; the rest are present in every build of the minor that added them.
+/// The ids `pxui_supports` answers for (`PXUI_FEATURE_*` in `pxui.h`): the parts of the 2.0 interface a build may lack. Everything else in the
+/// header is in every build of its major version and is not asked about. Append only: an id is never reused or renumbered, 0 is never an id, and
+/// a library answers 0 for an id it does not know (a feature of a later minor, say). No feature is named for a version.
 pub mod feature {
     /// The accessibility bridge of a window the app owns (`pxui_a11y_*`): present on Linux (AT-SPI2); elsewhere the platform's own bridge is the host's.
     pub const A11Y_BRIDGE: u32 = 1;
@@ -890,69 +891,12 @@ pub mod feature {
     pub const METAL: u32 = 2;
     /// The Vulkan renderer backend. Answers from the target today (Windows, Linux); must switch to `cfg!(feature = ..)` if a backend becomes optional.
     pub const VULKAN: u32 = 3;
-    /// The extension set (`abi/pxui.ext.txt`: Rays inspector vocabulary): exported, with no stability promise.
+    /// The extension set (`abi/pxui.ext.txt`: the Rays vocabulary and the diagnostics): exported, with no stability promise.
     pub const EXTENSION_SET: u32 = 4;
-    /// ABI 1.56: `ui_button_content` and the button's label, axis, gap and place fields.
-    pub const BUTTON_CONTENT: u32 = 5;
-    /// ABI 1.54: the icon button's press curves.
-    pub const ICON_BUTTON_CURVES: u32 = 6;
-    /// ABI 1.51: `ui_toggle_response` and the toggle's options.
-    pub const TOGGLE_RESPONSE: u32 = 7;
-    /// ABI 1.51: `ui_segmented_response` and the segmented control's options.
-    pub const SEGMENTED_RESPONSE: u32 = 8;
-    /// ABI 1.53: `ui_dialog_response`.
-    pub const DIALOG_RESPONSE: u32 = 9;
-    /// ABI 1.52: `ui_variant`, a per-call variant for widget bodies.
-    pub const WIDGET_VARIANTS: u32 = 10;
-    /// ABI 1.54: `ui_label_node`.
-    pub const LABEL_NODE: u32 = 11;
-    /// ABI 1.58: menu rows keyed by id (`PxuiMenuExtra.ids`).
-    pub const MENU_ITEM_IDS: u32 = 12;
-    /// ABI 1.57: `FrameIn.surface`.
-    pub const FRAME_SURFACE: u32 = 13;
-    /// ABI 1.49: `ui_item_text`.
-    pub const ITEM_TEXT: u32 = 14;
-    /// ABI 1.43: app colour tokens (`theme_set_color`).
-    pub const COLOR_TOKENS: u32 = 15;
-    /// ABI 1.40: `ui_swipe_actions`.
-    pub const SWIPE_ACTIONS: u32 = 16;
-    /// ABI 1.41: `ui_dismiss`.
-    pub const DISMISS: u32 = 17;
-    /// ABI 1.61: look colours that name colour tokens (`Rgba::token`), resolved where a look is applied.
-    pub const LOOK_TOKENS: u32 = 18;
-    /// ABI 1.61: `ui_icon_word` / `paint_icon_word`, an icon drawing's word.
-    pub const ICON_WORD: u32 = 19;
-    /// ABI 1.62: the prepare queue's `text_worker_create`/`text_worker_destroy`, `ui_set_text_worker`, `text_prewarm`.
-    pub const TEXT_WORKER: u32 = 20;
-    /// ABI 1.64: `ui_text_field_keyed` and `ui_input_box`.
-    pub const TEXT_FIELD_KEYED: u32 = 21;
-    /// ABI 1.65: `ui_label_text_spans`, `ui_label_text_line_box`, `ui_label_measure`, `ui_label_quads`, `ui_label_rasterize_rgba`,
-    /// `ui_label_prewarm` (text calls that take the label record and resolve it in the same call).
-    pub const LABEL_TEXT: u32 = 22;
-    /// ABI 1.67: `PxuiMenuExtra.max_h`, the menu sheet's most height (`Menu::max_h`).
-    pub const MENU_MAX_H: u32 = 23;
-    /// ABI 1.67: `ui_segmented_result` and `has_selected`, a segmented control with no choice and the option a secondary press began on;
-    /// 1.67 also changes the keyboard model of every segmented call (one Tab stop, the chosen option; every option focusable to
-    /// assistive technology).
-    pub const SEGMENTED_RESULT: u32 = 24;
-    /// ABI 1.68: `PxuiKeyedDesc` and the `ui_*_keyed` widget and container calls (checkbox, choice, slider, progress, spinner, badge,
-    /// panel, popup, modal, anchored, scroll_view, toasts; picker in the extension set).
-    pub const WIDGETS_KEYED: u32 = 25;
-    /// ABI 1.69: `PxuiSegmentedDesc.focus_on_click` (`Segmented::focus_on_click`) and `PxuiSegmentedConfig.stored` (the caller's choice, as a
-    /// segment body sees it on the frame a press moves it).
-    pub const SEGMENTED_STORED_FOCUS: u32 = 26;
-    /// ABI 1.70: `ui_image_node` (an image with no key, its name for accessibility only) and `paint_image_checked` (a refused image is
-    /// reported, not dropped).
-    pub const IMAGE_CHECKED: u32 = 27;
-    /// ABI 1.71: `PxuiButtonDesc` leading icon, detail and accessory (and `PxuiButtonConfig`'s), `PxuiIconButtonDesc.checkable`/`checked`
-    /// and `PxuiDialogDesc.details` (and `PxuiDialogConfig`'s).
-    pub const BUTTON_PARTS: u32 = 28;
-    /// ABI 1.72: `pxui_ui_view`, the authoring view sized by its parent (`Ui::view_of`).
-    pub const VIEW_KEYED: u32 = 29;
 }
 
 /// The ABI version this crate's records describe (`major << 16 | minor`); an app states it as `PxuiUiDesc::abi_built`.
-pub const ABI_BUILT: u32 = 1 << 16 | 149;
+pub const ABI_BUILT: u32 = 1 << 16 | 150;
 impl Default for PxuiUiDesc { fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, platform: 0, font_size: 0, abi_built: ABI_BUILT } } }
 
 #[cfg(test)]

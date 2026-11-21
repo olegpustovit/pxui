@@ -1045,56 +1045,9 @@ pub enum Feature {
     Vulkan = pxui_types::feature::VULKAN,
     /// The extension set (no stability promise).
     ExtensionSet = pxui_types::feature::EXTENSION_SET,
-    /// `Button` contents, label, axis, gap and place (1.56).
-    ButtonContent = pxui_types::feature::BUTTON_CONTENT,
-    /// The icon button's press curves (1.54).
-    IconButtonCurves = pxui_types::feature::ICON_BUTTON_CURVES,
-    /// `Toggle` options and response (1.51).
-    ToggleResponse = pxui_types::feature::TOGGLE_RESPONSE,
-    /// The dialog response call (1.53).
-    DialogResponse = pxui_types::feature::DIALOG_RESPONSE,
-    /// Widget body variants (1.52).
-    WidgetVariants = pxui_types::feature::WIDGET_VARIANTS,
-    /// `ui_label_node` (1.54).
-    LabelNode = pxui_types::feature::LABEL_NODE,
-    /// Menu rows keyed by id (1.58).
-    MenuItemIds = pxui_types::feature::MENU_ITEM_IDS,
-    /// `FrameIn.surface` (1.57).
-    FrameSurface = pxui_types::feature::FRAME_SURFACE,
-    /// `ui_item_text` (1.49).
-    ItemText = pxui_types::feature::ITEM_TEXT,
-    /// App colour tokens (1.43).
-    ColorTokens = pxui_types::feature::COLOR_TOKENS,
-    /// Row swipe actions (1.40).
-    SwipeActions = pxui_types::feature::SWIPE_ACTIONS,
-    /// Drag-to-dismiss (1.41).
-    Dismiss = pxui_types::feature::DISMISS,
-    /// ABI 1.61: look colours that name colour tokens (`Rgba::token`).
-    LookTokens = pxui_types::feature::LOOK_TOKENS,
-    /// ABI 1.61: `Icon::draw(f, word)` passes the word to the drawing.
-    IconWord = pxui_types::feature::ICON_WORD,
-    /// ABI 1.62: `TextWorker`, `Ui::set_text_worker`, `Ui::prewarm_text` (the prepare queue).
-    TextWorker = pxui_types::feature::TEXT_WORKER,
-    /// ABI 1.67: `Menu::max_h` bounds the sheet's height.
-    MenuMaxH = pxui_types::feature::MENU_MAX_H,
-    /// ABI 1.67: a segmented control with no choice, reporting the option a secondary press began on; 1.67 also changes the keyboard
-    /// model of every segmented control (one Tab stop, the chosen option; every option focusable to assistive technology).
-    SegmentedResult = pxui_types::feature::SEGMENTED_RESULT,
-    /// ABI 1.68: the keyed widget and container calls (`PxuiKeyedDesc`): key and name apart for checkbox, radio, tabs, dropdown, slider,
-    /// progress, spinner, badge, panel, popup, modal, anchored, scroll_view, toasts and picker.
-    WidgetsKeyed = pxui_types::feature::WIDGETS_KEYED,
-    /// ABI 1.69: `Segmented::focus_on_click`, and `PxuiSegmentedConfig::stored` for a registered segment body.
-    SegmentedStoredFocus = pxui_types::feature::SEGMENTED_STORED_FOCUS,
-    /// ABI 1.70: images without a key whose name is accessibility only (`Ui::image`) and painted images that report a refusal
-    /// (`Paint::image`).
-    ImageChecked = pxui_types::feature::IMAGE_CHECKED,
-    /// ABI 1.71: `Button::icon`/`detail`/`accessory`, `IconButton::selected` and `DialogButton::detail` (and their body config fields).
-    ButtonParts = pxui_types::feature::BUTTON_PARTS,
-    /// ABI 1.72: `pxui_ui_view`, the authoring view `Ui::view_of` (sized by its parent).
-    ViewKeyed = pxui_types::feature::VIEW_KEYED,
 }
 
-/// Whether the library has `feature`, as it was built: backends and the accessibility bridge depend on the platform, the rest on the library's minor.
+/// Whether the library has `feature`, as it was built: backends and the accessibility bridge depend on the platform. Everything not named in `Feature` is in every build.
 ///
 /// ```
 /// let _ = pxui::supports(pxui::Feature::ExtensionSet);

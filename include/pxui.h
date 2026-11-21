@@ -28,7 +28,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 149u)
+#define PXUI_ABI_BUILT ((1u << 16) | 150u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 /* U5.4: size-prefixed (16 bytes); pxui_ui_text_input_options needs the caller's size to cover it. */
@@ -513,38 +513,15 @@ enum PxuiSplitAxis { PXUI_SPLIT_ROW=0, PXUI_SPLIT_COLUMN=1 };
 enum PxuiKeyframeTarget { PXUI_KEY_OFFSET=0, PXUI_KEY_OPACITY=1, PXUI_KEY_LOOK=2, PXUI_KEY_SCALE=3 }; /* scale values: x, y, fractional anchor x/y; requires a view with its own painter entry */
 
 uint32_t pxui_abi_version(void);
-/* 1 when this library, as built, has the feature `id` (PXUI_FEATURE_*), else 0 (also for an id it does not know). Ids are append-only and never reused. */
+/* 1 when this library, as built, has the feature `id` (PXUI_FEATURE_*), else 0 (also for an id it does not know, a later minor's say). Features are the
+   parts of this header a build may lack (a backend, the accessibility bridge, the extension set); every other call and record is in every build of the
+   major version and is not asked about. Ids are append-only and never reused; none is named for a version. */
 uint32_t pxui_supports(uint32_t id);
 enum {
     PXUI_FEATURE_A11Y_BRIDGE = 1,        /* pxui_a11y_*: the AT-SPI2 bridge (Linux builds) */
     PXUI_FEATURE_METAL = 2,              /* the Metal renderer backend (answers from the target; becomes cfg!(feature) if a backend turns optional) */
     PXUI_FEATURE_VULKAN = 3,             /* the Vulkan renderer backend (same) */
-    PXUI_FEATURE_EXTENSION_SET = 4,      /* abi/pxui.ext.txt: no stability promise */
-    PXUI_FEATURE_BUTTON_CONTENT = 5,     /* 1.56 */
-    PXUI_FEATURE_ICON_BUTTON_CURVES = 6, /* 1.54 */
-    PXUI_FEATURE_TOGGLE_RESPONSE = 7,    /* 1.51 */
-    PXUI_FEATURE_SEGMENTED_RESPONSE = 8, /* 1.51 */
-    PXUI_FEATURE_DIALOG_RESPONSE = 9,    /* 1.53 */
-    PXUI_FEATURE_WIDGET_VARIANTS = 10,   /* 1.52 */
-    PXUI_FEATURE_LABEL_NODE = 11,        /* 1.54 */
-    PXUI_FEATURE_MENU_ITEM_IDS = 12,     /* 1.58 */
-    PXUI_FEATURE_FRAME_SURFACE = 13,     /* 1.57 */
-    PXUI_FEATURE_ITEM_TEXT = 14,         /* 1.49 */
-    PXUI_FEATURE_COLOR_TOKENS = 15,      /* 1.43 */
-    PXUI_FEATURE_SWIPE_ACTIONS = 16,     /* 1.40 */
-    PXUI_FEATURE_DISMISS = 17,           /* 1.41 */
-    PXUI_FEATURE_LOOK_TOKENS = 18,       /* 1.61: look colours naming colour tokens */
-    PXUI_FEATURE_ICON_WORD = 19,         /* 1.61: pxui_ui_icon_word / pxui_paint_icon_word */
-    PXUI_FEATURE_TEXT_WORKER = 20,       /* 1.62: pxui_text_worker_create/_destroy, pxui_ui_set_text_worker, pxui_ui_label_prewarm */
-    PXUI_FEATURE_TEXT_FIELD_KEYED = 21,  /* 1.64: PxuiTextFieldDesc (pxui_ui_text_field) */
-    PXUI_FEATURE_LABEL_TEXT = 22,        /* 1.65: pxui_ui_text (spans, line box)/_measure/_quads/_rasterize_rgba/_prewarm */
-    PXUI_FEATURE_MENU_MAX_H = 23,        /* 1.67: PxuiMenuExtra.max_h */
-    PXUI_FEATURE_SEGMENTED_RESULT = 24,  /* 1.67: PxuiSegmentedResult (pxui_ui_segmented) */
-    PXUI_FEATURE_WIDGETS_KEYED = 25,     /* 1.68: PxuiKeyedDesc and the widget and container calls taking it */
-    PXUI_FEATURE_SEGMENTED_STORED_FOCUS = 26, /* 1.69: PxuiSegmentedDesc.focus_on_click, PxuiSegmentedConfig.stored */
-    PXUI_FEATURE_IMAGE_CHECKED = 27,     /* 1.70: pxui_paint_image reports a refused image */
-    PXUI_FEATURE_BUTTON_PARTS = 28,      /* 1.71: PxuiButtonDesc/Config lead, detail, accessory; PxuiIconButtonDesc.checkable/checked; PxuiDialogDesc/Config.details */
-    PXUI_FEATURE_VIEW_KEYED = 29         /* 1.72: pxui_ui_view */
+    PXUI_FEATURE_EXTENSION_SET = 4       /* abi/pxui.ext.txt: the Rays vocabulary and the diagnostics, no stability promise */
 };
 /* Process counters for performance gates: which 1 = heap allocations the library's allocator has made (a counting build); anything else
    reads 0, and so does 0 since 1.66 (calls are counted per Ui: pxui_ui_calls). */
@@ -866,7 +843,7 @@ PxuiStr pxui_default_font(void); /* Pragmasevka, embedded: valid as long as the 
 /* The text service of a Ui: its one font system and glyph atlas, for canvas text an app lays out itself (atlases: pxui_renderer_atlas).
    pxui_text_add_font answers UINT32_MAX, pxui_ui_label_quads and pxui_ui_label_rasterize_rgba SIZE_MAX, for bad arguments and a refused call. */
 uint32_t pxui_text_add_font(PxuiUi *ui, PxuiStr font);
-/* ABI 1.62 (PXUI_FEATURE_TEXT_WORKER): the prepare queue. A worker is one thread the host owns and attaches to any number of Uis; each attached Ui
+/* The prepare queue. A worker is one thread the host owns and attaches to any number of Uis; each attached Ui
    gets a lane: a fork of its fonts on the worker (font bytes shared) and fixed buffers (128 requests in flight, 16 KiB of text per
    flush, 32 installs per frame). Attached, a Ui's virtual lists request the unseen text of rows they build past the viewport; it is
    shaped on the worker and installed before a later frame builds, without shaping or allocating on the UI thread. A Ui without a
@@ -885,7 +862,7 @@ uint32_t pxui_text_add_font(PxuiUi *ui, PxuiStr font);
 PxuiTextWorker *pxui_text_worker_create(void);
 void pxui_text_worker_destroy(PxuiTextWorker *worker);
 int32_t pxui_ui_set_text_worker(PxuiUi *ui, const PxuiTextWorker *worker);
-/* ABI 1.65 (PXUI_FEATURE_LABEL_TEXT): the text calls on a label style, resolved against the Ui's theme as pxui_ui_resolve_label
+/* The text calls on a label style, resolved against the Ui's theme as pxui_ui_resolve_label
    resolves it, in the same call (no resolve round trip), with the content's layout key. The style's digits byte is ignored. A null,
    short or invalid label record (unknown set bits, wrap, align or ellipsis numbers, feature bits) or one that does not resolve is
    refused, as is a resolved style that is invalid.
