@@ -33,11 +33,12 @@ impl Ui {
     /// `menu_row` body; a `MenuItem::selected` row reads as the current choice. The sheet is built by the registered `popup` body, which
     /// may give it a role of its own (else it is a Menu); it is named `Menu::name` (none without), has `Menu::padding` above its first row
     /// and below its last, and past `Menu::max_rows` or `Menu::max_h` (the smaller) it scrolls itself.
-    /// Allocates: never on a warm frame, except that rows with a submenu allocate per call.
+    /// Allocates: when retained row/text buffers grow; never on a warm frame, including an open submenu.
     /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); it is never the accessible name (`Menu::name`).
     /// A row is keyed under the menu by its `MenuItem::id`, else by its position, never by its text: rows of one text are distinct.
     /// Panics: when the library refuses the arguments (outside a frame, a non-finite position or width, a negative or non-finite padding or
-    /// `max_h`), or when `items` holds more than 4096 rows (refused before any row is copied). A key or identity label over 256 bytes panics (a programmer error). Display text past 64 KiB is clipped at a character boundary, never refused.
+    /// `max_h`), or when `items` holds more than 4096 rows, more than 64 submenus of 4096 rows, nested submenus, or more than 16 MiB of
+    /// text and shortcuts after clipping (refused before any row is copied). A key or identity label over 256 bytes panics (a programmer error). Display text past 64 KiB is clipped at a character boundary, never refused.
     ///
     /// ```
     /// use pxui::ui::{Menu, MenuItem};
@@ -172,6 +173,7 @@ mod tests {
     /// A submenu opens beside the menu while the pointer is on its row; its rows are numbered after the menu's; more than 32 rows work.
     #[test]
     fn submenus_and_long_menus_choose_by_index() {
+        mem_sys::set_peer(crate::library_counter);
         const KINDS: [MenuItem; 2] = [MenuItem::new("Draw"), MenuItem::new("Value").checked(true)];
         const ITEMS: [MenuItem; 2] = [MenuItem::new("New").submenu(&KINDS), MenuItem::new("Quit")];
         let (last, menu) = (Cell::new(Chosen::default()), Menu::DEFAULT);
@@ -180,6 +182,15 @@ mod tests {
         let (x, y) = centre(&ui, "New");
         testing::frame(&mut ui, &[Event { kind: Event::POINTER_MOVED, x, y, ..Default::default() }], &mut build);
         testing::frame(&mut ui, &[], &mut build);
+        for _ in 0..4 { testing::frame(&mut ui, &[], &mut build); }
+        let scope = mem_sys::warm_scope();
+        for _ in 0..8 {
+            mem_sys::local_reset();
+            ui.frame(&FrameIn::new(320.0, 240.0), &mut build).unwrap();
+            assert_eq!(mem_sys::local_alloc_count(), 0, "a warm open submenu allocates");
+        }
+        drop(scope);
+        assert!(mem_sys::take_reports().is_empty());
         // near the row's start: the submenu is as wide as its longest row
         let (x, y) = { let (x, y) = centre(&ui, "Value"); (x - 80.0, y) };
         testing::frame(&mut ui, &[Event { kind: Event::POINTER_MOVED, x, y, ..Default::default() }], &mut build);

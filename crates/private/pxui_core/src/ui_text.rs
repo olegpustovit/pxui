@@ -2436,16 +2436,29 @@ fn menu_body(this: &mut Ui, key: NodeKey, at: (f32, f32), items: &[MenuItem], me
     };
     // the rows of the submenus are numbered after those of this menu, in order
     let base_of = |row: usize| items.len() + items[..row].iter().map(|i| i.submenu.len()).sum::<usize>();
-    let keep: Vec<Rect> = items.iter().enumerate().filter(|(_, i)| !i.submenu.is_empty()).map(|(row, _)| sub_geometry(this, row)).collect();
+    let mut keep = [Rect::default(); 64];
+    let mut keep_len = 0;
+    for (row, _) in items.iter().enumerate().filter(|(_, i)| !i.submenu.is_empty()) {
+        assert!(keep_len < keep.len(), "a menu takes at most 64 submenus");
+        keep[keep_len] = sub_geometry(this, row);
+        keep_len += 1;
+    }
     let sheet = this.theme().popup.idle;
-    let related = if has_submenus { vec![key_of(this.current_seed(), &format!("{}-sub", label))] } else { Vec::new() };
+    let mut sub_label_buf = [0u8; 260];
+    let sub_label = if has_submenus {
+        assert!(label.len() <= 256, "a menu key takes at most 256 bytes");
+        sub_label_buf[..label.len()].copy_from_slice(label.as_bytes());
+        sub_label_buf[label.len()..label.len() + 4].copy_from_slice(b"-sub");
+        core::str::from_utf8(&sub_label_buf[..label.len() + 4]).expect("a UTF-8 label and ASCII suffix")
+    } else { "" };
+    let related = [if has_submenus { key_of(this.current_seed(), sub_label) } else { 0 }];
     // the sheet is named by `Menu::name` (none without), never by its key
     let name = Some(menu.name.unwrap_or(""));
     // past `max_rows` or `max_h` the sheet itself scrolls (its spacers with the rows): no scroll view of its own inside it
-    let popts = PopupOpts { look: Some(sheet), keep, related, role: Role::Menu, max_height: scrolls.then_some(height), ..PopupOpts::default() };
+    let popts = PopupOpts { look: Some(sheet), role: Role::Menu, max_height: scrolls.then_some(height), ..PopupOpts::default() };
     let mut opened: Option<i64> = None;
     let mut picked: Option<i64> = None;
-    let shown = this.popup_with_related(popts, (x, y), width, height, label, name, &mut |ui: &mut Ui| {
+    let shown = this.popup_with_related(popts, (x, y), width, height, label, name, &keep[..keep_len], &related[..usize::from(has_submenus)], &mut |ui: &mut Ui| {
         let top = ui.box_("menu-top", BoxOpts::default().flags(Flags::BLOCKING).w(Size::Grow).h(Size::Px(pad)));
         let open_row = ui.state(&top, -1);
         opened = if open_row >= 0 { Some(open_row) } else { None };
@@ -2476,7 +2489,7 @@ fn menu_body(this: &mut Ui, key: NodeKey, at: (f32, f32), items: &[MenuItem], me
     let Rect { x: sx, y: sy, w: sw, h: sh } = sub_geometry(this, row);
     let mut sub_picked: Option<i64> = None;
     let sub_opts = PopupOpts { look: Some(sheet), attached: true, role: Role::Menu, ..PopupOpts::default() };
-    this.popup_with_related(sub_opts, (sx, sy), sw, sh, &format!("{}-sub", label), Some(""), &mut |ui: &mut Ui| {
+    this.popup_with_related(sub_opts, (sx, sy), sw, sh, sub_label, Some(""), &[], &[], &mut |ui: &mut Ui| {
         ui.box_("menu-top", BoxOpts::default().flags(Flags::BLOCKING).w(Size::Grow).h(Size::Px(pad)));
         let m = MenuLook { opened: None, top: false, swatch_pad, gap, row_h: row_height, focus_on_click: menu.focus_on_click };
         let (p, _) = ui.menu_rows(sub, &m);

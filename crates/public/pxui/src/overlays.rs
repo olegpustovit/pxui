@@ -95,6 +95,11 @@ pub(crate) const MENU_ROWS: usize = 4096;
 #[cfg(not(feature = "static"))]
 thread_local! { static MENU_KEPT: Cell<Vec<PxuiMenuRow>> = const { Cell::new(Vec::new()) }; }
 
+// Call-scoped row scratch shared by menus on this thread, taken during callbacks: at most 64 * MENU_ROWS children (capacity below
+// twice that bound). Strings remain borrowed only until the call returns; clear every row before returning the storage.
+#[cfg(not(feature = "static"))]
+thread_local! { static MENU_SUB_KEPT: Cell<Vec<PxuiMenuRow>> = const { Cell::new(Vec::new()) }; }
+
 struct Rows<'a, 'f> {
     fill: &'a mut (dyn FnMut(&str, &mut PickRows) + 'f),
     owned: PickRows,
@@ -204,11 +209,24 @@ impl Ui {
     }
 
     /// The one body of `menu`: linked statically, the library's trusted entry with the rows as they are; else the rows as the C export's
-    /// columns (on the stack up to 32 rows, in buffers kept on the thread past that; submenus always on the heap), then the call.
+    /// rows (on the stack up to 32 rows, in bounded buffers kept on the thread past that and for submenus), then the call.
     #[track_caller]
     pub(crate) fn menu_keyed(&mut self, key: Key, at: (f32, f32), items: &[MenuItem], menu: &Menu) -> Chosen {
         // refused before any row is copied, so the columns kept on the thread never hold more than the library takes
         assert!(items.len() <= MENU_ROWS, "pxui: a menu takes at most {MENU_ROWS} rows");
+        let mut submenus = 0;
+        let mut bytes = 0;
+        for item in items {
+            if !item.submenu.is_empty() {
+                submenus += 1;
+                assert!(submenus <= 64 && item.submenu.len() <= MENU_ROWS, "pxui: a menu takes at most 64 submenus of {MENU_ROWS} rows");
+            }
+            for (index, row) in core::iter::once(item).chain(item.submenu).enumerate() {
+                assert!(index == 0 || row.submenu.is_empty(), "pxui: submenus cannot contain submenus");
+                bytes += crate::clip(row.text).len() + crate::clip(row.shortcut).len();
+                assert!(bytes <= 16 << 20, "pxui: menu text takes at most 16 MiB");
+            }
+        }
         #[cfg(feature = "static")]
         {
             let mut out = Chosen::default();
@@ -237,7 +255,8 @@ impl Ui {
         for (row, item) in rows.iter_mut().zip(items) { *row = row_of(item); }
         // the submenus' rows, flat: each opening row's span points at its run (the vector grows no more once they are set)
         let children: usize = items.iter().map(|item| item.submenu.len()).sum();
-        let mut flat: Vec<PxuiMenuRow> = Vec::with_capacity(children);
+        let mut flat = if children != 0 { MENU_SUB_KEPT.take() } else { Vec::new() };
+        flat.clear();
         if children != 0 {
             for item in items { flat.extend(item.submenu.iter().map(row_of)); }
             let mut start = 0;
@@ -260,6 +279,7 @@ impl Ui {
             if optioned { &options } else { core::ptr::null() }, &mut tag, &mut index,
         ) });
         if n > ROWS { MENU_KEPT.set(kept); }
+        if children != 0 { flat.clear(); MENU_SUB_KEPT.set(flat); }
         match tag { 0 => Chosen::default(), 1 => Chosen { chosen: Some(index as usize), ..Chosen::default() }, 2 => Chosen { dismissed: true, ..Chosen::default() }, _ => unreachable!("the library answers a menu with tag 0, 1 or 2") }
     }
 
@@ -368,5 +388,25 @@ mod tests {
         ui.frame(&FrameIn::new(200.0, 100.0), &mut |ui: &mut Ui| { ui.menu("long", Point::new(0.0, 0.0), &items[..super::MENU_ROWS], &Menu::DEFAULT); }).expect("a menu at the cap is served");
         #[cfg(not(feature = "static"))]
         { let kept = super::MENU_KEPT.take(); assert!(kept.capacity() <= super::MENU_ROWS + super::MENU_ROWS / 2, "kept columns stay near the cap"); }
+    }
+
+    #[test]
+    fn submenu_limits_are_refused_before_the_wrapper_copies_rows() {
+        use crate::{Menu, MenuItem, Point};
+        let child = [MenuItem::new("Child")];
+        let openings = [MenuItem::new("Parent").submenu(&child); 65];
+        let children = [MenuItem::new("Child"); super::MENU_ROWS + 1];
+        let oversized = [MenuItem::new("Parent").submenu(&children)];
+        let nested_child = [MenuItem::new("Child").submenu(&child)];
+        let nested = [MenuItem::new("Parent").submenu(&nested_child)];
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+        for rows in [&openings[..], &oversized[..], &nested[..]] {
+            let refused = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                ui.frame(&FrameIn::new(200.0, 100.0), &mut |ui| { ui.menu("invalid", Point::new(0.0, 0.0), rows, &Menu::DEFAULT); }).unwrap();
+            }));
+            assert!(refused.is_err());
+            #[cfg(not(feature = "static"))]
+            assert_eq!(super::MENU_SUB_KEPT.take().capacity(), 0, "no child row copied before refusal");
+        }
     }
 }

@@ -683,8 +683,6 @@ pub struct PopupOpts {
     pub max_height: Option<f32>,
     pub dismiss_initial: bool,
     pub attached: bool,
-    pub keep: Vec<Rect>,
-    pub related: Vec<i64>,
     /// what the sheet is to a screen reader (a window by default; a menu, a dialog)
     pub role: Role,
     /// How a modal is presented; a bottom or full-screen sheet takes the drag-to-dismiss with `dismiss`'s thresholds
@@ -693,8 +691,8 @@ pub struct PopupOpts {
 }
 
 impl Default for PopupOpts {
-    fn default() -> PopupOpts {
-        PopupOpts { stroke: None, look: None, max_height: None, dismiss_initial: true, attached: false, keep: Vec::new(), related: Vec::new(), role: Role::Window, present: Presentation::Centered, dismiss: DismissOpts::DEFAULT }
+    fn default() -> Self {
+        PopupOpts { stroke: None, look: None, max_height: None, dismiss_initial: true, attached: false, role: Role::Window, present: Presentation::Centered, dismiss: DismissOpts::DEFAULT }
     }
 }
 
@@ -798,7 +796,7 @@ impl Ui {
     /// and is never dismissed by itself. Returns whether it is open (and `f` ran).
     /// `name` is the sheet's accessible name, given before its body runs (`None`: the label).
     #[allow(clippy::too_many_arguments)]
-    pub fn popup_with_related(&mut self, opts: PopupOpts, at: (f32, f32), width: f32, height: f32, label: &str, name: Option<&str>, f: &mut dyn FnMut(&mut Ui)) -> Option<UiBox> {
+    pub fn popup_with_related(&mut self, opts: PopupOpts, at: (f32, f32), width: f32, height: f32, label: &str, name: Option<&str>, keep: &[Rect], related: &[i64], f: &mut dyn FnMut(&mut Ui)) -> Option<UiBox> {
         let (x, y) = at;
         let key = key_of(self.current_seed(), label);
         // Build a popup before the body it shields. Previous popups arbitrate in `route`; this also
@@ -807,7 +805,7 @@ impl Ui {
         // it and every `keep` rectangle.
         self.set_modal_in_frame(true);
         if !opts.attached {
-            self.retain_popup_state(key, &opts.related);
+            self.retain_popup_state(key, related);
         }
         let slot = self.slot_for(key);
         let rect = match slot {
@@ -821,7 +819,7 @@ impl Ui {
                 Event::PointerPressed(_, point) => {
                     if (slot.is_some() || opts.dismiss_initial)
                         && !rect.contains(p32(*point))
-                        && !opts.keep.iter().any(|r| r.contains(p32(*point)))
+                        && !keep.iter().any(|r| r.contains(p32(*point)))
                     {
                         dismissed = true;
                     }
@@ -862,7 +860,7 @@ impl Ui {
     /// Returns its root while open (and `f` ran).
     pub fn popup_root(&mut self, key: &str, overlay: &Overlay, f: &mut dyn FnMut(&mut Ui)) -> Option<Handle> {
         let opts = PopupOpts { stroke: overlay.stroke, look: None, max_height: overlay.max_h, dismiss_initial: overlay.dismiss_initial, attached: overlay.attached, ..PopupOpts::default() };
-        self.popup_with_related(opts, overlay.at, overlay.w.unwrap_or(0.0), overlay.h.unwrap_or(0.0), key, Some(overlay.name.unwrap_or("")), f)
+        self.popup_with_related(opts, overlay.at, overlay.w.unwrap_or(0.0), overlay.h.unwrap_or(0.0), key, Some(overlay.name.unwrap_or("")), &[], &[], f)
     }
 
     /// A modal keyed by `key`, `overlay`'s width (320 by default) and named by its name (none without); a press outside it dismisses
@@ -895,7 +893,7 @@ impl Ui {
         let cap = 48.0f32.max(view_h - 32.0);
         let max_height = match present { Presentation::Centered => Some(cap), Presentation::Bottom => Some(overlay.max_h.unwrap_or(cap)), Presentation::Full => None, Presentation::Top => Some(overlay.max_h.unwrap_or(cap).min(48.0f32.max(view_h - (y - content.y) - 16.0))) };
         let opts = PopupOpts { look: Some(look), max_height, dismiss_initial: false, role: Role::Dialog, present, dismiss: overlay.dismiss, ..PopupOpts::default() };
-        self.popup_with_related(opts, (x, y), width, height, label, name, f)
+        self.popup_with_related(opts, (x, y), width, height, label, name, &[], &[], f)
     }
 
     /// A label: `text` in `style` through the label body, identity by its place among its siblings (every label has the one key

@@ -671,6 +671,7 @@ pub unsafe fn search_field(ui: *mut PxuiUi, label: &str, icon: &str, value: &str
 #[inline]
 pub unsafe fn menu(ui: *mut PxuiUi, key: pxui_types::ui::Key, at: (f32, f32), items: &[pxui_types::ui::MenuItem], menu: &pxui_types::ui::Menu, out: &mut pxui_types::ui::Chosen) -> i32 {
     enter!(ui);
+    if let pxui_types::ui::Key::Label(label) = key { if bad_key(label) { return unsafe { fail(ui, "invalid context menu key") }; } }
     let width_ok = menu.w.is_none_or(|width| width.is_finite() && width >= 0.0);
     let row_ok = menu.row_h.is_none_or(|row| row.is_finite() && row > 0.0);
     let menu = &pxui_types::ui::Menu { name: menu.name.map(clip), ..*menu };
