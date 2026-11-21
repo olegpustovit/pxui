@@ -62,12 +62,13 @@ name missing from it fails too). The export macro's `catch_unwind` is the backst
 | A font; fonts per text service; font bytes per text service | 32 MiB; 64; 256 MiB | refused |
 | A call's string span (options, rows, titles, hints, a text area's messages and splices); one frame's event text (or one `ui_wants_frame` call's) | 16 MiB together (`MAX_TOTAL_TEXT_BYTES`) | refused |
 | Strings the library hands back between two frames (edited text, lent payloads, a picker query) | 4096 and 64 MiB (`MAX_RETURNED`, `MAX_RETURNED_BYTES`) | `PXUI_ERR_STATE` until the next frame |
+| Pending accessibility actions per Ui, across calls | 4096 | whole batch refused with `PXUI_ERR_STATE` until the next frame or surface removal |
 | `FrameIn.width`/`height`, `PxuiInput.logical_size`, a resize or pixel-size event | `0..=65536` (`MAX_SURFACE`) | refused |
 
 **Error code of a cap.** An argument past its cap is `PXUI_ERR_ARGUMENT` on every path (C exports, trusted entries, the text service; a
 call that returns a value answers its failure value: null, 0, `SIZE_MAX` or `UINT32_MAX` as its row says), with the reason in
-`pxui_last_error`. The one budget that is not an argument's, the strings handed back since the frame began, answers `PXUI_ERR_STATE`
-(the call is not allowed now; the next frame resets it). Nothing is cut on the C side; only the Rust wrapper clips display text.
+`pxui_last_error`. The budgets across calls (strings handed back since the frame began and pending accessibility actions) answer
+`PXUI_ERR_STATE` (the call is not allowed now; the next frame resets them). Nothing is cut on the C side; only the Rust wrapper clips display text.
 
 - Events (`pxui_frame`, `pxui_ui_wants_frame`: one validator): `x`, `y` and `value` finite for every kind; text editing start and
   length not negative; a resize or pixel-size change within `0..=65536`; a known kind and code. `FrameIn.width`/`height` and

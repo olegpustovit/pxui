@@ -616,6 +616,26 @@ fn accessibility_actions_route_identical_node_ids_to_their_own_surface() {
     }
 }
 
+#[test]
+fn accessibility_queue_is_bounded_across_calls_and_reuses_its_storage() {
+    use pxui_types::ffi::{A11yAction, Strided};
+    let ui = create();
+    let batch = [A11yAction { id: 1, action_code: 2, ..A11yAction::default() }; 4096];
+    for _ in 0..2 {
+        assert_eq!(unsafe { pxui_ui_inject_a11y(ui, Strided::of(&batch)) }, 0);
+        assert_eq!(unsafe { pxui_ui_inject_a11y(ui, Strided::of(&[])) }, 0);
+        assert_eq!(unsafe { pxui_ui_inject_a11y(ui, Strided::of(&batch[..1])) }, PXUI_ERR_STATE);
+        assert_eq!(unsafe { (&*(*ui).engine).pending_a11y_actions() }, 4096, "no partial acceptance");
+        assert_eq!(run(ui, Some(nothing), core::ptr::null_mut()), 0);
+    }
+    let before = mem_sys::local_alloc_count();
+    assert_eq!(unsafe { pxui_ui_inject_a11y(ui, Strided::of(&batch)) }, 0);
+    assert_eq!(mem_sys::local_alloc_count(), before, "a warm bounded queue reuses its storage");
+    assert_eq!(unsafe { pxui_ui_remove_surface(ui, FrameIn::MAIN) }, 0);
+    assert_eq!(unsafe { (&*(*ui).engine).pending_a11y_actions() }, 0);
+    assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
+}
+
 /// ABI 1.87: a section list's record is checked before any callback (fixed and measured rows); the build gets the lead-in, heading,
 /// rows and trailer (`usize::MAX - 2`) with their logical Y (1.103: and a row its box), and every builder's parent is restored after it.
 #[test]

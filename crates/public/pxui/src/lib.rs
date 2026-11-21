@@ -789,6 +789,16 @@ impl Ui {
 
     #[track_caller] pub fn set_dir(&mut self,rtl:bool) {check(self, unsafe{sys::pxui_ui_set_dir(self.0.as_ptr(),rtl as u32)})}
     #[track_caller] pub fn set_a11y(&mut self,on:bool) {check(self, unsafe{sys::pxui_ui_set_a11y(self.0.as_ptr(),on as u8)})}
+    /// Queues accessibility requests for this Ui's registered surface, applying them at the next frame.
+    ///
+    /// A batch must name this Ui's surface. At most 4096 actions may wait across calls; refusal queues none of the batch.
+    /// Allocates: when the retained pending-action buffer grows; never once warm.
+    /// Panics: for invalid requests, another surface, or a full queue before the next frame.
+    ///
+    /// ```
+    /// let mut ui = pxui::doc::frames(1, &mut |_| {});
+    /// ui.inject_a11y(&[]);
+    /// ```
     #[track_caller] pub fn inject_a11y(&mut self,actions:&[A11yAction]) {check(self, unsafe{sys::pxui_ui_inject_a11y(self.0.as_ptr(),pxui_types::ffi::Strided::of(actions))})}
     #[inline] #[track_caller] pub fn patch_text(&mut self,box_:&Handle,value:&str)->bool{let mut out=0;let rc=unsafe{sys::pxui_ui_patch_text(self.0.as_ptr(),box_,as_str(value),&mut out)};live(self,rc)&&out!=0}
     #[inline] #[track_caller] pub fn busy_step(&mut self,box_:&Handle,now:f64)->bool{let mut out=0;let rc=unsafe{sys::pxui_ui_busy_step(self.0.as_ptr(),box_,now,&mut out)};live(self,rc)&&out!=0}

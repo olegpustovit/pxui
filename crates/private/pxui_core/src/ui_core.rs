@@ -2049,6 +2049,9 @@ impl Ui {
     /// Discards requests for a surface that is no longer registered, retaining the queue's storage.
     pub fn clear_a11y_actions(&mut self) { self.a11y_pending.clear(); }
 
+    /// Requests waiting for the next frame; used by the ABI's per-Ui queue budget before accepting a whole batch.
+    pub fn pending_a11y_actions(&self) -> usize { self.a11y_pending.len() }
+
     fn apply_a11y(&mut self) {
         let mut pending = std::mem::take(&mut self.a11y_pending);
         for a in &pending {
