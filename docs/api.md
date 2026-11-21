@@ -3516,6 +3516,7 @@ pxui_types::PXUI_ERR_GPU const i32 @HEAD
 pxui_types::PXUI_ERR_PANIC const i32 @HEAD
 pxui_types::PXUI_ERR_STALE const i32 @HEAD
 pxui_types::PXUI_ERR_STATE const i32 @HEAD
+pxui_types::PXUI_ERR_VERSION const i32 @U5.9
 pxui_types::Pass impl Clone @HEAD
 pxui_types::Pass impl Copy @HEAD
 pxui_types::Pass impl Debug @HEAD

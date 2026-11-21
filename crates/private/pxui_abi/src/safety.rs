@@ -1099,7 +1099,7 @@ fn enum_values_are_range_checked_on_input() {
     // the Ui's platform, the frame's appearance and reduced-motion, an event's kind
     for (platform, accepted) in [(2, true), (3, false)] {
         let desc = crate::PxuiUiDesc { platform, ..crate::PxuiUiDesc::default() };
-        let made = unsafe { pxui_ui_create(&desc) };
+        let made = unsafe { pxui_ui_create(&desc, core::ptr::null(), 0, core::ptr::null_mut()) };
         assert_eq!(!made.is_null(), accepted, "platform {platform}");
         if !made.is_null() { assert_eq!(unsafe { pxui_ui_destroy(made) }, 0); }
     }
@@ -1423,7 +1423,7 @@ mod sized_records {
         fix(&mut value);
         four_min(ui, ((&value as *const PxuiUiDesc).cast(), size_of_val(&value), align_of_val(&value)), &[12], &mut |p| {
             let p = p.cast::<PxuiUiDesc>();
-            created(unsafe { pxui_ui_create(p) })
+            created(unsafe { pxui_ui_create(p, core::ptr::null(), 0, core::ptr::null_mut()) })
         });
         unsafe { pxui_ui_destroy(ui); }
     }
@@ -1438,7 +1438,7 @@ mod sized_records {
             let p = p.cast::<PxuiUiDesc>();
             {
         let font = Str { ptr: pxui_core::text::PRAGMASEVKA.as_ptr(), len: pxui_core::text::PRAGMASEVKA.len() };
-        created(unsafe { pxui_ui_create_with_fonts(p, &font, 1) })
+        created(unsafe { pxui_ui_create(p, &font, 1, core::ptr::null_mut()) })
     }
         });
         unsafe { pxui_ui_destroy(ui); }
@@ -2174,16 +2174,19 @@ mod sized_records {
 fn the_library_checks_the_version_the_app_was_built_against_once_at_create() {
     assert_eq!(pxui_types::ABI_BUILT, ABI_VERSION, "bump ABI_BUILT with ABI_VERSION");
     let major = ABI_VERSION >> 16;
-    let make = |built: u32| { let ui = unsafe { pxui_ui_create(&PxuiUiDesc { abi_built: built, ..PxuiUiDesc::default() }) }; let ok = !ui.is_null(); if ok { unsafe { pxui_ui_destroy(ui); } } ok };
-    assert!(make(ABI_VERSION) && make(0) && make(major << 16) && make(ABI_VERSION - 1) && make(major << 16 | 57), "the same, unstated, the first and an older minor");
+    // the status says why: 0 served, PXUI_ERR_VERSION for another major or a newer minor
+    let make = |built: u32| { let mut status = 1; let ui = unsafe { pxui_ui_create(&PxuiUiDesc { abi_built: built, ..PxuiUiDesc::default() }, core::ptr::null(), 0, &mut status) }; assert_eq!(!ui.is_null(), status == 0); if !ui.is_null() { unsafe { pxui_ui_destroy(ui); } } status };
+    assert!([make(ABI_VERSION), make(0), make(major << 16), make(ABI_VERSION - 1), make(major << 16 | 57)].iter().all(|status| *status == 0), "the same, unstated, the first and an older minor");
     // the minimum-library rule: an app built for a newer minor may write or read records grown past this library's, so it is refused
-    assert!(!make(ABI_VERSION + 1) && !make(major << 16 | 0xFFFF), "an app built for a newer minor than the library");
-    assert!(!make((major + 1) << 16) && !make((major - 1) << 16 | 1) && !make(u32::MAX), "another major");
+    assert_eq!([make(ABI_VERSION + 1), make(major << 16 | 0xFFFF)], [crate::PXUI_ERR_VERSION; 2], "an app built for a newer minor than the library");
+    assert_eq!([make((major + 1) << 16), make((major - 1) << 16 | 1), make(u32::MAX)], [crate::PXUI_ERR_VERSION; 3], "another major");
+    let mut status = 0;
+    assert!(unsafe { pxui_ui_create(core::ptr::null(), core::ptr::null(), 0, &mut status) }.is_null() && status == PXUI_ERR_ARGUMENT, "no record");
     // a record from before 1.60 (12 bytes, no abi_built) is read as unstated; no other size short of the whole record is read
     let rec = |size: u32| [size.to_ne_bytes(), 1u32.to_ne_bytes(), 13u32.to_ne_bytes(), 0u32.to_ne_bytes()].concat();
     for size in 0..16u32 {
         let bytes = rec(size);
-        let ui = unsafe { pxui_ui_create(bytes.as_ptr().cast()) };
+        let ui = unsafe { pxui_ui_create(bytes.as_ptr().cast(), core::ptr::null(), 0, core::ptr::null_mut()) };
         assert_eq!(!ui.is_null(), size == 12, "a {size}-byte record");
         if !ui.is_null() { unsafe { pxui_ui_destroy(ui); } }
     }
@@ -2243,9 +2246,9 @@ fn fonts_and_renderer_records_are_validated() {
         assert_eq!(pxui_text_add_font(ui, Str { ptr: b"x".as_ptr(), len: pxui_text::MAX_FONT_BYTES + 1 }), u32::MAX);
         assert_ne!(pxui_text_add_font(ui, font(pxui_text::PRAGMASEVKA)), u32::MAX);
         let garbage = [font(b"not a font")];
-        assert!(pxui_ui_create_with_fonts(&PxuiUiDesc::default(), garbage.as_ptr(), 1).is_null());
+        assert!(pxui_ui_create(&PxuiUiDesc::default(), garbage.as_ptr(), 1, core::ptr::null_mut()).is_null());
         let two = [font(pxui_text::PRAGMASEVKA), font(pxui_text::PRAGMASEVKA)];
-        let made = pxui_ui_create_with_fonts(&PxuiUiDesc::default(), two.as_ptr(), 2);
+        let made = pxui_ui_create(&PxuiUiDesc::default(), two.as_ptr(), 2, core::ptr::null_mut());
         assert!(!made.is_null());
         assert_eq!(pxui_ui_destroy(made), 0);
         // a gpu or target record shorter than its type is refused before it is read

@@ -28,7 +28,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 151u)
+#define PXUI_ABI_BUILT ((1u << 16) | 152u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 /* U5.4: size-prefixed (16 bytes); pxui_ui_text_input_options needs the caller's size to cover it. */
@@ -299,6 +299,7 @@ enum PxuiValueCode {
 #define PXUI_ERR_GPU (-2)      /* GPU adoption or recording failed (pxui_renderer_*) */
 #define PXUI_ERR_STATE (-3)    /* not allowed now: inside a frame callback, on a borrowed handle, with a renderer attached, a builder (a call that
                                   declares nodes: widgets, containers, pxui_ui_node...) outside a frame callback, or past the returned-string caps below */
+#define PXUI_ERR_VERSION (-6)  /* pxui_ui_create: the app was built for another major or a newer minor than this library */
 #define PXUI_ERR_STALE (-5)    /* the box handle names a node that has gone (queries and patches treat it as "nothing there") */
 #define PXUI_ERR_PANIC (-4)    /* a panic was caught in the library (a library bug: no argument causes one); the Ui fails every call until its next frame
                                   call. A shaper, theme or accessibility bridge whose call panicked fails every later call (its destroy still frees it). */
@@ -534,11 +535,13 @@ uint64_t pxui_counter(uint32_t which);
    arrange, paint, a11y, finish; zero until timing is on and a frame has run). A refused call writes nothing. */
 typedef struct { uint32_t size; uint8_t timing, has_text_layouts, has_cpu, reserved; PxuiStr rebuilt_prefix; uint64_t calls, text_layouts, rebuilt, phase_nanos[7], phase_cpu_nanos[7]; } PxuiDiagnostics;
 int32_t pxui_ui_diagnostics(PxuiUi *ui, PxuiDiagnostics *io);
-PxuiUi *pxui_ui_create(const PxuiUiDesc *desc);
+/* Creates a Ui with the `count` fonts of `fonts` (0, and `fonts` may be NULL: the library's embedded default face; the first font is the theme's;
+   limits below). Returns NULL, with *status (when not NULL) set to PXUI_ERR_ARGUMENT for an invalid record, font or count or PXUI_ERR_VERSION for
+   an app built for another major or a newer minor than this library; 0 on success. */
+PxuiUi *pxui_ui_create(const PxuiUiDesc *desc, const PxuiStr *fonts, size_t count, int32_t *status);
 /* ABI 1.63 font limits (any entry point that adds a font: this one, pxui_shaper_create, pxui_shaper_add_font, pxui_text_add_font): a font is
    1 byte to 32 MiB (33,554,432), a text service holds at most 64 fonts and 256 MiB of font bytes in all, and bytes that are not a parseable font
    are refused (UINT32_MAX / NULL, nothing kept). The bytes are copied and fonts are never removed. */
-PxuiUi *pxui_ui_create_with_fonts(const PxuiUiDesc *desc, const PxuiStr *fonts, size_t count);
 int32_t pxui_ui_destroy(PxuiUi *ui); /* PXUI_ERR_STATE: borrowed handle, inside a frame, or a renderer still attached */
 PxuiStr pxui_last_error(const PxuiUi *ui);
 int32_t pxui_ui_environment(PxuiUi *ui, PxuiEnvironment *out);

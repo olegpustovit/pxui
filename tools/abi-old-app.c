@@ -22,7 +22,7 @@ int main(void) {
     uint32_t version = pxui_abi_version();
     if ((version >> 16) != 1 || (version & 0xffff) < PXUI_FIXTURE_MINOR) FAIL("the library is older than the release this app was built against");
     PxuiUiDesc desc = { sizeof desc, 0, 13 };
-    PxuiUi *ui = pxui_ui_create(&desc);
+    PxuiUi *ui = pxui_ui_create(&desc, NULL, 0, NULL);
     if (!ui) FAIL("pxui_ui_create");
     /* the frame input at the size that release defined (and the oldest, 48-byte prefix): later libraries read both */
     size_t sizes[2] = { offsetof(PxuiFrameIn, appearance), sizeof(PxuiFrameIn) };

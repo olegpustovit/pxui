@@ -261,7 +261,7 @@ fuzz!(
 
 /// The exports that make or free an object, or switch a process-wide setting: each is called on objects it may free (null and a
 /// fresh one), and what it makes is freed.
-const SPECIAL: &[&str] = &["pxui_ui_create", "pxui_ui_create_with_fonts", "pxui_ui_destroy", "pxui_shaper_create", "pxui_shaper_destroy", "pxui_text_fork",
+const SPECIAL: &[&str] = &["pxui_ui_create", "pxui_ui_destroy", "pxui_shaper_create", "pxui_shaper_destroy", "pxui_text_fork",
     "pxui_theme_create", "pxui_theme_destroy", "pxui_prepared_destroy", "pxui_text_worker_create", "pxui_text_worker_destroy",
     "pxui_renderer_destroy", "pxui_a11y_start", "pxui_a11y_stop"];
 
@@ -270,7 +270,8 @@ fn special() {
         let panics = PANICS.with(Cell::get);
         unsafe {
             reset();
-            for made in [pxui_ui_create(Arg::arg(k)), pxui_ui_create_with_fonts(Arg::arg(k), Arg::arg(k + 1), Arg::arg(k + 2))] {
+            let mut status = 0;
+            for made in [pxui_ui_create(Arg::arg(k), Arg::arg(k + 1), Arg::arg(k + 2), &mut status), pxui_ui_create(Arg::arg(k), Arg::arg(k + 1), Arg::arg(k + 2), core::ptr::null_mut())] {
                 if !made.is_null() { assert_eq!(pxui_ui_destroy(made), 0); }
             }
             assert_eq!(pxui_ui_destroy(core::ptr::null_mut()), 0);

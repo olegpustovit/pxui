@@ -1,6 +1,6 @@
 //! The one error of the wrapper's fallible calls.
 
-use pxui_types::{PXUI_ERR_ARGUMENT, PXUI_ERR_GPU, PXUI_ERR_PANIC, PXUI_ERR_STALE, PXUI_ERR_STATE};
+use pxui_types::{PXUI_ERR_ARGUMENT, PXUI_ERR_GPU, PXUI_ERR_PANIC, PXUI_ERR_STALE, PXUI_ERR_STATE, PXUI_ERR_VERSION};
 
 /// Why a fallible UI or host call was refused.
 ///
@@ -44,6 +44,7 @@ impl Error {
             PXUI_ERR_STATE => Error::State,
             PXUI_ERR_PANIC => Error::Panic,
             PXUI_ERR_STALE => Error::Stale,
+            PXUI_ERR_VERSION => Error::Version,
             _ => Error::Engine,
         }
     }

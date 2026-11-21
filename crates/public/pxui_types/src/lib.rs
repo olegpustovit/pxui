@@ -210,6 +210,9 @@ pub const PXUI_ERR_PANIC: i32 = -4;
 /// The box handle names a node that has gone. The engine tolerates this for queries and patches (a stale handle patches nothing,
 /// has no signal, an empty rectangle), so the wrapper turns it into that result; for every other call it is a caller bug.
 pub const PXUI_ERR_STALE: i32 = -5;
+/// The app was built for another major version of the interface or a newer minor than this library (`pxui_ui_create`'s status): the
+/// library cannot serve it, and nothing was created.
+pub const PXUI_ERR_VERSION: i32 = -6;
 
 /// Key codes of `Event::KEY_PRESSED` and `KEY_RELEASED`: a Unicode scalar value below `KEY_SPECIAL`
 /// is that character; `KEY_SPECIAL + n` is the special key `n` (arrows, enter, F-keys...) in the
@@ -896,7 +899,7 @@ pub mod feature {
 }
 
 /// The ABI version this crate's records describe (`major << 16 | minor`); an app states it as `PxuiUiDesc::abi_built`.
-pub const ABI_BUILT: u32 = 1 << 16 | 151;
+pub const ABI_BUILT: u32 = 1 << 16 | 152;
 impl Default for PxuiUiDesc { fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, platform: 0, font_size: 0, abi_built: ABI_BUILT } } }
 
 #[cfg(test)]

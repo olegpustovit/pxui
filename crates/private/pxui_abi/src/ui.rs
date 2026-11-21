@@ -40,32 +40,37 @@ export!(pub unsafe fn pxui_ui_view_size(ui: *mut PxuiUi, out: *mut pxui_types::g
     0
 });
 
-export!(bare pub unsafe fn pxui_ui_create(desc: *const PxuiUiDesc) -> *mut PxuiUi {
-    if desc.is_null() { return core::ptr::null_mut(); }
-    let Some((desc, _)) = read_desc!(desc, PxuiUiDesc, [12]) else { return core::ptr::null_mut(); };
-    if !valid_desc(&desc) { return core::ptr::null_mut(); }
-    unsafe { create_ui(desc, &[pxui_core::text::PRAGMASEVKA]) }
-});
-
-export!(bare pub unsafe fn pxui_ui_create_with_fonts(desc: *const PxuiUiDesc, fonts: *const Str, count: usize) -> *mut PxuiUi {
-    if desc.is_null() || count == 0 || count > pxui_core::text::MAX_FONTS || fonts.is_null() { return core::ptr::null_mut(); }
-    let Some((desc, _)) = read_desc!(desc, PxuiUiDesc, [12]) else { return core::ptr::null_mut(); };
-    if !valid_desc(&desc) { return core::ptr::null_mut(); }
-    let mut bytes = Vec::with_capacity(count);
+// Creates a `Ui` from `desc` with the `count` fonts of `fonts` (0, and `fonts` may be null: the library's embedded default face; the
+// first font is the theme's). Null, with `*status` (when `status` is not null) set to why: PXUI_ERR_ARGUMENT for a record, font or count that
+// is invalid, PXUI_ERR_VERSION for an app built for another major or a newer minor than this library; 0 on success.
+export!(bare pub unsafe fn pxui_ui_create(desc: *const PxuiUiDesc, fonts: *const Str, count: usize, status: *mut i32) -> *mut PxuiUi {
+    let refuse = |code: i32| { if !status.is_null() { unsafe { *status = code; } } core::ptr::null_mut() };
+    if desc.is_null() || count > pxui_core::text::MAX_FONTS || (count != 0 && fonts.is_null()) { return refuse(PXUI_ERR_ARGUMENT); }
+    let Some((desc, _)) = read_desc!(desc, PxuiUiDesc, [12]) else { return refuse(PXUI_ERR_ARGUMENT); };
+    if !valid_desc(&desc) { return refuse(PXUI_ERR_ARGUMENT); }
+    if !served_version(&desc) { return refuse(crate::PXUI_ERR_VERSION); }
+    let mut bytes = Vec::with_capacity(count.max(1));
     let mut total = 0usize;
-    for font in unsafe { std::slice::from_raw_parts(fonts, count) } {
+    if count == 0 { bytes.push(pxui_core::text::PRAGMASEVKA); }
+    for font in if count == 0 { &[][..] } else { unsafe { std::slice::from_raw_parts(fonts, count) } } {
         total = total.saturating_add(font.len);
-        if font.len == 0 || font.len > pxui_core::text::MAX_FONT_BYTES || total > pxui_core::text::MAX_FONT_TOTAL_BYTES || font.ptr.is_null() { return core::ptr::null_mut(); }
+        if font.len == 0 || font.len > pxui_core::text::MAX_FONT_BYTES || total > pxui_core::text::MAX_FONT_TOTAL_BYTES || font.ptr.is_null() { return refuse(PXUI_ERR_ARGUMENT); }
         bytes.push(unsafe { std::slice::from_raw_parts(font.ptr, font.len) });
     }
-    unsafe { create_ui(desc, &bytes) }
+    let ui = unsafe { create_ui(desc, &bytes) };
+    if ui.is_null() { return refuse(PXUI_ERR_ARGUMENT); }
+    if !status.is_null() { unsafe { *status = 0; } }
+    ui
 });
 
-/// A `PxuiUiDesc` is read at its 12 bytes (before `abi_built`) or whole. The library's own major is the only one it serves: `abi_built` 0 is unstated, any
-/// other value must carry that major and a minor no newer than the library's own (the minimum-library rule: an app built for a newer minor may fill or
-/// read records grown past what this library knows, so it is refused at create, never misread later).
-fn valid_desc(desc: &PxuiUiDesc) -> bool {
-    desc.font_size >= 0 && desc.platform <= 2 && (desc.abi_built == 0 || (desc.abi_built >> 16 == crate::ABI_VERSION >> 16 && desc.abi_built & 0xFFFF <= crate::ABI_VERSION & 0xFFFF))
+/// A `PxuiUiDesc` is read at its 12 bytes (before `abi_built`) or whole; its numbers must be in range.
+fn valid_desc(desc: &PxuiUiDesc) -> bool { desc.font_size >= 0 && desc.platform <= 2 }
+
+/// The library's own major is the only one it serves: `abi_built` 0 is unstated, any other value must carry that major and a minor no newer
+/// than the library's own (the minimum-library rule: an app built for a newer minor may fill or read records grown past what this library
+/// knows, so it is refused at create, never misread later).
+fn served_version(desc: &PxuiUiDesc) -> bool {
+    desc.abi_built == 0 || (desc.abi_built >> 16 == crate::ABI_VERSION >> 16 && desc.abi_built & 0xFFFF <= crate::ABI_VERSION & 0xFFFF)
 }
 
 // 1 when the library, as built, has the feature `id` (`PXUI_FEATURE_*`: ids are never reused); 0 for an id it does not know.
@@ -256,7 +261,7 @@ export!(pub unsafe fn pxui_ui_request_frame(ui: *mut PxuiUi) -> i32 {
 /// A `Ui` with `FrameIn::MAIN` registered, for the tests that run frames.
 #[cfg(test)]
 pub(crate) unsafe fn create_test_ui() -> *mut PxuiUi {
-    let ui = unsafe { pxui_ui_create(&crate::PxuiUiDesc::default()) };
+    let ui = unsafe { pxui_ui_create(&crate::PxuiUiDesc::default(), core::ptr::null(), 0, core::ptr::null_mut()) };
     if !ui.is_null() { assert_eq!(unsafe { pxui_ui_add_surface(ui, pxui_types::FrameIn::MAIN) }, 0); }
     ui
 }
@@ -1115,7 +1120,7 @@ mod keyboard_tests {
     #[test]
     fn a_frame_names_a_registered_surface_and_every_event_carries_it() {
         use pxui_types::{Event, Keyboard};
-        let ui = unsafe { pxui_ui_create(&crate::PxuiUiDesc::default()) };
+        let ui = unsafe { pxui_ui_create(&crate::PxuiUiDesc::default(), core::ptr::null(), 0, core::ptr::null_mut()) };
         let mut out = FrameOut::default();
         let frame = |ui, input: &FrameIn, out: &mut FrameOut| unsafe { super::pxui_frame(ui, input, None, core::ptr::null_mut(), out) };
         let input = FrameIn { width: 390.0, height: 844.0, keyboard: Keyboard::new(pxui_types::geom::Rect::new(0.0, 508.0, 390.0, 336.0), Keyboard::VALID), ..FrameIn::default() };

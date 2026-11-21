@@ -157,8 +157,7 @@ mod sys {
         pub safe fn pxui_abi_version()->u32;
         pub safe fn pxui_supports(id:u32)->u32;
         pub safe fn pxui_counter(which:u32)->u64;
-        pub fn pxui_ui_create(desc:*const PxuiUiDesc) -> *mut PxuiUi;
-        pub fn pxui_ui_create_with_fonts(desc:*const PxuiUiDesc,fonts:*const Str,count:usize)->*mut PxuiUi;
+        pub fn pxui_ui_create(desc:*const PxuiUiDesc,fonts:*const Str,count:usize,status:*mut i32) -> *mut PxuiUi;
         pub fn pxui_ui_output(ui:*mut PxuiUi)->*const pxui_types::ffi::Output;
         pub fn pxui_ui_theme(ui:*mut PxuiUi)->*const pxui_types::theme::ThemeSnapshot;
         pub fn pxui_ui_view_size(ui:*mut PxuiUi,out:*mut pxui_types::geom::Point)->i32;
@@ -530,18 +529,15 @@ impl Ui {
             font_size,
             ..sys::PxuiUiDesc::default()
         };
-        let ui = if desc.fonts.is_empty() {
-            unsafe { sys::pxui_ui_create(&raw) }
-        } else {
-            // Match the font limit enforced by pxui_ui_create_with_fonts.
-            let mut fonts = [Str::default(); 64];
-            let Some(fonts) = fonts.get_mut(..desc.fonts.len()) else { return Err(Error::InvalidInput) };
-            for (out, FontData(bytes)) in fonts.iter_mut().zip(desc.fonts) {
-                *out = Str { ptr: bytes.as_ptr(), len: bytes.len() };
-            }
-            unsafe { sys::pxui_ui_create_with_fonts(&raw, fonts.as_ptr(), fonts.len()) }
-        };
-        let ui = NonNull::new(ui).map(Self).ok_or(Error::InvalidInput)?;
+        // fonts as the library takes them (empty: its default face); at most 64
+        let mut fonts = [Str::default(); 64];
+        let Some(fonts) = fonts.get_mut(..desc.fonts.len()) else { return Err(Error::InvalidInput) };
+        for (out, FontData(bytes)) in fonts.iter_mut().zip(desc.fonts) {
+            *out = Str { ptr: bytes.as_ptr(), len: bytes.len() };
+        }
+        let mut code = 0;
+        let ui = unsafe { sys::pxui_ui_create(&raw, fonts.as_ptr(), fonts.len(), &mut code) };
+        let ui = NonNull::new(ui).map(Self).ok_or_else(|| Error::from_code(code))?;
         if let Some(points) = exact { ui.set_font_points(points)?; }
         status(unsafe { sys::pxui_ui_add_surface(ui.0.as_ptr(), pxui_types::FrameIn::MAIN) })?;
         #[cfg(debug_assertions)]
