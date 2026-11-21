@@ -105,3 +105,108 @@ export!(bare pub unsafe fn pxui_a11y_stop(a11y: *mut PxuiA11y) {
     #[cfg(not(target_os = "linux"))]
     { let _ = a11y; }
 });
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::*;
+    use pxui_atspi::wire::{Conn, Msg, ERROR, METHOD_RETURN};
+    use pxui_types::ffi::{A11yAction, A11yActionSpan};
+    use std::{io::{BufRead, BufReader}, process::{Child, Command, Stdio}, time::{Duration, Instant}};
+
+    struct Bus(Child);
+    impl Drop for Bus { fn drop(&mut self) { let _ = self.0.kill(); let _ = self.0.wait(); } }
+    struct Bridge(*mut PxuiA11y);
+    impl Drop for Bridge { fn drop(&mut self) { unsafe { pxui_a11y_stop(self.0); } } }
+    struct Ui(*mut PxuiUi);
+    impl Drop for Ui { fn drop(&mut self) { unsafe { crate::pxui_ui_destroy(self.0); } } }
+
+    fn tree(surface: u64) -> Ui {
+        extern "C" fn build(user: *mut core::ffi::c_void, raw: *mut core::ffi::c_void) {
+            let text = Str { ptr: b"Button".as_ptr(), len: 6 };
+            let mut response = pxui_types::ffi::PxuiResponse::EMPTY;
+            unsafe { *user.cast::<i32>() = crate::pxui_ui_button_plain(raw.cast(), text, text, &mut response); }
+        }
+        let ui = Ui(unsafe { crate::ui::create_test_ui() });
+        assert!(!ui.0.is_null());
+        assert_eq!(unsafe { crate::pxui_ui_remove_surface(ui.0, pxui_types::FrameIn::MAIN) }, 0);
+        assert_eq!(unsafe { crate::pxui_ui_add_surface(ui.0, surface) }, 0);
+        assert_eq!(unsafe { crate::pxui_ui_set_a11y(ui.0, 1) }, 0);
+        let mut status = i32::MIN;
+        let input = pxui_types::FrameIn { width: 320.0, height: 240.0, surface, ..Default::default() };
+        assert_eq!(unsafe { crate::pxui_frame(ui.0, &input, Some(build), (&mut status as *mut i32).cast(), &mut pxui_types::FrameOut::default()) }, 0);
+        assert_eq!(status, 0);
+        ui
+    }
+
+    fn call(bridge: &Bridge, conn: &Conn, message: Msg, actions: &mut Vec<A11yAction>) -> Msg {
+        let serial = conn.send(message).unwrap();
+        conn.flush();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while Instant::now() < deadline {
+            let mut span = A11yActionSpan::default();
+            assert_eq!(unsafe { pxui_a11y_pump(bridge.0, &mut span) }, 1);
+            for i in 0..span.len { actions.push(unsafe { *span.at(i) }); }
+            if let Some(reply) = conn.wait(1).unwrap() {
+                if reply.reply_serial() == serial && matches!(reply.kind(), METHOD_RETURN | ERROR) { return reply; }
+            }
+        }
+        panic!("the private accessibility bus did not answer");
+    }
+
+    // Real private D-Bus integration: service startup and protocol round trips are the work under test.
+    #[test]
+    fn c_bridge_routes_equal_node_ids_by_surface_and_removes_closed_trees() {
+        let mut bus = Bus(Command::new("dbus-daemon").args(["--session", "--nofork", "--nopidfile", "--print-address=1"])
+            .stdout(Stdio::piped()).stderr(Stdio::null()).spawn().expect("dbus-daemon is required for Linux accessibility qualification"));
+        let mut address = String::new();
+        BufReader::new(bus.0.stdout.take().unwrap()).read_line(&mut address).unwrap();
+        let address = address.trim();
+        let uis = [tree(7), tree(9)];
+        let bridge = Bridge(Box::into_raw(Box::new(PxuiA11y {
+            bridge: pxui_atspi::Bridge::connect_to(address, "C surface routing").unwrap(), actions: Vec::new(), span: Vec::new(), poisoned: false,
+        })));
+        assert!(unsafe { pxui_a11y_fd(bridge.0) } >= 0);
+        let name = unsafe { (*bridge.0).bridge.bus_name() }.to_owned();
+        let mut ids = Vec::new();
+        for (ui, surface) in uis.iter().zip([7, 9]) {
+            let tree = unsafe { &(*crate::pxui_ui_output(ui.0)).a11y };
+            let nodes = unsafe { core::slice::from_raw_parts(tree.nodes.ptr, tree.nodes.len) };
+            ids.push(nodes.iter().find(|n| n.role == pxui_types::a11y::Role::Button as u32).unwrap().id);
+            assert_eq!(unsafe { pxui_a11y_update(bridge.0, surface, tree) }, 0);
+        }
+        assert_eq!(ids[0], ids[1]);
+        let conn = Conn::open(Some(address)).unwrap();
+        let mut actions = Vec::new();
+        for surface in [7, 9] {
+            let path = format!("{}{surface}/{}", pxui_atspi::NODE_PREFIX, ids[0]);
+            let mut request = Msg::call(&name, &path, "org.a11y.atspi.Action", "DoAction");
+            request.i(0);
+            let mut reply = call(&bridge, &conn, request, &mut actions);
+            assert_eq!(reply.kind(), METHOD_RETURN);
+            assert_eq!(reply.read_bool(), Some(true));
+        }
+        assert_eq!(actions.iter().map(|a| (a.surface, a.id, a.action_code)).collect::<Vec<_>>(), [(7, ids[0], 1), (9, ids[0], 1)]);
+        assert!(actions.iter().all(|a| a.size as usize == core::mem::size_of::<A11yAction>()));
+        assert_eq!(unsafe { pxui_a11y_remove_surface(bridge.0, 0) }, PXUI_ERR_ARGUMENT);
+        assert_eq!(unsafe { pxui_a11y_remove_surface(bridge.0, 9) }, 0);
+        assert_eq!(unsafe { pxui_a11y_remove_surface(bridge.0, 9) }, 0);
+        let request = Msg::call(&name, pxui_atspi::ROOT_PATH, "org.a11y.atspi.Accessible", "GetChildren");
+        let mut reply = call(&bridge, &conn, request, &mut actions);
+        assert_eq!(reply.kind(), METHOD_RETURN);
+        assert!(reply.enter());
+        let mut children = Vec::new();
+        while reply.arg() == b'r' {
+            assert!(reply.enter());
+            reply.read_str();
+            children.push(reply.read_str().unwrap().to_owned());
+            reply.leave();
+        }
+        assert_eq!(children.len(), 1);
+        assert!(children[0].starts_with(&format!("{}7/", pxui_atspi::NODE_PREFIX)));
+        let path = format!("{}9/{}", pxui_atspi::NODE_PREFIX, ids[0]);
+        let mut request = Msg::call(&name, &path, "org.a11y.atspi.Action", "DoAction");
+        request.i(0);
+        assert_eq!(call(&bridge, &conn, request, &mut actions).kind(), ERROR);
+        assert_eq!(actions.len(), 2, "a removed surface dispatches no request");
+    }
+}
