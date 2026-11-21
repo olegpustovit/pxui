@@ -47,8 +47,6 @@ PxuiGridListDesc 56 8 0 4 8 24 32 36 40 48
 PxuiSplitDesc 72 8 0 4 8 24 28 32 36 40 48 56 64
 PxuiMenuBarDesc 40 8 0 4 6 8 24
 PxuiMenuOut 24 8 0 4 8 16
-PxuiHintDesc 40 8 0 4 8 24
-PxuiFooterDesc 40 8 0 4 5 8 24
 PxuiKeyframeDesc 360 8 0 4 8 12 16 32 192
 PxuiTableDesc 104 8 0 4 5 6 7 8 24 40 48 56 60 64 80 88 90 91 92 96
 PxuiSignal 120 8 0 4 8 9 10 11 12 16 24 32 40 48 56 64 72 80 88 96
@@ -110,8 +108,6 @@ PxuiCheckConfig 96 8 0 4 16 24 56 72 80 88 92 93
 PxuiSpinnerConfig 64 8 0 8 40 56
 PxuiBadgeConfig 80 8 0 8 40 56 72
 PxuiLabelConfig 144 8 0 4 8 40 56 120 124
-PxuiFooterConfig 88 8 0 8 40 48 64 80
-PxuiGripConfig 64 8 0 4 16 17 24 56
 PxuiPanelConfig 80 8 0 8 40 56 64 72
 PxuiDialogConfig 112 8 0 8 24 40 48 56 64 72 80 88 104
 PxuiSectionConfig 80 8 0 4 8 16 48 64 72
@@ -125,7 +121,6 @@ PxuiTreeRowConfig 96 8 0 4 16 17 24 32 40 48 80 88
 PxuiTableHeadConfig 96 8 0 4 16 17 24 32 64 80 88
 PxuiSearchFieldConfig 136 8 0 4 16 24 56 72 80 88 120
 PxuiTextFieldConfig 88 8 0 4 16 48 64 80
-PxuiLineFieldConfig 80 8 0 4 16 24 56 72
 PxuiSlot 8 8 0
 TextSpan 24 4 0 4 8 10 12 16 20
 TextSpans 32 8 0 4 8 16 24

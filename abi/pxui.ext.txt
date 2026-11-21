@@ -2,6 +2,9 @@
 # The set is the names listed here; add a name to move a call out of the frozen manifest, then run `cargo run -p gate -- abi-snapshot --write`.
 function pxui_counter uint64_t pxui_counter ( uint32_t which ) ;
 function pxui_ui_diagnostics int32_t pxui_ui_diagnostics ( PxuiUi * ui , PxuiDiagnostics * io ) ;
+function pxui_ui_field_drag int32_t pxui_ui_field_drag ( PxuiUi * ui , const PxuiBox * box , uint8_t * present , PxuiPoint * out ) ;
+function pxui_ui_footer int32_t pxui_ui_footer ( PxuiUi * ui , const PxuiFooterDesc * desc ) ;
+function pxui_ui_grip int32_t pxui_ui_grip ( PxuiUi * ui , PxuiStr label , uint32_t axis , uint8_t has_rect , PxuiRect rect , PxuiBox * out , PxuiSignal * signal ) ;
 function pxui_ui_inspector_bar int32_t pxui_ui_inspector_bar ( PxuiUi * ui , PxuiHintSpan hints , int64_t count ) ;
 function pxui_ui_inspector_body int32_t pxui_ui_inspector_body ( PxuiUi * ui , PxuiBuild build , void * user ) ;
 function pxui_ui_inspector_button int32_t pxui_ui_inspector_button ( PxuiUi * ui , PxuiStr key , PxuiStr label , uint8_t * out ) ;
@@ -13,16 +16,23 @@ function pxui_ui_inspector_row int32_t pxui_ui_inspector_row ( PxuiUi * ui , Pxu
 function pxui_ui_inspector_section int32_t pxui_ui_inspector_section ( PxuiUi * ui , PxuiInspectorSectionDesc * desc ) ;
 function pxui_ui_inspector_toggle int32_t pxui_ui_inspector_toggle ( PxuiUi * ui , PxuiStr key , PxuiStr label , uint8_t value , uint8_t * out ) ;
 function pxui_ui_inspector_width float pxui_ui_inspector_width ( PxuiUi * ui ) ;
+function pxui_ui_line_field int32_t pxui_ui_line_field ( PxuiUi * ui , float x , float y , float w , float h , uint8_t grab , PxuiStr placeholder , PxuiStr label , PxuiStr value , PxuiStr name , PxuiStr * text , uint32_t * step , PxuiResponse * response ) ;
+function pxui_ui_patch_field int32_t pxui_ui_patch_field ( PxuiUi * ui , const PxuiBox * field , const PxuiValueFieldDesc * desc , PxuiStr text , uint8_t * out ) ;
 function pxui_ui_picker int32_t pxui_ui_picker ( PxuiUi * ui , const PxuiKeyedDesc * keyed , int64_t limit , uint8_t slash , uint8_t at_rest , PxuiStr query , PxuiPickerRows rows , PxuiPickerMark mark , PxuiPickerOff off , PxuiPickerImage image , void * user , PxuiStr * out_query , uint32_t * out_tag , int64_t * out_index ) ;
 function pxui_ui_value_field int32_t pxui_ui_value_field ( PxuiUi * ui , const PxuiValueFieldDesc * desc , PxuiTextValid valid , PxuiSlideText slide , PxuiScrubText scrub , void * user , PxuiStr name , PxuiStr * out_text , uint8_t * out_changed , uint8_t * out_editing , PxuiResponse * response ) ;
 layout PxuiDiagnostics 160 8 0 4 5 6 7 8 24 32 40 48 104
+layout PxuiFooterConfig 88 8 0 8 40 48 64 80
+layout PxuiFooterDesc 40 8 0 4 5 8 24
+layout PxuiGripConfig 64 8 0 4 16 17 24 56
 layout PxuiHeadOut 32 8 0 4 5 6 8 24
 layout PxuiHeaderDesc 144 8 0 4 5 6 7 8 9 16 32 48 64 80 96 112 128
+layout PxuiHintDesc 40 8 0 4 8 24
 layout PxuiInspectorRowConfig 80 8 0 4 16 17 20 24 56 72
 layout PxuiInspectorRowDesc 96 8 0 4 5 6 7 8 24 40 44 48 80 84 88
 layout PxuiInspectorSectionDesc 64 8 0 4 5 6 7 8 24 40 48 56
 layout PxuiInspectorTextDesc 40 8 0 4 8 24
 layout PxuiInspectorValueDesc 64 8 0 4 5 8 24 40 56
+layout PxuiLineFieldConfig 80 8 0 4 16 24 56 72
 layout PxuiPickerFieldConfig 120 8 0 4 16 17 20 24 32 64 80 88
 layout PxuiPickerRowConfig 224 8 0 4 16 17 18 19 20 21 32 40 72 88 104 120 122 123 136 144 145 146 152 192
 layout PxuiValueFieldConfig 240 8 0 4 16 20 24 32 64 216 232

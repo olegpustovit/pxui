@@ -97,7 +97,7 @@ caller record grown past what it knows and an app never reads a library-written 
 A newer library serves an older app through the size rule (records read at their recorded sizes) and `pxui_supports` answers for what an app may use.
 `pxui_supports(id)` returns 1 when the library, as built, has the feature with that id and 0 otherwise or for an id it does not know. Ids (`PXUI_FEATURE_*` in
 `pxui.h`, `pxui_types::feature`, `pxui::Feature`) are append-only, never reused or renumbered, and 0 is never an id; a feature whose presence depends on the build
-(the accessibility bridge on Linux, the Metal and Vulkan backends) answers for the library that was built; a feature of a minor is present in every build of it.
+(the accessibility bridge on Linux, the Metal and Vulkan backends) answers for the library that was built; nothing else in the header is asked about: it is in every build of the major, and a feature of a later minor answers 0 on an older library.
 
 | Id | Name | Since / meaning |
 | --- | --- | --- |
@@ -105,38 +105,17 @@ A newer library serves an older app through the size rule (records read at their
 | 2 | `METAL` | the Metal backend (Apple targets; answers from the target today, switch to `cfg!(feature)` if a backend becomes optional) |
 | 3 | `VULKAN` | the Vulkan backend (Windows and Linux targets; same note) |
 | 4 | `EXTENSION_SET` | `abi/pxui.ext.txt` exported (no stability promise) |
-| 5 | `BUTTON_CONTENT` | 1.56 |
-| 6 | `ICON_BUTTON_CURVES` | 1.54 |
-| 7 | `TOGGLE_RESPONSE` | 1.51 |
-| 8 | `SEGMENTED_RESPONSE` | 1.51 |
-| 9 | `DIALOG_RESPONSE` | 1.53 |
-| 10 | `WIDGET_VARIANTS` | 1.52 |
-| 11 | `LABEL_NODE` | 1.54 |
-| 12 | `MENU_ITEM_IDS` | 1.58 |
-| 13 | `FRAME_SURFACE` | 1.57 |
-| 14 | `ITEM_TEXT` | 1.49 |
-| 15 | `COLOR_TOKENS` | 1.43 |
-| 16 | `SWIPE_ACTIONS` | 1.40 |
-| 17 | `DISMISS` | 1.41 |
-| 18 | `LOOK_TOKENS` | 1.61: look colours that name colour tokens, resolved where a look is applied |
-| 19 | `ICON_WORD` | 1.61: `ui_icon_word` / `paint_icon_word` |
-| 20 | `TEXT_WORKER` | 1.62: `text_worker_create` / `text_worker_destroy`, `ui_set_text_worker`, `text_prewarm` (the prepare queue) |
-| 21 | `TEXT_FIELD_KEYED` | 1.64 |
-| 22 | `LABEL_TEXT` | 1.65: `ui_label_text_spans`, `ui_label_text_line_box`, `ui_label_measure`, `ui_label_quads`, `ui_label_rasterize_rgba`, `ui_label_prewarm` |
-| 23 | `MENU_MAX_H` | 1.67: `PxuiMenuExtra.max_h` (`Menu::max_h`) |
-| 24 | `SEGMENTED_RESULT` | 1.67: `ui_segmented_result`, `PxuiSegmentedResult`, `PxuiSegmentedDesc`/`PxuiSegmentConfig.has_selected`; 1.67 also changes the keyboard model of every segmented call (one Tab stop, the chosen option; every option focusable to assistive technology) |
-| 25 | `WIDGETS_KEYED` | 1.68: `PxuiKeyedDesc` and the `ui_*_keyed` widget and container calls |
-| 26 | `SEGMENTED_STORED_FOCUS` | 1.69: `PxuiSegmentedDesc.focus_on_click` (`Segmented::focus_on_click`), `PxuiSegmentConfig.stored`/`has_stored` |
-| 27 | `IMAGE_CHECKED` | 1.70: `ui_image_node`, `paint_image_checked` |
-| 28 | `BUTTON_PARTS` | 1.71: `PxuiButtonDesc`/`PxuiButtonConfig` leading icon, detail and accessory (`Button::icon`/`detail`/`accessory`), `PxuiIconButtonDesc.checkable`/`checked` (`IconButton::selected`), `PxuiDialogDesc`/`PxuiDialogConfig.details` (`DialogButton::detail`) |
-| 29 | `VIEW_KEYED` | 1.72: `pxui_ui_view_keyed` (`Ui::view_of`) |
 
-**Extension set.** The Rays vocabulary and diagnostics (`inspector_*`, `line_field`, `value_field`, `picker`, `diagnostics`, with the
-records only they use) are not part of the promise. They are listed in `abi/pxui.ext.txt`, which carries no stability guarantee: they may
-change or disappear between minors, and an app pins the commit if it uses them. The calls stay exported and declared in `include/pxui.h`.
-The set is the names in that file; the `abi-snapshot` gate keeps its rows current (`cargo run -p gate -- abi-snapshot --write`) and
-`abi/pxui.v1.txt` and `abi/layout.v1.txt` carry none of them. Moving a call into the set is an edit of that file, reviewed as one; a row
-left in the frozen manifest is frozen.
+**Extension set.** The Rays vocabulary and the diagnostics are not part of the promise: `inspector_*`, `footer`, `grip`, `field_drag`,
+`line_field`, `patch_field`, `value_field`, `picker`, `pxui_ui_diagnostics` and `pxui_counter`, with the records only they use. They are
+listed in `abi/pxui.ext.txt`, which carries no stability guarantee: they may change or disappear between minors, and an app pins the commit
+if it uses them (`PXUI_FEATURE_EXTENSION_SET`). The calls stay exported and declared in `include/pxui.h`. The set is the names in that file;
+the `abi-snapshot` gate keeps its rows current (`cargo run -p gate -- abi-snapshot --write`) and `abi/pxui.v1.txt` and `abi/layout.v1.txt`
+carry none of them. Moving a call into the set is an edit of that file, reviewed as one; a row left in the frozen manifest is frozen.
+*Extension body kinds* (U5.10, OS-43): the body kinds `inspector_row`, `footer`, `grip`, `line_field`, `value_field`, `picker` and
+`picker_field` build the Rays vocabulary; their numbers in `PxuiBodyKind` and their slots in `PxuiBodies` are fixed like every kind's, but
+their `Pxui*Config` records (in the extension layout rows) carry no stability promise. `inspector_section` is also the body of the generic
+`pxui_ui_disclosure`, so its record stays frozen.
 
 **Old-app fixture.** At each release `tools/abi-fixture.sh <minor>` (on macOS and on Linux) keeps the release's header, its manifest and a C
 app built against it in `fixtures/abi/2.<minor>/` (from 2.0; D28 retired the 1.x fixtures). `cargo run -p gate -- abi-compat` runs every kept binary against the library built from
@@ -313,6 +292,7 @@ wrapper) and name the replacement; nothing is removed from the manifest.
 | 1.151 | Changed in place (D28, U5.9, OS-10/39, D3): `pxui_ui_diagnostics(ui, PxuiDiagnostics *io)`, one sized in/out record in the extension set, replaces `pxui_ui_calls`, `pxui_ui_set_timing`, `pxui_ui_phase_times`, `pxui_ui_phase_cpu_times`, `pxui_ui_text_layout_count` and `pxui_ui_rebuilt_named` (all deleted): `timing` (0 leave, 1 on, 2 off) and `rebuilt_prefix` in; `calls`, `text_layouts`, `rebuilt`, `phase_nanos`, `phase_cpu_nanos` out (reading it is not a call into the library). `pxui_counter` (process allocator counters) moves to the extension manifest with it; `pxui_ui_verify_views` and `pxui_ui_verifying` stay in the frozen set (D22). The Rust `Ui::set_timing`, `phase_times`, `phase_cpu_times`, `library_calls`, `rebuilt_named` and `text_layout_count` keep their shapes over the record | Diagnostics are not a stable contract; one call replaces seven |
 | 1.152 | Changed in place (D28, U5.9, OS-40/46): one create call: `pxui_ui_create(desc, fonts, count, status)` takes the font list (0 and a null `fonts`: the library's embedded default face) and writes why it refused to `*status` when it is not null: `PXUI_ERR_ARGUMENT` (a record, font or count that is invalid) or the new `PXUI_ERR_VERSION` (-6; an app built for another major or a newer minor than the library); `pxui_ui_create_with_fonts` is deleted; the Rust `Ui::new` maps the status to `Error` (`Error::Version`) | One create, with a reason; the font list is the app's |
 | 1.153 | Changed in place (D28, U5.9, OS-3/5/12/47-50): `PxuiLayerInfo` carries `role` (from `reserved`: 0 base, 1 popup, 2 modal, 3 tooltip, 4 drag, 5 merged) and `anchor` (`PxuiRect`, appended: 56 -> 72 bytes) so a host may present a floating layer in a surface of its own; `pxui_a11y_update(a11y, surface, tree)` takes the surface id (not 0; the bridge keeps one tree per surface); `pxui_ui_destroy` with renderers attached accepts the destroy and the last `pxui_renderer_destroy` frees the `Ui` (it was `PXUI_ERR_STATE`; the Rust wrapper's thread-local ORPHANS list is deleted); the header states the error model, the thread and lifetime contract (including `PxuiIconDraw`/`draw_user` and `PxuiSizeDesc.relative` lifetimes), the raw-handle exception (D16), body names per Ui (64 bytes) and the GPU-device decision (OS-6, D24) | OS-grade contract and the C halves of OS-3, OS-5, OS-12 |
+| 1.154 | Changed in place (D28, U5.10, OS-43): `abi/pxui.ext.txt` holds the Rays set and the diagnostics with no stability promise: `pxui_ui_line_field`, `pxui_ui_patch_field`, `pxui_ui_field_drag`, `pxui_ui_grip` and `pxui_ui_footer` join the inspector calls, `value_field`, `picker`, `pxui_counter` and `pxui_ui_diagnostics`, with the layouts `PxuiLineFieldConfig`, `PxuiFooterConfig`, `PxuiGripConfig`, `PxuiFooterDesc` and `PxuiHintDesc`; the extension body kinds (`inspector_row`, `footer`, `grip`, `line_field`, `value_field`, `picker`, `picker_field`) are documented in the header and here (numbers and slots fixed, their records unpromised); no call or record changes | The frozen 2.0 set holds generic widgets only |
 
 Frame extensions retain the frozen 48/56/128-byte prefixes. Validate leading sizes, active
 records, flags and UTF-8 boundaries before mutation; partial tails never justify reading
