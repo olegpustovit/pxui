@@ -1409,9 +1409,9 @@ mod sized_records {
     fn ui_desc() {
         let ui = create();
         let mut value: PxuiUiDesc = unsafe { core::mem::zeroed() };
-        let fix: fn(&mut PxuiUiDesc) = |_| {};
+        let fix: fn(&mut PxuiUiDesc) = |v| v.abi_built = crate::ABI_VERSION;
         fix(&mut value);
-        four_min(ui, ((&value as *const PxuiUiDesc).cast(), size_of_val(&value), align_of_val(&value)), &[12], &mut |p| {
+        four_min(ui, ((&value as *const PxuiUiDesc).cast(), size_of_val(&value), align_of_val(&value)), &[], &mut |p| {
             let p = p.cast::<PxuiUiDesc>();
             created(unsafe { pxui_ui_create(p, core::ptr::null(), 0, core::ptr::null_mut()) })
         });
@@ -1422,9 +1422,9 @@ mod sized_records {
     fn ui_desc_with_fonts() {
         let ui = create();
         let mut value: PxuiUiDesc = unsafe { core::mem::zeroed() };
-        let fix: fn(&mut PxuiUiDesc) = |_| {};
+        let fix: fn(&mut PxuiUiDesc) = |v| v.abi_built = crate::ABI_VERSION;
         fix(&mut value);
-        four_min(ui, ((&value as *const PxuiUiDesc).cast(), size_of_val(&value), align_of_val(&value)), &[12], &mut |p| {
+        four_min(ui, ((&value as *const PxuiUiDesc).cast(), size_of_val(&value), align_of_val(&value)), &[], &mut |p| {
             let p = p.cast::<PxuiUiDesc>();
             {
         let font = Str { ptr: pxui_core::text::PRAGMASEVKA.as_ptr(), len: pxui_core::text::PRAGMASEVKA.len() };
@@ -2166,18 +2166,22 @@ fn the_library_checks_the_version_the_app_was_built_against_once_at_create() {
     let major = ABI_VERSION >> 16;
     // the status says why: 0 served, PXUI_ERR_VERSION for another major or a newer minor
     let make = |built: u32| { let mut status = 1; let ui = unsafe { pxui_ui_create(&PxuiUiDesc { abi_built: built, ..PxuiUiDesc::default() }, core::ptr::null(), 0, &mut status) }; assert_eq!(!ui.is_null(), status == 0); if !ui.is_null() { unsafe { pxui_ui_destroy(ui); } } status };
-    assert!([make(ABI_VERSION), make(0), make(major << 16), make(ABI_VERSION - 1), make(major << 16 | 57)].iter().all(|status| *status == 0), "the same, unstated, the first and an older minor");
+    assert!([make(ABI_VERSION), make(major << 16)].iter().all(|status| *status == 0), "the same minor and the first");
+    // the unstated version is refused: the app must say what it was built for (2.0 baseline)
+    assert_eq!(make(0), crate::PXUI_ERR_VERSION, "abi_built 0");
+    // a 1.x app (any 1.minor) is refused cleanly at create: nothing is created and the status says why
+    assert_eq!([make(1 << 16), make(1 << 16 | 57), make(1 << 16 | 155)], [crate::PXUI_ERR_VERSION; 3], "1.x apps");
     // the minimum-library rule: an app built for a newer minor may write or read records grown past this library's, so it is refused
     assert_eq!([make(ABI_VERSION + 1), make(major << 16 | 0xFFFF)], [crate::PXUI_ERR_VERSION; 2], "an app built for a newer minor than the library");
     assert_eq!([make((major + 1) << 16), make((major - 1) << 16 | 1), make(u32::MAX)], [crate::PXUI_ERR_VERSION; 3], "another major");
     let mut status = 0;
     assert!(unsafe { pxui_ui_create(core::ptr::null(), core::ptr::null(), 0, &mut status) }.is_null() && status == PXUI_ERR_ARGUMENT, "no record");
-    // a record from before 1.60 (12 bytes, no abi_built) is read as unstated; no other size short of the whole record is read
-    let rec = |size: u32| [size.to_ne_bytes(), 1u32.to_ne_bytes(), 13u32.to_ne_bytes(), 0u32.to_ne_bytes()].concat();
+    // a record that does not cover abi_built (the 12-byte 1.x record included) is refused, whatever it says
+    let rec = |size: u32| [size.to_ne_bytes(), 1u32.to_ne_bytes(), 13u32.to_ne_bytes(), ABI_VERSION.to_ne_bytes()].concat();
     for size in 0..16u32 {
         let bytes = rec(size);
         let ui = unsafe { pxui_ui_create(bytes.as_ptr().cast(), core::ptr::null(), 0, core::ptr::null_mut()) };
-        assert_eq!(!ui.is_null(), size == 12, "a {size}-byte record");
+        assert!(ui.is_null(), "a {size}-byte record");
         if !ui.is_null() { unsafe { pxui_ui_destroy(ui); } }
     }
 }
@@ -2192,8 +2196,8 @@ fn supports_answers_from_the_feature_registry_of_this_build() {
     // pxui.h numbers the same ids
     let header = include_str!("../../../../include/pxui.h");
     // pxui.h names the version the app is built for
-    let built: u32 = header.split("#define PXUI_ABI_BUILT ((1u << 16) | ").nth(1).and_then(|rest| rest.split('u').next()).and_then(|minor| minor.parse().ok()).expect("PXUI_ABI_BUILT in pxui.h");
-    assert_eq!(1 << 16 | built, ABI_VERSION, "pxui.h PXUI_ABI_BUILT");
+    let built: u32 = header.split("#define PXUI_ABI_BUILT ((2u << 16) | ").nth(1).and_then(|rest| rest.split('u').next()).and_then(|minor| minor.parse().ok()).expect("PXUI_ABI_BUILT in pxui.h");
+    assert_eq!(2 << 16 | built, ABI_VERSION, "pxui.h PXUI_ABI_BUILT");
     for (name, id) in [("A11Y_BRIDGE", f::A11Y_BRIDGE), ("METAL", f::METAL), ("VULKAN", f::VULKAN), ("EXTENSION_SET", f::EXTENSION_SET)] {
         assert!(header.contains(&format!("PXUI_FEATURE_{name} = {id}")), "{name}");
     }

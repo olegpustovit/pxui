@@ -22,18 +22,18 @@ test "$themes" -gt 0
 case "$(uname -s)" in
     Darwin)
         test -L "$prefix/lib/libpxui.dylib"
-        test "$(readlink "$prefix/lib/libpxui.dylib")" = libpxui.1.dylib
+        test "$(readlink "$prefix/lib/libpxui.dylib")" = libpxui.2.dylib
         test -e "$prefix/lib/libpxui.dylib"
-        test -e "$prefix/lib/libpxui.1.dylib"
+        test -e "$prefix/lib/libpxui.2.dylib"
         runtime_var=DYLD_LIBRARY_PATH
         ;;
     Linux)
         test -L "$prefix/lib/libpxui.so"
-        test -L "$prefix/lib/libpxui.so.1"
-        test "$(readlink "$prefix/lib/libpxui.so")" = libpxui.so.1
-        test "$(readlink "$prefix/lib/libpxui.so.1")" = libpxui.so.1.0
+        test -L "$prefix/lib/libpxui.so.2"
+        test "$(readlink "$prefix/lib/libpxui.so")" = libpxui.so.2
+        test "$(readlink "$prefix/lib/libpxui.so.2")" = libpxui.so.2.0
         test -e "$prefix/lib/libpxui.so"
-        test -e "$prefix/lib/libpxui.so.1.0"
+        test -e "$prefix/lib/libpxui.so.2.0"
         runtime_var=LD_LIBRARY_PATH
         ;;
     *)

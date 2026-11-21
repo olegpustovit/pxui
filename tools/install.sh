@@ -11,13 +11,13 @@ cargo build --release -p pxui_dylib --target-dir "$target_dir"
 mkdir -p "$prefix/lib" "$prefix/include" "$prefix/share/pxui/themes"
 case "$(uname -s)" in
     Darwin)
-        install -m 755 "$target_dir/release/libpxui.dylib" "$prefix/lib/libpxui.1.dylib"
-        ln -sfn libpxui.1.dylib "$prefix/lib/libpxui.dylib"
+        install -m 755 "$target_dir/release/libpxui.dylib" "$prefix/lib/libpxui.2.dylib"
+        ln -sfn libpxui.2.dylib "$prefix/lib/libpxui.dylib"
         ;;
     Linux)
-        install -m 755 "$target_dir/release/libpxui.so" "$prefix/lib/libpxui.so.1.0"
-        ln -sfn libpxui.so.1.0 "$prefix/lib/libpxui.so.1"
-        ln -sfn libpxui.so.1 "$prefix/lib/libpxui.so"
+        install -m 755 "$target_dir/release/libpxui.so" "$prefix/lib/libpxui.so.2.0"
+        ln -sfn libpxui.so.2.0 "$prefix/lib/libpxui.so.2"
+        ln -sfn libpxui.so.2 "$prefix/lib/libpxui.so"
         ;;
     *)
         echo "install.sh supports macOS and Linux" >&2

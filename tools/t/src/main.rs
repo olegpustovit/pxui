@@ -258,7 +258,7 @@ fn run() -> i32 {
 }
 
 /// A dynamic `pxui` links the built `libpxui` by its soname. Nothing depends on the cdylib in that mode, so cargo does not
-/// build it for the tests: build and uplift it here, with the `libpxui.1.dylib` / `libpxui.so.1` link the executables load.
+/// build it for the tests: build and uplift it here, with the `libpxui.2.dylib` / `libpxui.so.2` link the executables load.
 /// In PXUI's own workspace only for the packages that link it (static builds are not slowed down); Rays always links it dynamically,
 /// and builds it from the `pxui/` checkout's workspace into its own target directory.
 fn ensure_libpxui(args: &Args) -> Result<(), i32> {
@@ -284,7 +284,7 @@ fn ensure_libpxui(args: &Args) -> Result<(), i32> {
     }
     #[cfg(unix)]
     {
-        let (library, soname) = if cfg!(target_os = "macos") { ("libpxui.dylib", "libpxui.1.dylib") } else { ("libpxui.so", "libpxui.so.1") };
+        let (library, soname) = if cfg!(target_os = "macos") { ("libpxui.dylib", "libpxui.2.dylib") } else { ("libpxui.so", "libpxui.so.2") };
         let link = args.target_dir.clone().unwrap_or_else(default_target_dir).join(profile).join(soname);
         if fs::symlink_metadata(&link).is_err() {
             if let Err(error) = std::os::unix::fs::symlink(library, &link) { eprintln!("rays-t: cannot link {}: {error}", link.display()); return Err(1); }

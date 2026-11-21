@@ -2184,7 +2184,7 @@ impl Growth {
 
 /// The major of the manifest `abi/pxui.v1.txt`. The growth rule (append-only rows) holds from major 2; before the 2.0 cut the 1.x ABI
 /// is not frozen (D28) and `abi-snapshot` only detects changes.
-const ABI_MAJOR: u32 = 1;
+const ABI_MAJOR: u32 = 2;
 
 /// `old` against the current rows. Any new, removed or changed row needs a later minor. From `major` 2 the manifest is append-only: a
 /// row removed or changed fails, except a layout row grown at its end as `Growth::refuse` allows, and any other change of a recorded
@@ -2336,7 +2336,7 @@ fn abi_compat(workspace: &Path) -> Result<Vec<String>, String> {
     let build = std::process::Command::new("cargo").args(["build", "-q", "-p", "pxui_dylib"]).current_dir(workspace).status()
         .map_err(|error| format!("cannot run cargo: {error}"))?;
     if !build.success() { return Ok(vec!["abi-compat: cargo build -p pxui_dylib failed".to_owned()]); }
-    let (library, installed, path_var) = if cfg!(target_os = "macos") { ("libpxui.dylib", "libpxui.1.dylib", "DYLD_LIBRARY_PATH") } else { ("libpxui.so", "libpxui.so.1", "LD_LIBRARY_PATH") };
+    let (library, installed, path_var) = if cfg!(target_os = "macos") { ("libpxui.dylib", "libpxui.2.dylib", "DYLD_LIBRARY_PATH") } else { ("libpxui.so", "libpxui.so.2", "LD_LIBRARY_PATH") };
     let lib_dir = target_dir.join("abi-compat");
     fs::create_dir_all(&lib_dir).map_err(|error| format!("{}: {error}", lib_dir.display()))?;
     fs::copy(target_dir.join("debug").join(library), lib_dir.join(installed)).map_err(|error| format!("cannot stage {library}: {error}"))?;

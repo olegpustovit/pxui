@@ -46,7 +46,7 @@ export!(pub unsafe fn pxui_ui_view_size(ui: *mut PxuiUi, out: *mut pxui_types::g
 export!(bare pub unsafe fn pxui_ui_create(desc: *const PxuiUiDesc, fonts: *const Str, count: usize, status: *mut i32) -> *mut PxuiUi {
     let refuse = |code: i32| { if !status.is_null() { unsafe { *status = code; } } core::ptr::null_mut() };
     if desc.is_null() || count > pxui_core::text::MAX_FONTS || (count != 0 && fonts.is_null()) { return refuse(PXUI_ERR_ARGUMENT); }
-    let Some((desc, _)) = read_desc!(desc, PxuiUiDesc, [12]) else { return refuse(PXUI_ERR_ARGUMENT); };
+    let Some(desc) = read_desc!(desc, PxuiUiDesc) else { return refuse(PXUI_ERR_ARGUMENT); };
     if !valid_desc(&desc) { return refuse(PXUI_ERR_ARGUMENT); }
     if !served_version(&desc) { return refuse(crate::PXUI_ERR_VERSION); }
     let mut bytes = Vec::with_capacity(count.max(1));
@@ -63,14 +63,14 @@ export!(bare pub unsafe fn pxui_ui_create(desc: *const PxuiUiDesc, fonts: *const
     ui
 });
 
-/// A `PxuiUiDesc` is read at its 12 bytes (before `abi_built`) or whole; its numbers must be in range.
+/// A `PxuiUiDesc` is read whole (its size covers it, else `PXUI_ERR_ARGUMENT`); its numbers must be in range.
 fn valid_desc(desc: &PxuiUiDesc) -> bool { desc.font_size >= 0 && desc.platform <= 2 }
 
-/// The library's own major is the only one it serves: `abi_built` 0 is unstated, any other value must carry that major and a minor no newer
-/// than the library's own (the minimum-library rule: an app built for a newer minor may fill or read records grown past what this library
-/// knows, so it is refused at create, never misread later).
+/// The library's own major is the only one it serves, and `abi_built` must state it: 0 (unstated) and any other major (a 1.x app) are refused,
+/// and so is a minor newer than the library's own (the minimum-library rule: an app built for a newer minor may fill or read records grown
+/// past what this library knows, so it is refused at create with `PXUI_ERR_VERSION`, never misread later).
 fn served_version(desc: &PxuiUiDesc) -> bool {
-    desc.abi_built == 0 || (desc.abi_built >> 16 == crate::ABI_VERSION >> 16 && desc.abi_built & 0xFFFF <= crate::ABI_VERSION & 0xFFFF)
+    desc.abi_built >> 16 == crate::ABI_VERSION >> 16 && desc.abi_built & 0xFFFF <= crate::ABI_VERSION & 0xFFFF
 }
 
 // 1 when the library, as built, has the feature `id` (`PXUI_FEATURE_*`: ids are never reused); 0 for an id it does not know.

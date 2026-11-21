@@ -1079,7 +1079,7 @@ mod snapshot_tests {
     fn ui_new_refuses_a_library_older_than_the_app() {
         let built = pxui_types::ABI_BUILT;
         assert!(serves(built, built) && serves(built + 1, built) && serves(built | 0xFFFF, built), "the same or a newer minor");
-        assert!(!serves(built - 1, built) && !serves(built & !0xFFFF, built), "an older minor");
+        assert!(!serves(built, built + 1) && !serves(built - 1, built), "an older library: the app is built for a newer minor");
         assert!(!serves(built + (1 << 16), built) && !serves(built - (1 << 16), built), "another major");
         assert!(Ui::new(&UiDesc::DEFAULT).is_ok(), "this library serves this crate");
     }

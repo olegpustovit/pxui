@@ -12,7 +12,7 @@ rustflags = ["-Clink-arg=-Wl,--stack,268435456"]
 [target.aarch64-apple-darwin]
 linker = "tools/cc-stack.sh"
 
-# The dynamic libpxui: executables in target/<profile>/deps find libpxui.so.1 in target/<profile> (macOS: tools/cc-stack.sh).
+# The dynamic libpxui: executables in target/<profile>/deps find libpxui.so.2 in target/<profile> (macOS: tools/cc-stack.sh).
 [target.x86_64-unknown-linux-gnu]
 rustflags = ["-Clink-arg=-Wl,-rpath,$ORIGIN/.."]
 [target.aarch64-unknown-linux-gnu]
