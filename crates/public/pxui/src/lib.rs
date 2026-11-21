@@ -174,14 +174,14 @@ mod sys {
         pub fn pxui_ui_box_of_key(ui:*mut PxuiUi,key:i64,out:*mut PxuiBox)->u8;
         pub fn pxui_ui_key_seed(ui:*mut PxuiUi,out:*mut i64)->i32;
         pub fn pxui_ui_box_of_a11y(ui:*mut PxuiUi,id:u64,out:*mut PxuiBox)->u8;
-        pub fn pxui_ui_text(ui:*mut PxuiUi,box_:*const PxuiBox,value:Str)->i32;
+        pub fn pxui_ui_text(ui:*mut PxuiUi,box_:*const PxuiBox,value:Str,style:*const pxui_types::ffi::PxuiLabelStyle,spans:*const pxui_types::TextSpans,line_box:u8)->i32;
         pub fn pxui_ui_destroy(ui: *mut PxuiUi) -> i32;
         pub fn pxui_last_error(ui: *const PxuiUi) -> Str;
         pub fn pxui_ui_add_surface(ui:*mut PxuiUi,surface:u64)->i32;
         pub fn pxui_ui_remove_surface(ui:*mut PxuiUi,surface:u64)->i32;
         pub fn pxui_frame(ui:*mut PxuiUi,input:*const FrameIn,build:pxui_types::ffi::UiBuild,user:*mut c_void,out:*mut FrameOut)->i32;
-        pub fn pxui_within(ui:*mut PxuiUi,box_:*const PxuiBox,build:pxui_types::ffi::UiBuild,user:*mut c_void)->i32;
-        pub fn pxui_scope(ui:*mut PxuiUi,label:Str,build:pxui_types::ffi::UiBuild,user:*mut c_void)->i32;
+        pub fn pxui_ui_within(ui:*mut PxuiUi,box_:*const PxuiBox,build:pxui_types::ffi::UiBuild,user:*mut c_void)->i32;
+        pub fn pxui_ui_scope(ui:*mut PxuiUi,label:Str,build:pxui_types::ffi::UiBuild,user:*mut c_void)->i32;
         pub fn pxui_renderer_prepare(renderer:*mut PxuiRenderer,commands:*const pxui_types::Commands,frame:u64,completed:u64)->i32;
         pub fn pxui_renderer_resize(renderer:*mut PxuiRenderer,width:u32,height:u32)->i32;
         pub fn pxui_renderer_draw(renderer:*mut PxuiRenderer,pass:*const pxui_types::Pass)->i32;
@@ -862,7 +862,13 @@ impl Ui {
         let found=unsafe {sys::pxui_ui_box_of_a11y(self.0.as_ptr(),id,&mut out)};
         (found!=0).then_some(out)
     }
-    #[inline] #[track_caller] pub fn text(&mut self,box_:&Handle,value:&str) {check(self, unsafe{sys::pxui_ui_text(self.0.as_ptr(),box_,as_str(value))})}
+    #[inline] #[track_caller] pub fn text(&mut self,box_:&Handle,value:&str) {
+        #[cfg(feature = "static")]
+        let rc = unsafe { sys::pxui_ui_text(self.0.as_ptr(), box_, as_str(value)) };
+        #[cfg(not(feature = "static"))]
+        let rc = unsafe { sys::pxui_ui_text(self.0.as_ptr(), box_, as_str(value), core::ptr::null(), core::ptr::null(), 0) };
+        check(self, rc)
+    }
 
     #[inline]
     #[track_caller]
@@ -870,7 +876,7 @@ impl Ui {
         #[cfg(feature = "static")]
         let rc = unsafe { let outer = self.0.as_ptr(); pxui_abi_link::trusted::within(outer, box_, inner!(outer, |ui: &mut Ui| f(ui))) };
         #[cfg(not(feature = "static"))]
-        let rc = unsafe { sys::pxui_within(self.0.as_ptr(), box_, Some(composite::call), &mut f as *mut _ as *mut c_void) };
+        let rc = unsafe { sys::pxui_ui_within(self.0.as_ptr(), box_, Some(composite::call), &mut f as *mut _ as *mut c_void) };
         check(self, rc)
     }
 
@@ -883,7 +889,7 @@ impl Ui {
         #[cfg(feature = "static")]
         let rc = unsafe { let outer = self.0.as_ptr(); pxui_abi_link::trusted::scope(outer, label, inner!(outer, |ui: &mut Ui| f(ui))) };
         #[cfg(not(feature = "static"))]
-        let rc = unsafe { sys::pxui_scope(self.0.as_ptr(), as_text(label), Some(composite::call), &mut f as *mut _ as *mut c_void) };
+        let rc = unsafe { sys::pxui_ui_scope(self.0.as_ptr(), as_text(label), Some(composite::call), &mut f as *mut _ as *mut c_void) };
         check(self, rc)
     }
 

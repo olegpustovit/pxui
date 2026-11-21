@@ -519,7 +519,7 @@ pub struct PxuiMenuExtra {
     pub reserved4: u32,
 }
 
-/// A label's style as it crosses the ABI (`pxui_ui_label_node`, `pxui_paint_label`, `PxuiLabelConfig::style`; ABI 1.45): `Label` with
+/// A label's style as it crosses the ABI (`pxui_ui_label`, `pxui_paint_label`, `PxuiLabelConfig::style`; ABI 1.45): `Label` with
 /// each optional field's bit in `set` (`SET_*`); a field whose bit is clear is the theme's label style. `color` is an app colour
 /// token; `digits` 1 draws the text one cached character at a time with every digit on the advance of `0`. The label's box (height,
 /// role, whole pixels) crosses beside it as a `PxuiLabelBox` (ABI 1.54).
@@ -560,7 +560,7 @@ impl PxuiLabelStyle {
     pub const SET_ALL: u32 = 511;
 }
 
-/// A label's box as it crosses the ABI beside its `PxuiLabelStyle` (`pxui_ui_label_node`, `PxuiLabelConfig::label_box`; ABI 1.54):
+/// A label's box as it crosses the ABI beside its `PxuiLabelStyle` (`pxui_ui_label`, `PxuiLabelConfig::label_box`; ABI 1.54):
 /// `height` the node's height with its lines centred in it when `SET_HEIGHT` is in `set`, `role` its accessible role when `SET_ROLE`
 /// is (clear: `Role::Label`), `whole_pixels` 1 to round a fitted width up to whole pixels.
 #[repr(C)]
@@ -1129,9 +1129,9 @@ pub struct PxuiButtonDesc {
     pub focus_on_click: u8,
     /// The space between the contents in points (`Button::gap`), finite and not negative.
     pub gap: f32,
-    /// The text's style when `has_label` is 1 (as `pxui_ui_label_node` takes it).
+    /// The text's style when `has_label` is 1 (as `pxui_ui_label` takes it).
     pub label: PxuiLabelStyle,
-    /// The text's box when `has_label` is 1 (as `pxui_ui_label_node` takes it).
+    /// The text's box when `has_label` is 1 (as `pxui_ui_label` takes it).
     pub label_box: PxuiLabelBox,
     /// ABI 1.71 (a 96-, 104- or 192-byte record is read without these): the leading icon's glyph (empty: no glyph), drawn before the
     /// text in the look's text colour (`Button::icon`).
@@ -1151,11 +1151,11 @@ pub struct PxuiButtonDesc {
     pub has_accessory_label: u8,
     /// Zero.
     pub reserved3: [u8; 6],
-    /// The detail's style and box when `has_detail_label` is 1 (as `pxui_ui_label_node` takes them).
+    /// The detail's style and box when `has_detail_label` is 1 (as `pxui_ui_label` takes them).
     pub detail_label: PxuiLabelStyle,
     /// The detail's box when `has_detail_label` is 1.
     pub detail_box: PxuiLabelBox,
-    /// The accessory's style and box when `has_accessory_label` is 1 (as `pxui_ui_label_node` takes them).
+    /// The accessory's style and box when `has_accessory_label` is 1 (as `pxui_ui_label` takes them).
     pub accessory_label: PxuiLabelStyle,
     /// The accessory's box when `has_accessory_label` is 1.
     pub accessory_box: PxuiLabelBox,
@@ -2068,11 +2068,11 @@ pub struct PxuiTreeNode {
 
 // ---- widget bodies (`pxui_body_register`): what a body is given, one record per kind. The records hold what the widget's behaviour
 // already computed; the text beside each (a label, a value) is in the record, borrowed until the body returns. A body builds nodes
-// with the ordinary calls on the `ui` it is given, finds nothing but the parts it names (`pxui_part`) and runs the caller's content
-// through its slots (`pxui_slot`). Each record starts with `size` and grows only at its end; a flag is 0 or 1, a handle a `PxuiBox`.
+// with the ordinary calls on the `ui` it is given, finds nothing but the parts it names (`pxui_ui_part`) and runs the caller's content
+// through its slots (`pxui_ui_slot`). Each record starts with `size` and grows only at its end; a flag is 0 or 1, a handle a `PxuiBox`.
 
 /// A body of widget content the caller gave (a panel's children, a table cell): valid only during the body call that received it,
-/// run with `pxui_slot`. A slot that is stale is refused.
+/// run with `pxui_ui_slot`. A slot that is stale is refused.
 #[repr(C)]
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
 pub struct PxuiSlot { pub serial: u64 }
@@ -2237,7 +2237,7 @@ configs! {
         lead_word: u32,
         /// ABI 1.91: the leading icon's square in points (`Button::icon_size`; 0: the control-high one).
         icon_size: f32,
-        /// ABI 1.99: the kit's built-in button body for this config, run with `pxui_slot` (the Rust `Ui::slot`): a registered body
+        /// ABI 1.99: the kit's built-in button body for this config, run with `pxui_ui_slot` (the Rust `Ui::slot`): a registered body
         /// that does not style a config (its variant 0, say) draws the kit's button exactly as an unregistered theme would.
         built_in: PxuiSlot,
     }
@@ -2268,7 +2268,7 @@ configs! {
         press: *const crate::Curve,
         /// ABI 1.91: the word of the icon's drawing (`Icon::Draw`'s, D18; 0 for a glyph), so a body draws the app's icon by id.
         draw_word: u32,
-        /// ABI 1.101: the kit's built-in icon button body for this config, run with `pxui_slot` (the Rust `Ui::slot`): a registered body
+        /// ABI 1.101: the kit's built-in icon button body for this config, run with `pxui_ui_slot` (the Rust `Ui::slot`): a registered body
         /// that does not style a config draws the kit's icon button exactly as an unregistered theme would.
         built_in: PxuiSlot,
     }
@@ -2310,7 +2310,7 @@ configs! {
         /// ABI 1.71 (read when `size` covers it): each button's detail line (`DialogButton::detail`; empty: none), as many as `buttons`;
         /// valid for the call.
         details: Slice<Str>,
-        /// ABI 1.131 (U2b.4.38): the kit's buttons for this dialog, run with `pxui_slot` (the Rust `Ui::slot`) where the body places
+        /// ABI 1.131 (U2b.4.38): the kit's buttons for this dialog, run with `pxui_ui_slot` (the Rust `Ui::slot`) where the body places
         /// them: the row of `Part::button(i)` buttons the built-in dialog builds, each through the button body with the dialog's
         /// `variant`, so their presses, focus and looks for each state are the kit's and the theme's.
         built_in: PxuiSlot,
@@ -2379,7 +2379,7 @@ configs! {
     PxuiRowConfig { state: PxuiStateDesc, index: usize, row: PxuiBox, content: PxuiSlot, drop: u8 }
     PxuiTreeRowConfig { state: PxuiStateDesc, has: u8, open: u8, index: usize, node: usize, depth: usize, row: PxuiBox, content: PxuiSlot }
     PxuiTableHeadConfig { state: PxuiStateDesc, has_ascending: u8, ascending: u8, index: usize, node: PxuiBox, title: Str } @variant {
-        /// ABI 1.129: the kit's built-in table heading body for this config, run with `pxui_slot` (the Rust `Ui::slot`): a registered
+        /// ABI 1.129: the kit's built-in table heading body for this config, run with `pxui_ui_slot` (the Rust `Ui::slot`): a registered
         /// body that does not style a heading (another table's) draws the kit's heading exactly as an unregistered theme would.
         built_in: PxuiSlot,
     }
@@ -2406,7 +2406,7 @@ configs! {
         /// The group heading's box (`has_head`).
         head: PxuiBox,
     }
-    /// `editor` is a slot that builds the editing surface and returns whether the query is not empty (`pxui_slot`'s `out`); a
+    /// `editor` is a slot that builds the editing surface and returns whether the query is not empty (`pxui_ui_slot`'s `out`); a
     /// `Part::EDITOR` the body built before it is that surface, edited in its look's font (U2b.4.4). Behaviour reads `Part::CLEAR`.
     PxuiSearchFieldConfig { state: PxuiStateDesc, key: i64, well: PxuiBox, icon: Str, editor: PxuiSlot } @variant {
         /// ABI 1.102: the field's line (the kit's row: the control height, `space(2)` at each side, `well` inside it), which a body

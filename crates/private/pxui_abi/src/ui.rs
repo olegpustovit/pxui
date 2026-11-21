@@ -581,12 +581,12 @@ export!(pub unsafe fn pxui_ui_layer_drawn(ui: *mut PxuiUi, layer: u64) -> i32 {
     0
 });
 
-export!(trusted pub unsafe fn pxui_within(ui: *mut PxuiUi, box_: *const PxuiBox, build: Build, user: *mut c_void) -> i32 {
+export!(trusted pub unsafe fn pxui_ui_within(ui: *mut PxuiUi, box_: *const PxuiBox, build: Build, user: *mut c_void) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     unsafe { trusted::within(ui, box_, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build_seeing((*ui).shared, engine, (*ui).theme, build, user)) }
 });
 
-export!(trusted pub unsafe fn pxui_scope(ui: *mut PxuiUi, label: Str, build: Build, user: *mut c_void) -> i32 {
+export!(trusted pub unsafe fn pxui_ui_scope(ui: *mut PxuiUi, label: Str, build: Build, user: *mut c_void) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     let Some(label) = (unsafe { crate::state::checked_key(label) }) else { return unsafe { fail(ui, "invalid scope label") }; };
     unsafe { trusted::scope(ui, label, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build_seeing((*ui).shared, engine, (*ui).theme, build, user)) }
@@ -618,7 +618,7 @@ export!(trusted pub unsafe fn pxui_ui_panel(ui: *mut PxuiUi, keyed: *const pxui_
 
 // ABI 1.54: a label of `text` in `style` with the label's box (`label_box`, null for none), writing the label's node to `out`; a null
 // `style` is the theme's label.
-export!(trusted pub unsafe fn pxui_ui_label_node(ui: *mut PxuiUi, text: Str, style: *const pxui_types::ffi::PxuiLabelStyle, label_box: *const pxui_types::ffi::PxuiLabelBox, out: *mut PxuiBox) -> i32 {
+export!(trusted pub unsafe fn pxui_ui_label(ui: *mut PxuiUi, text: Str, style: *const pxui_types::ffi::PxuiLabelStyle, label_box: *const pxui_types::ffi::PxuiLabelBox, out: *mut PxuiBox) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     let (Some(text), false) = (unsafe { checked(text) }, out.is_null()) else { return unsafe { fail(ui, "invalid label arguments") } };
     let (mut style, digits) = if style.is_null() { (pxui_types::text::LabelFields::UNSET, false) } else {
@@ -659,7 +659,7 @@ pub(crate) fn align_of(value: u32) -> Option<pxui_types::text::TextAlign> {
     [A::Start, A::Center, A::End].into_iter().find(|a| *a as u32 == value)
 }
 
-// ABI 1.49: the text style `style` shapes with, resolved against the Ui's theme label (what `pxui_ui_label_node` would shape), written to
+// ABI 1.49: the text style `style` shapes with, resolved against the Ui's theme label (what `pxui_ui_label` would shape), written to
 // `out` (its `size` set). `digits` is ignored. Refused for a null or invalid style or one that does not resolve.
 export!(pub unsafe fn pxui_ui_resolve_label(ui: *mut PxuiUi, style: *const pxui_types::ffi::PxuiLabelStyle, out: *mut pxui_types::ffi::PxuiTextStyle) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
@@ -1225,12 +1225,12 @@ mod keyboard_tests {
             assert_eq!(unsafe { crate::pxui_ui_node_keyed(ui, 4242, &pxui_types::Node::DEFAULT, &mut case.mine) }, 0);
             let text = pxui_types::Str { ptr: b"x".as_ptr(), len: 1 };
             extern "C" fn nothing(_: *mut core::ffi::c_void, _: *mut core::ffi::c_void) {}
-            assert_eq!(unsafe { crate::pxui_within(ui, &case.mine, Some(nothing), core::ptr::null_mut()) }, 0);
-            assert_eq!(unsafe { crate::pxui_ui_text(ui, &case.mine, text) }, 0);
+            assert_eq!(unsafe { crate::pxui_ui_within(ui, &case.mine, Some(nothing), core::ptr::null_mut()) }, 0);
+            assert_eq!(unsafe { crate::pxui_ui_text(ui, &case.mine, text, core::ptr::null(), core::ptr::null(), 0) }, 0);
             assert_eq!(unsafe { crate::pxui_ui_tip(ui, &case.mine, text) }, 0);
             for bad in &case.wrong {
-                assert_eq!(unsafe { crate::pxui_within(ui, bad, Some(nothing), core::ptr::null_mut()) }, crate::PXUI_ERR_STALE, "within {bad:?}");
-                assert_eq!(unsafe { crate::pxui_ui_text(ui, bad, text) }, crate::PXUI_ERR_STALE, "text {bad:?}");
+                assert_eq!(unsafe { crate::pxui_ui_within(ui, bad, Some(nothing), core::ptr::null_mut()) }, crate::PXUI_ERR_STALE, "within {bad:?}");
+                assert_eq!(unsafe { crate::pxui_ui_text(ui, bad, text, core::ptr::null(), core::ptr::null(), 0) }, crate::PXUI_ERR_STALE, "text {bad:?}");
                 assert_eq!(unsafe { crate::pxui_ui_tip(ui, bad, text) }, crate::PXUI_ERR_STALE, "tip {bad:?}");
             }
             case.checked = true;
@@ -1271,10 +1271,10 @@ mod keyboard_tests {
                 // the same box declared in this frame is live: its builder runs
                 let mut mine = PxuiBox::default();
                 assert_eq!(unsafe { crate::pxui_ui_node_keyed(ui, 4242, &pxui_types::Node::DEFAULT, &mut mine) }, 0);
-                assert_eq!(unsafe { crate::pxui_within(ui, &mine, Some(child), (case as *mut Case).cast()) }, 0);
+                assert_eq!(unsafe { crate::pxui_ui_within(ui, &mine, Some(child), (case as *mut Case).cast()) }, 0);
             } else {
                 for t in case.tries {
-                    let code = unsafe { crate::pxui_within(ui, &t, Some(child), (case as *mut Case).cast()) };
+                    let code = unsafe { crate::pxui_ui_within(ui, &t, Some(child), (case as *mut Case).cast()) };
                     case.within[case.asked] = code;
                     case.asked += 1;
                 }

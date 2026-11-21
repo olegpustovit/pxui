@@ -26,23 +26,23 @@ mod curve_tests {
             values: [0.5, 0.0, 0.0, 0.0], curve: PxuiCurveDesc { kind: PxuiCurveDesc::STEPS, count: 1, duration: 1.0, ..Default::default() }, ..Default::default() };
         let span = Slice { ptr: &key, len: 1 };
         let mut out = 0;
-        assert_eq!(unsafe { pxui_ui_animate_keys_repeat(ui, &target, span, 0, 1, 0.25, &mut out) }, 0);
+        assert_eq!(unsafe { pxui_ui_animate_keys(ui, &target, span, 0, 1, 0.25, &mut out) }, 0);
         assert_eq!(out, 1);
         for (count, reverse, offset) in [(65_536, 0, 0.0), (1, 2, 0.0), (1, 0, -1.0), (1, 0, f32::NAN), (1, 0, f32::INFINITY)] {
             out = 77;
-            assert_eq!(unsafe { pxui_ui_animate_keys_repeat(ui, &target, span, count, reverse, offset, &mut out) }, PXUI_ERR_ARGUMENT);
+            assert_eq!(unsafe { pxui_ui_animate_keys(ui, &target, span, count, reverse, offset, &mut out) }, PXUI_ERR_ARGUMENT);
             assert_eq!(out, 77);
             assert_eq!(unsafe { boxed(ui, &target) }.unwrap().0.transitions(), 1);
         }
         for bad in [PxuiKeyframeDesc { time: 0.0, ..key }, PxuiKeyframeDesc { time: f32::INFINITY, ..key }, PxuiKeyframeDesc { size: 0, ..key }] {
             out = 77;
-            assert_eq!(unsafe { pxui_ui_animate_keys_repeat(ui, &target, Slice { ptr: &bad, len: 1 }, 1, 0, 0.0, &mut out) }, PXUI_ERR_ARGUMENT);
+            assert_eq!(unsafe { pxui_ui_animate_keys(ui, &target, Slice { ptr: &bad, len: 1 }, 1, 0, 0.0, &mut out) }, PXUI_ERR_ARGUMENT);
             assert_eq!(out, 77);
         }
         let bad = [key, PxuiKeyframeDesc { time: 0.5, ..key }];
-        assert_eq!(unsafe { pxui_ui_animate_keys_repeat(ui, &target, Slice { ptr: bad.as_ptr(), len: 2 }, 1, 0, 0.0, &mut out) }, PXUI_ERR_ARGUMENT);
-        assert_eq!(unsafe { pxui_ui_animate_keys_repeat(ui, &target, Slice { ptr: core::ptr::null(), len: 1 }, 1, 0, 0.0, &mut out) }, PXUI_ERR_ARGUMENT);
-        assert_eq!(unsafe { pxui_ui_animate_keys_repeat(ui, &target, span, 1, 0, 0.0, core::ptr::null_mut()) }, PXUI_ERR_ARGUMENT);
+        assert_eq!(unsafe { pxui_ui_animate_keys(ui, &target, Slice { ptr: bad.as_ptr(), len: 2 }, 1, 0, 0.0, &mut out) }, PXUI_ERR_ARGUMENT);
+        assert_eq!(unsafe { pxui_ui_animate_keys(ui, &target, Slice { ptr: core::ptr::null(), len: 1 }, 1, 0, 0.0, &mut out) }, PXUI_ERR_ARGUMENT);
+        assert_eq!(unsafe { pxui_ui_animate_keys(ui, &target, span, 1, 0, 0.0, core::ptr::null_mut()) }, PXUI_ERR_ARGUMENT);
         assert_eq!(unsafe { crate::pxui_ui_destroy(ui) }, 0);
     }
 
@@ -180,18 +180,16 @@ unsafe fn decode_key(ui: *mut PxuiUi, key: &PxuiKeyframeDesc, previous: f32) -> 
     }.curve(curve))
 }
 
-export!(pub unsafe fn pxui_ui_animate_keys(ui: *mut PxuiUi, box_: *const PxuiBox, keys: Slice<PxuiKeyframeDesc>, out: *mut u8) -> i32 {
-    unsafe { animate_keys(ui, box_, keys, None, out) }
+// Plays the 1 to 8 keyframes `keys` on `box_` `repeat` times (1: once; 0: forever; a count includes the reverse leg), reversing every
+// other pass when `autoreverse` is 1, starting `start_offset` seconds in; writes 1 to `out` while the run is going.
+export!(pub unsafe fn pxui_ui_animate_keys(ui: *mut PxuiUi, box_: *const PxuiBox, keys: Slice<PxuiKeyframeDesc>, repeat: u32, autoreverse: u8, start_offset: f32, out: *mut u8) -> i32 {
+    unsafe { animate_keys(ui, box_, keys, (repeat, autoreverse, start_offset), out) }
 });
 
-export!(pub unsafe fn pxui_ui_animate_keys_repeat(ui: *mut PxuiUi, box_: *const PxuiBox, keys: Slice<PxuiKeyframeDesc>, repeat: u32, autoreverse: u8, start_offset: f32, out: *mut u8) -> i32 {
-    unsafe { animate_keys(ui, box_, keys, Some((repeat, autoreverse, start_offset)), out) }
-});
-
-unsafe fn animate_keys(ui: *mut PxuiUi, box_: *const PxuiBox, keys: Slice<PxuiKeyframeDesc>, repeat: Option<(u32, u8, f32)>, out: *mut u8) -> i32 {
+unsafe fn animate_keys(ui: *mut PxuiUi, box_: *const PxuiBox, keys: Slice<PxuiKeyframeDesc>, repeat: (u32, u8, f32), out: *mut u8) -> i32 {
     let (engine, target_box) = match unsafe { boxed(ui, box_) } { Ok(v) => v, Err(code) => return code };
     if out.is_null() || keys.len == 0 || keys.len > MAX_KEYS || keys.ptr.is_null() { return unsafe { fail(ui, "invalid animation keyframe span") }; }
-    if repeat.is_some_and(|(count, reverse, offset)| count > u16::MAX as u32 || reverse > 1 || !offset.is_finite() || offset < 0.0) { return unsafe { fail(ui, "invalid animation repeat") }; }
+    if repeat.0 > u16::MAX as u32 || repeat.1 > 1 || !repeat.2.is_finite() || repeat.2 < 0.0 { return unsafe { fail(ui, "invalid animation repeat") }; }
     let raw = unsafe { core::slice::from_raw_parts(keys.ptr, keys.len) };
     if !raw.iter().all(|key| key.size as usize == core::mem::size_of_val(key)) { return unsafe { fail(ui, "invalid animation keyframe span") }; }
     // Decode the complete bounded packet before changing the running animation.
@@ -200,14 +198,12 @@ unsafe fn animate_keys(ui: *mut PxuiUi, box_: *const PxuiBox, keys: Slice<PxuiKe
     for (slot, key) in decoded.iter_mut().zip(raw) {
         match unsafe { decode_key(ui, key, previous) } { Ok(key) => { previous = key.time(); *slot = key; } Err(code) => return code }
     }
-    let running = match repeat {
-        None => engine.animate_keys(&target_box, &decoded[..raw.len()], &Keyframes::DEFAULT),
-        Some((count, reverse, offset)) => {
-            if previous <= 0.0 { return unsafe { fail(ui, "repeating animation needs positive duration") }; }
-            let cycles = if count == 0 { Repeat::Forever } else { Repeat::Count(count as u16) };
-            let play = Keyframes::DEFAULT.repeat(cycles).offset(offset);
-            engine.animate_keys(&target_box, &decoded[..raw.len()], &if reverse != 0 { play.autoreverse() } else { play })
-        }
+    let (count, reverse, offset) = repeat;
+    let running = if (count, reverse, offset) == (1, 0, 0.0) { engine.animate_keys(&target_box, &decoded[..raw.len()], &Keyframes::DEFAULT) } else {
+        if previous <= 0.0 { return unsafe { fail(ui, "repeating animation needs positive duration") }; }
+        let cycles = if count == 0 { Repeat::Forever } else { Repeat::Count(count as u16) };
+        let play = Keyframes::DEFAULT.repeat(cycles).offset(offset);
+        engine.animate_keys(&target_box, &decoded[..raw.len()], &if reverse != 0 { play.autoreverse() } else { play })
     };
     unsafe { *out = running as u8; }
     0

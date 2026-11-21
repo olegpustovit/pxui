@@ -74,9 +74,10 @@ unsafe fn measure_spans(text:&mut Text,key:u64,value:Str,style_:*const TextStyle
     0
 }
 
-export!(object pub unsafe fn pxui_shaper_width_spans(shaper:*mut PxuiShaper,key:u64,value:Str,style_:*const TextStyle,max_width:f32,spans:*const TextSpans,out:*mut TextMetrics)->i32 {
+// The size of `value` in `style` laid out in `max_width` (0: unbounded) by the shaper's own text service; `spans` is null for none.
+export!(object pub unsafe fn pxui_shaper_measure(shaper:*mut PxuiShaper,key:u64,value:Str,style_:*const TextStyle,max_width:f32,spans:*const TextSpans,out:*mut TextMetrics)->i32 {
     let Some(shaper)=(unsafe { shaper.as_mut() }) else { return PXUI_ERR_ARGUMENT };
-    unsafe { measure_spans(&mut shaper.text,key,value,style_,max_width,spans,out) }
+    if spans.is_null() { unsafe { measure(&mut shaper.text,key,value,style_,max_width,out) } } else { unsafe { measure_spans(&mut shaper.text,key,value,style_,max_width,spans,out) } }
 });
 
 pub(crate) unsafe fn text_width_spans(ui:*mut PxuiUi,key:u64,value:Str,style_:*const TextStyle,max_width:f32,spans:*const TextSpans,out:*mut TextMetrics)->i32 { if let Some(code) = unsafe { entered(ui) } { return code; }
@@ -270,11 +271,6 @@ export!(pub unsafe fn pxui_text_system_fonts(ui:*mut PxuiUi)->i32 {
 export!(object failing(u32::MAX) pub unsafe fn pxui_shaper_add_font(shaper: *mut PxuiShaper, font: Str) -> u32 {
     let (Some(shaper), Some(font)) = (unsafe { shaper.as_mut() }, unsafe { font_slice(font) }) else { return u32::MAX; };
     shaper.text.add_font(font).and_then(|index| u32::try_from(index).ok()).unwrap_or(u32::MAX)
-});
-
-export!(object pub unsafe fn pxui_shaper_width(shaper: *mut PxuiShaper, key: u64, value: Str, style_: *const TextStyle, max_width: f32, out: *mut TextMetrics) -> i32 {
-    let Some(shaper) = (unsafe { shaper.as_mut() }) else { return PXUI_ERR_ARGUMENT; };
-    unsafe { measure(&mut shaper.text, key, value, style_, max_width, out) }
 });
 
 export!(object failing(usize::MAX) pub unsafe fn pxui_shaper_rasterize_rgba(
@@ -567,26 +563,6 @@ mod tests {
         assert_eq!(pixel, [220, 40, 10, 128]);
     }
 }
-
-// ABI 1.65: the text calls on a label style (`PxuiLabelStyle`; `digits` ignored), resolved against the Ui's theme as
-// `pxui_ui_resolve_label` resolves it, in the same call. A null, invalid or unresolvable style is refused like an invalid
-// resolved style; the layout key is the content's (key 0).
-
-export!(pub unsafe fn pxui_ui_label_text_spans(ui:*mut PxuiUi,box_:*const crate::PxuiBox,value:Str,style:*const pxui_types::ffi::PxuiLabelStyle,spans:*const TextSpans)->i32 {
-    if unsafe { crate::state::get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
-    let Some((style,_))=crate::ui::label_style(style) else { return unsafe { crate::fail(ui,"invalid label style") } };
-    unsafe { crate::trusted::label_text_spans(ui,box_,value,&style,spans) }
-});
-
-export!(pub unsafe fn pxui_ui_label_text_line_box(ui:*mut PxuiUi,box_:*const crate::PxuiBox,value:Str,style:*const pxui_types::ffi::PxuiLabelStyle,spans:*const TextSpans)->i32 {
-    let Some(state)=(unsafe { crate::state::get(ui) }) else { return PXUI_ERR_ARGUMENT };
-    let Some((label,_))=crate::ui::label_style(style) else { return unsafe { crate::fail(ui,"invalid label style") } };
-    let Some(resolved)=(unsafe { &*state.engine }).resolve(&label) else { return unsafe { crate::fail(ui,"label style does not resolve") } };
-    // counted as one call, as every text call is
-    unsafe { crate::state::note_call(state.shared) };
-    if !state.shared().in_frame || box_.is_null() { return unsafe { crate::fail(ui,"line-box text needs a frame, a node and a style") }; }
-    unsafe { write_line_box(ui, state, box_, value, self::style(resolved), spans) }
-});
 
 // `spans` may be null: the plain measurement.
 export!(pub unsafe fn pxui_ui_label_measure(ui:*mut PxuiUi,value:Str,style:*const pxui_types::ffi::PxuiLabelStyle,max_width:f32,spans:*const TextSpans,out:*mut TextMetrics)->i32 {

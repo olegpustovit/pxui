@@ -292,11 +292,20 @@ export!(pub unsafe fn pxui_ui_box_of_a11y(ui:*mut PxuiUi,id:u64,out:*mut PxuiBox
     1
 });
 
-export!(trusted pub unsafe fn pxui_ui_text(ui:*mut PxuiUi,box_:*const PxuiBox,value:pxui_types::Str)->i32 {
+// The text of `box_`: `value` alone (null `style`, null `spans`, `line_box` 0), `value` in a label `style` with `spans` when not null
+// (resolved against the Ui's theme as `pxui_ui_resolve_label` does; `digits` ignored), or, `line_box` 1, CSS line boxes in `style`
+// (a positive line height). Spans or a line box need a style.
+export!(trusted pub unsafe fn pxui_ui_text(ui:*mut PxuiUi,box_:*const PxuiBox,value:pxui_types::Str,style:*const pxui_types::ffi::PxuiLabelStyle,spans:*const pxui_types::TextSpans,line_box:u8)->i32 {
     if unsafe{get(ui)}.is_none() {return crate::PXUI_ERR_ARGUMENT};
-    if box_.is_null(){return unsafe{fail(ui,"null text box")};}
-    let Some(value)=(unsafe{checked(value)}) else{return unsafe{fail(ui,"invalid text")};};
-    unsafe{crate::trusted::text(ui,box_,value)}
+    if style.is_null() && (!spans.is_null() || line_box != 0) { return unsafe{fail(ui,"text spans or a line box need a style")}; }
+    if line_box > 1 { return unsafe{fail(ui,"invalid line box flag")}; }
+    if style.is_null() {
+        if box_.is_null(){return unsafe{fail(ui,"null text box")};}
+        let Some(value)=(unsafe{checked(value)}) else{return unsafe{fail(ui,"invalid text")};};
+        return unsafe{crate::trusted::text(ui,box_,value)};
+    }
+    let Some((style,_))=crate::ui::label_style(style) else { return unsafe { fail(ui,"invalid label style") } };
+    if line_box != 0 { unsafe { crate::trusted::label_text_line_box(ui,box_,value,&style,spans) } } else { unsafe { crate::trusted::label_text_spans(ui,box_,value,&style,spans) } }
 });
 
 #[cfg(test)]

@@ -400,7 +400,7 @@ fn probe(ui: *mut PxuiUi) -> [i32; 6] {
     unsafe {
         [pxui_ui_set_dir(ui, 0), pxui_ui_toggle_plain(ui, label, label, 0, &mut { pxui_types::ffi::PxuiResponse::EMPTY }), pxui_ui_button_plain(ui, label, label, &mut { pxui_types::ffi::PxuiResponse::EMPTY }),
          crate::trusted::pxui_ui_node_keyed(ui, 7, &pxui_types::Node::DEFAULT, &mut out),
-         pxui_ui_draw(ui, &out, 0, None, core::ptr::null_mut(), None), pxui_scope(ui, label, Some(nothing), core::ptr::null_mut())]
+         pxui_ui_draw(ui, &out, 0, None, core::ptr::null_mut(), None), pxui_ui_scope(ui, label, Some(nothing), core::ptr::null_mut())]
     }
 }
 
@@ -420,7 +420,7 @@ fn only_the_innermost_callbacks_handle_may_be_used_while_a_frame_is_built() {
         let owner = unsafe { *user.cast::<*mut PxuiUi>() };
         assert_eq!(probe(ui.cast()), [0; 6]);
         let mut handles = [owner, ui.cast::<PxuiUi>()];
-        assert_eq!(unsafe { pxui_scope(ui.cast(), Str { ptr: b"s".as_ptr(), len: 1 }, Some(inner), handles.as_mut_ptr().cast()) }, 0);
+        assert_eq!(unsafe { pxui_ui_scope(ui.cast(), Str { ptr: b"s".as_ptr(), len: 1 }, Some(inner), handles.as_mut_ptr().cast()) }, 0);
         // the child returned: this handle is the current one again
         assert_eq!(probe(ui.cast()), [0; 6]);
         assert_eq!(probe(owner), [PXUI_ERR_STATE; 6]);
@@ -957,12 +957,12 @@ fn every_box_taking_export_answers_a_foreign_handle_with_the_stale_status() {
         ("patch_text", Box::new(move |u, h| unsafe { pxui_ui_patch_text(u, h, text, &mut 0) })),
         ("busy_step", Box::new(|u, h| unsafe { pxui_ui_busy_step(u, h, 1.0, &mut 0) })),
         ("rect", Box::new(|u, h| unsafe { pxui_ui_rect(u, h, &mut PxuiRect::default()) })),
-        ("text", Box::new(move |u, h| unsafe { pxui_ui_text(u, h, text) })),
+        ("text", Box::new(move |u, h| unsafe { pxui_ui_text(u, h, text, core::ptr::null(), core::ptr::null(), 0) })),
         ("style", Box::new(move |u, h| unsafe { pxui_ui_style(u, h, &look, &state) })),
-        ("within", Box::new(|u, h| unsafe { pxui_within(u, h, None, core::ptr::null_mut()) })),
+        ("within", Box::new(|u, h| unsafe { pxui_ui_within(u, h, None, core::ptr::null_mut()) })),
         ("tip", Box::new(move |u, h| unsafe { pxui_ui_tip(u, h, text) })),
-        ("label_text_spans", Box::new(move |u, h| unsafe { pxui_ui_label_text_spans(u, h, text, &label, &spans) })),
-        ("label_text_line_box", Box::new(move |u, h| unsafe { pxui_ui_label_text_line_box(u, h, text, &label, &spans) })),
+        ("label_text_spans", Box::new(move |u, h| unsafe { pxui_ui_text(u, h, text, &label, &spans, 0) })),
+        ("label_text_line_box", Box::new(move |u, h| unsafe { pxui_ui_text(u, h, text, &label, &spans, 1) })),
         ("set_at", Box::new(|u, h| unsafe { pxui_ui_set_at(u, h, 1.0, 2.0) })),
         ("patch_look", Box::new(move |u, h| unsafe { pxui_ui_patch_look(u, h, &look, &mut 0) })),
         ("patch_rect", Box::new(move |u, h| unsafe { pxui_ui_patch_rect(u, h, rect, &mut 0) })),
@@ -993,7 +993,7 @@ fn every_box_taking_export_answers_a_foreign_handle_with_the_stale_status() {
         ("cached_label", Box::new(move |u, h| unsafe { pxui_ui_cached_label(u, h, 0, text, &mut Str::default()) })),
         ("text_state", Box::new(|u, h| unsafe { pxui_ui_text_state(u, h, &mut 0, &mut Str::default()) })),
         ("set_text_state", Box::new(move |u, h| unsafe { pxui_ui_set_text_state(u, h, 1, text) })),
-        ("animate_keys", Box::new(|u, h| unsafe { pxui_ui_animate_keys(u, h, pxui_types::ffi::Slice { ptr: core::ptr::null(), len: 0 }, &mut 0) })),
+        ("animate_keys", Box::new(|u, h| unsafe { pxui_ui_animate_keys(u, h, pxui_types::ffi::Slice { ptr: core::ptr::null(), len: 0 }, 1, 0, 0.0, &mut 0) })),
         ("carry", Box::new(move |u, h| unsafe { pxui_ui_carry(u, 1, h, text, text) })),
         ("transfer_carry", Box::new(|u, h| unsafe { pxui_ui_transfer_carry(u, h, &mut 0) })),
         ("draw", Box::new(|u, h| unsafe { pxui_ui_draw(u, h, 0, None, core::ptr::null_mut(), None) })),
@@ -1040,7 +1040,7 @@ fn encoding_rules() {
     let (style, text_a, text_b) = (PxuiTextStyle::default(), Str { ptr: b"a".as_ptr(), len: 1 }, Str { ptr: b"abcdef".as_ptr(), len: 6 });
     let shaper = unsafe { pxui_text_fork(ui) };
     assert!(!shaper.is_null());
-    let width = |key: u64, text: Str| { let mut m = pxui_types::TextMetrics::default(); assert_eq!(unsafe { pxui_shaper_width(shaper, key, text, &style, 0.0, &mut m) }, 0); m.width };
+    let width = |key: u64, text: Str| { let mut m = pxui_types::TextMetrics::default(); assert_eq!(unsafe { pxui_shaper_measure(shaper, key, text, &style, 0.0, core::ptr::null(), &mut m) }, 0); m.width };
     let (a, b) = (width(0, text_a), width(0, text_b));
     assert!(b > a, "key 0 measures each content");
     assert_eq!((width(0, text_a), width(0, text_b)), (a, b), "key 0 is repeatable");
@@ -1182,8 +1182,8 @@ fn strings_are_capped_by_role() {
         let key_str = core::str::from_utf8(&long[..MAX_KEY_BYTES + 1]).unwrap();
         assert_eq!(unsafe { crate::trusted::node_str(ui, key_str, &pxui_types::Node::DEFAULT, &mut out) }, PXUI_ERR_ARGUMENT);
         let b = { let mut b = PxuiBox::default(); assert_eq!(unsafe { pxui_ui_node(ui, str_of(b"t"), &pxui_types::Node::DEFAULT, &mut b) }, 0); b };
-        assert_eq!(unsafe { pxui_ui_text(ui, &b, str_of(label)) }, 0);
-        assert_eq!(unsafe { pxui_ui_text(ui, &b, str_of(&long)) }, PXUI_ERR_ARGUMENT);
+        assert_eq!(unsafe { pxui_ui_text(ui, &b, str_of(label), core::ptr::null(), core::ptr::null(), 0) }, 0);
+        assert_eq!(unsafe { pxui_ui_text(ui, &b, str_of(&long), core::ptr::null(), core::ptr::null(), 0) }, PXUI_ERR_ARGUMENT);
         // a text field's value is editor text: past the label cap is fine
         let (mut changed, mut flag) = (Str::default(), 0u8);
         let field = pxui_types::ffi::PxuiTextFieldDesc { size: core::mem::size_of::<pxui_types::ffi::PxuiTextFieldDesc>() as u32, autocorrect: 0, capitalization: 0, action: 0, reserved: 0,
@@ -1223,7 +1223,7 @@ fn a_shaper_without_a_font_is_refused_at_create() {
         assert!(pxui_shaper_create(&str_of(b"not a font"), 1).is_null());
         let shaper = pxui_shaper_create(&font, 1);
         let (style, mut metrics) = (pxui_types::ffi::PxuiTextStyle::default(), pxui_types::TextMetrics::default());
-        assert_eq!(pxui_shaper_width(shaper, 0, str_of(b"a"), &style, 0.0, &mut metrics), 0);
+        assert_eq!(pxui_shaper_measure(shaper, 0, str_of(b"a"), &style, 0.0, core::ptr::null(), &mut metrics), 0);
         pxui_shaper_destroy(shaper);
     }
 }
@@ -1235,9 +1235,9 @@ fn a_poisoned_shaper_or_theme_fails_its_calls_and_is_still_freed() {
     let shaper = unsafe { pxui_shaper_create(&font, 1) };
     let style = pxui_types::ffi::PxuiTextStyle::default();
     let mut metrics = pxui_types::TextMetrics::default();
-    assert_eq!(unsafe { pxui_shaper_width(shaper, 0, str_of(b"a"), &style, 0.0, &mut metrics) }, 0);
+    assert_eq!(unsafe { pxui_shaper_measure(shaper, 0, str_of(b"a"), &style, 0.0, core::ptr::null(), &mut metrics) }, 0);
     unsafe { (*shaper).poisoned = true; }
-    assert_eq!(unsafe { pxui_shaper_width(shaper, 0, str_of(b"a"), &style, 0.0, &mut metrics) }, PXUI_ERR_PANIC);
+    assert_eq!(unsafe { pxui_shaper_measure(shaper, 0, str_of(b"a"), &style, 0.0, core::ptr::null(), &mut metrics) }, PXUI_ERR_PANIC);
     assert_eq!(unsafe { pxui_shaper_add_font(shaper, str_of(b"")) }, u32::MAX);
     unsafe { pxui_shaper_destroy(shaper); }
     let theme = unsafe { pxui_theme_create(core::ptr::null()) };
@@ -1277,7 +1277,7 @@ fn a_builder_export_ending_in_its_trusted_entry_counts_one_call() {
         assert_eq!(unsafe { pxui_ui_disclosure(h, &pxui_types::ffi::PxuiKeyedDesc::new("more", "More"), 0, None, core::ptr::null_mut(), &mut out) }, 0);
         next(1);
         let mut part = PxuiBox::default();
-        assert_eq!(unsafe { pxui_part(h, pxui_types::theme::Part::HIT.0, &pxui_types::Node::DEFAULT, &mut part) }, PXUI_ERR_STATE, "a part outside a body");
+        assert_eq!(unsafe { pxui_ui_part(h, pxui_types::theme::Part::HIT.0, &pxui_types::Node::DEFAULT, &mut part) }, PXUI_ERR_STATE, "a part outside a body");
         next(2);
         0
     }), 0);
@@ -2268,10 +2268,10 @@ fn every_text_entry_refuses_text_over_the_cap() {
         let font = pxui_default_font();
         let shaper = pxui_shaper_create(&font, 1);
         assert!(!shaper.is_null());
-        assert_eq!(pxui_shaper_width(shaper, 0, over, &style, 100.0, &mut out), PXUI_ERR_ARGUMENT);
+        assert_eq!(pxui_shaper_measure(shaper, 0, over, &style, 100.0, core::ptr::null(), &mut out), PXUI_ERR_ARGUMENT);
         assert_eq!(crate::text::text_width(ui, 0, over, &style, 100.0, &mut out), PXUI_ERR_ARGUMENT);
         let spans = pxui_types::TextSpans::default();
-        assert_eq!(pxui_shaper_width_spans(shaper, 0, over, &style, 100.0, &spans, &mut out), PXUI_ERR_ARGUMENT);
+        assert_eq!(pxui_shaper_measure(shaper, 0, over, &style, 100.0, &spans, &mut out), PXUI_ERR_ARGUMENT);
         assert_eq!(crate::text::text_width_spans(ui, 0, over, &style, 100.0, &spans, &mut out), PXUI_ERR_ARGUMENT);
         assert_eq!(crate::text::text_prewarm(ui, over, &style, 100.0), PXUI_ERR_ARGUMENT);
         let (mut w, mut h) = (0u32, 0u32);
@@ -2306,8 +2306,8 @@ fn label_text_calls_resolve_in_the_same_call_and_refuse_bad_records() {
         assert_eq!(pxui_ui_label_quads(ui, value, core::ptr::null(), 0.0, 0.0, 0.0, 1.0, core::ptr::null_mut(), 0), usize::MAX);
         assert_eq!(pxui_ui_label_rasterize_rgba(ui, value, &bad[0], 0.0, 1.0, 0, 0, 0, 255, core::ptr::null_mut(), core::ptr::null_mut(), core::ptr::null_mut(), 0), usize::MAX);
         assert_eq!(pxui_ui_label_prewarm(ui, value, core::ptr::null(), 0.0), PXUI_ERR_ARGUMENT);
-        assert_eq!(pxui_ui_label_text_spans(ui, core::ptr::null(), value, core::ptr::null(), core::ptr::null()), PXUI_ERR_ARGUMENT);
-        assert_eq!(pxui_ui_label_text_line_box(core::ptr::null_mut(), core::ptr::null(), value, &label, core::ptr::null()), PXUI_ERR_ARGUMENT);
+        assert_eq!(pxui_ui_text(ui, core::ptr::null(), value, core::ptr::null(), core::ptr::null(), 0), PXUI_ERR_ARGUMENT);
+        assert_eq!(pxui_ui_text(core::ptr::null_mut(), core::ptr::null(), value, &label, core::ptr::null(), 1), PXUI_ERR_ARGUMENT);
         pxui_ui_destroy(ui);
     }
 }

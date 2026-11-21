@@ -23,11 +23,9 @@ library!(lib {
     fn pxui_prepared_destroy(record:*mut PxuiPreparedText);
     fn pxui_shaper_system_fonts(shaper:*mut PxuiShaper)->i32;
     fn pxui_text_system_fonts(ui:*mut PxuiUi)->i32;
-    fn pxui_shaper_width_spans(shaper:*mut PxuiShaper,key:u64,value:Str,style:*const PxuiTextStyle,max_width:f32,spans:*const TextSpans,out:*mut TextMetrics)->i32;
-    fn pxui_ui_label_node(ui:*mut PxuiUi,text:Str,style:*const pxui_types::ffi::PxuiLabelStyle,label_box:*const pxui_types::ffi::PxuiLabelBox,out:*mut crate::PxuiBox)->i32;
+    fn pxui_shaper_measure(shaper:*mut PxuiShaper,key:u64,value:Str,style:*const PxuiTextStyle,max_width:f32,spans:*const TextSpans,out:*mut TextMetrics)->i32;
+    fn pxui_ui_label(ui:*mut PxuiUi,text:Str,style:*const pxui_types::ffi::PxuiLabelStyle,label_box:*const pxui_types::ffi::PxuiLabelBox,out:*mut crate::PxuiBox)->i32;
     fn pxui_ui_resolve_label(ui:*mut PxuiUi,style:*const pxui_types::ffi::PxuiLabelStyle,out:*mut PxuiTextStyle)->i32;
-    fn pxui_ui_label_text_spans(ui:*mut PxuiUi,box_:*const crate::PxuiBox,value:Str,style:*const PxuiLabelStyle,spans:*const TextSpans)->i32;
-    fn pxui_ui_label_text_line_box(ui:*mut PxuiUi,box_:*const crate::PxuiBox,value:Str,style:*const PxuiLabelStyle,spans:*const TextSpans)->i32;
     fn pxui_ui_label_measure(ui:*mut PxuiUi,value:Str,style:*const PxuiLabelStyle,max_width:f32,spans:*const TextSpans,out:*mut TextMetrics)->i32;
     fn pxui_paint_label_measure(paint:*mut crate::sys::PxuiPaint,value:Str,style:*const PxuiLabelStyle,max_width:f32,spans:*const TextSpans,out:*mut TextMetrics)->i32;
     fn pxui_ui_label_quads(ui:*mut PxuiUi,value:Str,style:*const PxuiLabelStyle,max_width:f32,origin_x:f32,origin_y:f32,scale:f32,out:*mut TextGlyph,capacity:usize)->usize;
@@ -37,7 +35,6 @@ library!(lib {
     fn pxui_shaper_create(fonts: *const Str, count: usize) -> *mut PxuiShaper;
     fn pxui_shaper_destroy(shaper: *mut PxuiShaper);
     fn pxui_shaper_add_font(shaper: *mut PxuiShaper, font: Str) -> u32;
-    fn pxui_shaper_width(shaper: *mut PxuiShaper, key: u64, value: Str, style: *const PxuiTextStyle, max_width: f32, out: *mut TextMetrics) -> i32;
     fn pxui_shaper_rasterize_rgba(shaper: *mut PxuiShaper, key: u64, value: Str, style: *const PxuiTextStyle, max_width: f32, scale: f32, color_r: u8, color_g: u8, color_b: u8, color_a: u8, width: *mut u32, height: *mut u32, out: *mut u8, capacity: usize) -> usize;
     fn pxui_text_add_font(ui: *mut PxuiUi, font: Str) -> u32;
 });
@@ -112,14 +109,14 @@ impl Backing {
 
     fn measure(self, key: u64, value: &str, style: &PxuiTextStyle, max_width: f32) -> Result<TextMetrics, Error> {
         let mut out = TextMetrics::default();
-        let rc = unsafe { lib::pxui_shaper_width(self.0, key, as_text(value), style, max_width, &mut out) };
+        let rc = unsafe { lib::pxui_shaper_measure(self.0, key, as_text(value), style, max_width, core::ptr::null(), &mut out) };
         if rc == 0 { Ok(out) } else { Err(Error::from_code(rc)) }
     }
 
     fn measure_spans(self,key:u64,value:&str,style:&PxuiTextStyle,max_width:f32,spans:&[TextSpan])->Result<TextMetrics,Error> {
         let spans=TextSpans::new(spans);
         let mut out=TextMetrics::default();
-        let rc=unsafe { lib::pxui_shaper_width_spans(self.0,key,as_text(value),style,max_width,&spans,&mut out) };
+        let rc=unsafe { lib::pxui_shaper_measure(self.0,key,as_text(value),style,max_width,&spans,&mut out) };
         if rc==0 { Ok(out) } else { Err(Error::from_code(rc)) }
     }
 
@@ -371,7 +368,7 @@ impl Ui {
             #[cfg(feature = "static")]
             let rc = unsafe { pxui_abi_link::trusted::label_text_spans(self.0.as_ptr(), box_, as_text(text), style.fields(), spans) };
             #[cfg(not(feature = "static"))]
-            let rc = unsafe { lib::pxui_ui_label_text_spans(self.0.as_ptr(), box_, as_text(text), &PxuiLabelStyle::from(&style), spans) };
+            let rc = unsafe { crate::sys::pxui_ui_text(self.0.as_ptr(), box_, as_text(text), &PxuiLabelStyle::from(&style), spans, 0) };
             rc
         };
         if rc==0 { Ok(()) } else { Err(Error::from_code(rc)) }
@@ -398,7 +395,7 @@ impl Ui {
             #[cfg(feature = "static")]
             let rc = unsafe { pxui_abi_link::trusted::label_text_line_box(self.0.as_ptr(), box_, as_text(text), style.fields(), spans) };
             #[cfg(not(feature = "static"))]
-            let rc = unsafe { lib::pxui_ui_label_text_line_box(self.0.as_ptr(), box_, as_text(text), &PxuiLabelStyle::from(&style), spans) };
+            let rc = unsafe { crate::sys::pxui_ui_text(self.0.as_ptr(), box_, as_text(text), &PxuiLabelStyle::from(&style), spans, 1) };
             rc
         };
         if rc==0 {Ok(())} else {Err(Error::from_code(rc))}
@@ -472,7 +469,7 @@ impl Ui {
     pub fn text_service(&mut self) -> UiText<'_> { UiText(Service::Ui(self)) }
 
     /// The label call of `label`, `label_fmt` and `label_digits`, returning the label's node: linked statically, the library's trusted
-    /// entry with the style as it is; else `pxui_ui_label_node` with no record for `Label::DEFAULT` (every field unset: the C label), or
+    /// entry with the style as it is; else `pxui_ui_label` with no record for `Label::DEFAULT` (every field unset: the C label), or
     /// the style as its record and, when it sets one, its box as a `PxuiLabelBox`.
     #[track_caller]
     #[inline(always)]
@@ -489,13 +486,13 @@ impl Ui {
             let plain = !digits && f.font.is_none() && f.size.is_none() && f.weight.is_none() && f.tracking.is_none() && f.caps.is_none() && f.color.is_none()
                 && f.width.is_none() && f.line_height.is_none() && f.pad.is_none() && f.wrap as u32 == 0 && f.max_lines == 0 && f.ellipsis as u32 == 0
                 && f.align as u32 == 0 && f.features == 0 && f.height.is_none() && f.role == pxui_types::a11y::Role::Label && !f.whole_pixels;
-            if plain { unsafe { lib::pxui_ui_label_node(self.0.as_ptr(), as_str(text), core::ptr::null(), core::ptr::null(), &mut out) } }
+            if plain { unsafe { lib::pxui_ui_label(self.0.as_ptr(), as_str(text), core::ptr::null(), core::ptr::null(), &mut out) } }
             else {
                 let record = pxui_types::ffi::PxuiLabelStyle { digits: digits as u8, ..pxui_types::ffi::PxuiLabelStyle::from(style) };
                 let label_box = pxui_types::ffi::PxuiLabelBox::from(style);
                 let boxed = label_box.set != 0 || label_box.whole_pixels != 0;
                 let label_box = if boxed { &label_box as *const pxui_types::ffi::PxuiLabelBox } else { core::ptr::null() };
-                unsafe { lib::pxui_ui_label_node(self.0.as_ptr(), as_str(text), &record, label_box, &mut out) }
+                unsafe { lib::pxui_ui_label(self.0.as_ptr(), as_str(text), &record, label_box, &mut out) }
             }
         };
         if variant != 0 { self.set_variant(pxui_types::theme::BodyKind::label, 0); }

@@ -114,9 +114,9 @@ fn inside((start, len): (usize, usize), at: usize, size: usize) -> bool { at >= 
 
 library!(sys {
     fn pxui_body_register(ui: *mut PxuiUi, kind: u32, name: Str, body: PxuiBodyFn, user: *mut c_void, out: *mut u16) -> i32;
-    fn pxui_part(ui: *mut PxuiUi, part: u32, node: *const Node, out: *mut PxuiBox) -> i32;
-    fn pxui_part_box(ui: *mut PxuiUi, owner: i64, part: u32, out: *mut PxuiBox) -> i32;
-    #[trusted] fn pxui_slot(ui: *mut PxuiUi, slot: PxuiSlot, out: *mut u8) -> i32;
+    fn pxui_ui_part(ui: *mut PxuiUi, part: u32, node: *const Node, out: *mut PxuiBox) -> i32;
+    fn pxui_ui_part_box(ui: *mut PxuiUi, owner: i64, part: u32, out: *mut PxuiBox) -> i32;
+    #[trusted] fn pxui_ui_slot(ui: *mut PxuiUi, slot: PxuiSlot, out: *mut u8) -> i32;
 });
 
 /// What every registered body's C entry does: skip once a panic is pending, otherwise run `body` on the borrowed `Ui` under `catch_unwind`.
@@ -181,7 +181,7 @@ impl Ui {
         #[cfg(feature = "static")]
         check(self, unsafe { pxui_abi_link::trusted::part(self.0.as_ptr(), part.0, &node, &mut out) });
         #[cfg(not(feature = "static"))]
-        check(self, unsafe { sys::pxui_part(self.0.as_ptr(), part.0, &node, &mut out) });
+        check(self, unsafe { sys::pxui_ui_part(self.0.as_ptr(), part.0, &node, &mut out) });
         out
     }
 
@@ -201,7 +201,7 @@ impl Ui {
         let live = self.box_of_resolved_key(owner.box_key)?;
         if (live.box_slot, live.generation) != (owner.box_slot, owner.generation) { return None; }
         let mut out = Handle::default();
-        (unsafe { sys::pxui_part_box(self.0.as_ptr(), owner.box_key, part.0, &mut out) } == 0).then_some(out)
+        (unsafe { sys::pxui_ui_part_box(self.0.as_ptr(), owner.box_key, part.0, &mut out) } == 0).then_some(out)
     }
 
     /// Returns the part's surface rectangle from the last layout.
@@ -227,7 +227,7 @@ impl Ui {
     #[track_caller]
     pub fn slot(&mut self, slot: PxuiSlot) -> bool {
         let mut out = 0u8;
-        check(self, unsafe { sys::pxui_slot(self.0.as_ptr(), slot, &mut out) });
+        check(self, unsafe { sys::pxui_ui_slot(self.0.as_ptr(), slot, &mut out) });
         out != 0
     }
 }

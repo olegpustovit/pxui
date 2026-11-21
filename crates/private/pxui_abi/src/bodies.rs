@@ -11,7 +11,7 @@ use pxui_types::{ffi::*, theme::{BodyId, BodyKind, Part, State}, Node};
 
 type Body = extern "C" fn(*mut c_void, *mut c_void, *const c_void);
 
-/// What `pxui_slot` runs: the caller's content, or a search field's editor (which answers whether the query is not empty).
+/// What `pxui_ui_slot` runs: the caller's content, or a search field's editor (which answers whether the query is not empty).
 #[derive(Clone, Copy)]
 enum Slot { Content(*mut (dyn FnMut(&mut Ui) + 'static)), Editor(*mut (dyn FnMut(&mut Ui) -> bool + 'static)) }
 
@@ -23,7 +23,7 @@ pub(crate) struct BodyState {
     /// the slots of the body calls in progress, innermost last, with the depth of the body call each was given to: a slot is live
     /// while it is here and runs only at that depth (not from a nested body, not inside its own content)
     slots: Vec<(u64, u32, Slot)>,
-    /// body calls and running slots in progress (`pxui_part` is refused outside a body call)
+    /// body calls and running slots in progress (`pxui_ui_part` is refused outside a body call)
     pub(crate) depth: u32,
     /// the spans a dialog's, a tip's and a footer's records point at: a pool, one taken while a body runs and given back after, so a body
     /// nested in another takes its own and nothing allocates once the pool has grown to the deepest nesting
@@ -362,7 +362,7 @@ unsafe fn register_body(ui: *mut PxuiUi, kind: u32, name: Str, body: PxuiBodyFn,
 // content) or for a number that names no part.
 // A checked node with no grid takes the static wrapper's entry (one call, counted once); a grid, a 1.x anchor or a refused node takes
 // the keyed node's export, which copies a grid and corrects or refuses the node.
-export!(trusted pub unsafe fn pxui_part(ui: *mut PxuiUi, part: u32, node: *const Node, out: *mut PxuiBox) -> i32 {
+export!(trusted pub unsafe fn pxui_ui_part(ui: *mut PxuiUi, part: u32, node: *const Node, out: *mut PxuiBox) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT };
     if out.is_null() { enter!(ui); return unsafe { fail(ui, "null part argument") } }
     match unsafe { crate::node::checked_node(node) } {
@@ -370,7 +370,7 @@ export!(trusted pub unsafe fn pxui_part(ui: *mut PxuiUi, part: u32, node: *const
         _ => unsafe { part_by_export(ui, part, node, out) },
     }
 });
-/// `pxui_part` for a node `checked_node` does not pass as it is: the part's key, then the keyed node's export.
+/// `pxui_ui_part` for a node `checked_node` does not pass as it is: the part's key, then the keyed node's export.
 #[cold]
 #[inline(never)]
 unsafe fn part_by_export(ui: *mut PxuiUi, part: u32, node: *const Node, out: *mut PxuiBox) -> i32 {
@@ -388,7 +388,7 @@ unsafe fn part_by_export(ui: *mut PxuiUi, part: u32, node: *const Node, out: *mu
 }
 
 // The box of `part` of the widget keyed `owner` as the last build left it: 0 and the box in `out`, 1 when it was not built.
-export!(pub unsafe fn pxui_part_box(ui: *mut PxuiUi, owner: i64, part: u32, out: *mut PxuiBox) -> i32 {
+export!(pub unsafe fn pxui_ui_part_box(ui: *mut PxuiUi, owner: i64, part: u32, out: *mut PxuiBox) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT };
     if out.is_null() || !Part::valid(part) { return unsafe { fail(ui, "invalid part query") } }
     match unsafe { (*state.engine).part_box(owner, Part(part)) } { Some(b) => { unsafe { *out = to_abi_box(b) }; 0 } None => 1 }
@@ -413,7 +413,7 @@ pub unsafe fn slot(ui: *mut PxuiUi, slot: PxuiSlot, out: *mut u8) -> i32 {
     0
 }
 
-export!(trusted pub unsafe fn pxui_slot(ui: *mut PxuiUi, slot: PxuiSlot, out: *mut u8) -> i32 { unsafe { crate::trusted::pxui_slot(ui, slot, out) } });
+export!(trusted pub unsafe fn pxui_ui_slot(ui: *mut PxuiUi, slot: PxuiSlot, out: *mut u8) -> i32 { unsafe { crate::trusted::pxui_ui_slot(ui, slot, out) } });
 
 #[cfg(test)]
 mod tests {
@@ -435,11 +435,11 @@ mod tests {
         let (ui, c) = (ui.cast::<PxuiUi>(), unsafe { &*config.cast::<PxuiToggleConfig>() });
         let label = String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(c.label.ptr, c.label.len) }).into_owned();
         let (node, mut out) = (Node::DEFAULT, PxuiBox::default());
-        let hit = unsafe { pxui_part(ui, Part::HIT.0, &node, &mut out) };
-        let bad = unsafe { pxui_part(ui, 11, &node, &mut out) };
+        let hit = unsafe { pxui_ui_part(ui, Part::HIT.0, &node, &mut out) };
+        let bad = unsafe { pxui_ui_part(ui, 11, &node, &mut out) };
         // the owner's key is the row's: its part is found by it, one it never built is not
         let mut found = PxuiBox::default();
-        let again = unsafe { pxui_part_box(ui, c.row.box_key, Part::HIT.0, &mut found) } + 10 * unsafe { pxui_part_box(ui, c.row.box_key, Part::TRACK.0, &mut found) };
+        let again = unsafe { pxui_ui_part_box(ui, c.row.box_key, Part::HIT.0, &mut found) } + 10 * unsafe { pxui_ui_part_box(ui, c.row.box_key, Part::TRACK.0, &mut found) };
         TOGGLE.with(|t| t.borrow_mut().push((c.size, label, c.on, hit, bad, again)));
         REGISTERED_IN_FRAME.with(|r| r.set(unsafe { reg_id(ui, BodyKind::toggle as u32, text("late"), Some(toggle_body), core::ptr::null_mut()) }));
     }
@@ -469,8 +469,8 @@ mod tests {
         rc
     }
 
-    /// A C body gets the toggle's record (its size, label and value), builds `Part::HIT` through `pxui_part`, refuses a number that names no
-    /// part, finds the part again through `pxui_part_box`, and cannot register a body from inside the frame; `pxui_part` outside a body is
+    /// A C body gets the toggle's record (its size, label and value), builds `Part::HIT` through `pxui_ui_part`, refuses a number that names no
+    /// part, finds the part again through `pxui_ui_part_box`, and cannot register a body from inside the frame; `pxui_ui_part` outside a body is
     /// refused; an unknown name in a theme text, and every bad registration, are errors.
     #[test]
     fn a_c_body_gets_its_record_and_builds_a_part_and_bad_names_are_errors() {
@@ -497,7 +497,7 @@ mod tests {
         frame(ui, toggle_frame);
         assert_eq!(TOGGLE.with(|t| t.borrow().last().map(|s| s.5)), Some(10), "the second frame finds the part it built");
         let (node, mut out) = (Node::DEFAULT, PxuiBox::default());
-        assert_eq!(unsafe { pxui_part(ui, Part::HIT.0, &node, &mut out) }, PXUI_ERR_STATE, "a part outside a body");
+        assert_eq!(unsafe { pxui_ui_part(ui, Part::HIT.0, &node, &mut out) }, PXUI_ERR_STATE, "a part outside a body");
         assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
     }
 
@@ -505,10 +505,10 @@ mod tests {
         let c = unsafe { &*config.cast::<PxuiScrollConfig>() };
         SLOT.with(|s| s.set(c.content));
         let mut answer = 7u8;
-        assert_eq!(unsafe { pxui_slot(ui.cast(), c.content, &mut answer) }, 0);
+        assert_eq!(unsafe { pxui_ui_slot(ui.cast(), c.content, &mut answer) }, 0);
         assert_eq!(answer, 0, "a content slot answers 0");
         // a slot that was never made is stale
-        assert_eq!(unsafe { pxui_slot(ui.cast(), PxuiSlot { serial: 0xdead_beef }, core::ptr::null_mut()) }, PXUI_ERR_STALE);
+        assert_eq!(unsafe { pxui_ui_slot(ui.cast(), PxuiSlot { serial: 0xdead_beef }, core::ptr::null_mut()) }, PXUI_ERR_STALE);
     }
 
     extern "C" fn count_content(_: *mut c_void, _: *mut c_void) { CONTENT.with(|c| c.set(c.get() + 1)); }
@@ -528,7 +528,7 @@ mod tests {
         frame(ui, scroll_frame);
         assert_eq!(CONTENT.with(Cell::get), 1, "the content ran once, through the slot");
         let mut out = 0u8;
-        assert_eq!(unsafe { pxui_slot(ui, SLOT.with(Cell::get), &mut out) }, PXUI_ERR_STALE);
+        assert_eq!(unsafe { pxui_ui_slot(ui, SLOT.with(Cell::get), &mut out) }, PXUI_ERR_STALE);
         assert!(error(ui).contains("stale slot"));
         assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
     }
@@ -542,13 +542,13 @@ mod tests {
     extern "C" fn own_slot_body(_: *mut c_void, ui: *mut c_void, config: *const c_void) {
         let c = unsafe { &*config.cast::<PxuiScrollConfig>() };
         OWN.with(|s| s.set(c.content));
-        assert_eq!(unsafe { pxui_slot(ui.cast(), c.content, core::ptr::null_mut()) }, 0);
+        assert_eq!(unsafe { pxui_ui_slot(ui.cast(), c.content, core::ptr::null_mut()) }, 0);
     }
 
     // the caller's content runs its own slot again: it would enter the closure that is running it
     extern "C" fn reentering_content(_: *mut c_void, ui: *mut c_void) {
         RUNS.with(|r| r.set(r.get() + 1));
-        if RUNS.with(Cell::get) < 3 { AGAIN.with(|a| a.set(unsafe { pxui_slot(ui.cast(), OWN.with(Cell::get), core::ptr::null_mut()) })); }
+        if RUNS.with(Cell::get) < 3 { AGAIN.with(|a| a.set(unsafe { pxui_ui_slot(ui.cast(), OWN.with(Cell::get), core::ptr::null_mut()) })); }
     }
 
     extern "C" fn reentering_frame(_: *mut c_void, ui: *mut c_void) {
@@ -580,7 +580,7 @@ mod tests {
         let c = unsafe { &*config.cast::<PxuiScrollConfig>() };
         match FIRST.with(Cell::get) {
             PxuiSlot { serial: 0 } => FIRST.with(|f| f.set(c.content)),
-            first => FOREIGN.with(|f| f.set(unsafe { pxui_slot(ui.cast(), first, core::ptr::null_mut()) })),
+            first => FOREIGN.with(|f| f.set(unsafe { pxui_ui_slot(ui.cast(), first, core::ptr::null_mut()) })),
         }
     }
 
@@ -680,7 +680,7 @@ mod tests {
     }
     extern "C" fn dialog_body(_: *mut c_void, ui: *mut c_void, config: *const c_void) {
         let c = unsafe { &*config.cast::<PxuiDialogConfig>() };
-        assert_eq!(unsafe { pxui_slot(ui.cast(), c.content, core::ptr::null_mut()) }, 0);
+        assert_eq!(unsafe { pxui_ui_slot(ui.cast(), c.content, core::ptr::null_mut()) }, 0);
     }
 
     extern "C" fn nested_dialogs(depth: *mut c_void, ui: *mut c_void) {

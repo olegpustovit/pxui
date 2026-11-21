@@ -96,7 +96,7 @@ pub unsafe fn pxui_ui_node_keyed(ui: *mut PxuiUi, key: i64, desc: &Node, out: *m
     0
 }
 
-/// `pxui_part` of a node the caller's type vouches for (the static wrapper's `part`): the part's checks as the export makes them (a body
+/// `pxui_ui_part` of a node the caller's type vouches for (the static wrapper's `part`): the part's checks as the export makes them (a body
 /// is running, or a `Part::HANDLE` in a reorderable row; a known part), then the node declared under the part's key as
 /// `pxui_ui_node_keyed` declares one, counted as one call. The export keeps its own way for a C record (checked, grid tracks copied).
 #[inline]
@@ -909,7 +909,7 @@ pub unsafe fn dialog(ui: *mut PxuiUi, key: &str, title: &str, buttons: &[pxui_ty
 }
 
 
-/// `pxui_slot` as the static wrapper calls it: the caller's content runs inside, and a panic of it unwinds to the app as in every trusted entry.
+/// `pxui_ui_slot` as the static wrapper calls it: the caller's content runs inside, and a panic of it unwinds to the app as in every trusted entry.
 /// The kit's text of the collection item being built (`Ui::item_text`); refused outside a `selection_list`/`tree` row or `table` cell.
 #[inline]
 pub unsafe fn item_text(ui: *mut PxuiUi, text: &str) -> i32 {
@@ -921,7 +921,7 @@ pub unsafe fn item_text(ui: *mut PxuiUi, text: &str) -> i32 {
 }
 
 #[inline]
-pub unsafe fn pxui_slot(ui: *mut PxuiUi, slot: pxui_types::ffi::PxuiSlot, out: *mut u8) -> i32 { unsafe { crate::bodies::slot(ui, slot, out) } }
+pub unsafe fn pxui_ui_slot(ui: *mut PxuiUi, slot: pxui_types::ffi::PxuiSlot, out: *mut u8) -> i32 { unsafe { crate::bodies::slot(ui, slot, out) } }
 
 /// `tree` keyed by `key`: `cell(ui, node, 0)` builds the children of the row that shows tree node `node`.
 #[allow(clippy::too_many_arguments)]

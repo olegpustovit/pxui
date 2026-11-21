@@ -11,7 +11,7 @@ pub(crate) use pxui_types::ffi::{PxuiFooterDesc as FooterDesc, PxuiGridListDesc 
 
 #[cfg(feature = "static")]
 mod sys {
-    pub use pxui_abi_link::{pxui_ui_animate_keys, pxui_ui_animate_keys_repeat, pxui_ui_menu_bar, pxui_ui_wants_frame};
+    pub use pxui_abi_link::{pxui_ui_animate_keys, pxui_ui_menu_bar, pxui_ui_wants_frame};
 }
 #[cfg(not(feature = "static"))]
 mod sys {
@@ -31,19 +31,7 @@ mod sys {
     pub fn pxui_ui_inspector_message(ui: *mut PxuiUi, desc: *const InspectorTextDesc) -> i32;
     pub fn pxui_ui_wants_frame(ui: *mut PxuiUi, events: pxui_types::ffi::Strided<pxui_types::Event>, now: f64, out: *mut u8) -> i32;
     pub fn pxui_ui_footer(ui: *mut PxuiUi, desc: *const FooterDesc) -> i32;
-    /// The C entry `Ui::animate_keys` calls: plays the 1 to 8 keyframes `keys` on `box_` once and writes 1 to `out` while the run is going; an error code for an invalid keyframe or a stale box.
-    /// Allocates: never.
-    /// Panics: never.
-    ///
-    /// ```
-    /// use pxui::ui::{Curve, Keyframe};
-    /// pxui::doc::frames(2, &mut |ui| {
-    ///     let b = ui.node("n", pxui::Node::DEFAULT);
-    ///     ui.animate_keys(&b, &[Keyframe::offset(0.0, 0.0, 8.0).curve(Curve::Spring { omega: 10.0 })], &pxui::Keyframes::DEFAULT);
-    /// });
-    /// ```
-    pub fn pxui_ui_animate_keys(ui: *mut PxuiUi, box_: *const PxuiBox, keys: Slice<KeyframeDesc>, out: *mut u8) -> i32;
-    /// The C entry `Ui::animate_keys` calls for a repeated, reversed or offset run: plays `keys` (1 to 8) on `box_` `repeat` times (0 is forever; a count includes the reverse leg), reversing every other cycle when `autoreverse` is non-zero, starting `start_offset` seconds in; writes 1 to `out` while it runs.
+    /// The C entry `Ui::animate_keys` calls: plays `keys` (1 to 8) on `box_` `repeat` times (1 is once, 0 forever; a count includes the reverse leg), reversing every other cycle when `autoreverse` is non-zero, starting `start_offset` seconds in; writes 1 to `out` while it runs.
     /// Allocates: never.
     /// Panics: never.
     ///
@@ -56,7 +44,7 @@ mod sys {
     ///     ui.animate_keys(&b, &keys, &pxui::Keyframes::DEFAULT.repeat(pxui::Repeat::Count(2)));
     /// });
     /// ```
-    pub fn pxui_ui_animate_keys_repeat(ui: *mut PxuiUi, box_: *const PxuiBox, keys: Slice<KeyframeDesc>, repeat: u32, autoreverse: u8, start_offset: f32, out: *mut u8) -> i32;
+    pub fn pxui_ui_animate_keys(ui: *mut PxuiUi, box_: *const PxuiBox, keys: Slice<KeyframeDesc>, repeat: u32, autoreverse: u8, start_offset: f32, out: *mut u8) -> i32;
     }
 }
 
@@ -337,12 +325,8 @@ impl Ui {
         }
         let mut out = 0;
         let span = Slice { ptr: descriptors.as_ptr(), len: keys.len() };
-        let rc = if *play == Keyframes::DEFAULT {
-            unsafe { sys::pxui_ui_animate_keys(self.0.as_ptr(), box_, span, &mut out) }
-        } else {
-            let count = match play.cycles() { Repeat::Count(n) => n.into(), Repeat::Forever => 0 };
-            unsafe { sys::pxui_ui_animate_keys_repeat(self.0.as_ptr(), box_, span, count, play.reverses() as u8, play.start(), &mut out) }
-        };
+        let count = match play.cycles() { Repeat::Count(n) => n.into(), Repeat::Forever => 0 };
+        let rc = unsafe { sys::pxui_ui_animate_keys(self.0.as_ptr(), box_, span, count, play.reverses() as u8, play.start(), &mut out) };
         crate::live(self, rc) && out != 0
     }
 
