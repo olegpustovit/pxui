@@ -20,6 +20,7 @@ tokens.motion.normal = 0
 tokens.motion.slow = 0
 tokens.motion.ease = 0.25 0.1 0.25 1
 tokens.reduced_motion = false
+tokens.dark = false
 tokens.density = 1
 row_h = 24
 control_h = 20

@@ -388,7 +388,7 @@ fn theme_tokens_that_cannot_be_a_theme_make_none() {
     let bad = [
         ThemeTokens { density: f32::NAN, ..good }, ThemeTokens { density: 0.0, ..good }, ThemeTokens { space: [f32::INFINITY; 4], ..good },
         ThemeTokens { has_ink_ground: 2, ..good }, ThemeTokens { reduced_motion: 7, ..good }, ThemeTokens { font_size: 0, ..good },
-        ThemeTokens { reserved: [1, 0, 0], ..good }, ThemeTokens { size: 4, ..good },
+        ThemeTokens { reserved: [1, 0, 0], ..good }, ThemeTokens { size: 4, ..good }, ThemeTokens { dark: 2, ..good }, ThemeTokens { reserved_tail: [0, 1], ..good },
     ];
     for tokens in bad { assert!(unsafe { crate::theme::pxui_theme_create(&tokens) }.is_null()); }
 }
@@ -924,6 +924,66 @@ fn strided_spans_step_by_stride_and_refuse_a_stride_below_the_record() {
     assert_eq!(output.a11y.size as usize, core::mem::size_of::<pxui_types::ffi::A11yTree>());
     assert_eq!((output.a11y.nodes.stride, output.layers.stride), (core::mem::size_of::<pxui_types::ffi::A11yNode>(), core::mem::size_of::<pxui_types::ffi::PxuiLayerInfo>()));
     assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
+}
+
+/// U5.6: one rule each for SIZE_MAX as none, the text key 0, a SET mask against a documented 0, and `repaint_at` infinity (the header's
+/// "Conventions of the encodings").
+#[test]
+fn encoding_rules() {
+    use pxui_types::ffi::{PxuiKeyedDesc, PxuiLabelStyle, PxuiListResult, PxuiSelectionListDesc, PxuiTextStyle, PxuiU8MutSpan};
+    let ui = create();
+    // none: SIZE_MAX, and any index at or past the count, is no anchor (never an error); an index below the count is kept
+    let mut rows = [0u8; 3];
+    for (anchor, kept) in [(usize::MAX, false), (3, false), (1_000_000, false), (1, true)] {
+        let mut list: PxuiSelectionListDesc = unsafe { core::mem::zeroed() };
+        (list.size, list.count, list.row_height, list.rows, list.anchor) = (core::mem::size_of::<PxuiSelectionListDesc>() as u32, 3, 20.0, PxuiU8MutSpan { ptr: rows.as_mut_ptr(), len: 3 }, anchor);
+        let mut out = PxuiListResult::EMPTY;
+        let rc = in_frame(ui, &mut |ui| unsafe { pxui_ui_selection_list(ui, &PxuiKeyedDesc::new("rule", ""), &list, None, None, core::ptr::null_mut(), &mut out) });
+        assert_eq!(rc, 0, "anchor {anchor}: {}", error(ui));
+        assert_eq!(out.anchor == 1, kept, "anchor {anchor} came back as {}", out.anchor);
+        if !kept { assert_eq!(out.anchor, usize::MAX, "anchor {anchor} is none"); }
+    }
+    // the text key: 0 derives the layout from the content; a nonzero key is a cache name, so other content under it is laid out again
+    let (style, text_a, text_b) = (PxuiTextStyle::default(), Str { ptr: b"a".as_ptr(), len: 1 }, Str { ptr: b"abcdef".as_ptr(), len: 6 });
+    let shaper = unsafe { pxui_text_fork(ui) };
+    assert!(!shaper.is_null());
+    let width = |key: u64, text: Str| { let mut m = pxui_types::TextMetrics::default(); assert_eq!(unsafe { pxui_shaper_width(shaper, key, text, &style, 0.0, &mut m) }, 0); m.width };
+    let (a, b) = (width(0, text_a), width(0, text_b));
+    assert!(b > a, "key 0 measures each content");
+    assert_eq!((width(0, text_a), width(0, text_b)), (a, b), "key 0 is repeatable");
+    assert_eq!((width(7, text_a), width(7, text_b), width(7, text_a)), (a, b, a), "a nonzero key is a name: other content under it is laid out again");
+    unsafe { pxui_shaper_destroy(shaper) };
+    // zero: a clear SET bit ignores the field whatever it holds, a set bit reads it; a documented 0 outside a mask is the default
+    let label = PxuiLabelStyle::from(&pxui_types::Label::BODY);
+    let (mut base, mut ignored, mut used) = (pxui_types::TextMetrics::default(), pxui_types::TextMetrics::default(), pxui_types::TextMetrics::default());
+    let text = Str { ptr: b"Song title".as_ptr(), len: 10 };
+    for (record, out) in [(PxuiLabelStyle { set: 0, ..label }, &mut base), (PxuiLabelStyle { set: 0, size_points: 90.0, ..label }, &mut ignored), (PxuiLabelStyle { set: PxuiLabelStyle::SET_SIZE, size_points: 90.0, ..label }, &mut used)] {
+        assert_eq!(unsafe { pxui_ui_label_measure(ui, text, &record, 0.0, core::ptr::null(), out) }, 0, "{}", error(ui));
+    }
+    assert_eq!(base, ignored, "a clear SET_SIZE ignores size_points");
+    assert!(used.width > base.width * 3.0, "a set SET_SIZE reads it");
+    let (mut zero, mut explicit) = (pxui_types::TextMetrics::default(), pxui_types::TextMetrics::default());
+    let wrapped = |line_height: f32| PxuiTextStyle { line_height, size_points: 20.0, ..PxuiTextStyle::default() };
+    let height = |style: &PxuiTextStyle, out: &mut pxui_types::TextMetrics| assert_eq!(unsafe { crate::text::text_width(ui, 0, text, style, 30.0, out) }, 0);
+    height(&wrapped(0.0), &mut zero);
+    height(&wrapped(24.0), &mut explicit);
+    assert_eq!(zero.height, explicit.height, "a line height of 0 outside a mask is 1.2 times the size (24 for 20 points)");
+    // repaint_at: an idle Ui wants no frame (infinity); a running animation names a time
+    assert_eq!(frame_with(ui, &frame_in()), 0, "{}", error(ui));
+    assert_eq!(unsafe { (*pxui_ui_output(ui)).repaint_at }, f64::INFINITY, "an idle Ui has no scheduled repaint");
+    let moving = in_frame(ui, &mut |ui| {
+        let mut node = PxuiBox::default();
+        assert_eq!(unsafe { pxui_ui_node_keyed(ui, 77, &pxui_types::Node::DEFAULT, &mut node) }, 0);
+        let mut key: pxui_types::ffi::PxuiKeyframeDesc = unsafe { core::mem::zeroed() };
+        key.size = core::mem::size_of::<pxui_types::ffi::PxuiKeyframeDesc>() as u32;
+        (key.time, key.target, key.values, key.look, key.curve) = (1.0, 0, [10.0, 0.0, 0.0, 0.0], pxui_types::ffi::PxuiLookDesc::default(), pxui_types::ffi::PxuiCurveDesc { kind: pxui_types::ffi::PxuiCurveDesc::BEZIER, duration: 1.0, points: [0.0, 0.0, 1.0, 1.0], ..pxui_types::ffi::PxuiCurveDesc::default() });
+        let mut running = 0u8;
+        unsafe { pxui_ui_animate(ui, &node, &key, &mut running) }
+    });
+    assert_eq!(moving, 0, "{}", error(ui));
+    let repaint = unsafe { (*pxui_ui_output(ui)).repaint_at };
+    assert!(repaint.is_finite(), "a running animation names a time (never NaN, never infinity): {repaint}");
+    unsafe { pxui_ui_destroy(ui); }
 }
 
 /// U5.5: an enum a caller writes (a tag byte or a number) is checked against its range before anything is built from it: the largest

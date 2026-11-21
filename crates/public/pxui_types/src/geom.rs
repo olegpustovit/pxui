@@ -54,9 +54,8 @@ pub struct Edges {
 
 /// A colour: four channel bytes, not premultiplied, or a colour token (`Rgba::token`) the engine resolves where a look is applied.
 ///
-/// The token encoding is in-band (ABI 1.61, alpha from U2b.7): a colour with alpha 0 and red 0x54 names token `b` drawn at opacity
-/// `g` (`Rgba::alpha`). Until 2.0, `g` 0x4b (the 1.61 marker) reads as opaque, so an asked opacity of 0x4b is stored as 0x4c; 2.0 drops
-/// that rule. Such a colour never paints as the clear colour its bytes spell where a look is applied (a fully transparent plain colour
+/// The token encoding is in-band (ABI 1.61, alpha from U2b.7, final): a colour with alpha 0 and red 0x54 names token `b` drawn at opacity
+/// `g` (`Rgba::alpha`; `Rgba::token` is opaque, `g` 255), every value of `g` meaning its opacity. Such a colour never paints as the clear colour its bytes spell where a look is applied (a fully transparent plain colour
 /// with red 0x54 is read as a token: use `Rgba::TRANSPARENT`, all zero); every other colour means its channels.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(C)]
@@ -156,8 +155,8 @@ impl Edges {
 }
 
 impl Rgba {
-    /// Red, green and blue under the token encoding: a clear colour with these two channels carries a token in `b`.
-    const TOKEN_RG: (u8, u8) = (0x54, 0x4b);
+    /// The red of the token encoding: a clear colour with this red carries a token in `b` and its opacity in `g`.
+    const TOKEN_RED: u8 = 0x54;
 
     /// The opaque colour of channels `r`, `g`, `b`.
     ///
@@ -295,7 +294,7 @@ impl Rgba {
     /// look holding it is applied to a node (a node's look, `set_look`, `pressable`, a button's, icon button's, toggle's or segment's
     /// looks, `patch_look`, an animated look), so a theme or appearance switch needs no rebuild by the app.
     ///
-    /// It is encoded in the colour's bytes (final): alpha 0, red 0x54, green 0x4b, blue the token. A token at or past `ColorToken::LIMIT`
+    /// It is encoded in the colour's bytes (final): alpha 0, red 0x54, green its opacity (255), blue the token. A token at or past `ColorToken::LIMIT`
     /// (64), or past the installed table, resolves transparent (a token past 255 is stored as 255). Bodies receive their looks, swatches
     /// and ink already resolved, and so does a theme whose looks name tokens. Resolution happens once, where a look is applied, never on
     /// an interpolated look (`Look::lerp`, a running transition). A `Paint` call given a raw token paints nothing (the clear colour its
@@ -311,12 +310,12 @@ impl Rgba {
     /// ```
     #[inline]
     pub const fn token(token: crate::theme::ColorToken) -> Rgba {
-        Rgba { r: Self::TOKEN_RG.0, g: Self::TOKEN_RG.1, b: if token.0 > 255 { 255 } else { token.0 as u8 }, a: 0 }
+        Rgba { r: Self::TOKEN_RED, g: 255, b: if token.0 > 255 { 255 } else { token.0 as u8 }, a: 0 }
     }
 
     /// This colour at opacity `alpha` (0 to 255): a token (`Rgba::token`) keeps its token and is drawn at that opacity of the
     /// resolved colour, so a theme look can use a token at a share of its strength (a 60% panel wash); a plain colour takes `alpha`
-    /// as its alpha channel. Until 2.0 a token's 0x4b is stored as 0x4c (see `Rgba`).
+    /// as its alpha channel.
     /// Allocates: never.
     /// Panics: never.
     ///
@@ -327,8 +326,8 @@ impl Rgba {
     /// assert_eq!(Rgba::rgb(10, 20, 30).alpha(128).a, 128);
     /// ```
     pub const fn alpha(self, alpha: u8) -> Rgba {
-        if self.a == 0 && self.r == Self::TOKEN_RG.0 {
-            Rgba { g: if alpha == Self::TOKEN_RG.1 { alpha + 1 } else { alpha }, ..self }
+        if self.a == 0 && self.r == Self::TOKEN_RED {
+            Rgba { g: alpha, ..self }
         } else {
             Rgba { a: alpha, ..self }
         }
@@ -346,7 +345,7 @@ impl Rgba {
     /// ```
     #[inline]
     pub const fn as_token(self) -> Option<crate::theme::ColorToken> {
-        if self.a == 0 && self.r == Self::TOKEN_RG.0 { Some(crate::theme::ColorToken(self.b as u16)) } else { None }
+        if self.a == 0 && self.r == Self::TOKEN_RED { Some(crate::theme::ColorToken(self.b as u16)) } else { None }
     }
 }
 

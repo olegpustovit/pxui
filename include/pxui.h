@@ -15,10 +15,20 @@ typedef struct PxuiPaint PxuiPaint;
 typedef struct PxuiShaper PxuiShaper;
 typedef struct PxuiPreparedText PxuiPreparedText;
 typedef struct PxuiTextWorker PxuiTextWorker;
+/* Conventions of the encodings (U5.6), each tested in pxui_abi (safety.rs `encoding_rules`):
+   - none: an index in a record or a result is below the item count, or SIZE_MAX for none. An index at or past the count is none as well (a selection kept past a
+     shrink is not an error); no other value (0, -1) means none.
+   - text key: the `key` of a text call is 0 or a layout key. 0 derives the key from the style, width, text and spans; a nonzero key names the caller's layout and a
+     call whose content differs lays it out again, so a key is a cache name, never an identity.
+   - zero: a record with a SET mask (PxuiLabelStyle) reads a field only when its bit is set (a clear bit is the theme's value and the field is ignored, whatever it holds;
+     a set bit's zero is a value, subject to the field's own validation); a record without one reads a documented 0 as the default (line_height 0 is 1.2 times the size,
+     max_lines 0 no limit, font_size 0 the default). A record never mixes the two.
+   - repaint_at (PxuiOutput): seconds on the frame's time base at which the Ui next needs a frame; +INFINITY (HUGE_VAL) means none, an idle Ui draws no frame; never NaN,
+     and a value not after the frame's time means now. */
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 142u)
+#define PXUI_ABI_BUILT ((1u << 16) | 143u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 /* U5.4: size-prefixed (16 bytes); pxui_ui_text_input_options needs the caller's size to cover it. */
@@ -62,12 +72,12 @@ typedef struct { uint32_t size; double time,dt; int64_t frame,tick; int64_t logi
 typedef struct { float x,y,w,h; } PxuiRect;
 typedef struct { float x,y; } PxuiPoint;
 typedef struct { uint8_t r,g,b,a; } PxuiColor;
-/* ABI 1.61, 1.91: a colour with a 0 and r 0x54 names colour token b of the theme's palette (pxui_theme_set_color) drawn at opacity g (0x4b reads as 255 until
-   2.0; D19); token 64 is the theme's accent, 65 and past are transparent. The library
+/* ABI 1.61, 1.91, final (U5.6): a colour with a 0 and r 0x54 names colour token b of the theme's palette (pxui_theme_set_color) drawn at opacity g: every
+   value of g is its opacity (255 opaque; 0x4b is no longer read as 255). Token 64 is the theme's accent, 65 and past are transparent. The library
    resolves it for the theme in effect where a look or swatch is applied (never on an interpolated look); a body receives the caller's looks as given (U2b.4.30: pxui_ui_style resolves them), the theme's resolved.
    A paint call given a raw token paints nothing: resolve it with pxui_ui_color / pxui_paint_color. */
 typedef struct { float fast,normal,slow,ease[4]; } PxuiMotion;
-typedef struct { uint32_t size; PxuiColor panel,foreground,control,input,track,accent,ink_ground; uint8_t has_ink_ground,reserved[3]; float space[4],radius[3]; int64_t display_size,title_size,font_size,label_size; PxuiMotion motion; uint8_t reduced_motion,reserved_tail[3]; float density; } PxuiThemeTokens;
+typedef struct { uint32_t size; PxuiColor panel,foreground,control,input,track,accent,ink_ground; uint8_t has_ink_ground,reserved[3]; float space[4],radius[3]; int64_t display_size,title_size,font_size,label_size; PxuiMotion motion; uint8_t reduced_motion,dark /* U5.6: 0 or 1, the theme is dark (picks the dark colour tokens); stated, never guessed from panel */,reserved_tail[2]; float density; } PxuiThemeTokens;
 typedef struct { uint32_t size,cursor; uint8_t has_cursor,has_ime,has_background,has_clipboard; int64_t ime_rect[4],ime_caret; PxuiStr clipboard; PxuiColor background; uint8_t paste,reserved[7]; } PxuiPlatformOut;
 typedef struct { uint8_t has_damage,reserved[3]; PxuiRect rect; } PxuiDamage;
 typedef struct { uint32_t tag,text_start,text_end,reserved; double now,min,max,step; } PxuiA11yValue;
@@ -83,8 +93,8 @@ typedef struct { float l,t,r,b; } PxuiEdges;
 typedef struct { uint32_t kind; float value; float (*relative)(float); } PxuiSizeDesc;
 /* U5.4: size-prefixed (40 bytes); a short size is refused. */
 typedef struct { uint32_t size; uint8_t has_anchor,flip,reserved[2]; PxuiRect rect; uint32_t side,align; float gap,margin; } PxuiAnchorDesc;
-/* PxuiAnchorDesc.align and PxuiPlacement.align: PXUI_ALIGN_START, _CENTER or _END. STRETCH and BASELINE are accepted for 1.x and align
-   as START; 2.0 refuses them. */
+/* PxuiAnchorDesc.align and PxuiPlacement.align: PXUI_ALIGN_START, _CENTER or _END (0 to 2). PXUI_ALIGN_STRETCH and _BASELINE (3, 4) are node
+   alignments and are refused here (and in PxuiNode's anchor placement, PXUI_ERR_ARGUMENT). */
 typedef struct { uint16_t family,weight; float size_points; /* ABI 1.79: read only while within half a point of size */ int64_t size; float tracking; uint8_t caps,reserved[3]; } PxuiFontDesc;
 typedef struct { PxuiColor color; float offset[2],blur,spread; uint8_t inner,reserved[3]; } PxuiShadowDesc;
 typedef struct { PxuiColor color; float width; uint32_t sides; } PxuiRingDesc;
@@ -1166,7 +1176,7 @@ _Static_assert(sizeof(PxuiA11yAction) == 32 && offsetof(PxuiA11yAction, size) ==
 _Static_assert(sizeof(PxuiA11yTree) == 88 && offsetof(PxuiA11yTree, size) == 0 && offsetof(PxuiA11yTree, reserved) == 4 && offsetof(PxuiA11yTree, nodes) == 8 && offsetof(PxuiA11yTree, nodes.len) == 16 && offsetof(PxuiA11yTree, nodes.stride) == 24 && offsetof(PxuiA11yTree, strings) == 32 && offsetof(PxuiA11yTree, revision) == 48 && offsetof(PxuiA11yTree, first_child) == 56 && offsetof(PxuiA11yTree, child_count) == 60 && offsetof(PxuiA11yTree, actions) == 64 && offsetof(PxuiA11yTree, actions.len) == 72 && offsetof(PxuiA11yTree, actions.stride) == 80, "A11yTree layout");
 _Static_assert(sizeof(PxuiOutput) == 272 && offsetof(PxuiOutput, size) == 0 && offsetof(PxuiOutput, reserved) == 4 && offsetof(PxuiOutput, draw_revision) == 8 && offsetof(PxuiOutput, repaint_at) == 16 && offsetof(PxuiOutput, built_nodes) == 24 && offsetof(PxuiOutput, rebuilt_views) == 32 && offsetof(PxuiOutput, arranged_nodes) == 40 && offsetof(PxuiOutput, platform) == 48 && offsetof(PxuiOutput, damage) == 136 && offsetof(PxuiOutput, a11y) == 160 && offsetof(PxuiOutput, layers) == 248, "Output layout");
 _Static_assert(sizeof(PxuiMotion) == 28 && offsetof(PxuiMotion, fast) == 0 && offsetof(PxuiMotion, normal) == 4 && offsetof(PxuiMotion, slow) == 8 && offsetof(PxuiMotion, ease) == 12, "PxuiMotion layout");
-_Static_assert(sizeof(PxuiThemeTokens) == 136 && offsetof(PxuiThemeTokens, size) == 0 && offsetof(PxuiThemeTokens, panel) == 4 && offsetof(PxuiThemeTokens, foreground) == 8 && offsetof(PxuiThemeTokens, control) == 12 && offsetof(PxuiThemeTokens, input) == 16 && offsetof(PxuiThemeTokens, track) == 20 && offsetof(PxuiThemeTokens, accent) == 24 && offsetof(PxuiThemeTokens, ink_ground) == 28 && offsetof(PxuiThemeTokens, has_ink_ground) == 32 && offsetof(PxuiThemeTokens, reserved) == 33 && offsetof(PxuiThemeTokens, space) == 36 && offsetof(PxuiThemeTokens, radius) == 52 && offsetof(PxuiThemeTokens, display_size) == 64 && offsetof(PxuiThemeTokens, title_size) == 72 && offsetof(PxuiThemeTokens, font_size) == 80 && offsetof(PxuiThemeTokens, label_size) == 88 && offsetof(PxuiThemeTokens, motion) == 96 && offsetof(PxuiThemeTokens, reduced_motion) == 124 && offsetof(PxuiThemeTokens, reserved_tail) == 125 && offsetof(PxuiThemeTokens, density) == 128, "PxuiThemeTokens layout");
+_Static_assert(sizeof(PxuiThemeTokens) == 136 && offsetof(PxuiThemeTokens, size) == 0 && offsetof(PxuiThemeTokens, panel) == 4 && offsetof(PxuiThemeTokens, foreground) == 8 && offsetof(PxuiThemeTokens, control) == 12 && offsetof(PxuiThemeTokens, input) == 16 && offsetof(PxuiThemeTokens, track) == 20 && offsetof(PxuiThemeTokens, accent) == 24 && offsetof(PxuiThemeTokens, ink_ground) == 28 && offsetof(PxuiThemeTokens, has_ink_ground) == 32 && offsetof(PxuiThemeTokens, reserved) == 33 && offsetof(PxuiThemeTokens, space) == 36 && offsetof(PxuiThemeTokens, radius) == 52 && offsetof(PxuiThemeTokens, display_size) == 64 && offsetof(PxuiThemeTokens, title_size) == 72 && offsetof(PxuiThemeTokens, font_size) == 80 && offsetof(PxuiThemeTokens, label_size) == 88 && offsetof(PxuiThemeTokens, motion) == 96 && offsetof(PxuiThemeTokens, reduced_motion) == 124 && offsetof(PxuiThemeTokens, dark) == 125 && offsetof(PxuiThemeTokens, reserved_tail) == 126 && offsetof(PxuiThemeTokens, density) == 128, "PxuiThemeTokens layout");
 _Static_assert(sizeof(PxuiSizeDesc) == 16 && offsetof(PxuiSizeDesc, kind) == 0 && offsetof(PxuiSizeDesc, value) == 4 && offsetof(PxuiSizeDesc, relative) == 8, "PxuiSizeDesc layout");
 _Static_assert(sizeof(PxuiAnchorDesc) == 40 && offsetof(PxuiAnchorDesc, size) == 0 && offsetof(PxuiAnchorDesc, has_anchor) == 4 && offsetof(PxuiAnchorDesc, rect) == 8 && offsetof(PxuiAnchorDesc, side) == 24 && offsetof(PxuiAnchorDesc, align) == 28 && offsetof(PxuiAnchorDesc, gap) == 32 && offsetof(PxuiAnchorDesc, margin) == 36 && offsetof(PxuiAnchorDesc, flip) == 5 && offsetof(PxuiAnchorDesc, reserved) == 6, "PxuiAnchorDesc layout");
 _Static_assert(sizeof(PxuiFontDesc) == 24 && offsetof(PxuiFontDesc, family) == 0 && offsetof(PxuiFontDesc, weight) == 2 && offsetof(PxuiFontDesc, size) == 8 && offsetof(PxuiFontDesc, tracking) == 16 && offsetof(PxuiFontDesc, caps) == 20 && offsetof(PxuiFontDesc, reserved) == 21, "PxuiFontDesc layout");

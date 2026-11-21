@@ -366,8 +366,8 @@ impl Paint<'_> {
     #[inline]
     fn ink(&self, color: Rgba) -> Rgba {
         match color.as_token() {
-            // the token's opacity (`Rgba::alpha`; the 1.61 marker 0x4b reads as opaque until 2.0)
-            Some(token) => { let e = self.color(token); Rgba { a: ((u32::from(e.a) * if color.g == 0x4b { 255 } else { u32::from(color.g) } + 127) / 255) as u8, ..e } }
+            // the token's opacity (`Rgba::alpha`, final): its green byte
+            Some(token) => { let e = self.color(token); Rgba { a: ((u32::from(e.a) * u32::from(color.g) + 127) / 255) as u8, ..e } }
             None => color,
         }
     }

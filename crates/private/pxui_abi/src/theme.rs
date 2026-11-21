@@ -105,7 +105,7 @@ fn tokens_valid(t: &ThemeTokens) -> bool {
     let tail = [t.motion.fast, t.motion.normal, t.motion.slow, t.density];
     t.space.iter().chain(&t.radius).chain(&tail).all(|v| v.is_finite() && *v >= 0.0) && t.motion.ease.iter().all(|v| v.is_finite()) && t.density > 0.0
         && [t.display_size, t.title_size, t.font_size, t.label_size].iter().all(|s| (1..=4096).contains(s))
-        && t.has_ink_ground <= 1 && t.reduced_motion <= 1 && t.reserved == [0; 3] && t.reserved_tail == [0; 3]
+        && t.has_ink_ground <= 1 && t.reduced_motion <= 1 && t.dark <= 1 && t.reserved == [0; 3] && t.reserved_tail == [0; 2]
 }
 
 // The defaults, or `Theme::from_tokens(tokens)` when `tokens` is set; null when the tokens are invalid.
@@ -180,7 +180,7 @@ fn editing_a_parsed_theme_updates_its_colour_token_scan() {
     let theme = unsafe { pxui_theme_create(core::ptr::null()) };
     let color = Rgba::rgb(30, 60, 90);
     assert_eq!(unsafe { pxui_theme_set_color(theme, 0, color) }, 0);
-    for (setting, expected) in [("button.idle.fill = #544b0000", color), ("button.idle.fill = #010203", Rgba::rgb(1, 2, 3))] {
+    for (setting, expected) in [("button.idle.fill = #54ff0000", color), ("button.idle.fill = #010203", Rgba::rgb(1, 2, 3))] {
         assert_eq!(unsafe { pxui_theme_parse(theme, pair(setting)) }, 0, "{}", unsafe { crate::state::text(pxui_theme_last_error(theme)).unwrap() });
         assert_eq!(unsafe { pxui_ui_use_theme(ui, theme) }, 0);
         let engine = unsafe { &*get(ui).unwrap().engine };

@@ -287,7 +287,7 @@ pub fn styling_colour_token_looks() {
     let c = |v: u8| Rgba::gray(v);
     let (marker, never) = (Rgba::rgb(1, 2, 3), Rgba::rgb(4, 5, 6));
     check(ui.set_colors(&[c(240), c(200), marker, never], &[c(16), c(60), marker, never]), "set_colors");
-    let spelled = Rgba { r: 0x54, g: 0x4b, b: 2, a: 0 };
+    let spelled = Rgba { r: 0x54, g: 0xff, b: 2, a: 0 };
     let chip = Cell::new(None);
     let mut build = |ui: &mut Ui| {
         ui.view("v", 1, Size::Px(200.0), Size::Px(100.0), &mut |ui| {
@@ -308,18 +308,19 @@ pub fn styling_colour_token_looks() {
     check(ui.transitions() == 0 && has(&ui, rgba(c(200))), "an animation to a token look rests on its entry");
     let mut dark = Theme::default();
     dark.tokens.panel = c(16);
+    dark.tokens.dark = true;
     check(dark.tokens.is_dark(), "a dark theme");
     ui.set_theme(dark);
     for k in 1..=20 { ui.frame(&at(1.0 + 0.05 * k as f64, vec![]), &mut build); }
     check(has(&ui, rgba(c(16))) && !has(&ui, rgba(c(240))) && !has(&ui, rgba(c(200))), "the swap moves the token look to its dark entry");
-    // from a clear colour spelling 0x50 to one spelling 0x58: halfway is 0x54, 0x4b, 3, 0, token 3's spelling
-    let clear = |r: u8| Look { fill: Rgba { r, g: 0x4b, b: 3, a: 0 }, ..Look::NONE };
+    // from a clear colour spelling 0x50 to one spelling 0x58: halfway is 0x54, 0xff, 3, 0, token 3's spelling
+    let clear = |r: u8| Look { fill: Rgba { r, g: 0xff, b: 3, a: 0 }, ..Look::NONE };
     check(ui.animate(&chip, Target::Look(clear(0x50)), linear(0.0)), "animate refused");
     ui.frame(&at(3.0, vec![]), &mut build);
     check(ui.animate(&chip, Target::Look(clear(0x58)), linear(1.0)), "animate refused");
     ui.frame(&at(3.0, vec![]), &mut build);
     ui.frame(&at(3.5, vec![]), &mut build);
-    check(has(&ui, [0x54, 0x4b, 3, 0]) && !has(&ui, rgba(never)), "an interpolated colour is never resolved as a token");
+    check(has(&ui, [0x54, 0xff, 3, 0]) && !has(&ui, rgba(never)), "an interpolated colour is never resolved as a token");
     ui.destroy();
 }
 

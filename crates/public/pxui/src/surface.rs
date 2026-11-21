@@ -3284,7 +3284,7 @@ fn colour_tokens_follow_a_light_dark_theme_swap_without_app_rebuild_or_warm_allo
     mem_sys::set_peer(crate::library_counter);
     let c = |v: u8| Rgba::rgb(v, v, v);
     let mut light = crate::ThemeHandle::parse("tokens.panel = #f4f5f0").unwrap();
-    let mut dark = crate::ThemeHandle::parse("tokens.panel = #101010").unwrap();
+    let mut dark = crate::ThemeHandle::parse("tokens.dark = true\ntokens.panel = #101010").unwrap();
     light.set_color(ColorToken(0), c(240));
     light.set_color(ColorToken(1), c(200));
     dark.set_color(ColorToken(0), c(16));
@@ -3358,7 +3358,7 @@ fn authored_scope_palettes_inherit_and_invalidate_retained_views_without_warm_al
 
     let token = ColorToken(0);
     let with_palette = |color| {
-        let mut theme = ThemeHandle::parse("button.hover.fill = #544b0000").unwrap();
+        let mut theme = ThemeHandle::parse("button.hover.fill = #54ff0000").unwrap();
         theme.set_color(token, color);
         theme
     };
@@ -3410,7 +3410,7 @@ fn const_looks_naming_colour_tokens_resolve_for_the_theme_in_effect_without_app_
     let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     ui.register_icon_button_body("token_body", token_body).unwrap();
     let mut light = crate::ThemeHandle::parse("tokens.panel = #f4f5f0\nicon_button.body = token_body").unwrap();
-    let mut dark = crate::ThemeHandle::parse("tokens.panel = #101010\nicon_button.body = token_body").unwrap();
+    let mut dark = crate::ThemeHandle::parse("tokens.dark = true\ntokens.panel = #101010\nicon_button.body = token_body").unwrap();
     light.set_color(PAPER, c(240));
     light.set_color(INK, c(30));
     dark.set_color(PAPER, c(16));
@@ -3450,11 +3450,11 @@ fn token_alpha_and_the_accent_token_resolve_for_the_theme_in_effect() {
     use std::cell::Cell;
     use pxui_types::{geom::Rgba, theme::ColorToken, Look};
     const WASH: Look = Look::NONE.fill(Rgba::token(ColorToken(2)).alpha(153)).text(Rgba::token(ColorToken::ACCENT)).border(Rgba::token(ColorToken(2)), 1.0);
-    assert_eq!((Rgba::token(ColorToken(2)).alpha(0x4b).g, Rgba::rgb(1, 2, 3).alpha(9).a), (0x4c, 9), "0x4b is stored as 0x4c; a plain colour takes the alpha");
+    assert_eq!((Rgba::token(ColorToken(2)).g, Rgba::token(ColorToken(2)).alpha(0x4b).g, Rgba::token(ColorToken(2)).alpha(0).g, Rgba::rgb(1, 2, 3).alpha(9).a), (255, 0x4b, 0, 9), "a token is opaque, every opacity is itself (0x4b included); a plain colour takes the alpha");
     mem_sys::set_peer(crate::library_counter);
     let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let mut light = crate::ThemeHandle::parse("tokens.accent = #ff0000").unwrap();
-    let mut dark = crate::ThemeHandle::parse("tokens.panel = #101010\ntokens.accent = #0000ff").unwrap();
+    let mut dark = crate::ThemeHandle::parse("tokens.dark = true\ntokens.panel = #101010\ntokens.accent = #0000ff").unwrap();
     light.set_color(ColorToken(2), Rgba::rgb(200, 100, 0));
     dark.set_color(ColorToken(2), Rgba::rgb(0, 100, 200));
     let seen = Cell::new(Look::NONE);
@@ -3489,7 +3489,7 @@ fn a_registered_menu_row_body_is_given_a_swatch_token_resolved_for_the_theme() {
     let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     ui.register_menu_row_body("swatch_row", swatch_row).unwrap();
     let mut light = crate::ThemeHandle::parse("tokens.panel = #f4f5f0\nmenu_row.body = swatch_row").unwrap();
-    let mut dark = crate::ThemeHandle::parse("tokens.panel = #101010\nmenu_row.body = swatch_row").unwrap();
+    let mut dark = crate::ThemeHandle::parse("tokens.dark = true\ntokens.panel = #101010\nmenu_row.body = swatch_row").unwrap();
     light.set_color(ColorToken(0), c(240));
     dark.set_color(ColorToken(0), c(16));
     for (theme, want) in [(&light, c(240)), (&dark, c(16)), (&light, c(240))] {

@@ -9158,12 +9158,10 @@ pub(crate) fn token_entry(table: &[Rgba; pxui_types::theme::ColorToken::LIMIT], 
     if token == pxui_types::theme::ColorToken::ACCENT.0 { accent } else { table.get(token as usize).copied().unwrap_or_default() }
 }
 
-/// The token colour `c` (`Rgba::token`) painted as `entry` at the token's opacity (`Rgba::alpha`, D19): its green byte, where the
-/// 1.61 marker 0x4b reads as opaque until 2.0.
+/// The token colour `c` (`Rgba::token`) painted as `entry` at the token's opacity (`Rgba::alpha`, D19, final): its green byte.
 #[inline]
 pub(crate) fn token_ink(c: Rgba, entry: Rgba) -> Rgba {
-    let alpha = if c.g == 0x4b { 255 } else { u32::from(c.g) };
-    Rgba { a: ((u32::from(entry.a) * alpha + 127) / 255) as u8, ..entry }
+    Rgba { a: ((u32::from(entry.a) * u32::from(c.g) + 127) / 255) as u8, ..entry }
 }
 
 /// Replaces each colour of `look` that names a token by its entry of `table` (`accent` for `ColorToken::ACCENT`, transparent past

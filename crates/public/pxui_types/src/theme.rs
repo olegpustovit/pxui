@@ -63,6 +63,9 @@ pub struct Tokens {
     pub motion: Motion,
     /// When set, transitions are instant.
     pub reduced_motion: bool,
+    /// Whether this is a dark theme: what `is_dark` answers, which picks the dark side of the colour tokens (`Ui::set_colors`). Stated by
+    /// the theme (`tokens.dark = true` in a theme file, `PxuiThemeTokens.dark`), never guessed from the panel colour.
+    pub dark: bool,
     /// Device pixels per point.
     pub density: f32,
 }
@@ -148,6 +151,7 @@ impl From<crate::ffi::ThemeTokens> for Tokens {
             display_hi: 0, title_hi: 0, font_hi: 0, label_hi: 0,
             motion: value.motion.into(),
             reduced_motion: value.reduced_motion != 0,
+            dark: value.dark != 0,
             density: value.density,
         }
     }
@@ -162,7 +166,7 @@ impl From<Tokens> for crate::ffi::ThemeTokens {
             space: t.space, radius: t.radius, display_size: t.display_size.round() as i64, title_size: t.title_size.round() as i64,
             font_size: t.font_size.round() as i64, label_size: t.label_size.round() as i64,
             motion: crate::ffi::PxuiMotion { fast: t.motion.fast, normal: t.motion.normal, slow: t.motion.slow, ease: t.motion.ease },
-            reduced_motion: t.reduced_motion as u8, reserved_tail: [0; 3], density: t.density,
+            reduced_motion: t.reduced_motion as u8, dark: t.dark as u8, reserved_tail: [0; 2], density: t.density,
         }
     }
 }
@@ -591,7 +595,7 @@ impl Tokens {
         display_size: DISPLAY_SIZE as f32, title_size: TITLE_SIZE as f32, font_size: FONT_SIZE as f32, label_size: LABEL_SIZE as f32,
         display_hi: 0, title_hi: 0, font_hi: 0, label_hi: 0,
         motion: Motion { fast: 0.0, normal: 0.0, slow: 0.0, ease: [0.25, 0.1, 0.25, 1.0] },
-        reduced_motion: false, density: 1.0,
+        reduced_motion: false, dark: false, density: 1.0,
     };
 
     /// The colour text sits on: `ink_ground` when set, else `panel`.
@@ -684,7 +688,7 @@ impl Tokens {
     /// assert_eq!(Tokens::DEFAULT.tint().a, 41);
     /// ```
     pub const fn tint(&self) -> Rgba { self.accent.with_alpha(41) }
-    /// Whether the theme is dark: the `panel` colour's red, green and blue sum to under 384 (an average below 128); `ink_ground` is not read.
+    /// Whether the theme says it is dark (`dark`): stated, not derived from any colour.
     ///
     /// Allocates: never.
     /// Panics: never.
@@ -692,10 +696,14 @@ impl Tokens {
     /// ```
     /// use pxui_types::theme::Tokens;
     /// assert!(!Tokens::DEFAULT.is_dark());
+    /// // stated, not guessed from the panel: a black panel in a theme that does not say so is not dark
+    /// let mut tokens = Tokens::DEFAULT;
+    /// tokens.panel = pxui_types::geom::Rgba::BLACK;
+    /// assert!(!tokens.is_dark());
+    /// tokens.dark = true;
+    /// assert!(tokens.is_dark());
     /// ```
-    pub const fn is_dark(&self) -> bool {
-        (self.panel.r as u32 + self.panel.g as u32 + self.panel.b as u32) < 384
-    }
+    pub const fn is_dark(&self) -> bool { self.dark }
 }
 
 /// A box shadow: outer, or `inner` (CSS `inset`); none while `color` is transparent.

@@ -64,10 +64,10 @@ export!(trusted pub unsafe fn pxui_ui_view(ui: *mut PxuiUi, keyed: *const PxuiKe
     unsafe { crate::trusted::view_of(ui, key, revision, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, callback, user), out) }
 });
 
-/// `anchor`'s placement, or `None` for an invalid descriptor. `align` 3 and 4 (PXUI_ALIGN_STRETCH, _BASELINE) are accepted for 1.x
-/// and align as Start, as they always did; 2.0 refuses them (abi2_cut: validation tightened).
+/// `anchor`'s placement, or `None` for an invalid descriptor. `align` is Start, Center or End (0 to 2): PXUI_ALIGN_STRETCH and
+/// _BASELINE (3 and 4) are node alignments, not a placement's, and are refused (U5.6).
 fn placement(anchor: &PxuiAnchorDesc) -> Option<pxui_types::layout::Placement> {
-    if anchor.has_anchor != 1 || anchor.flip > 1 || anchor.reserved != [0; 2] || anchor.side > 3 || anchor.align > 4 { return None; }
+    if anchor.has_anchor != 1 || anchor.flip > 1 || anchor.reserved != [0; 2] || anchor.side > 3 || anchor.align > 2 { return None; }
     let side = match anchor.side { 0 => pxui_types::layout::Side::Below, 1 => pxui_types::layout::Side::Above, 2 => pxui_types::layout::Side::Right, _ => pxui_types::layout::Side::Left };
     let align = match anchor.align { 1 => pxui_types::layout::Along::Center, 2 => pxui_types::layout::Along::End, _ => pxui_types::layout::Along::Start };
     Some(pxui_types::layout::Placement { side, align, gap: anchor.gap, margin: anchor.margin, flip: anchor.flip != 0 })

@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 142
+minor 143
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -378,7 +378,7 @@ layout PxuiTextAreaDesc 200 8 0 4 8 12 16 20 24 32 40 56 72 88 104 120 136 152 1
 layout PxuiTextFieldConfig 88 8 0 4 16 48 64 80
 layout PxuiTextFieldDesc 56 8 0 4 5 6 7 8 24 40
 layout PxuiThemeSnapshot 56944 8 0 4 8 144 148 152 164 168 172 304
-layout PxuiThemeTokens 136 8 0 4 8 12 16 20 24 28 32 33 36 52 64 72 80 88 96 124 125 128
+layout PxuiThemeTokens 136 8 0 4 8 12 16 20 24 28 32 33 36 52 64 72 80 88 96 124 125 126 128
 layout PxuiTipConfig 72 8 0 4 8 16 48 64
 layout PxuiToastConfig 72 8 0 4 16 48 64
 layout PxuiToggleConfig 208 8 0 4 16 24 56 72 76 80 88 96 104 108 112 128 130 131 136 200 201 202

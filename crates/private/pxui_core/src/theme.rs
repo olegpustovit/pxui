@@ -334,6 +334,7 @@ fn token_fields() -> Vec<Field<Tokens>> {
         field!(Tokens, "motion.slow", SECONDS, motion.slow),
         field!(Tokens, "motion.ease", Kind::Quad(-4.0, 4.0), motion.ease),
         field!(Tokens, "reduced_motion", Kind::Bool, reduced_motion),
+        field!(Tokens, "dark", Kind::Bool, dark),
         field!(Tokens, "density", Kind::Num(0.5, 4.0), density),
     ]
 }

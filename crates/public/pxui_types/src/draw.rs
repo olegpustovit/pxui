@@ -27,6 +27,10 @@ pub mod kind {
 /// Instance flags (byte 51), one module per instance kind: a kind reads only its own bits, so the same bit means
 /// different things to different kinds (bit 0 is a linear gradient on a rect and linear filtering on an image). Take a
 /// flag from the module of the instance's `kind`; the `flags_*` test pins every shared bit.
+///
+/// Decision (U5.6): `mask::LIGHT` shares bit 4 with `rect::TOP` and `shadow::INNER` bit 2 with `rect::AREA` on purpose. Both shaders
+/// (`ui.metal`, `ui.frag`) branch on the instance's `kind` before they read a flag, so no instance reads another kind's bit, and moving
+/// a bit would change shader constants and every golden for nothing; a renderer that reads flags must do the same.
 pub mod flags {
     /// Flags of a `kind::RECT` (and `kind::BORDER`) instance.
     pub mod rect {

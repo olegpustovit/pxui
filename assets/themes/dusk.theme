@@ -1,6 +1,7 @@
 # Dusk: a second pxui theme made from data alone, over Theme::default().
 # Token keys re-derive every look from the tokens; the part keys below then restyle single looks.
 
+tokens.dark = true
 tokens.panel = #1d2230
 tokens.foreground = #e6e9f2
 tokens.control = #2c3346
