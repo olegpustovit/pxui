@@ -575,7 +575,7 @@ fn inspector_header_body(this: &mut Ui, key: &str, kind: Option<&str>, badge: Op
     let title_h = if win { this.row_px() as f32 } else { (display_size + 8) as f32 };
     let width = this.inspector_width();
     let chips = !win && (kind.is_some() || badge.is_some() || index.is_some());
-    let actions: Vec<HeadAction> = if win { Vec::new() } else { actions.to_vec() };
+    let actions = if win { &[] } else { actions };
     let reset = if win { None } else { reset };
     let buttons = !actions.is_empty() || reset.is_some();
     let text_x = if win { 12.0 } else { 8.0 };
@@ -1011,8 +1011,8 @@ impl Ui {
         pressed: &mut Option<i64>,
     ) {
         let saved = self.enter(header);
-        let b = self.box_(
-            &format!("{}-button-{}", key, index),
+        let b = self.box_fmt(
+            format_args!("{key}-button-{index}"),
             BoxOpts::default().flags(if enabled { Flags::CLICKABLE | Flags::TAB_STOP } else { Flags::NONE }).at((x, y_buttons)).w(Size::Px(w)).h(Size::Px(self.control_h())),
         );
         let signal = self.signal_owned(&b);
