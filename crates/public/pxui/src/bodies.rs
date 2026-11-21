@@ -10,7 +10,7 @@ use crate::{as_text, check, status, Error, Ui};
 use core::{ffi::c_void, mem::ManuallyDrop, ptr::NonNull};
 use pxui_types::{geom::Rect, theme::{BodyId, BodyKind, Curve, Part, States}, ffi::{PxuiBodyFn, PxuiHintDesc, PxuiSlot, Slice}, Node, PxuiBox, Str};
 
-use pxui_types::ffi::{PxuiToggleConfig, PxuiSliderConfig, PxuiProgressConfig, PxuiButtonConfig, PxuiIconButtonConfig, PxuiCheckConfig, PxuiSpinnerConfig, PxuiBadgeConfig, PxuiLabelConfig, PxuiFooterConfig, PxuiGripConfig, PxuiPanelConfig, PxuiDialogConfig, PxuiSectionConfig, PxuiInspectorRowConfig, PxuiSplitConfig, PxuiScrollConfig, PxuiToastConfig, PxuiTipConfig, PxuiTabConfig, PxuiSegmentConfig, PxuiDropdownConfig, PxuiMenuItemConfig, PxuiMenuRowConfig, PxuiRowConfig, PxuiTreeRowConfig, PxuiTableHeadConfig, PxuiPickerRowConfig, PxuiSearchFieldConfig, PxuiTextFieldConfig, PxuiLineFieldConfig, PxuiValueFieldConfig, PxuiPickerFieldConfig, PxuiSectionIndexConfig};
+use pxui_types::ffi::{PxuiToggleConfig, PxuiSliderConfig, PxuiProgressConfig, PxuiButtonConfig, PxuiIconButtonConfig, PxuiCheckConfig, PxuiSpinnerConfig, PxuiBadgeConfig, PxuiLabelConfig, PxuiFooterConfig, PxuiGripConfig, PxuiPanelConfig, PxuiDialogConfig, PxuiSectionConfig, PxuiInspectorRowConfig, PxuiSplitConfig, PxuiScrollConfig, PxuiToastsConfig, PxuiTooltipConfig, PxuiTabsConfig, PxuiSegmentedConfig, PxuiDropdownConfig, PxuiMenuItemConfig, PxuiMenuRowConfig, PxuiRowConfig, PxuiTreeRowConfig, PxuiTableHeadConfig, PxuiPickerRowConfig, PxuiSearchFieldConfig, PxuiTextFieldConfig, PxuiLineFieldConfig, PxuiValueFieldConfig, PxuiPickerFieldConfig, PxuiSectionIndexConfig};
 
 mod sealed {
     pub trait Sealed { fn bounds(&self) -> (usize, usize); }
@@ -1256,7 +1256,7 @@ mod tests {
     }
 
     /// A body sizes the node its widget gave it (`set_node_layout`): the second tab is 100 points wide. A registered tab body is given
-    /// the tab's detail (`Segment::detail`, `PxuiTabConfig.detail`).
+    /// the tab's detail (`Segment::detail`, `PxuiTabsConfig.detail`).
     #[test]
     fn a_body_sizes_its_node_with_node_layout() {
         let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");

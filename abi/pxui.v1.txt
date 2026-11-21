@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 148
+minor 149
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -78,7 +78,7 @@ function pxui_ui_checkbox int32_t pxui_ui_checkbox ( PxuiUi * ui , const PxuiChe
 function pxui_ui_color PxuiColor pxui_ui_color ( PxuiUi * ui , uint16_t token ) ;
 function pxui_ui_content_rect int32_t pxui_ui_content_rect ( PxuiUi * ui , PxuiRect * out ) ;
 function pxui_ui_context_at int32_t pxui_ui_context_at ( PxuiUi * ui , const PxuiBox * box , uint8_t * present , PxuiPoint * out ) ;
-function pxui_ui_context_menu int32_t pxui_ui_context_menu ( PxuiUi * ui , float x , float y , PxuiStr label , PxuiStrSpan items , PxuiU8Span enabled , uint8_t has_width , float width , uint8_t has_selected , int64_t selected , const PxuiMenuExtra * extra , uint32_t * out_tag , int64_t * out_index ) ;
+function pxui_ui_context_menu int32_t pxui_ui_context_menu ( PxuiUi * ui , float x , float y , PxuiStr label , PxuiMenuRowSpan rows , uint8_t has_width , float width , const PxuiMenuOptions * options , uint32_t * out_tag , int64_t * out_index ) ;
 function pxui_ui_create PxuiUi * pxui_ui_create ( const PxuiUiDesc * desc ) ;
 function pxui_ui_create_with_fonts PxuiUi * pxui_ui_create_with_fonts ( const PxuiUiDesc * desc , const PxuiStr * fonts , size_t count ) ;
 function pxui_ui_density int64_t pxui_ui_density ( PxuiUi * ui ) ;
@@ -305,9 +305,10 @@ layout PxuiMarkDesc 16 4 0 4 8 12 13
 layout PxuiMaybeRange 24 8 0 1 8 16
 layout PxuiMenuBarDesc 40 8 0 4 6 8 24
 layout PxuiMenuDesc 40 8 0 4 8 24
-layout PxuiMenuExtra 192 8 0 4 6 8 16 32 48 64 80 84 88 104 108 109 112 128 144 145 152 168 184 188
 layout PxuiMenuItemConfig 80 8 0 4 16 24 56 72
+layout PxuiMenuOptions 56 8 0 4 6 8 12 16 20 21 22 32 48 52
 layout PxuiMenuOut 24 8 0 4 8 16
+layout PxuiMenuRow 80 8 0 4 5 6 7 8 9 10 12 16 24 40 56
 layout PxuiMenuRowConfig 120 8 0 4 16 17 18 19 20 24 32 40 44 48 80 96 112 116
 layout PxuiMotion 28 4 0 4 8 12
 layout PxuiNode 488 8 0 4 5 6 7 8 9 14 16 24 40 56 60 64 68 72 76 80 84 100 116 120 128 168 176 180 216 220 232 240 400 416 428 456
@@ -341,7 +342,7 @@ layout PxuiSearchFieldConfig 136 8 0 4 16 24 56 72 80 88 120
 layout PxuiSectionConfig 80 8 0 4 8 16 48 64 72
 layout PxuiSectionIndexConfig 88 8 0 4 16 24 32 64 80
 layout PxuiSectionListDesc 32 8 0 4 5 7 8 16 20 24 28
-layout PxuiSegmentConfig 200 8 0 4 16 24 32 40 72 88 96 98 100 104 112 144 176 177 184 192 193
+layout PxuiSegmentedConfig 200 8 0 4 16 24 32 40 72 88 96 98 100 104 112 144 176 177 184 192 193
 layout PxuiSegmentedDesc 112 8 0 4 5 6 8 16 24 40 56 64 68 72 76 78 80 96 97 104 105
 layout PxuiSegmentedResult 24 8 0 4 5 6 8 16
 layout PxuiSelectionListDesc 232 8 0 4 5 6 7 8 11 12 13 16 24 28 32 36 40 56 224
@@ -360,25 +361,23 @@ layout PxuiSplitDesc 72 8 0 4 8 24 28 32 36 40 48 56 64
 layout PxuiState 5 1 0 1 2 3 4
 layout PxuiStateDesc 12 4 0 4 5 6 7 8 9
 layout PxuiStates 960 8 0 160 320 480 640 800
-layout PxuiSubmenu 72 8 0 8 16 17 24 40 56
-layout PxuiSwatch 8 1 0 1 4
 layout PxuiSwipeIn 16 4 0 4 8 12
-layout PxuiTabConfig 128 8 0 4 16 24 56 72 80 96
 layout PxuiTableDesc 104 8 0 4 5 6 7 8 24 40 48 56 60 64 80 88 90 91 92 96
 layout PxuiTableHeadConfig 96 8 0 4 16 17 24 32 64 80 88
 layout PxuiTableHeadDesc 56 8 0 4 5 6 8 24 40 48 52
 layout PxuiTableResult 192 8 0 4 8 136
+layout PxuiTabsConfig 128 8 0 4 16 24 56 72 80 96
 layout PxuiTargetDesc 32 4 0 4 8 9 12 16 20 24 28
 layout PxuiTextAreaDesc 200 8 0 4 8 12 16 20 24 32 40 56 72 88 104 120 136 152 168 184
 layout PxuiTextFieldConfig 88 8 0 4 16 48 64 80
 layout PxuiTextFieldDesc 64 8 0 4 5 6 7 8 24 40 56 58
 layout PxuiThemeSnapshot 56944 8 0 4 8 144 148 152 164 168 172 304
 layout PxuiThemeTokens 136 8 0 4 8 12 16 20 24 28 32 33 36 52 64 72 80 88 96 124 125 126 128
-layout PxuiTipConfig 72 8 0 4 8 16 48 64
-layout PxuiToastConfig 72 8 0 4 16 48 64
+layout PxuiToastsConfig 72 8 0 4 16 48 64
 layout PxuiToggleConfig 208 8 0 4 16 24 56 72 76 80 88 96 104 108 112 128 130 131 136 200 201 202
 layout PxuiToggleDesc 160 8 0 4 5 6 7 8 12 16 20 24 32 40 56 72 88 89 90 92 96
 layout PxuiTokens 136 8 0 4 8 12 16 20 24 28 36 52 64 72 80 88 96 124 128
+layout PxuiTooltipConfig 72 8 0 4 8 16 48 64
 layout PxuiTrack 8 4
 layout PxuiTransition 24 4
 layout PxuiTreeNode 4 2 0 2

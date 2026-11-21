@@ -4,7 +4,7 @@ use core::{cell::Cell, ffi::c_void};
 use pxui_core::ui_text::{Menu, MenuItem, Chosen, Pick, PickerOpts, PickRows};
 use pxui_types::{ffi::PxuiKeyedDesc, ui::Toast};
 use pxui_types::ui::Key as NodeKey;
-use pxui_types::ffi::{PxuiMenuExtra, Slice};
+use pxui_types::ffi::{PxuiMenuOptions, PxuiMenuRow, Slice, Strided};
 
 const MAX_ROWS: usize = 4096;
 
@@ -55,135 +55,98 @@ export!(build pub unsafe fn pxui_ui_toasts(ui: *mut PxuiUi, keyed: *const PxuiKe
     unsafe { toasts(ui, key, items, ids, seconds, out_index) }
 });
 
+// A context menu at (`x`, `y`): `rows` (strided, each read at its own size, at most `MAX_ROWS`) with the options `options` (null: the
+// theme's), answering the row chosen (`out_tag` 1, `out_index` the row's position), a dismissal (2) or neither (0).
 export!(trusted pub unsafe fn pxui_ui_context_menu(
-    ui: *mut PxuiUi, x: f32, y: f32, label: Str, items: Slice<Str>, enabled: Slice<u8>,
-    has_width: u8, width: f32, has_selected: u8, selected: i64, extra: *const PxuiMenuExtra,
+    ui: *mut PxuiUi, x: f32, y: f32, label: Str, rows: Strided<PxuiMenuRow>, has_width: u8, width: f32, options: *const PxuiMenuOptions,
     out_tag: *mut u32, out_index: *mut i64,
 ) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    if out_tag.is_null() || out_index.is_null() || !finite(&[x, y]) || has_width > 1 || has_selected > 1
-        || (has_width != 0 && (!width.is_finite() || width < 0.0)) || items.len > MAX_ROWS
-        || enabled.len != items.len || (enabled.len != 0 && enabled.ptr.is_null()) {
+    if out_tag.is_null() || out_index.is_null() || !finite(&[x, y]) || has_width > 1 || (has_width != 0 && (!width.is_finite() || width < 0.0))
+        || rows.len > MAX_ROWS || !rows.is_valid() {
         return unsafe { fail(ui, "invalid context menu arguments") };
     }
-    let mut list = state.shared().take_strs();
-    let Some(label) = (unsafe { crate::state::checked_label(label) }).filter(|_| unsafe { strings(items, MAX_ROWS, &mut list) }) else {
-        state.shared().put_strs(list);
-        return unsafe { fail(ui, "invalid context menu strings") };
-    };
-    let enabled = if enabled.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(enabled.ptr, enabled.len) } };
-    if enabled.iter().any(|value| *value > 1) {
-        state.shared().put_strs(list);
-        return unsafe { fail(ui, "invalid context menu enabled flags") };
-    }
+    let Some(label) = (unsafe { crate::state::checked_label(label) }) else { return unsafe { fail(ui, "invalid context menu strings") }; };
     // the rows borrow the caller's strings for this call, in vectors reused between frames
     let (mut menu, mut subs) = { let shared = state.shared(); (core::mem::take(&mut shared.menu), core::mem::take(&mut shared.menu_sub)) };
-    menu.extend(list.iter().zip(enabled).map(|(text, enabled)| MenuItem::new(text).disabled(*enabled == 0)));
-    let mut options = Menu::DEFAULT;
-    if has_width != 0 { options = options.w_px(width); }
-    let mut marks = false;
-    let mut valid = true;
-    if !extra.is_null() {
+    let mut valid = unsafe { decode_rows(&rows, &mut menu, &mut subs) };
+    let mut menu_options = Menu::DEFAULT;
+    if has_width != 0 { menu_options = menu_options.w_px(width); }
+    if valid && !options.is_null() {
         // the whole record (its size, or more): an earlier size is refused
-        valid = unsafe { (*extra).size } as usize >= core::mem::size_of::<PxuiMenuExtra>() && unsafe { decode_extra(&*extra, &mut menu, &mut subs, &mut options, &mut marks) };
+        valid = unsafe { (*options).size } as usize >= core::mem::size_of::<PxuiMenuOptions>() && unsafe { decode_options(&*options, &mut menu_options) };
     }
-    if valid && has_selected != 0 && !marks {
-        // the current choice: the rows from `lead_from` keep the mark slot, the chosen one is marked
-        let lead_from = if extra.is_null() { 0 } else { unsafe { (*extra).lead_from } };
-        for (row, item) in menu.iter_mut().enumerate() {
-            if row as i64 >= lead_from || row as i64 == selected { item.checked = Some(row as i64 == selected); }
-        }
-    }
+    let variant = if options.is_null() || !valid { 0 } else { unsafe { (*options).variant } };
     let mut result = Chosen::default();
-    let variant = if extra.is_null() { 0 } else { unsafe { (*extra).variant } };
-    let status = if valid { with_variant!(ui, pxui_types::theme::BodyKind::menu_row, variant, unsafe { crate::trusted::menu(ui, NodeKey::Label(label), (x, y), &menu, &options, &mut result) }) } else { 0 };
+    let status = if valid { with_variant!(ui, pxui_types::theme::BodyKind::menu_row, variant, unsafe { crate::trusted::menu(ui, NodeKey::Label(label), (x, y), &menu, &menu_options, &mut result) }) } else { 0 };
     menu.clear();
     subs.clear();
     { let shared = state.shared(); (shared.menu, shared.menu_sub) = (menu, subs); }
-    state.shared().put_strs(list);
-    if !valid { return unsafe { fail(ui, "invalid context menu extras") }; }
+    if !valid { return unsafe { fail(ui, "invalid context menu rows or options") }; }
     if status != 0 { return status; }
     let (tag, index) = match (result.dismissed, result.chosen) { (true, _) => (2, -1), (_, Some(index)) => (1, index as i64), _ => (0, -1) };
     unsafe { *out_tag = tag; *out_index = index; }
     0
 });
 
-// Applies a menu's extras to its rows (shortcuts, swatches, destructive rows, marks, submenus) and options, borrowing the caller's
-// strings: false when a span, text or row is invalid. The submenus' rows go flat into `subs` first, then each opening row points
-// into it (`subs` does not grow after that).
-unsafe fn decode_extra(extra: &PxuiMenuExtra, menu: &mut [MenuItem<'static>], subs: &mut Vec<MenuItem<'static>>, options: &mut Menu<'static>, marks: &mut bool) -> bool {
-    fn span<'a, T>(s: Slice<T>, max: usize) -> Option<&'a [T]> {
-        if s.len > max || (s.len != 0 && s.ptr.is_null()) { return None; }
-        Some(if s.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(s.ptr, s.len) } })
-    }
-    let texts = |values: Slice<Str>| -> Option<&'static [Str]> { span(values, MAX_ROWS) };
-    let (Some(keys), Some(swatches), Some(danger), Some(submenus)) = (texts(extra.keys), span(extra.swatches, MAX_ROWS), span(extra.danger, MAX_ROWS), span(extra.submenus, 64)) else { return false };
-    if keys.len() > menu.len() || swatches.len() > menu.len() { return false; }
-    for (item, key) in menu.iter_mut().zip(keys) {
-        let Some(key) = (unsafe { checked(*key) }) else { return false };
-        item.shortcut = key;
-    }
-    for (item, swatch) in menu.iter_mut().zip(swatches) { item.swatch = (swatch.has != 0).then_some(swatch.color); }
-    for row in danger {
-        let Some(item) = usize::try_from(*row).ok().and_then(|row| menu.get_mut(row)) else { return false };
-        item.danger = true;
-    }
-    // the row height and the marks per row
-    {
-        if !extra.row_h.is_finite() || extra.row_h < 0.0 { return false; }
-        if extra.row_h > 0.0 { *options = options.row_h(extra.row_h); }
-        if extra.max_rows > 0 { *options = options.max_rows(extra.max_rows as usize); }
-        let Some(checked) = span(extra.checked, MAX_ROWS) else { return false };
-        if checked.len() > menu.len() || checked.iter().any(|mark| *mark > 2) { return false; }
-        *marks = !checked.is_empty();
-        for (item, mark) in menu.iter_mut().zip(checked) { item.checked = (*mark != 0).then_some(*mark == 2); }
-    }
-    // the padding, the sheet's name and the current choice per row
-    {
-        if !(0.0..=f32::MAX).contains(&extra.padding) || extra.has_name > 1 || extra.reserved2 != [0; 3] { return false; }
-        *options = options.padding(extra.padding);
-        if extra.has_name == 1 {
-            let Some(name) = (unsafe { checked(extra.name) }) else { return false };
-            *options = options.name(name);
-        }
-        let Some(selected) = span(extra.selected, MAX_ROWS) else { return false };
-        if selected.len() > menu.len() || selected.iter().any(|on| *on > 1) { return false; }
-        for (item, on) in menu.iter_mut().zip(selected) { item.selected = *on == 1; }
-    }
-    // a press focuses its row, and the rows' ids
-    {
-        if extra.focus_on_click > 1 || extra.reserved3 != [0; 7] { return false; }
-        *options = options.focus_on_click(extra.focus_on_click == 1);
-        let (Some(ids), Some(has_id)) = (span(extra.ids, MAX_ROWS), span(extra.has_id, MAX_ROWS)) else { return false };
-        if has_id.len() > menu.len() || has_id.len() > ids.len() || has_id.iter().any(|on| *on > 1) { return false; }
-        for ((item, on), id) in menu.iter_mut().zip(has_id).zip(ids) { item.id = (*on == 1).then_some(*id); }
-    }
-    // the sheet's most height
-    {
-        if !(0.0..=f32::MAX).contains(&extra.max_h) || extra.reserved4 != 0 { return false; }
-        if extra.max_h > 0.0 { *options = options.max_h(extra.max_h); }
-    }
+/// `row` as a menu item, borrowing the caller's strings: `None` for a short record, a flag past 1, a mark past 2, a non-zero reserved byte
+/// or a string that is not UTF-8.
+unsafe fn menu_item(row: &PxuiMenuRow) -> Option<MenuItem<'static>> {
+    if (row.size as usize) < core::mem::size_of::<PxuiMenuRow>() || [row.enabled, row.danger, row.selected, row.has_swatch, row.has_id].iter().any(|flag| *flag > 1)
+        || row.checked > 2 || row.reserved != [0; 2] { return None; }
+    let (text, shortcut) = (unsafe { checked(row.text) }?, unsafe { checked(row.shortcut) }?);
+    let mut item = MenuItem::new(text).disabled(row.enabled == 0).shortcut(shortcut);
+    item.danger = row.danger == 1;
+    item.selected = row.selected == 1;
+    item.checked = (row.checked != 0).then_some(row.checked == 2);
+    item.swatch = (row.has_swatch == 1).then_some(row.swatch);
+    item.id = (row.has_id == 1).then_some(row.id);
+    Some(item)
+}
+
+/// The rows of `rows` as menu items in `menu`, the submenus' rows flat in `subs` (at most 64 submenus, `MAX_ROWS` rows each, a submenu's
+/// rows with none of their own): false when a record is invalid. Each opening row points into `subs` once it is complete (it does not
+/// grow after that).
+unsafe fn decode_rows(rows: &Strided<PxuiMenuRow>, menu: &mut Vec<MenuItem<'static>>, subs: &mut Vec<MenuItem<'static>>) -> bool {
+    menu.clear();
     subs.clear();
     let mut at = [(0usize, 0usize, 0usize); 64];
-    let mut last = -1i64;
-    for (n, sub) in submenus.iter().enumerate() {
-        let (Some(rows), Some(enabled), Some(keys)) = (texts(sub.rows), span(sub.enabled, MAX_ROWS), texts(sub.keys)) else { return false };
-        // one submenu per row, in row order: the rows of the submenus are numbered after the menu's in the order given
-        if enabled.len() != rows.len() || keys.len() > rows.len() || sub.row <= last || sub.row >= menu.len() as i64 { return false; }
-        last = sub.row;
+    let mut opening = 0;
+    for i in 0..rows.len {
+        let row = unsafe { rows.at(i) };
+        let Some(item) = (unsafe { menu_item(row) }) else { return false };
+        menu.push(item);
+        if row.submenu.len == 0 { continue; }
+        let sub = &row.submenu;
+        if opening == at.len() || sub.len > MAX_ROWS || !sub.is_valid() { return false; }
         let start = subs.len();
-        for (i, text) in rows.iter().enumerate() {
-            let (Some(text), Some(shortcut)) = (unsafe { checked(*text) }, keys.get(i).map_or(Some(""), |key| unsafe { checked(*key) })) else { return false };
-            let mut item = MenuItem::new(text).disabled(enabled[i] == 0).shortcut(shortcut);
-            if sub.has_current != 0 { item = item.checked(i as i64 == sub.current); }
+        for j in 0..sub.len {
+            let child = unsafe { sub.at(j) };
+            let Some(item) = (unsafe { menu_item(child) }).filter(|_| child.submenu.len == 0) else { return false };
             subs.push(item);
         }
-        at[n] = (sub.row as usize, start, rows.len());
+        at[opening] = (i, start, sub.len);
+        opening += 1;
     }
-    for (row, start, count) in &at[..submenus.len()] {
+    for (row, start, count) in &at[..opening] {
         // the pointer outlives the borrow: `subs` is neither pushed to nor dropped until the call that reads the rows has returned
         menu[*row].submenu = unsafe { core::slice::from_raw_parts(subs.as_ptr().add(*start), *count) };
     }
+    true
+}
+
+/// Applies a menu's options (`options` read whole, its `size` checked by the caller): false when a number or flag is invalid.
+unsafe fn decode_options(options: &PxuiMenuOptions, menu: &mut Menu<'static>) -> bool {
+    if !options.row_h.is_finite() || options.row_h < 0.0 || !(0.0..=f32::MAX).contains(&options.padding) || options.has_name > 1 || options.focus_on_click > 1
+        || options.reserved != 0 || options.reserved2 != [0; 6] || !(0.0..=f32::MAX).contains(&options.max_h) || options.reserved3 != 0 { return false; }
+    if options.row_h > 0.0 { *menu = menu.row_h(options.row_h); }
+    if options.max_rows > 0 { *menu = menu.max_rows(options.max_rows as usize); }
+    *menu = menu.padding(options.padding).focus_on_click(options.focus_on_click == 1);
+    if options.has_name == 1 {
+        let Some(name) = (unsafe { checked(options.name) }) else { return false };
+        *menu = menu.name(name);
+    }
+    if options.max_h > 0.0 { *menu = menu.max_h(options.max_h); }
     true
 }
 

@@ -96,11 +96,11 @@ macro_rules! arg {
 arg!(int: u8, u16, u32, u64, usize);
 arg!(signed: i32, i64);
 arg!(float: f32, f64);
-arg!(strided: Event, A11yAction);
+arg!(strided: Event, A11yAction, pxui_types::ffi::PxuiMenuRow);
 arg!(span: Str, u8, i64, PxuiHintDesc, PxuiKeyframeDesc, pxui_types::ffi::PxuiPickItem);
 arg!(sized: PxuiTextFieldDesc, Environment, Gpu, Keyboard, Pass, pxui_text::TextSpans<'static>, Commands, A11yAction, Input, PxuiButtonDesc, PxuiDialogDesc, PxuiDialogResult, PxuiSegmentedResult,
     PxuiDismissIn, PxuiDismissOut, PxuiFooterDesc, PxuiGestureIn, PxuiGestureOut, PxuiGridListDesc, PxuiHeaderDesc, PxuiHeadOut, PxuiIconButtonDesc,
-    PxuiInspectorRowDesc, PxuiInspectorSectionDesc, PxuiInspectorTextDesc, PxuiInspectorValueDesc, PxuiKeyframeDesc, PxuiLabelStyle, PxuiLookDesc, PxuiMenuBarDesc, PxuiMenuExtra, PxuiMenuOut, PxuiNodeFields, PxuiPopupDesc, PxuiResponse,
+    PxuiInspectorRowDesc, PxuiInspectorSectionDesc, PxuiInspectorTextDesc, PxuiInspectorValueDesc, PxuiKeyframeDesc, PxuiLabelStyle, PxuiLookDesc, PxuiMenuBarDesc, PxuiMenuOptions, PxuiMenuOut, PxuiNodeFields, PxuiPopupDesc, PxuiResponse,
     PxuiScrubOut, PxuiSignal, PxuiSplitDesc, PxuiStateDesc, PxuiSwipeIn, PxuiTreeViewDesc, PxuiValueFieldDesc, ThemeTokens, FrameIn, FrameOut, Image, Node, PxuiPanel,
     PxuiTargetDesc, PxuiUiDesc, TextMetrics, PxuiTextStyle, PxuiAnchorDesc, PxuiAreaCallbacks, PxuiLabelBox, PxuiMarkDesc, PxuiSegmentedDesc,
     PxuiTextAreaDesc, PxuiTextInputOptions, PxuiToggleDesc, PxuiCheckboxDesc, PxuiSheetDesc, Span, TextGlyph,
@@ -238,7 +238,7 @@ fuzz!(
     pxui_ui_cached_label/5, pxui_ui_calls/1, pxui_ui_cancel_carry/1, pxui_ui_captured/1, pxui_ui_reordering/1, pxui_ui_carry/5, pxui_ui_carrying/4, pxui_ui_progress/5, pxui_ui_spinner/3,
     pxui_ui_badge/4, pxui_ui_anchored/8, pxui_ui_scroll_view/6, pxui_ui_view/6,
     pxui_ui_toasts/6, pxui_ui_picker/14, pxui_ui_checkbox/3, pxui_ui_section_index/5, pxui_ui_disclosure/6,
-    pxui_ui_color/2, pxui_ui_content_rect/2, pxui_ui_context_at/4, pxui_ui_context_menu/13, pxui_ui_density/1,
+    pxui_ui_color/2, pxui_ui_content_rect/2, pxui_ui_context_at/4, pxui_ui_context_menu/10, pxui_ui_density/1,
     pxui_ui_dialog/5, pxui_ui_disabled/4, pxui_ui_dismiss/4, pxui_ui_dismiss_popup/1, pxui_ui_draw/6,
     pxui_ui_drop_target/5, pxui_ui_environment/2, pxui_ui_expanded/3, pxui_ui_field_drag/4, pxui_ui_focus_box/2, pxui_ui_focus_default/2,
     pxui_ui_focused/3, pxui_ui_font_points/2, pxui_ui_footer/2, pxui_ui_frame_index/1, pxui_ui_gesture/5, pxui_ui_grid_list/3, pxui_ui_grip/7,
@@ -471,7 +471,7 @@ static LEGACY_KEYED: &[(&str, LegacyCall)] = &[
         ("pxui_ui_line_field", |ui, l| unsafe { pxui_ui_line_field(ui, 0.0, 0.0, 10.0, 10.0, 0, Str::default(), l, Str::default(), Str::default(), &mut Str::default(), &mut 0, &mut response()) }),
         ("pxui_ui_text_area", |ui, l| { let d = PxuiTextAreaDesc { label: l, size: core::mem::size_of::<PxuiTextAreaDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_text_area(ui, &d, &Node::DEFAULT, core::ptr::null(), Str::default(), &mut Str::default(), &mut 0, &mut 0, &mut response()) } }),
         ("pxui_ui_value_field", |ui, l| { let d = PxuiValueFieldDesc { label: l, width: 10.0, height: 10.0, size: core::mem::size_of::<PxuiValueFieldDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_value_field(ui, &d, None, None, None, core::ptr::null_mut(), Str::default(), &mut Str::default(), &mut 0, &mut 0, &mut response()) } }),
-        ("pxui_ui_context_menu", |ui, l| { let e = Slice { ptr: core::ptr::null(), len: 0 }; unsafe { pxui_ui_context_menu(ui, 0.0, 0.0, l, e, Slice { ptr: core::ptr::null(), len: 0 }, 0, 0.0, 0, 0, core::ptr::null(), &mut 0, &mut 0) } }),
+        ("pxui_ui_context_menu", |ui, l| unsafe { pxui_ui_context_menu(ui, 0.0, 0.0, l, pxui_types::ffi::Strided::default(), 0, 0.0, core::ptr::null(), &mut 0, &mut 0) }),
 ];
 
 /// The fuzz calls every export the manifests name: a new export without a row here fails.

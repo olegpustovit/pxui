@@ -2,7 +2,7 @@ use crate::Handle;
 use core::{cell::Cell, ffi::c_void};
 use pxui_types::{Str, ffi::{PxuiKeyedDesc, PxuiPopupDesc, Slice}, ui::{Key, Menu, MenuItem, Chosen, Overlay, Pick, PickRows, PickerResponse, Toast}};
 #[cfg(not(feature = "static"))]
-use pxui_types::ffi::{PxuiMenuExtra, PxuiSubmenu, PxuiSwatch};
+use pxui_types::ffi::{PxuiMenuOptions, PxuiMenuRow, Strided};
 use crate::{composite::{defer_callback_panic, deferred}, check, OverlayResponse, Strs, Ui};
 
 use crate::Picker;
@@ -19,7 +19,7 @@ mod raw {
 #[cfg(not(feature = "static"))]
 mod raw {
     use core::ffi::c_void;
-    use pxui_types::{PxuiBox, Str, ffi::{PxuiKeyedDesc, PxuiMenuExtra, Slice}};
+    use pxui_types::{PxuiBox, Str, ffi::{PxuiKeyedDesc, PxuiMenuOptions, PxuiMenuRow, Slice, Strided}};
     use crate::sys::PxuiUi;
     pub type PickerRows = Option<extern "C" fn(*mut c_void, Str, *mut Slice<pxui_types::ffi::PxuiPickRow>)>;
     pub type PickerMark = Option<extern "C" fn(*mut c_void, i64, *mut pxui_types::geom::Rgba) -> u8>;
@@ -61,7 +61,7 @@ mod raw {
     /// use pxui::ui::{Menu, MenuItem};
     /// pxui::doc::frames(1, &mut |ui| { ui.menu("m", pxui::Point::new(10.0, 10.0), &[MenuItem::new("Open")], &Menu::DEFAULT); });
     /// ```
-    pub fn pxui_ui_context_menu(ui:*mut PxuiUi,x:f32,y:f32,label:Str,items:Slice<Str>,enabled:Slice<u8>,has_width:u8,width:f32,has_selected:u8,selected:i64,extra:*const PxuiMenuExtra,out_tag:*mut u32,out_index:*mut i64)->i32;
+    pub fn pxui_ui_context_menu(ui:*mut PxuiUi,x:f32,y:f32,label:Str,rows:Strided<PxuiMenuRow>,has_width:u8,width:f32,options:*const PxuiMenuOptions,out_tag:*mut u32,out_index:*mut i64)->i32;
     /// The C entry `Ui::picker` calls: a search field over the rows `rows` computes for the query, windowed to `limit` rows; writes the edited
     /// query, the outcome tag (0 none, 1 pick, 2 delete, 3 submit, 4 back, 5 cancel) and the row index; an error code for invalid arguments.
     /// The callbacks run during the call with `user`; the query and the rows they hand over are borrowed until the call returns.
@@ -90,12 +90,10 @@ thread_local! { static ROWS: Cell<(PickRows, Vec<pxui_types::ffi::PxuiPickRow>)>
 /// The most rows a menu takes: the library's row cap (it refuses more); `Ui::menu` refuses a longer one before copying a row.
 pub(crate) const MENU_ROWS: usize = 4096;
 
-// The columns of a menu of more than 32 rows, kept on this thread between calls so a settled long menu allocates nothing here; at most
-// `MENU_ROWS` rows' worth (about 240 KiB), the longest menu built on the thread.
+// The row records of a menu of more than 32 rows, kept on this thread between calls so a settled long menu allocates nothing here; at most
+// `MENU_ROWS` rows' worth, the longest menu built on the thread.
 #[cfg(not(feature = "static"))]
-type MenuColumns = (Vec<Str>, Vec<u8>, Vec<Str>, Vec<PxuiSwatch>, Vec<u8>, Vec<i64>, Vec<u8>, Vec<i64>, Vec<u8>);
-#[cfg(not(feature = "static"))]
-thread_local! { static MENU_COLUMNS: Cell<MenuColumns> = const { Cell::new((Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new())) }; }
+thread_local! { static MENU_KEPT: Cell<Vec<PxuiMenuRow>> = const { Cell::new(Vec::new()) }; }
 
 struct Rows<'a, 'f> {
     fill: &'a mut (dyn FnMut(&str, &mut PickRows) + 'f),
@@ -227,68 +225,41 @@ impl Ui {
         let mut id_label = [0u8; 17];
         let label = key.label(&mut id_label);
         const ROWS: usize = 32;
-        let n = items.len();
-        let (mut sl, mut se, mut sk, mut ss, mut sm, mut sd, mut sc, mut si, mut sh) = ([Str::default(); ROWS], [0u8; ROWS], [Str::default(); ROWS], [PxuiSwatch::default(); ROWS], [0u8; ROWS], [0i64; ROWS], [0u8; ROWS], [0i64; ROWS], [0u8; ROWS]);
-        let (mut hl, mut he, mut hk, mut hs, mut hm, mut hd, mut hc, mut hi, mut hh) = if n > ROWS { MENU_COLUMNS.take() } else { Default::default() };
-        #[allow(clippy::type_complexity)]
-        let (labels, enabled, keys, swatches, marks, danger, current, ids, has_id): (&mut [Str], &mut [u8], &mut [Str], &mut [PxuiSwatch], &mut [u8], &mut [i64], &mut [u8], &mut [i64], &mut [u8]) = if n <= ROWS {
-            (&mut sl[..n], &mut se[..n], &mut sk[..n], &mut ss[..n], &mut sm[..n], &mut sd[..n], &mut sc[..n], &mut si[..n], &mut sh[..n])
-        } else {
-            (hl.clear(), he.clear(), hk.clear(), hs.clear(), hm.clear(), hd.clear(), hc.clear(), hi.clear(), hh.clear());
-            (hl.resize(n, Str::default()), he.resize(n, 0), hk.resize(n, Str::default()), hs.resize(n, PxuiSwatch::default()), hm.resize(n, 0), hd.resize(n, 0), hc.resize(n, 0), hi.resize(n, 0), hh.resize(n, 0));
-            (&mut hl, &mut he, &mut hk, &mut hs, &mut hm, &mut hd, &mut hc, &mut hi, &mut hh)
+        let row_of = |item: &MenuItem| PxuiMenuRow {
+            enabled: item.enabled as u8, danger: item.danger as u8, checked: item.checked.map_or(0, |mark| 1 + mark as u8), selected: item.selected as u8,
+            has_swatch: item.swatch.is_some() as u8, swatch: item.swatch.unwrap_or_default(), has_id: item.id.is_some() as u8, id: item.id.unwrap_or(0),
+            shortcut: as_str(item.shortcut), ..PxuiMenuRow::new(item.text)
         };
-        let (mut dangers, mut extras) = (0, menu.row_h.is_some() || menu.max_rows.is_some() || menu.padding != 6.0 || menu.name.is_some() || menu.focus_on_click || menu.max_h.is_some() || menu.variant != 0);
-        let (mut selected, mut with_ids) = (false, false);
-        let mut with_submenus = false;
-        for (row, item) in items.iter().enumerate() {
-            (labels[row], enabled[row], keys[row]) = (as_str(item.text), item.enabled as u8, as_str(item.shortcut));
-            if let Some(color) = item.swatch { swatches[row] = PxuiSwatch { has: 1, color, ..PxuiSwatch::default() }; extras = true; }
-            if let Some(mark) = item.checked { marks[row] = 1 + mark as u8; extras = true; }
-            if item.danger { danger[dangers] = row as i64; dangers += 1; extras = true; }
-            if item.selected { current[row] = 1; selected = true; extras = true; }
-            if let Some(id) = item.id { (ids[row], has_id[row]) = (id, 1); with_ids = true; extras = true; }
-            extras |= !item.shortcut.is_empty();
-            with_submenus |= !item.submenu.is_empty();
-        }
-        // the submenus' rows, flat: each opening row's descriptor points at its run
-        let (mut sub_rows, mut sub_enabled, mut sub_keys, mut runs): (Vec<Str>, Vec<u8>, Vec<Str>, Vec<(i64, usize, usize, Option<i64>)>) = Default::default();
-        if with_submenus {
-            extras = true;
-            for (row, item) in items.iter().enumerate().filter(|(_, item)| !item.submenu.is_empty()) {
-                let start = sub_rows.len();
-                for child in item.submenu {
-                    (sub_rows.push(as_str(child.text)), sub_enabled.push(child.enabled as u8), sub_keys.push(as_str(child.shortcut)));
-                }
-                // the ABI carries one current row per submenu: the first checked
-                let current = item.submenu.iter().position(|child| child.checked == Some(true)).map(|i| i as i64);
-                let marked = item.submenu.iter().any(|child| child.checked.is_some());
-                runs.push((row as i64, start, item.submenu.len(), if marked { Some(current.unwrap_or(-1)) } else { None }));
+        let n = items.len();
+        let mut stack = [PxuiMenuRow::new(""); ROWS];
+        let mut kept = if n > ROWS { MENU_KEPT.take() } else { Vec::new() };
+        let rows: &mut [PxuiMenuRow] = if n <= ROWS { &mut stack[..n] } else { kept.clear(); kept.resize(n, PxuiMenuRow::new("")); &mut kept };
+        for (row, item) in rows.iter_mut().zip(items) { *row = row_of(item); }
+        // the submenus' rows, flat: each opening row's span points at its run (the vector grows no more once they are set)
+        let children: usize = items.iter().map(|item| item.submenu.len()).sum();
+        let mut flat: Vec<PxuiMenuRow> = Vec::with_capacity(children);
+        if children != 0 {
+            for item in items { flat.extend(item.submenu.iter().map(row_of)); }
+            let mut start = 0;
+            for (row, item) in rows.iter_mut().zip(items).filter(|(_, item)| !item.submenu.is_empty()) {
+                row.submenu = Strided { ptr: flat[start..].as_ptr(), len: item.submenu.len(), stride: core::mem::size_of::<PxuiMenuRow>() };
+                start += item.submenu.len();
             }
         }
-        let descriptors: Vec<PxuiSubmenu> = runs.iter().map(|&(row, start, count, current)| PxuiSubmenu {
-            row, current: current.unwrap_or_default(), has_current: current.is_some() as u8, reserved: [0; 7],
-            rows: Slice { ptr: sub_rows[start..].as_ptr(), len: count }, enabled: Slice { ptr: sub_enabled[start..].as_ptr(), len: count }, keys: Slice { ptr: sub_keys[start..].as_ptr(), len: count },
-        }).collect();
-        let marks_len = if marks.contains(&1) || marks.contains(&2) { n } else { 0 };
-        let extra = PxuiMenuExtra {
-            size: core::mem::size_of::<PxuiMenuExtra>() as u32, variant: menu.variant, reserved: 0, lead_from: 0,
-            keys: Slice { ptr: keys.as_ptr(), len: n }, swatches: Slice { ptr: swatches.as_ptr(), len: n },
-            danger: Slice { ptr: danger.as_ptr(), len: dangers }, submenus: Slice { ptr: descriptors.as_ptr(), len: descriptors.len() },
-            row_h: menu.row_h.unwrap_or(0.0), max_rows: menu.max_rows.map_or(0, |rows| rows.min(u32::MAX as usize) as u32), checked: Slice { ptr: marks.as_ptr(), len: marks_len },
-            padding: menu.padding, has_name: menu.name.is_some() as u8, reserved2: [0; 3], name: as_str(menu.name.unwrap_or("")),
-            selected: Slice { ptr: current.as_ptr(), len: if selected { n } else { 0 } },
-            focus_on_click: menu.focus_on_click as u8, reserved3: [0; 7],
-            ids: Slice { ptr: ids.as_ptr(), len: if with_ids { n } else { 0 } }, has_id: Slice { ptr: has_id.as_ptr(), len: if with_ids { n } else { 0 } },
-            max_h: menu.max_h.unwrap_or(0.0), reserved4: 0,
+        let options = PxuiMenuOptions {
+            size: core::mem::size_of::<PxuiMenuOptions>() as u32, variant: menu.variant, reserved: 0,
+            row_h: menu.row_h.unwrap_or(0.0), max_rows: menu.max_rows.map_or(0, |rows| rows.min(u32::MAX as usize) as u32),
+            padding: menu.padding, has_name: menu.name.is_some() as u8, focus_on_click: menu.focus_on_click as u8, reserved2: [0; 6], name: as_str(menu.name.unwrap_or("")),
+            max_h: menu.max_h.unwrap_or(0.0), reserved3: 0,
         };
+        let optioned = menu.row_h.is_some() || menu.max_rows.is_some() || menu.padding != 6.0 || menu.name.is_some() || menu.focus_on_click || menu.max_h.is_some() || menu.variant != 0;
         let (has_width, width) = menu.w.map_or((0, 0.0), |width| (1, width));
         let (mut tag, mut index) = (0, -1i64);
         check(self, unsafe { raw::pxui_ui_context_menu(
-            self.0.as_ptr(), at.0, at.1, as_str(label), Slice { ptr: labels.as_ptr(), len: n },
-            Slice { ptr: enabled.as_ptr(), len: n }, has_width, width, 0, 0, if extras { &extra } else { core::ptr::null() }, &mut tag, &mut index,
+            self.0.as_ptr(), at.0, at.1, as_str(label), Strided { ptr: rows.as_ptr(), len: n, stride: core::mem::size_of::<PxuiMenuRow>() }, has_width, width,
+            if optioned { &options } else { core::ptr::null() }, &mut tag, &mut index,
         ) });
-        if n > ROWS { MENU_COLUMNS.set((hl, he, hk, hs, hm, hd, hc, hi, hh)); }
+        if n > ROWS { MENU_KEPT.set(kept); }
         match tag { 0 => Chosen::default(), 1 => Chosen { chosen: Some(index as usize), ..Chosen::default() }, 2 => Chosen { dismissed: true, ..Chosen::default() }, _ => unreachable!("the library answers a menu with tag 0, 1 or 2") }
     }
 
@@ -320,83 +291,62 @@ impl Ui {
 mod tests {
     #[cfg(feature = "static")]
     use pxui_abi_link::pxui_ui_context_menu;
-    use super::Slice;
     #[cfg(not(feature = "static"))]
     use super::raw::pxui_ui_context_menu;
     use crate::{as_str, FrameIn, Ui};
-    use pxui_types::{ffi::{PxuiMenuExtra, PxuiSubmenu}, Str};
+    use pxui_types::ffi::{PxuiMenuOptions, PxuiMenuRow, Strided};
 
-    fn extra(size: u32) -> PxuiMenuExtra {
-        let none = Slice { ptr: core::ptr::null(), len: 0 };
-        PxuiMenuExtra {
-            size, variant: 0, reserved: 0, lead_from: 0, keys: none, swatches: Slice { ptr: core::ptr::null(), len: 0 }, danger: Slice { ptr: core::ptr::null(), len: 0 },
-            submenus: Slice { ptr: core::ptr::null(), len: 0 }, row_h: 0.0, max_rows: 0, checked: Slice { ptr: core::ptr::null(), len: 0 },
-            padding: 6.0, has_name: 0, reserved2: [0; 3], name: Str::default(), selected: Slice { ptr: core::ptr::null(), len: 0 },
-            focus_on_click: 0, reserved3: [0; 7], ids: Slice { ptr: core::ptr::null(), len: 0 }, has_id: Slice { ptr: core::ptr::null(), len: 0 },
-            max_h: 0.0, reserved4: 0,
-        }
+    fn options(size: u32) -> PxuiMenuOptions {
+        PxuiMenuOptions { size, variant: 0, reserved: 0, row_h: 0.0, max_rows: 0, padding: 6.0, has_name: 0, focus_on_click: 0, reserved2: [0; 6], name: pxui_types::Str::default(), max_h: 0.0, reserved3: 0 }
     }
 
-    /// Calls the export with `extra` over two rows and returns its status.
-    fn call(ui: &mut Ui, extra: &PxuiMenuExtra) -> i32 {
-        let (rows, enabled) = ([as_str("One"), as_str("Two")], [1u8, 1]);
+    /// Calls the export over `rows` with `options` and returns its status.
+    fn call(ui: &mut Ui, rows: &[PxuiMenuRow], options: &PxuiMenuOptions) -> i32 {
         let (mut tag, mut index) = (0, -1i64);
-        unsafe { pxui_ui_context_menu(ui.0.as_ptr(), 10.0, 10.0, as_str("m"), Slice { ptr: rows.as_ptr(), len: 2 }, Slice { ptr: enabled.as_ptr(), len: 2 }, 0, 0.0, 0, 0, extra, &mut tag, &mut index) }
+        unsafe { pxui_ui_context_menu(ui.0.as_ptr(), 10.0, 10.0, as_str("m"), Strided::of(rows), 0, 0.0, options, &mut tag, &mut index) }
     }
 
-    /// One size: the 80, 104, 144 and 184-byte records of earlier builds and a short one are refused (1.135); the whole record is validated: a
-    /// negative row height, a submenu on a row that is not there or out of order, a mark byte over 2, a negative padding, a name flag or
-    /// a current-choice byte over 1 or more choices than rows, an id flag or focus flag over 1, more id flags than ids, a reserved byte
-    /// set, a negative or non-finite `max_h` and a reserved word set.
+    /// The rows are read at their own size and the options whole: a short record, a flag or mark past its range, a reserved byte, a submenu
+    /// with a submenu of its own or a stride below the record are refused, and so are a negative row height, padding or `max_h`, a name or
+    /// focus flag over 1, a non-finite height and a reserved word set.
     #[test]
-    fn the_extra_is_read_by_its_size_and_validated_whole() {
+    fn the_rows_and_options_are_read_by_their_size_and_validated_whole() {
         let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
         let mut results = Vec::new();
         ui.frame(&FrameIn::new(320.0, 240.0), &mut |ui: &mut Ui| {
-            let full = core::mem::size_of::<PxuiMenuExtra>() as u32;
-            let danger = [1i64];
-            let old = PxuiMenuExtra { danger: Slice { ptr: danger.as_ptr(), len: 1 }, ..extra(80) };
-            results.push(call(ui, &old));
-            results.push(call(ui, &extra(79)));
-            results.push(call(ui, &PxuiMenuExtra { row_h: -1.0, ..extra(full) }));
-            results.push(call(ui, &PxuiMenuExtra { row_h: 30.0, ..extra(full) }));
-            let marks = [0u8, 3];
-            results.push(call(ui, &PxuiMenuExtra { checked: Slice { ptr: marks.as_ptr(), len: 2 }, ..extra(full) }));
-            let (texts, enabled) = ([as_str("a")], [1u8]);
-            let sub = |row| PxuiSubmenu { row, current: 0, has_current: 0, reserved: [0; 7], rows: Slice { ptr: texts.as_ptr(), len: 1 }, enabled: Slice { ptr: enabled.as_ptr(), len: 1 }, keys: Slice { ptr: core::ptr::null::<Str>(), len: 0 } };
-            let subs = [sub(1), sub(0)];
-            results.push(call(ui, &PxuiMenuExtra { submenus: Slice { ptr: subs.as_ptr(), len: 2 }, ..extra(full) }));
-            let subs = [sub(2)];
-            results.push(call(ui, &PxuiMenuExtra { submenus: Slice { ptr: subs.as_ptr(), len: 1 }, ..extra(full) }));
-            let subs = [sub(0), sub(1)];
-            results.push(call(ui, &PxuiMenuExtra { submenus: Slice { ptr: subs.as_ptr(), len: 2 }, ..extra(full) }));
-            let (on, over, three) = ([0u8, 1], [2u8], [1u8, 0, 0]);
-            results.push(call(ui, &PxuiMenuExtra { padding: 10.0, has_name: 1, name: as_str("Sizes"), selected: Slice { ptr: on.as_ptr(), len: 2 }, ..extra(full) }));
-            results.push(call(ui, &PxuiMenuExtra { padding: -1.0, ..extra(full) }));
-            results.push(call(ui, &PxuiMenuExtra { has_name: 2, ..extra(full) }));
-            results.push(call(ui, &PxuiMenuExtra { selected: Slice { ptr: over.as_ptr(), len: 1 }, ..extra(full) }));
-            results.push(call(ui, &PxuiMenuExtra { selected: Slice { ptr: three.as_ptr(), len: 3 }, ..extra(full) }));
-            // the 144-byte record of 1.55 is refused; ids with their flags, a flag over 1, more flags than ids or rows, a
-            // focus flag over 1 and a non-zero reserved byte
-            let (ids, has, bad) = ([7i64, 9], [1u8, 0], [2u8]);
-            results.push(call(ui, &PxuiMenuExtra { padding: 10.0, ..extra(144) }));
-            results.push(call(ui, &PxuiMenuExtra { focus_on_click: 1, ids: Slice { ptr: ids.as_ptr(), len: 2 }, has_id: Slice { ptr: has.as_ptr(), len: 2 }, ..extra(full) }));
-            results.push(call(ui, &PxuiMenuExtra { ids: Slice { ptr: ids.as_ptr(), len: 1 }, has_id: Slice { ptr: bad.as_ptr(), len: 1 }, ..extra(full) }));
-            results.push(call(ui, &PxuiMenuExtra { ids: Slice { ptr: ids.as_ptr(), len: 1 }, has_id: Slice { ptr: has.as_ptr(), len: 2 }, ..extra(full) }));
-            results.push(call(ui, &PxuiMenuExtra { focus_on_click: 2, ..extra(full) }));
-            results.push(call(ui, &PxuiMenuExtra { reserved3: [0, 1, 0, 0, 0, 0, 0], ..extra(full) }));
-            // the 184-byte record of 1.58 and one ending inside `max_h` are refused; a negative or
-            // non-finite height and a non-zero reserved word are refused
-            results.push(call(ui, &PxuiMenuExtra { focus_on_click: 1, max_h: -1.0, reserved4: 9, ..extra(184) }));
-            results.push(call(ui, &extra(186)));
-            results.push(call(ui, &PxuiMenuExtra { max_h: 120.0, ..extra(full) }));
-            results.push(call(ui, &PxuiMenuExtra { max_h: -1.0, ..extra(full) }));
-            results.push(call(ui, &PxuiMenuExtra { max_h: f32::INFINITY, ..extra(full) }));
-            results.push(call(ui, &PxuiMenuExtra { max_h: 120.0, reserved4: 1, ..extra(full) }));
+            let (full, row_size) = (core::mem::size_of::<PxuiMenuOptions>() as u32, core::mem::size_of::<PxuiMenuRow>() as u32);
+            let two = [PxuiMenuRow::new("One"), PxuiMenuRow::new("Two")];
+            let with = |edit: &dyn Fn(&mut PxuiMenuRow)| { let mut rows = two; edit(&mut rows[1]); rows };
+            results.push(call(ui, &two, &options(full)));
+            results.push(call(ui, &with(&|r| r.size = row_size - 1), &options(full)));
+            results.push(call(ui, &with(&|r| r.enabled = 2), &options(full)));
+            results.push(call(ui, &with(&|r| r.checked = 3), &options(full)));
+            results.push(call(ui, &with(&|r| r.checked = 2), &options(full)));
+            results.push(call(ui, &with(&|r| r.reserved = [0, 1]), &options(full)));
+            results.push(call(ui, &with(&|r| (r.has_id, r.id) = (1, 9)), &options(full)));
+            results.push(call(ui, &with(&|r| r.has_id = 2), &options(full)));
+            results.push(call(ui, &with(&|r| r.text = pxui_types::Str { ptr: b"\xff".as_ptr(), len: 1 }), &options(full)));
+            let child = [PxuiMenuRow::new("child")];
+            results.push(call(ui, &with(&|r| r.submenu = Strided::of(&child)), &options(full)));
+            let nested = [PxuiMenuRow { submenu: Strided::of(&child), ..PxuiMenuRow::new("nested") }];
+            results.push(call(ui, &with(&|r| r.submenu = Strided::of(&nested)), &options(full)));
+            results.push(call(ui, &with(&|r| r.submenu = Strided { stride: 8, ..Strided::of(&child) }), &options(full)));
+            results.push(call(ui, &two, &options(full - 1)));
+            results.push(call(ui, &two, &PxuiMenuOptions { row_h: -1.0, ..options(full) }));
+            results.push(call(ui, &two, &PxuiMenuOptions { row_h: 30.0, ..options(full) }));
+            results.push(call(ui, &two, &PxuiMenuOptions { padding: -1.0, ..options(full) }));
+            results.push(call(ui, &two, &PxuiMenuOptions { padding: 10.0, has_name: 1, name: as_str("Sizes"), focus_on_click: 1, ..options(full) }));
+            results.push(call(ui, &two, &PxuiMenuOptions { has_name: 2, ..options(full) }));
+            results.push(call(ui, &two, &PxuiMenuOptions { focus_on_click: 2, ..options(full) }));
+            results.push(call(ui, &two, &PxuiMenuOptions { reserved2: [0, 1, 0, 0, 0, 0], ..options(full) }));
+            results.push(call(ui, &two, &PxuiMenuOptions { max_h: 120.0, ..options(full) }));
+            results.push(call(ui, &two, &PxuiMenuOptions { max_h: -1.0, ..options(full) }));
+            results.push(call(ui, &two, &PxuiMenuOptions { max_h: f32::INFINITY, ..options(full) }));
+            results.push(call(ui, &two, &PxuiMenuOptions { reserved3: 1, ..options(full) }));
+            results.push(call(ui, &two, &PxuiMenuOptions { reserved: 1, ..options(full) }));
         }).ok();
         let accepted: Vec<bool> = results.iter().map(|status| *status == 0).collect();
-        assert_eq!(accepted, [false, false, false, true, false, false, false, true, true, false, false, false, false, false, true, false, false, false, false,
-            false, false, true, false, false, false]);
+        assert_eq!(accepted, [true, false, false, false, true, false, true, false, false, true, false, false, false, false, true, false, true, false, false, false, true, false, false, false, false]);
     }
 
     /// U1c.2 (OS-grade 4): a menu past the library's row cap is refused before a row is copied, so the columns the dynamic wrapper keeps
@@ -413,10 +363,10 @@ mod tests {
         let message = panic.downcast_ref::<String>().map(String::as_str).or_else(|| panic.downcast_ref::<&str>().copied()).unwrap_or("");
         assert!(message.contains("at most 4096 rows"), "{message}");
         #[cfg(not(feature = "static"))]
-        { let kept = super::MENU_COLUMNS.take(); assert_eq!(kept.0.capacity(), 0, "nothing was copied for the refused menu"); }
+        { let kept = super::MENU_KEPT.take(); assert_eq!(kept.capacity(), 0, "nothing was copied for the refused menu"); }
         let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
         ui.frame(&FrameIn::new(200.0, 100.0), &mut |ui: &mut Ui| { ui.menu("long", Point::new(0.0, 0.0), &items[..super::MENU_ROWS], &Menu::DEFAULT); }).expect("a menu at the cap is served");
         #[cfg(not(feature = "static"))]
-        { let kept = super::MENU_COLUMNS.take(); assert!(kept.0.capacity() <= super::MENU_ROWS + super::MENU_ROWS / 2, "kept columns stay near the cap"); }
+        { let kept = super::MENU_KEPT.take(); assert!(kept.capacity() <= super::MENU_ROWS + super::MENU_ROWS / 2, "kept columns stay near the cap"); }
     }
 }

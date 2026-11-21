@@ -5013,32 +5013,6 @@ pxui_types::ffi::PxuiMenuDesc::items field Slice<Str> @HEAD
 pxui_types::ffi::PxuiMenuDesc::reserved field u32 @HEAD
 pxui_types::ffi::PxuiMenuDesc::size field u32 @HEAD
 pxui_types::ffi::PxuiMenuDesc::title field Str @HEAD
-pxui_types::ffi::PxuiMenuExtra impl Clone @HEAD
-pxui_types::ffi::PxuiMenuExtra impl Copy @HEAD
-pxui_types::ffi::PxuiMenuExtra impl Debug @HEAD
-pxui_types::ffi::PxuiMenuExtra struct @HEAD
-pxui_types::ffi::PxuiMenuExtra::checked field Slice<u8> @HEAD
-pxui_types::ffi::PxuiMenuExtra::danger field Slice<i64> @HEAD
-pxui_types::ffi::PxuiMenuExtra::focus_on_click field u8 @HEAD
-pxui_types::ffi::PxuiMenuExtra::has_id field Slice<u8> @HEAD
-pxui_types::ffi::PxuiMenuExtra::has_name field u8 @HEAD
-pxui_types::ffi::PxuiMenuExtra::ids field Slice<i64> @HEAD
-pxui_types::ffi::PxuiMenuExtra::keys field Slice<Str> @HEAD
-pxui_types::ffi::PxuiMenuExtra::lead_from field i64 @HEAD
-pxui_types::ffi::PxuiMenuExtra::max_h field f32 @HEAD
-pxui_types::ffi::PxuiMenuExtra::max_rows field u32 @HEAD
-pxui_types::ffi::PxuiMenuExtra::name field Str @HEAD
-pxui_types::ffi::PxuiMenuExtra::padding field f32 @HEAD
-pxui_types::ffi::PxuiMenuExtra::reserved field u16 @U5.3
-pxui_types::ffi::PxuiMenuExtra::reserved2 field [u8; 3] @HEAD
-pxui_types::ffi::PxuiMenuExtra::reserved3 field [u8; 7] @HEAD
-pxui_types::ffi::PxuiMenuExtra::reserved4 field u32 @HEAD
-pxui_types::ffi::PxuiMenuExtra::row_h field f32 @HEAD
-pxui_types::ffi::PxuiMenuExtra::selected field Slice<u8> @HEAD
-pxui_types::ffi::PxuiMenuExtra::size field u32 @HEAD
-pxui_types::ffi::PxuiMenuExtra::submenus field Slice<PxuiSubmenu> @HEAD
-pxui_types::ffi::PxuiMenuExtra::swatches field Slice<PxuiSwatch> @HEAD
-pxui_types::ffi::PxuiMenuExtra::variant field u16 @U5.3
 pxui_types::ffi::PxuiMenuItemConfig impl Clone @HEAD
 pxui_types::ffi::PxuiMenuItemConfig impl Copy @HEAD
 pxui_types::ffi::PxuiMenuItemConfig struct @HEAD
@@ -5048,6 +5022,10 @@ pxui_types::ffi::PxuiMenuItemConfig::size field u32 @HEAD
 pxui_types::ffi::PxuiMenuItemConfig::state field PxuiStateDesc @HEAD
 pxui_types::ffi::PxuiMenuItemConfig::text field Str @HEAD
 pxui_types::ffi::PxuiMenuItemConfig::variant field u16 @HEAD
+pxui_types::ffi::PxuiMenuOptions impl Clone @U5.7
+pxui_types::ffi::PxuiMenuOptions impl Copy @U5.7
+pxui_types::ffi::PxuiMenuOptions impl Debug @U5.7
+pxui_types::ffi::PxuiMenuOptions struct @U5.7
 pxui_types::ffi::PxuiMenuOut impl Clone @HEAD
 pxui_types::ffi::PxuiMenuOut impl Copy @HEAD
 pxui_types::ffi::PxuiMenuOut impl Default @HEAD
@@ -5056,6 +5034,10 @@ pxui_types::ffi::PxuiMenuOut::item field usize @HEAD
 pxui_types::ffi::PxuiMenuOut::menu field usize @HEAD
 pxui_types::ffi::PxuiMenuOut::reserved field u32 @HEAD
 pxui_types::ffi::PxuiMenuOut::size field u32 @HEAD
+pxui_types::ffi::PxuiMenuRow impl Clone @U5.7
+pxui_types::ffi::PxuiMenuRow impl Copy @U5.7
+pxui_types::ffi::PxuiMenuRow impl Debug @U5.7
+pxui_types::ffi::PxuiMenuRow struct @U5.7
 pxui_types::ffi::PxuiMenuRowConfig impl Clone @HEAD
 pxui_types::ffi::PxuiMenuRowConfig impl Copy @HEAD
 pxui_types::ffi::PxuiMenuRowConfig struct @HEAD
@@ -5340,28 +5322,9 @@ pxui_types::ffi::PxuiSectionListDesc::row_height field f32 @HEAD
 pxui_types::ffi::PxuiSectionListDesc::size field u32 @HEAD
 pxui_types::ffi::PxuiSectionListDesc::trailing_height field f32 @HEAD
 -pxui_types::ffi::PxuiSectionListDesc::user field *mut c_void @U2b.1
-pxui_types::ffi::PxuiSegmentConfig impl Clone @HEAD
-pxui_types::ffi::PxuiSegmentConfig impl Copy @HEAD
-pxui_types::ffi::PxuiSegmentConfig struct @HEAD
-pxui_types::ffi::PxuiSegmentConfig::group field i64 @HEAD
-pxui_types::ffi::PxuiSegmentConfig::grow field u8 @HEAD
-pxui_types::ffi::PxuiSegmentConfig::has_selected field u8 @HEAD
-pxui_types::ffi::PxuiSegmentConfig::has_stored field u8 @HEAD
-pxui_types::ffi::PxuiSegmentConfig::index field usize @HEAD
-pxui_types::ffi::PxuiSegmentConfig::line field PxuiBox @HEAD
-pxui_types::ffi::PxuiSegmentConfig::min_segment field f32 @HEAD
-pxui_types::ffi::PxuiSegmentConfig::node field PxuiBox @HEAD
-pxui_types::ffi::PxuiSegmentConfig::padding field f32 @HEAD
-pxui_types::ffi::PxuiSegmentConfig::reserved3 field [u8; 7] @HEAD
-pxui_types::ffi::PxuiSegmentConfig::reserved4 field [u8; 7] @HEAD
-pxui_types::ffi::PxuiSegmentConfig::selected field usize @HEAD
-pxui_types::ffi::PxuiSegmentConfig::size field u32 @HEAD
-pxui_types::ffi::PxuiSegmentConfig::state field PxuiStateDesc @HEAD
-pxui_types::ffi::PxuiSegmentConfig::states field *const States @HEAD
-pxui_types::ffi::PxuiSegmentConfig::stored field usize @HEAD
-pxui_types::ffi::PxuiSegmentConfig::strip field PxuiBox @HEAD
-pxui_types::ffi::PxuiSegmentConfig::text field Str @HEAD
-pxui_types::ffi::PxuiSegmentConfig::variant field u16 @HEAD
+pxui_types::ffi::PxuiSegmentedConfig impl Clone @U5.7
+pxui_types::ffi::PxuiSegmentedConfig impl Copy @U5.7
+pxui_types::ffi::PxuiSegmentedConfig struct @U5.7
 pxui_types::ffi::PxuiSegmentedDesc impl Clone @HEAD
 pxui_types::ffi::PxuiSegmentedDesc impl Copy @HEAD
 pxui_types::ffi::PxuiSegmentedDesc struct @HEAD
@@ -5556,25 +5519,6 @@ pxui_types::ffi::PxuiStateDesc::hovered field u8 @HEAD
 pxui_types::ffi::PxuiStateDesc::pressed field u8 @HEAD
 pxui_types::ffi::PxuiStateDesc::reserved field [u8; 3] @HEAD
 pxui_types::ffi::PxuiStateDesc::size field u32 @U5.4
-pxui_types::ffi::PxuiSubmenu impl Clone @HEAD
-pxui_types::ffi::PxuiSubmenu impl Copy @HEAD
-pxui_types::ffi::PxuiSubmenu impl Debug @HEAD
-pxui_types::ffi::PxuiSubmenu struct @HEAD
-pxui_types::ffi::PxuiSubmenu::current field i64 @HEAD
-pxui_types::ffi::PxuiSubmenu::enabled field Slice<u8> @HEAD
-pxui_types::ffi::PxuiSubmenu::has_current field u8 @HEAD
-pxui_types::ffi::PxuiSubmenu::keys field Slice<Str> @HEAD
-pxui_types::ffi::PxuiSubmenu::reserved field [u8; 7] @HEAD
-pxui_types::ffi::PxuiSubmenu::row field i64 @HEAD
-pxui_types::ffi::PxuiSubmenu::rows field Slice<Str> @HEAD
-pxui_types::ffi::PxuiSwatch impl Clone @HEAD
-pxui_types::ffi::PxuiSwatch impl Copy @HEAD
-pxui_types::ffi::PxuiSwatch impl Debug @HEAD
-pxui_types::ffi::PxuiSwatch impl Default @HEAD
-pxui_types::ffi::PxuiSwatch struct @HEAD
-pxui_types::ffi::PxuiSwatch::color field Rgba @HEAD
-pxui_types::ffi::PxuiSwatch::has field u8 @HEAD
-pxui_types::ffi::PxuiSwatch::reserved field [u8; 3] @HEAD
 pxui_types::ffi::PxuiSwipeIn impl Clone @HEAD
 pxui_types::ffi::PxuiSwipeIn impl Copy @HEAD
 pxui_types::ffi::PxuiSwipeIn impl Debug @HEAD
@@ -5584,17 +5528,6 @@ pxui_types::ffi::PxuiSwipeIn::full field f32 @HEAD
 pxui_types::ffi::PxuiSwipeIn::leading field f32 @HEAD
 pxui_types::ffi::PxuiSwipeIn::size field u32 @HEAD
 pxui_types::ffi::PxuiSwipeIn::trailing field f32 @HEAD
-pxui_types::ffi::PxuiTabConfig impl Clone @HEAD
-pxui_types::ffi::PxuiTabConfig impl Copy @HEAD
-pxui_types::ffi::PxuiTabConfig struct @HEAD
-pxui_types::ffi::PxuiTabConfig::bar field PxuiBox @U2b.4.29
-pxui_types::ffi::PxuiTabConfig::detail field Str @U2a.2
-pxui_types::ffi::PxuiTabConfig::index field usize @HEAD
-pxui_types::ffi::PxuiTabConfig::node field PxuiBox @HEAD
-pxui_types::ffi::PxuiTabConfig::size field u32 @HEAD
-pxui_types::ffi::PxuiTabConfig::state field PxuiStateDesc @HEAD
-pxui_types::ffi::PxuiTabConfig::text field Str @HEAD
-pxui_types::ffi::PxuiTabConfig::variant field u16 @HEAD
 -pxui_types::ffi::PxuiTableCell type = Option<extern "C" fn(*mut c_void, i64, i64) -> Str> @U2b.1
 pxui_types::ffi::PxuiTableCellBuild type = Option<extern "C" fn(*mut c_void, *mut c_void, usize, usize, *const PxuiCellState)> @U2b.1
 -pxui_types::ffi::PxuiTableCellConfig impl Clone @U2b.1
@@ -5702,6 +5635,9 @@ pxui_types::ffi::PxuiTableResult::size field u32 @U2b.1
 -pxui_types::ffi::PxuiTableViewWithDesc::titles field Slice<Str> @U2b.1
 -pxui_types::ffi::PxuiTableViewWithDesc::user field *mut c_void @U2b.1
 -pxui_types::ffi::PxuiTableViewWithDesc::widths field PxuiF32MutSpan @U2b.1
+pxui_types::ffi::PxuiTabsConfig impl Clone @U5.7
+pxui_types::ffi::PxuiTabsConfig impl Copy @U5.7
+pxui_types::ffi::PxuiTabsConfig struct @U5.7
 pxui_types::ffi::PxuiTextAreaDesc impl Clone @HEAD
 pxui_types::ffi::PxuiTextAreaDesc impl Copy @HEAD
 pxui_types::ffi::PxuiTextAreaDesc impl Debug @HEAD
@@ -5774,23 +5710,9 @@ pxui_types::ffi::PxuiTextStyle::weight field u16 @HEAD
 pxui_types::ffi::PxuiTextStyle::wrap field u32 @HEAD
 -pxui_types::ffi::PxuiThemeSource type = ThemeSource @U2c.5
 pxui_types::ffi::PxuiThemeTokens type = ThemeTokens @HEAD
-pxui_types::ffi::PxuiTipConfig impl Clone @HEAD
-pxui_types::ffi::PxuiTipConfig impl Copy @HEAD
-pxui_types::ffi::PxuiTipConfig struct @HEAD
-pxui_types::ffi::PxuiTipConfig::height field f32 @HEAD
-pxui_types::ffi::PxuiTipConfig::lines field Slice<Str> @HEAD
-pxui_types::ffi::PxuiTipConfig::size field u32 @HEAD
-pxui_types::ffi::PxuiTipConfig::tip field PxuiBox @HEAD
-pxui_types::ffi::PxuiTipConfig::variant field u16 @HEAD
-pxui_types::ffi::PxuiTipConfig::width field f32 @HEAD
-pxui_types::ffi::PxuiToastConfig impl Clone @HEAD
-pxui_types::ffi::PxuiToastConfig impl Copy @HEAD
-pxui_types::ffi::PxuiToastConfig struct @HEAD
-pxui_types::ffi::PxuiToastConfig::node field PxuiBox @HEAD
-pxui_types::ffi::PxuiToastConfig::size field u32 @HEAD
-pxui_types::ffi::PxuiToastConfig::state field PxuiStateDesc @HEAD
-pxui_types::ffi::PxuiToastConfig::text field Str @HEAD
-pxui_types::ffi::PxuiToastConfig::variant field u16 @HEAD
+pxui_types::ffi::PxuiToastsConfig impl Clone @U5.7
+pxui_types::ffi::PxuiToastsConfig impl Copy @U5.7
+pxui_types::ffi::PxuiToastsConfig struct @U5.7
 pxui_types::ffi::PxuiToggleConfig impl Clone @HEAD
 pxui_types::ffi::PxuiToggleConfig impl Copy @HEAD
 pxui_types::ffi::PxuiToggleConfig struct @HEAD
@@ -5836,6 +5758,9 @@ pxui_types::ffi::PxuiToggleDesc::switch_w field f32 @HEAD
 pxui_types::ffi::PxuiToggleDesc::text field Str @HEAD
 pxui_types::ffi::PxuiToggleDesc::track field *const PxuiLookDesc @HEAD
 pxui_types::ffi::PxuiToggleDesc::variant field u16 @U5.3
+pxui_types::ffi::PxuiTooltipConfig impl Clone @U5.7
+pxui_types::ffi::PxuiTooltipConfig impl Copy @U5.7
+pxui_types::ffi::PxuiTooltipConfig struct @U5.7
 pxui_types::ffi::PxuiTreeNode impl Clone @HEAD
 pxui_types::ffi::PxuiTreeNode impl Copy @HEAD
 pxui_types::ffi::PxuiTreeNode impl Default @HEAD
@@ -7656,6 +7581,70 @@ pxui_types::ui::UndoKind::Undo variant @HEAD
 pxui_types::ui::display fn (text: &str) -> String @HEAD
 pxui_types::ui::ellipsis fn <'a>(width: &mut dyn FnMut(&str) -> f32, limit: f32, label: &'a str) -> Cow<'a, str> @HEAD
 -pxui_types::ui::find_marker fn (text: &str, marker: &str) -> Option<usize> @U1a.1
+pxui_types::ffi::PxuiMenuOptions::focus_on_click field u8 @U5.7
+pxui_types::ffi::PxuiMenuOptions::has_name field u8 @U5.7
+pxui_types::ffi::PxuiMenuOptions::max_h field f32 @U5.7
+pxui_types::ffi::PxuiMenuOptions::max_rows field u32 @U5.7
+pxui_types::ffi::PxuiMenuOptions::name field Str @U5.7
+pxui_types::ffi::PxuiMenuOptions::padding field f32 @U5.7
+pxui_types::ffi::PxuiMenuOptions::reserved field u16 @U5.7
+pxui_types::ffi::PxuiMenuOptions::reserved2 field [u8; 6] @U5.7
+pxui_types::ffi::PxuiMenuOptions::reserved3 field u32 @U5.7
+pxui_types::ffi::PxuiMenuOptions::row_h field f32 @U5.7
+pxui_types::ffi::PxuiMenuOptions::size field u32 @U5.7
+pxui_types::ffi::PxuiMenuOptions::variant field u16 @U5.7
+pxui_types::ffi::PxuiMenuRow::checked field u8 @U5.7
+pxui_types::ffi::PxuiMenuRow::danger field u8 @U5.7
+pxui_types::ffi::PxuiMenuRow::enabled field u8 @U5.7
+pxui_types::ffi::PxuiMenuRow::has_id field u8 @U5.7
+pxui_types::ffi::PxuiMenuRow::has_swatch field u8 @U5.7
+pxui_types::ffi::PxuiMenuRow::id field i64 @U5.7
+pxui_types::ffi::PxuiMenuRow::new fn (text: &str) -> PxuiMenuRow @U5.7
+pxui_types::ffi::PxuiMenuRow::reserved field [u8; 2] @U5.7
+pxui_types::ffi::PxuiMenuRow::selected field u8 @U5.7
+pxui_types::ffi::PxuiMenuRow::shortcut field Str @U5.7
+pxui_types::ffi::PxuiMenuRow::size field u32 @U5.7
+pxui_types::ffi::PxuiMenuRow::submenu field Strided<PxuiMenuRow> @U5.7
+pxui_types::ffi::PxuiMenuRow::swatch field Rgba @U5.7
+pxui_types::ffi::PxuiMenuRow::text field Str @U5.7
+pxui_types::ffi::PxuiSegmentedConfig::group field i64 @U5.7
+pxui_types::ffi::PxuiSegmentedConfig::grow field u8 @U5.7
+pxui_types::ffi::PxuiSegmentedConfig::has_selected field u8 @U5.7
+pxui_types::ffi::PxuiSegmentedConfig::has_stored field u8 @U5.7
+pxui_types::ffi::PxuiSegmentedConfig::index field usize @U5.7
+pxui_types::ffi::PxuiSegmentedConfig::line field PxuiBox @U5.7
+pxui_types::ffi::PxuiSegmentedConfig::min_segment field f32 @U5.7
+pxui_types::ffi::PxuiSegmentedConfig::node field PxuiBox @U5.7
+pxui_types::ffi::PxuiSegmentedConfig::padding field f32 @U5.7
+pxui_types::ffi::PxuiSegmentedConfig::reserved3 field [u8; 7] @U5.7
+pxui_types::ffi::PxuiSegmentedConfig::reserved4 field [u8; 7] @U5.7
+pxui_types::ffi::PxuiSegmentedConfig::selected field usize @U5.7
+pxui_types::ffi::PxuiSegmentedConfig::size field u32 @U5.7
+pxui_types::ffi::PxuiSegmentedConfig::state field PxuiStateDesc @U5.7
+pxui_types::ffi::PxuiSegmentedConfig::states field *const States @U5.7
+pxui_types::ffi::PxuiSegmentedConfig::stored field usize @U5.7
+pxui_types::ffi::PxuiSegmentedConfig::strip field PxuiBox @U5.7
+pxui_types::ffi::PxuiSegmentedConfig::text field Str @U5.7
+pxui_types::ffi::PxuiSegmentedConfig::variant field u16 @U5.7
+pxui_types::ffi::PxuiTabsConfig::bar field PxuiBox @U5.7
+pxui_types::ffi::PxuiTabsConfig::detail field Str @U5.7
+pxui_types::ffi::PxuiTabsConfig::index field usize @U5.7
+pxui_types::ffi::PxuiTabsConfig::node field PxuiBox @U5.7
+pxui_types::ffi::PxuiTabsConfig::size field u32 @U5.7
+pxui_types::ffi::PxuiTabsConfig::state field PxuiStateDesc @U5.7
+pxui_types::ffi::PxuiTabsConfig::text field Str @U5.7
+pxui_types::ffi::PxuiTabsConfig::variant field u16 @U5.7
+pxui_types::ffi::PxuiToastsConfig::node field PxuiBox @U5.7
+pxui_types::ffi::PxuiToastsConfig::size field u32 @U5.7
+pxui_types::ffi::PxuiToastsConfig::state field PxuiStateDesc @U5.7
+pxui_types::ffi::PxuiToastsConfig::text field Str @U5.7
+pxui_types::ffi::PxuiToastsConfig::variant field u16 @U5.7
+pxui_types::ffi::PxuiTooltipConfig::height field f32 @U5.7
+pxui_types::ffi::PxuiTooltipConfig::lines field Slice<Str> @U5.7
+pxui_types::ffi::PxuiTooltipConfig::size field u32 @U5.7
+pxui_types::ffi::PxuiTooltipConfig::tip field PxuiBox @U5.7
+pxui_types::ffi::PxuiTooltipConfig::variant field u16 @U5.7
+pxui_types::ffi::PxuiTooltipConfig::width field f32 @U5.7
 pxui_types::ui::hash_range fn (seed: i64, text: &str, first: usize, last: usize) -> i64 @HEAD
 pxui_types::ui::int_key fn (seed: i64, n: i64) -> i64 @HEAD
 pxui_types::ui::key_of fn (seed: i64, text: &str) -> i64 @HEAD

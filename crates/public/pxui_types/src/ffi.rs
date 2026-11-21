@@ -460,66 +460,90 @@ pub struct PxuiAreaCallbacks {
     pub rewrite: Option<extern "C" fn(*mut core::ffi::c_void, Str, i64, *mut PxuiRewrite)>,
 }
 
-/// A menu row's colour swatch: none while `has` is 0.
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Default)]
-pub struct PxuiSwatch {
-    pub has: u8,
-    pub reserved: [u8; 3],
-    pub color: Rgba,
-}
-
-/// A submenu of a context menu: the row of the menu that opens it, its rows (`enabled` is as long as `rows`), their keys
-/// and the row marked with the accent square (when `has_current`).
+/// One row of a context menu (`pxui_ui_context_menu`), read at its own `size` from a strided span: `text` and `shortcut` (empty: none) are
+/// UTF-8, `enabled`, `danger`, `selected` (the current choice of a settings menu: CHECKED and SELECTED), `has_swatch` and `has_id` 0 or 1,
+/// `checked` 0 no mark slot, 1 a slot, 2 a slot with the mark; `swatch` is read when `has_swatch` is 1 and `id` (the row's key in place of
+/// its position, the chosen index is still the row's) when `has_id` is 1. `submenu` holds the rows it opens (none: no submenu); a submenu's
+/// rows carry no submenu of their own. `reserved` is zero.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-pub struct PxuiSubmenu {
-    pub row: i64,
-    pub current: i64,
-    pub has_current: u8,
-    pub reserved: [u8; 7],
-    pub rows: Slice<Str>,
-    pub enabled: Slice<u8>,
-    pub keys: Slice<Str>,
-}
-
-/// What a menu has beyond its rows (`Ui::menu`): keys and swatches are per row (shorter than the rows is fine),
-/// `danger` the destructive rows, `lead_from` the first row that is not drawn with a leading mark. From ABI 1.49 (a `size` that
-/// covers them): `row_h` the row height in points (0: the theme's), `max_rows` the rows shown before the column scrolls (0: all), and `checked` per row 0 no mark slot, 1 a slot, 2 a slot with
-/// the mark, which replaces `has_selected`/`selected` and `lead_from` when it is not empty. From ABI 1.55: `padding` the space in points
-/// above the first row and below the last (finite, not negative; a smaller record is 6), `name` the sheet's accessible name when
-/// `has_name` is 1 (else none), and `selected` per row 1 for the current choice of a settings menu (CHECKED and SELECTED, the `checked`
-/// look; shorter than the rows is fine). From ABI 1.58: `focus_on_click` 1 for a press to focus its row (`Menu::focus_on_click`), and per row
-/// `has_id` 1 with `ids` the row's `MenuItem::id` (its key in place of its position; both shorter than the rows is fine). From ABI 1.67:
-/// `max_h` the most height of the sheet in points, its edges and padding included (finite, not negative; 0 no bound; a smaller record is
-/// none), the smaller of it and `max_rows` bounding the sheet.
-#[repr(C)]
-#[derive(Clone, Copy, Debug)]
-pub struct PxuiMenuExtra {
+pub struct PxuiMenuRow {
+    /// `size_of::<PxuiMenuRow>()` (or more).
     pub size: u32,
-    /// The body variant the widget is built with (0: the theme's), read as its registered body's config `variant`.
+    /// 0 or 1: the row can be chosen.
+    pub enabled: u8,
+    /// 0 or 1: a destructive row.
+    pub danger: u8,
+    /// 0 no mark slot, 1 a slot, 2 a slot with the mark.
+    pub checked: u8,
+    /// 0 or 1: the current choice.
+    pub selected: u8,
+    /// 0 or 1: `swatch` is shown.
+    pub has_swatch: u8,
+    /// 0 or 1: `id` keys the row.
+    pub has_id: u8,
+    /// Zero.
+    pub reserved: [u8; 2],
+    /// The colour of the row's swatch.
+    pub swatch: Rgba,
+    /// The row's key (read when `has_id` is 1).
+    pub id: i64,
+    /// The row's text.
+    pub text: Str,
+    /// The shortcut shown at the row's end (empty: none).
+    pub shortcut: Str,
+    /// The rows this row opens.
+    pub submenu: Strided<PxuiMenuRow>,
+}
+
+impl PxuiMenuRow {
+    /// The plain enabled row showing `text`, with no mark, swatch, shortcut, id or submenu.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let row = pxui_types::ffi::PxuiMenuRow::new("Open");
+    /// assert_eq!((row.size as usize, row.enabled), (core::mem::size_of::<pxui_types::ffi::PxuiMenuRow>(), 1));
+    /// ```
+    pub fn new(text: &str) -> PxuiMenuRow {
+        PxuiMenuRow { size: core::mem::size_of::<PxuiMenuRow>() as u32, enabled: 1, danger: 0, checked: 0, selected: 0, has_swatch: 0, has_id: 0, reserved: [0; 2],
+            swatch: Rgba::default(), id: 0, text: Str { ptr: text.as_ptr(), len: text.len() }, shortcut: Str::default(), submenu: Strided::default() }
+    }
+}
+
+/// What a menu has beyond its rows (`pxui_ui_context_menu`): `row_h` the row height in points (0: the theme's), `max_rows` the rows shown
+/// before the column scrolls (0: all), `padding` the space above the first row and below the last (finite, not negative), `name` the
+/// sheet's accessible name when `has_name` is 1, `focus_on_click` 1 for a press to focus its row, `max_h` the most height of the sheet in
+/// points, its edges and padding included (finite, not negative; 0 no bound; the smaller of it and `max_rows` bounds the sheet) and
+/// `variant` the `menu_row` body variant (0: the theme's). The caller sets `size`; a shorter record is refused.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct PxuiMenuOptions {
+    /// `size_of::<PxuiMenuOptions>()` (or more).
+    pub size: u32,
+    /// The body variant the rows are built with (0: the theme's).
     pub variant: u16,
     /// Zero.
     pub reserved: u16,
-    pub lead_from: i64,
-    pub keys: Slice<Str>,
-    pub swatches: Slice<PxuiSwatch>,
-    pub danger: Slice<i64>,
-    pub submenus: Slice<PxuiSubmenu>,
+    /// The row height in points (0: the theme's).
     pub row_h: f32,
+    /// The rows shown before the column scrolls (0: all).
     pub max_rows: u32,
-    pub checked: Slice<u8>,
+    /// The padding above the first row and below the last.
     pub padding: f32,
+    /// 0 or 1: `name` is the sheet's accessible name.
     pub has_name: u8,
-    pub reserved2: [u8; 3],
-    pub name: Str,
-    pub selected: Slice<u8>,
+    /// 0 or 1: a press focuses its row.
     pub focus_on_click: u8,
-    pub reserved3: [u8; 7],
-    pub ids: Slice<i64>,
-    pub has_id: Slice<u8>,
+    /// Zero.
+    pub reserved2: [u8; 6],
+    /// The sheet's accessible name (read when `has_name` is 1).
+    pub name: Str,
+    /// The most height of the sheet in points (0: no bound).
     pub max_h: f32,
-    pub reserved4: u32,
+    /// Zero.
+    pub reserved3: u32,
 }
 
 /// A label's style as it crosses the ABI (`pxui_ui_label`, `pxui_paint_label`, `PxuiLabelConfig::style`; ABI 1.45): `Label` with
@@ -2355,9 +2379,9 @@ configs! {
     /// `axis` is 0 row, 1 column, 2 stack.
     PxuiSplitConfig { axis: u32, ratio: f32, min_a: f32, min_b: f32, split: PxuiBox, first: PxuiSlot, second: PxuiSlot }
     PxuiScrollConfig { node: PxuiBox, content: PxuiSlot }
-    PxuiToastConfig { state: PxuiStateDesc, node: PxuiBox, text: Str }
-    PxuiTipConfig { width: f32, height: f32, tip: PxuiBox, lines: Slice<Str> }
-    PxuiTabConfig { state: PxuiStateDesc, index: usize, node: PxuiBox, text: Str } @variant {
+    PxuiToastsConfig { state: PxuiStateDesc, node: PxuiBox, text: Str }
+    PxuiTooltipConfig { width: f32, height: f32, tip: PxuiBox, lines: Slice<Str> }
+    PxuiTabsConfig { state: PxuiStateDesc, index: usize, node: PxuiBox, text: Str } @variant {
         /// ABI 1.84 (read when `size` covers it): the tab's detail after its text (`Segment::detail`: a count or badge; empty: none);
         /// valid for the call.
         detail: Str,
@@ -2372,7 +2396,7 @@ configs! {
     /// `selected` is the chosen option's index when `has_selected` is 1 (ABI 1.67, read when `size` covers it; 0 with `selected` 0 for no
     /// choice, final); `state.focused` the segment holding the keyboard focus (from ABI 1.67 the strip's one Tab stop is the chosen
     /// segment, else the first).
-    PxuiSegmentConfig {
+    PxuiSegmentedConfig {
         state: PxuiStateDesc, index: usize, selected: usize, group: i64, node: PxuiBox, text: Str,
         /// The look per state of a segment: the caller's as the caller gave it (U2b.4.30: its colours may name tokens, which `pxui_ui_style` resolves; resolve one with `pxui_ui_color` before a C paint call), or the theme's (resolved); valid for the call.
         states: *const PxuiStates,
@@ -2516,9 +2540,8 @@ pub(crate) mod layout {
         check("PxuiRewrite", size_of::<PxuiRewrite>(), align_of::<PxuiRewrite>(), &[("text", core::mem::offset_of!(PxuiRewrite, text)), ("caret", core::mem::offset_of!(PxuiRewrite, caret))]);
         check("PxuiTextAreaDesc", size_of::<PxuiTextAreaDesc>(), align_of::<PxuiTextAreaDesc>(), &[("size", core::mem::offset_of!(PxuiTextAreaDesc, size)), ("flags", core::mem::offset_of!(PxuiTextAreaDesc, flags)), ("x", core::mem::offset_of!(PxuiTextAreaDesc, x)), ("y", core::mem::offset_of!(PxuiTextAreaDesc, y)), ("width", core::mem::offset_of!(PxuiTextAreaDesc, width)), ("height", core::mem::offset_of!(PxuiTextAreaDesc, height)), ("reveal", core::mem::offset_of!(PxuiTextAreaDesc, reveal)), ("reveal_nonce", core::mem::offset_of!(PxuiTextAreaDesc, reveal_nonce)), ("select", core::mem::offset_of!(PxuiTextAreaDesc, select)), ("label", core::mem::offset_of!(PxuiTextAreaDesc, label)), ("value", core::mem::offset_of!(PxuiTextAreaDesc, value)), ("errors", core::mem::offset_of!(PxuiTextAreaDesc, errors)), ("messages", core::mem::offset_of!(PxuiTextAreaDesc, messages)), ("spans", core::mem::offset_of!(PxuiTextAreaDesc, spans)), ("splice", core::mem::offset_of!(PxuiTextAreaDesc, splice)), ("chips", core::mem::offset_of!(PxuiTextAreaDesc, chips)), ("comment", core::mem::offset_of!(PxuiTextAreaDesc, comment)), ("pairs", core::mem::offset_of!(PxuiTextAreaDesc, pairs))]);
         check("PxuiAreaCallbacks", size_of::<PxuiAreaCallbacks>(), align_of::<PxuiAreaCallbacks>(), &[("size", core::mem::offset_of!(PxuiAreaCallbacks, size)), ("reserved", core::mem::offset_of!(PxuiAreaCallbacks, reserved)), ("user", core::mem::offset_of!(PxuiAreaCallbacks, user)), ("on_context", core::mem::offset_of!(PxuiAreaCallbacks, on_context)), ("on_scrub", core::mem::offset_of!(PxuiAreaCallbacks, on_scrub)), ("on_scrub_edit", core::mem::offset_of!(PxuiAreaCallbacks, on_scrub_edit)), ("on_click", core::mem::offset_of!(PxuiAreaCallbacks, on_click)), ("on_caret", core::mem::offset_of!(PxuiAreaCallbacks, on_caret)), ("on_caret_move", core::mem::offset_of!(PxuiAreaCallbacks, on_caret_move)), ("on_select", core::mem::offset_of!(PxuiAreaCallbacks, on_select)), ("on_drop", core::mem::offset_of!(PxuiAreaCallbacks, on_drop)), ("colorize", core::mem::offset_of!(PxuiAreaCallbacks, colorize)), ("brackets", core::mem::offset_of!(PxuiAreaCallbacks, brackets)), ("indent", core::mem::offset_of!(PxuiAreaCallbacks, indent)), ("complete", core::mem::offset_of!(PxuiAreaCallbacks, complete)), ("describe", core::mem::offset_of!(PxuiAreaCallbacks, describe)), ("number_at", core::mem::offset_of!(PxuiAreaCallbacks, number_at)), ("context_at", core::mem::offset_of!(PxuiAreaCallbacks, context_at)), ("rewrite", core::mem::offset_of!(PxuiAreaCallbacks, rewrite))]);
-        check("PxuiSwatch", size_of::<PxuiSwatch>(), align_of::<PxuiSwatch>(), &[("has", core::mem::offset_of!(PxuiSwatch, has)), ("reserved", core::mem::offset_of!(PxuiSwatch, reserved)), ("color", core::mem::offset_of!(PxuiSwatch, color))]);
-        check("PxuiSubmenu", size_of::<PxuiSubmenu>(), align_of::<PxuiSubmenu>(), &[("row", core::mem::offset_of!(PxuiSubmenu, row)), ("current", core::mem::offset_of!(PxuiSubmenu, current)), ("has_current", core::mem::offset_of!(PxuiSubmenu, has_current)), ("reserved", core::mem::offset_of!(PxuiSubmenu, reserved)), ("rows", core::mem::offset_of!(PxuiSubmenu, rows)), ("enabled", core::mem::offset_of!(PxuiSubmenu, enabled)), ("keys", core::mem::offset_of!(PxuiSubmenu, keys))]);
-        check("PxuiMenuExtra", size_of::<PxuiMenuExtra>(), align_of::<PxuiMenuExtra>(), &[("size", core::mem::offset_of!(PxuiMenuExtra, size)), ("variant", core::mem::offset_of!(PxuiMenuExtra, variant)), ("reserved", core::mem::offset_of!(PxuiMenuExtra, reserved)), ("lead_from", core::mem::offset_of!(PxuiMenuExtra, lead_from)), ("keys", core::mem::offset_of!(PxuiMenuExtra, keys)), ("swatches", core::mem::offset_of!(PxuiMenuExtra, swatches)), ("danger", core::mem::offset_of!(PxuiMenuExtra, danger)), ("submenus", core::mem::offset_of!(PxuiMenuExtra, submenus)), ("row_h", core::mem::offset_of!(PxuiMenuExtra, row_h)), ("max_rows", core::mem::offset_of!(PxuiMenuExtra, max_rows)), ("checked", core::mem::offset_of!(PxuiMenuExtra, checked)), ("padding", core::mem::offset_of!(PxuiMenuExtra, padding)), ("has_name", core::mem::offset_of!(PxuiMenuExtra, has_name)), ("reserved2", core::mem::offset_of!(PxuiMenuExtra, reserved2)), ("name", core::mem::offset_of!(PxuiMenuExtra, name)), ("selected", core::mem::offset_of!(PxuiMenuExtra, selected)), ("focus_on_click", core::mem::offset_of!(PxuiMenuExtra, focus_on_click)), ("reserved3", core::mem::offset_of!(PxuiMenuExtra, reserved3)), ("ids", core::mem::offset_of!(PxuiMenuExtra, ids)), ("has_id", core::mem::offset_of!(PxuiMenuExtra, has_id)), ("max_h", core::mem::offset_of!(PxuiMenuExtra, max_h)), ("reserved4", core::mem::offset_of!(PxuiMenuExtra, reserved4))]);
+        check("PxuiMenuRow", size_of::<PxuiMenuRow>(), align_of::<PxuiMenuRow>(), &[("size", core::mem::offset_of!(PxuiMenuRow, size)), ("enabled", core::mem::offset_of!(PxuiMenuRow, enabled)), ("danger", core::mem::offset_of!(PxuiMenuRow, danger)), ("checked", core::mem::offset_of!(PxuiMenuRow, checked)), ("selected", core::mem::offset_of!(PxuiMenuRow, selected)), ("has_swatch", core::mem::offset_of!(PxuiMenuRow, has_swatch)), ("has_id", core::mem::offset_of!(PxuiMenuRow, has_id)), ("reserved", core::mem::offset_of!(PxuiMenuRow, reserved)), ("swatch", core::mem::offset_of!(PxuiMenuRow, swatch)), ("id", core::mem::offset_of!(PxuiMenuRow, id)), ("text", core::mem::offset_of!(PxuiMenuRow, text)), ("shortcut", core::mem::offset_of!(PxuiMenuRow, shortcut)), ("submenu", core::mem::offset_of!(PxuiMenuRow, submenu))]);
+        check("PxuiMenuOptions", size_of::<PxuiMenuOptions>(), align_of::<PxuiMenuOptions>(), &[("size", core::mem::offset_of!(PxuiMenuOptions, size)), ("variant", core::mem::offset_of!(PxuiMenuOptions, variant)), ("reserved", core::mem::offset_of!(PxuiMenuOptions, reserved)), ("row_h", core::mem::offset_of!(PxuiMenuOptions, row_h)), ("max_rows", core::mem::offset_of!(PxuiMenuOptions, max_rows)), ("padding", core::mem::offset_of!(PxuiMenuOptions, padding)), ("has_name", core::mem::offset_of!(PxuiMenuOptions, has_name)), ("focus_on_click", core::mem::offset_of!(PxuiMenuOptions, focus_on_click)), ("reserved2", core::mem::offset_of!(PxuiMenuOptions, reserved2)), ("name", core::mem::offset_of!(PxuiMenuOptions, name)), ("max_h", core::mem::offset_of!(PxuiMenuOptions, max_h)), ("reserved3", core::mem::offset_of!(PxuiMenuOptions, reserved3))]);
         check("Slice", size_of::<Slice<u32>>(), align_of::<Slice<u32>>(), &[("ptr", core::mem::offset_of!(Slice<u32>, ptr)), ("len", core::mem::offset_of!(Slice<u32>, len))]);
         check("Strided", size_of::<Strided<u32>>(), align_of::<Strided<u32>>(), &[("ptr", core::mem::offset_of!(Strided<u32>, ptr)), ("len", core::mem::offset_of!(Strided<u32>, len)), ("stride", core::mem::offset_of!(Strided<u32>, stride))]);
         check("Input", size_of::<Input>(), align_of::<Input>(), &[("size", core::mem::offset_of!(Input, size)), ("time", core::mem::offset_of!(Input, time)), ("dt", core::mem::offset_of!(Input, dt)), ("frame", core::mem::offset_of!(Input, frame)), ("tick", core::mem::offset_of!(Input, tick)), ("logical_size", core::mem::offset_of!(Input, logical_size)), ("pointer", core::mem::offset_of!(Input, pointer)), ("keys", core::mem::offset_of!(Input, keys)), ("buttons", core::mem::offset_of!(Input, buttons)), ("events", core::mem::offset_of!(Input, events)), ("pixel_scale", core::mem::offset_of!(Input, pixel_scale)), ("mouse_delta", core::mem::offset_of!(Input, mouse_delta)), ("fps", core::mem::offset_of!(Input, fps))]);

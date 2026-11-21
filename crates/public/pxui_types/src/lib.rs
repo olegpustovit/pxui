@@ -938,7 +938,7 @@ pub mod feature {
     /// ABI 1.68: `PxuiKeyedDesc` and the `ui_*_keyed` widget and container calls (checkbox, choice, slider, progress, spinner, badge,
     /// panel, popup, modal, anchored, scroll_view, toasts; picker in the extension set).
     pub const WIDGETS_KEYED: u32 = 25;
-    /// ABI 1.69: `PxuiSegmentedDesc.focus_on_click` (`Segmented::focus_on_click`) and `PxuiSegmentConfig.stored` (the caller's choice, as a
+    /// ABI 1.69: `PxuiSegmentedDesc.focus_on_click` (`Segmented::focus_on_click`) and `PxuiSegmentedConfig.stored` (the caller's choice, as a
     /// segment body sees it on the frame a press moves it).
     pub const SEGMENTED_STORED_FOCUS: u32 = 26;
     /// ABI 1.70: `ui_image_node` (an image with no key, its name for accessibility only) and `paint_image_checked` (a refused image is
@@ -952,7 +952,7 @@ pub mod feature {
 }
 
 /// The ABI version this crate's records describe (`major << 16 | minor`); an app states it as `PxuiUiDesc::abi_built`.
-pub const ABI_BUILT: u32 = 1 << 16 | 148;
+pub const ABI_BUILT: u32 = 1 << 16 | 149;
 impl Default for PxuiUiDesc { fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, platform: 0, font_size: 0, abi_built: ABI_BUILT } } }
 
 #[cfg(test)]

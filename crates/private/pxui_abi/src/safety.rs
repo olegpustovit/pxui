@@ -1394,18 +1394,17 @@ mod sized_records {
         unsafe { pxui_ui_destroy(ui); }
     }
 
-    // PxuiMenuExtra has had 80, 104, 144 and 184 bytes: only those and the whole record (and more) are read.
+    // PxuiMenuOptions is read whole (its size or more): a shorter record is refused.
     #[test]
-    fn menu_extra() {
+    fn menu_options() {
         let ui = create();
-        let mut value: PxuiMenuExtra = unsafe { core::mem::zeroed() };
-        value.size = size_of::<PxuiMenuExtra>() as u32;
-        four_min(ui, ((&value as *const PxuiMenuExtra).cast(), size_of_val(&value), align_of_val(&value)), &[], &mut |p| {
-            let p = p.cast::<PxuiMenuExtra>();
+        let mut value: PxuiMenuOptions = unsafe { core::mem::zeroed() };
+        value.size = size_of::<PxuiMenuOptions>() as u32;
+        four_min(ui, ((&value as *const PxuiMenuOptions).cast(), size_of_val(&value), align_of_val(&value)), &[], &mut |p| {
+            let p = p.cast::<PxuiMenuOptions>();
             in_frame(ui, &mut |ui| {
                 let (mut tag, mut index) = (0u32, 0i64);
-                let none = Slice { ptr: core::ptr::null(), len: 0 };
-                unsafe { pxui_ui_context_menu(ui, 1.0, 1.0, Str { ptr: b"m".as_ptr(), len: 1 }, none, Slice { ptr: core::ptr::null(), len: 0 }, 0, 0.0, 0, 0, p, &mut tag, &mut index) }
+                unsafe { pxui_ui_context_menu(ui, 1.0, 1.0, Str { ptr: b"m".as_ptr(), len: 1 }, pxui_types::ffi::Strided::default(), 0, 0.0, p, &mut tag, &mut index) }
             })
         });
         unsafe { pxui_ui_destroy(ui); }

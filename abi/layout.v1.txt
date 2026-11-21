@@ -74,9 +74,6 @@ PxuiMaybeRange 24 8 0 1 8 16
 PxuiRewrite 24 8 0 16
 PxuiTextAreaDesc 200 8 0 4 8 12 16 20 24 32 40 56 72 88 104 120 136 152 168 184
 PxuiAreaCallbacks 144 8 0 4 8 16 24 32 40 48 56 64 72 80 88 96 104 112 120 128 136
-PxuiSwatch 8 1 0 1 4
-PxuiSubmenu 72 8 0 8 16 17 24 40 56
-PxuiMenuExtra 192 8 0 4 6 8 16 32 48 64 80 84 88 104 108 109 112 128 144 145 152 168 184 188
 PxuiLayerInfo 56 8 0 4 8 12 16 24 40
 PxuiDirty 8 4 0 4
 PxuiSize 16 8
@@ -120,10 +117,6 @@ PxuiDialogConfig 112 8 0 8 24 40 48 56 64 72 80 88 104
 PxuiSectionConfig 80 8 0 4 8 16 48 64 72
 PxuiSplitConfig 80 8 0 4 8 12 16 24 56 64 72
 PxuiScrollConfig 56 8 0 8 40 48
-PxuiToastConfig 72 8 0 4 16 48 64
-PxuiTipConfig 72 8 0 4 8 16 48 64
-PxuiTabConfig 128 8 0 4 16 24 56 72 80 96
-PxuiSegmentConfig 200 8 0 4 16 24 32 40 72 88 96 98 100 104 112 144 176 177 184 192 193
 PxuiDropdownConfig 88 8 0 4 16 24 32 64 80
 PxuiMenuItemConfig 80 8 0 4 16 24 56 72
 PxuiMenuRowConfig 120 8 0 4 16 17 18 19 20 24 32 40 44 48 80 96 112 116
@@ -179,3 +172,9 @@ PxuiHeadResult 56 8 0 4 5 6 7 8 16
 PxuiTableResult 192 8 0 4 8 136
 Strided 24 8 0 8 16
 PxuiBodies 132 4 0 4 82 84
+PxuiToastsConfig 72 8 0 4 16 48 64
+PxuiTooltipConfig 72 8 0 4 8 16 48 64
+PxuiTabsConfig 128 8 0 4 16 24 56 72 80 96
+PxuiSegmentedConfig 200 8 0 4 16 24 32 40 72 88 96 98 100 104 112 144 176 177 184 192 193
+PxuiMenuRow 80 8 0 4 5 6 7 8 9 10 12 16 24 40 56
+PxuiMenuOptions 56 8 0 4 6 8 12 16 20 21 22 32 48 52

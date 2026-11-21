@@ -1083,7 +1083,7 @@ pub enum Feature {
     /// ABI 1.68: the keyed widget and container calls (`PxuiKeyedDesc`): key and name apart for checkbox, radio, tabs, dropdown, slider,
     /// progress, spinner, badge, panel, popup, modal, anchored, scroll_view, toasts and picker.
     WidgetsKeyed = pxui_types::feature::WIDGETS_KEYED,
-    /// ABI 1.69: `Segmented::focus_on_click`, and `PxuiSegmentConfig::stored` for a registered segment body.
+    /// ABI 1.69: `Segmented::focus_on_click`, and `PxuiSegmentedConfig::stored` for a registered segment body.
     SegmentedStoredFocus = pxui_types::feature::SEGMENTED_STORED_FOCUS,
     /// ABI 1.70: images without a key whose name is accessibility only (`Ui::image`) and painted images that report a refusal
     /// (`Paint::image`).

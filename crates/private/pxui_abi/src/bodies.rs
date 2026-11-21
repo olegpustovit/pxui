@@ -240,15 +240,15 @@ mod tramps {
         axis: c.axis as u32, ratio: c.ratio, min_a: c.min_a, min_b: c.min_b, split: bx(c.split), first: content(sh, a), second: content(sh, b)
     });
     tramp!(scroll_view, |ui, sh, c: &ScrollConfig, body: &mut dyn FnMut(&mut Ui)| PxuiScrollConfig { node: bx(c.node), content: content(sh, body) });
-    tramp!(toasts, |ui, sh, c: &ToastConfig, text: &str| PxuiToastConfig { state: st(c.state), node: bx(c.node), text: pair(text) });
+    tramp!(toasts, |ui, sh, c: &ToastConfig, text: &str| PxuiToastsConfig { state: st(c.state), node: bx(c.node), text: pair(text) });
     tramp_span!(section_index, strs, |ui, sh, span, c: &SectionIndexConfig, letters: &[&str]| {
         span.extend(letters.iter().map(|l| pair(l)));
     }, PxuiSectionIndexConfig { state: st(c.state), has_active: c.active.is_some() as u8, active: c.active.unwrap_or(0), node: bx(c.node), letters: Slice { ptr: span.as_ptr(), len: span.len() } });
     tramp_span!(tooltip, strs, |ui, sh, span, c: &TipConfig, lines: &[String]| {
         span.extend(lines.iter().map(|l| pair(l)));
-    }, PxuiTipConfig { width: c.width, height: c.height, tip: bx(c.tip), lines: Slice { ptr: span.as_ptr(), len: span.len() } });
-    tramp!(tabs, |ui, sh, c: &TabConfig, text: &str, detail: &str| PxuiTabConfig { state: st(c.state), index: c.index, node: bx(c.node), text: pair(text), detail: pair(detail), bar: bx(c.bar) });
-    tramp!(segmented, |ui, sh, c: &SegmentConfig, states: Option<&States>, text: &str| PxuiSegmentConfig {
+    }, PxuiTooltipConfig { width: c.width, height: c.height, tip: bx(c.tip), lines: Slice { ptr: span.as_ptr(), len: span.len() } });
+    tramp!(tabs, |ui, sh, c: &TabConfig, text: &str, detail: &str| PxuiTabsConfig { state: st(c.state), index: c.index, node: bx(c.node), text: pair(text), detail: pair(detail), bar: bx(c.bar) });
+    tramp!(segmented, |ui, sh, c: &SegmentConfig, states: Option<&States>, text: &str| PxuiSegmentedConfig {
         state: st(c.state), index: c.index, selected: c.selected.unwrap_or(0), group: c.group, node: bx(c.node), text: pair(text), states: states.unwrap_or(unsafe { &*(&ui.theme().segment as *const States) }), grow: c.grow as u8,
         padding: c.padding, min_segment: c.min_segment, line: bx(c.line), strip: bx(c.strip), has_selected: c.selected.is_some() as u8, reserved3: [0; 7],
         stored: c.stored.unwrap_or(0), has_stored: c.stored.is_some() as u8, reserved4: [0; 7]

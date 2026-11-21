@@ -2616,16 +2616,16 @@ mod abi_tests {
         compare_abi_snapshot(&old, 2, minor, &current, &growth)
     }
 
-    /// The `body_kinds!` line that makes `PxuiTabConfig` a body config.
-    const KINDS: &str = "macro_rules! body_kinds {\n    tabs register_tabs_body TabBody PxuiTabConfig TabsConfig,\n};";
+    /// The `body_kinds!` line that makes `PxuiTabsConfig` a body config.
+    const KINDS: &str = "macro_rules! body_kinds {\n    tabs register_tabs_body TabBody PxuiTabsConfig TabsConfig,\n};";
 
     /// A recorded layout row grows only by trailing fields under a later minor, its recorded offsets and field types unchanged, and only
     /// for a record the library writes (a body config, a returned snapshot) or a caller-written record with a `uint32_t size` prefix the
     /// library reads at the recorded size (docs/abi.md, Append-only rules).
     #[test]
     fn recorded_layouts_grow_only_by_a_checked_trailing_append() {
-        let config = ("PxuiTabConfig 16 8 0 8", "uint32_t size; int64_t index;");
-        let appended = ("PxuiTabConfig 32 8 0 8 16", "uint32_t size; int64_t index; PxuiStr detail;");
+        let config = ("PxuiTabsConfig 16 8 0 8", "uint32_t size; int64_t index;");
+        let appended = ("PxuiTabsConfig 32 8 0 8 16", "uint32_t size; int64_t index; PxuiStr detail;");
         let no = ("", "");
         assert!(grow(config.0, config.1, config.0, config.1, 2, no, "").is_empty(), "unchanged");
         assert!(grow(config.0, config.1, appended.0, appended.1, 3, no, KINDS).is_empty(), "a body config grown at its end");
@@ -2677,13 +2677,13 @@ mod abi_tests {
 
         // what stays refused
         let refused = |row: &str, fields: &str, why: &str| assert!(!grow(config.0, config.1, row, fields, 3, no, KINDS).is_empty(), "{why}");
-        refused("PxuiTabConfig 32 8 0 16 24", "uint32_t size; PxuiStr detail; int64_t index;", "a field put mid-record");
-        refused("PxuiTabConfig 16 8 0 8", "uint32_t size; double index;", "a type change at the same offset");
-        refused("PxuiTabConfig 16 8 0 8", "uint32_t size; uint64_t index;", "a type change of the same size");
-        refused("PxuiTabConfig 24 8 0 8 12", "uint32_t size; int64_t index; float w;", "a field inside the recorded size");
-        refused("PxuiTabConfig 8 8 0 4", "uint32_t size; uint32_t index;", "a shrink");
-        refused("PxuiTabConfig 32 4 0 8 16", appended.1, "another alignment");
-        refused("PxuiTabConfig 24 8 0 8", "uint32_t size; int64_t index;", "a size grown with no new field");
+        refused("PxuiTabsConfig 32 8 0 16 24", "uint32_t size; PxuiStr detail; int64_t index;", "a field put mid-record");
+        refused("PxuiTabsConfig 16 8 0 8", "uint32_t size; double index;", "a type change at the same offset");
+        refused("PxuiTabsConfig 16 8 0 8", "uint32_t size; uint64_t index;", "a type change of the same size");
+        refused("PxuiTabsConfig 24 8 0 8 12", "uint32_t size; int64_t index; float w;", "a field inside the recorded size");
+        refused("PxuiTabsConfig 8 8 0 4", "uint32_t size; uint32_t index;", "a shrink");
+        refused("PxuiTabsConfig 32 4 0 8 16", appended.1, "another alignment");
+        refused("PxuiTabsConfig 24 8 0 8", "uint32_t size; int64_t index;", "a size grown with no new field");
         let renamed = BTreeMap::from([("layout Other".to_owned(), "layout Other 32 8 0 4 8 16".to_owned())]);
         assert!(!compare_abi_snapshot("minor 2\nlayout Rec 16 8 0 4 8\n", 2, 3, &renamed, &none()).is_empty(), "a renamed record is a removed one");
     }
