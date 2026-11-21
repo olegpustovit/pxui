@@ -6,6 +6,7 @@ use pxui_types::ui::{Cursor, UndoKind};
 use crate::{KeyCode, Mods};
 
 library!(lib {
+    fn pxui_ui_diagnostics(ui: *mut PxuiUi, io: *mut pxui_types::ffi::PxuiDiagnostics) -> i32;
     fn pxui_ui_font_points(ui: *mut PxuiUi, out: *mut f32) -> i32;
     fn pxui_ui_row_points(ui: *mut PxuiUi, out: *mut f32) -> i32;
     fn pxui_ui_environment(ui: *mut PxuiUi, out: *mut pxui_types::Environment) -> i32;
@@ -31,13 +32,8 @@ library!(lib {
     fn pxui_ui_request_cursor(ui: *mut PxuiUi, shape: u32) -> i32;
     fn pxui_ui_repaint_after(ui: *mut PxuiUi, seconds: f64) -> i32;
     fn pxui_ui_verify_views(ui: *mut PxuiUi, on: u8) -> i32;
-    fn pxui_ui_set_timing(ui: *mut PxuiUi, on: u8) -> i32;
-    fn pxui_ui_phase_times(ui: *mut PxuiUi, out: *mut u64, len: usize) -> i32;
-    fn pxui_ui_calls(ui: *const PxuiUi) -> u64;
-    fn pxui_ui_phase_cpu_times(ui: *mut PxuiUi, out: *mut u64, len: usize) -> i32;
     fn pxui_ui_bytes(ui: *mut PxuiUi, out: *mut i64, len: usize) -> i32;
     fn pxui_ui_platform(ui: *mut PxuiUi) -> u32;
-    fn pxui_ui_rebuilt_named(ui: *mut PxuiUi, prefix: pxui_types::Str, out: *mut u64) -> i32;
     fn pxui_ui_expanded(ui: *mut PxuiUi, key: pxui_types::Str, out: *mut u8) -> i32;
     fn pxui_ui_hover_delay(ui: *mut PxuiUi, key: pxui_types::Str, out: *mut u8) -> i32;
 });
@@ -330,7 +326,14 @@ impl Ui {
     #[inline]
     #[track_caller]
     pub fn verify_views(&mut self, on: bool) { check(self, unsafe { lib::pxui_ui_verify_views(self.0.as_ptr(), on as u8) }) }
-    #[inline] #[track_caller] pub fn set_timing(&mut self, on: bool) { check(self, unsafe { lib::pxui_ui_set_timing(self.0.as_ptr(), on as u8) }) }
+    #[inline] #[track_caller] pub fn set_timing(&mut self, on: bool) { let mut d = pxui_types::ffi::PxuiDiagnostics { timing: if on { 1 } else { 2 }, ..pxui_types::ffi::PxuiDiagnostics::new() }; check(self, unsafe { lib::pxui_ui_diagnostics(self.0.as_ptr(), &mut d) }) }
+    /// The diagnostics record of this `Ui` (extension set), read whole.
+    #[track_caller]
+    pub(crate) fn diagnostics(&self, rebuilt_prefix: &str) -> pxui_types::ffi::PxuiDiagnostics {
+        let mut d = pxui_types::ffi::PxuiDiagnostics { rebuilt_prefix: as_str(rebuilt_prefix), ..pxui_types::ffi::PxuiDiagnostics::new() };
+        check(self, unsafe { lib::pxui_ui_diagnostics(self.0.as_ptr(), &mut d) });
+        d
+    }
     /// The last frame's wall time in each phase, in `begin, build, intrinsic, arrange, paint, a11y, finish` order; all zero until `set_timing(true)` and a frame has run.
     /// Allocates: never.
     /// Panics: when the library refuses the call (a null `Ui`).
@@ -343,9 +346,7 @@ impl Ui {
     /// ```
     #[track_caller]
     pub fn phase_times(&self) -> [std::time::Duration; 7] {
-        let mut nanos = [0u64; 7];
-        check(self, unsafe { lib::pxui_ui_phase_times(self.0.as_ptr(), nanos.as_mut_ptr(), nanos.len()) });
-        nanos.map(std::time::Duration::from_nanos)
+        self.diagnostics("").phase_nanos.map(std::time::Duration::from_nanos)
     }
     /// Calls this `Ui` has made into the library since it was created: its own, its frame callbacks', its renderers' and paint
     /// handles' (this one is not counted). The performance gates' count of library calls; per `Ui`, so another `Ui` or thread never
@@ -359,7 +360,7 @@ impl Ui {
     /// pxui::testing::frame(&mut ui, &[], &mut |_| {});
     /// assert!(ui.library_calls() > before);
     /// ```
-    pub fn library_calls(&self) -> u64 { unsafe { lib::pxui_ui_calls(self.0.as_ptr()) } }
+    pub fn library_calls(&self) -> u64 { self.diagnostics("").calls }
     /// The last frame's thread CPU time in each phase, in `phase_times` order, summed across settling passes.
     ///
     /// Needs `set_timing(true)` and a platform thread CPU clock (Apple platforms today); there is no wall-clock fallback.
@@ -375,15 +376,8 @@ impl Ui {
     /// ```
     #[track_caller]
     pub fn phase_cpu_times(&self) -> Result<[std::time::Duration; 7], crate::Error> {
-        let mut nanos = [0u64; 7];
-        let code = unsafe {
-            lib::pxui_ui_phase_cpu_times(self.0.as_ptr(), nanos.as_mut_ptr(), nanos.len())
-        };
-        if code == 0 {
-            Ok(nanos.map(std::time::Duration::from_nanos))
-        } else {
-            Err(crate::Error::from_code(code))
-        }
+        let d = self.diagnostics("");
+        if d.has_cpu == 1 { Ok(d.phase_cpu_nanos.map(std::time::Duration::from_nanos)) } else { Err(crate::Error::State) }
     }
     /// The heap this `Ui` holds for the host's accounting: glyph atlas, glyph lists and text undo history, in bytes.
     /// Allocates: never.
@@ -415,9 +409,7 @@ impl Ui {
     /// ```
     #[track_caller]
     pub fn rebuilt_named(&self, prefix: &str) -> usize {
-        let mut out = 0;
-        check(self, unsafe { lib::pxui_ui_rebuilt_named(self.0.as_ptr(), as_str(prefix), &mut out) });
-        out as usize
+        self.diagnostics(prefix).rebuilt as usize
     }
     pub(crate) fn expanded_key(&self, key: crate::Key) -> Option<bool> {
         if let crate::Key::Label(label) = key { crate::authored(label); }

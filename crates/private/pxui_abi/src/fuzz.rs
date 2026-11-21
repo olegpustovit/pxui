@@ -98,7 +98,7 @@ arg!(signed: i32, i64);
 arg!(float: f32, f64);
 arg!(strided: Event, A11yAction, pxui_types::ffi::PxuiMenuRow);
 arg!(span: Str, u8, i64, PxuiHintDesc, PxuiKeyframeDesc, pxui_types::ffi::PxuiPickItem);
-arg!(sized: PxuiTextFieldDesc, Environment, Gpu, Keyboard, Pass, pxui_text::TextSpans<'static>, Commands, A11yAction, Input, PxuiButtonDesc, PxuiDialogDesc, PxuiDialogResult, PxuiSegmentedResult,
+arg!(sized: PxuiTextFieldDesc, pxui_types::ffi::PxuiDiagnostics, Environment, Gpu, Keyboard, Pass, pxui_text::TextSpans<'static>, Commands, A11yAction, Input, PxuiButtonDesc, PxuiDialogDesc, PxuiDialogResult, PxuiSegmentedResult,
     PxuiDismissIn, PxuiDismissOut, PxuiFooterDesc, PxuiGestureIn, PxuiGestureOut, PxuiGridListDesc, PxuiHeaderDesc, PxuiHeadOut, PxuiIconButtonDesc,
     PxuiInspectorRowDesc, PxuiInspectorSectionDesc, PxuiInspectorTextDesc, PxuiInspectorValueDesc, PxuiKeyframeDesc, PxuiLabelStyle, PxuiLookDesc, PxuiMenuBarDesc, PxuiMenuOptions, PxuiMenuOut, PxuiNodeFields, PxuiPopupDesc, PxuiResponse,
     PxuiScrubOut, PxuiSignal, PxuiSplitDesc, PxuiStateDesc, PxuiSwipeIn, PxuiTreeViewDesc, PxuiValueFieldDesc, ThemeTokens, FrameIn, FrameOut, Image, Node, PxuiPanel,
@@ -235,25 +235,25 @@ fuzz!(
     pxui_theme_reduced_motion/2, pxui_theme_set_color/3, pxui_ui_a11y_name/3, pxui_ui_a11y_number/6, pxui_ui_a11y_value/5, pxui_ui_animate/4,
     pxui_ui_add_surface/2, pxui_ui_remove_surface/2, pxui_ui_animate_keys/7, pxui_ui_box_of_a11y/3, pxui_ui_box_of_key/3, pxui_ui_busy_step/4,
     pxui_ui_button/5, pxui_ui_button_plain/4, pxui_ui_bytes/3,
-    pxui_ui_cached_label/5, pxui_ui_calls/1, pxui_ui_cancel_carry/1, pxui_ui_captured/1, pxui_ui_reordering/1, pxui_ui_carry/5, pxui_ui_carrying/4, pxui_ui_progress/5, pxui_ui_spinner/3,
+    pxui_ui_cached_label/5, pxui_ui_cancel_carry/1, pxui_ui_captured/1, pxui_ui_reordering/1, pxui_ui_carry/5, pxui_ui_carrying/4, pxui_ui_progress/5, pxui_ui_spinner/3,
     pxui_ui_badge/4, pxui_ui_anchored/8, pxui_ui_scroll_view/6, pxui_ui_view/6,
     pxui_ui_toasts/6, pxui_ui_picker/14, pxui_ui_checkbox/3, pxui_ui_section_index/5, pxui_ui_disclosure/6,
     pxui_ui_color/2, pxui_ui_content_rect/2, pxui_ui_context_at/4, pxui_ui_context_menu/10, pxui_ui_density/1,
-    pxui_ui_dialog/5, pxui_ui_disabled/4, pxui_ui_dismiss/4, pxui_ui_dismiss_popup/1, pxui_ui_draw/6,
+    pxui_ui_dialog/5, pxui_ui_disabled/4, pxui_ui_diagnostics/2, pxui_ui_dismiss/4, pxui_ui_dismiss_popup/1, pxui_ui_draw/6,
     pxui_ui_drop_target/5, pxui_ui_environment/2, pxui_ui_expanded/3, pxui_ui_field_drag/4, pxui_ui_focus_box/2, pxui_ui_focus_default/2,
     pxui_ui_focused/3, pxui_ui_font_points/2, pxui_ui_footer/2, pxui_ui_frame_index/1, pxui_ui_gesture/5, pxui_ui_grid_list/3, pxui_ui_grip/7,
     pxui_ui_hover_delay/3, pxui_ui_key_seed/2, pxui_ui_hovered/4, pxui_ui_icon_button_plain/5, pxui_ui_icon_button/3, pxui_ui_icon_word/2, pxui_ui_image/8, pxui_ui_inject_a11y/2, pxui_ui_input/4, pxui_ui_item_text/2, pxui_ui_key_down/3, pxui_ui_key_pressed/4, pxui_ui_keyboard/2, pxui_ui_label/5, pxui_ui_label_measure/6,
     pxui_ui_label_quads/9, pxui_ui_label_rasterize_rgba/13, pxui_ui_label_prewarm/4, pxui_ui_layer_drawn/2, pxui_ui_load_text_edit/6, pxui_ui_local_rect/3, pxui_ui_node/4,
     pxui_ui_node_fields/3, pxui_ui_node_keyed/4, pxui_ui_node_layout/3, pxui_ui_now/1, pxui_ui_output/1, pxui_ui_passed_undo/1, pxui_ui_patch_field/5,
-    pxui_ui_patch_look/4, pxui_ui_patch_mark/4, pxui_ui_patch_rect/4, pxui_ui_patch_text/4, pxui_ui_phase_cpu_times/3, pxui_ui_phase_times/3, pxui_ui_platform/1,
-    pxui_ui_press_keys/4, pxui_ui_rebuilt_named/3, pxui_ui_rect/3, pxui_ui_remember/6,
+    pxui_ui_patch_look/4, pxui_ui_patch_mark/4, pxui_ui_patch_rect/4, pxui_ui_patch_text/4, pxui_ui_platform/1,
+    pxui_ui_press_keys/4, pxui_ui_rect/3, pxui_ui_remember/6,
     pxui_ui_repaint_after/2, pxui_ui_request_cursor/2, pxui_ui_request_frame/1, pxui_ui_resolve_label/3, pxui_ui_reveal/3, pxui_ui_root_at/6, pxui_ui_row_points/2,
     pxui_ui_scroll_offset/4, pxui_ui_search_field/11, pxui_ui_section_list/7, pxui_ui_selection_list/7, pxui_ui_table_head/4, pxui_ui_table/7,
     pxui_ui_segmented/5, pxui_ui_set_a11y/2, pxui_ui_set_at/4, pxui_ui_set_dir/2,
     pxui_ui_set_font_points/2, pxui_ui_set_node_fields/3, pxui_ui_set_node_layout/3, pxui_ui_set_role/4, pxui_ui_set_scroll_offset/3,
-    pxui_ui_set_state/3, pxui_ui_set_text_state/4, pxui_ui_set_text_worker/2, pxui_ui_set_timing/2, pxui_ui_signal/3, pxui_ui_state/4, pxui_ui_style/4, pxui_ui_swipe_actions/3, pxui_ui_system_appearance/2,
+    pxui_ui_set_state/3, pxui_ui_set_text_state/4, pxui_ui_set_text_worker/2, pxui_ui_signal/3, pxui_ui_state/4, pxui_ui_style/4, pxui_ui_swipe_actions/3, pxui_ui_system_appearance/2,
     pxui_ui_text/6, pxui_ui_text_area/9, pxui_ui_text_field/5, pxui_ui_text_input_focused/1,
-    pxui_ui_text_input_options/2, pxui_ui_text_layout_count/2, pxui_ui_text_state/4, pxui_ui_text_undo_bytes/1, pxui_ui_theme/1, pxui_ui_themed/4, pxui_ui_tip/3, pxui_ui_to_front/3, pxui_ui_toggle_plain/5, pxui_ui_toggle/3, pxui_ui_transfer_carry/3, pxui_ui_tree/3, pxui_ui_unfocus/1,
+    pxui_ui_text_input_options/2, pxui_ui_text_state/4, pxui_ui_text_undo_bytes/1, pxui_ui_theme/1, pxui_ui_themed/4, pxui_ui_tip/3, pxui_ui_to_front/3, pxui_ui_toggle_plain/5, pxui_ui_toggle/3, pxui_ui_transfer_carry/3, pxui_ui_tree/3, pxui_ui_unfocus/1,
     pxui_ui_use_theme/2, pxui_ui_verify_views/2, pxui_ui_verifying/1, pxui_ui_view_backdrop_blur/3,
     pxui_ui_view_backdrop_saturation/3, pxui_ui_view_clip/3, pxui_ui_view_offset/4, pxui_ui_view_opacity/3, pxui_ui_view_scale/3,
     pxui_ui_view_size/2, pxui_ui_view_transform_about/6, pxui_ui_wants_frame/4, pxui_ui_within/4,
@@ -351,7 +351,7 @@ fn every_export_refuses_bad_arguments_without_panicking() {
     BOXES.with(|b| b.set([stale, foreign, stale]));
     special();
     fuzz_all();
-    let calls = unsafe { pxui_ui_calls(ui) };
+    let calls = { let mut d = pxui_types::ffi::PxuiDiagnostics::new(); unsafe { pxui_ui_diagnostics(ui, &mut d) }; d.calls };
     for _ in 0..2 {
         // the fuzz may have removed or replaced the surface: register the one the frame names again
         unsafe { crate::ui::pxui_ui_remove_surface(ui, 1); crate::ui::pxui_ui_add_surface(ui, 1); }
@@ -360,7 +360,7 @@ fn every_export_refuses_bad_arguments_without_panicking() {
         check("pxui_frame (the fuzzed frame)", &rc, panics);
     }
     // the frames ran the fuzz: every export at least once a round on the borrowed handle (counted on this `Ui`)
-    assert!(unsafe { pxui_ui_calls(ui) } - calls > (FUZZED.len() as u64) * u64::from(VARIANTS));
+    assert!({ let mut d = pxui_types::ffi::PxuiDiagnostics::new(); unsafe { pxui_ui_diagnostics(ui, &mut d) }; d.calls } - calls > (FUZZED.len() as u64) * u64::from(VARIANTS));
     unsafe {
         pxui_shaper_destroy(SHAPER.with(Cell::get));
         pxui_theme_destroy(THEME.with(Cell::get));

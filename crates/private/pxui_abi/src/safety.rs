@@ -1246,19 +1246,24 @@ fn a_poisoned_shaper_or_theme_fails_its_calls_and_is_still_freed() {
     unsafe { pxui_theme_destroy(theme); }
 }
 
+fn calls_of(ui: *mut PxuiUi) -> u64 {
+    let mut d = pxui_types::ffi::PxuiDiagnostics::new();
+    if unsafe { pxui_ui_diagnostics(ui, &mut d) } == 0 { d.calls } else { 0 }
+}
+
 /// Calls are counted per `Ui`: one `Ui`'s calls never move another's, and reading the count is not a call.
 #[test]
 fn calls_are_counted_per_ui() {
     let (a, b) = (create(), create());
-    let (at_a, at_b) = unsafe { (pxui_ui_calls(a), pxui_ui_calls(b)) };
+    let (at_a, at_b) = (calls_of(a), calls_of(b));
     for _ in 0..5 { assert_eq!(unsafe { pxui_ui_set_dir(a, 0) }, 0); }
-    assert_eq!(unsafe { pxui_ui_calls(a) } - at_a, 5);
-    assert_eq!(unsafe { pxui_ui_calls(b) }, at_b);
+    assert_eq!(calls_of(a) - at_a, 5);
+    assert_eq!(calls_of(b), at_b);
     let mut built = 0u32;
     assert_eq!(run(b, Some(count), (&mut built as *mut u32).cast()), 0);
-    assert_eq!(unsafe { pxui_ui_calls(a) } - at_a, 5);
-    assert!(unsafe { pxui_ui_calls(b) } > at_b);
-    assert_eq!(unsafe { pxui_ui_calls(core::ptr::null()) } | unsafe { pxui_counter(0) }, 0);
+    assert_eq!(calls_of(a) - at_a, 5);
+    assert!(calls_of(b) > at_b);
+    assert_eq!(calls_of(core::ptr::null_mut()) | unsafe { pxui_counter(0) }, 0);
     assert_eq!(unsafe { pxui_ui_destroy(a) } | unsafe { pxui_ui_destroy(b) }, 0);
 }
 
@@ -1269,8 +1274,8 @@ fn a_builder_export_ending_in_its_trusted_entry_counts_one_call() {
     let ui = create();
     let mut deltas = [0u64; 3];
     assert_eq!(in_frame(ui, &mut |h| {
-        let mut at = unsafe { pxui_ui_calls(h) };
-        let mut next = |i: usize| { let now = unsafe { pxui_ui_calls(h) }; deltas[i] = now - at; at = now; };
+        let mut at = calls_of(h);
+        let mut next = |i: usize| { let now = calls_of(h); deltas[i] = now - at; at = now; };
         assert_ne!(unsafe { pxui_ui_item_text(h, str_of(b"row")) }, 0, "item_text outside a row is refused");
         next(0);
         let mut out = pxui_types::ffi::PxuiResponse::EMPTY;

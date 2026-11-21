@@ -4443,6 +4443,10 @@ pxui_types::ffi::PxuiDescription::has field u8 @HEAD
 pxui_types::ffi::PxuiDescription::reserved field [u8; 7] @HEAD
 pxui_types::ffi::PxuiDescription::start field i64 @HEAD
 pxui_types::ffi::PxuiDescription::text field Str @HEAD
+pxui_types::ffi::PxuiDiagnostics impl Clone @U5.9
+pxui_types::ffi::PxuiDiagnostics impl Copy @U5.9
+pxui_types::ffi::PxuiDiagnostics impl Debug @U5.9
+pxui_types::ffi::PxuiDiagnostics struct @U5.9
 pxui_types::ffi::PxuiDialogConfig impl Clone @HEAD
 pxui_types::ffi::PxuiDialogConfig impl Copy @HEAD
 pxui_types::ffi::PxuiDialogConfig struct @HEAD
@@ -7534,6 +7538,18 @@ pxui_types::ui::UndoKind::Undo variant @HEAD
 pxui_types::ui::display fn (text: &str) -> String @HEAD
 pxui_types::ui::ellipsis fn <'a>(width: &mut dyn FnMut(&str) -> f32, limit: f32, label: &'a str) -> Cow<'a, str> @HEAD
 -pxui_types::ui::find_marker fn (text: &str, marker: &str) -> Option<usize> @U1a.1
+pxui_types::ffi::PxuiDiagnostics::calls field u64 @U5.9
+pxui_types::ffi::PxuiDiagnostics::has_cpu field u8 @U5.9
+pxui_types::ffi::PxuiDiagnostics::has_text_layouts field u8 @U5.9
+pxui_types::ffi::PxuiDiagnostics::new fn () -> PxuiDiagnostics @U5.9
+pxui_types::ffi::PxuiDiagnostics::phase_cpu_nanos field [u64; 7] @U5.9
+pxui_types::ffi::PxuiDiagnostics::phase_nanos field [u64; 7] @U5.9
+pxui_types::ffi::PxuiDiagnostics::rebuilt field u64 @U5.9
+pxui_types::ffi::PxuiDiagnostics::rebuilt_prefix field Str @U5.9
+pxui_types::ffi::PxuiDiagnostics::reserved field u8 @U5.9
+pxui_types::ffi::PxuiDiagnostics::size field u32 @U5.9
+pxui_types::ffi::PxuiDiagnostics::text_layouts field u64 @U5.9
+pxui_types::ffi::PxuiDiagnostics::timing field u8 @U5.9
 pxui_types::ffi::PxuiMenuOptions::focus_on_click field u8 @U5.7
 pxui_types::ffi::PxuiMenuOptions::has_name field u8 @U5.7
 pxui_types::ffi::PxuiMenuOptions::max_h field f32 @U5.7

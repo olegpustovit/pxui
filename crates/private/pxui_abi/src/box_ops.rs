@@ -3,7 +3,7 @@
 //! controls preserve transform storage and retained instances.
 //!
 //! Boxes and what hangs off them: patches, scroll and text state, carries and drops, view transforms.
-use crate::state::{PxuiUi, boxed, checked, engine, fail, finite, get};
+use crate::state::{PxuiUi, boxed, checked, engine, fail, finite};
 use crate::ui::key_code;
 use crate::style::decode_look;
 use crate::{PXUI_ERR_ARGUMENT, PxuiBox, Str};
@@ -202,27 +202,6 @@ export!(pub unsafe fn pxui_ui_set_scroll_offset(ui: *mut PxuiUi, box_: *const Px
     let (e, b) = match unsafe { boxed(ui, box_) } { Ok(v) => v, Err(code) => return code };
     if !value.is_finite() { return unsafe { fail(ui, "scroll offset is not finite") }; }
     e.set_scroll_offset(&b, value);
-    0
-});
-
-#[cfg(test)]
-#[test]
-fn text_layout_count_checks_outputs_before_writing() {
-    let mut out=77;
-    assert_eq!(unsafe {pxui_ui_text_layout_count(core::ptr::null_mut(),&mut out)},PXUI_ERR_ARGUMENT);
-    assert_eq!(out,77);
-    let ui=unsafe {crate::ui::create_test_ui()};
-    assert_eq!(unsafe {pxui_ui_text_layout_count(ui,core::ptr::null_mut())},PXUI_ERR_ARGUMENT);
-    assert_eq!(unsafe {pxui_ui_text_layout_count(ui,&mut out)},0);
-    assert_eq!(out,0);
-    assert_eq!(unsafe {crate::pxui_ui_destroy(ui)},0);
-}
-
-export!(pub unsafe fn pxui_ui_text_layout_count(ui: *mut PxuiUi, out: *mut u64) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    if out.is_null() { return unsafe { fail(ui, "null text layout count output") }; }
-    let Some(count) = (unsafe { &*state.engine }).text_layout_count() else { return crate::PXUI_ERR_STATE; };
-    unsafe { *out = count; }
     0
 });
 

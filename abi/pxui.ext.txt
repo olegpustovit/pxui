@@ -1,6 +1,7 @@
 # PXUI extension set: no stability guarantee (docs/abi.md, Extension set). Rows may change or disappear between minors.
 # The set is the names listed here; add a name to move a call out of the frozen manifest, then run `cargo run -p gate -- abi-snapshot --write`.
-function pxui_ui_calls uint64_t pxui_ui_calls ( const PxuiUi * ui ) ;
+function pxui_counter uint64_t pxui_counter ( uint32_t which ) ;
+function pxui_ui_diagnostics int32_t pxui_ui_diagnostics ( PxuiUi * ui , PxuiDiagnostics * io ) ;
 function pxui_ui_inspector_bar int32_t pxui_ui_inspector_bar ( PxuiUi * ui , PxuiHintSpan hints , int64_t count ) ;
 function pxui_ui_inspector_body int32_t pxui_ui_inspector_body ( PxuiUi * ui , PxuiBuild build , void * user ) ;
 function pxui_ui_inspector_button int32_t pxui_ui_inspector_button ( PxuiUi * ui , PxuiStr key , PxuiStr label , uint8_t * out ) ;
@@ -14,6 +15,7 @@ function pxui_ui_inspector_toggle int32_t pxui_ui_inspector_toggle ( PxuiUi * ui
 function pxui_ui_inspector_width float pxui_ui_inspector_width ( PxuiUi * ui ) ;
 function pxui_ui_picker int32_t pxui_ui_picker ( PxuiUi * ui , const PxuiKeyedDesc * keyed , int64_t limit , uint8_t slash , uint8_t at_rest , PxuiStr query , PxuiPickerRows rows , PxuiPickerMark mark , PxuiPickerOff off , PxuiPickerImage image , void * user , PxuiStr * out_query , uint32_t * out_tag , int64_t * out_index ) ;
 function pxui_ui_value_field int32_t pxui_ui_value_field ( PxuiUi * ui , const PxuiValueFieldDesc * desc , PxuiTextValid valid , PxuiSlideText slide , PxuiScrubText scrub , void * user , PxuiStr name , PxuiStr * out_text , uint8_t * out_changed , uint8_t * out_editing , PxuiResponse * response ) ;
+layout PxuiDiagnostics 160 8 0 4 5 6 7 8 24 32 40 48 104
 layout PxuiHeadOut 32 8 0 4 5 6 8 24
 layout PxuiHeaderDesc 144 8 0 4 5 6 7 8 9 16 32 48 64 80 96 112 128
 layout PxuiInspectorRowConfig 80 8 0 4 16 17 20 24 56 72

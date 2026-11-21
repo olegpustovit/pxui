@@ -7,7 +7,6 @@ use pxui_types::{geom::{Point, Rect}, ffi::{PxuiLookDesc, PxuiMarkDesc, Slice}, 
 use std::fmt::{Arguments, Write};
 
 library!(lib {
-    fn pxui_ui_text_layout_count(ui: *mut PxuiUi, out: *mut u64) -> i32;
     fn pxui_ui_reveal(ui: *mut PxuiUi, list: *const PxuiBox, index: usize) -> i32;
     fn pxui_ui_dismiss(ui: *mut PxuiUi, box_: *const PxuiBox, request: *const pxui_types::ffi::PxuiDismissIn, out: *mut pxui_types::ffi::PxuiDismissOut) -> i32;
     fn pxui_ui_swipe_actions(ui: *mut PxuiUi, box_: *const PxuiBox, request: *const pxui_types::ffi::PxuiSwipeIn) -> i32;
@@ -457,9 +456,8 @@ impl Ui {
     /// ```
     #[track_caller]
     pub fn text_layout_count(&self) -> u64 {
-        let mut out=0;
-        check(self, unsafe { lib::pxui_ui_text_layout_count(self.0.as_ptr(), &mut out) });
-        out
+        let d = self.diagnostics("");
+        if d.has_text_layouts == 1 { d.text_layouts } else { check(self, pxui_types::PXUI_ERR_STATE); 0 }
     }
     /// Scrolls the list `list` by the least amount that shows item (or grid cell) `index`.
     /// Unvisited measured rows use the list's estimates and settle once measured. A stale handle or an index out of range does nothing.

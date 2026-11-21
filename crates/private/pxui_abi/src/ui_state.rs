@@ -152,14 +152,6 @@ export!(pub unsafe fn pxui_ui_verify_views(ui: *mut PxuiUi, on: u8) -> i32 {
     0
 });
 
-export!(pub unsafe fn pxui_ui_set_timing(ui: *mut PxuiUi, on: u8) -> i32 {
-    let Some(e) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    if on > 1 { return unsafe { fail(ui, "invalid flag") }; }
-    e.set_timing(on != 0);
-    e.set_cpu_clock(if on != 0 { Some(thread_cpu_clock) } else { None });
-    0
-});
-
 fn thread_cpu_clock() -> Option<u64> {
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     {
@@ -171,59 +163,6 @@ fn thread_cpu_clock() -> Option<u64> {
         None
     }
 }
-
-// CPU nanoseconds, all settling passes; no output write if timing/clock is unavailable.
-export!(pub unsafe fn pxui_ui_phase_cpu_times(ui: *mut PxuiUi, out: *mut u64, len: usize) -> i32 {
-        let Some(e) = (unsafe { engine(ui) }) else {
-            return PXUI_ERR_ARGUMENT;
-        };
-        if out.is_null() || len != pxui_core::ui::PHASES {
-            return unsafe { fail(ui, "CPU phase times need seven slots") };
-        }
-        let Some(times) = e.phase_cpu_times() else {
-            return crate::PXUI_ERR_STATE;
-        };
-        unsafe {
-            core::ptr::copy_nonoverlapping(times.as_ptr(), out, times.len());
-        }
-        0
-    });
-
-#[test]
-fn cpu_phase_output_is_atomic_for_invalid_or_unavailable_requests() {
-    let ui = unsafe { crate::ui::create_test_ui() };
-    let mut out = [99; 7];
-    assert_eq!(
-        unsafe { pxui_ui_phase_cpu_times(core::ptr::null_mut(), out.as_mut_ptr(), 7) },
-        PXUI_ERR_ARGUMENT
-    );
-    assert_eq!(
-        unsafe { pxui_ui_phase_cpu_times(ui, core::ptr::null_mut(), 7) },
-        PXUI_ERR_ARGUMENT
-    );
-    for len in [0, 6, 8] {
-        assert_eq!(
-            unsafe { pxui_ui_phase_cpu_times(ui, out.as_mut_ptr(), len) },
-            PXUI_ERR_ARGUMENT
-        );
-    }
-    assert_eq!(
-        unsafe { pxui_ui_phase_cpu_times(ui, out.as_mut_ptr(), 7) },
-        crate::PXUI_ERR_STATE
-    );
-    assert_eq!(out, [99; 7]);
-    unsafe {
-        crate::pxui_ui_destroy(ui);
-    }
-}
-
-// The seven phase times of the last frame in nanoseconds; `len` must be 7.
-export!(pub unsafe fn pxui_ui_phase_times(ui: *mut PxuiUi, out: *mut u64, len: usize) -> i32 {
-    let Some(e) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    if out.is_null() || len != pxui_core::ui::PHASES { return unsafe { fail(ui, "phase times need seven slots") }; }
-    for (i, t) in e.phase_times().iter().enumerate() { unsafe { *out.add(i) = t.as_nanos() as u64; } }
-    0
-});
 
 // The heap the `Ui` holds, as `[atlas, glyph_lists, text_undo]`; `len` must be 3.
 export!(pub unsafe fn pxui_ui_bytes(ui: *mut PxuiUi, out: *mut i64, len: usize) -> i32 {
@@ -237,14 +176,6 @@ export!(pub unsafe fn pxui_ui_bytes(ui: *mut PxuiUi, out: *mut i64, len: usize) 
 // 0 for other, 1 for Apple.
 export!(pub unsafe fn pxui_ui_platform(ui: *mut PxuiUi) -> u32 {
     unsafe { engine(ui) }.map_or(0, |e| (e.platform() == input::Platform::Apple) as u32)
-});
-
-export!(pub unsafe fn pxui_ui_rebuilt_named(ui: *mut PxuiUi, prefix: Str, out: *mut u64) -> i32 {
-    let Some(e) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    let Some(prefix) = (unsafe { checked(prefix) }) else { return unsafe { fail(ui, "invalid view prefix") }; };
-    if out.is_null() { return unsafe { fail(ui, "null count output") }; }
-    unsafe { *out = e.rebuilt_named(prefix) as u64; }
-    0
 });
 
 // An inspector section's state by key: 0 unknown, 1 collapsed, 2 expanded.
@@ -275,3 +206,49 @@ export!(pub unsafe fn pxui_ui_key_seed(ui: *mut PxuiUi, out: *mut i64) -> i32 {
     unsafe { *out = e.lookup_seed(); }
     0
 });
+
+// Diagnostics of `ui` (extension set): the timing switch and the counters of `PxuiDiagnostics`, one sized record in and out. Not counted as
+// a call into the library, so `calls` reads what the app's own calls made.
+export!(bare pub unsafe fn pxui_ui_diagnostics(ui: *mut PxuiUi, io: *mut pxui_types::ffi::PxuiDiagnostics) -> i32 {
+    let Some(state) = (unsafe { crate::state::get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    let Some(d) = (unsafe { io.as_mut() }).filter(|d| d.size as usize >= core::mem::size_of::<pxui_types::ffi::PxuiDiagnostics>()) else { return PXUI_ERR_ARGUMENT; };
+    let Some(prefix) = (unsafe { checked(d.rebuilt_prefix) }) else { return PXUI_ERR_ARGUMENT; };
+    if d.timing > 2 || d.reserved != 0 { return PXUI_ERR_ARGUMENT; }
+    let e = unsafe { &mut *state.engine };
+    if d.timing != 0 {
+        e.set_timing(d.timing == 1);
+        e.set_cpu_clock(if d.timing == 1 { Some(thread_cpu_clock) } else { None });
+    }
+    d.calls = state.shared().calls;
+    (d.has_text_layouts, d.text_layouts) = e.text_layout_count().map_or((0, 0), |count| (1, count));
+    d.rebuilt = e.rebuilt_named(prefix) as u64;
+    for (out, time) in d.phase_nanos.iter_mut().zip(e.phase_times()) { *out = time.as_nanos() as u64; }
+    (d.has_cpu, d.phase_cpu_nanos) = e.phase_cpu_times().map_or((0, [0; 7]), |times| (1, times));
+    0
+});
+
+#[test]
+fn diagnostics_read_the_counters_and_refuse_a_bad_record() {
+    use pxui_types::ffi::PxuiDiagnostics;
+    let ui = unsafe { crate::ui::create_test_ui() };
+    let mut d = PxuiDiagnostics::new();
+    assert_eq!(unsafe { pxui_ui_diagnostics(ui, &mut d) }, 0);
+    assert_eq!((d.has_cpu, d.phase_nanos), (0, [0; 7]), "no timing yet");
+    let calls = d.calls;
+    // each refusal writes nothing
+    d = PxuiDiagnostics { calls: 77, ..PxuiDiagnostics::new() };
+    for bad in [PxuiDiagnostics { size: 8, ..d }, PxuiDiagnostics { timing: 3, ..d }, PxuiDiagnostics { reserved: 1, ..d },
+        PxuiDiagnostics { rebuilt_prefix: Str { ptr: b"\xff".as_ptr(), len: 1 }, ..d }] {
+        let mut bad = bad;
+        assert_eq!(unsafe { pxui_ui_diagnostics(ui, &mut bad) }, PXUI_ERR_ARGUMENT);
+        assert_eq!(bad.calls, 77);
+    }
+    assert_eq!(unsafe { pxui_ui_diagnostics(core::ptr::null_mut(), &mut d) }, PXUI_ERR_ARGUMENT);
+    assert_eq!(unsafe { pxui_ui_diagnostics(ui, core::ptr::null_mut()) }, PXUI_ERR_ARGUMENT);
+    d.timing = 1;
+    assert_eq!(unsafe { pxui_ui_diagnostics(ui, &mut d) }, 0);
+    assert_eq!(d.calls, calls, "reading the diagnostics is not a call into the library");
+    d.timing = 2;
+    assert_eq!(unsafe { pxui_ui_diagnostics(ui, &mut d) }, 0);
+    assert_eq!(unsafe { crate::pxui_ui_destroy(ui) }, 0);
+}

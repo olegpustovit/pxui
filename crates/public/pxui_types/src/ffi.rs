@@ -546,6 +546,55 @@ pub struct PxuiMenuOptions {
     pub reserved3: u32,
 }
 
+/// What `pxui_ui_diagnostics` reads and writes about one `Ui` (extension set: no stability promise; `PXUI_FEATURE_EXTENSION_SET`). In:
+/// `size`, `timing` (0 leaves the phase timing as it is, 1 turns it on, 2 off; the clock reads cost a little) and `rebuilt_prefix` (empty:
+/// every view). Out: `calls` (calls into the library on this `Ui`, its borrowed handles, renderers and paint handles, since it was created;
+/// this call is not one), `text_layouts` (the text cache's layout count; `has_text_layouts` 0 when the build keeps none), `rebuilt` (views whose
+/// label starts with `rebuilt_prefix` the last frame built instead of keeping), `phase_nanos` and, when `has_cpu` is 1, `phase_cpu_nanos` (the
+/// last frame's wall and thread CPU time in the phases begin, build, intrinsic, arrange, paint, a11y, finish; zero until timing is on and a
+/// frame has run). The caller sets `size`; the out fields are written whole by a successful call.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct PxuiDiagnostics {
+    /// `size_of::<PxuiDiagnostics>()` (or more).
+    pub size: u32,
+    /// In: 0 leave the phase timing, 1 on, 2 off.
+    pub timing: u8,
+    /// Out: 1 when `text_layouts` is the cache's count.
+    pub has_text_layouts: u8,
+    /// Out: 1 when `phase_cpu_nanos` is a thread CPU time (Apple platforms today).
+    pub has_cpu: u8,
+    /// Zero.
+    pub reserved: u8,
+    /// In: the label prefix `rebuilt` counts (empty: every view).
+    pub rebuilt_prefix: Str,
+    /// Out: calls into the library on this `Ui` since it was created.
+    pub calls: u64,
+    /// Out: the text cache's layout count.
+    pub text_layouts: u64,
+    /// Out: views whose label starts with `rebuilt_prefix` the last frame built.
+    pub rebuilt: u64,
+    /// Out: the last frame's wall time per phase, in nanoseconds.
+    pub phase_nanos: [u64; 7],
+    /// Out: the last frame's thread CPU time per phase, in nanoseconds (read when `has_cpu` is 1).
+    pub phase_cpu_nanos: [u64; 7],
+}
+
+impl PxuiDiagnostics {
+    /// A record asking for nothing but the counters: timing left as it is, every view counted.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert_eq!(pxui_types::ffi::PxuiDiagnostics::new().size as usize, core::mem::size_of::<pxui_types::ffi::PxuiDiagnostics>());
+    /// ```
+    pub fn new() -> PxuiDiagnostics {
+        PxuiDiagnostics { size: core::mem::size_of::<PxuiDiagnostics>() as u32, timing: 0, has_text_layouts: 0, has_cpu: 0, reserved: 0, rebuilt_prefix: Str::default(),
+            calls: 0, text_layouts: 0, rebuilt: 0, phase_nanos: [0; 7], phase_cpu_nanos: [0; 7] }
+    }
+}
+
 /// A label's style as it crosses the ABI (`pxui_ui_label`, `pxui_paint_label`, `PxuiLabelConfig::style`; ABI 1.45): `Label` with
 /// each optional field's bit in `set` (`SET_*`); a field whose bit is clear is the theme's label style. `color` is an app colour
 /// token; `digits` 1 draws the text one cached character at a time with every digit on the advance of `0`. The label's box (height,
@@ -2542,6 +2591,7 @@ pub(crate) mod layout {
         check("PxuiAreaCallbacks", size_of::<PxuiAreaCallbacks>(), align_of::<PxuiAreaCallbacks>(), &[("size", core::mem::offset_of!(PxuiAreaCallbacks, size)), ("reserved", core::mem::offset_of!(PxuiAreaCallbacks, reserved)), ("user", core::mem::offset_of!(PxuiAreaCallbacks, user)), ("on_context", core::mem::offset_of!(PxuiAreaCallbacks, on_context)), ("on_scrub", core::mem::offset_of!(PxuiAreaCallbacks, on_scrub)), ("on_scrub_edit", core::mem::offset_of!(PxuiAreaCallbacks, on_scrub_edit)), ("on_click", core::mem::offset_of!(PxuiAreaCallbacks, on_click)), ("on_caret", core::mem::offset_of!(PxuiAreaCallbacks, on_caret)), ("on_caret_move", core::mem::offset_of!(PxuiAreaCallbacks, on_caret_move)), ("on_select", core::mem::offset_of!(PxuiAreaCallbacks, on_select)), ("on_drop", core::mem::offset_of!(PxuiAreaCallbacks, on_drop)), ("colorize", core::mem::offset_of!(PxuiAreaCallbacks, colorize)), ("brackets", core::mem::offset_of!(PxuiAreaCallbacks, brackets)), ("indent", core::mem::offset_of!(PxuiAreaCallbacks, indent)), ("complete", core::mem::offset_of!(PxuiAreaCallbacks, complete)), ("describe", core::mem::offset_of!(PxuiAreaCallbacks, describe)), ("number_at", core::mem::offset_of!(PxuiAreaCallbacks, number_at)), ("context_at", core::mem::offset_of!(PxuiAreaCallbacks, context_at)), ("rewrite", core::mem::offset_of!(PxuiAreaCallbacks, rewrite))]);
         check("PxuiMenuRow", size_of::<PxuiMenuRow>(), align_of::<PxuiMenuRow>(), &[("size", core::mem::offset_of!(PxuiMenuRow, size)), ("enabled", core::mem::offset_of!(PxuiMenuRow, enabled)), ("danger", core::mem::offset_of!(PxuiMenuRow, danger)), ("checked", core::mem::offset_of!(PxuiMenuRow, checked)), ("selected", core::mem::offset_of!(PxuiMenuRow, selected)), ("has_swatch", core::mem::offset_of!(PxuiMenuRow, has_swatch)), ("has_id", core::mem::offset_of!(PxuiMenuRow, has_id)), ("reserved", core::mem::offset_of!(PxuiMenuRow, reserved)), ("swatch", core::mem::offset_of!(PxuiMenuRow, swatch)), ("id", core::mem::offset_of!(PxuiMenuRow, id)), ("text", core::mem::offset_of!(PxuiMenuRow, text)), ("shortcut", core::mem::offset_of!(PxuiMenuRow, shortcut)), ("submenu", core::mem::offset_of!(PxuiMenuRow, submenu))]);
         check("PxuiMenuOptions", size_of::<PxuiMenuOptions>(), align_of::<PxuiMenuOptions>(), &[("size", core::mem::offset_of!(PxuiMenuOptions, size)), ("variant", core::mem::offset_of!(PxuiMenuOptions, variant)), ("reserved", core::mem::offset_of!(PxuiMenuOptions, reserved)), ("row_h", core::mem::offset_of!(PxuiMenuOptions, row_h)), ("max_rows", core::mem::offset_of!(PxuiMenuOptions, max_rows)), ("padding", core::mem::offset_of!(PxuiMenuOptions, padding)), ("has_name", core::mem::offset_of!(PxuiMenuOptions, has_name)), ("focus_on_click", core::mem::offset_of!(PxuiMenuOptions, focus_on_click)), ("reserved2", core::mem::offset_of!(PxuiMenuOptions, reserved2)), ("name", core::mem::offset_of!(PxuiMenuOptions, name)), ("max_h", core::mem::offset_of!(PxuiMenuOptions, max_h)), ("reserved3", core::mem::offset_of!(PxuiMenuOptions, reserved3))]);
+        check("PxuiDiagnostics", size_of::<PxuiDiagnostics>(), align_of::<PxuiDiagnostics>(), &[("size", core::mem::offset_of!(PxuiDiagnostics, size)), ("timing", core::mem::offset_of!(PxuiDiagnostics, timing)), ("has_text_layouts", core::mem::offset_of!(PxuiDiagnostics, has_text_layouts)), ("has_cpu", core::mem::offset_of!(PxuiDiagnostics, has_cpu)), ("reserved", core::mem::offset_of!(PxuiDiagnostics, reserved)), ("rebuilt_prefix", core::mem::offset_of!(PxuiDiagnostics, rebuilt_prefix)), ("calls", core::mem::offset_of!(PxuiDiagnostics, calls)), ("text_layouts", core::mem::offset_of!(PxuiDiagnostics, text_layouts)), ("rebuilt", core::mem::offset_of!(PxuiDiagnostics, rebuilt)), ("phase_nanos", core::mem::offset_of!(PxuiDiagnostics, phase_nanos)), ("phase_cpu_nanos", core::mem::offset_of!(PxuiDiagnostics, phase_cpu_nanos))]);
         check("Slice", size_of::<Slice<u32>>(), align_of::<Slice<u32>>(), &[("ptr", core::mem::offset_of!(Slice<u32>, ptr)), ("len", core::mem::offset_of!(Slice<u32>, len))]);
         check("Strided", size_of::<Strided<u32>>(), align_of::<Strided<u32>>(), &[("ptr", core::mem::offset_of!(Strided<u32>, ptr)), ("len", core::mem::offset_of!(Strided<u32>, len)), ("stride", core::mem::offset_of!(Strided<u32>, stride))]);
         check("Input", size_of::<Input>(), align_of::<Input>(), &[("size", core::mem::offset_of!(Input, size)), ("time", core::mem::offset_of!(Input, time)), ("dt", core::mem::offset_of!(Input, dt)), ("frame", core::mem::offset_of!(Input, frame)), ("tick", core::mem::offset_of!(Input, tick)), ("logical_size", core::mem::offset_of!(Input, logical_size)), ("pointer", core::mem::offset_of!(Input, pointer)), ("keys", core::mem::offset_of!(Input, keys)), ("buttons", core::mem::offset_of!(Input, buttons)), ("events", core::mem::offset_of!(Input, events)), ("pixel_scale", core::mem::offset_of!(Input, pixel_scale)), ("mouse_delta", core::mem::offset_of!(Input, mouse_delta)), ("fps", core::mem::offset_of!(Input, fps))]);

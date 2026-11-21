@@ -32,14 +32,6 @@ export!(bare pub unsafe fn pxui_counter(which: u32) -> u64 {
     match which { 0 => 0, _ => mem_sys::own(which) }
 });
 
-// Calls into the library made on `ui` (its owner and every handle a callback borrowed from it, its renderers and paint handles)
-// since it was created; this call is not one of them. A plain field of that `Ui`: no counter is shared between `Ui`s or threads.
-// 0 for null.
-export!(bare pub unsafe fn pxui_ui_calls(ui: *const PxuiUi) -> u64 {
-    if ui.is_null() { return 0; }
-    unsafe { (*(*ui).shared).calls }
-});
-
 export!(pub unsafe fn pxui_ui_view_size(ui: *mut PxuiUi, out: *mut pxui_types::geom::Point) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if out.is_null() { return unsafe { fail(ui, "null view size output") }; }

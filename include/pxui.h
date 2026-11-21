@@ -28,7 +28,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 150u)
+#define PXUI_ABI_BUILT ((1u << 16) | 151u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 /* U5.4: size-prefixed (16 bytes); pxui_ui_text_input_options needs the caller's size to cover it. */
@@ -523,12 +523,17 @@ enum {
     PXUI_FEATURE_VULKAN = 3,             /* the Vulkan renderer backend (same) */
     PXUI_FEATURE_EXTENSION_SET = 4       /* abi/pxui.ext.txt: the Rays vocabulary and the diagnostics, no stability promise */
 };
-/* Process counters for performance gates: which 1 = heap allocations the library's allocator has made (a counting build); anything else
-   reads 0, and so does 0 since 1.66 (calls are counted per Ui: pxui_ui_calls). */
+/* Extension set (diagnostics; no stability promise, PXUI_FEATURE_EXTENSION_SET). pxui_counter: process counters for performance gates: which 1 =
+   heap allocations the library's allocator has made (a counting build), 2.. the allocator's other counters; anything else reads 0. */
 uint64_t pxui_counter(uint32_t which);
-/* Extension set (diagnostics). Calls made into the library on ui (its owner, the handles its callbacks borrowed, its renderers and paint
-   handles) since it was created; this call is not counted. A field of that Ui: no counter is shared between Uis or threads. 0 for NULL. */
-uint64_t pxui_ui_calls(const PxuiUi *ui);
+/* pxui_ui_diagnostics reads and writes one record: in, timing (0 leave the phase timing as it is, 1 on, 2 off) and rebuilt_prefix (the label prefix
+   rebuilt counts; empty: every view); out, calls (calls into the library on this Ui: its owner, the handles its callbacks borrowed, its renderers and
+   paint handles, since it was created; this call is not counted; per Ui, no counter is shared between Uis or threads), text_layouts (the text
+   cache's layout count; has_text_layouts 0 when none), rebuilt (views whose label starts with rebuilt_prefix that the last frame built instead of
+   kept), phase_nanos and, when has_cpu is 1, phase_cpu_nanos (the last frame's wall and thread CPU time in the phases begin, build, intrinsic,
+   arrange, paint, a11y, finish; zero until timing is on and a frame has run). A refused call writes nothing. */
+typedef struct { uint32_t size; uint8_t timing, has_text_layouts, has_cpu, reserved; PxuiStr rebuilt_prefix; uint64_t calls, text_layouts, rebuilt, phase_nanos[7], phase_cpu_nanos[7]; } PxuiDiagnostics;
+int32_t pxui_ui_diagnostics(PxuiUi *ui, PxuiDiagnostics *io);
 PxuiUi *pxui_ui_create(const PxuiUiDesc *desc);
 /* ABI 1.63 font limits (any entry point that adds a font: this one, pxui_shaper_create, pxui_shaper_add_font, pxui_text_add_font): a font is
    1 byte to 32 MiB (33,554,432), a text service holds at most 64 fonts and 256 MiB of font bytes in all, and bytes that are not a parseable font
@@ -959,14 +964,8 @@ int32_t pxui_ui_dismiss_popup(PxuiUi *ui);
 int32_t pxui_ui_request_cursor(PxuiUi *ui, uint32_t shape); /* 1 horizontal resize, 2 vertical resize, 3 text */
 int32_t pxui_ui_repaint_after(PxuiUi *ui, double seconds);
 int32_t pxui_ui_verify_views(PxuiUi *ui, uint8_t on);
-int32_t pxui_ui_set_timing(PxuiUi *ui, uint8_t on);
-int32_t pxui_ui_phase_times(PxuiUi *ui, uint64_t *out, size_t len); /* nanoseconds, len must be 7 */
-/* ABI 1.35: thread CPU ns, same order, sum of settling passes; len=7.
-   set_timing enables it on Apple; ERR_STATE if unavailable, without changing out. */
-int32_t pxui_ui_phase_cpu_times(PxuiUi *ui, uint64_t *out, size_t len);
 int32_t pxui_ui_bytes(PxuiUi *ui, int64_t *out, size_t len); /* atlas, glyph lists, text undo; len must be 3 */
 uint32_t pxui_ui_platform(PxuiUi *ui); /* 0 other, 1 Apple */
-int32_t pxui_ui_rebuilt_named(PxuiUi *ui, PxuiStr prefix, uint64_t *out);
 int32_t pxui_ui_expanded(PxuiUi *ui, PxuiStr key, uint8_t *out); /* 0 unknown, 1 collapsed, 2 expanded */
 /* ABI 1.77: a key of a 0x01 byte and 16 lowercase hex digits waits on that resolved key itself; other text waits as text. */
 int32_t pxui_ui_hover_delay(PxuiUi *ui, PxuiStr key, uint8_t *out);
@@ -1000,8 +999,6 @@ int32_t pxui_ui_swipe_actions(PxuiUi *ui, const PxuiBox *box, const PxuiSwipeIn 
 /* ABI 1.41: take a node's vertical drag-to-dismiss (a downward drag, handed over by an inner scroll view only at its top;
    touch only; call after pxui_ui_gesture each build) and read its state. */
 int32_t pxui_ui_dismiss(PxuiUi *ui, const PxuiBox *box, const PxuiDismissIn *in, PxuiDismissOut *out);
-/* ABI 1.34: cumulative text cache-miss layouts; read between frames. */
-int32_t pxui_ui_text_layout_count(PxuiUi *ui, uint64_t *out);
 int32_t pxui_ui_text_state(PxuiUi *ui, const PxuiBox *box, uint8_t *present, PxuiStr *out);
 int32_t pxui_ui_set_text_state(PxuiUi *ui, const PxuiBox *box, uint8_t present, PxuiStr value);
 int32_t pxui_ui_cached_label(PxuiUi *ui, const PxuiBox *box, uint64_t index, PxuiStr text, PxuiStr *out); /* borrowed from the slot */
@@ -1299,6 +1296,7 @@ _Static_assert(sizeof(PxuiTabsConfig) == 128 && offsetof(PxuiTabsConfig, size) =
 _Static_assert(sizeof(PxuiSegmentedConfig) == 200 && offsetof(PxuiSegmentedConfig, size) == 0 && offsetof(PxuiSegmentedConfig, state) == 4 && offsetof(PxuiSegmentedConfig, index) == 16 && offsetof(PxuiSegmentedConfig, selected) == 24 && offsetof(PxuiSegmentedConfig, group) == 32 && offsetof(PxuiSegmentedConfig, node) == 40 && offsetof(PxuiSegmentedConfig, text) == 72 && offsetof(PxuiSegmentedConfig, states) == 88 && offsetof(PxuiSegmentedConfig, grow) == 96 && offsetof(PxuiSegmentedConfig, variant) == 98 && offsetof(PxuiSegmentedConfig, padding) == 100 && offsetof(PxuiSegmentedConfig, min_segment) == 104 && offsetof(PxuiSegmentedConfig, line) == 112 && offsetof(PxuiSegmentedConfig, strip) == 144 && offsetof(PxuiSegmentedConfig, has_selected) == 176 && offsetof(PxuiSegmentedConfig, reserved3) == 177 && offsetof(PxuiSegmentedConfig, stored) == 184 && offsetof(PxuiSegmentedConfig, has_stored) == 192 && offsetof(PxuiSegmentedConfig, reserved4) == 193, "PxuiSegmentedConfig layout");
 _Static_assert(sizeof(PxuiMenuRow) == 80 && offsetof(PxuiMenuRow, size) == 0 && offsetof(PxuiMenuRow, enabled) == 4 && offsetof(PxuiMenuRow, danger) == 5 && offsetof(PxuiMenuRow, checked) == 6 && offsetof(PxuiMenuRow, selected) == 7 && offsetof(PxuiMenuRow, has_swatch) == 8 && offsetof(PxuiMenuRow, has_id) == 9 && offsetof(PxuiMenuRow, reserved) == 10 && offsetof(PxuiMenuRow, swatch) == 12 && offsetof(PxuiMenuRow, id) == 16 && offsetof(PxuiMenuRow, text) == 24 && offsetof(PxuiMenuRow, shortcut) == 40 && offsetof(PxuiMenuRow, submenu) == 56, "PxuiMenuRow layout");
 _Static_assert(sizeof(PxuiMenuOptions) == 56 && offsetof(PxuiMenuOptions, size) == 0 && offsetof(PxuiMenuOptions, variant) == 4 && offsetof(PxuiMenuOptions, reserved) == 6 && offsetof(PxuiMenuOptions, row_h) == 8 && offsetof(PxuiMenuOptions, max_rows) == 12 && offsetof(PxuiMenuOptions, padding) == 16 && offsetof(PxuiMenuOptions, has_name) == 20 && offsetof(PxuiMenuOptions, focus_on_click) == 21 && offsetof(PxuiMenuOptions, reserved2) == 22 && offsetof(PxuiMenuOptions, name) == 32 && offsetof(PxuiMenuOptions, max_h) == 48 && offsetof(PxuiMenuOptions, reserved3) == 52, "PxuiMenuOptions layout");
+_Static_assert(sizeof(PxuiDiagnostics) == 160 && offsetof(PxuiDiagnostics, size) == 0 && offsetof(PxuiDiagnostics, timing) == 4 && offsetof(PxuiDiagnostics, has_text_layouts) == 5 && offsetof(PxuiDiagnostics, has_cpu) == 6 && offsetof(PxuiDiagnostics, reserved) == 7 && offsetof(PxuiDiagnostics, rebuilt_prefix) == 8 && offsetof(PxuiDiagnostics, calls) == 24 && offsetof(PxuiDiagnostics, text_layouts) == 32 && offsetof(PxuiDiagnostics, rebuilt) == 40 && offsetof(PxuiDiagnostics, phase_nanos) == 48 && offsetof(PxuiDiagnostics, phase_cpu_nanos) == 104, "PxuiDiagnostics layout");
 _Static_assert(sizeof(PxuiHeadOut) == 32 && offsetof(PxuiHeadOut, size) == 0 && offsetof(PxuiHeadOut, has_chosen) == 4 && offsetof(PxuiHeadOut, reset_pressed) == 5 && offsetof(PxuiHeadOut, reserved) == 6 && offsetof(PxuiHeadOut, renamed) == 8 && offsetof(PxuiHeadOut, chosen) == 24, "PxuiHeadOut layout");
 _Static_assert(sizeof(PxuiHeaderDesc) == 144 && offsetof(PxuiHeaderDesc, size) == 0 && offsetof(PxuiHeaderDesc, has_kind) == 4 && offsetof(PxuiHeaderDesc, has_badge) == 5 && offsetof(PxuiHeaderDesc, has_index) == 6 && offsetof(PxuiHeaderDesc, has_reset) == 7 && offsetof(PxuiHeaderDesc, reset_enabled) == 8 && offsetof(PxuiHeaderDesc, reserved) == 9 && offsetof(PxuiHeaderDesc, key) == 16 && offsetof(PxuiHeaderDesc, kind) == 32 && offsetof(PxuiHeaderDesc, badge) == 48 && offsetof(PxuiHeaderDesc, index) == 64 && offsetof(PxuiHeaderDesc, reset) == 80 && offsetof(PxuiHeaderDesc, title) == 96 && offsetof(PxuiHeaderDesc, detail) == 112 && offsetof(PxuiHeaderDesc, actions) == 128, "PxuiHeaderDesc layout");
 _Static_assert(sizeof(PxuiInspectorRowConfig) == 80 && offsetof(PxuiInspectorRowConfig, size) == 0 && offsetof(PxuiInspectorRowConfig, state) == 4 && offsetof(PxuiInspectorRowConfig, has_pin) == 16 && offsetof(PxuiInspectorRowConfig, pin) == 17 && offsetof(PxuiInspectorRowConfig, label_w) == 20 && offsetof(PxuiInspectorRowConfig, row) == 24 && offsetof(PxuiInspectorRowConfig, label) == 56 && offsetof(PxuiInspectorRowConfig, variant) == 72, "PxuiInspectorRowConfig layout");
