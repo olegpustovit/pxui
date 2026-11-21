@@ -62,7 +62,7 @@ export!(object pub unsafe fn pxui_a11y_fd(a11y: *mut PxuiA11y) -> i32 {
 export!(object pub unsafe fn pxui_a11y_update(a11y: *mut PxuiA11y, tree: *const pxui_types::ffi::A11yTree) -> i32 {
     #[cfg(target_os = "linux")]
     {
-        let (Some(a), Some(tree)) = (unsafe { a11y.as_mut() }, unsafe { tree.as_ref() }) else { return PXUI_ERR_ARGUMENT };
+        let (Some(a), Some(tree)) = (unsafe { a11y.as_mut() }, sized!(tree)) else { return PXUI_ERR_ARGUMENT };
         // one surface per bridge until the 2.0 cut names surfaces in this call
         return if unsafe { a.bridge.update_ffi(0, tree) }.is_ok() { 0 } else { crate::PXUI_ERR_STATE };
     }

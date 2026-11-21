@@ -506,6 +506,10 @@ macro_rules! snapshot {
         #[repr(C)]
         #[derive(Clone, Copy, Debug, PartialEq)]
         pub struct ThemeSnapshot {
+            /// `size_of::<ThemeSnapshot>()`: what the writer's record holds.
+            pub size: u32,
+            /// How many parts follow (`WIDGET_COUNT`): a reader of an older build reads the parts it knows and ignores the rest.
+            pub part_count: u32,
             /// The colour, size and motion tokens.
             pub tokens: Tokens,
             /// Height of a list or inspector row in points.
@@ -518,9 +522,10 @@ macro_rules! snapshot {
             pub scrollbar_w: f32,
             /// Gap between the scroll thumb and the view's edge in points.
             pub scrollbar_gap: f32,
-            $($(#[$doc])* pub $name: States,)*
-            /// The body each widget kind builds with; after the parts, so their array keeps its offsets.
+            /// The body each widget kind builds with (its own size; its reserved slots keep it from growing).
             pub body: Bodies,
+            /// The kit parts, last: the part this record grows by is the next one.
+            $($(#[$doc])* pub $name: States,)*
         }
         /// How many kit parts a snapshot lists.
         pub const WIDGET_COUNT: usize = [$(stringify!($name)),*].len();

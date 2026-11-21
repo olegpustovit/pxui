@@ -921,8 +921,82 @@ fn strided_spans_step_by_stride_and_refuse_a_stride_below_the_record() {
     // what the library writes is dense: the output's spans step by the record sizes
     assert_eq!(frame(span(72, 0)), 0);
     let output = unsafe { &*pxui_ui_output(ui) };
+    assert_eq!(output.a11y.size as usize, core::mem::size_of::<pxui_types::ffi::A11yTree>());
     assert_eq!((output.a11y.nodes.stride, output.layers.stride), (core::mem::size_of::<pxui_types::ffi::A11yNode>(), core::mem::size_of::<pxui_types::ffi::PxuiLayerInfo>()));
     assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
+}
+
+/// U5.5: an enum a caller writes (a tag byte or a number) is checked against its range before anything is built from it: the largest
+/// valid value is accepted, the next one is refused, and the refusal leaves the call a no-op. One row each for the records a caller fills.
+#[test]
+fn enum_values_are_range_checked_on_input() {
+    use pxui_types::{Node, ffi::{PxuiAnchorDesc, PxuiButtonDesc, PxuiKeyframeDesc, PxuiLabelStyle, PxuiResponse, PxuiSheetDesc, PxuiSizeDesc}};
+    let ui = create();
+    // the Node's tag bytes: (offset, largest valid value)
+    let node_bytes = [(core::mem::offset_of!(Node, axis), 2u8), (core::mem::offset_of!(Node, justify), 5), (core::mem::offset_of!(Node, align), 4), (core::mem::offset_of!(Node, wrap), 1),
+        (core::mem::offset_of!(Node, role), pxui_types::a11y::Role::Separator as u8), (core::mem::offset_of!(Node, state.hovered), 1), (core::mem::offset_of!(Node, mark), 2)];
+    for (at, largest) in node_bytes {
+        for (value, accepted) in [(largest, true), (largest + 1, false)] {
+            let mut node = Node::DEFAULT;
+            unsafe { (&mut node as *mut Node).cast::<u8>().add(at).write(value) };
+            let rc = in_frame(ui, &mut |ui| unsafe { pxui_ui_node_keyed(ui, 31, &node, &mut PxuiBox::default()) });
+            assert_eq!(rc == 0, accepted, "node byte at {at} = {value}: {}", error(ui));
+        }
+    }
+    // the Ui's platform, the frame's appearance and reduced-motion, an event's kind
+    for (platform, accepted) in [(2, true), (3, false)] {
+        let desc = crate::PxuiUiDesc { platform, ..crate::PxuiUiDesc::default() };
+        let made = unsafe { pxui_ui_create(&desc) };
+        assert_eq!(!made.is_null(), accepted, "platform {platform}");
+        if !made.is_null() { assert_eq!(unsafe { pxui_ui_destroy(made) }, 0); }
+    }
+    for (input, accepted) in [(FrameIn { appearance: 2, ..frame_in() }, true), (FrameIn { appearance: 3, ..frame_in() }, false), (FrameIn { reduced_motion: 1, ..frame_in() }, true), (FrameIn { reduced_motion: 2, ..frame_in() }, false)] {
+        assert_eq!(frame_with(ui, &input) == 0, accepted, "{}", error(ui));
+    }
+    for (kind, accepted) in [(pxui_types::Event::FILES_DROPPED, true), (0, false), (11, false), (pxui_types::Event::FILES_DROPPED + 1, false)] {
+        let event = [pxui_types::Event { kind, ..pxui_types::Event::default() }];
+        let input = FrameIn { events: pxui_types::ffi::Strided::of(&event), ..frame_in() };
+        // FILES_DROPPED carries paths: an empty payload is the kind that decides, so only the rest (unknown kinds) are asserted refused
+        if !accepted { assert_eq!(frame_with(ui, &input), PXUI_ERR_ARGUMENT, "event kind {kind}"); }
+    }
+    // a button's justification and size kinds, an anchor's side and alignment, a sheet's presentation, a keyframe's target
+    let k = Str { ptr: b"k".as_ptr(), len: 1 };
+    let mut button: PxuiButtonDesc = unsafe { core::mem::zeroed() };
+    (button.size, button.enabled, button.key, button.text) = (core::mem::size_of::<PxuiButtonDesc>() as u32, 1, k, k);
+    for (field, largest) in [(0u8, 2u8), (1, 2), (2, 2)] {
+        for (value, accepted) in [(largest, true), (largest + 1, false)] {
+            let mut d = button;
+            match field { 0 => d.justify = value, 1 => d.w_kind = value, _ => d.h_kind = value }
+            let rc = in_frame(ui, &mut |ui| { let mut out = PxuiResponse::EMPTY; unsafe { pxui_ui_button(ui, &d, None, core::ptr::null_mut(), &mut out) } });
+            assert_eq!(rc == 0, accepted, "button field {field} = {value}: {}", error(ui));
+        }
+    }
+    let px = PxuiSizeDesc { kind: PxuiSizeDesc::PX, value: 40.0, relative: None };
+    for (side, align, accepted) in [(3, 2, true), (4, 2, false), (0, 5, false)] {
+        let anchor = PxuiAnchorDesc { has_anchor: 1, side, align, ..PxuiAnchorDesc::default() };
+        let rc = in_frame(ui, &mut |ui| unsafe { pxui_ui_anchored(ui, &pxui_types::ffi::PxuiKeyedDesc::new("a", ""), &anchor, px, px, None, core::ptr::null_mut(), &mut PxuiBox::default()) });
+        assert_eq!(rc == 0, accepted, "anchor side {side} align {align}");
+    }
+    for (present, accepted) in [(3, true), (4, false)] {
+        let sheet = PxuiSheetDesc { size: core::mem::size_of::<PxuiSheetDesc>() as u32, present, has_width: 0, reserved: [0; 2], width: 0.0, dismiss_fraction: 0.0, dismiss_velocity: 0.0, top: 0.0, max_h: 0.0 };
+        let rc = in_frame(ui, &mut |ui| { let mut open = 0u8; unsafe { pxui_ui_modal(ui, &pxui_types::ffi::PxuiKeyedDesc::new("m", ""), &sheet, None, core::ptr::null_mut(), &mut open, &mut PxuiBox::default()) } });
+        assert_eq!(rc == 0, accepted, "sheet present {present}: {}", error(ui));
+    }
+    for (target, accepted) in [(3u32, true), (4, false)] {
+        let mut key: PxuiKeyframeDesc = unsafe { core::mem::zeroed() };
+        key.size = core::mem::size_of::<PxuiKeyframeDesc>() as u32;
+        (key.target, key.look, key.curve) = (target, pxui_types::ffi::PxuiLookDesc::default(), pxui_types::ffi::PxuiCurveDesc { kind: 2, omega: 20.0, ..pxui_types::ffi::PxuiCurveDesc::default() });
+        let rc = in_frame(ui, &mut |ui| { let b = PxuiBox::default(); let _ = b; let mut node = PxuiBox::default(); assert_eq!(unsafe { pxui_ui_node_keyed(ui, 9, &Node::DEFAULT, &mut node) }, 0); let mut running = 0u8; unsafe { pxui_ui_animate(ui, &node, &key, &mut running) } });
+        assert_eq!(rc == 0, accepted, "keyframe target {target}: {}", error(ui));
+    }
+    // a label style's wrap, alignment and ellipsis
+    let label = PxuiLabelStyle::from(&pxui_types::Label::BODY);
+    let (text, mut out) = (Str { ptr: b"x".as_ptr(), len: 1 }, pxui_types::TextMetrics::default());
+    for (what, bad) in [("wrap", PxuiLabelStyle { wrap: 9, ..label }), ("align", PxuiLabelStyle { align: 9, ..label }), ("ellipsis", PxuiLabelStyle { ellipsis: 9, ..label })] {
+        assert_eq!(unsafe { pxui_ui_label_measure(ui, text, &bad, 0.0, core::ptr::null(), &mut out) }, PXUI_ERR_ARGUMENT, "label style {what}");
+    }
+    assert_eq!(unsafe { pxui_ui_label_measure(ui, text, &label, 0.0, core::ptr::null(), &mut out) }, 0);
+    unsafe { pxui_ui_destroy(ui); }
 }
 
 /// A frame's size is within `0..=MAX_SURFACE`; a key event's code must name a key.

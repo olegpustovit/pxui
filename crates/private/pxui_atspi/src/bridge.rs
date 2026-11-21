@@ -922,7 +922,7 @@ fn chars(text: &str, start: i32, end: i32) -> &str {
 
 /// Validates the public ABI tree and copies it into `out`, reusing `out`'s and `ids`' buffers.
 unsafe fn copy_ffi_tree(raw: &FfiA11yTree, out: &mut A11yTree, ids: &mut std::collections::HashSet<u64>) -> Result<(), &'static str> {
-    if raw.nodes.len > 1_000_000 || raw.strings.len > 16 * 1024 * 1024
+    if (raw.size as usize) < std::mem::size_of::<FfiA11yTree>() || raw.nodes.len > 1_000_000 || raw.strings.len > 16 * 1024 * 1024
         || !raw.nodes.is_valid()
         || (raw.strings.len != 0 && raw.strings.ptr.is_null())
     {
@@ -980,7 +980,7 @@ mod ffi_tests {
         let text = b"GalleryButton";
         let nodes = [FfiNode { id: 9, parent: NO_PARENT, role: Role::Button as u32, name_start: 0, name_end: 7, value: A11yValue::default(), ..FfiNode::default() },
             FfiNode { id: 10, parent: 0, role: Role::Label as u32, name_start: 7, name_end: 13, value: A11yValue::default(), ..FfiNode::default() }];
-        let raw = FfiA11yTree { nodes: Strided::of(&nodes), strings: Str { ptr: text.as_ptr(), len: text.len() }, revision: 4, first_child: 0, child_count: 1, actions: Strided::default() };
+        let raw = FfiA11yTree { nodes: Strided::of(&nodes), strings: Str { ptr: text.as_ptr(), len: text.len() }, revision: 4, first_child: 0, child_count: 1, ..FfiA11yTree::default() };
         let (mut tree, mut ids) = (A11yTree::new(), std::collections::HashSet::new());
         unsafe { copy_ffi_tree(&raw, &mut tree, &mut ids) }.unwrap();
         assert_eq!(tree.revision, 4);
@@ -995,13 +995,17 @@ mod ffi_tests {
         let first = FfiNode { id: 9, parent: NO_PARENT, role: Role::Button as u32, name_start: 0, name_end: 7, ..FfiNode::default() };
         let second = FfiNode { id: 10, parent: 0, role: Role::Label as u32, name_start: 7, name_end: 13, ..FfiNode::default() };
         let wide = [Wide { node: first, tail: [0; 8] }, Wide { node: second, tail: [0; 8] }];
-        let raw = |nodes: Strided<FfiNode>| FfiA11yTree { nodes, strings: Str { ptr: text.as_ptr(), len: text.len() }, revision: 1, first_child: 0, child_count: 1, actions: Strided::default() };
+        let raw = |nodes: Strided<FfiNode>| FfiA11yTree { nodes, strings: Str { ptr: text.as_ptr(), len: text.len() }, revision: 1, first_child: 0, child_count: 1, ..FfiA11yTree::default() };
         let copy = |tree: &FfiA11yTree| { let (mut out, mut ids) = (A11yTree::new(), std::collections::HashSet::new()); unsafe { copy_ffi_tree(tree, &mut out, &mut ids) }.map(|_| out) };
+        let wide_first = [first];
         let stride = std::mem::size_of::<Wide>();
         let tree = copy(&raw(Strided { ptr: wide.as_ptr().cast(), len: 2, stride })).unwrap();
         assert_eq!(tree.str(tree.nodes[1].name), "Button");
         assert!(copy(&raw(Strided { ptr: wide.as_ptr().cast(), len: 2, stride: std::mem::size_of::<FfiNode>() })).is_err(), "the second node read at the dense stride is not a node");
         assert!(copy(&raw(Strided { ptr: wide.as_ptr().cast(), len: 2, stride: std::mem::size_of::<FfiNode>() - 8 })).is_err(), "a stride below the node");
+        let mut short_tree = raw(Strided::of(&wide_first));
+        short_tree.size -= 1;
+        assert!(copy(&short_tree).is_err(), "a tree whose own size is short");
         let short = [FfiNode { size: 100, ..first }];
         assert!(copy(&raw(Strided::of(&short))).is_err(), "a node whose own size is short");
     }

@@ -227,13 +227,21 @@ impl Default for A11yAction {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct A11yTree {
-    /// `nodes.stride` is the node record the writer used.
+    /// `size_of::<A11yTree>()`: a record whose size is short is refused (`pxui_a11y_update`).
+    pub size: u32,
+    pub reserved: u32,
+    /// `nodes.stride` is the node record the writer used (the tree's node stride).
     pub nodes: Strided<A11yNode>,
     pub strings: Str,
     pub revision: u64,
     pub first_child: u32,
     pub child_count: u32,
     pub actions: Strided<A11yAction>,
+}
+impl Default for A11yTree {
+    fn default() -> Self {
+        Self { size: core::mem::size_of::<Self>() as u32, reserved: 0, nodes: Strided::default(), strings: Str::default(), revision: 0, first_child: u32::MAX, child_count: 0, actions: Strided::default() }
+    }
 }
 
 #[repr(C)]
@@ -257,7 +265,7 @@ impl Default for Output {
     fn default() -> Self {
         Self { size: core::mem::size_of::<Self>() as u32, reserved: 0, draw_revision: 0, repaint_at: f64::INFINITY, built_nodes: 0, rebuilt_views: 0, arranged_nodes: 0,
             platform: PlatformOut { size: core::mem::size_of::<PlatformOut>() as u32, ..PlatformOut::default() }, damage: Damage::default(),
-            a11y: A11yTree { nodes: Strided::default(), strings: Str::default(), revision: 0, first_child: u32::MAX, child_count: 0, actions: Strided::default() }, layers: Strided::default() }
+            a11y: A11yTree::default(), layers: Strided::default() }
     }
 }
 
@@ -2482,7 +2490,7 @@ pub(crate) mod layout {
         check("A11yValue", size_of::<A11yValue>(), align_of::<A11yValue>(), &[("tag", core::mem::offset_of!(A11yValue, tag)), ("text_start", core::mem::offset_of!(A11yValue, text_start)), ("text_end", core::mem::offset_of!(A11yValue, text_end)), ("reserved", core::mem::offset_of!(A11yValue, reserved)), ("now", core::mem::offset_of!(A11yValue, now)), ("min", core::mem::offset_of!(A11yValue, min)), ("max", core::mem::offset_of!(A11yValue, max)), ("step", core::mem::offset_of!(A11yValue, step))]);
         check("A11yNode", size_of::<A11yNode>(), align_of::<A11yNode>(), &[("size", core::mem::offset_of!(A11yNode, size)), ("parent", core::mem::offset_of!(A11yNode, parent)), ("id", core::mem::offset_of!(A11yNode, id)), ("role", core::mem::offset_of!(A11yNode, role)), ("name_start", core::mem::offset_of!(A11yNode, name_start)), ("name_end", core::mem::offset_of!(A11yNode, name_end)), ("description_start", core::mem::offset_of!(A11yNode, description_start)), ("description_end", core::mem::offset_of!(A11yNode, description_end)), ("value", core::mem::offset_of!(A11yNode, value)), ("rect", core::mem::offset_of!(A11yNode, rect)), ("states", core::mem::offset_of!(A11yNode, states)), ("actions", core::mem::offset_of!(A11yNode, actions)), ("selection", core::mem::offset_of!(A11yNode, selection)), ("child_count", core::mem::offset_of!(A11yNode, child_count)), ("first_child", core::mem::offset_of!(A11yNode, first_child)), ("next_sibling", core::mem::offset_of!(A11yNode, next_sibling)), ("last_child", core::mem::offset_of!(A11yNode, last_child))]);
         check("A11yAction", size_of::<A11yAction>(), align_of::<A11yAction>(), &[("size", core::mem::offset_of!(A11yAction, size)), ("action_code", core::mem::offset_of!(A11yAction, action_code)), ("id", core::mem::offset_of!(A11yAction, id)), ("payload", core::mem::offset_of!(A11yAction, payload)), ("end", core::mem::offset_of!(A11yAction, end)), ("reserved", core::mem::offset_of!(A11yAction, reserved))]);
-        check("A11yTree", size_of::<A11yTree>(), align_of::<A11yTree>(), &[("nodes", core::mem::offset_of!(A11yTree, nodes)), ("nodes.len", core::mem::offset_of!(A11yTree, nodes.len)), ("nodes.stride", core::mem::offset_of!(A11yTree, nodes.stride)), ("strings", core::mem::offset_of!(A11yTree, strings)), ("revision", core::mem::offset_of!(A11yTree, revision)), ("first_child", core::mem::offset_of!(A11yTree, first_child)), ("child_count", core::mem::offset_of!(A11yTree, child_count)), ("actions", core::mem::offset_of!(A11yTree, actions)), ("actions.len", core::mem::offset_of!(A11yTree, actions.len)), ("actions.stride", core::mem::offset_of!(A11yTree, actions.stride))]);
+        check("A11yTree", size_of::<A11yTree>(), align_of::<A11yTree>(), &[("size", core::mem::offset_of!(A11yTree, size)), ("reserved", core::mem::offset_of!(A11yTree, reserved)), ("nodes", core::mem::offset_of!(A11yTree, nodes)), ("nodes.len", core::mem::offset_of!(A11yTree, nodes.len)), ("nodes.stride", core::mem::offset_of!(A11yTree, nodes.stride)), ("strings", core::mem::offset_of!(A11yTree, strings)), ("revision", core::mem::offset_of!(A11yTree, revision)), ("first_child", core::mem::offset_of!(A11yTree, first_child)), ("child_count", core::mem::offset_of!(A11yTree, child_count)), ("actions", core::mem::offset_of!(A11yTree, actions)), ("actions.len", core::mem::offset_of!(A11yTree, actions.len)), ("actions.stride", core::mem::offset_of!(A11yTree, actions.stride))]);
         check("Output", size_of::<Output>(), align_of::<Output>(), &[("size", core::mem::offset_of!(Output, size)), ("reserved", core::mem::offset_of!(Output, reserved)), ("draw_revision", core::mem::offset_of!(Output, draw_revision)), ("repaint_at", core::mem::offset_of!(Output, repaint_at)), ("built_nodes", core::mem::offset_of!(Output, built_nodes)), ("rebuilt_views", core::mem::offset_of!(Output, rebuilt_views)), ("arranged_nodes", core::mem::offset_of!(Output, arranged_nodes)), ("platform", core::mem::offset_of!(Output, platform)), ("damage", core::mem::offset_of!(Output, damage)), ("a11y", core::mem::offset_of!(Output, a11y)), ("layers", core::mem::offset_of!(Output, layers))]);
         check("PxuiLayerInfo", size_of::<PxuiLayerInfo>(), align_of::<PxuiLayerInfo>(), &[("size", core::mem::offset_of!(PxuiLayerInfo, size)), ("id", core::mem::offset_of!(PxuiLayerInfo, id)), ("breaks", core::mem::offset_of!(PxuiLayerInfo, breaks)), ("reserved", core::mem::offset_of!(PxuiLayerInfo, reserved)), ("key", core::mem::offset_of!(PxuiLayerInfo, key)), ("instances", core::mem::offset_of!(PxuiLayerInfo, instances)), ("dirty", core::mem::offset_of!(PxuiLayerInfo, dirty))]);
         check("PxuiDirty", size_of::<PxuiDirty>(), align_of::<PxuiDirty>(), &[("start", core::mem::offset_of!(PxuiDirty, start)), ("end", core::mem::offset_of!(PxuiDirty, end))]);

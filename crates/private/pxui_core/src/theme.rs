@@ -20,15 +20,19 @@ macro_rules! widgets {
         #[repr(C)]
         #[derive(Clone, Copy, Debug, PartialEq)]
         pub struct Theme {
+            /// `size_of::<Theme>()`, as the snapshot's.
+            pub size: u32,
+            /// The number of parts that follow the bodies.
+            pub part_count: u32,
             pub tokens: Tokens,
             pub row_h: f32,
             pub control_h: f32,
             pub ring: Ring,
             pub scrollbar_w: f32,
             pub scrollbar_gap: f32,
-            $($(#[$doc])* pub $name: States,)*
-            /// The body each widget kind builds with (`Ui::register_toggle_body` and siblings); after the parts, as in the snapshot.
+            /// The body each widget kind builds with (`Ui::register_toggle_body` and siblings); before the parts, as in the snapshot.
             pub body: Bodies,
+            $($(#[$doc])* pub $name: States,)*
         }
         const WIDGETS: &[&str] = &[$(stringify!($name)),*];
         impl Theme {
@@ -98,6 +102,8 @@ fn kit(t: &Tokens) -> Theme {
         ..States::of(ink(t.foreground))
     };
     Theme {
+        size: core::mem::size_of::<Theme>() as u32,
+        part_count: WIDGETS.len() as u32,
         tokens: *t,
         row_h: 24.0,
         control_h: 20.0,

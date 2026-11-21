@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 141
+minor 142
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -233,7 +233,7 @@ function pxui_ui_wants_frame int32_t pxui_ui_wants_frame ( PxuiUi * ui , PxuiEve
 function pxui_within int32_t pxui_within ( PxuiUi * ui , const PxuiBox * box , PxuiBuild build , void * user ) ;
 layout A11yAction 32 8 0 4 8 16 24 28
 layout A11yNode 136 8 0 4 8 16 20 24 28 32 40 88 104 108 112 120 124 128 132
-layout A11yTree 80 8 0 8 16 24 40 48 52 56 64 72
+layout A11yTree 88 8 0 4 8 16 24 32 48 56 60 64 72 80
 layout A11yValue 48 8 0 4 8 12 16 24 32 40
 layout Commands 24 8 0 8 16
 layout Damage 20 4 0 1 4
@@ -248,7 +248,7 @@ layout Image 40 8 0 8 16 24 28 32
 layout Input 168 8 0 8 16 24 32 40 56 72 88 104 128 144 160
 layout Instance 64 4 0 16 24 28 32 40 48 50 51 52 54 56
 layout Keyboard 24 4 8 4
-layout Output 264 8 0 4 8 16 24 32 40 48 136 160 240
+layout Output 272 8 0 4 8 16 24 32 40 48 136 160 248
 layout Pass 72 8 0 8 16 24 28 32 40 48 52 56 64
 layout PlatformOut 88 8 0 4 8 9 10 11 16 48 56 72 76 77
 layout Point 8 4 0 4
@@ -377,7 +377,7 @@ layout PxuiTargetDesc 32 4 0 4 8 9 12 16 20 24 28
 layout PxuiTextAreaDesc 200 8 0 4 8 12 16 20 24 32 40 56 72 88 104 120 136 152 168 184
 layout PxuiTextFieldConfig 88 8 0 4 16 48 64 80
 layout PxuiTextFieldDesc 56 8 0 4 5 6 7 8 24 40
-layout PxuiThemeSnapshot 56944 8 0 136 140 144 156 160 168 56808
+layout PxuiThemeSnapshot 56944 8 0 4 8 144 148 152 164 168 172 304
 layout PxuiThemeTokens 136 8 0 4 8 12 16 20 24 28 32 33 36 52 64 72 80 88 96 124 125 128
 layout PxuiTipConfig 72 8 0 4 8 16 48 64
 layout PxuiToastConfig 72 8 0 4 16 48 64

@@ -4130,11 +4130,14 @@ pxui_types::ffi::A11yTree impl Clone @HEAD
 pxui_types::ffi::A11yTree impl Copy @HEAD
 pxui_types::ffi::A11yTree impl Debug @HEAD
 pxui_types::ffi::A11yTree struct @HEAD
+pxui_types::ffi::A11yTree impl Default @U5.5
 pxui_types::ffi::A11yTree::actions field Strided<A11yAction> @U5.4
 pxui_types::ffi::A11yTree::child_count field u32 @HEAD
 pxui_types::ffi::A11yTree::first_child field u32 @HEAD
 pxui_types::ffi::A11yTree::nodes field Strided<A11yNode> @U5.4
+pxui_types::ffi::A11yTree::reserved field u32 @U5.5
 pxui_types::ffi::A11yTree::revision field u64 @HEAD
+pxui_types::ffi::A11yTree::size field u32 @U5.5
 pxui_types::ffi::A11yTree::strings field Str @HEAD
 pxui_types::ffi::A11yValue impl Clone @HEAD
 pxui_types::ffi::A11yValue impl Copy @HEAD
@@ -6939,6 +6942,7 @@ pxui_types::theme::ThemeSnapshot::menubar field States @HEAD
 pxui_types::theme::ThemeSnapshot::modal field States @HEAD
 pxui_types::theme::ThemeSnapshot::notice field States @HEAD
 pxui_types::theme::ThemeSnapshot::panel field States @HEAD
+pxui_types::theme::ThemeSnapshot::part_count field u32 @U5.5
 pxui_types::theme::ThemeSnapshot::pin field States @HEAD
 pxui_types::theme::ThemeSnapshot::placeholder field States @HEAD
 pxui_types::theme::ThemeSnapshot::popup field States @HEAD
@@ -6956,6 +6960,7 @@ pxui_types::theme::ThemeSnapshot::search field States @HEAD
 pxui_types::theme::ThemeSnapshot::section field States @HEAD
 pxui_types::theme::ThemeSnapshot::segment field States @HEAD
 pxui_types::theme::ThemeSnapshot::separator field States @HEAD
+pxui_types::theme::ThemeSnapshot::size field u32 @U5.5
 pxui_types::theme::ThemeSnapshot::slider field States @HEAD
 pxui_types::theme::ThemeSnapshot::spinner field States @HEAD
 pxui_types::theme::ThemeSnapshot::swatch field States @HEAD

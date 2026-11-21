@@ -952,7 +952,7 @@ pub mod feature {
 }
 
 /// The ABI version this crate's records describe (`major << 16 | minor`); an app states it as `PxuiUiDesc::abi_built`.
-pub const ABI_BUILT: u32 = 1 << 16 | 141;
+pub const ABI_BUILT: u32 = 1 << 16 | 142;
 impl Default for PxuiUiDesc { fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, platform: 0, font_size: 0, abi_built: ABI_BUILT } } }
 
 #[cfg(test)]
@@ -1047,14 +1047,15 @@ mod abi_layout {
             ("reduced_motion", core::mem::offset_of!(Tokens, reduced_motion)), ("density", core::mem::offset_of!(Tokens, density)),
         ]);
         assert_layout("PxuiStates", size_of::<States>(), align_of::<States>(), &[("idle", core::mem::offset_of!(States, idle)), ("hover", core::mem::offset_of!(States, hover)), ("pressed", core::mem::offset_of!(States, pressed)), ("focus", core::mem::offset_of!(States, focus)), ("disabled", core::mem::offset_of!(States, disabled)), ("checked", core::mem::offset_of!(States, checked))]);
-        // the kit parts follow `ring`, `scrollbar_w` and `scrollbar_gap` back to back, in `theme_widgets!` order, then the bodies
+        // the bodies follow `scrollbar_gap`, then the kit parts back to back in `theme_widgets!` order: the growing part is last
         assert_layout("PxuiThemeSnapshot", size_of::<ThemeSnapshot>(), align_of::<ThemeSnapshot>(), &[
-            ("tokens", core::mem::offset_of!(ThemeSnapshot, tokens)), ("row_h", core::mem::offset_of!(ThemeSnapshot, row_h)), ("control_h", core::mem::offset_of!(ThemeSnapshot, control_h)), ("ring", core::mem::offset_of!(ThemeSnapshot, ring)),
-            ("scrollbar_w", core::mem::offset_of!(ThemeSnapshot, scrollbar_w)), ("scrollbar_gap", core::mem::offset_of!(ThemeSnapshot, scrollbar_gap)), ("panel", core::mem::offset_of!(ThemeSnapshot, panel)), ("body", core::mem::offset_of!(ThemeSnapshot, body)),
+            ("size", core::mem::offset_of!(ThemeSnapshot, size)), ("part_count", core::mem::offset_of!(ThemeSnapshot, part_count)), ("tokens", core::mem::offset_of!(ThemeSnapshot, tokens)), ("row_h", core::mem::offset_of!(ThemeSnapshot, row_h)), ("control_h", core::mem::offset_of!(ThemeSnapshot, control_h)), ("ring", core::mem::offset_of!(ThemeSnapshot, ring)),
+            ("scrollbar_w", core::mem::offset_of!(ThemeSnapshot, scrollbar_w)), ("scrollbar_gap", core::mem::offset_of!(ThemeSnapshot, scrollbar_gap)), ("body", core::mem::offset_of!(ThemeSnapshot, body)), ("panel", core::mem::offset_of!(ThemeSnapshot, panel)),
         ]);
         assert_layout("PxuiBodies", size_of::<theme::Bodies>(), align_of::<theme::Bodies>(), &[("size", core::mem::offset_of!(theme::Bodies, size)), ("toggle", core::mem::offset_of!(theme::Bodies, toggle)),
             ("section_index", core::mem::offset_of!(theme::Bodies, section_index)), ("reserved", core::mem::offset_of!(theme::Bodies, reserved))]);
-        assert_eq!(core::mem::offset_of!(ThemeSnapshot, body), core::mem::offset_of!(ThemeSnapshot, panel) + WIDGET_COUNT * size_of::<States>(), "the parts are an array of States, then the bodies");
+        assert_eq!(core::mem::offset_of!(ThemeSnapshot, panel), core::mem::offset_of!(ThemeSnapshot, body) + size_of::<theme::Bodies>(), "the parts follow the bodies");
+        assert_eq!(size_of::<ThemeSnapshot>(), core::mem::offset_of!(ThemeSnapshot, panel) + WIDGET_COUNT * size_of::<States>(), "the parts are an array of States, last");
     }
 
     pub(crate) fn frozen_rows() {

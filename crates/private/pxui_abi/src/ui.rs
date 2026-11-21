@@ -193,7 +193,7 @@ pub(crate) fn build_output(shared: &mut Shared, engine: &Ui, nodes: bool) {
         damage: output.damage.map_or_else(Damage::default, |r| Damage { has_damage: 1, reserved: [0; 3], rect: r }),
         a11y: A11yTree {
             nodes: Strided::of(&shared.nodes), strings: Str { ptr: tree.strings.as_ptr(), len: tree.strings.len() },
-            revision: tree.revision, first_child: tree.first_child(u32::MAX), child_count: tree.child_count(u32::MAX), actions: Strided::default(),
+            revision: tree.revision, first_child: tree.first_child(u32::MAX), child_count: tree.child_count(u32::MAX), ..A11yTree::default()
         },
         layers: Strided::of(&shared.layers),
     };
