@@ -91,10 +91,12 @@ export!(trusted pub unsafe fn pxui_ui_context_menu(
 
 /// `row` as a menu item, borrowing the caller's strings: `None` for a short record, a flag past 1, a mark past 2, a non-zero reserved byte
 /// or a string that is not UTF-8.
-unsafe fn menu_item(row: &PxuiMenuRow) -> Option<MenuItem<'static>> {
+unsafe fn menu_item(row: &PxuiMenuRow, total: &mut usize) -> Option<MenuItem<'static>> {
     if (row.size as usize) < core::mem::size_of::<PxuiMenuRow>() || [row.enabled, row.danger, row.selected, row.has_swatch, row.has_id].iter().any(|flag| *flag > 1)
         || row.checked > 2 || row.reserved != [0; 2] { return None; }
     let (text, shortcut) = (unsafe { checked(row.text) }?, unsafe { checked(row.shortcut) }?);
+    *total = total.checked_add(text.len())?.checked_add(shortcut.len())?;
+    if *total > MAX_TOTAL_TEXT_BYTES { return None; }
     let mut item = MenuItem::new(text).disabled(row.enabled == 0).shortcut(shortcut);
     item.danger = row.danger == 1;
     item.selected = row.selected == 1;
@@ -112,9 +114,10 @@ unsafe fn decode_rows(rows: &Strided<PxuiMenuRow>, menu: &mut Vec<MenuItem<'stat
     subs.clear();
     let mut at = [(0usize, 0usize, 0usize); 64];
     let mut opening = 0;
+    let mut total = 0;
     for i in 0..rows.len {
         let row = unsafe { rows.at(i) };
-        let Some(item) = (unsafe { menu_item(row) }) else { return false };
+        let Some(item) = (unsafe { menu_item(row, &mut total) }) else { return false };
         menu.push(item);
         if row.submenu.len == 0 { continue; }
         let sub = &row.submenu;
@@ -122,7 +125,7 @@ unsafe fn decode_rows(rows: &Strided<PxuiMenuRow>, menu: &mut Vec<MenuItem<'stat
         let start = subs.len();
         for j in 0..sub.len {
             let child = unsafe { sub.at(j) };
-            let Some(item) = (unsafe { menu_item(child) }).filter(|_| child.submenu.len == 0) else { return false };
+            let Some(item) = (unsafe { menu_item(child, &mut total) }).filter(|_| child.submenu.len == 0) else { return false };
             subs.push(item);
         }
         at[opening] = (i, start, sub.len);
@@ -133,6 +136,22 @@ unsafe fn decode_rows(rows: &Strided<PxuiMenuRow>, menu: &mut Vec<MenuItem<'stat
         menu[*row].submenu = unsafe { core::slice::from_raw_parts(subs.as_ptr().add(*start), *count) };
     }
     true
+}
+
+#[test]
+fn menu_rows_share_one_text_budget_including_shortcuts_and_submenus() {
+    let text = "x".repeat(crate::state::MAX_LABEL_BYTES);
+    let (mut menu, mut subs) = (Vec::new(), Vec::new());
+    let mut rows: Vec<_> = (0..256).map(|_| PxuiMenuRow::new(&text)).collect();
+    assert!(unsafe { decode_rows(&Strided::of(&rows), &mut menu, &mut subs) });
+    rows[0].shortcut = Str { ptr: b"x".as_ptr(), len: 1 };
+    assert!(!unsafe { decode_rows(&Strided::of(&rows), &mut menu, &mut subs) });
+    rows[0].shortcut = Str::default();
+    let child = [PxuiMenuRow::new("x")];
+    rows[0].submenu = Strided::of(&child);
+    assert!(!unsafe { decode_rows(&Strided::of(&rows), &mut menu, &mut subs) });
+    rows.pop();
+    assert!(unsafe { decode_rows(&Strided::of(&rows), &mut menu, &mut subs) });
 }
 
 /// Applies a menu's options (`options` read whole, its `size` checked by the caller): false when a number or flag is invalid.
