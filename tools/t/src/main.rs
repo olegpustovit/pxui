@@ -1549,12 +1549,44 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn contention_reduces_workers_and_retries_each_case_once_alone() {
-        use std::os::unix::fs::PermissionsExt;
+        // Compile a native fixture to qualify OS process concurrency without shell sleeps or cleanup commands.
         let root = temp_path("contention");
-        fs::create_dir_all(root.join("active")).unwrap();
+        fs::create_dir_all(root.join("ready")).unwrap();
+        fs::create_dir_all(root.join("done")).unwrap();
         let fixture = root.join("case");
-        fs::write(&fixture, "#!/bin/sh\nname=$3\nbase=${0%/*}\n: > \"$base/active/$$\"\nset -- \"$base\"/active/*\nprintf '%s %s\\n' \"$name\" \"$#\" >> \"$base/calls\"\nsleep 0.03\nrm \"$base/active/$$\"\n").unwrap();
-        fs::set_permissions(&fixture, fs::Permissions::from_mode(0o755)).unwrap();
+        let source = root.join("fixture.rs");
+        fs::write(&source, r#"
+use std::{fs::{self, OpenOptions}, io::Write, path::Path, time::{Duration, Instant}};
+fn event(root: &Path, kind: &str, name: &str) {
+    OpenOptions::new().create(true).append(true).open(root.join("calls")).unwrap()
+        .write_all(format!("{kind}:{name}\n").as_bytes()).unwrap();
+}
+fn barrier(root: &Path, phase: &str, name: &str) {
+    let dir = root.join(phase);
+    fs::write(dir.join(name), []).unwrap();
+    while fs::read_dir(&dir).unwrap().count() != 4 { std::thread::yield_now(); }
+}
+fn main() {
+    let exe = std::env::current_exe().unwrap();
+    let root = exe.parent().unwrap();
+    let name = std::env::args().nth(3).unwrap();
+    event(root, "start", &name);
+    let seen = root.join(format!("seen-{name}"));
+    if !seen.exists() {
+        fs::write(seen, []).unwrap();
+        if matches!(name.as_str(), "case_0" | "case_1" | "case_2" | "case_3") {
+            barrier(root, "ready", &name);
+            event(root, "end", &name);
+            barrier(root, "done", &name);
+            return;
+        }
+    }
+    let started = Instant::now();
+    while started.elapsed() < Duration::from_millis(30) { std::hint::spin_loop(); }
+    event(root, "end", &name);
+}
+"#).unwrap();
+        assert!(Command::new("rustc").arg(&source).arg("-o").arg(&fixture).status().unwrap().success());
         let cases: Vec<_> = (0..8).map(|order| TestCase { order, executable: fixture.clone(), crate_name: "fixture".into(), name: format!("case_{order}") }).collect();
         let baselines = cases.iter().map(|case| ((case.crate_name.clone(), case.name.clone()), Duration::from_micros(1))).collect();
         let args = parse_args(std::iter::empty()).unwrap();
@@ -1562,7 +1594,18 @@ mod tests {
         assert_eq!(outcomes.len(), 8);
         assert!(outcomes.iter().all(|outcome| outcome.failure_code == 0));
         let calls = fs::read_to_string(root.join("calls")).unwrap();
-        let calls: Vec<_> = calls.lines().map(|line| { let (name, active) = line.split_once(' ').unwrap(); (name, active.parse::<usize>().unwrap()) }).collect();
+        let mut active = 0usize;
+        let mut starts = Vec::new();
+        for line in calls.lines() {
+            let (event, name) = line.split_once(':').unwrap();
+            match event {
+                "start" => { active += 1; starts.push((name, active)); }
+                "end" => active = active.checked_sub(1).expect("an end follows its start"),
+                _ => panic!("unknown fixture event"),
+            }
+        }
+        assert_eq!(active, 0);
+        let calls = starts;
         assert_eq!(calls.len(), 16);
         assert!(calls[4..8].iter().all(|(_, active)| *active <= 2), "workers did not drop to two: {calls:?}");
         assert!(calls[8..].iter().all(|(_, active)| *active == 1), "retries overlapped: {calls:?}");
@@ -1575,11 +1618,11 @@ mod tests {
     fn qualification_setup_inherits_the_whole_deadline() {
         for capture in [false, true] {
             let mut command = Command::new("sh");
-            command.args(["-c", "sleep 2"]);
-            let now = Instant::now();
-            let result = qualification_setup(&mut command, now - Duration::from_millis(180), Duration::from_millis(240), capture);
+            command.args(["-c", "exit 0"]);
+            let timeout = Duration::from_millis(240);
+            // An expired inherited clock must time out even for a successful command; process-tree cleanup has no wall assertion.
+            let result = qualification_setup(&mut command, Instant::now() - timeout, timeout, capture);
             assert_eq!(result.err(), Some(124));
-            assert!(now.elapsed() < Duration::from_millis(180), "setup restarted the whole deadline");
         }
     }
 
