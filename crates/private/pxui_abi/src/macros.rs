@@ -179,13 +179,14 @@ macro_rules! enter {
 }
 
 /// `$call` with the body variant `$variant` of kind `$kind` set on `$ui`'s engine for the call (0 sets nothing), cleared after it: the
-/// variant a widget descriptor carries reaches only that widget's registered body (`Ui::set_variant`).
+/// variant a widget descriptor carries reaches only that widget's registered body (`Ui::set_variant`). Refused builders never install it.
 macro_rules! with_variant {
     ($ui:expr, $kind:expr, $variant:expr, $call:expr) => {{
         let variant: u16 = $variant;
-        if variant != 0 { if let Some(e) = unsafe { crate::state::engine($ui) } { e.set_variant($kind as u32, variant); } }
+        let apply = variant != 0 && !$ui.is_null() && unsafe { (*(*$ui).shared).building == $ui };
+        if apply { if let Some(e) = unsafe { crate::state::engine($ui) } { e.set_variant($kind as u32, variant); } }
         let rc = $call;
-        if variant != 0 { if let Some(e) = unsafe { crate::state::engine($ui) } { e.set_variant(0, 0); } }
+        if apply { if let Some(e) = unsafe { crate::state::engine($ui) } { e.set_variant(0, 0); } }
         rc
     }};
 }

@@ -42,6 +42,30 @@ fn diagnostics_respect_callback_renderer_and_poison_ownership_without_writing_ou
     assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
 }
 extern "C" fn nothing(_: *mut c_void, _: *mut c_void) {}
+
+#[test]
+fn refused_variant_builders_preserve_the_current_variant() {
+    use pxui_types::{ffi::PxuiKeyedDesc, theme::BodyKind};
+    let ui = create();
+    let kind = BodyKind::progress as u32;
+    let keyed = PxuiKeyedDesc { variant: 7, ..PxuiKeyedDesc::new("progress", "Progress") };
+    let mut out = PxuiBox::default();
+    let engine = unsafe { (*ui).engine };
+    unsafe { (*engine).set_variant(kind, 9); }
+    assert_eq!(unsafe { pxui_ui_progress(ui, &keyed, 0, 0.0, &mut out) }, PXUI_ERR_STATE);
+    assert_eq!(unsafe { (*engine).variant_of(kind) }, 9);
+    assert_eq!(in_frame(ui, &mut |h| {
+        unsafe { (*engine).set_variant(kind, 9); }
+        assert_eq!(unsafe { pxui_ui_progress(ui, &keyed, 0, 0.0, &mut out) }, PXUI_ERR_STATE);
+        assert_eq!(unsafe { (*engine).variant_of(kind) }, 9);
+        let fence = crate::state::NoCurrent::set(unsafe { (*h).shared });
+        assert_eq!(unsafe { pxui_ui_progress(h, &keyed, 0, 0.0, &mut out) }, PXUI_ERR_STATE);
+        assert_eq!(unsafe { (*engine).variant_of(kind) }, 9);
+        drop(fence);
+        0
+    }), 0);
+    assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
+}
 extern "C" fn count(user: *mut c_void, _: *mut c_void) { unsafe { *user.cast::<u32>() += 1; } }
 
 /// A builder called outside a frame (the owner handle is usable between frames) is refused with `PXUI_ERR_STATE` before the engine
