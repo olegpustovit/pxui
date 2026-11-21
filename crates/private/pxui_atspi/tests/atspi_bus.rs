@@ -171,7 +171,7 @@ fn tree_moved(t: &mut A11yTree, button: &str, checked: bool, text: &str, caret: 
     t.set_actions(g, actions::PRESS);
     let s = t.push(if moved { w } else { p }, ids(SLIDER), Role::Slider, Rect::new(10.0, 70.0, 200.0, 20.0));
     t.set_name(s, "Opacity");
-    t.set_value_number(s, 0.5, 0.0, 1.0, 0.1);
+    t.set_value_number(s, 0.5, 0.0, 1.0, 0.1, "");
     t.set_actions(s, actions::SET_VALUE);
     let f = t.push(p, ids(FIELD), Role::TextField, Rect::new(10.0, 100.0, 200.0, 20.0));
     t.set_name(f, "Title");
