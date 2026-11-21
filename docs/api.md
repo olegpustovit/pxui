@@ -414,7 +414,6 @@ pxui::FrameIn impl Default @U1a.3
 pxui::FrameIn struct <'a> @U1a.3
 pxui::FrameIn::appearance fn const (self, appearance: Appearance) -> FrameIn<'a> @U1a.3
 pxui::FrameIn::environment fn const (self, environment: Environment) -> FrameIn<'a> @U1a.3
-pxui::FrameIn::events field &'a [Event] @U5.1
 pxui::FrameIn::events fn const (self, events: &'a [Event]) -> FrameIn<'a> @U5.1
 pxui::FrameIn::keyboard fn const (self, keyboard: Keyboard) -> FrameIn<'a> @U1a.3
 pxui::FrameIn::new fn const (width: f32, height: f32) -> FrameIn<'a> @U1a.3

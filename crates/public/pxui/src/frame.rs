@@ -7,8 +7,8 @@ pub struct FrameIn<'a> {
     /// The event-mode record. Keep all of its event records and their payloads alive
     /// through the frame call. The snapshot source carries its own complete input.
     pub wire: pxui_types::FrameIn,
-    /// The frame's events, borrowed for the call (text and touch payloads too); at most 4096, each carrying the frame's surface.
-    pub events: &'a [Event],
+    /// The frame's events, set with `events()`.
+    pub(crate) events: &'a [Event],
 }
 
 impl Default for FrameIn<'_> {
