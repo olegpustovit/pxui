@@ -1211,6 +1211,7 @@ pub struct Ui {
     pub(crate) area_cache: Vec<crate::ui_text::AreaCacheEntry>,
     /// A text table cell's text, as its callback gave `item_text` (kept between frames), and whether it gave one.
     pub(crate) text_cell: String,
+    pub(crate) inspector_chip: String,
     pub(crate) text_cell_set: bool,
     pub(crate) edit_caret: usize,
     pub(crate) edit_anchor: usize,
@@ -1512,6 +1513,7 @@ impl Ui {
             input_box: None,
             area_cache: Vec::new(),
             text_cell: String::new(),
+            inspector_chip: String::new(),
             text_cell_set: false,
             edit_caret: 0,
             edit_anchor: 0,

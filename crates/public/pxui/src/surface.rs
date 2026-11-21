@@ -1392,7 +1392,7 @@ fn kit_extras_build_and_report_through_the_engine_shapes() {
     use pxui_types::{theme::Curve, ui::{HeadAction, LineStep, Target}, Axis};
     let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
     let hints = [("Esc", "close")];
-    let actions = [HeadAction { caption: "Run".into(), keycap: "R".into(), active: false, usable: true }];
+    let actions: [HeadAction; 17] = std::array::from_fn(|_| HeadAction { caption: "Run".into(), keycap: "R".into(), active: false, usable: true });
     for round in 0..3 {
         ui.frame(&input(), &mut |ui: &mut Ui| {
             ui.panel("extras", &crate::Overlay::DEFAULT, &mut |ui: &mut Ui| {
@@ -1421,7 +1421,7 @@ fn kit_extras_build_and_report_through_the_engine_shapes() {
 
 impl Ui {
     fn inspector_head_for_test(&mut self, actions: &[pxui_types::ui::HeadAction]) -> pxui_types::ui::Head {
-        crate::ext::inspector_header(self, "head", Some("kind"), None, Some("1"), Some(std::rc::Rc::new(|name: &str| !name.is_empty())), actions, Some("reset"), true, "Title", "detail")
+        crate::ext::inspector_header(self, "head", Some("🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀"), None, Some("1"), Some(std::rc::Rc::new(|name: &str| !name.is_empty())), actions, Some("reset"), true, "Title", "detail")
     }
 }
 

@@ -593,6 +593,18 @@ fn inspector_header_body(this: &mut Ui, key: &str, kind: Option<&str>, badge: Op
         Some(valid) => {
             let saved = this.enter(&header);
             let o = ValueFieldOpts { size: Some(display_size), left: true, bare: true, tracking: Some(-0.01 * display_size as f32), ..ValueFieldOpts::default() };
+            let name_key = key.as_bytes();
+            let mut bytes = [0; 256 + 5];
+            let overflow;
+            let name_key = if name_key.len() <= 256 {
+                bytes[..name_key.len()].copy_from_slice(name_key);
+                bytes[name_key.len()..name_key.len() + 5].copy_from_slice(b"-name");
+                std::str::from_utf8(&bytes[..name_key.len() + 5]).expect("UTF-8 key and ASCII suffix")
+            } else {
+                // Direct engine callers can use keys beyond the ABI limit.
+                overflow = format!("{key}-name");
+                &overflow
+            };
             let (t, _) = this.value_field(
                 (text_x - 2.0, if win { y_title - 1.0 } else { y_title - 2.0 }),
                 width - 2.0 * (text_x - 2.0),
@@ -601,7 +613,7 @@ fn inspector_header_body(this: &mut Ui, key: &str, kind: Option<&str>, badge: Op
                 &**valid,
                 None,
                 None,
-                &format!("{}-name", key),
+                name_key,
                 title,
             );
             let t = t.map_or_else(|| title.to_owned(), str::to_owned);
@@ -644,17 +656,22 @@ fn inspector_header_body(this: &mut Ui, key: &str, kind: Option<&str>, badge: Op
         let taken = index.map(|t| mono_width(0.0, small, t) + 6.0).unwrap_or(0.0) + badge.map(|t| mono_width(0.08 * small as f32, small, t) + 6.0).unwrap_or(0.0);
         if let Some(text) = kind {
             let room = ((w - 16.0 - taken) / per) as i64;
-            let text: String = if text.len() as i64 <= room {
-                text.to_owned()
+            let mut chip = std::mem::take(&mut this.inspector_chip);
+            let text = if text.len() as i64 <= room {
+                text
             } else if room <= 1 {
-                String::new()
+                ""
             } else {
-                format!("{}.", &text[..(room - 1) as usize])
+                chip.clear();
+                chip.push_str(&text[..text.floor_char_boundary((room - 1) as usize)]);
+                chip.push('.');
+                &chip
             };
-            let tw = this.cap_width(&text);
-            this.text_part(k(0), (cx, at), tw, label_look, &text);
+            let tw = this.cap_width(text);
+            this.text_part(k(0), (cx, at), tw, label_look, text);
             // the glyphs run a little wider than the design's metrics: never closer than 6
-            cx += mono_width(0.08 * small as f32, small, &text).max(tw) + 6.0;
+            cx += mono_width(0.08 * small as f32, small, text).max(tw) + 6.0;
+            this.inspector_chip = chip;
         }
         if let Some(text) = badge {
             let tw = this.cap_width(text);

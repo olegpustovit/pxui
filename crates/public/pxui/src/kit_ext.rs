@@ -402,18 +402,21 @@ pub fn inspector_body(ui: &mut Ui, mut f: &mut dyn FnMut(&mut Ui)) {
 pub fn inspector_header(ui: &mut Ui, key: &str, kind: Option<&str>, badge: Option<&str>, index: Option<&str>, rename: Option<Rc<dyn Fn(&str) -> bool>>,
     actions: &[HeadAction], reset: Option<&str>, reset_enabled: bool, title: &str, detail: &str) -> Head {
     let text = |value: Option<&str>| value.map_or_else(Str::default, as_str);
-    // up to 16 actions live on the stack, more on the heap
-    let one = |a: &HeadAction| PxuiHeadActionDesc { size: core::mem::size_of::<PxuiHeadActionDesc>() as u32, active: a.active as u8, usable: a.usable as u8, reserved: [0; 2], caption: as_str(&a.caption), keycap: as_str(&a.keycap) };
-    let mut stack = [one(&HeadAction { caption: String::new(), keycap: String::new(), active: false, usable: false }); 16];
-    let heap: Vec<PxuiHeadActionDesc>;
-    let descs: &[PxuiHeadActionDesc] = if actions.len() <= 16 {
-        for (slot, a) in stack.iter_mut().zip(actions) { *slot = one(a); }
-        &stack[..actions.len()]
-    } else { heap = actions.iter().map(one).collect(); &heap };
+    // The ABI accepts at most 256 actions.
+    const MAX_ACTIONS: usize = 256;
+    assert!(actions.len() <= MAX_ACTIONS, "too many inspector header actions");
+    let mut descs = [const { std::mem::MaybeUninit::uninit() }; MAX_ACTIONS];
+    for (slot, action) in descs.iter_mut().zip(actions) {
+        slot.write(PxuiHeadActionDesc {
+            size: core::mem::size_of::<PxuiHeadActionDesc>() as u32,
+            active: action.active as u8, usable: action.usable as u8, reserved: [0; 2],
+            caption: as_str(&action.caption), keycap: as_str(&action.keycap),
+        });
+    }
     let desc = PxuiHeaderDesc {
         size: core::mem::size_of::<PxuiHeaderDesc>() as u32, has_kind: kind.is_some() as u8, has_badge: badge.is_some() as u8, has_index: index.is_some() as u8,
         has_reset: reset.is_some() as u8, reset_enabled: reset_enabled as u8, reserved: [0; 3], key: as_str(key), kind: text(kind), badge: text(badge), index: text(index),
-        reset: text(reset), title: as_str(title), detail: as_str(detail), actions: Slice { ptr: descs.as_ptr(), len: descs.len() },
+        reset: text(reset), title: as_str(title), detail: as_str(detail), actions: Slice { ptr: descs.as_ptr().cast(), len: actions.len() },
     };
     let mut out = PxuiHeadOut { size: core::mem::size_of::<PxuiHeadOut>() as u32, has_chosen: 0, reset_pressed: 0, reserved: [0; 2], renamed: Str::default(), chosen: 0 };
     let user = rename.as_ref().map_or(core::ptr::null_mut(), |rename| rename as *const Rc<dyn Fn(&str) -> bool> as *mut c_void);
