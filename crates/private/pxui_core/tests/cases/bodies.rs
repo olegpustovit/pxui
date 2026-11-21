@@ -1292,11 +1292,11 @@ pub fn toast_chip_body() {
 }
 
 /// A tooltip as a dark box with one node for each line.
-fn dark_tip(ui: &mut Ui, c: &TipConfig, lines: &[String]) {
+fn dark_tip(ui: &mut Ui, c: &TipConfig, text: &str, lines: &[core::ops::Range<usize>]) {
     ui.set_look(&c.tip, ink_look(), State::default());
     for line in lines {
         let n = ui.node("line".into(), Node { w: Size::Px(c.width), h: Size::Px(14.0), ..Node::DEFAULT });
-        ui.text(&n, line);
+        ui.text(&n, &text[line.clone()]);
     }
 }
 

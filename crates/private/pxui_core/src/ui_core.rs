@@ -1184,6 +1184,7 @@ pub struct Ui {
     pointer: (f32, f32),
     hot: i64,
     hover_rest: Option<(HoverId, (f32, f32), f64, i64)>,
+    tooltip_lines: Vec<core::ops::Range<usize>>,
     active: Option<i64>,
     active_button: MouseButton,
     active_press: (f32, f32),
@@ -1489,6 +1490,7 @@ impl Ui {
             pointer: (f32::NAN, f32::NAN),
             hot: 0,
             hover_rest: None,
+            tooltip_lines: Vec::new(),
             active: None,
             active_button: MouseButton::LeftButton,
             active_press: (0.0, 0.0),
@@ -7196,21 +7198,23 @@ impl Ui {
         let char_width = 1.0f32.max(self.text_width(Some(size), "0"));
         let width = 400.0f32.min(40.0f32.max(self.view_w - 16.0));
         let columns = 1.max(((width - 14.0) / char_width) as i64) as usize;
-        let mut lines: Vec<String> = Vec::new();
-        let mut line = String::new();
+        let mut lines = std::mem::take(&mut self.tooltip_lines);
+        let (mut line, mut word_start) = (0..0, 0);
         for word in text.split(' ') {
+            let end = word_start + word.len();
             if line.is_empty() {
-                line = word.to_owned();
-            } else if line.len() + word.len() + 1 <= columns {
-                line = format!("{} {}", line, word);
+                line = word_start..end;
+            } else if end - line.start <= columns {
+                line.end = end;
             } else {
-                lines.push(std::mem::replace(&mut line, word.to_owned()));
+                lines.push(std::mem::replace(&mut line, word_start..end));
             }
+            word_start = end + 1;
         }
         lines.push(line);
         let mut widest: f32 = 0.0;
-        for l in &lines {
-            widest = widest.max(self.text_width(Some(size), l));
+        for line in &lines {
+            widest = widest.max(self.text_width(Some(size), &text[line.clone()]));
         }
         let width = width.min(14.0 + widest);
         let height = 20.0 + 14.0 * (lines.len() as f32 - 1.0);
@@ -7224,8 +7228,10 @@ impl Ui {
         self.a11y_name(&tip, text);
         self.overlays.push((tip.index, LayerRole::Tooltip));
         let config = TipConfig { tip, width, height };
-        in_body!(self, tip.box_key, tip, tooltip, default_tip(&config, &lines));
+        in_body!(self, tip.box_key, tip, tooltip, default_tip(&config, text, &lines));
         self.leave(saved);
+        lines.clear();
+        if lines.capacity() > self.tooltip_lines.capacity() { self.tooltip_lines = lines; }
     }
 
     /// A popup placed by `anchor` (window points, e.g. `ui.rect(&field)` or a point's empty rect):
@@ -9148,12 +9154,12 @@ impl Ui {
 }
 
 /// The built-in tooltip: the tooltip look with clear ink, then each line a 20-point node 14 points below the last, text 7 points in.
-pub(crate) fn default_tip(this: &mut Ui, c: &TipConfig, lines: &[String]) {
+pub(crate) fn default_tip(this: &mut Ui, c: &TipConfig, text: &str, lines: &[core::ops::Range<usize>]) {
     let look = this.theme().tooltip.idle;
     this.set_look(&c.tip, Look { text: CLEAR_INK, ..look }, State::default());
     for (i, line) in lines.iter().enumerate() {
         let n = this.node_keyed(int_key(c.tip.box_key, i as i64), Node { w: Size::Px(c.width), h: Size::Px(20.0), at: Some((0.0, 14.0 * i as f32)).into(), look: Look { fill: CLEAR_INK, border: CLEAR_INK, shadows: [Shadow::NONE; 2], ..look }, inset: Edges { l: 7.0, ..Edges::default() }, ..Node::DEFAULT });
-        this.text(&n, line);
+        this.text(&n, &text[line.clone()]);
     }
 }
 

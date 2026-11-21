@@ -244,8 +244,8 @@ mod tramps {
     tramp_span!(section_index, strs, |ui, sh, span, c: &SectionIndexConfig, letters: &[&str]| {
         span.extend(letters.iter().map(|l| pair(l)));
     }, PxuiSectionIndexConfig { state: st(c.state), has_active: c.active.is_some() as u8, active: c.active.unwrap_or(0), node: bx(c.node), letters: Slice { ptr: span.as_ptr(), len: span.len() } });
-    tramp_span!(tooltip, strs, |ui, sh, span, c: &TipConfig, lines: &[String]| {
-        span.extend(lines.iter().map(|l| pair(l)));
+    tramp_span!(tooltip, strs, |ui, sh, span, c: &TipConfig, text: &str, lines: &[core::ops::Range<usize>]| {
+        span.extend(lines.iter().map(|line| pair(&text[line.clone()])));
     }, PxuiTooltipConfig { width: c.width, height: c.height, tip: bx(c.tip), lines: Slice { ptr: span.as_ptr(), len: span.len() } });
     tramp!(tabs, |ui, sh, c: &TabConfig, text: &str, detail: &str| PxuiTabsConfig { state: st(c.state), index: c.index, node: bx(c.node), text: pair(text), detail: pair(detail), bar: bx(c.bar) });
     tramp!(segmented, |ui, sh, c: &SegmentConfig, states: Option<&States>, text: &str| PxuiSegmentedConfig {

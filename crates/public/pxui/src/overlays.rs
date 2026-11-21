@@ -153,7 +153,7 @@ impl Ui {
     ///
     /// Call it every frame after declaring `box_`; nothing shows while the pointer is elsewhere, during a press, on touch or while a
     /// popup is open. The tooltip is a sheet at the root, placed by the pointer, built through the tip body. A stale box shows nothing.
-    /// Allocates: once for the rested text; never while nothing shows.
+    /// Allocates: when the shown tooltip’s retained layout or line storage grows, never on warm frames.
     /// Identity: the tooltip's owner supplies its identity. Updating its text keeps the same identity and hover timer.
     /// Panics: when the library refuses the call (outside a frame, text too long). A key over 256 bytes panics (a programmer error). Display text past 64 KiB is clipped at a character boundary, never refused.
     ///

@@ -3620,7 +3620,7 @@ fn u1b1_results_follow_item_ids_report_phases_roots_and_menus_without_warm_alloc
 /// U1b.1: a tooltip's wait is keyed by its owner: one text on two boxes is two waits, a changed text keeps the owner's wait,
 /// and the wait allocates nothing.
 #[test]
-fn a_tooltip_waits_by_its_owner_and_allocates_nothing_while_it_waits() {
+fn a_tooltip_waits_by_its_owner_and_allocates_nothing_on_warm_frames() {
     use crate::{Event, ui::{Flags, Node, Role}};
     use std::cell::Cell;
     mem_sys::set_peer(crate::library_counter);
@@ -3648,6 +3648,13 @@ fn a_tooltip_waits_by_its_owner_and_allocates_nothing_while_it_waits() {
     assert_eq!(mem_sys::local_alloc_count(), 0, "a waiting tooltip copies no text");
     rest(&mut ui, 10.0, 3, &mut build);
     assert!(shown(&ui, "Tip"), "the owner's wait passed");
+    text.set("Tip with enough words to wrap onto another line with spaces and UTF-8 café and more words still");
+    rest(&mut ui, 10.0, 3, &mut build);
+    assert!(shown(&ui, "café"));
+    mem_sys::local_reset();
+    rest(&mut ui, 10.0, 4, &mut build);
+    assert_eq!(mem_sys::local_alloc_count(), 0, "a warm shown tooltip reuses its line and layout storage");
+    text.set("Tip");
     rest(&mut ui, 110.0, 1, &mut build);
     assert!(!shown(&ui, "Tip"), "another owner with the same text waits again");
     rest(&mut ui, 110.0, 5, &mut build);

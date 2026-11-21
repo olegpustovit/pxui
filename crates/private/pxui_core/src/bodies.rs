@@ -290,7 +290,7 @@ pub struct TipConfig {
     pub height: f32,
 }
 
-pub type TipBody = fn(&mut Ui, &TipConfig, &[String]);
+pub type TipBody = fn(&mut Ui, &TipConfig, &str, &[core::ops::Range<usize>]);
 
 /// What a tab body is given (the tab's text and its detail, a count or badge or empty, beside it). It runs with the tab's `node` entered (the built-in body is called without it):
 /// a growing-height row item, keyed by its place in the bar, with the tab role, its name and its selected state; behaviour reads
