@@ -3675,6 +3675,31 @@ fn a_tooltip_waits_by_its_owner_and_allocates_nothing_on_warm_frames() {
     assert!(shown(&ui, "Tip two"), "a changed text keeps the owner's wait");
 }
 
+#[test]
+fn a_text_area_description_restarts_its_hover_wait_at_a_new_token() {
+    use crate::{AreaCallbacks, Event, Language, Node, Role, TextArea};
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+    ui.set_a11y(true);
+    let start = std::cell::Cell::new(0);
+    let describe = |_: &str, _: usize| Some((start.get(), start.get() + 1, "Token documentation".to_owned()));
+    let callbacks = AreaCallbacks::DEFAULT.language(Language::DEFAULT.describe(&describe));
+    let mut build = |ui: &mut Ui| {
+        ui.text_area("area", "alpha beta", Node::DEFAULT.at(0.0, 0.0).w_px(160.0).h_px(80.0), &TextArea::DEFAULT, &callbacks);
+    };
+    let moved = Event { kind: Event::POINTER_MOVED, x: 46.0, y: 10.0, ..Default::default() };
+    let mut rest = |ui: &mut Ui, tick: u32| {
+        ui.frame(&input().time(f64::from(tick) * 0.15).events(core::slice::from_ref(&moved)), &mut build).unwrap();
+    };
+    let shown = |ui: &Ui| ui.a11y_nodes().iter().any(|n| n.is_role(Role::Tooltip) && ui.a11y_name_of(n) == "Token documentation");
+    for tick in 0..8 { rest(&mut ui, tick); }
+    assert!(shown(&ui));
+    start.set(6);
+    rest(&mut ui, 8);
+    assert!(!shown(&ui), "a new token starts its own wait");
+    for tick in 9..16 { rest(&mut ui, tick); }
+    assert!(shown(&ui));
+}
+
 /// U1b.2 keys: a resolved key is the key itself in creation calls and lookups (never hashed again); authored lookups resolve under
 /// the active scope during a build and the root seed outside one; `root_at` keeps the innermost candidate whatever the order and
 /// past one 32-key chunk; `remember` writes only the keyed field's history; the hover wait and lookups allocate nothing warm.

@@ -1760,7 +1760,12 @@ fn text_area_submit_body(this: &mut Ui, place: Node, o: &TextAreaOpts, label: &s
         if hovered_number.is_none() && open == 0 {
             if let Some((start, _, doc)) = (l.describe)(&final_text, byte as i64) {
                 if !doc.is_empty() {
-                    this.tooltip_sheet(Some(&format!("{}#{}", label, start)), 0, &doc);
+                    use std::fmt::Write;
+                    let mut wait = std::mem::take(&mut this.tooltip_wait_key);
+                    wait.clear();
+                    write!(&mut wait, "{label}#{start}").expect("formatting into a String");
+                    this.tooltip_sheet(Some(&wait), 0, &doc);
+                    if wait.capacity() > this.tooltip_wait_key.capacity() { this.tooltip_wait_key = wait; }
                 }
             }
         }
