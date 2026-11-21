@@ -1165,6 +1165,7 @@ mod keyboard_tests {
         assert_eq!(unsafe { super::pxui_ui_remove_surface(ui, 0) }, PXUI_ERR_ARGUMENT);
         assert_eq!(unsafe { super::pxui_ui_remove_surface(ui, 7) }, 0);
         assert_eq!(frame(ui, &FrameIn { surface: 7, ..input }, &mut out), PXUI_ERR_ARGUMENT);
+        for surface in [0, 7] { assert_eq!(unsafe { crate::kit::pxui_ui_wants_frame(ui, slice(&on(surface, 64)), 1.0, &mut wants) }, PXUI_ERR_ARGUMENT, "wants_frame with no registered surface, event surface {surface}"); }
         assert_eq!(unsafe { super::pxui_ui_add_surface(ui, 8) }, 0);
         assert_eq!(frame(ui, &FrameIn { surface: 8, ..input }, &mut out), 0);
         assert_eq!(unsafe { super::pxui_ui_destroy(ui) }, 0);
