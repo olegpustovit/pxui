@@ -21,8 +21,6 @@ use pxui_types::PxuiPanel;
 //   refused and its rows dropped).
 // - `overlays::MENU_COLUMNS` (thread-local, dynamic link only): one long menu's columns, at most `MENU_ROWS` (4096) rows; `Ui::menu`
 //   refuses a longer menu before copying a row.
-// - `ORPHANS` (lib.rs, thread-local): each `Ui` dropped while a renderer still draws it, until a renderer drop on this thread
-//   destroys it: at most the live renderers' `Ui`s.
 // None of them is the process allocator: allocation counting is `mem_sys`'s opt-in `counting` feature (test/perf builds).
 
 // A panic in an app callback must not unwind through the library. The first one is kept here and every later callback

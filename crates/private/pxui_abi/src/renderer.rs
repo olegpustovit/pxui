@@ -443,7 +443,7 @@ export!(bare pub unsafe fn pxui_renderer_destroy(renderer:*mut PxuiRenderer) {
     // Contract (pxui.h): the app has finished every frame it passed to prepare, so everything retires now.
     let result=gpu_backend::retire(&queue,frame_serial).and_then(|()| gpu_backend::destroy_queue(&queue)).and_then(|()| gpu_backend::destroy_device(&device));
     if let Err(e)=result { unsafe { let error=&mut (*shared).error; error.clear(); error.push_str(&ogpu_core::error::to_string(&e)); } }
-    unsafe { (*shared).renderers -= 1; }
+    unsafe { crate::ui::renderer_released(shared); }
 });
 
 // The native handle of a glyph atlas texture (`kind` 0: the mask atlas, one byte per texel; 1: the colour atlas, RGBA8), for an

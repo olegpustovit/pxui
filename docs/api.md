@@ -4837,12 +4837,13 @@ pxui_types::ffi::PxuiLayerInfo impl Clone @HEAD
 pxui_types::ffi::PxuiLayerInfo impl Copy @HEAD
 pxui_types::ffi::PxuiLayerInfo impl Debug @HEAD
 pxui_types::ffi::PxuiLayerInfo struct @HEAD
+pxui_types::ffi::PxuiLayerInfo::anchor field Rect @U5.9
 pxui_types::ffi::PxuiLayerInfo::breaks field u32 @HEAD
 pxui_types::ffi::PxuiLayerInfo::dirty field Slice<PxuiDirty> @HEAD
 pxui_types::ffi::PxuiLayerInfo::id field u32 @HEAD
 pxui_types::ffi::PxuiLayerInfo::instances field Slice<Instance> @HEAD
 pxui_types::ffi::PxuiLayerInfo::key field i64 @HEAD
-pxui_types::ffi::PxuiLayerInfo::reserved field u32 @U5.4
+pxui_types::ffi::PxuiLayerInfo::role field u32 @U5.9
 pxui_types::ffi::PxuiLayerInfo::size field u32 @U5.4
 pxui_types::ffi::PxuiLineFieldConfig impl Clone @HEAD
 pxui_types::ffi::PxuiLineFieldConfig impl Copy @HEAD

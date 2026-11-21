@@ -112,16 +112,6 @@ fn a_callback_cannot_start_a_frame_replace_the_theme_or_free_the_ui() {
     assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
 }
 
-#[test]
-fn a_ui_with_a_renderer_attached_refuses_to_be_destroyed() {
-    let ui = create();
-    unsafe { (*(*ui).shared).renderers = 1; }
-    assert_eq!(unsafe { pxui_ui_destroy(ui) }, PXUI_ERR_STATE);
-    assert!(error(ui).contains("renderer"), "{}", error(ui));
-    unsafe { (*(*ui).shared).renderers = 0; }
-    assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
-}
-
 /// A renderer holds the engine while it draws: a split callback it runs during a frame callback's lifetime (`NoCurrent`) cannot build
 /// through the frame's handle, and the handle builds again once the renderer returns.
 #[test]

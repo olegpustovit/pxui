@@ -98,22 +98,36 @@ unsafe fn create_ui(desc: PxuiUiDesc, fonts: &[&[u8]]) -> *mut PxuiUi {
     let engine = Box::into_raw(Box::new(ui));
     let shared = Box::into_raw(Box::new(Shared::new()));
     let owner = Box::into_raw(Box::new(PxuiUi { theme: core::ptr::null(), engine, shared, owner: true }));
-    unsafe { (*shared).current = owner; }
+    unsafe { (*shared).current = owner; (*shared).owner = owner; }
     owner
 }
 
-// Frees a `Ui`. Fails (and frees nothing) on a borrowed handle, inside a frame, or while a renderer is attached.
+// Frees a `Ui`. Fails (and frees nothing) on a borrowed handle or inside a frame. With a renderer still attached the `Ui` goes when the
+// last renderer is destroyed (each reads its engine): the handle is invalid for the caller from this call on either way.
 export!(bare pub unsafe fn pxui_ui_destroy(ui: *mut PxuiUi) -> i32 {
     if ui.is_null() { return 0; }
     let state = unsafe { &*ui };
     let shared = state.shared();
     if !state.owner || shared.in_frame { return PXUI_ERR_STATE; }
-    if shared.renderers != 0 { return unsafe { fail_code(ui, "a renderer is still attached to this Ui", PXUI_ERR_STATE) }; }
+    if shared.renderers != 0 { shared.destroy_pending = true; return 0; }
+    unsafe { free_ui(ui) };
+    0
+});
+
+/// Frees the owner handle `ui`, its engine and its shared state.
+unsafe fn free_ui(ui: *mut PxuiUi) {
     let ui = unsafe { Box::from_raw(ui) };
     drop(unsafe { Box::from_raw(ui.engine) });
     drop(unsafe { Box::from_raw(ui.shared) });
-    0
-});
+}
+
+/// A renderer of the `Ui` behind `shared` has gone: the `Ui` goes with the last one when its destroy came first.
+pub(crate) unsafe fn renderer_released(shared: *mut crate::state::Shared) {
+    unsafe {
+        (*shared).renderers -= 1;
+        if (*shared).renderers == 0 && (*shared).destroy_pending { free_ui((*shared).owner); }
+    }
+}
 
 export!(bare pub unsafe fn pxui_last_error(ui: *const PxuiUi) -> Str {
     if ui.is_null() { return Str::default(); }
@@ -159,7 +173,7 @@ pub(crate) fn build_output(shared: &mut Shared, engine: &Ui, nodes: bool) {
         for l in output.draw.iter() {
             let dirty = Slice { ptr: shared.dirty.as_ptr().wrapping_add(at), len: l.dirty.len() };
             at += l.dirty.len();
-            shared.layers.push(pxui_types::ffi::PxuiLayerInfo { size: core::mem::size_of::<pxui_types::ffi::PxuiLayerInfo>() as u32, reserved: 0, key: l.key, id: l.id, breaks: l.breaks.len() as u32, instances: Slice { ptr: l.instances.as_ptr(), len: l.instances.len() }, dirty });
+            shared.layers.push(pxui_types::ffi::PxuiLayerInfo { size: core::mem::size_of::<pxui_types::ffi::PxuiLayerInfo>() as u32, role: l.role as u32, key: l.key, id: l.id, breaks: l.breaks.len() as u32, instances: Slice { ptr: l.instances.as_ptr(), len: l.instances.len() }, dirty, anchor: l.anchor });
         }
     } else if acknowledged {
         // The renderer can acknowledge a draw while Rust readers still hold the published slices.
@@ -1364,5 +1378,21 @@ mod label_records {
         for bad in [S { wrap: 4, ..record }, S { ellipsis: 4, ..record }, S { align: 3, ..record }, S { features: 2, ..record }] {
             assert!(label_style(&bad).is_none(), "{bad:?}");
         }
+    }
+}
+
+#[cfg(test)]
+mod renderer_lifetime_tests {
+    /// OS-12: a `Ui` destroyed while renderers are attached goes with the last renderer, in any drop order; nothing waits in the wrapper.
+    #[test]
+    fn a_ui_destroyed_first_goes_with_the_last_renderer() {
+        let ui = unsafe { super::create_test_ui() };
+        let shared = unsafe { (*ui).shared };
+        unsafe { (*shared).renderers = 2; }
+        assert_eq!(unsafe { crate::pxui_ui_destroy(ui) }, 0, "the destroy is accepted");
+        assert!(unsafe { (*shared).destroy_pending && (*shared).renderers == 2 }, "and held for the renderers");
+        unsafe { super::renderer_released(shared); }
+        assert_eq!(unsafe { ((*shared).renderers, (*shared).destroy_pending) }, (1, true), "one renderer left: the Ui is still there");
+        unsafe { super::renderer_released(shared); } // the last one frees it
     }
 }

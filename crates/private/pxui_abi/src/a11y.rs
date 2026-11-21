@@ -58,16 +58,16 @@ export!(object pub unsafe fn pxui_a11y_fd(a11y: *mut PxuiA11y) -> i32 {
     { let _ = a11y; -1 }
 });
 
-// Publishes `tree` (a frame's `Output.a11y`, borrowed for the call).
-export!(object pub unsafe fn pxui_a11y_update(a11y: *mut PxuiA11y, tree: *const pxui_types::ffi::A11yTree) -> i32 {
+// Publishes `tree` (a frame's `Output.a11y`, borrowed for the call) as the tree of `surface` (not 0): the bridge serves one application whose
+// windows are the surfaces, each keeping its own tree.
+export!(object pub unsafe fn pxui_a11y_update(a11y: *mut PxuiA11y, surface: u64, tree: *const pxui_types::ffi::A11yTree) -> i32 {
     #[cfg(target_os = "linux")]
     {
-        let (Some(a), Some(tree)) = (unsafe { a11y.as_mut() }, sized!(tree)) else { return PXUI_ERR_ARGUMENT };
-        // one surface per bridge until the 2.0 cut names surfaces in this call
-        return if unsafe { a.bridge.update_ffi(0, tree) }.is_ok() { 0 } else { crate::PXUI_ERR_STATE };
+        let (Some(a), Some(tree), true) = (unsafe { a11y.as_mut() }, sized!(tree), surface != 0) else { return PXUI_ERR_ARGUMENT };
+        return if unsafe { a.bridge.update_ffi(surface, tree) }.is_ok() { 0 } else { crate::PXUI_ERR_STATE };
     }
     #[cfg(not(target_os = "linux"))]
-    { let _ = (a11y, tree); PXUI_ERR_ARGUMENT }
+    { let _ = (a11y, surface, tree); PXUI_ERR_ARGUMENT }
 });
 
 // Handles the bus's pending traffic. 1: the connection is alive, 0: it is gone (stop the bridge). The actions assistive technology

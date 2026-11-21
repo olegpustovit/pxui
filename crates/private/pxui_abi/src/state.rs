@@ -58,6 +58,9 @@ pub(crate) struct Shared {
     pub draw_acknowledged: bool,
     /// renderers created on this `Ui`: each holds a raw pointer to the engine, so it outlives none of them
     pub renderers: u32,
+    /// the owner handle (set at create) and whether `pxui_ui_destroy` ran while renderers lived: the last renderer to go frees the `Ui`
+    pub owner: *mut PxuiUi,
+    pub destroy_pending: bool,
     /// text handed to C (an edited field, the picker query), valid until the next frame
     pub returned: Vec<String>,
     /// The text area options of the call in progress: refilled in place each call, so its data (errors, notes, spans, splices, chips) reuses its storage.
@@ -126,7 +129,7 @@ impl Shared {
     pub fn put_strs(&mut self, mut strs: Vec<&'static str>) { strs.clear(); self.strs.push(strs); }
     pub fn new() -> Self {
         Self {
-            error: String::new(), poisoned: false, calls: 0, paint_error: false, icon_word: 0, in_frame: false, surface: 0, current: core::ptr::null_mut(), building: core::ptr::null_mut(), frame_ended: false, draw_acknowledged: false, renderers: 0, returned: Vec::new(), area: Default::default(), area_ad: None, lent: Vec::new(), lent_used: 0, returned_bytes: 0,
+            error: String::new(), poisoned: false, owner: core::ptr::null_mut(), destroy_pending: false, calls: 0, paint_error: false, icon_word: 0, in_frame: false, surface: 0, current: core::ptr::null_mut(), building: core::ptr::null_mut(), frame_ended: false, draw_acknowledged: false, renderers: 0, returned: Vec::new(), area: Default::default(), area_ad: None, lent: Vec::new(), lent_used: 0, returned_bytes: 0,
             grid_tracks: HashMap::new(), grid_shared: HashMap::new(), grid_retired: Vec::new(), output: Output::default(), nodes: Vec::new(),
             layers: Vec::new(), dirty: Vec::new(), last_children: Vec::new(), chunks: Vec::new(), chunks_used: 0, spare_input: None, wants: Vec::new(), key_codes: Vec::new(), menu: Vec::new(), menu_sub: Vec::new(), routed: None, routed_events: Vec::new(), routed_text: Vec::new(),routed_touches:Vec::new(), routed_keys: Vec::new(), routed_buttons: Vec::new(),
             hints: Vec::new(), actions: Vec::new(), rename: None, strs: Vec::new(), raster_glyphs: Vec::new(), menus: Vec::new(), bodies: Default::default(), images: crate::image::Handles::new(),

@@ -376,16 +376,7 @@ impl Renderer {
 impl Drop for Renderer {
     fn drop(&mut self) {
         unsafe { sys::pxui_renderer_destroy(self.raw.as_ptr()) }
-        sweep_orphans();
     }
-}
-
-// The library refuses to destroy a `Ui` while a renderer of it lives (the renderer reads its engine). A `Ui` dropped first waits here
-// and goes when the last renderer does, so no drop order leaks one.
-thread_local! { static ORPHANS: std::cell::RefCell<Vec<NonNull<sys::PxuiUi>>> = const { std::cell::RefCell::new(Vec::new()) }; }
-
-fn sweep_orphans() {
-    let _ = ORPHANS.try_with(|orphans| orphans.borrow_mut().retain(|ui| unsafe { sys::pxui_ui_destroy(ui.as_ptr()) } != 0));
 }
 
 /// The UTF-8 text of an event (empty when it has none).
@@ -895,8 +886,8 @@ impl Ui {
 
 impl Drop for Ui {
     fn drop(&mut self) {
-        // refused while a renderer of this `Ui` lives: it goes when the renderer drops (see `ORPHANS`)
-        if unsafe { sys::pxui_ui_destroy(self.0.as_ptr()) } != 0 { let _ = ORPHANS.try_with(|orphans| orphans.borrow_mut().push(self.0)); }
+        // with a renderer of this `Ui` alive the library keeps it until the last renderer is destroyed
+        unsafe { sys::pxui_ui_destroy(self.0.as_ptr()) };
     }
 }
 

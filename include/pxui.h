@@ -15,6 +15,29 @@ typedef struct PxuiPaint PxuiPaint;
 typedef struct PxuiShaper PxuiShaper;
 typedef struct PxuiPreparedText PxuiPreparedText;
 typedef struct PxuiTextWorker PxuiTextWorker;
+/* Error model. Every fallible call returns int32_t: 0 on success, else a PXUI_ERR_* status (below); the reason text is pxui_last_error(ui), or
+   pxui_theme_last_error(theme) for a theme. A refused call writes none of its outputs and changes nothing. A call that returns a value instead of
+   a status refuses by one documented failure value: NULL (the create calls, with the reason in *status for pxui_ui_create; a null Ui for
+   pxui_last_error), UINT32_MAX (the pxui_*_add_font calls), SIZE_MAX (the label quads and rasterize calls), 0 or an empty string (a query on a
+   handle that is not valid). pxui_paint_label and pxui_paint_label_chars return their measurement by value and return zeros for a refused input; pxui_paint_ratio and
+   pxui_paint_input_region are void and draw nothing for one.
+   shortcut: shapers, accessibility bridges and prepared text carry no error text, only a status or a failure value; give each object its own
+   last_error when a host needs the reason.
+   Threads and lifetimes. A PxuiUi, the renderers made from it (pxui_renderer_*), its paint handles and the handles a callback borrows belong to the
+   thread that created the Ui; different Uis may live on different threads. shortcut: a call from another thread is undefined, not checked; add a
+   creating-thread check (PXUI_ERR_STATE) when a host runs surfaces on threads. A PxuiShaper, PxuiPreparedText and PxuiTextWorker are used by one
+   thread at a time and may be moved between threads. pxui_ui_destroy with renderers still attached keeps the Ui until the last renderer is
+   destroyed (any drop order is safe). Every pointer an argument carries is borrowed for the call (strings, records, spans, callbacks and their
+   `user`), and the library keeps none of them past it, except where a call below says otherwise: a PxuiIconDraw and its draw_user are called at
+   paint time, so draw_user must stay valid until the next pxui_frame returns; a function pointer in PxuiSizeDesc/PxuiSize (`relative`) is kept in
+   retained nodes and called in later layouts, so its code must stay loaded while any node holds it. Strings the library hands back are valid until
+   the next frame call.
+   Raw handles (D16: accepted). The worker, shaper, prepared-text, accessibility and renderer handles are not validated: the pointer must come
+   from its create call and must not have been destroyed. A foreign or dangling pointer is undefined behaviour that affects only the calling
+   application's process. The Ui handle and boxes are validated (a box carries the Ui serial: PXUI_ERR_STALE).
+   Body names. A body name (pxui_body_register) belongs to its Ui: at most 64 bytes, at most 65,535 names a kind per Ui, freed with the Ui.
+   GPU devices (OS-6, decision D24): a renderer creates its own device and queue; sharing one device across several windows is a host
+   concern (pxui_host) outside this ABI, deferred past 2.0 with its own performance qualification. */
 /* Conventions of the encodings (U5.6), each tested in pxui_abi (safety.rs `encoding_rules`):
    - none: an index in a record or a result is below the item count, or SIZE_MAX for none. An index at or past the count is none as well (a selection kept past a
      shrink is not an error); no other value (0, -1) means none.
@@ -28,7 +51,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 152u)
+#define PXUI_ABI_BUILT ((1u << 16) | 153u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 /* U5.4: size-prefixed (16 bytes); pxui_ui_text_input_options needs the caller's size to cover it. */
@@ -87,7 +110,7 @@ typedef struct { uint32_t size,parent; uint64_t id; uint32_t role,name_start,nam
 typedef struct { uint32_t size,action_code; uint64_t id; double payload; uint32_t end,reserved; } PxuiA11yAction;
 typedef struct { const PxuiA11yNode *ptr; size_t len; size_t stride; } PxuiA11yNodeSpan;
 typedef struct { const PxuiA11yAction *ptr; size_t len; size_t stride; } PxuiA11yActionSpan;
-/* U5.5: size-prefixed (88 bytes): pxui_a11y_update refuses a record whose size is short. nodes.stride is the tree's node stride (the writer's PxuiA11yNode size). */
+/* U5.5: size-prefixed (88 bytes): pxui_a11y_update refuses a record whose size is short or a surface 0. nodes.stride is the tree's node stride (the writer's PxuiA11yNode size). */
 typedef struct { uint32_t size, reserved; PxuiA11yNodeSpan nodes; PxuiStr strings; uint64_t revision; uint32_t first_child,child_count; PxuiA11yActionSpan actions; } PxuiA11yTree;
 typedef struct { float l,t,r,b; } PxuiEdges;
 typedef struct { uint32_t kind; float value; float (*relative)(float); } PxuiSizeDesc;
@@ -440,7 +463,9 @@ typedef struct { const PxuiDirty *ptr; size_t len; } PxuiDirtySpan;
 /* ABI 1.22: kind 9 is a filled triangle; rect = Ax,Ay,Bx,By, extra = Cx,Cy as f32 bits. */
 typedef struct { const PxuiInstance *ptr; size_t len; } PxuiInstanceSpan;
 /* U5.4: size-prefixed (56 bytes); the layer span is strided. */
-typedef struct { uint32_t size, id, breaks, reserved; int64_t key; PxuiInstanceSpan instances; PxuiDirtySpan dirty; } PxuiLayerInfo;
+/* role: 0 base (the window's content), 1 popup or menu, 2 modal sheet, 3 tooltip, 4 what a drag carries, 5 the merged last layer; a host may present
+   a floating layer in a surface of its own (input for it then arrives with that surface's id); anchor is where it is placed, in window points. */
+typedef struct { uint32_t size, id, breaks, role; int64_t key; PxuiInstanceSpan instances; PxuiDirtySpan dirty; PxuiRect anchor; } PxuiLayerInfo;
 typedef struct { const PxuiLayerInfo *ptr; size_t len; size_t stride; } PxuiLayerSpan;
 typedef struct { uint32_t size,reserved; uint64_t draw_revision; double repaint_at; uint64_t built_nodes,rebuilt_views,arranged_nodes; PxuiPlatformOut platform; PxuiDamage damage; PxuiA11yTree a11y; PxuiLayerSpan layers; } PxuiOutput;
 /* A window into a layer's instance storage: the caller stores 64-byte instances at at (stamping clip, clip_radius_f16 and view) and
@@ -542,7 +567,7 @@ PxuiUi *pxui_ui_create(const PxuiUiDesc *desc, const PxuiStr *fonts, size_t coun
 /* ABI 1.63 font limits (any entry point that adds a font: this one, pxui_shaper_create, pxui_shaper_add_font, pxui_text_add_font): a font is
    1 byte to 32 MiB (33,554,432), a text service holds at most 64 fonts and 256 MiB of font bytes in all, and bytes that are not a parseable font
    are refused (UINT32_MAX / NULL, nothing kept). The bytes are copied and fonts are never removed. */
-int32_t pxui_ui_destroy(PxuiUi *ui); /* PXUI_ERR_STATE: borrowed handle, inside a frame, or a renderer still attached */
+int32_t pxui_ui_destroy(PxuiUi *ui); /* PXUI_ERR_STATE: borrowed handle or inside a frame. A renderer still attached keeps the Ui until the last one is destroyed; the handle is invalid for the caller either way */
 PxuiStr pxui_last_error(const PxuiUi *ui);
 int32_t pxui_ui_environment(PxuiUi *ui, PxuiEnvironment *out);
 int32_t pxui_ui_keyboard(PxuiUi *ui, PxuiKeyboard *out);
@@ -675,7 +700,7 @@ typedef uint8_t (*PxuiPickerOff)(void *user, int64_t row);
 typedef uint8_t (*PxuiPickerImage)(void *user, int64_t row, PxuiImage *out);
 /* Widget bodies: an app builds a widget kind's nodes itself. pxui_body_register names a body of kind `kind` (PxuiBodyKind, in the field order of
    PxuiBodies; before 2.0 kinds are renumbered in place, so build against this header) `name`, for a theme's `KIND.body = NAME` (pxui_theme_parse, pxui_ui_use_theme) and writes its id to out, answering the refusal status
-   (see pxui_last_error). A name has one id for the whole process, whichever Ui registers it, and is never released (65,535 names a kind at most, in the process; choose names statically, and register a name again to change its body: that keeps the id and uses none): a
+   (see pxui_last_error). A name has one id in its Ui (see Body names above); register a name again to change its body: that keeps the id and uses none. A
    theme carried from the Ui that parsed it to another selects the body of that name there, or the built-in body where that Ui has none; the function is called as body(user, ui, config) with the kind's record below, `ui` borrowed and valid for the call.
    Records start with `size` and grow at the end. A body builds with the ordinary calls, finds the parts its widget's behaviour reads through
    pxui_ui_part, and runs the caller's content through its slots (pxui_ui_slot); a slot is valid only during the body call that received it. */
@@ -1115,7 +1140,8 @@ int32_t pxui_theme_reduced_motion(PxuiTheme *theme, uint8_t on);
 typedef struct PxuiA11y PxuiA11y;
 PxuiA11y *pxui_a11y_start(PxuiStr name);
 int32_t pxui_a11y_fd(PxuiA11y *a11y);
-int32_t pxui_a11y_update(PxuiA11y *a11y, const PxuiA11yTree *tree);
+/* Publishes `tree` as the tree of `surface` (not 0, the id the frame call carries): one bridge serves one application whose windows are its surfaces. */
+int32_t pxui_a11y_update(PxuiA11y *a11y, uint64_t surface, const PxuiA11yTree *tree);
 /* 1: the connection is alive, 0: gone (stop it). `out` holds the actions, borrowed until the next pump. */
 int32_t pxui_a11y_pump(PxuiA11y *a11y, PxuiA11yActionSpan *out);
 void pxui_a11y_stop(PxuiA11y *a11y);
@@ -1198,7 +1224,7 @@ _Static_assert(sizeof(PxuiMaybeRange) == 24 && offsetof(PxuiMaybeRange, has) == 
 _Static_assert(sizeof(PxuiRewrite) == 24 && offsetof(PxuiRewrite, text) == 0 && offsetof(PxuiRewrite, caret) == 16, "PxuiRewrite layout");
 _Static_assert(sizeof(PxuiTextAreaDesc) == 200 && offsetof(PxuiTextAreaDesc, size) == 0 && offsetof(PxuiTextAreaDesc, flags) == 4 && offsetof(PxuiTextAreaDesc, x) == 8 && offsetof(PxuiTextAreaDesc, y) == 12 && offsetof(PxuiTextAreaDesc, width) == 16 && offsetof(PxuiTextAreaDesc, height) == 20 && offsetof(PxuiTextAreaDesc, reveal) == 24 && offsetof(PxuiTextAreaDesc, reveal_nonce) == 32 && offsetof(PxuiTextAreaDesc, select) == 40 && offsetof(PxuiTextAreaDesc, label) == 56 && offsetof(PxuiTextAreaDesc, value) == 72 && offsetof(PxuiTextAreaDesc, errors) == 88 && offsetof(PxuiTextAreaDesc, messages) == 104 && offsetof(PxuiTextAreaDesc, spans) == 120 && offsetof(PxuiTextAreaDesc, splice) == 136 && offsetof(PxuiTextAreaDesc, chips) == 152 && offsetof(PxuiTextAreaDesc, comment) == 168 && offsetof(PxuiTextAreaDesc, pairs) == 184, "PxuiTextAreaDesc layout");
 _Static_assert(sizeof(PxuiAreaCallbacks) == 144 && offsetof(PxuiAreaCallbacks, size) == 0 && offsetof(PxuiAreaCallbacks, reserved) == 4 && offsetof(PxuiAreaCallbacks, user) == 8 && offsetof(PxuiAreaCallbacks, on_context) == 16 && offsetof(PxuiAreaCallbacks, on_scrub) == 24 && offsetof(PxuiAreaCallbacks, on_scrub_edit) == 32 && offsetof(PxuiAreaCallbacks, on_click) == 40 && offsetof(PxuiAreaCallbacks, on_caret) == 48 && offsetof(PxuiAreaCallbacks, on_caret_move) == 56 && offsetof(PxuiAreaCallbacks, on_select) == 64 && offsetof(PxuiAreaCallbacks, on_drop) == 72 && offsetof(PxuiAreaCallbacks, colorize) == 80 && offsetof(PxuiAreaCallbacks, brackets) == 88 && offsetof(PxuiAreaCallbacks, indent) == 96 && offsetof(PxuiAreaCallbacks, complete) == 104 && offsetof(PxuiAreaCallbacks, describe) == 112 && offsetof(PxuiAreaCallbacks, number_at) == 120 && offsetof(PxuiAreaCallbacks, context_at) == 128 && offsetof(PxuiAreaCallbacks, rewrite) == 136, "PxuiAreaCallbacks layout");
-_Static_assert(sizeof(PxuiLayerInfo) == 56 && offsetof(PxuiLayerInfo, size) == 0 && offsetof(PxuiLayerInfo, id) == 4 && offsetof(PxuiLayerInfo, breaks) == 8 && offsetof(PxuiLayerInfo, reserved) == 12 && offsetof(PxuiLayerInfo, key) == 16 && offsetof(PxuiLayerInfo, instances) == 24 && offsetof(PxuiLayerInfo, dirty) == 40, "PxuiLayerInfo layout");
+_Static_assert(sizeof(PxuiLayerInfo) == 72 && offsetof(PxuiLayerInfo, size) == 0 && offsetof(PxuiLayerInfo, id) == 4 && offsetof(PxuiLayerInfo, breaks) == 8 && offsetof(PxuiLayerInfo, role) == 12 && offsetof(PxuiLayerInfo, key) == 16 && offsetof(PxuiLayerInfo, instances) == 24 && offsetof(PxuiLayerInfo, dirty) == 40 && offsetof(PxuiLayerInfo, anchor) == 56, "PxuiLayerInfo layout");
 _Static_assert(sizeof(PxuiDirty) == 8 && offsetof(PxuiDirty, start) == 0 && offsetof(PxuiDirty, end) == 4, "PxuiDirty layout");
 _Static_assert(sizeof(PxuiSize) == 16, "PxuiSize layout");
 _Static_assert(sizeof(PxuiTrack) == 8, "PxuiTrack layout");

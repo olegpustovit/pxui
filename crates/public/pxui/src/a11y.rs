@@ -47,7 +47,7 @@ mod sys {
         /// let ui = pxui::doc::frames(1, &mut |ui| { ui.label("hi", pxui::Label::DEFAULT); });
         /// if let Some(mut bridge) = pxui::A11yBridge::connect("doc") { assert!(bridge.update(&ui.output().a11y)); }
         /// ```
-        pub fn pxui_a11y_update(a11y: *mut PxuiA11y, tree: *const A11yTree) -> i32;
+        pub fn pxui_a11y_update(a11y: *mut PxuiA11y, surface: u64, tree: *const A11yTree) -> i32;
         /// The C entry `A11yBridge::pump` calls: handles pending bus traffic and writes the requested actions to `out` (borrowed until the
         /// next pump); 1 while the connection is alive, 0 when it is gone, an error code for a bad argument (always off Linux).
         ///
@@ -169,7 +169,7 @@ impl A11yBridge {
     /// let ui = pxui::doc::frames(1, &mut |ui| { ui.label("hi", pxui::Label::DEFAULT); });
     /// if let Some(mut bridge) = pxui::A11yBridge::connect("doc-example") { assert!(bridge.update(&ui.output().a11y)); }
     /// ```
-    pub fn update(&mut self, tree: &pxui_types::ffi::A11yTree) -> bool { unsafe { sys::pxui_a11y_update(self.0.as_ptr(), tree) == 0 } }
+    pub fn update(&mut self, tree: &pxui_types::ffi::A11yTree) -> bool { unsafe { sys::pxui_a11y_update(self.0.as_ptr(), pxui_types::FrameIn::MAIN, tree) == 0 } }
     /// Handles pending traffic and passes each action assistive technology asked for to `out`, in order; false when the connection is gone.
     ///
     /// The actions are meant for `Ui::inject_a11y`. Call it when `fd` is readable.

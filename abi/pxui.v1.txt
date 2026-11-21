@@ -1,10 +1,10 @@
 # Append-only PXUI ABI snapshot.
-minor 152
+minor 153
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
 function pxui_a11y_stop void pxui_a11y_stop ( PxuiA11y * a11y ) ;
-function pxui_a11y_update int32_t pxui_a11y_update ( PxuiA11y * a11y , const PxuiA11yTree * tree ) ;
+function pxui_a11y_update int32_t pxui_a11y_update ( PxuiA11y * a11y , uint64_t surface , const PxuiA11yTree * tree ) ;
 function pxui_abi_version uint32_t pxui_abi_version ( void ) ;
 function pxui_body_register int32_t pxui_body_register ( PxuiUi * ui , uint32_t kind , PxuiStr name , PxuiBodyFn body , void * user , uint16_t * out ) ;
 function pxui_default_font PxuiStr pxui_default_font ( void ) ;
@@ -288,7 +288,7 @@ layout PxuiKeyframeDesc 360 8 0 4 8 12 16 32 192
 layout PxuiLabelBox 16 4 0 4 8 12 13 14
 layout PxuiLabelConfig 144 8 0 4 8 40 56 120 124
 layout PxuiLabelStyle 64 8 0 4 8 10 12 14 16 17 18 19 20 24 28 32 36 40 44 48
-layout PxuiLayerInfo 56 8 0 4 8 12 16 24 40
+layout PxuiLayerInfo 72 8 0 4 8 12 16 24 40 56
 layout PxuiLineFieldConfig 80 8 0 4 16 24 56 72
 layout PxuiListResult 128 8 0 4 8 40 72 80 88 96
 layout PxuiLook 160 8 0 4 12 16 20 24 28 44 92 96 128 132 144 148 152
