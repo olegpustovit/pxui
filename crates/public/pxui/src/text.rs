@@ -10,6 +10,9 @@ use crate::{as_str, as_text, Error, Ui};
 use core::ptr::NonNull;
 use pxui_types::{ffi::{PxuiLabelStyle, PxuiTextStyle}, Label, Str, TextGlyph, TextMetrics, TextSpan, TextSpans};
 
+/// The record of no spans, built once: the common call (a label's line box) has none, and builds nothing for it.
+const NO_SPANS: TextSpans<'static> = TextSpans::new(&[]);
+
 library!(lib {
     fn pxui_text_fork(ui:*mut PxuiUi)->*mut PxuiShaper;
     fn pxui_shaper_prepare(shaper:*mut PxuiShaper,value:Str,style:*const PxuiTextStyle,max_width:f32,spans:*const TextSpans,out:*mut *mut PxuiPreparedText,out_metrics:*mut TextMetrics)->i32;
@@ -362,7 +365,8 @@ impl Ui {
     ///
     /// Errors: InvalidInput for more than 256 (`TextSpans::MAX`) or overlapping spans or a style that does not resolve; Stale for a gone box.
     pub fn text_spans(&mut self,box_:&crate::Handle,text:&str,style:Label,spans:&[TextSpan])->Result<(),Error> {
-        let spans=&TextSpans::new(spans);
+        let packed;
+        let spans=if spans.is_empty() { &NO_SPANS } else { packed=TextSpans::new(spans); &packed };
         let rc={
             #[cfg(feature = "static")]
             let rc = unsafe { pxui_abi_link::trusted::label_text_spans(self.0.as_ptr(), box_, as_text(text), style.fields(), spans) };
@@ -388,7 +392,8 @@ impl Ui {
     ///
     /// Errors: InvalidInput for a non-positive line height, bad spans or a style that does not resolve; Stale for a gone box.
     pub fn text_line_box(&mut self,box_:&crate::Handle,text:&str,style:Label,spans:&[TextSpan])->Result<(),Error> {
-        let spans=&TextSpans::new(spans);
+        let packed;
+        let spans=if spans.is_empty() { &NO_SPANS } else { packed=TextSpans::new(spans); &packed };
         let rc={
             #[cfg(feature = "static")]
             let rc = unsafe { pxui_abi_link::trusted::label_text_line_box(self.0.as_ptr(), box_, as_text(text), style.fields(), spans) };
