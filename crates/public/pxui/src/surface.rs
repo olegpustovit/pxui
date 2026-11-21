@@ -1376,6 +1376,18 @@ fn a_caller_bug_panics_with_the_librarys_message_at_the_call() {
 }
 
 #[test]
+fn inspector_bar_reuses_large_hint_storage_on_warm_frames() {
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+    let hints = [("Esc", "close"); 17];
+    let mut build = |ui: &mut Ui| crate::ext::inspector_bar(ui, &hints, i64::MIN);
+    for _ in 0..4 { ui.frame(&input(), &mut build).unwrap(); }
+    mem_sys::local_reset();
+    for _ in 0..4 { ui.frame(&input(), &mut build).unwrap(); }
+    assert_eq!(mem_sys::local_alloc_count(), 0);
+}
+
+#[test]
 fn kit_extras_build_and_report_through_the_engine_shapes() {
     use pxui_types::{theme::Curve, ui::{HeadAction, LineStep, Target}, Axis};
     let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");

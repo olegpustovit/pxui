@@ -879,12 +879,18 @@ impl Ui {
             self.placed(int_key(bar.box_key, 2 * i as i64 + 1), (at, 1.0), Size::Px(ww.max(1.0)), line, hint, Edges::default(), what);
             at += ww + 8.0;
         }
-        let text = format!("{} on card", count);
+        use std::io::Write;
+        // A signed i64 needs at most 20 bytes, and the suffix takes 8.
+        let mut bytes = [0u8; 28];
+        let mut output = std::io::Cursor::new(bytes.as_mut_slice());
+        write!(output, "{count} on card").expect("count fits the stack buffer");
+        let end = output.position() as usize;
+        let text = std::str::from_utf8(&bytes[..end]).expect("the count and suffix are ASCII");
         // the sheet's tracking follows the last letter too: the ink ends that much before the 12
-        let label_w = self.cap_width(&text) + 0.08 * small as f32;
+        let label_w = self.cap_width(text) + 0.08 * small as f32;
         self.end_row(&bar, 12.0);
         self.flow_part(int_key(bar.box_key, -2), 6.0, 6.0, Edges { t: 1.0 + line / 2.0 - 3.0, r: 8.0, ..Edges::ZERO }, dot, "");
-        self.flow_part(int_key(bar.box_key, -1), label_w, line, Edges { t: 1.0, ..Edges::ZERO }, label, &text);
+        self.flow_part(int_key(bar.box_key, -1), label_w, line, Edges { t: 1.0, ..Edges::ZERO }, label, text);
         self.leave(saved);
     }
 

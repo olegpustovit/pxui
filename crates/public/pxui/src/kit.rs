@@ -71,7 +71,10 @@ use pxui_types::ui::{Keyframe, Keyframes, Repeat};
 
 const HINT_NONE: HintDesc = HintDesc { size: core::mem::size_of::<HintDesc>() as u32, reserved: 0, key: Str { ptr: core::ptr::null(), len: 0 }, value: Str { ptr: core::ptr::null(), len: 0 } };
 
-/// Hint rows as descriptors for one call: up to 16 on the stack, more on the heap.
+// Larger hint lists keep their descriptor buffers between calls. Nested calls take separate buffers.
+thread_local! { static HINTS: std::cell::RefCell<Vec<Vec<HintDesc>>> = const { std::cell::RefCell::new(Vec::new()) }; }
+
+/// Hint rows as descriptors for one call: up to 16 on the stack, more in retained storage.
 pub(crate) struct Hints {
     stack: [HintDesc; 16],
     heap: Vec<HintDesc>,
@@ -79,12 +82,27 @@ pub(crate) struct Hints {
 }
 impl Hints {
     pub(crate) fn new(hints: &[(&str, &str)]) -> Hints {
+        assert!(hints.len() <= 4096, "too many hint rows");
         let mut out = Hints { stack: [HINT_NONE; 16], heap: Vec::new(), len: hints.len() };
-        let values: &mut [HintDesc] = if hints.len() <= 16 { &mut out.stack[..hints.len()] } else { out.heap = vec![HINT_NONE; hints.len()]; &mut out.heap[..] };
+        let values: &mut [HintDesc] = if hints.len() <= 16 { &mut out.stack[..hints.len()] } else {
+            out.heap = HINTS.with(|pool| pool.borrow_mut().pop()).unwrap_or_default();
+            out.heap.resize(hints.len(), HINT_NONE);
+            &mut out.heap
+        };
         for (out, (key, value)) in values.iter_mut().zip(hints) { *out = HintDesc { size: core::mem::size_of::<HintDesc>() as u32, reserved: 0, key: as_str(key), value: as_str(value) }; }
         out
     }
     pub(crate) fn span(&self) -> Slice<HintDesc> { Slice { ptr: if self.len <= 16 { self.stack.as_ptr() } else { self.heap.as_ptr() }, len: self.len } }
+}
+
+
+impl Drop for Hints {
+    fn drop(&mut self) {
+        if self.heap.capacity() == 0 { return; }
+        self.heap.clear();
+        let buffer = std::mem::take(&mut self.heap);
+        let _ = HINTS.try_with(|pool| pool.borrow_mut().push(buffer));
+    }
 }
 
 /// The layout and minimum pane sizes used by [Ui::split].
