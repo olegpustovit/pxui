@@ -208,8 +208,9 @@ export!(pub unsafe fn pxui_ui_key_seed(ui: *mut PxuiUi, out: *mut i64) -> i32 {
 });
 
 // Diagnostics of `ui` (extension set): the timing switch and the counters of `PxuiDiagnostics`, one sized record in and out. Not counted as
-// a call into the library, so `calls` reads what the app's own calls made.
-export!(bare pub unsafe fn pxui_ui_diagnostics(ui: *mut PxuiUi, io: *mut pxui_types::ffi::PxuiDiagnostics) -> i32 {
+// a call into the library, so `calls` reads what the app's own calls made. Refuses noncurrent or poisoned handles before reading outputs.
+export!(trusted pub unsafe fn pxui_ui_diagnostics(ui: *mut PxuiUi, io: *mut pxui_types::ffi::PxuiDiagnostics) -> i32 {
+    if !ui.is_null() && !unsafe { crate::state::usable(ui) } { return unsafe { crate::state::refuse((*ui).shared) }; }
     let Some(state) = (unsafe { crate::state::get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     let Some(d) = (unsafe { io.as_mut() }).filter(|d| d.size as usize >= core::mem::size_of::<pxui_types::ffi::PxuiDiagnostics>()) else { return PXUI_ERR_ARGUMENT; };
     let Some(prefix) = (unsafe { checked(d.rebuilt_prefix) }) else { return PXUI_ERR_ARGUMENT; };

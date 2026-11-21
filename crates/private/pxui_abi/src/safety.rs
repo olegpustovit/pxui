@@ -20,6 +20,27 @@ fn in_frame(ui: *mut PxuiUi, f: &mut dyn FnMut(*mut PxuiUi) -> i32) -> i32 {
     assert_eq!(run(ui, Some(build), (&mut state as *mut (&mut dyn FnMut(*mut PxuiUi) -> i32, i32)).cast()), 0, "{}", error(ui));
     state.1
 }
+
+#[test]
+fn diagnostics_respect_callback_renderer_and_poison_ownership_without_writing_outputs() {
+    use pxui_types::ffi::PxuiDiagnostics;
+    let ui = create();
+    let mut d = PxuiDiagnostics { calls: 77, timing: 1, ..PxuiDiagnostics::new() };
+    assert_eq!(in_frame(ui, &mut |h| {
+        assert_eq!(unsafe { pxui_ui_diagnostics(ui, &mut d) }, PXUI_ERR_STATE);
+        assert_eq!(d.calls, 77);
+        assert_eq!(unsafe { pxui_ui_diagnostics(h, &mut PxuiDiagnostics::new()) }, 0);
+        let fence = crate::state::NoCurrent::set(unsafe { (*h).shared });
+        assert_eq!(unsafe { pxui_ui_diagnostics(h, &mut d) }, PXUI_ERR_STATE);
+        assert_eq!(d.calls, 77);
+        drop(fence);
+        0
+    }), 0);
+    unsafe { panicked((*ui).shared, Box::new("diagnostics test"), false); }
+    assert_eq!(unsafe { pxui_ui_diagnostics(ui, &mut d) }, PXUI_ERR_PANIC);
+    assert_eq!(d.calls, 77);
+    assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
+}
 extern "C" fn nothing(_: *mut c_void, _: *mut c_void) {}
 extern "C" fn count(user: *mut c_void, _: *mut c_void) { unsafe { *user.cast::<u32>() += 1; } }
 
