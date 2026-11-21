@@ -36,7 +36,7 @@ mod curve_tests {
         }
         for bad in [PxuiKeyframeDesc { time: 0.0, ..key }, PxuiKeyframeDesc { time: f32::INFINITY, ..key }, PxuiKeyframeDesc { size: 0, ..key }] {
             out = 77;
-            assert_eq!(unsafe { pxui_ui_animate_keys(ui, &target, Slice { ptr: &bad, len: 1 }, 1, 0, 0.0, &mut out) }, PXUI_ERR_ARGUMENT);
+            assert_eq!(unsafe { pxui_ui_animate_keys(ui, &target, Slice { ptr: &bad, len: 1 }, 2, 0, 0.0, &mut out) }, PXUI_ERR_ARGUMENT);
             assert_eq!(out, 77);
         }
         let bad = [key, PxuiKeyframeDesc { time: 0.5, ..key }];
@@ -275,7 +275,7 @@ unsafe fn menu_bar(ui: *mut PxuiUi, desc: *const PxuiMenuBarDesc, out: *mut Pxui
             menus.push((unsafe { checked(menu.title) }.unwrap_or(""), items));
             at += menu.items.len;
         }
-        Some(unsafe { (&mut *state.engine).menu_bar_result(label, menus.len(), &|m| (menus[m].0, menus[m].1.len()), &|m, i| menus[m].1[i]) })
+        Some(with_variant!(ui, pxui_types::theme::BodyKind::menu_bar, desc.variant, unsafe { (&mut *state.engine).menu_bar_result(label, menus.len(), &|m| (menus[m].0, menus[m].1.len()), &|m, i| menus[m].1[i]) }))
     } else { None };
     menus.clear();
     { let shared = state.shared(); shared.put_strs(flat); shared.menus = menus; }

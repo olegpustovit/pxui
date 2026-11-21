@@ -147,7 +147,7 @@ pub(crate) unsafe fn text(ui: *mut PxuiUi, box_: *const PxuiBox, value: &str) ->
 pub unsafe fn pxui_ui_label(ui: *mut PxuiUi, text: Str, style: &pxui_types::text::LabelFields, digits: bool, out: &mut PxuiBox) -> i32 {
     enter!(ui);
     let Some(text) = (unsafe { utf8(text, usize::MAX) }).map(clip) else { return unsafe { fail(ui, "invalid label text") } };
-    let Some(node) = unsafe { engine(ui) }.label_styled(text, style, digits) else { return unsafe { fail(ui, "invalid label style: a size, line height, box height, padding, width, wrap, align, ellipsis or feature no style has, or a font not loaded") }; };
+    let Some(node) = with_variant!(ui, pxui_types::theme::BodyKind::label, style.variant, unsafe { engine(ui) }.label_styled(text, style, digits)) else { return unsafe { fail(ui, "invalid label style: a size, line height, box height, padding, width, wrap, align, ellipsis or feature no style has, or a font not loaded") }; };
     *out = to_abi_box(node);
     0
 }
@@ -1188,4 +1188,11 @@ pub unsafe fn segmented(ui: *mut PxuiUi, key: &str, name: &str, options: &[Segme
     let (options, ok) = checked_segments(options, &mut spare);
     if bad_key(key) || !ok { return unsafe { fail(ui, "invalid widget strings") }; }
     unsafe { segmented_body(ui, key, name, options.len(), &|i| options[i], selected, enabled, h, grow, states, w, padding, min_segment, focus_on_click, out, chosen, secondary) }
+}
+
+/// Hands the registered bodies of kind number `kind` that the call in progress builds `variant` (0 clears it): what the static wrapper
+/// does around a widget call; a C app's descriptors carry the variant (`PxuiKeyedDesc::variant` and its siblings).
+#[inline(never)]
+pub unsafe fn set_variant(ui: *mut PxuiUi, kind: u32, variant: u16) {
+    if let Some(e) = unsafe { crate::state::engine(ui) } { if (kind as usize) < pxui_types::theme::Bodies::KINDS.len() { e.set_variant(kind, variant); } }
 }

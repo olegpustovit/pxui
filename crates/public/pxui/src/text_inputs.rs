@@ -191,7 +191,7 @@ impl Ui {
             let (mut changed, mut did_change) = (Str::default(), 0);
             let desc = PxuiTextFieldDesc {
                 size: core::mem::size_of::<PxuiTextFieldDesc>() as u32, autocorrect: traits.autocorrects() as u8, capitalization: traits.capitalizes() as u8, action: traits.return_key() as u8, reserved: 0,
-                key: as_text(label), name: as_str(field.accessible_name()), value: as_text(value),
+                key: as_text(label), name: as_str(field.accessible_name()), value: as_text(value), variant, reserved_variant: [0; 6],
             };
             check(self, unsafe { lib::pxui_ui_text_field(self.0.as_ptr(), &desc, &mut changed, &mut did_change, &mut out) });
             (did_change != 0).then_some(changed)

@@ -635,11 +635,12 @@ export!(trusted pub unsafe fn pxui_ui_label(ui: *mut PxuiUi, text: Str, style: *
 pub(crate) fn read_label_box(label_box: *const pxui_types::ffi::PxuiLabelBox, label: &mut pxui_types::text::LabelFields) -> bool {
     use pxui_types::ffi::PxuiLabelBox as B;
     let Some(b) = read_desc!(label_box, B) else { return false };
-    if b.set & !B::SET_ALL != 0 || !b.height.is_finite() || b.role > pxui_types::a11y::Role::Separator as u8 || b.whole_pixels > 1 || b.reserved != [0; 2] { return false; }
+    if b.set & !B::SET_ALL != 0 || !b.height.is_finite() || b.role > pxui_types::a11y::Role::Separator as u8 || b.whole_pixels > 1 { return false; }
     if b.set & B::SET_HEIGHT != 0 { label.height = Some(b.height); }
     // the role was checked against the last one above
     if b.set & B::SET_ROLE != 0 { label.role = unsafe { core::mem::transmute::<u8, pxui_types::a11y::Role>(b.role) }; }
     label.whole_pixels |= b.whole_pixels != 0;
+    label.variant = b.variant;
     true
 }
 
@@ -708,9 +709,9 @@ export!(trusted pub unsafe fn pxui_ui_text_field(ui: *mut PxuiUi, desc: *const p
     if unsafe { (*desc).size } < core::mem::size_of::<pxui_types::ffi::PxuiTextFieldDesc>() as u32 { return unsafe { fail(ui, "invalid text field descriptor") }; }
     let d = unsafe { *desc };
     let (Some(key), Some(name), Some(value)) = (unsafe { crate::state::checked_key(d.key) }, unsafe { checked(d.name) }, unsafe { crate::state::checked_text(d.value) }) else { return unsafe { fail(ui, "invalid text field text") }; };
-    let Some(traits) = pxui_types::TextTraits::from_numbers(d.autocorrect as u32, d.capitalization as u32, d.action as u32).filter(|_| d.reserved == 0) else { return unsafe { fail(ui, "invalid text input options") }; };
+    let Some(traits) = pxui_types::TextTraits::from_numbers(d.autocorrect as u32, d.capitalization as u32, d.action as u32).filter(|_| d.reserved == 0 && d.reserved_variant == [0; 6]) else { return unsafe { fail(ui, "invalid text input options") }; };
     let mut text = None;
-    let rc = unsafe { trusted::text_field(ui, key, name, value, traits, &mut text, response) };
+    let rc = with_variant!(ui, pxui_types::theme::BodyKind::text_field, d.variant, unsafe { trusted::text_field(ui, key, name, value, traits, &mut text, response) });
     // a refused call (outside a frame among them) leaves the outputs alone
     if rc == 0 { unsafe { (*changed, *out_changed) = text.map_or((Str::default(), 0), |text| (text, 1)); } }
     rc
@@ -736,7 +737,7 @@ mod tests {
         use pxui_types::ffi::PxuiTextFieldDesc;
         let ui=unsafe {crate::ui::create_test_ui()};
         let text=|s:&'static str| Str {ptr:s.as_ptr(),len:s.len()};
-        let good=PxuiTextFieldDesc {size:core::mem::size_of::<PxuiTextFieldDesc>() as u32,autocorrect:1,capitalization:1,action:0,reserved:0,key:text("k"),name:text("n"),value:text("v")};
+        let good=PxuiTextFieldDesc {size:core::mem::size_of::<PxuiTextFieldDesc>() as u32,autocorrect:1,capitalization:1,action:0,reserved:0,key:text("k"),name:text("n"),value:text("v"),variant:0,reserved_variant:[0;6]};
         let bad_utf8=Str {ptr:[0xff_u8].as_ptr(),len:1};
         let cases=[
             PxuiTextFieldDesc {size:core::mem::size_of::<PxuiTextFieldDesc>() as u32-1,..good},
@@ -783,14 +784,14 @@ mod tests {
         use pxui_types::ffi::{PxuiResponse, PxuiTextAreaDesc, PxuiTextFieldDesc, PxuiValueFieldDesc};
         let s=|t: &'static str| Str {ptr:t.as_ptr(),len:t.len()};
         let ui=unsafe {crate::ui::create_test_ui()};
-        let field=PxuiTextFieldDesc {size:core::mem::size_of::<PxuiTextFieldDesc>() as u32,autocorrect:0,capitalization:0,action:0,reserved:0,key:s("f"),name:s("Field"),value:s("abc")};
+        let field=PxuiTextFieldDesc {size:core::mem::size_of::<PxuiTextFieldDesc>() as u32,autocorrect:0,capitalization:0,action:0,reserved:0,key:s("f"),name:s("Field"),value:s("abc"),variant:0,reserved_variant:[0;6]};
         let value=PxuiValueFieldDesc {label:s("v"),value:s("1"),width:40.0,height:20.0,size:core::mem::size_of::<PxuiValueFieldDesc>() as u32,..unsafe {core::mem::zeroed()}};
         let area=PxuiTextAreaDesc {label:s("a"),value:s("x"),size:core::mem::size_of::<PxuiTextAreaDesc>() as u32,..unsafe {core::mem::zeroed()}};
         for frame in 0..2 {
             in_frame(ui,&mut |ui| {
                 let calls: [&dyn Fn(*mut PxuiResponse)->i32; 5]=[
                     &|r| unsafe {pxui_ui_text_field(ui,&field,&mut Str::default(),&mut 0,r)},
-                    &|r| unsafe {pxui_ui_search_field(ui,s("s"),s("/"),s("q"),s(""),s("Find"),2,&mut 0,&mut Str::default(),r)},
+                    &|r| unsafe {pxui_ui_search_field(ui,s("s"),s("/"),s("q"),s(""),s("Find"),2,0,&mut 0,&mut Str::default(),r)},
                     &|r| unsafe {pxui_ui_line_field(ui,0.0,30.0,80.0,20.0,0,s(""),s("l"),s("x"),s("Line"),&mut Str::default(),&mut 0,r)},
                     &|r| unsafe {pxui_ui_value_field(ui,&value,None,None,None,core::ptr::null_mut(),s("Scale"),&mut Str::default(),&mut 0,&mut 0,r)},
                     &|r| unsafe {pxui_ui_text_area(ui,&area,&pxui_types::Node::DEFAULT.w_px(80.0).h_px(40.0),core::ptr::null(),s("Notes"),&mut Str::default(),&mut 0,&mut 0,r)},
@@ -1346,7 +1347,7 @@ mod label_records {
         assert!(read.height == Some(30.0) && read.whole_pixels && read.role == Role::Paragraph && read.size == Some(12.0));
         assert_eq!(B::from(&Label::BODY), B { size: core::mem::size_of::<B>() as u32, ..B::default() }, "a plain label sets nothing");
         for bad in [B { size: 12, ..full }, B { set: 4, ..full }, B { role: Role::Separator as u8 + 1, ..full }, B { height: f32::NAN, ..full },
-            B { whole_pixels: 2, ..full }, B { reserved: [0, 1], ..full }] {
+            B { whole_pixels: 2, ..full }] {
             let mut read = *Label::BODY.fields();
             assert!(!read_label_box(&bad, &mut read), "{bad:?}");
             assert!(read.height.is_none() && !read.whole_pixels && read.role == Role::Label);

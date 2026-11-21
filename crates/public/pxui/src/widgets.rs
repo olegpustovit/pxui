@@ -24,7 +24,7 @@ mod sys {
     use crate::sys::PxuiUi;
     #[link(name = "pxui")]
     unsafe extern "C" {
-    pub fn pxui_ui_search_field(ui: *mut PxuiUi, label: Str, icon: Str, value: Str, placeholder: Str, name: Str, action: u8, changed: *mut u8, out: *mut Str, response: *mut pxui_types::ffi::PxuiResponse) -> i32;
+    pub fn pxui_ui_search_field(ui: *mut PxuiUi, label: Str, icon: Str, value: Str, placeholder: Str, name: Str, action: u8, variant: u16, changed: *mut u8, out: *mut Str, response: *mut pxui_types::ffi::PxuiResponse) -> i32;
     }
 }
 
@@ -87,6 +87,7 @@ impl Ui {
         let (mut response, chosen, secondary) = {
             let mut out = PxuiResponse::EMPTY;
             let keyed = PxuiKeyedDesc::new(label, crate::clip(name));
+            let keyed = PxuiKeyedDesc { variant, ..keyed };
             let mut list = crate::PickItems::new();
             list.fill(items);
             let mut result = pxui_types::ffi::PxuiSegmentedResult::EMPTY;
@@ -135,6 +136,7 @@ impl Ui {
             let desc = pxui_types::ffi::PxuiCheckboxDesc {
                 size: core::mem::size_of::<pxui_types::ffi::PxuiCheckboxDesc>() as u32, disabled: checkbox.disabled as u8, on: on as u8, passive: checkbox.passive as u8,
                 reserved: 0, box_size: checkbox.size.unwrap_or(0.0), look: look.as_ref().map_or(core::ptr::null(), |l| l.as_ptr()), key: crate::as_str(label), text: crate::as_str(crate::clip(text)),
+                variant: checkbox.variant, reserved_variant: [0; 6],
             };
             self.variant_on(BodyKind::checkbox, checkbox.variant);
             check(self, unsafe { keyed_lib::pxui_ui_checkbox(self.0.as_ptr(), &desc, &mut out) });
@@ -164,6 +166,7 @@ impl Ui {
         #[cfg(not(feature = "static"))]
         let chosen = {
             let keyed = PxuiKeyedDesc::new(label, crate::clip(name));
+            let keyed = PxuiKeyedDesc { variant, ..keyed };
             let letters = crate::Strs::new(letters);
             let mut result = pxui_types::ffi::PxuiSegmentedResult::EMPTY;
             self.variant_on(BodyKind::section_index, variant);
@@ -191,6 +194,7 @@ impl Ui {
         #[cfg(not(feature = "static"))]
         {
             let keyed = PxuiKeyedDesc::new(label, crate::clip(text));
+            let keyed = PxuiKeyedDesc { variant, ..keyed };
             self.variant_on(BodyKind::inspector_section, variant);
             check(self, unsafe { keyed_lib::pxui_ui_disclosure(self.0.as_ptr(), &keyed, open as u8, Some(crate::composite::call), &mut f as *mut _ as *mut core::ffi::c_void, &mut out) });
             self.variant_off(BodyKind::inspector_section, variant);
@@ -220,6 +224,7 @@ impl Ui {
         let mut r = {
             let (mut out, mut phases) = (PxuiResponse::EMPTY, pxui_types::ffi::PxuiScrubOut::default());
             let keyed = PxuiKeyedDesc::new(label, crate::clip(text));
+            let keyed = PxuiKeyedDesc { variant, ..keyed };
             self.variant_on(BodyKind::slider, variant);
             check(self, unsafe { keyed_lib::pxui_ui_slider(self.0.as_ptr(), &keyed, value, min, max, &mut out, &mut phases) });
             self.variant_off(BodyKind::slider, variant);
@@ -244,6 +249,7 @@ impl Ui {
         #[cfg(not(feature = "static"))]
         {
             let keyed = PxuiKeyedDesc::new(label, crate::clip(text));
+            let keyed = PxuiKeyedDesc { variant, ..keyed };
             self.variant_on(BodyKind::progress, variant);
             check(self, unsafe { keyed_lib::pxui_ui_progress(self.0.as_ptr(), &keyed, value.is_some() as u8, value.unwrap_or_default(), &mut out) });
             self.variant_off(BodyKind::progress, variant);
@@ -266,6 +272,7 @@ impl Ui {
         #[cfg(not(feature = "static"))]
         {
             let keyed = PxuiKeyedDesc::new(label, crate::clip(name));
+            let keyed = PxuiKeyedDesc { variant, ..keyed };
             self.variant_on(BodyKind::spinner, variant);
             check(self, unsafe { keyed_lib::pxui_ui_spinner(self.0.as_ptr(), &keyed, &mut out) });
             self.variant_off(BodyKind::spinner, variant);
@@ -288,6 +295,7 @@ impl Ui {
         #[cfg(not(feature = "static"))]
         {
             let keyed = PxuiKeyedDesc::new(label, crate::clip(name));
+            let keyed = PxuiKeyedDesc { variant, ..keyed };
             self.variant_on(BodyKind::badge, variant);
             check(self, unsafe { keyed_lib::pxui_ui_badge(self.0.as_ptr(), &keyed, crate::as_str(text), &mut out) });
             self.variant_off(BodyKind::badge, variant);
@@ -316,7 +324,7 @@ impl Ui {
         let changed = {
             let mut changed = 0;
             let mut out = Str::default();
-            check(self, unsafe { sys::pxui_ui_search_field(self.0.as_ptr(), as_str(label), as_str(field.icon), as_str(value), as_str(field.placeholder), as_str(field.name), field.traits.return_key() as u8, &mut changed, &mut out, &mut response) });
+            check(self, unsafe { sys::pxui_ui_search_field(self.0.as_ptr(), as_str(label), as_str(field.icon), as_str(value), as_str(field.placeholder), as_str(field.name), field.traits.return_key() as u8, field.variant, &mut changed, &mut out, &mut response) });
             (changed != 0).then_some(out)
         };
         self.variant_off(BodyKind::search_field, field.variant);

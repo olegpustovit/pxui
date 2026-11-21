@@ -337,7 +337,7 @@ fn refused_calls_leave_their_outputs_untouched() {
     // the search field: outside a frame, and inside one with a label that is not UTF-8
     let search = |ui: *mut PxuiUi, label: Str| {
         let (mut changed, mut out, mut r) = (7u8, sentinel, marked());
-        let rc = unsafe { pxui_ui_search_field(ui, label, s(""), s("q"), s(""), s("Find"), 2, &mut changed, &mut out, &mut r) };
+        let rc = unsafe { pxui_ui_search_field(ui, label, s(""), s("q"), s(""), s("Find"), 2, 0, &mut changed, &mut out, &mut r) };
         assert_eq!((changed, out.len, r.flags), (7, 8, 0xdead), "search field rc {rc}");
         rc
     };
@@ -1187,7 +1187,7 @@ fn strings_are_capped_by_role() {
         // a text field's value is editor text: past the label cap is fine
         let (mut changed, mut flag) = (Str::default(), 0u8);
         let field = pxui_types::ffi::PxuiTextFieldDesc { size: core::mem::size_of::<pxui_types::ffi::PxuiTextFieldDesc>() as u32, autocorrect: 0, capitalization: 0, action: 0, reserved: 0,
-            key: str_of(b"f"), name: Str::default(), value: str_of(&long) };
+            key: str_of(b"f"), name: Str::default(), value: str_of(&long), variant: 0, reserved_variant: [0; 6] };
         assert_eq!(unsafe { pxui_ui_text_field(ui, &field, &mut changed, &mut flag, &mut { pxui_types::ffi::PxuiResponse::EMPTY }) }, 0, "{}", error(ui));
     }
     let ui = create();
@@ -1666,7 +1666,7 @@ mod sized_records {
         assert_eq!(press(&button), 0);
         for size in [95, 96, 100, 104, 150, 192] { assert_eq!(press(&PxuiButtonDesc { size, ..button }), PXUI_ERR_ARGUMENT, "an earlier size {size}"); }
         assert_eq!(press(&PxuiButtonDesc { centered: 2, ..button }), PXUI_ERR_ARGUMENT);
-        assert_eq!(press(&PxuiButtonDesc { reserved2: [0, 0, 1, 0, 0, 0, 0], ..button }), PXUI_ERR_ARGUMENT);
+        assert_eq!(press(&PxuiButtonDesc { reserved5: [0, 0, 1, 0], ..button }), PXUI_ERR_ARGUMENT);
         // the label, layout and focus fields are checked
         let label = pxui_types::ffi::PxuiLabelStyle::from(&pxui_types::Label::BODY.size(14.0));
         let label_box = pxui_types::ffi::PxuiLabelBox::from(&pxui_types::Label::BODY.h_px(20.0));
@@ -1692,7 +1692,7 @@ mod sized_records {
         // ABI 1.71: the icon button's on/off state: 0 or 1, checked only when checkable; a 104-byte record is a plain button
         assert_eq!(tap(&PxuiIconButtonDesc { checkable: 1, checked: 1, ..icon }), 0);
         assert_eq!(tap(&PxuiIconButtonDesc { size: 104, ..icon }), PXUI_ERR_ARGUMENT, "an earlier size");
-        for bad in [PxuiIconButtonDesc { checkable: 2, ..icon }, PxuiIconButtonDesc { checked: 1, ..icon }, PxuiIconButtonDesc { checkable: 1, checked: 2, ..icon }, PxuiIconButtonDesc { reserved2: [0, 1, 0, 0, 0, 0], ..icon }] {
+        for bad in [PxuiIconButtonDesc { checkable: 2, ..icon }, PxuiIconButtonDesc { checked: 1, ..icon }, PxuiIconButtonDesc { checkable: 1, checked: 2, ..icon }, PxuiIconButtonDesc { reserved2: [0, 1, 0, 0], ..icon }] {
             assert_eq!(tap(&bad), PXUI_ERR_ARGUMENT);
         }
         assert_eq!(tap(&icon), 0, "null curves are the kit's springs");

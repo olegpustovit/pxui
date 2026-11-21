@@ -4,6 +4,7 @@ use crate::kit::PxuiHintDesc;
 use crate::state::{Build, MAX_TOTAL_TEXT_BYTES, PxuiUi, boxed, call_build, checked, fail, get, to_abi_box};
 use crate::text_inputs::TextValid;
 use crate::trusted;
+use pxui_types::theme::BodyKind;
 use crate::{PXUI_ERR_ARGUMENT, PxuiBox, PxuiSignal, Str};
 use core::{cell::Cell, ffi::c_void};
 use pxui_core::ui::{Along, Axis, Edges, HeadAction, Justify, LineStep, Rect, Size, State, States, Ui};
@@ -37,14 +38,14 @@ export!(trusted pub unsafe fn pxui_ui_button_plain(ui: *mut PxuiUi, key: Str, te
 
 /// The checked `PxuiButtonDesc` behind `desc` (not null) through the trusted entry: what happened to `out`, the whole signal to
 /// `signal` when given.
-unsafe fn button_call(ui: *mut PxuiUi, desc: *const PxuiButtonDesc, content: Option<&mut dyn FnMut(&mut pxui_core::ui::Ui, State)>, out: &mut PxuiResponse, signal: Option<&mut PxuiSignal>) -> i32 {
+unsafe fn button_call(ui: *mut PxuiUi, desc: *const PxuiButtonDesc, mut inner: Option<&mut dyn FnMut(&mut pxui_core::ui::Ui, State)>, out: &mut PxuiResponse, signal: Option<&mut PxuiSignal>) -> i32 {
     // a word set for this call goes to the leading icon's drawing; the next call reads 0
     let word = core::mem::take(&mut unsafe { &*ui }.shared().icon_word);
     // the whole record (its size, or more): no earlier size is read
     let Some(d) = read_desc!(desc, PxuiButtonDesc) else { return unsafe { fail(ui, "invalid button descriptor") }; };
     let justify = match d.justify { 0 => Some(Justify::Start), 1 => Some(Justify::Center), 2 => Some(Justify::End), _ => None };
     let (Some(w), Some(h), Some(justify)) = (size(d.w_kind, d.w), size(d.h_kind, d.h), justify) else { return unsafe { fail(ui, "invalid button descriptor") }; };
-    if d.enabled > 1 || d.selected > 1 || d.danger > 1 || d.has_name > 1 || d.reserved != 0 || d.centered > 1 || d.reserved2 != [0; 7] { return unsafe { fail(ui, "invalid button descriptor") }; }
+    if d.enabled > 1 || d.selected > 1 || d.danger > 1 || d.has_name > 1 || d.reserved != 0 || d.centered > 1 || d.reserved2 != 0 || d.reserved5 != [0; 4] { return unsafe { fail(ui, "invalid button descriptor") }; }
     let (Some(key), Some(text), Some(name)) = (unsafe { crate::state::checked_key(d.key) }, unsafe { checked(d.text) }, unsafe { checked(d.name) }) else { return unsafe { fail(ui, "invalid button text") }; };
     let Ok(looks) = (unsafe { looks(d.states) }) else { return unsafe { fail(ui, "invalid button looks") } };
     let axis = match d.axis { 0 => Some(None), 1 => Some(Some(Axis::Row)), 2 => Some(Some(Axis::Column)), 3 => Some(Some(Axis::Stack)), _ => None };
@@ -55,9 +56,12 @@ unsafe fn button_call(ui: *mut PxuiUi, desc: *const PxuiButtonDesc, content: Opt
         label_of(d.has_accessory_label, &d.accessory_label, &d.accessory_box)) else { return unsafe { fail(ui, "invalid button label") } };
     let (Some(lead), Some(detail), Some(accessory)) = (unsafe { checked(d.lead) }, unsafe { checked(d.detail) }, unsafe { checked(d.accessory) }) else { return unsafe { fail(ui, "invalid button text") }; };
     let pad = Edges { l: d.padding[0], t: d.padding[1], r: d.padding[2], b: d.padding[3] };
-    unsafe { trusted::button_with(ui, key, text, (d.has_name != 0).then_some(name), looks.as_ref(), w, h, justify, pad, d.enabled != 0, d.selected != 0, d.danger != 0, d.centered != 0,
+    // the variant reaches the button body only: the caller's contents are built with none
+    let has_content = inner.is_some();
+    let mut clear = |engine: &mut pxui_core::ui::Ui, s: State| { engine.set_variant(0, 0); if let Some(f) = inner.as_mut() { f(engine, s) } };
+    with_variant!(ui, BodyKind::button, d.variant, unsafe { trusted::button_with(ui, key, text, (d.has_name != 0).then_some(name), looks.as_ref(), w, h, justify, pad, d.enabled != 0, d.selected != 0, d.danger != 0, d.centered != 0,
         label.as_ref(), axis, d.gap, content_align, d.focus_on_click != 0,
-        lead, d.lead_draw, d.lead_user, word, d.icon_size, detail, accessory, detail_label.as_ref(), accessory_label.as_ref(), content, out, signal) }
+        lead, d.lead_draw, d.lead_user, word, d.icon_size, detail, accessory, detail_label.as_ref(), accessory_label.as_ref(), if has_content { Some(&mut clear) } else { None }, out, signal) })
 }
 
 /// The label style a button record carries in `style` and `label_box` when `has` is 1: `Some(None)` for none, `None` for one that is invalid.
@@ -95,10 +99,10 @@ unsafe fn icon_button_call(ui: *mut PxuiUi, desc: *const PxuiIconButtonDesc, out
     // null is the kit's springs
     let Some(press) = (unsafe { press_curves(d.press) }) else { return unsafe { fail(ui, "invalid icon button press curves") }; };
     let (Some(w), Some(h)) = (size(d.w_kind, d.w), size(d.h_kind, d.h)) else { return unsafe { fail(ui, "invalid icon button descriptor") }; };
-    if d.enabled > 1 || d.reserved != 0 || d.checkable > 1 || d.checked > d.checkable || d.reserved2 != [0; 6] { return unsafe { fail(ui, "invalid icon button descriptor") }; }
+    if d.enabled > 1 || d.reserved != 0 || d.checkable > 1 || d.checked > d.checkable || d.reserved2 != [0; 4] { return unsafe { fail(ui, "invalid icon button descriptor") }; }
     let (Some(key), Some(name), Some(icon)) = (unsafe { crate::state::checked_key(d.key) }, unsafe { checked(d.name) }, unsafe { checked(d.icon) }) else { return unsafe { fail(ui, "invalid icon button text") }; };
     let Ok(looks) = (unsafe { looks(d.states) }) else { return unsafe { fail(ui, "invalid icon button looks") } };
-    unsafe { trusted::icon_button_with(ui, key, icon, d.draw, d.draw_user, word, name, looks.as_ref(), w, h, d.enabled != 0, d.press_scale, press, (d.checkable == 1).then_some(d.checked == 1), out, signal) }
+    with_variant!(ui, BodyKind::icon_button, d.variant, unsafe { trusted::icon_button_with(ui, key, icon, d.draw, d.draw_user, word, name, looks.as_ref(), w, h, d.enabled != 0, d.press_scale, press, (d.checkable == 1).then_some(d.checked == 1), out, signal) })
 }
 
 /// The two press curves behind `press` (null: `Some(None)`, the kit's), checked before they are read as `Curve`s: `None` for a pointer
@@ -155,14 +159,14 @@ export!(trusted pub unsafe fn pxui_ui_toggle(ui: *mut PxuiUi, desc: *const PxuiT
     if desc.is_null() { return unsafe { fail(ui, "null toggle argument") }; }
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short toggle response") } };
     let Some(d) = read_desc!(desc, PxuiToggleDesc) else { return unsafe { fail(ui, "invalid toggle descriptor") }; };
-    if d.enabled > 1 || d.on > 1 || d.press_row > 1 || d.reserved != 0 || d.has_style > 1 || d.reserved2 != [0; 7] { return unsafe { fail(ui, "invalid toggle descriptor") }; }
+    if d.enabled > 1 || d.on > 1 || d.press_row > 1 || d.reserved != 0 || d.has_style > 1 || d.reserved2 != 0 || d.reserved3 != [0; 4] { return unsafe { fail(ui, "invalid toggle descriptor") }; }
     let (Some(key), Some(text), Some(detail)) = (unsafe { crate::state::checked_key(d.key) }, unsafe { checked(d.text) }, unsafe { checked(d.detail) }) else { return unsafe { fail(ui, "invalid toggle text") } };
     let (Ok(track), Ok(knob)) = (unsafe { looks(d.track) }, unsafe { looks(d.knob) }) else { return unsafe { fail(ui, "invalid toggle looks") } };
     let label = match d.has_style {
         0 => None,
         _ => match crate::ui::label_style(&d.style) { Some((label, false)) => Some(label), _ => return unsafe { fail(ui, "invalid toggle label style") } },
     };
-    unsafe { trusted::toggle_with(ui, key, text, d.on != 0, track.as_ref(), knob.as_ref(), d.row_h, d.switch_w, d.switch_h, d.inset, d.press_row != 0, detail, label.as_ref(), d.enabled != 0, out) }
+    with_variant!(ui, BodyKind::toggle, d.variant, unsafe { trusted::toggle_with(ui, key, text, d.on != 0, track.as_ref(), knob.as_ref(), d.row_h, d.switch_w, d.switch_h, d.inset, d.press_row != 0, detail, label.as_ref(), d.enabled != 0, out) })
 });
 
 // ABI 1.85: the kit checkbox with its style (`PxuiCheckboxDesc`: size, looks, disabled, passive), reporting into one `PxuiResponse`; a
@@ -172,10 +176,10 @@ export!(trusted pub unsafe fn pxui_ui_checkbox(ui: *mut PxuiUi, desc: *const Pxu
     if desc.is_null() { return unsafe { fail(ui, "null checkbox argument") }; }
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short checkbox response") } };
     let Some(d) = read_desc!(desc, PxuiCheckboxDesc) else { return unsafe { fail(ui, "invalid checkbox descriptor") }; };
-    if d.disabled > 1 || d.on > 1 || d.passive > 1 || d.reserved != 0 || !(0.0..=f32::MAX).contains(&d.box_size) { return unsafe { fail(ui, "invalid checkbox descriptor") }; }
+    if d.disabled > 1 || d.on > 1 || d.passive > 1 || d.reserved != 0 || d.reserved_variant != [0; 6] || !(0.0..=f32::MAX).contains(&d.box_size) { return unsafe { fail(ui, "invalid checkbox descriptor") }; }
     let (Some(key), Some(text)) = (unsafe { crate::state::checked_key(d.key) }, unsafe { checked(d.text) }) else { return unsafe { fail(ui, "invalid checkbox text") } };
     let Ok(look) = (unsafe { looks(d.look) }) else { return unsafe { fail(ui, "invalid checkbox looks") } };
-    let style = pxui_types::ui::Checkbox { variant: 0, size: (d.box_size > 0.0).then_some(d.box_size), look: look.as_ref(), disabled: d.disabled != 0, passive: d.passive != 0 };
+    let style = pxui_types::ui::Checkbox { variant: d.variant, size: (d.box_size > 0.0).then_some(d.box_size), look: look.as_ref(), disabled: d.disabled != 0, passive: d.passive != 0 };
     let mut r = trusted::EngineResponse::default();
     let rc = unsafe { trusted::checkbox(ui, key, text, d.on != 0, &style, &mut r) };
     if rc == 0 { trusted::respond(&r, out); }
@@ -206,7 +210,7 @@ unsafe fn segmented_desc(ui: *mut PxuiUi, desc: *const PxuiSegmentedDesc, items:
     let selected = (d.has_selected == 1).then_some(d.selected);
     let (Some(key), Some(name)) = (unsafe { crate::state::checked_key(d.key) }, unsafe { checked(d.name) }) else { return unsafe { fail(ui, "invalid segmented strings") } };
     let Some(items) = (unsafe { checked_items(items) }) else { return unsafe { fail(ui, "invalid segmented items") } };
-    unsafe { trusted::segmented_checked(ui, key, name, items.len(), &|i| segment_of(&items[i]), selected, d.enabled != 0, d.h, d.grow != 0, states.as_ref(), d.w, d.padding, d.min_segment, d.focus_on_click != 0, out, chosen, secondary) }
+    with_variant!(ui, BodyKind::segmented, d.variant, unsafe { trusted::segmented_checked(ui, key, name, items.len(), &|i| segment_of(&items[i]), selected, d.enabled != 0, d.h, d.grow != 0, states.as_ref(), d.w, d.padding, d.min_segment, d.focus_on_click != 0, out, chosen, secondary) })
 }
 
 /// `items` checked once, in one pass before the call (at most `MAX_OPTIONS`, `has_id` 0 or 1 with `reserved` zero, every string UTF-8
@@ -241,7 +245,8 @@ unsafe fn pick_export(ui: *mut PxuiUi, keyed: *const pxui_types::ffi::PxuiKeyedD
     if has_selected > 1 || focus > 1 { return unsafe { fail(ui, "invalid pick arguments") }; }
     let Some(items) = (unsafe { checked_items(items) }) else { return unsafe { fail(ui, "invalid pick items") } };
     let (mut at, mut secondary) = (None, None);
-    let rc = unsafe { trusted::pick_checked(ui, kind, key, name, items.len(), &|i| segment_of(&items[i]), (has_selected == 1).then_some(selected), focus == 1, out, &mut at, &mut secondary) };
+    let body = match kind { 0 => BodyKind::radio, 1 => BodyKind::tabs, _ => BodyKind::dropdown };
+    let rc = with_variant!(ui, body, unsafe { (*keyed).variant }, unsafe { trusted::pick_checked(ui, kind, key, name, items.len(), &|i| segment_of(&items[i]), (has_selected == 1).then_some(selected), focus == 1, out, &mut at, &mut secondary) });
     if rc == 0 {
         (result.has_chosen, result.chosen, result.has_secondary, result.secondary) = (at.is_some() as u8, at.unwrap_or(0) as u64, secondary.is_some() as u8, secondary.unwrap_or(0) as u64);
         result.reserved = [0; 2];

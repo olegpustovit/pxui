@@ -102,12 +102,6 @@ mod held_key_tests {
     }
 }
 
-export!(pub unsafe fn pxui_ui_variant(ui: *mut PxuiUi, kind: u32, variant: u16) -> i32 {
-    let Some(e) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    if kind as usize >= pxui_types::theme::Bodies::KINDS.len() { return unsafe { fail(ui, "unknown body kind") }; }
-    e.set_variant(kind, variant);
-    0
-});
 // ABI 1.61: the word the next icon button call (`pxui_ui_icon_button`) hands its drawing, read in the drawing with
 // `pxui_paint_icon_word`; that call takes it, so the one after reads 0 unless set again.
 export!(pub unsafe fn pxui_ui_icon_word(ui: *mut PxuiUi, word: u32) -> i32 {

@@ -177,3 +177,15 @@ macro_rules! enter {
         if !unsafe { $crate::state::usable($ui) } { unsafe { $crate::state::refuse((*$ui).shared); } return $refused; }
     };
 }
+
+/// `$call` with the body variant `$variant` of kind `$kind` set on `$ui`'s engine for the call (0 sets nothing), cleared after it: the
+/// variant a widget descriptor carries reaches only that widget's registered body (`Ui::set_variant`).
+macro_rules! with_variant {
+    ($ui:expr, $kind:expr, $variant:expr, $call:expr) => {{
+        let variant: u16 = $variant;
+        if variant != 0 { if let Some(e) = unsafe { crate::state::engine($ui) } { e.set_variant($kind as u32, variant); } }
+        let rc = $call;
+        if variant != 0 { if let Some(e) = unsafe { crate::state::engine($ui) } { e.set_variant(0, 0); } }
+        rc
+    }};
+}

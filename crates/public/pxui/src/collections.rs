@@ -103,18 +103,18 @@ mod link {
             crate::composite::resume_deferred();
             check(self, rc);
         }
-        pub(super) fn selection_list_c(&mut self, label: &str, desc: &PxuiSelectionListDesc, rows: &mut ListRows, out: &mut PxuiListResult) {
-            let rc = unsafe { pxui_ui_selection_list(self.0.as_ptr(), &pxui_types::ffi::PxuiKeyedDesc::new(label, ""), desc, Some(call_list_id), Some(call_list_cell), (rows as *mut ListRows).cast(), out) };
+        pub(super) fn selection_list_c(&mut self, label: &str, variant: u16, desc: &PxuiSelectionListDesc, rows: &mut ListRows, out: &mut PxuiListResult) {
+            let rc = unsafe { pxui_ui_selection_list(self.0.as_ptr(), &pxui_types::ffi::PxuiKeyedDesc { variant, ..pxui_types::ffi::PxuiKeyedDesc::new(label, "") }, desc, Some(call_list_id), Some(call_list_cell), (rows as *mut ListRows).cast(), out) };
             crate::composite::resume_deferred();
             check(self, rc);
         }
-        pub(super) fn table_c(&mut self, label: &str, desc: &PxuiTableDesc, rows: &mut TableRows, out: &mut PxuiTableResult) {
-            let rc = unsafe { pxui_ui_table(self.0.as_ptr(), &pxui_types::ffi::PxuiKeyedDesc::new(label, ""), desc, Some(call_table_id), Some(call_table_cell), (rows as *mut TableRows).cast(), out) };
+        pub(super) fn table_c(&mut self, label: &str, variant: u16, desc: &PxuiTableDesc, rows: &mut TableRows, out: &mut PxuiTableResult) {
+            let rc = unsafe { pxui_ui_table(self.0.as_ptr(), &pxui_types::ffi::PxuiKeyedDesc { variant, ..pxui_types::ffi::PxuiKeyedDesc::new(label, "") }, desc, Some(call_table_id), Some(call_table_cell), (rows as *mut TableRows).cast(), out) };
             crate::composite::resume_deferred();
             check(self, rc);
         }
-        pub(super) fn table_head_c(&mut self, label: &str, desc: &PxuiTableHeadDesc, out: &mut PxuiHeadResult) {
-            let rc = unsafe { pxui_ui_table_head(self.0.as_ptr(), &pxui_types::ffi::PxuiKeyedDesc::new(label, ""), desc, out) };
+        pub(super) fn table_head_c(&mut self, label: &str, variant: u16, desc: &PxuiTableHeadDesc, out: &mut PxuiHeadResult) {
+            let rc = unsafe { pxui_ui_table_head(self.0.as_ptr(), &pxui_types::ffi::PxuiKeyedDesc { variant, ..pxui_types::ffi::PxuiKeyedDesc::new(label, "") }, desc, out) };
             check(self, rc);
         }
     }
@@ -247,7 +247,7 @@ impl Ui {
             cell(&mut *core::mem::ManuallyDrop::new(Ui(core::ptr::NonNull::new_unchecked(handle))), part_of(index), cell_from(c))
         }, &mut out) });
         #[cfg(not(feature = "static"))]
-        self.selection_list_c(label, &desc, &mut link::ListRows { cell, id: row_key }, &mut out);
+        self.selection_list_c(label, list.variant, &desc, &mut link::ListRows { cell, id: row_key }, &mut out);
         if list.variant != 0 { self.set_variant(BodyKind::selection_list, 0); }
         state.anchor = (out.anchor != usize::MAX).then_some(out.anchor);
         list_response(&out)
@@ -303,7 +303,7 @@ impl Ui {
             cell(&mut *core::mem::ManuallyDrop::new(Ui(core::ptr::NonNull::new_unchecked(handle))), row, column, cell_from(c))
         }, &mut out) });
         #[cfg(not(feature = "static"))]
-        self.table_c(label, &desc, &mut link::TableRows { cell, id: row_key }, &mut out);
+        self.table_c(label, table.variant, &desc, &mut link::TableRows { cell, id: row_key }, &mut out);
         if table.variant != 0 { self.set_variant(BodyKind::table_row, 0); }
         state.selection.anchor = (out.rows.anchor != usize::MAX).then_some(out.rows.anchor);
         let head = head_response(&out.head, &widths[..n], state);
@@ -325,7 +325,7 @@ impl Ui {
         #[cfg(feature = "static")]
         check(self, unsafe { pxui_abi_link::trusted::table_head(self.0.as_ptr(), label, &desc, &mut out) });
         #[cfg(not(feature = "static"))]
-        self.table_head_c(label, &desc, &mut out);
+        self.table_head_c(label, head.variant, &desc, &mut out);
         if head.variant != 0 { self.set_variant(BodyKind::table_head, 0); }
         head_response(&out, &widths[..n], state)
     }

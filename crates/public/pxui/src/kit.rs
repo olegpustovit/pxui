@@ -276,7 +276,7 @@ impl Ui {
             *desc = MenuDesc { size: core::mem::size_of::<MenuDesc>() as u32, reserved: 0, title: as_str(menu.title), items: Slice { ptr: flat[at..].as_ptr(), len: menu.items.len() } };
             at += menu.items.len();
         }
-        let desc = MenuBarDesc { size: core::mem::size_of::<MenuBarDesc>() as u32, reserved: 0, label: as_str(label), menus: Slice { ptr: descs.as_ptr(), len: descs.len() } };
+        let desc = MenuBarDesc { size: core::mem::size_of::<MenuBarDesc>() as u32, variant: bar.variant, reserved: 0, label: as_str(label), menus: Slice { ptr: descs.as_ptr(), len: descs.len() } };
         let mut out = MenuOut { size: core::mem::size_of::<MenuOut>() as u32, reserved: 0, menu: usize::MAX, item: usize::MAX };
         let mut dismissed = 0u8;
         self.variant_on(pxui_types::theme::BodyKind::menu_bar, bar.variant);

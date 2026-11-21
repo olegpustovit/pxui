@@ -160,12 +160,12 @@ impl Arg for *const PxuiKeyedDesc {
         let ok = Str { ptr: b"k".as_ptr(), len: 1 };
         let desc = match v % VARIANTS {
             1 => return core::ptr::null(),
-            2 => PxuiKeyedDesc { size: 0, reserved: 0, key: ok, name: ok },
-            3 => PxuiKeyedDesc { size, reserved: 0, key: Str { ptr: GARBAGE.as_ptr(), len: GARBAGE.len() }, name: Str { ptr: LONG.as_ptr(), len: LONG.len() } },
-            4 => PxuiKeyedDesc { size, reserved: 0, key: Str { ptr: LONG.as_ptr(), len: 300 }, name: Str { ptr: GARBAGE.as_ptr(), len: 1 << 40 } },
-            5 if v % 12 == 11 => PxuiKeyedDesc { size, reserved: 0, key: Str { ptr: UNRESOLVED[0].as_ptr(), len: 17 }, name: ok },
-            5 => PxuiKeyedDesc { size, reserved: 7, key: ok, name: ok },
-            _ => PxuiKeyedDesc { size, reserved: 0, key: ok, name: Str { ptr: b"Name".as_ptr(), len: 4 } },
+            2 => PxuiKeyedDesc { size: 0, variant: 0, reserved: 0, key: ok, name: ok },
+            3 => PxuiKeyedDesc { size, variant: 0, reserved: 0, key: Str { ptr: GARBAGE.as_ptr(), len: GARBAGE.len() }, name: Str { ptr: LONG.as_ptr(), len: LONG.len() } },
+            4 => PxuiKeyedDesc { size, variant: 0, reserved: 0, key: Str { ptr: LONG.as_ptr(), len: 300 }, name: Str { ptr: GARBAGE.as_ptr(), len: 1 << 40 } },
+            5 if v % 12 == 11 => PxuiKeyedDesc { size, variant: 0, reserved: 0, key: Str { ptr: UNRESOLVED[0].as_ptr(), len: 17 }, name: ok },
+            5 => PxuiKeyedDesc { size, variant: 0, reserved: 7, key: ok, name: ok },
+            _ => PxuiKeyedDesc { size, variant: 0, reserved: 0, key: ok, name: Str { ptr: b"Name".as_ptr(), len: 4 } },
         };
         unsafe { buf().cast::<PxuiKeyedDesc>().write(desc) };
         buf().cast()
@@ -248,13 +248,13 @@ fuzz!(
     pxui_ui_patch_look/4, pxui_ui_patch_mark/4, pxui_ui_patch_rect/4, pxui_ui_patch_text/4, pxui_ui_phase_cpu_times/3, pxui_ui_phase_times/3, pxui_ui_platform/1,
     pxui_ui_press_keys/4, pxui_ui_rebuilt_named/3, pxui_ui_rect/3, pxui_ui_remember/6,
     pxui_ui_repaint_after/2, pxui_ui_request_cursor/2, pxui_ui_request_frame/1, pxui_ui_resolve_label/3, pxui_ui_reveal/3, pxui_ui_root_at/6, pxui_ui_row_points/2,
-    pxui_ui_scroll_offset/4, pxui_ui_search_field/10, pxui_ui_section_list/7, pxui_ui_selection_list/7, pxui_ui_table_head/4, pxui_ui_table/7,
+    pxui_ui_scroll_offset/4, pxui_ui_search_field/11, pxui_ui_section_list/7, pxui_ui_selection_list/7, pxui_ui_table_head/4, pxui_ui_table/7,
     pxui_ui_segmented/5, pxui_ui_set_a11y/2, pxui_ui_set_at/4, pxui_ui_set_dir/2,
     pxui_ui_set_font_points/2, pxui_ui_set_node_fields/3, pxui_ui_set_node_layout/3, pxui_ui_set_role/4, pxui_ui_set_scroll_offset/3,
     pxui_ui_set_state/3, pxui_ui_set_text_state/4, pxui_ui_set_text_worker/2, pxui_ui_set_timing/2, pxui_ui_signal/3, pxui_ui_state/4, pxui_ui_style/4, pxui_ui_swipe_actions/3, pxui_ui_system_appearance/2,
     pxui_ui_text/6, pxui_ui_text_area/9, pxui_ui_text_field/5, pxui_ui_text_input_focused/1,
     pxui_ui_text_input_options/2, pxui_ui_text_layout_count/2, pxui_ui_text_state/4, pxui_ui_text_undo_bytes/1, pxui_ui_theme/1, pxui_ui_themed/4, pxui_ui_tip/3, pxui_ui_to_front/3, pxui_ui_toggle_plain/5, pxui_ui_toggle/3, pxui_ui_transfer_carry/3, pxui_ui_tree/3, pxui_ui_unfocus/1,
-    pxui_ui_use_theme/2, pxui_ui_variant/3, pxui_ui_verify_views/2, pxui_ui_verifying/1, pxui_ui_view_backdrop_blur/3,
+    pxui_ui_use_theme/2, pxui_ui_verify_views/2, pxui_ui_verifying/1, pxui_ui_view_backdrop_blur/3,
     pxui_ui_view_backdrop_saturation/3, pxui_ui_view_clip/3, pxui_ui_view_offset/4, pxui_ui_view_opacity/3, pxui_ui_view_scale/3,
     pxui_ui_view_size/2, pxui_ui_view_transform_about/6, pxui_ui_wants_frame/4, pxui_ui_within/4,
 );
@@ -381,7 +381,7 @@ fn unusable_resolved_labels_are_refused_with_the_argument_error() {
         let panics = PANICS.with(Cell::get);
         for label in UNRESOLVED {
             let key = Str { ptr: label.as_ptr(), len: 17 };
-            let keyed = PxuiKeyedDesc { size: core::mem::size_of::<PxuiKeyedDesc>() as u32, reserved: 0, key, name: Str { ptr: b"n".as_ptr(), len: 1 } };
+            let keyed = PxuiKeyedDesc { size: core::mem::size_of::<PxuiKeyedDesc>() as u32, variant: 0, reserved: 0, key, name: Str { ptr: b"n".as_ptr(), len: 1 } };
             let (mut b, mut flag) = (PxuiBox::default(), 0u8);
             let image = VALID_IMAGE;
             let px = PX;
@@ -442,7 +442,7 @@ const VALID_IMAGE: pxui_types::Image = pxui_types::Image {
     format: pxui_types::Image::FORMAT_RGBA8,
 };
 /// A keyed record of `key`, named `n`.
-fn keyed(key: Str) -> PxuiKeyedDesc { PxuiKeyedDesc { size: core::mem::size_of::<PxuiKeyedDesc>() as u32, reserved: 0, key, name: Str { ptr: b"n".as_ptr(), len: 1 } } }
+fn keyed(key: Str) -> PxuiKeyedDesc { PxuiKeyedDesc { size: core::mem::size_of::<PxuiKeyedDesc>() as u32, variant: 0, reserved: 0, key, name: Str { ptr: b"n".as_ptr(), len: 1 } } }
 /// Every export that takes its key in a `PxuiKeyedDesc`, each called with otherwise valid arguments and `key`.
 static KEYED: &[(&str, LegacyCall)] = &[
         ("pxui_ui_panel", |ui, k| unsafe { pxui_ui_panel(ui, &keyed(k), &PxuiPanel { width: 100.0, ..PxuiPanel::default() }, None, core::ptr::null_mut(), &mut PxuiBox::default()) }),
@@ -467,7 +467,7 @@ static LEGACY_KEYED: &[(&str, LegacyCall)] = &[
         ("pxui_ui_menu_bar", |ui, l| { let d = PxuiMenuBarDesc { label: l, size: core::mem::size_of::<PxuiMenuBarDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_menu_bar(ui, &d, &mut menu_out(), &mut 0) } }),
         ("pxui_ui_tree", |ui, l| { let (mut selected, mut len) = (0usize, 0usize); let d = PxuiTreeViewDesc { label: l, selected: &mut selected, visible_len: &mut len, size: core::mem::size_of::<PxuiTreeViewDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_tree(ui, &d, &mut 0) } }),
         ("pxui_ui_scrub", |ui, l| unsafe { pxui_ui_scrub(ui, l, 0.0, 0.0, 1.0, 0.1, &mut response(), &mut PxuiScrubOut::default()) }),
-        ("pxui_ui_search_field", |ui, l| unsafe { pxui_ui_search_field(ui, l, Str::default(), Str::default(), Str::default(), Str::default(), 2, &mut 0, &mut Str::default(), &mut response()) }),
+        ("pxui_ui_search_field", |ui, l| unsafe { pxui_ui_search_field(ui, l, Str::default(), Str::default(), Str::default(), Str::default(), 2, 0, &mut 0, &mut Str::default(), &mut response()) }),
         ("pxui_ui_line_field", |ui, l| unsafe { pxui_ui_line_field(ui, 0.0, 0.0, 10.0, 10.0, 0, Str::default(), l, Str::default(), Str::default(), &mut Str::default(), &mut 0, &mut response()) }),
         ("pxui_ui_text_area", |ui, l| { let d = PxuiTextAreaDesc { label: l, size: core::mem::size_of::<PxuiTextAreaDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_text_area(ui, &d, &Node::DEFAULT, core::ptr::null(), Str::default(), &mut Str::default(), &mut 0, &mut 0, &mut response()) } }),
         ("pxui_ui_value_field", |ui, l| { let d = PxuiValueFieldDesc { label: l, width: 10.0, height: 10.0, size: core::mem::size_of::<PxuiValueFieldDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_value_field(ui, &d, None, None, None, core::ptr::null_mut(), Str::default(), &mut Str::default(), &mut 0, &mut 0, &mut response()) } }),

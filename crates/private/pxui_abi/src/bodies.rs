@@ -689,7 +689,7 @@ mod tests {
         if left == 0 { assert_eq!(unsafe { crate::pxui_ui_button_plain(ui, text("leaf"), text("leaf"), &mut { pxui_types::ffi::PxuiResponse::EMPTY }) }, 0); return }
         let mut next = left - 1;
         let desc = pxui_types::ffi::PxuiDialogDesc { size: core::mem::size_of::<pxui_types::ffi::PxuiDialogDesc>() as u32, width: 0.0, key: text("dialog"), title: text("Title"),
-            buttons: Slice { ptr: buttons.as_ptr(), len: 2 }, default_at: 0, cancel_at: 1, danger: 0, disabled: 0, details: Slice { ptr: core::ptr::null(), len: 0 } };
+            buttons: Slice { ptr: buttons.as_ptr(), len: 2 }, default_at: 0, cancel_at: 1, danger: 0, disabled: 0, details: Slice { ptr: core::ptr::null(), len: 0 }, variant: 0, reserved_variant: [0; 6] };
         let rc = unsafe { crate::pxui_ui_dialog(ui, &desc, Some(nested_dialogs), (&mut next as *mut u32).cast(), &mut out) };
         assert_eq!(rc, 0, "{}", error(ui));
     }

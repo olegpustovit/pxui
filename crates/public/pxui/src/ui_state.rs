@@ -25,7 +25,6 @@ library!(lib {
     fn pxui_ui_passed_undo(ui: *mut PxuiUi) -> u32;
     fn pxui_ui_key_down(ui: *mut PxuiUi, code: u32, out: *mut u8) -> i32;
     fn pxui_ui_key_pressed(ui: *mut PxuiUi, code: u32, modifiers: u32, out: *mut u8) -> i32;
-    fn pxui_ui_variant(ui: *mut PxuiUi, kind: u32, variant: u16) -> i32;
     fn pxui_ui_set_font_points(ui: *mut PxuiUi, points: f32) -> i32;
     fn pxui_ui_unfocus(ui: *mut PxuiUi) -> i32;
     fn pxui_ui_dismiss_popup(ui: *mut PxuiUi) -> i32;
@@ -129,8 +128,14 @@ impl Ui {
     /// ```
     #[inline] pub fn row_height(&self) -> f32 { let mut out = 0.0; unsafe { lib::pxui_ui_row_points(self.0.as_ptr(), &mut out) }; out }
     /// Hands the registered bodies of kind `kind` that the widget call in progress builds `variant` (0 clears it); called only for a non-zero style variant, around that call.
+    /// Linked dynamically the variant crosses in the call's descriptor instead, so this does nothing there.
+    #[cfg(feature = "static")]
     #[inline(never)]
-    pub(crate) fn set_variant(&mut self, kind: pxui_types::theme::BodyKind, variant: u16) { unsafe { lib::pxui_ui_variant(self.0.as_ptr(), kind as u32, variant) }; }
+    pub(crate) fn set_variant(&mut self, kind: pxui_types::theme::BodyKind, variant: u16) { unsafe { pxui_abi_link::trusted::set_variant(self.0.as_ptr(), kind as u32, variant) }; }
+    /// Linked dynamically the variant crosses in the call's descriptor, so there is nothing to set.
+    #[cfg(not(feature = "static"))]
+    #[inline(always)]
+    pub(crate) fn set_variant(&mut self, _: pxui_types::theme::BodyKind, _: u16) {}
     /// The rounded rendering density used by authoring and paint.
     ///
     /// Read the current surface's value.

@@ -190,7 +190,7 @@ impl Ui {
             unsafe { pxui_abi_link::trusted::icon_button_with(self.0.as_ptr(), key, glyph, draw, user, word, name, button.look, button.w, button.h, button.enabled, button.press_scale, button.press, button.selected, &mut out, None) }
         };
         #[cfg(not(feature = "static"))]
-        let rc = if plain {
+        let rc = if plain && button.variant == 0 {
             unsafe { lib::pxui_ui_icon_button_plain(self.0.as_ptr(), as_str(key), as_str(glyph), as_str(name), &mut out) }
         } else {
             let dim = |size: Size| match size { Size::Fit => (0, 0.0), Size::Px(v) => (1, v), Size::Grow => (2, 0.0), _ => (3, 0.0) };
@@ -200,7 +200,7 @@ impl Ui {
                 size: core::mem::size_of::<PxuiIconButtonDesc>() as u32, enabled: button.enabled as u8, w_kind, h_kind, reserved: 0, w, h, press_scale: button.press_scale,
                 states: looks.as_ref().map_or(core::ptr::null(), |l| l.as_ptr()), key: as_str(key), name: as_str(name), icon: as_str(glyph), draw, draw_user: user,
                 press: button.press.map_or(core::ptr::null(), |p| p.as_ptr()),
-                checkable: button.selected.is_some() as u8, checked: (button.selected == Some(true)) as u8, reserved2: [0; 6],
+                checkable: button.selected.is_some() as u8, checked: (button.selected == Some(true)) as u8, variant: button.variant, reserved2: [0; 4],
             };
             if draw.is_some() { unsafe { lib::pxui_ui_icon_word(self.0.as_ptr(), word) }; }
             unsafe { lib::pxui_ui_icon_button(self.0.as_ptr(), &desc, &mut out) }
@@ -247,7 +247,7 @@ impl Ui {
                 if has_content { Some(&mut run) } else { None }, &mut out, None) }
         };
         #[cfg(not(feature = "static"))]
-        let rc = if plain {
+        let rc = if plain && button.variant == 0 {
             unsafe { lib::pxui_ui_button_plain(self.0.as_ptr(), as_str(key), as_str(text), &mut out) }
         } else {
             let dim = |size: Size| match size { Size::Fit => (0, 0.0), Size::Px(v) => (1, v), Size::Grow => (2, 0.0), _ => (3, 0.0) };
@@ -258,7 +258,7 @@ impl Ui {
                 size: core::mem::size_of::<PxuiButtonDesc>() as u32, enabled: button.enabled as u8, selected: button.selected as u8, danger: button.danger as u8,
                 justify: match button.align { pxui_types::layout::Justify::Center => 1, pxui_types::layout::Justify::End => 2, _ => 0 }, w_kind, h_kind, has_name: button.name.is_some() as u8, reserved: 0,
                 w, h, padding: [p.l, p.t, p.r, p.b], states: looks.as_ref().map_or(core::ptr::null(), |l| l.as_ptr()),
-                key: as_str(key), text: as_str(text), name: as_str(button.name.unwrap_or("")), centered: button.centered as u8, reserved2: [0; 7],
+                key: as_str(key), text: as_str(text), name: as_str(button.name.unwrap_or("")), centered: button.centered as u8, reserved2: 0, variant: button.variant, reserved5: [0; 4],
                 has_label: button.label.is_some() as u8, axis: button.axis.map_or(0, |a| a as u8 + 1),
                 content_align: match button.content_align { None => 0, Some(pxui_types::layout::Along::Start) => 1, Some(pxui_types::layout::Along::Center) => 2, Some(pxui_types::layout::Along::End) => 3 }, focus_on_click: button.focus_on_click as u8,
                 gap: button.gap, label: button.label.as_ref().map(pxui_types::ffi::PxuiLabelStyle::from).unwrap_or_default(), label_box: button.label.as_ref().map(pxui_types::ffi::PxuiLabelBox::from).unwrap_or_default(),
@@ -296,7 +296,7 @@ impl Ui {
                 toggle.inset.unwrap_or(0.0), toggle.press_row, toggle.detail, toggle.label.as_ref().map(|l| l.fields()), toggle.enabled, &mut out) }
         };
         #[cfg(not(feature = "static"))]
-        let rc = if plain {
+        let rc = if plain && toggle.variant == 0 {
             unsafe { lib::pxui_ui_toggle_plain(self.0.as_ptr(), as_str(key), as_str(text), on as u8, &mut out) }
         } else {
             let (track, knob) = (toggle.track.map(six), toggle.knob.map(six));
@@ -305,7 +305,7 @@ impl Ui {
                 row_h: toggle.row_h.unwrap_or(0.0), switch_w, switch_h, inset: toggle.inset.unwrap_or(0.0),
                 track: track.as_ref().map_or(core::ptr::null(), |l| l.as_ptr()), knob: knob.as_ref().map_or(core::ptr::null(), |l| l.as_ptr()),
                 key: as_str(key), text: as_str(text), detail: as_str(toggle.detail),
-                has_style: toggle.label.is_some() as u8, reserved2: [0; 7], style: toggle.label.as_ref().map_or_else(Default::default, pxui_types::ffi::PxuiLabelStyle::from),
+                has_style: toggle.label.is_some() as u8, reserved2: 0, variant: toggle.variant, reserved3: [0; 4], style: toggle.label.as_ref().map_or_else(Default::default, pxui_types::ffi::PxuiLabelStyle::from),
             };
             unsafe { lib::pxui_ui_toggle(self.0.as_ptr(), &desc, &mut out) }
         };
@@ -334,7 +334,7 @@ impl Ui {
             let desc = pxui_types::ffi::PxuiSegmentedDesc {
                 size: core::mem::size_of::<pxui_types::ffi::PxuiSegmentedDesc>() as u32, enabled: segmented.enabled as u8, grow: segmented.grow as u8, reserved: [0; 2], h: segmented.h.unwrap_or(0.0),
                 states: states.as_ref().map_or(core::ptr::null(), |l| l.as_ptr()), key: as_str(key), name: as_str(name), selected: selected.unwrap_or(0),
-                w: segmented.w.unwrap_or(0.0), padding: segmented.padding, min_segment: segmented.min_segment, reserved2: 0,
+                w: segmented.w.unwrap_or(0.0), padding: segmented.padding, min_segment: segmented.min_segment, variant: segmented.variant, reserved2: 0,
                 names: Slice { ptr: core::ptr::null(), len: 0 }, has_selected: selected.is_some() as u8, reserved3: [0; 7], focus_on_click: segmented.focus_on_click as u8, reserved4: [0; 7],
             };
             let mut result = pxui_types::ffi::PxuiSegmentedResult::EMPTY;
@@ -369,7 +369,7 @@ impl Ui {
                 size: core::mem::size_of::<PxuiDialogDesc>() as u32, width: style.w, key: as_str(key), title: as_str(title),
                 buttons: Slice { ptr: texts.as_ptr(), len: buttons.len() }, default_at: at(|b| b.primary), cancel_at: at(|b| b.cancel),
                 danger: mask(|b| b.danger), disabled: mask(|b| !b.enabled),
-                details: Slice { ptr: details.as_ptr(), len: buttons.len() },
+                details: Slice { ptr: details.as_ptr(), len: buttons.len() }, variant: style.variant, reserved_variant: [0; 6],
             };
             let mut result = PxuiDialogResult::EMPTY;
             check(self, unsafe { lib::pxui_ui_dialog(self.0.as_ptr(), &desc, Some(call), &mut body as *mut _ as *mut c_void, &mut result) });

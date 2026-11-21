@@ -238,7 +238,7 @@ impl Ui {
             (hl.resize(n, Str::default()), he.resize(n, 0), hk.resize(n, Str::default()), hs.resize(n, PxuiSwatch::default()), hm.resize(n, 0), hd.resize(n, 0), hc.resize(n, 0), hi.resize(n, 0), hh.resize(n, 0));
             (&mut hl, &mut he, &mut hk, &mut hs, &mut hm, &mut hd, &mut hc, &mut hi, &mut hh)
         };
-        let (mut dangers, mut extras) = (0, menu.row_h.is_some() || menu.max_rows.is_some() || menu.padding != 6.0 || menu.name.is_some() || menu.focus_on_click || menu.max_h.is_some());
+        let (mut dangers, mut extras) = (0, menu.row_h.is_some() || menu.max_rows.is_some() || menu.padding != 6.0 || menu.name.is_some() || menu.focus_on_click || menu.max_h.is_some() || menu.variant != 0);
         let (mut selected, mut with_ids) = (false, false);
         let mut with_submenus = false;
         for (row, item) in items.iter().enumerate() {
@@ -272,7 +272,7 @@ impl Ui {
         }).collect();
         let marks_len = if marks.contains(&1) || marks.contains(&2) { n } else { 0 };
         let extra = PxuiMenuExtra {
-            size: core::mem::size_of::<PxuiMenuExtra>() as u32, reserved: 0, lead_from: 0,
+            size: core::mem::size_of::<PxuiMenuExtra>() as u32, variant: menu.variant, reserved: 0, lead_from: 0,
             keys: Slice { ptr: keys.as_ptr(), len: n }, swatches: Slice { ptr: swatches.as_ptr(), len: n },
             danger: Slice { ptr: danger.as_ptr(), len: dangers }, submenus: Slice { ptr: descriptors.as_ptr(), len: descriptors.len() },
             row_h: menu.row_h.unwrap_or(0.0), max_rows: menu.max_rows.map_or(0, |rows| rows.min(u32::MAX as usize) as u32), checked: Slice { ptr: marks.as_ptr(), len: marks_len },
@@ -329,7 +329,7 @@ mod tests {
     fn extra(size: u32) -> PxuiMenuExtra {
         let none = Slice { ptr: core::ptr::null(), len: 0 };
         PxuiMenuExtra {
-            size, reserved: 0, lead_from: 0, keys: none, swatches: Slice { ptr: core::ptr::null(), len: 0 }, danger: Slice { ptr: core::ptr::null(), len: 0 },
+            size, variant: 0, reserved: 0, lead_from: 0, keys: none, swatches: Slice { ptr: core::ptr::null(), len: 0 }, danger: Slice { ptr: core::ptr::null(), len: 0 },
             submenus: Slice { ptr: core::ptr::null(), len: 0 }, row_h: 0.0, max_rows: 0, checked: Slice { ptr: core::ptr::null(), len: 0 },
             padding: 6.0, has_name: 0, reserved2: [0; 3], name: Str::default(), selected: Slice { ptr: core::ptr::null(), len: 0 },
             focus_on_click: 0, reserved3: [0; 7], ids: Slice { ptr: core::ptr::null(), len: 0 }, has_id: Slice { ptr: core::ptr::null(), len: 0 },

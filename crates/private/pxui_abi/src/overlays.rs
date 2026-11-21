@@ -95,7 +95,8 @@ export!(trusted pub unsafe fn pxui_ui_context_menu(
         }
     }
     let mut result = Chosen::default();
-    let status = if valid { unsafe { crate::trusted::menu(ui, NodeKey::Label(label), (x, y), &menu, &options, &mut result) } } else { 0 };
+    let variant = if extra.is_null() { 0 } else { unsafe { (*extra).variant } };
+    let status = if valid { with_variant!(ui, pxui_types::theme::BodyKind::menu_row, variant, unsafe { crate::trusted::menu(ui, NodeKey::Label(label), (x, y), &menu, &options, &mut result) }) } else { 0 };
     menu.clear();
     subs.clear();
     { let shared = state.shared(); (shared.menu, shared.menu_sub) = (menu, subs); }

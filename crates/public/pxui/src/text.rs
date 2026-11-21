@@ -485,12 +485,12 @@ impl Ui {
             let f = style.fields();
             let plain = !digits && f.font.is_none() && f.size.is_none() && f.weight.is_none() && f.tracking.is_none() && f.caps.is_none() && f.color.is_none()
                 && f.width.is_none() && f.line_height.is_none() && f.pad.is_none() && f.wrap as u32 == 0 && f.max_lines == 0 && f.ellipsis as u32 == 0
-                && f.align as u32 == 0 && f.features == 0 && f.height.is_none() && f.role == pxui_types::a11y::Role::Label && !f.whole_pixels;
+                && f.align as u32 == 0 && f.features == 0 && f.variant == 0 && f.height.is_none() && f.role == pxui_types::a11y::Role::Label && !f.whole_pixels;
             if plain { unsafe { lib::pxui_ui_label(self.0.as_ptr(), as_str(text), core::ptr::null(), core::ptr::null(), &mut out) } }
             else {
                 let record = pxui_types::ffi::PxuiLabelStyle { digits: digits as u8, ..pxui_types::ffi::PxuiLabelStyle::from(style) };
                 let label_box = pxui_types::ffi::PxuiLabelBox::from(style);
-                let boxed = label_box.set != 0 || label_box.whole_pixels != 0;
+                let boxed = label_box.set != 0 || label_box.whole_pixels != 0 || label_box.variant != 0;
                 let label_box = if boxed { &label_box as *const pxui_types::ffi::PxuiLabelBox } else { core::ptr::null() };
                 unsafe { lib::pxui_ui_label(self.0.as_ptr(), as_str(text), &record, label_box, &mut out) }
             }

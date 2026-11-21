@@ -93,6 +93,7 @@ export!(trusted pub unsafe fn pxui_ui_dialog(ui: *mut PxuiUi, desc: *const PxuiD
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short dialog result") } };
     let Some(d) = read_desc!(desc, PxuiDialogDesc) else { return unsafe { fail(ui, "invalid dialog descriptor") } };
     let mut list = state.shared().take_strs();
+    if d.reserved_variant != [0; 6] { return unsafe { fail(ui, "invalid dialog descriptor") }; }
     let mut buf = [DialogButton::new(""); MAX_BUTTONS];
     // the labels, then the details after them in the same scratch
     let read = unsafe { strings(d.buttons, MAX_BUTTONS, &mut list) && crate::state::append_strings(d.details, MAX_BUTTONS, &mut list) };
@@ -105,7 +106,7 @@ export!(trusted pub unsafe fn pxui_ui_dialog(ui: *mut PxuiUi, desc: *const PxuiD
         return unsafe { fail(ui, "invalid dialog descriptor") };
     };
     let mut result = Chosen { chosen: None, chosen_id: None, dismissed: false };
-    let rc = unsafe { crate::trusted::dialog(ui, key, title, buttons, &Dialog::DEFAULT.w_px(d.width), &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, callback, user), &mut result) };
+    let rc = with_variant!(ui, pxui_types::theme::BodyKind::dialog, d.variant, unsafe { crate::trusted::dialog(ui, key, title, buttons, &Dialog::DEFAULT.w_px(d.width), &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, callback, user), &mut result) });
     state.shared().put_strs(list);
     if rc == 0 {
         (out.has_chosen, out.chosen, out.dismissed) = (result.chosen.is_some() as u8, result.chosen.unwrap_or(0) as u64, result.dismissed as u8);

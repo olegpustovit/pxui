@@ -45,7 +45,7 @@ PxuiCurveDesc 164 4 0 4 8 12 28 32 36 100
 PxuiMenuDesc 40 8 0 4 8 24
 PxuiGridListDesc 56 8 0 4 8 24 32 36 40 48
 PxuiSplitDesc 72 8 0 4 8 24 28 32 36 40 48 56 64
-PxuiMenuBarDesc 40 8 0 4 8 24
+PxuiMenuBarDesc 40 8 0 4 6 8 24
 PxuiMenuOut 24 8 0 4 8 16
 PxuiHintDesc 40 8 0 4 8 24
 PxuiFooterDesc 40 8 0 4 5 8 24
@@ -76,7 +76,7 @@ PxuiTextAreaDesc 200 8 0 4 8 12 16 20 24 32 40 56 72 88 104 120 136 152 168 184
 PxuiAreaCallbacks 144 8 0 4 8 16 24 32 40 48 56 64 72 80 88 96 104 112 120 128 136
 PxuiSwatch 8 1 0 1 4
 PxuiSubmenu 72 8 0 8 16 17 24 40 56
-PxuiMenuExtra 192 8 0 4 8 16 32 48 64 80 84 88 104 108 109 112 128 144 145 152 168 184 188
+PxuiMenuExtra 192 8 0 4 6 8 16 32 48 64 80 84 88 104 108 109 112 128 144 145 152 168 184 188
 PxuiLayerInfo 56 8 0 4 8 12 16 24 40
 PxuiDirty 8 4 0 4
 PxuiSize 16 8
@@ -149,23 +149,23 @@ PxuiGestureOut 20 4 0 4 8 12 16
 PxuiSwipeIn 16 4 0 4 8 12
 PxuiDismissIn 12 4 0 4 8
 PxuiDismissOut 12 4 0 4 8
-PxuiButtonDesc 432 8 0 4 5 6 7 8 9 10 11 12 16 20 40 48 64 80 96 97 104 105 106 107 108 112 176 192 208 216 224 240 256 257 258 264 328 344 408
+PxuiButtonDesc 432 8 0 4 5 6 7 8 9 10 11 12 16 20 40 48 64 80 96 97 98 100 104 105 106 107 108 112 176 192 208 216 224 240 256 257 258 264 328 344 408
 PxuiLabelStyle 64 8 0 4 8 10 12 14 16 17 18 19 20 24 28 32 36 40 44 48
-PxuiIconButtonDesc 112 8 0 4 5 6 7 8 12 16 24 32 48 64 80 88 96 104 105 106
+PxuiIconButtonDesc 112 8 0 4 5 6 7 8 12 16 24 32 48 64 80 88 96 104 105 106 108
 PxuiResponse 40 8 0 4 8
-PxuiToggleDesc 160 8 0 4 5 6 7 8 12 16 20 24 32 40 56 72 88 89 96
-PxuiSegmentedDesc 112 8 0 4 5 6 8 16 24 40 56 64 68 72 76 80 96 97 104 105
-PxuiDialogDesc 104 8 0 4 8 24 40 56 64 72 80 88
+PxuiToggleDesc 160 8 0 4 5 6 7 8 12 16 20 24 32 40 56 72 88 89 90 92 96
+PxuiSegmentedDesc 112 8 0 4 5 6 8 16 24 40 56 64 68 72 76 78 80 96 97 104 105
+PxuiDialogDesc 112 8 0 4 8 24 40 56 64 72 80 88 104 106
 PxuiDialogResult 16 8 0 4 5 6 8
 PxuiCurve 140 4 0 4
 PxuiLabelBox 16 4 0 4 8 12 13 14
 PxuiUiDescV1_60 16 4 0 4 8 12
-PxuiTextFieldDesc 56 8 0 4 5 6 7 8 24 40
+PxuiTextFieldDesc 64 8 0 4 5 6 7 8 24 40 56 58
 PxuiSegmentedResult 24 8 0 4 5 6 8 16
-PxuiKeyedDesc 40 8 0 4 8 24
+PxuiKeyedDesc 40 8 0 4 6 8 24
 PxuiPickItem 64 8 0 1 8 16 32 48
 PxuiSectionIndexConfig 88 8 0 4 16 24 32 64 80
-PxuiCheckboxDesc 56 8 0 4 5 6 7 8 16 24 40
+PxuiCheckboxDesc 64 8 0 4 5 6 7 8 16 24 40 56 58
 PxuiSheetDesc 28 4 0 4 5 6 8 12 16
 PxuiPickRow 64 8 0 4 5 8 16 32 48
 PxuiCellState 48 8 0 4 5 6 7 8 40 44

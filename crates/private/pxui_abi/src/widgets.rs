@@ -2,6 +2,7 @@ use crate::state::{Build, PxuiUi, checked, fail, get, strings};
 use core::ffi::c_void;
 use crate::{PXUI_ERR_ARGUMENT, PxuiBox, Str, trusted};
 use pxui_types::ffi::{PxuiKeyedDesc, PxuiResponse, Slice};
+use pxui_types::theme::BodyKind;
 use pxui_types::ui::Slider;
 
 const MAX_OPTIONS: usize = 4096;
@@ -69,7 +70,7 @@ mod keyed_tests {
             assert_eq!(unsafe { pxui_ui_progress(ui, &PxuiKeyedDesc { size: 8, ..k("c", "Check") }, 0, 0.0, &mut b) }, PXUI_ERR_ARGUMENT);
             assert_eq!(unsafe { pxui_ui_progress(ui, &PxuiKeyedDesc { reserved: 1, ..k("c", "Check") }, 0, 0.0, &mut b) }, PXUI_ERR_ARGUMENT);
             assert_eq!(unsafe { pxui_ui_progress(ui, core::ptr::null(), 0, 0.0, &mut b) }, PXUI_ERR_ARGUMENT);
-            let d = pxui_types::ffi::PxuiCheckboxDesc { size: core::mem::size_of::<pxui_types::ffi::PxuiCheckboxDesc>() as u32, disabled: 0, on: 0, passive: 0, reserved: 0, box_size: 0.0, look: core::ptr::null(), key: k("cx", "").key, text: s("Check") };
+            let d = pxui_types::ffi::PxuiCheckboxDesc { size: core::mem::size_of::<pxui_types::ffi::PxuiCheckboxDesc>() as u32, disabled: 0, on: 0, passive: 0, reserved: 0, box_size: 0.0, look: core::ptr::null(), key: k("cx", "").key, text: s("Check"), variant: 0, reserved_variant: [0; 6] };
             for bad in [pxui_types::ffi::PxuiCheckboxDesc { box_size: -1.0, ..d }, pxui_types::ffi::PxuiCheckboxDesc { box_size: f32::NAN, ..d }, pxui_types::ffi::PxuiCheckboxDesc { reserved: 1, ..d },
                 pxui_types::ffi::PxuiCheckboxDesc { passive: 2, ..d }, pxui_types::ffi::PxuiCheckboxDesc { on: 2, ..d }, pxui_types::ffi::PxuiCheckboxDesc { size: 8, ..d }] {
                 assert_eq!(unsafe { crate::kit_ext::pxui_ui_checkbox(ui, &bad, &mut out) }, PXUI_ERR_ARGUMENT);
@@ -144,7 +145,7 @@ export!(trusted pub unsafe fn pxui_ui_slider(ui: *mut PxuiUi, keyed: *const Pxui
     let Some(result) = sized_mut!(result) else { return unsafe { fail(ui, "null or short slider result") } };
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short slider response") } };
     let Some((key, text)) = (unsafe { read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
-    unsafe { trusted::slider_result(ui, key, text, value, min, max, &Slider::DEFAULT, out, result) }
+    with_variant!(ui, BodyKind::slider, unsafe { (*keyed).variant }, unsafe { trusted::slider_result(ui, key, text, value, min, max, &Slider::DEFAULT, out, result) })
 });
 
 // ABI 1.85: the kit section index keyed by `keyed.key`, named `keyed.name`, one strip child per string of `letters` (each checked once,
@@ -158,7 +159,7 @@ export!(trusted pub unsafe fn pxui_ui_section_index(ui: *mut PxuiUi, keyed: *con
     let mut list = state.shared().take_strs();
     if !unsafe { strings(letters, MAX_OPTIONS, &mut list) } { state.shared().put_strs(list); return unsafe { fail(ui, "invalid widget strings") }; }
     let mut at = None;
-    let rc = unsafe { trusted::section_index_checked(ui, key, name, &list, out, &mut at) };
+    let rc = with_variant!(ui, BodyKind::section_index, unsafe { (*keyed).variant }, unsafe { trusted::section_index_checked(ui, key, name, &list, out, &mut at) });
     state.shared().put_strs(list);
     if rc == 0 { (result.has_chosen, result.chosen, result.has_secondary, result.secondary, result.reserved) = (at.is_some() as u8, at.unwrap_or(0) as u64, 0, 0, [0; 2]); }
     rc
@@ -172,7 +173,7 @@ export!(trusted pub unsafe fn pxui_ui_disclosure(ui: *mut PxuiUi, keyed: *const 
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short disclosure response") } };
     if open > 1 { return unsafe { fail(ui, "invalid disclosure arguments") }; }
     let Some((key, text)) = (unsafe { read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
-    unsafe { trusted::disclosure(ui, key, text, open != 0, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, build, user), out) }
+    with_variant!(ui, BodyKind::inspector_section, unsafe { (*keyed).variant }, unsafe { trusted::disclosure(ui, key, text, open != 0, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, build, user), out) })
 });
 
 // ABI 1.68: a progress row keyed by `keyed.key`, showing and named `keyed.name`.
@@ -180,7 +181,7 @@ export!(trusted pub unsafe fn pxui_ui_progress(ui: *mut PxuiUi, keyed: *const Px
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if out.is_null() || has_value > 1 { return unsafe { fail(ui, "invalid progress arguments") }; }
     let Some((key, text)) = (unsafe { read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
-    unsafe { trusted::progress(ui, key, text, (has_value != 0).then_some(value), &mut *out) }
+    with_variant!(ui, BodyKind::progress, unsafe { (*keyed).variant }, unsafe { trusted::progress(ui, key, text, (has_value != 0).then_some(value), &mut *out) })
 });
 
 // ABI 1.68: a spinner keyed by `keyed.key`, named `keyed.name`.
@@ -188,7 +189,7 @@ export!(trusted pub unsafe fn pxui_ui_spinner(ui: *mut PxuiUi, keyed: *const Pxu
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if out.is_null() { return unsafe { fail(ui, "null spinner output") }; }
     let Some((key, name)) = (unsafe { read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
-    unsafe { trusted::spinner(ui, key, name, &mut *out) }
+    with_variant!(ui, BodyKind::spinner, unsafe { (*keyed).variant }, unsafe { trusted::spinner(ui, key, name, &mut *out) })
 });
 
 // ABI 1.68: a badge keyed by `keyed.key`, named `keyed.name`, `value` its text.
@@ -197,12 +198,12 @@ export!(trusted pub unsafe fn pxui_ui_badge(ui: *mut PxuiUi, keyed: *const PxuiK
     if out.is_null() { return unsafe { fail(ui, "null badge output") }; }
     let Some((key, name)) = (unsafe { read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
     let Some(value) = (unsafe { checked(value) }) else { return unsafe { fail(ui, "invalid badge text") }; };
-    unsafe { trusted::badge(ui, key, name, value, &mut *out) }
+    with_variant!(ui, BodyKind::badge, unsafe { (*keyed).variant }, unsafe { trusted::badge(ui, key, name, value, &mut *out) })
 });
 
 // ABI 1.82: a search field named `name` to a screen reader: `changed` is 1 with the new text in `out` when the user changed it, and
 // `response` takes what happened to its box. A refused call writes none of them.
-export!(trusted pub unsafe fn pxui_ui_search_field(ui: *mut PxuiUi, label: Str, icon: Str, value: Str, placeholder: Str, name: Str, action: u8, changed: *mut u8, out: *mut Str, response: *mut PxuiResponse) -> i32 {
+export!(trusted pub unsafe fn pxui_ui_search_field(ui: *mut PxuiUi, label: Str, icon: Str, value: Str, placeholder: Str, name: Str, action: u8, variant: u16, changed: *mut u8, out: *mut Str, response: *mut PxuiResponse) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if changed.is_null() || out.is_null() { return unsafe { fail(ui, "null search field output") }; }
     let Some(traits) = pxui_types::TextTraits::from_numbers(0, 0, u32::from(action)) else { return unsafe { fail(ui, "invalid search field return key") } };
@@ -211,7 +212,7 @@ export!(trusted pub unsafe fn pxui_ui_search_field(ui: *mut PxuiUi, label: Str, 
         unsafe { crate::state::checked_label(label) }, unsafe { checked(icon) }, unsafe { crate::state::checked_text(value) }, unsafe { checked(placeholder) }, unsafe { checked(name) },
     ) else { return unsafe { fail(ui, "invalid search field text") }; };
     let mut found = None;
-    let rc = unsafe { trusted::search_field(ui, label, icon, value, placeholder, traits, &mut found, name, response) };
+    let rc = with_variant!(ui, BodyKind::search_field, variant, unsafe { trusted::search_field(ui, label, icon, value, placeholder, traits, &mut found, name, response) });
     // a refused call (outside a frame among them) leaves the outputs alone
     if rc == 0 { unsafe { (*changed, *out) = found.map_or((0, Str::default()), |text| (1, text)); } }
     rc
