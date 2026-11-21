@@ -5,7 +5,7 @@ use crate::{Appearance, Environment, Event, Keyboard, WireFrame};
 #[derive(Clone, Copy, Debug)]
 pub struct FrameIn<'a> {
     /// The event-mode record. Keep all of its event records and their payloads alive
-    /// through the frame call. The snapshot source carries its own complete input.
+    /// through the frame call.
     pub wire: pxui_types::FrameIn,
     /// The frame's events, set with `events()`.
     pub(crate) events: &'a [Event],
