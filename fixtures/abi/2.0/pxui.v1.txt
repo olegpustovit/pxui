@@ -2,6 +2,7 @@
 minor 0
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
+function pxui_a11y_remove_surface int32_t pxui_a11y_remove_surface ( PxuiA11y * a11y , uint64_t surface ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
 function pxui_a11y_stop void pxui_a11y_stop ( PxuiA11y * a11y ) ;
 function pxui_a11y_update int32_t pxui_a11y_update ( PxuiA11y * a11y , uint64_t surface , const PxuiA11yTree * tree ) ;
@@ -214,7 +215,7 @@ function pxui_ui_view_size int32_t pxui_ui_view_size ( PxuiUi * ui , PxuiPoint *
 function pxui_ui_view_transform_about int32_t pxui_ui_view_transform_about ( PxuiUi * ui , const PxuiBox * box , float scale , const float * transform , float px , float py ) ;
 function pxui_ui_wants_frame int32_t pxui_ui_wants_frame ( PxuiUi * ui , PxuiEventSpan events , double now , uint8_t * out ) ;
 function pxui_ui_within int32_t pxui_ui_within ( PxuiUi * ui , const PxuiBox * box , PxuiBuild build , void * user ) ;
-layout A11yAction 32 8 0 4 8 16 24 28
+layout A11yAction 40 8 0 4 8 16 24 28 32
 layout A11yNode 136 8 0 4 8 16 20 24 28 32 40 88 104 108 112 120 124 128 132
 layout A11yTree 88 8 0 4 8 16 24 32 48 56 60 64 72 80
 layout A11yValue 48 8 0 4 8 12 16 24 32 40

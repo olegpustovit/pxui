@@ -205,6 +205,8 @@ fn voiceover_bridge_maps_nodes_round_trips_actions_and_stays_quiet_when_unchange
     let mut window = crate::Window::open_with("PXUI accessibility", 320, 240, false, true, true).unwrap();
     let mut ax = crate::Accessibility::open(&mut window).unwrap();
     let mut ui = Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
+    ui.remove_surface(FrameIn::new(320.0, 240.0).wire.surface).unwrap();
+    ui.add_surface(7).unwrap();
     let (seek, shuffle, pressed, hidden) = (Cell::new(25.0f32), Cell::new(false), Cell::new(0), Cell::new(false));
     let mut build = |ui: &mut Ui| {
         ui.label("Now playing", pxui::Label::DEFAULT);
@@ -214,9 +216,9 @@ fn voiceover_bridge_maps_nodes_round_trips_actions_and_stays_quiet_when_unchange
     };
     let time = Cell::new(0.0);
     let step = |ui: &mut Ui, ax: &mut crate::Accessibility, build: &mut dyn FnMut(&mut Ui)| {
-        ax.frame(ui);
+        ax.frame(ui, 7);
         time.set(time.get() + 1.0 / 60.0);
-        ui.frame(&FrameIn::new(320.0, 240.0).time(time.get()), build).unwrap();
+        ui.frame(&FrameIn::new(320.0, 240.0).surface(7).time(time.get()), build).unwrap();
     };
     // Off by default: no tree, no elements (skipped when VoiceOver really is running here).
     if !pxui_sdl::ax::Bridge::voiceover() {
@@ -226,7 +228,7 @@ fn voiceover_bridge_maps_nodes_round_trips_actions_and_stays_quiet_when_unchange
     }
     ax.force(true);
     for _ in 0..4 { step(&mut ui, &mut ax, &mut build); }
-    ax.frame(&mut ui);
+    ax.frame(&mut ui, 7);
 
     let bridge = ax.bridge();
     let label = find(bridge, "Now playing").expect("label element");

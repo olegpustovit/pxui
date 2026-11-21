@@ -37,8 +37,8 @@ impl Accessibility {
     }
 
     /// Call once per frame before `Ui::frame`: follows VoiceOver on/off, publishes the previous frame's
-    /// tree when its revision changed, and injects the client's queued actions.
-    pub fn frame(&mut self, ui: &mut pxui::Ui) {
+    /// tree when its revision changed, and injects the client's queued actions for the frame's registered `surface`.
+    pub fn frame(&mut self, ui: &mut pxui::Ui, surface: u64) {
         if self.polls == 0 {
             self.listening = Bridge::voiceover();
         }
@@ -84,7 +84,7 @@ impl Accessibility {
         if count > 0 {
             let mut actions = [pxui::A11yAction::default(); ax::QUEUE];
             for (to, from) in actions.iter_mut().zip(&queued[..count]) {
-                *to = pxui::A11yAction { id: from.id, action_code: from.action, payload: from.payload, ..Default::default() };
+                *to = pxui::A11yAction { id: from.id, action_code: from.action, payload: from.payload, surface, ..Default::default() };
             }
             ui.inject_a11y(&actions[..count]);
         }

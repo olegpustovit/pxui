@@ -57,7 +57,7 @@ The target public surface. **Rule:** a call not marked with a step keeps its HEA
 | A11y | `a11y_name(&Handle, &str) -> bool` with UTF-8-safe display clipping; `a11y_value/a11y_number(&Handle, ..) -> Result<bool, Error>`; `set_role(&Handle, Role, A11yStates)`; `a11y_tree() -> A11yTree<'_>` (borrowed strings, revision and first child); `a11y_nodes`, `a11y_name_of`, `a11y_value_of`, `box_of_a11y` | — | U1a.3 (rule), U1b.4 (types) |
 | Theme | `set_theme(&ThemeHandle) -> Result<(), Error>`, `themed(&ThemeHandle, f)`, `theme()`, `tokens()`, `ThemeHandle::parse/set_color/density/reduced_motion`; `bodies::register_<kind>_body(..) -> Result<BodyId, Error>`; `Rgba::token(T).alpha(a)` (D19); `ColorToken::ACCENT` (= `ColorToken(64)`, the theme's `Tokens::accent`); `Appearance`; sizes `f32` (`font_size`, `row_height`, `density`, `set_font_size`) | — | U1a.2; U1b.3 (units); U2b.7 (alpha, accent) |
 | Frame / lifecycle | `Ui::new(&UiDesc) -> Result<Ui, Error>` with `UiDesc::new(Platform).font_size(f32).fonts(&[FontData])` and `UiDesc::DEFAULT`; one `frame(&FrameIn, build)`; `FrameIn::new(w, h)` with const builders (`surface(u64)`; `events(&'a [Event])`, borrowed for the frame call, U5.1; the snapshot form is deleted in U5.2: one frame call, one record), `Ui::add_surface(u64)`/`remove_surface(u64)` (`Ui::new` registers `FrameIn::MAIN`; an unregistered surface is `InvalidInput`; one surface per Ui), or `unsafe FrameIn::snapshot(&Input)` for a host's complete borrowed snapshot; `layer(i) -> Option<Layer>`, `layers() -> Layers`, `output() -> Output`; `focus_box(&Handle)` stays public for the registered command editor body, with `focused` crate-private and `enter`/`leave` internal to the engine and C ABI; `focus_default(&Handle)` beside it (U2b.4.24): the box a key press takes as its focus while no node holds it, stated each build (an app's main list as the window's default key target); while another widget (not a text editor) holds the focus, a press it leaves untaken falls through to it (U4a re-review R1: a focused sidebar leaves ⌘A/Esc to the main list, keeps Return) | — | U1a.3, U2b.4.24 |
-| Host integration | `Renderer::new -> Result<_, Error>`; `Ui::register_<kind>_body(..) -> Result<BodyId, Error>`; `A11yBridge::connect -> Option`; `Gpu`, `Pass`, `Commands`, `Input`, `Output`, `Platform`, `Bytes`; pxui_host `Graphics::open/draw/close`, `Accessibility::open`, `Platform::pump/apply` → `Result<_, Error>` | — | U1a.3 |
+| Host integration | `Renderer::new -> Result<_, Error>`; `Ui::register_<kind>_body(..) -> Result<BodyId, Error>`; `A11yBridge::connect -> Option`; `Gpu`, `Pass`, `Commands`, `Input`, `Output`, `Platform`, `Bytes`; pxui_host `Graphics::open/draw/close`, `Accessibility::open`, `Platform::pump/apply` → `Result<_, Error>`; `Accessibility::frame(ui, surface)` routes native actions to the frame's surface | — | U1a.3; U5.9 review fix |
 | Diagnostics | `phase_times`, `phase_cpu_times`, `set_timing`, `repaint_after`, `wants_frame`, `library_counter` (D3), `verify_views` (D22: per `Ui`, on under `debug_assertions`; `verify_new_views` deleted) | — | HEAD; U1c.2 |
 | Getters | `keyboard()`, `environment()`, `text_traits()` (was `text_input_options`), `ime() -> Option<Ime>`, `platform()`, `now()`, `frame_index()`, `system_appearance() -> Appearance` | — | U1a.4 (appearance), U1b.2 |
 | Signals | `signal`, `signal_keys` → `Signal`: documented as the body/custom-control layer | — | HEAD |
@@ -65,7 +65,7 @@ The target public surface. **Rule:** a call not marked with a step keeps its HEA
 | Kept as HEAD (listed so the two-way check passes) | Build/retained: `set_at`, `to_front`, `node_layout`/`set_node_layout`, `node_mut` (made non-generic U1c.1), `cached_label`, `busy_step`, `set_dir`, `rtl`, `view_size() -> ViewSize` (width and height in logical points, U1b.3). Input/text: `captured`, `reordering` (a list row lifted by its handle, U2b.4.12), `clipboard_request`, `paste_requested`, `passed_undo`, `text_input_focused` (U2b.4.18: a text editor holds the focus, not any focus), `text_undo_bytes`, `unfocus`, `remember<K>(key, ..)` (key-first with `load_text_edit`, U1b.2), `event_text`, `dismiss_popup`. Frame/diagnostics: `request_frame`, `request_cursor`, `arranged_nodes`, `built_nodes`, `rebuilt_views`, `rebuilt_named`, `draw_calls`, `draw_revision`, `text_layout_count`, `verifying`, `abi_version`. A11y: `set_a11y`, `inject_a11y`. | — | HEAD unless noted |
 | Testing | `testing::{frame, click, click_node, key, find}` | — | U1a.4 |
 | Extension set (no stability) | `pxui::ext::{inspector_*, footer, line_field, value_field, grip, field_drag, inspector_width, inspector_label_x}`: free functions taking the `Ui` first (`pxui::ext::inspector_toggle(ui, key, label, on)`); the inspector toggle and button are the toggle and button bodies' | through bodies | U1c.3 |
-| 2.0 additions | Error/diagnostics export and font list at create (C, U5.9); `pxui_supports` baseline (U5.8); surface registration (U5.2) | — | U5 |
+| 2.0 additions | Error/diagnostics export and font list at create (C, U5.9); `pxui_supports` baseline (U5.8); surface registration (U5.2); `A11yBridge::update(surface, tree)` and `remove_surface(surface)`, with each returned `A11yAction.surface` naming its destination (owner-approved U5.9 review fix, 21 Nov); injection refuses another surface before applying any action | — | U5 |
 
 ## 2. Machine list
 
@@ -151,7 +151,8 @@ pxui::A11yBridge struct (_) @HEAD
 pxui::A11yBridge::connect fn (name: &str) -> Option<Self> @HEAD
 pxui::A11yBridge::fd fn (&self) -> i32 @HEAD
 pxui::A11yBridge::pump fn (&mut self, out: &mut dyn FnMut(A11yAction)) -> bool @HEAD
-pxui::A11yBridge::update fn (&mut self, tree: &A11yTree) -> bool @HEAD
+pxui::A11yBridge::remove_surface fn (&mut self, surface: u64) -> bool @U5.9
+pxui::A11yBridge::update fn (&mut self, surface: u64, tree: &A11yTree) -> bool @U5.9
 pxui::A11yNode use pxui_types::ffi::A11yNode @HEAD
 pxui::A11yStates impl Clone @U1b.4
 pxui::A11yStates impl Copy @U1b.4
@@ -4055,6 +4056,7 @@ pxui_types::ffi::A11yAction::end field u32 @HEAD
 pxui_types::ffi::A11yAction::id field u64 @HEAD
 pxui_types::ffi::A11yAction::payload field f64 @HEAD
 pxui_types::ffi::A11yAction::reserved field u32 @HEAD
+pxui_types::ffi::A11yAction::surface field u64 @U5.9
 pxui_types::ffi::A11yAction::size field u32 @U5.4
 pxui_types::ffi::A11yActionSpan type = Strided<A11yAction> @U5.4
 pxui_types::ffi::A11yNode impl Clone @HEAD

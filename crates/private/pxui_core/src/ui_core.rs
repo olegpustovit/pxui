@@ -2046,6 +2046,9 @@ impl Ui {
         self.a11y_pending.extend_from_slice(actions);
     }
 
+    /// Discards requests for a surface that is no longer registered, retaining the queue's storage.
+    pub fn clear_a11y_actions(&mut self) { self.a11y_pending.clear(); }
+
     fn apply_a11y(&mut self) {
         let mut pending = std::mem::take(&mut self.a11y_pending);
         for a in &pending {

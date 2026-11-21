@@ -566,14 +566,54 @@ fn accessibility_batches_validate_the_entire_span_before_applying_any_chunk() {
     let value=unsafe {(&*(*ui).engine).signal(&crate::state::core_box_of(ui, node).unwrap()).a11y_value};
     assert_eq!(value,None,"invalid tail must not deliver earlier chunks");
     batch[64].action_code=4; batch[64].payload=77.0;
+    batch[64].surface=9;
+    assert_eq!(unsafe {pxui_ui_inject_a11y(ui,pxui_types::ffi::Strided::of(&batch))},PXUI_ERR_ARGUMENT);
+    assert_eq!(run(ui,Some(slider),(&mut node as *mut PxuiBox).cast()),0);
+    assert_eq!(unsafe {(&*(*ui).engine).signal(&crate::state::core_box_of(ui, node).unwrap()).a11y_value},None,"a foreign surface in the tail refuses every chunk");
+    batch[64].surface=FrameIn::MAIN;
     assert_eq!(unsafe {pxui_ui_inject_a11y(ui,pxui_types::ffi::Strided::of(&batch))},0);
     assert_eq!(run(ui,Some(slider),(&mut node as *mut PxuiBox).cast()),0);
     let value=unsafe {(&*(*ui).engine).signal(&crate::state::core_box_of(ui, node).unwrap()).a11y_value};
     assert_eq!(value,Some(77.0));
-    assert_eq!(unsafe {pxui_ui_inject_a11y(ui,pxui_types::ffi::Strided{ptr:core::ptr::null(),len:0,stride:32})},0);
-    assert_eq!(unsafe {pxui_ui_inject_a11y(ui,pxui_types::ffi::Strided{ptr:core::ptr::null(),len:1,stride:32})},PXUI_ERR_ARGUMENT);
-    assert_eq!(unsafe {pxui_ui_inject_a11y(ui,pxui_types::ffi::Strided{ptr:batch.as_ptr(),len:4097,stride:32})},PXUI_ERR_ARGUMENT);
+    batch[0].payload=123.0;
+    assert_eq!(unsafe {pxui_ui_inject_a11y(ui,pxui_types::ffi::Strided::of(&batch[..1]))},0);
+    assert_eq!(unsafe {pxui_ui_remove_surface(ui,FrameIn::MAIN)},0);
+    assert_eq!(unsafe {pxui_ui_add_surface(ui,9)},0);
+    assert_eq!(unsafe {pxui_frame(ui,&FrameIn {surface:9,..frame_in()},Some(slider),(&mut node as *mut PxuiBox).cast(),&mut FrameOut::default())},0);
+    assert_eq!(unsafe {(&*(*ui).engine).signal(&crate::state::core_box_of(ui, node).unwrap()).a11y_value},None,"removing a surface discards its pending actions");
+    assert_eq!(unsafe {pxui_ui_inject_a11y(ui,pxui_types::ffi::Strided{ptr:core::ptr::null(),len:0,stride:40})},0);
+    assert_eq!(unsafe {pxui_ui_inject_a11y(ui,pxui_types::ffi::Strided{ptr:core::ptr::null(),len:1,stride:40})},PXUI_ERR_ARGUMENT);
+    assert_eq!(unsafe {pxui_ui_inject_a11y(ui,pxui_types::ffi::Strided{ptr:batch.as_ptr(),len:4097,stride:40})},PXUI_ERR_ARGUMENT);
     unsafe {pxui_ui_destroy(ui);}
+}
+
+#[test]
+fn accessibility_actions_route_identical_node_ids_to_their_own_surface() {
+    extern "C" fn build(_: *mut c_void, raw: *mut c_void) {
+        let desc = pxui_types::Node::DEFAULT.role(pxui_types::a11y::Role::Slider).flags(pxui_types::Flags::FOCUSABLE);
+        assert_eq!(unsafe { pxui_ui_node_keyed(raw.cast(), 27, &desc, &mut PxuiBox::default()) }, 0);
+    }
+    let (a, b) = (create(), create());
+    let mut ids = [0; 2];
+    for (i, (ui, surface)) in [(a, 7), (b, 9)].into_iter().enumerate() {
+        assert_eq!(unsafe { pxui_ui_remove_surface(ui, FrameIn::MAIN) }, 0);
+        assert_eq!(unsafe { pxui_ui_add_surface(ui, surface) }, 0);
+        assert_eq!(unsafe { pxui_ui_set_a11y(ui, 1) }, 0);
+        assert_eq!(unsafe { pxui_frame(ui, &FrameIn { surface, ..frame_in() }, Some(build), core::ptr::null_mut(), &mut FrameOut::default()) }, 0);
+        let output = unsafe { &*pxui_ui_output(ui) };
+        let nodes = unsafe { core::slice::from_raw_parts(output.a11y.nodes.ptr, output.a11y.nodes.len) };
+        ids[i] = nodes.iter().find(|n| n.role == pxui_types::a11y::Role::Slider as u32).unwrap().id;
+    }
+    assert_eq!(ids[0], ids[1], "independent engines may reuse node ids");
+    for (ui, surface, other) in [(a, 7, 9), (b, 9, 7)] {
+        let action = pxui_types::ffi::A11yAction { id: ids[0], action_code: 4, payload: 1.0, surface, ..Default::default() };
+        assert_eq!(unsafe { pxui_ui_inject_a11y(ui, pxui_types::ffi::Strided::of(&[action])) }, 0);
+        for wrong in [0, other] {
+            let action = pxui_types::ffi::A11yAction { surface: wrong, ..action };
+            assert_eq!(unsafe { pxui_ui_inject_a11y(ui, pxui_types::ffi::Strided::of(&[action])) }, PXUI_ERR_ARGUMENT);
+        }
+        assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
+    }
 }
 
 /// ABI 1.87: a section list's record is checked before any callback (fixed and measured rows); the build gets the lead-in, heading,
@@ -947,10 +987,10 @@ fn strided_spans_step_by_stride_and_refuse_a_stride_below_the_record() {
     let action = A11yAction { id: 1, action_code: 4, payload: 1.0, ..A11yAction::default() };
     let actions = [WideAction { a: action, tail: [0; 8] }; 2];
     let aspan = |stride: usize| Strided::<A11yAction> { ptr: actions.as_ptr().cast(), len: 2, stride };
-    assert_eq!(unsafe { pxui_ui_inject_a11y(ui, aspan(40)) }, 0, "{}", error(ui));
-    assert_eq!(unsafe { pxui_ui_inject_a11y(ui, aspan(32)) }, PXUI_ERR_ARGUMENT, "the second action read at the dense stride is not one");
-    assert_eq!(unsafe { pxui_ui_inject_a11y(ui, aspan(31)) }, PXUI_ERR_ARGUMENT);
-    assert_eq!(unsafe { pxui_ui_inject_a11y(ui, aspan(36)) }, PXUI_ERR_ARGUMENT, "not a multiple of the alignment");
+    assert_eq!(unsafe { pxui_ui_inject_a11y(ui, aspan(48)) }, 0, "{}", error(ui));
+    assert_eq!(unsafe { pxui_ui_inject_a11y(ui, aspan(40)) }, PXUI_ERR_ARGUMENT, "the second action read at the dense stride is not one");
+    assert_eq!(unsafe { pxui_ui_inject_a11y(ui, aspan(39)) }, PXUI_ERR_ARGUMENT);
+    assert_eq!(unsafe { pxui_ui_inject_a11y(ui, aspan(44)) }, PXUI_ERR_ARGUMENT, "not a multiple of the alignment");
     let short = [A11yAction { size: 28, ..action }];
     assert_eq!(unsafe { pxui_ui_inject_a11y(ui, Strided::of(&short)) }, PXUI_ERR_ARGUMENT, "an action whose own size is short");
     // what the library writes is dense: the output's spans step by the record sizes

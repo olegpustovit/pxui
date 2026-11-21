@@ -225,7 +225,7 @@ macro_rules! fuzz {
 fuzz!(
     pxui_ui_inspector_bar/3, pxui_ui_inspector_body/3, pxui_ui_inspector_button/4, pxui_ui_inspector_header/5, pxui_ui_inspector_label_x/1,
     pxui_ui_inspector_message/2, pxui_ui_inspector_readout/2, pxui_ui_inspector_row/2, pxui_ui_inspector_section/2, pxui_ui_inspector_toggle/5, pxui_ui_inspector_width/1, pxui_ui_layout_node/3, pxui_ui_line_field/13, pxui_ui_menu_bar/4, pxui_ui_modal/7, pxui_ui_panel/6, pxui_ui_pick/8, pxui_ui_tabs/8, pxui_ui_popup/7, pxui_ui_scrub/8, pxui_ui_slider/7, pxui_ui_split/5, pxui_ui_value_field/11,
-    pxui_a11y_fd/1, pxui_a11y_pump/2, pxui_a11y_update/3, pxui_abi_version/0, pxui_body_register/6, pxui_counter/1, pxui_default_font/0, pxui_frame/5, pxui_last_error/1, pxui_paint_caret_x/5,
+    pxui_a11y_fd/1, pxui_a11y_pump/2, pxui_a11y_remove_surface/2, pxui_a11y_update/3, pxui_abi_version/0, pxui_body_register/6, pxui_counter/1, pxui_default_font/0, pxui_frame/5, pxui_last_error/1, pxui_paint_caret_x/5,
     pxui_paint_color/2, pxui_paint_icon/7, pxui_paint_icon_word/1, pxui_paint_image/8, pxui_paint_input_region/6, pxui_paint_label/6, pxui_paint_label_chars/5, pxui_paint_label_measure/6, pxui_paint_label_spans/8,
     pxui_paint_ratio/5, pxui_paint_scroll_y/2, pxui_paint_selection/8, pxui_paint_span/3, pxui_ui_part/4,
     pxui_ui_part_box/4, pxui_renderer_atlas/3, pxui_renderer_create/4, pxui_renderer_draw/2,

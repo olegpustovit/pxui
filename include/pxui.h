@@ -107,8 +107,8 @@ typedef struct { uint8_t has_damage,reserved[3]; PxuiRect rect; } PxuiDamage;
 typedef struct { uint32_t tag,text_start,text_end,reserved; double now,min,max,step; } PxuiA11yValue;
 /* size-prefixed (136 bytes): size is the writer's record size; a reader of a span steps by its stride. */
 typedef struct { uint32_t size,parent; uint64_t id; uint32_t role,name_start,name_end,description_start,description_end; PxuiA11yValue value; PxuiRect rect; uint32_t states,actions,selection[2],child_count,first_child,next_sibling,last_child; } PxuiA11yNode;
-/* size-prefixed (32 bytes); pxui_ui_inject_a11y refuses an action whose size is below sizeof(PxuiA11yAction). */
-typedef struct { uint32_t size,action_code; uint64_t id; double payload; uint32_t end,reserved; } PxuiA11yAction;
+/* size-prefixed (40 bytes); pxui_ui_inject_a11y refuses a short action or a surface that does not match its Ui. */
+typedef struct { uint32_t size,action_code; uint64_t id; double payload; uint32_t end,reserved; uint64_t surface; } PxuiA11yAction;
 typedef struct { const PxuiA11yNode *ptr; size_t len; size_t stride; } PxuiA11yNodeSpan;
 typedef struct { const PxuiA11yAction *ptr; size_t len; size_t stride; } PxuiA11yActionSpan;
 /* size-prefixed (88 bytes): pxui_a11y_update refuses a record whose size is short or a surface 0. nodes.stride is the tree's node stride (the writer's PxuiA11yNode size). */
@@ -1150,7 +1150,9 @@ PxuiA11y *pxui_a11y_start(PxuiStr name);
 int32_t pxui_a11y_fd(PxuiA11y *a11y);
 /* Publishes `tree` as the tree of `surface` (not 0, the id the frame call carries): one bridge serves one application whose windows are its surfaces. */
 int32_t pxui_a11y_update(PxuiA11y *a11y, uint64_t surface, const PxuiA11yTree *tree);
-/* 1: the connection is alive, 0: gone (stop it). `out` holds the actions, borrowed until the next pump. */
+/* Stops serving a closed surface. Unknown nonzero ids are ignored; 0 is refused. */
+int32_t pxui_a11y_remove_surface(PxuiA11y *a11y, uint64_t surface);
+/* 1: the connection is alive, 0: gone (stop it). `out` holds actions with their destination surface, borrowed until the next pump. */
 int32_t pxui_a11y_pump(PxuiA11y *a11y, PxuiA11yActionSpan *out);
 void pxui_a11y_stop(PxuiA11y *a11y);
 
@@ -1186,7 +1188,7 @@ _Static_assert(sizeof(PxuiPlatformOut) == 88 && offsetof(PxuiPlatformOut, size) 
 _Static_assert(sizeof(PxuiDamage) == 20 && offsetof(PxuiDamage, has_damage) == 0 && offsetof(PxuiDamage, reserved) == 1 && offsetof(PxuiDamage, rect) == 4, "Damage layout");
 _Static_assert(sizeof(PxuiA11yValue) == 48 && offsetof(PxuiA11yValue, tag) == 0 && offsetof(PxuiA11yValue, text_start) == 4 && offsetof(PxuiA11yValue, text_end) == 8 && offsetof(PxuiA11yValue, reserved) == 12 && offsetof(PxuiA11yValue, now) == 16 && offsetof(PxuiA11yValue, min) == 24 && offsetof(PxuiA11yValue, max) == 32 && offsetof(PxuiA11yValue, step) == 40, "A11yValue layout");
 _Static_assert(sizeof(PxuiA11yNode) == 136 && offsetof(PxuiA11yNode, size) == 0 && offsetof(PxuiA11yNode, parent) == 4 && offsetof(PxuiA11yNode, id) == 8 && offsetof(PxuiA11yNode, role) == 16 && offsetof(PxuiA11yNode, name_start) == 20 && offsetof(PxuiA11yNode, name_end) == 24 && offsetof(PxuiA11yNode, description_start) == 28 && offsetof(PxuiA11yNode, description_end) == 32 && offsetof(PxuiA11yNode, value) == 40 && offsetof(PxuiA11yNode, rect) == 88 && offsetof(PxuiA11yNode, states) == 104 && offsetof(PxuiA11yNode, actions) == 108 && offsetof(PxuiA11yNode, selection) == 112 && offsetof(PxuiA11yNode, child_count) == 120 && offsetof(PxuiA11yNode, first_child) == 124 && offsetof(PxuiA11yNode, next_sibling) == 128 && offsetof(PxuiA11yNode, last_child) == 132, "A11yNode layout");
-_Static_assert(sizeof(PxuiA11yAction) == 32 && offsetof(PxuiA11yAction, size) == 0 && offsetof(PxuiA11yAction, action_code) == 4 && offsetof(PxuiA11yAction, id) == 8 && offsetof(PxuiA11yAction, payload) == 16 && offsetof(PxuiA11yAction, end) == 24 && offsetof(PxuiA11yAction, reserved) == 28, "A11yAction layout");
+_Static_assert(sizeof(PxuiA11yAction) == 40 && offsetof(PxuiA11yAction, size) == 0 && offsetof(PxuiA11yAction, action_code) == 4 && offsetof(PxuiA11yAction, id) == 8 && offsetof(PxuiA11yAction, payload) == 16 && offsetof(PxuiA11yAction, end) == 24 && offsetof(PxuiA11yAction, reserved) == 28 && offsetof(PxuiA11yAction, surface) == 32, "A11yAction layout");
 _Static_assert(sizeof(PxuiA11yTree) == 88 && offsetof(PxuiA11yTree, size) == 0 && offsetof(PxuiA11yTree, reserved) == 4 && offsetof(PxuiA11yTree, nodes) == 8 && offsetof(PxuiA11yTree, nodes.len) == 16 && offsetof(PxuiA11yTree, nodes.stride) == 24 && offsetof(PxuiA11yTree, strings) == 32 && offsetof(PxuiA11yTree, revision) == 48 && offsetof(PxuiA11yTree, first_child) == 56 && offsetof(PxuiA11yTree, child_count) == 60 && offsetof(PxuiA11yTree, actions) == 64 && offsetof(PxuiA11yTree, actions.len) == 72 && offsetof(PxuiA11yTree, actions.stride) == 80, "A11yTree layout");
 _Static_assert(sizeof(PxuiOutput) == 272 && offsetof(PxuiOutput, size) == 0 && offsetof(PxuiOutput, reserved) == 4 && offsetof(PxuiOutput, draw_revision) == 8 && offsetof(PxuiOutput, repaint_at) == 16 && offsetof(PxuiOutput, built_nodes) == 24 && offsetof(PxuiOutput, rebuilt_views) == 32 && offsetof(PxuiOutput, arranged_nodes) == 40 && offsetof(PxuiOutput, platform) == 48 && offsetof(PxuiOutput, damage) == 136 && offsetof(PxuiOutput, a11y) == 160 && offsetof(PxuiOutput, layers) == 248, "Output layout");
 _Static_assert(sizeof(PxuiMotion) == 28 && offsetof(PxuiMotion, fast) == 0 && offsetof(PxuiMotion, normal) == 4 && offsetof(PxuiMotion, slow) == 8 && offsetof(PxuiMotion, ease) == 12, "PxuiMotion layout");

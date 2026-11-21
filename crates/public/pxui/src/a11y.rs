@@ -3,7 +3,7 @@ use crate::{Str, Ui};
 
 #[cfg(feature = "static")]
 mod sys {
-    pub use pxui_abi_link::{pxui_a11y_fd, pxui_a11y_pump, pxui_a11y_start, pxui_a11y_stop, pxui_a11y_update, pxui_ui_a11y_name, pxui_ui_a11y_value, PxuiA11y};
+    pub use pxui_abi_link::{pxui_a11y_fd, pxui_a11y_pump, pxui_a11y_remove_surface, pxui_a11y_start, pxui_a11y_stop, pxui_a11y_update, pxui_ui_a11y_name, pxui_ui_a11y_value, PxuiA11y};
 }
 
 #[cfg(not(feature = "static"))]
@@ -45,9 +45,17 @@ mod sys {
         ///
         /// ```
         /// let ui = pxui::doc::frames(1, &mut |ui| { ui.label("hi", pxui::Label::DEFAULT); });
-        /// if let Some(mut bridge) = pxui::A11yBridge::connect("doc") { assert!(bridge.update(&ui.output().a11y)); }
+        /// if let Some(mut bridge) = pxui::A11yBridge::connect("doc") { assert!(bridge.update(pxui_types::FrameIn::MAIN, &ui.output().a11y)); }
         /// ```
         pub fn pxui_a11y_update(a11y: *mut PxuiA11y, surface: u64, tree: *const A11yTree) -> i32;
+        /// Stops serving a closed surface; unknown nonzero ids are ignored, and 0 is refused.
+        /// Allocates: the bridge's removal announcements on Linux.
+        /// Panics: never.
+        ///
+        /// ```
+        /// if let Some(mut bridge) = pxui::A11yBridge::connect("doc") { assert!(bridge.remove_surface(9)); }
+        /// ```
+        pub fn pxui_a11y_remove_surface(a11y: *mut PxuiA11y, surface: u64) -> i32;
         /// The C entry `A11yBridge::pump` calls: handles pending bus traffic and writes the requested actions to `out` (borrowed until the
         /// next pump); 1 while the connection is alive, 0 when it is gone, an error code for a bad argument (always off Linux).
         ///
@@ -133,7 +141,7 @@ impl Ui {
     }
 }
 
-/// The accessibility bridge of an app's window (Linux: AT-SPI2 through the library). Elsewhere `connect` is `None`: the platform's
+/// The accessibility bridge of an application's surfaces (Linux: AT-SPI2 through the library). Elsewhere `connect` is `None`: the platform's
 /// bridge belongs to the window host.
 pub struct A11yBridge(core::ptr::NonNull<sys::PxuiA11y>);
 
@@ -159,20 +167,30 @@ impl A11yBridge {
     /// if let Some(bridge) = pxui::A11yBridge::connect("doc-example") { assert!(bridge.fd() >= 0); }
     /// ```
     pub fn fd(&self) -> i32 { unsafe { sys::pxui_a11y_fd(self.0.as_ptr()) } }
-    /// Publishes a frame's accessibility tree (`Ui::output().a11y`) to assistive technology; false when the bridge refused it.
+    /// Publishes a frame's accessibility tree (`Ui::output().a11y`) for `surface`; false when the bridge refused it.
     ///
-    /// The tree is read during the call only.
+    /// The tree is read during the call only. The nonzero surface id must be the id the frame carries.
     /// Allocates: what the bridge keeps for the tree.
     /// Panics: never.
     ///
     /// ```
     /// let ui = pxui::doc::frames(1, &mut |ui| { ui.label("hi", pxui::Label::DEFAULT); });
-    /// if let Some(mut bridge) = pxui::A11yBridge::connect("doc-example") { assert!(bridge.update(&ui.output().a11y)); }
+    /// if let Some(mut bridge) = pxui::A11yBridge::connect("doc-example") { assert!(bridge.update(pxui_types::FrameIn::MAIN, &ui.output().a11y)); }
     /// ```
-    pub fn update(&mut self, tree: &pxui_types::ffi::A11yTree) -> bool { unsafe { sys::pxui_a11y_update(self.0.as_ptr(), pxui_types::FrameIn::MAIN, tree) == 0 } }
+    pub fn update(&mut self, surface: u64, tree: &pxui_types::ffi::A11yTree) -> bool { unsafe { sys::pxui_a11y_update(self.0.as_ptr(), surface, tree) == 0 } }
+    /// Stops serving a closed surface, releasing its tree; false for surface 0 or a refused bridge.
+    ///
+    /// Unknown nonzero ids are ignored.
+    /// Allocates: the bridge's removal announcements on Linux.
+    /// Panics: never.
+    ///
+    /// ```
+    /// if let Some(mut bridge) = pxui::A11yBridge::connect("doc-example") { assert!(bridge.remove_surface(9)); }
+    /// ```
+    pub fn remove_surface(&mut self, surface: u64) -> bool { unsafe { sys::pxui_a11y_remove_surface(self.0.as_ptr(), surface) == 0 } }
     /// Handles pending traffic and passes each action assistive technology asked for to `out`, in order; false when the connection is gone.
     ///
-    /// The actions are meant for `Ui::inject_a11y`. Call it when `fd` is readable.
+    /// Route each action by its `surface` to that Ui's `inject_a11y`. Call it when `fd` is readable.
     /// Allocates: never when warm (the bridge reuses one action buffer).
     /// Panics: never (unless `out` does).
     ///

@@ -113,6 +113,11 @@ prepared-text, accessibility and renderer pointers are not validated), per-Ui bo
 owns its device; sharing one across windows is a host concern deferred past 2.0). The `_plain` calls (`pxui_ui_button_plain`,
 `pxui_ui_icon_button_plain`, `pxui_ui_toggle_plain`) are the string-only fast path of the descriptor forms, not duplicates.
 
+**Accessibility surfaces.** One bridge publishes a tree per nonzero surface id. Each `PxuiA11yAction.surface` identifies its destination;
+`pxui_ui_inject_a11y` refuses a whole batch containing another surface before applying any action. `pxui_a11y_remove_surface` releases
+a closed surface's tree (unknown nonzero ids are ignored). Owner approved this correction and regeneration of the unreleased 2.0 baseline
+on 21 Nov 2026, before the U6 release freeze.
+
 **Old-app fixture.** At each release `tools/abi-fixture.sh <minor>` (on macOS and on Linux) keeps the release's header, its manifest and a C
 app built against it (`tools/abi-old-app.c`) in `fixtures/abi/2.<minor>/`. `cargo run -p gate -- abi-compat` runs every kept binary against
 the library built from the tree, and `abi-frozen` fails when a row the fixture's manifest froze is missing or changed in `abi/pxui.v1.txt`

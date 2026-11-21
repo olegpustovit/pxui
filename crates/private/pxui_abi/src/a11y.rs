@@ -70,6 +70,18 @@ export!(object pub unsafe fn pxui_a11y_update(a11y: *mut PxuiA11y, surface: u64,
     { let _ = (a11y, surface, tree); PXUI_ERR_ARGUMENT }
 });
 
+// Stops serving a closed surface; unknown nonzero ids are ignored. No application tree is retained for that surface afterward.
+export!(object pub unsafe fn pxui_a11y_remove_surface(a11y: *mut PxuiA11y, surface: u64) -> i32 {
+    #[cfg(target_os = "linux")]
+    {
+        let (Some(a), true) = (unsafe { a11y.as_mut() }, surface != 0) else { return PXUI_ERR_ARGUMENT };
+        a.bridge.remove_surface(surface);
+        return 0;
+    }
+    #[cfg(not(target_os = "linux"))]
+    { let _ = (a11y, surface); PXUI_ERR_ARGUMENT }
+});
+
 // Handles the bus's pending traffic. 1: the connection is alive, 0: it is gone (stop the bridge). The actions assistive technology
 // asked for are in `out` (borrowed until the next pump), for `Ui::inject_a11y`.
 export!(object pub unsafe fn pxui_a11y_pump(a11y: *mut PxuiA11y, out: *mut pxui_types::ffi::A11yActionSpan) -> i32 {
@@ -79,7 +91,7 @@ export!(object pub unsafe fn pxui_a11y_pump(a11y: *mut PxuiA11y, out: *mut pxui_
         a.actions.clear();
         let alive = a.bridge.pump_ffi(&mut a.actions);
         a.span.clear();
-        a.span.extend(a.actions.iter().map(|(_, action)| *action));
+        a.span.extend(a.actions.iter().map(|(surface, action)| pxui_types::ffi::A11yAction { surface: *surface, ..*action }));
         unsafe { *out = pxui_types::ffi::Strided::of(&a.span); }
         return alive as i32;
     }
