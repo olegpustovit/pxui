@@ -87,7 +87,8 @@ pub(crate) unsafe fn text_width_spans(ui:*mut PxuiUi,key:u64,value:Str,style_:*c
 pub(crate) unsafe fn ui_text_spans(ui:*mut PxuiUi,box_:*const crate::PxuiBox,value:Str,style_:*const TextStyle,spans:*const TextSpans)->i32 { if let Some(code) = unsafe { entered(ui) } { return code; }
     let Some(state)=(unsafe { crate::state::get(ui) }) else { return PXUI_ERR_ARGUMENT };
     if !state.shared().in_frame || box_.is_null() || style_.is_null() { return unsafe { crate::fail(ui,"text spans need a frame, a node and a style") }; }
-    let (Some(value),Some(style),Some(spans),Some(box_))=(unsafe { crate::state::checked(value) },unsafe { read_style(style_) },unsafe { span_packet(spans) },unsafe { crate::state::core_box_of(ui, *box_) }) else { return unsafe { crate::fail(ui,"invalid text spans") } };
+    let Some(box_)=(unsafe { crate::state::core_box_of(ui, *box_) }) else { return unsafe { crate::state::fail_code(ui,"stale text box",crate::PXUI_ERR_STALE) } };
+    let (Some(value),Some(style),Some(spans))=(unsafe { crate::state::checked(value) },unsafe { read_style(style_) },unsafe { span_packet(spans) }) else { return unsafe { crate::fail(ui,"invalid text spans") } };
     if !unsafe { &mut *state.engine }.text_spans(&box_,value,&style,spans) { return unsafe { crate::fail(ui,"invalid text span ranges or node") }; }
     0
 }
@@ -99,7 +100,8 @@ pub(crate) unsafe fn ui_text_line_box(ui:*mut PxuiUi,box_:*const crate::PxuiBox,
 }
 
 unsafe fn write_line_box(ui:*mut PxuiUi,state:&mut PxuiUi,box_:*const crate::PxuiBox,value:Str,style:Option<Style>,spans:*const TextSpans)->i32 {
-    let (Some(value),Some(style),Some(spans),Some(box_))=(unsafe { crate::state::checked(value) },style,unsafe { span_packet(spans) },unsafe { crate::state::core_box_of(ui, *box_) }) else { return unsafe { crate::fail(ui,"invalid line-box text") } };
+    let Some(box_)=(unsafe { crate::state::core_box_of(ui, *box_) }) else { return unsafe { crate::state::fail_code(ui,"stale line-box text box",crate::PXUI_ERR_STALE) } };
+    let (Some(value),Some(style),Some(spans))=(unsafe { crate::state::checked(value) },style,unsafe { span_packet(spans) }) else { return unsafe { crate::fail(ui,"invalid line-box text") } };
     if !unsafe { &mut *state.engine }.text_line_box(&box_, value, &style, spans) { return unsafe { crate::fail(ui,"invalid line-box font, height, spans or node") }; }
     0
 }

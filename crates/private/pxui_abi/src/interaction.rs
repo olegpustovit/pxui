@@ -10,7 +10,7 @@ export!(pub unsafe fn pxui_ui_focus_box(ui: *mut PxuiUi, box_: *const PxuiBox) -
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if box_.is_null() { return unsafe { fail(ui, "null focus box") }; }
     let engine = unsafe { &mut *state.engine };
-    let Some(box_) = live_box(engine, unsafe { *box_ }).filter(|box_| engine.live(box_)) else { return unsafe { fail(ui, "stale focus box") }; };
+    let Some(box_) = live_box(engine, unsafe { *box_ }).filter(|box_| engine.live(box_)) else { return unsafe { crate::state::fail_code(ui, "stale focus box", crate::PXUI_ERR_STALE) }; };
     engine.focus_box(&box_);
     0
 });
@@ -19,7 +19,7 @@ export!(pub unsafe fn pxui_ui_focus_default(ui: *mut PxuiUi, box_: *const PxuiBo
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if box_.is_null() { return unsafe { fail(ui, "null default focus box") }; }
     let engine = unsafe { &mut *state.engine };
-    let Some(box_) = live_box(engine, unsafe { *box_ }).filter(|box_| engine.live(box_)) else { return unsafe { fail(ui, "stale default focus box") }; };
+    let Some(box_) = live_box(engine, unsafe { *box_ }).filter(|box_| engine.live(box_)) else { return unsafe { crate::state::fail_code(ui, "stale default focus box", crate::PXUI_ERR_STALE) }; };
     engine.focus_default(&box_);
     0
 });
@@ -28,7 +28,7 @@ export!(pub unsafe fn pxui_ui_focused(ui: *mut PxuiUi, box_: *const PxuiBox, out
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if box_.is_null() || out.is_null() { return unsafe { fail(ui, "null focused argument") }; }
     let engine = unsafe { &*state.engine };
-    let Some(box_) = live_box(engine, unsafe { *box_ }) else { return unsafe { fail(ui, "stale focused box") }; };
+    let Some(box_) = live_box(engine, unsafe { *box_ }) else { return unsafe { crate::state::fail_code(ui, "stale focused box", crate::PXUI_ERR_STALE) }; };
     unsafe { *out = engine.focused(&box_) as u8; }
     0
 });

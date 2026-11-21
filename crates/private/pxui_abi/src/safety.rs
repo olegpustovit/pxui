@@ -926,6 +926,99 @@ fn strided_spans_step_by_stride_and_refuse_a_stride_below_the_record() {
     assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
 }
 
+/// U5.6: every export that takes a box answers another Ui's handle, a zeroed one and one with its serial cleared with the one stale status
+/// (`PXUI_ERR_STALE`), and not that status for the Ui's own handle. The table is the box-taking calls of `pxui.h`; a call needing a build
+/// context gets one.
+#[test]
+fn every_box_taking_export_answers_a_foreign_handle_with_the_stale_status() {
+    use pxui_types::{ffi::{PxuiGestureIn, PxuiGestureOut, PxuiLookDesc, PxuiMarkDesc, PxuiNodeFields, PxuiSignal, PxuiStateDesc, PxuiSwipeIn, PxuiDismissIn, PxuiDismissOut, PxuiKeyframeDesc, PxuiLabelStyle}, geom::{Point as PxuiPoint, Rect, Rect as PxuiRect}, Node};
+    let (a, b) = (create(), create());
+    let mut theirs = PxuiBox::default();
+    assert_eq!(in_frame(b, &mut |ui| unsafe { pxui_ui_node_keyed(ui, 4242, &Node::DEFAULT, &mut theirs) }), 0);
+    let text = Str { ptr: b"x".as_ptr(), len: 1 };
+    let (look, state, rect, mark) = (PxuiLookDesc::default(), PxuiStateDesc::default(), Rect::new(0.0, 0.0, 10.0, 10.0), PxuiMarkDesc::default());
+    let label = PxuiLabelStyle::from(&pxui_types::Label::BODY);
+    let spans = pxui_types::TextSpans::default();
+    let (gin, swipe, dismiss) = (PxuiGestureIn::default(), PxuiSwipeIn::default(), PxuiDismissIn::default());
+    let key = PxuiKeyframeDesc::default();
+    let transform = [1.0f32, 0.0, 0.0, 1.0, 0.0, 0.0];
+    type Call = Box<dyn Fn(*mut PxuiUi, &PxuiBox) -> i32>;
+    let calls: Vec<(&str, Call)> = vec![
+        ("a11y_name", Box::new(move |u, h| unsafe { pxui_ui_a11y_name(u, h, text) })),
+        ("a11y_value", Box::new(move |u, h| unsafe { pxui_ui_a11y_value(u, h, text, 0, 0) })),
+        ("a11y_number", Box::new(|u, h| unsafe { pxui_ui_a11y_number(u, h, 1.0, 0.0, 2.0, 1.0) })),
+        ("set_role", Box::new(|u, h| unsafe { pxui_ui_set_role(u, h, 0, 0) })),
+        ("focus_box", Box::new(|u, h| unsafe { pxui_ui_focus_box(u, h) })),
+        ("focus_default", Box::new(|u, h| unsafe { pxui_ui_focus_default(u, h) })),
+        ("focused", Box::new(|u, h| unsafe { pxui_ui_focused(u, h, &mut 0) })),
+        ("state", Box::new(|u, h| unsafe { pxui_ui_state(u, h, 0, &mut 0) })),
+        ("set_state", Box::new(|u, h| unsafe { pxui_ui_set_state(u, h, 1) })),
+        ("signal", Box::new(|u, h| unsafe { let mut out: PxuiSignal = core::mem::zeroed(); out.size = core::mem::size_of::<PxuiSignal>() as u32; pxui_ui_signal(u, h, &mut out) })),
+        ("patch_text", Box::new(move |u, h| unsafe { pxui_ui_patch_text(u, h, text, &mut 0) })),
+        ("busy_step", Box::new(|u, h| unsafe { pxui_ui_busy_step(u, h, 1.0, &mut 0) })),
+        ("rect", Box::new(|u, h| unsafe { pxui_ui_rect(u, h, &mut PxuiRect::default()) })),
+        ("text", Box::new(move |u, h| unsafe { pxui_ui_text(u, h, text) })),
+        ("style", Box::new(move |u, h| unsafe { pxui_ui_style(u, h, &look, &state) })),
+        ("within", Box::new(|u, h| unsafe { pxui_within(u, h, None, core::ptr::null_mut()) })),
+        ("tip", Box::new(move |u, h| unsafe { pxui_ui_tip(u, h, text) })),
+        ("label_text_spans", Box::new(move |u, h| unsafe { pxui_ui_label_text_spans(u, h, text, &label, &spans) })),
+        ("label_text_line_box", Box::new(move |u, h| unsafe { pxui_ui_label_text_line_box(u, h, text, &label, &spans) })),
+        ("set_at", Box::new(|u, h| unsafe { pxui_ui_set_at(u, h, 1.0, 2.0) })),
+        ("patch_look", Box::new(move |u, h| unsafe { pxui_ui_patch_look(u, h, &look, &mut 0) })),
+        ("patch_rect", Box::new(move |u, h| unsafe { pxui_ui_patch_rect(u, h, rect, &mut 0) })),
+        ("patch_mark", Box::new(move |u, h| unsafe { pxui_ui_patch_mark(u, h, &mark, &mut 0) })),
+        ("node_fields", Box::new(|u, h| unsafe { let mut out: PxuiNodeFields = core::mem::zeroed(); out.size = core::mem::size_of::<PxuiNodeFields>() as u32; pxui_ui_node_fields(u, h, &mut out) })),
+        ("node_layout", Box::new(|u, h| unsafe { let mut out = Node::DEFAULT; pxui_ui_node_layout(u, h, &mut out) })),
+        ("set_node_layout", Box::new(|u, h| unsafe { pxui_ui_set_node_layout(u, h, &Node::DEFAULT) })),
+        ("local_rect", Box::new(|u, h| unsafe { pxui_ui_local_rect(u, h, &mut PxuiRect::default()) })),
+        ("scroll_offset", Box::new(|u, h| unsafe { pxui_ui_scroll_offset(u, h, 0, &mut 0.0) })),
+        ("set_scroll_offset", Box::new(|u, h| unsafe { pxui_ui_set_scroll_offset(u, h, 1.0) })),
+        ("reveal", Box::new(|u, h| unsafe { pxui_ui_reveal(u, h, 0) })),
+        ("gesture", Box::new(move |u, h| unsafe { let mut out: PxuiGestureOut = core::mem::zeroed(); out.size = core::mem::size_of::<PxuiGestureOut>() as u32; pxui_ui_gesture(u, h, &gin, 0, &mut out) })),
+        ("swipe_actions", Box::new(move |u, h| unsafe { pxui_ui_swipe_actions(u, h, &swipe) })),
+        ("dismiss", Box::new(move |u, h| unsafe { let mut out: PxuiDismissOut = core::mem::zeroed(); out.size = core::mem::size_of::<PxuiDismissOut>() as u32; pxui_ui_dismiss(u, h, &dismiss, &mut out) })),
+        ("to_front", Box::new(|u, h| unsafe { pxui_ui_to_front(u, 1, h) })),
+        ("context_at", Box::new(|u, h| unsafe { pxui_ui_context_at(u, h, &mut 0, &mut PxuiPoint::default()) })),
+        ("hovered", Box::new(|u, h| unsafe { pxui_ui_hovered(u, h, 0, &mut 0) })),
+        ("press_keys", Box::new(|u, h| unsafe { let (mut ptr, mut len) = (core::ptr::null(), 0usize); pxui_ui_press_keys(u, h, &mut ptr, &mut len) })),
+        ("view_offset", Box::new(|u, h| unsafe { pxui_ui_view_offset(u, h, 1.0, 1.0) })),
+        ("view_opacity", Box::new(|u, h| unsafe { pxui_ui_view_opacity(u, h, 0.5) })),
+        ("view_scale", Box::new(|u, h| unsafe { pxui_ui_view_scale(u, h, 1.0) })),
+        ("view_clip", Box::new(|u, h| unsafe { pxui_ui_view_clip(u, h, &PxuiRect::default()) })),
+        ("view_transform_about", Box::new(move |u, h| unsafe { pxui_ui_view_transform_about(u, h, 1.0, transform.as_ptr(), 0.0, 0.0) })),
+        ("view_backdrop_blur", Box::new(|u, h| unsafe { pxui_ui_view_backdrop_blur(u, h, 1.0) })),
+        ("view_backdrop_saturation", Box::new(|u, h| unsafe { pxui_ui_view_backdrop_saturation(u, h, 1.0) })),
+        ("animate", Box::new(move |u, h| unsafe { pxui_ui_animate(u, h, &key, &mut 0) })),
+        ("field_drag", Box::new(|u, h| unsafe { pxui_ui_field_drag(u, h, &mut 0, &mut PxuiPoint::default()) })),
+        ("cached_label", Box::new(move |u, h| unsafe { pxui_ui_cached_label(u, h, 0, text, &mut Str::default()) })),
+        ("text_state", Box::new(|u, h| unsafe { pxui_ui_text_state(u, h, &mut 0, &mut Str::default()) })),
+        ("set_text_state", Box::new(move |u, h| unsafe { pxui_ui_set_text_state(u, h, 1, text) })),
+        ("animate_keys", Box::new(|u, h| unsafe { pxui_ui_animate_keys(u, h, pxui_types::ffi::Slice { ptr: core::ptr::null(), len: 0 }, &mut 0) })),
+        ("carry", Box::new(move |u, h| unsafe { pxui_ui_carry(u, 1, h, text, text) })),
+        ("transfer_carry", Box::new(|u, h| unsafe { pxui_ui_transfer_carry(u, h, &mut 0) })),
+        ("draw", Box::new(|u, h| unsafe { pxui_ui_draw(u, h, 0, None, core::ptr::null_mut(), None) })),
+    ];
+    let fixed_serial = |mine: PxuiBox| PxuiBox { ui: 0, ..mine };
+    let run = |ui: *mut PxuiUi, mine: &PxuiBox, bad: [PxuiBox; 3], calls: &[(&str, Call)]| {
+        let _ = mine;
+        for (name, call) in calls {
+            for handle in &bad { assert_eq!(call(ui, handle), PXUI_ERR_STALE, "{name} with {handle:?}: {}", error(ui)); }
+        }
+    };
+    let mut mine = PxuiBox::default();
+    let rc = in_frame(a, &mut |ui| {
+        assert_eq!(unsafe { pxui_ui_node_keyed(ui, 4242, &Node::DEFAULT, &mut mine) }, 0);
+        run(ui, &mine, [theirs, PxuiBox::default(), fixed_serial(mine)], &calls);
+        // the Ui's own handle is never the stale status (the call may refuse for another reason, or do its job)
+        for (name, call) in &calls { assert_ne!(call(ui, &mine), PXUI_ERR_STALE, "{name} with its own handle: {}", error(ui)); }
+        0
+    });
+    assert_eq!(rc, 0);
+    // outside a frame the queries answer too
+    for (name, call) in &calls { if ["rect", "state", "signal", "focused", "scroll_offset", "local_rect"].contains(name) { assert_eq!(call(a, &theirs), PXUI_ERR_STALE, "{name} outside a frame"); } }
+    unsafe { pxui_ui_destroy(a); pxui_ui_destroy(b); }
+}
+
 /// U5.6: one rule each for SIZE_MAX as none, the text key 0, a SET mask against a documented 0, and `repaint_at` infinity (the header's
 /// "Conventions of the encodings").
 #[test]
