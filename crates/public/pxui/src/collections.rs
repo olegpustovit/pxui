@@ -5,8 +5,6 @@ use pxui_types::ffi::PxuiCellState;
 use pxui_types::ffi::{PxuiColumn, PxuiColumnWidth, PxuiColumnWidthSpan, PxuiHeadResult, PxuiListResult, PxuiResponse, PxuiSelectionListDesc, PxuiTableHeadDesc, PxuiTableDesc, PxuiTableResult, PxuiU8MutSpan, Slice};
 use pxui_types::theme::BodyKind;
 use crate::author::{CellState, Column, HeadResponse, ListState, Sort, Table, TableHead, TableResponse, TableState, TreeState};
-#[cfg(not(feature = "static"))]
-use pxui_types::Str;
 
 /// A node of a preorder tree: its depth and whether it has children (not 0). The layout is the library's, so a slice of
 /// these crosses the ABI as it is.
@@ -335,7 +333,7 @@ impl Ui {
     ///
     /// Call it from a `selection_list`, `tree` or `table` cell callback; the text is the item's accessible name where it names one.
     /// Allocates: never on a warm frame (text it has not shaped before is shaped once).
-    /// Panics: outside a collection item, on invalid text, or when the `Ui` has failed. Display text past 64 KiB is clipped at a character boundary, never refused.
+    /// Panics: outside a collection item or when the `Ui` has failed. Display text past 64 KiB is clipped at a character boundary.
     ///
     /// ```
     /// use pxui::ui::SectionPart;
@@ -344,11 +342,10 @@ impl Ui {
     /// ```
     #[inline]
     #[track_caller] pub fn item_text(&mut self, text: &str) {
-        // static: the trusted entry takes the checked UTF-8 text as it is, one call a row
         #[cfg(feature = "static")]
-        check(self, unsafe { pxui_abi_link::trusted::item_text(self.0.as_ptr(), text) });
+        check(self, unsafe { pxui_abi_link::trusted::item_text(self.0.as_ptr(), crate::clip(text)) });
         #[cfg(not(feature = "static"))]
-        check(self, unsafe { item::pxui_ui_item_text(self.0.as_ptr(), Str { ptr: text.as_ptr(), len: text.len() }) })
+        check(self, unsafe { item::pxui_ui_item_text(self.0.as_ptr(), crate::as_str(text)) })
     }
 }
 
@@ -387,6 +384,18 @@ mod item_text_tests {
         assert!(names.iter().any(|name| name == "tree row"), "{names:?}");
         assert!(names.iter().any(|name| name == "table cell"), "{names:?}");
         assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| { let _ = ui.frame(&input, &mut |ui: &mut Ui| ui.item_text("loose")); })).is_err());
+    }
+
+    #[test]
+    fn item_text_clips_the_accessible_name_at_a_character_boundary() {
+        let text = format!("{}é", "a".repeat(crate::MAX_LABEL_BYTES - 1));
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+        ui.set_a11y(true);
+        let mut tree = crate::TreeState::new();
+        ui.frame(&crate::FrameIn::new(400.0, 300.0), &mut |ui| {
+            ui.tree("tree", &[TreeNode::new(0, false)], &mut tree, &mut |ui, _| ui.item_text(&text));
+        }).unwrap();
+        assert!(ui.a11y_nodes().iter().any(|node| ui.a11y_name_of(node) == &text[..text.len() - 2]));
     }
 
     /// GAP U2b.4.17, through either link: a tree told a revision keeps its shown rows (an app change is unseen while the revision

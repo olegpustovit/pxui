@@ -911,13 +911,13 @@ pub unsafe fn dialog(ui: *mut PxuiUi, key: &str, title: &str, buttons: &[pxui_ty
 
 
 /// `pxui_ui_slot` as the static wrapper calls it: the caller's content runs inside, and a panic of it unwinds to the app as in every trusted entry.
-/// The kit's text of the collection item being built (`Ui::item_text`); refused outside a `selection_list`/`tree` row or `table` cell.
+/// Checked display text for the collection item being built (`Ui::item_text`); refused outside a row or cell.
 #[inline]
 pub unsafe fn item_text(ui: *mut PxuiUi, text: &str) -> i32 {
     enter!(ui);
-    let text = clip(text);
-    if !unsafe { engine(ui) }.in_item() { return unsafe { fail(ui, "item_text outside a collection row or cell") }; }
-    unsafe { engine(ui) }.item_text(text);
+    let engine = unsafe { engine(ui) };
+    if !engine.in_item() { return unsafe { fail(ui, "item_text outside a collection row or cell") }; }
+    engine.item_text(text);
     0
 }
 
