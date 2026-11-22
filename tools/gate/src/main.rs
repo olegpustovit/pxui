@@ -1467,16 +1467,22 @@ fn record_literals(path: &str, source: &str, tests_only: bool) -> Vec<String> {
 
 fn record_examples(path: &str, source: &str, markdown: bool) -> Vec<String> {
     let mut errors = Vec::new();
-    let mut example = None;
+    let mut example: Option<String> = None;
+    let mut other_fence = false;
     for (index, line) in source.lines().enumerate() {
         let code = if markdown { Some(line) } else { line.trim_start().strip_prefix("///").or_else(|| line.trim_start().strip_prefix("//!")) };
-        let Some(line) = code else { example = None; continue; };
+        let Some(line) = code else { example = None; other_fence = false; continue; };
         let trimmed = line.trim();
-        if matches!(trimmed, "```" | "```rust") && example.is_none() {
-            example = Some("\n".repeat(index + 1));
-        } else if trimmed == "```" && example.is_some() {
-            let code = example.take().expect("an open example");
-            errors.extend(record_literals(path, &code, false));
+        if let Some(language) = trimmed.strip_prefix("```") {
+            if let Some(code) = example.take() {
+                errors.extend(record_literals(path, &code, false));
+            } else if other_fence {
+                other_fence = false;
+            } else if matches!(language, "" | "rust") {
+                example = Some("\n".repeat(index + 1));
+            } else {
+                other_fence = true;
+            }
         } else if let Some(code) = example.as_mut() {
             code.push_str(line.trim_start().strip_prefix("# ").unwrap_or(line));
             code.push('\n');
@@ -2590,6 +2596,7 @@ fn lay(n: Node) { match n { Node { w: Size::Grow, .. } => (), _ => () } }";
 
     #[test]
     fn records_gate_reads_only_rust_examples_and_reaches_test_modules() {
+        assert!(record_examples("sample.md", "```text\nNode { ..BASE }\n```\nProse.\n```rust\nlet _ = Node::DEFAULT;\n```", true).is_empty());
         assert_eq!(record_examples("sample.rs", "/// `Node { .. }` is prose.
 /// ```
 /// # let n = Node { ..BASE };
