@@ -224,9 +224,10 @@ pub fn controls_page(ui: &mut Ui, s: &mut Gallery) {
             }
         });
         let _ = ui.scroll_view("scroll-both", Node::DEFAULT.h_px(96.0), &mut |ui: &mut Ui| {
+            const ROW: Node = Node::DEFAULT.w(Size::Px(420.0)).h(Size::Px(22.0));
+            let row = ROW.look(Look::NONE.text(ui.theme().value.idle.text));
             for (i, name) in NAMES.iter().enumerate() {
-                let text = ui.theme().value.idle.text;
-                let n = node(ui, name, Node::DEFAULT.w(Size::Px(420.0)).h(Size::Px(22.0)).inset(Edges::ZERO.l(8.0 + 8.0 * i as f32)).look(Look::NONE.text(text)));
+                let n = node(ui, name, row.inset(Edges::ZERO.l(8.0 + 8.0 * i as f32)));
                 let _ = ui.text(&n, name);
             }
         });
