@@ -564,7 +564,7 @@ pub(crate) fn default_value_field(this: &mut Ui, c: &ValueFieldConfig, o: &Value
     }
 }
 
-fn inspector_header_body(this: &mut Ui, key: &str, kind: Option<&str>, badge: Option<&str>, index: Option<&str>, rename: Option<Rc<dyn Fn(&str) -> bool>>, actions: &[HeadAction], reset: Option<&str>, reset_enabled: bool, title: &str, detail: &str) -> Head {
+fn inspector_header_body(this: &mut Ui, key: &str, kind: Option<&str>, badge: Option<&str>, index: Option<&str>, rename: Option<Rc<dyn Fn(&str) -> bool>>, actions: &[HeadAction], reset: Option<&str>, reset_enabled: bool, title: &str, detail: &str) -> (Option<String>, Option<i64>, bool) {
     let win = this.kit_window_flag();
     let font_size = this.font_px();
     // a window's head (windows.html): the 20-point title and one detail line, 8 above, no
@@ -589,7 +589,7 @@ fn inspector_header_body(this: &mut Ui, key: &str, kind: Option<&str>, badge: Op
     };
     let header = this.box_(key, BoxOpts::default().flags(Flags::CLIP).w(Size::Grow).h(Size::Px(height)));
     let renaming = rename.is_some();
-    let title_shown = match &rename {
+    let renamed = match &rename {
         Some(valid) => {
             let saved = this.enter(&header);
             let o = ValueFieldOpts { size: Some(display_size), left: true, bare: true, tracking: Some(-0.01 * display_size as f32), ..ValueFieldOpts::default() };
@@ -616,11 +616,11 @@ fn inspector_header_body(this: &mut Ui, key: &str, kind: Option<&str>, badge: Op
                 name_key,
                 title,
             );
-            let t = t.map_or_else(|| title.to_owned(), str::to_owned);
+            let t = t.map(str::to_owned);
             this.leave(saved);
             t
         }
-        None => title.to_owned(),
+        None => None,
     };
     // the buttons: a box each, in a row from 8 with 4 between; `reset` is bare at the right
     let mut pressed: Option<i64> = None;
@@ -696,7 +696,7 @@ fn inspector_header_body(this: &mut Ui, key: &str, kind: Option<&str>, badge: Op
     let n = this.node_keyed(k(4), Node { flags: Flags::FIT_TEXT, h: Size::Px(font_size as f32), at: Some((0.0, y_detail + ty)).into(), look: hint, inset: Edges { l: text_x, r: text_x, ..Edges::default() }, ..Node::DEFAULT });
     this.text(&n, detail);
     this.leave(saved);
-    Head { renamed: title_shown, chosen: pressed, reset_pressed }
+    (renamed, pressed, reset_pressed)
 }
 
 
@@ -1006,7 +1006,7 @@ impl Ui {
         reset_enabled: bool,
         title: &str,
         detail: &str,
-    ) -> Head {
+    ) -> (Option<String>, Option<i64>, bool) {
         inspector_header_body(self, key, kind, badge, index, rename, actions, reset, reset_enabled, title, detail)
     }
 

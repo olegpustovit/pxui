@@ -114,11 +114,13 @@ pub(crate) fn area_adapters() -> AreaAdapters {
             let mut out = Slice::default(); f(cb.user, str_of(t), caret, &mut out);
             unsafe { span_of(out, 4096) }.map_or_else(Vec::new, |v| v.iter().filter_map(|c| Some(Completion { replace: (usize::try_from(c.start).ok()?, usize::try_from(c.end).ok()?), insert: own(c.insert)?, label: own(c.label)?, detail: own(c.detail)?, doc: own(c.doc)? })).collect())
         }) },
-        describe: { let ctx = c(&ctx); Rc::new(move |t: &str, at| {
+        describe: { let ctx = c(&ctx); Rc::new(move |t: &str, at, doc: &mut String| {
             let cb = ctx.cb.get(); let f = cb.describe?;
             let mut out = PxuiDescription { has: 0, reserved: [0; 7], start: 0, end: 0, text: Str::default() };
             f(cb.user, str_of(t), at, &mut out);
-            if out.has == 0 { None } else { Some((out.start, out.end, unsafe { checked(out.text) }?.to_owned())) }
+            if out.has == 0 { return None; }
+            doc.push_str(unsafe { checked(out.text) }?);
+            Some((out.start, out.end))
         }) },
         number_at: { let ctx = c(&ctx); Rc::new(move |t: &str, at| { let cb = ctx.cb.get(); let f = cb.number_at?; let mut out = PxuiMaybeRange::default(); f(cb.user, str_of(t), at, &mut out); (out.has != 0).then_some((out.start, out.end)) }) },
         context_at: { let ctx = c(&ctx); Rc::new(move |t: &str, caret| { let cb = ctx.cb.get(); match cb.context_at.map_or(0, |f| f(cb.user, str_of(t), caret)) { 1 => CodeContext::String, 2 => CodeContext::Comment, _ => CodeContext::Code } }) },

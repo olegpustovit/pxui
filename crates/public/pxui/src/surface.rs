@@ -1388,6 +1388,41 @@ fn inspector_bar_reuses_large_hint_storage_on_warm_frames() {
 }
 
 #[test]
+fn inspector_header_lends_the_title_without_allocating_on_warm_frames() {
+    use pxui_types::ui::HeadAction;
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+    let actions: [HeadAction; 17] = std::array::from_fn(|_| HeadAction { caption: "Run".into(), keycap: "R".into(), active: false, usable: true });
+    let rename: std::rc::Rc<dyn Fn(&str) -> bool> = std::rc::Rc::new(|name| !name.is_empty());
+    let mut build = |ui: &mut Ui| {
+        let head = crate::ext::inspector_header(ui, "head", Some("Kind"), None, None, Some(rename.clone()), &actions, Some("Reset"), true, "Title", "Detail");
+        assert_eq!((head.renamed, head.chosen, head.reset_pressed), ("Title", None, false));
+    };
+    for tick in 0..8 { ui.frame(&input().time(f64::from(tick) / 60.0), &mut build).unwrap(); }
+    mem_sys::local_reset();
+    for tick in 8..12 { ui.frame(&input().time(f64::from(tick) / 60.0), &mut build).unwrap(); }
+    assert_eq!(mem_sys::local_alloc_count(), 0);
+}
+
+#[test]
+fn inspector_header_lends_an_accepted_rename() {
+    use crate::{Event, KeyCode, Str, testing};
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+    let valid: std::rc::Rc<dyn Fn(&str) -> bool> = std::rc::Rc::new(|title| title == "Renamed");
+    let changed = std::cell::Cell::new(false);
+    let mut build = |ui: &mut Ui| {
+        let head = crate::ext::inspector_header(ui, "rename", None, None, None, Some(valid.clone()), &[], None, false, "Title", "");
+        changed.set(changed.get() || head.renamed == "Renamed");
+    };
+    testing::frame(&mut ui, &[], &mut build);
+    testing::click(&mut ui, 20.0, 20.0, &mut build);
+    let input = Event { kind: Event::TEXT_INPUT, text: Str { ptr: b"Renamed".as_ptr(), len: 7 }, ..Event::default() };
+    testing::frame(&mut ui, &[input], &mut build);
+    testing::key(&mut ui, KeyCode::Enter, &mut build);
+    assert!(changed.get(), "the borrowed response contains the committed title");
+}
+
+#[test]
 fn kit_extras_build_and_report_through_the_engine_shapes() {
     use pxui_types::{theme::Curve, ui::{HeadAction, LineStep, Target}, Axis};
     let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
@@ -1420,7 +1455,7 @@ fn kit_extras_build_and_report_through_the_engine_shapes() {
 }
 
 impl Ui {
-    fn inspector_head_for_test(&mut self, actions: &[pxui_types::ui::HeadAction]) -> pxui_types::ui::Head {
+    fn inspector_head_for_test(&mut self, actions: &[pxui_types::ui::HeadAction]) -> pxui_types::ui::Head<'_> {
         crate::ext::inspector_header(self, "head", Some("🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀"), None, Some("1"), Some(std::rc::Rc::new(|name: &str| !name.is_empty())), actions, Some("reset"), true, "Title", "detail")
     }
 }
@@ -3678,10 +3713,12 @@ fn a_tooltip_waits_by_its_owner_and_allocates_nothing_on_warm_frames() {
 #[test]
 fn a_text_area_description_restarts_its_hover_wait_at_a_new_token() {
     use crate::{AreaCallbacks, Event, Language, Node, Role, TextArea};
+    mem_sys::set_peer(crate::library_counter);
     let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     ui.set_a11y(true);
     let start = std::cell::Cell::new(0);
-    let describe = |_: &str, _: usize| Some((start.get(), start.get() + 1, "Token documentation".to_owned()));
+    let description = std::cell::Cell::new("Token documentation");
+    let describe = |_: &str, _: usize, out: &mut String| { out.push_str(description.get()); Some((start.get(), start.get() + 1)) };
     let callbacks = AreaCallbacks::DEFAULT.language(Language::DEFAULT.describe(&describe));
     let mut build = |ui: &mut Ui| {
         ui.text_area("area", "alpha beta", Node::DEFAULT.at(0.0, 0.0).w_px(160.0).h_px(80.0), &TextArea::DEFAULT, &callbacks);
@@ -3690,14 +3727,60 @@ fn a_text_area_description_restarts_its_hover_wait_at_a_new_token() {
     let mut rest = |ui: &mut Ui, tick: u32| {
         ui.frame(&input().time(f64::from(tick) * 0.15).events(core::slice::from_ref(&moved)), &mut build).unwrap();
     };
-    let shown = |ui: &Ui| ui.a11y_nodes().iter().any(|n| n.is_role(Role::Tooltip) && ui.a11y_name_of(n) == "Token documentation");
+    let shown = |ui: &Ui| ui.a11y_nodes().iter().any(|n| n.is_role(Role::Tooltip) && ui.a11y_name_of(n) == description.get());
     for tick in 0..8 { rest(&mut ui, tick); }
     assert!(shown(&ui));
+    mem_sys::local_reset();
+    let scope = mem_sys::warm_scope();
+    for tick in 8..12 { rest(&mut ui, tick); }
+    drop(scope);
+    let count = mem_sys::local_alloc_count();
+    assert_eq!(count, 0, "a warm described token reuses its buffers: {:?}", mem_sys::take_reports());
+    description.set("Updated description");
+    rest(&mut ui, 12);
+    assert!(shown(&ui), "description changes without restarting the token wait");
     start.set(6);
-    rest(&mut ui, 8);
+    rest(&mut ui, 13);
     assert!(!shown(&ui), "a new token starts its own wait");
-    for tick in 9..16 { rest(&mut ui, tick); }
+    for tick in 14..21 { rest(&mut ui, tick); }
     assert!(shown(&ui));
+}
+
+#[test]
+fn nested_text_area_descriptions_reuse_separate_buffers() {
+    use crate::{AreaCallbacks, Event, Language, Node, TextArea};
+    mem_sys::set_peer(crate::library_counter);
+    let mut outer = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+    let inner = std::cell::RefCell::new(Ui::new(&crate::UiDesc::DEFAULT).unwrap());
+    let tick = std::cell::Cell::new(0);
+    let inner_calls = std::cell::Cell::new(0);
+    let description = |_: &str, _: usize, out: &mut String| {
+        inner_calls.set(inner_calls.get() + 1);
+        out.push_str("Inner");
+        Some((0, 1))
+    };
+    let inner_callbacks = AreaCallbacks::DEFAULT.language(Language::DEFAULT.describe(&description));
+    let moved = Event { kind: Event::POINTER_MOVED, x: 46.0, y: 10.0, ..Default::default() };
+    let region = Node::DEFAULT.at(0.0, 0.0).w_px(160.0).h_px(80.0);
+    let frame = || input().time(f64::from(tick.get()) * 0.15).events(core::slice::from_ref(&moved));
+    let outer_description = |_: &str, _: usize, out: &mut String| {
+        inner.borrow_mut().frame(&frame(), &mut |ui| {
+            ui.text_area("inner", "beta", region, &TextArea::DEFAULT, &inner_callbacks);
+        }).unwrap();
+        out.push_str("Outer description");
+        Some((0, 1))
+    };
+    let outer_callbacks = AreaCallbacks::DEFAULT.language(Language::DEFAULT.describe(&outer_description));
+    let mut build = |ui: &mut Ui| {
+        ui.text_area("outer", "alpha", region, &TextArea::DEFAULT, &outer_callbacks);
+    };
+    for index in 0..12 {
+        tick.set(index);
+        mem_sys::local_reset();
+        outer.frame(&frame(), &mut build).unwrap();
+        if index >= 8 { assert_eq!(mem_sys::local_alloc_count(), 0, "nested descriptions on warm frame {index}"); }
+    }
+    assert!(inner_calls.get() >= 4, "the inner description actually ran");
 }
 
 /// U1b.2 keys: a resolved key is the key itself in creation calls and lookups (never hashed again); authored lookups resolve under

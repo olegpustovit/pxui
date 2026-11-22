@@ -84,7 +84,21 @@ fn value_desc<'a>(rect: Rect, o: &ValueField<'a>, label: &'a str, value: &'a str
 /// until its next callback).
 struct Area<'a> {
     cb: &'a AreaCallbacks<'a>,
-    colors: Vec<PxuiColorSpan>, ranges: Vec<PxuiRange>, completions: Vec<PxuiCompletion>, completion_texts: Vec<pxui_types::ui::Completion>, produced: String,
+    colors: Vec<PxuiColorSpan>, ranges: Vec<PxuiRange>, completions: Vec<PxuiCompletion>, completion_texts: Vec<pxui_types::ui::Completion>, produced: String, description: Option<String>,
+}
+
+thread_local! { static DESCRIPTION: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) }; }
+
+impl Drop for Area<'_> {
+    fn drop(&mut self) {
+        if let Some(mut doc) = self.description.take() {
+            // Oversized callback output is clipped for display. Keep only display-sized scratch.
+            if doc.capacity() <= crate::MAX_LABEL_BYTES * 2 {
+                doc.clear();
+                let _ = DESCRIPTION.try_with(|pool| pool.borrow_mut().push(doc));
+            }
+        }
+    }
 }
 
 fn area<'a>(user: *mut c_void) -> &'a mut Area<'a> { unsafe { &mut *user.cast::<Area>() } }
@@ -145,8 +159,10 @@ extern "C" fn describe(user: *mut c_void, value: Str, at: i64, out: *mut PxuiDes
     let a = area(user);
     let Some(l) = &a.cb.language else { return };
     let value = utf8(value);
-    match { let mut out = None; guarded(&mut || out = (l.describe)(value, offset(at)).map(|(start, end, text)| (engine(start), engine(end), text))); out } {
-        Some((start, end, text)) => { a.produced = text; unsafe { *out = PxuiDescription { has: 1, reserved: [0; 7], start, end, text: lend(&a.produced) }; } }
+    let doc = a.description.get_or_insert_with(|| DESCRIPTION.try_with(|pool| pool.borrow_mut().pop()).ok().flatten().unwrap_or_default());
+    doc.clear();
+    match { let mut out = None; guarded(&mut || out = (l.describe)(value, offset(at), doc).map(|(start, end)| (engine(start), engine(end)))); out } {
+        Some((start, end)) => { unsafe { *out = PxuiDescription { has: 1, reserved: [0; 7], start, end, text: lend(doc) }; } }
         None => unsafe { (*out).has = 0 },
     }
 }
@@ -248,7 +264,7 @@ impl Ui {
             spans: Slice { ptr: spans.as_ptr().cast(), len: o.spans.len() }, splice: Slice { ptr: splice.as_ptr().cast(), len: o.splices.len() }, chips: Slice { ptr: chips.as_ptr().cast(), len: o.chips.len() },
             comment: as_str(lang.map_or("", |l| l.comment)), pairs: Slice { ptr: pairs.as_ptr().cast(), len: pair_count * 2 },
         };
-        let mut ctx = Area { cb, colors: Vec::new(), ranges: Vec::new(), completions: Vec::new(), completion_texts: Vec::new(), produced: String::new() };
+        let mut ctx = Area { cb, colors: Vec::new(), ranges: Vec::new(), completions: Vec::new(), completion_texts: Vec::new(), produced: String::new(), description: None };
 
         let cbs = PxuiAreaCallbacks {
             size: core::mem::size_of::<PxuiAreaCallbacks>() as u32, reserved: 0, user: &mut ctx as *mut Area as *mut c_void,

@@ -1468,6 +1468,31 @@ mod sized_records {
         node
     }
     fn head_out() -> PxuiHeadOut { let mut out: PxuiHeadOut = unsafe { core::mem::zeroed() }; out.size = core::mem::size_of::<PxuiHeadOut>() as u32; out }
+    #[test]
+    fn inspector_header_keeps_each_title_alive_until_the_next_frame() {
+        let ui = create();
+        assert_eq!(in_frame(ui, &mut |ui| {
+            let build = |key: &[u8], title: &[u8]| {
+                let mut d: PxuiHeaderDesc = unsafe { core::mem::zeroed() };
+                d.size = core::mem::size_of::<PxuiHeaderDesc>() as u32;
+                d.key = Str { ptr: key.as_ptr(), len: key.len() };
+                d.title = Str { ptr: title.as_ptr(), len: title.len() };
+                let mut out = head_out();
+                assert_eq!(unsafe { pxui_ui_inspector_header(ui, &d, None, core::ptr::null_mut(), &mut out) }, 0);
+                out.renamed
+            };
+            let mut title = *b"First title";
+            let a = build(b"first", &title);
+            title.copy_from_slice(b"Other title");
+            let b = build(b"second", &title);
+            title.fill(b'x');
+            assert_eq!(unsafe { crate::state::text(a) }, Some("First title"));
+            assert_eq!(unsafe { crate::state::text(b) }, Some("Other title"));
+            0
+        }), 0);
+        assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
+    }
+
     fn created(ui: *mut PxuiUi) -> i32 {
         if ui.is_null() { return REFUSED; }
         assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);

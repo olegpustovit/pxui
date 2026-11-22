@@ -1,7 +1,4 @@
-//! A picker and an inspector head through the wrapper and the library allocate what the engine's own calls do in the same settled
-//! frames, plus one: the owned copy of the head's title (the engine hands back a `String`; the library lends its text across the ABI and
-//! the wrapper's owned `Head` copies it). The engine's own allocations in these two widgets (keys, the title, the action list) are
-//! counted here, not hidden: the equality below shows the ABI adds nothing to them.
+//! The wrapper and engine picker and inspector header are allocation-free once warm.
 use input::{frame, Event, Platform};
 use mem_sys as _;
 use pxui_core::ui::{HeadAction, Overlay, PickRows, PickerOpts, Ui as Engine};
@@ -62,5 +59,5 @@ fn a_picker_and_a_head_allocate_what_the_engine_does() {
     assert!(mem_sys::local_alloc_count() > counted, "the counting allocator is installed");
     let (engine, wrapper) = (engine_allocations(), wrapper_allocations());
     println!("settled picker + head: engine {engine} allocations, wrapper {wrapper}");
-    assert_eq!(wrapper, engine + 1, "the library and the wrapper add only the owned copy of the title to the engine's own");
+    assert_eq!((engine, wrapper), (0, 0), "settled engine and wrapper calls allocate nothing");
 }

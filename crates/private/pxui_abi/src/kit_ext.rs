@@ -379,10 +379,10 @@ export!(build pub unsafe fn pxui_ui_inspector_header(ui: *mut PxuiUi, desc: *con
         cell.set((Some(rename), user as usize));
         Rc::clone(valid)
     });
-    let head = unsafe { (&mut *state.engine).inspector_header(key, kind, badge, index, valid, &actions, reset, d.reset_enabled != 0, title, detail) };
+    let (edited, chosen, reset_pressed) = unsafe { (&mut *state.engine).inspector_header(key, kind, badge, index, valid, &actions, reset, d.reset_enabled != 0, title, detail) };
     state.shared().actions = actions;
-    let Ok(renamed) = state.give(head.renamed) else { return crate::PXUI_ERR_STATE };
-    (out.renamed, out.chosen, out.has_chosen, out.reset_pressed) = (renamed, head.chosen.unwrap_or(0), head.chosen.is_some() as u8, head.reset_pressed as u8);
+    let Ok(renamed) = state.lend(edited.as_deref().unwrap_or(title)) else { return crate::PXUI_ERR_STATE };
+    (out.renamed, out.chosen, out.has_chosen, out.reset_pressed) = (renamed, chosen.unwrap_or(0), chosen.is_some() as u8, reset_pressed as u8);
     0
 });
 

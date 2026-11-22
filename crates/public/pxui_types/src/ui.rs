@@ -1905,9 +1905,9 @@ pub struct HeadAction {
 /// What a head reports for a frame: the name as edited, the index of the pressed action, and
 /// whether the trailing `reset` button was pressed.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Head {
-    /// The name as edited.
-    pub renamed: String,
+pub struct Head<'ui> {
+    /// The title as edited, borrowed from the UI.
+    pub renamed: &'ui str,
     /// Index of the action pressed this frame, if any.
     pub chosen: Option<i64>,
     /// Whether the trailing reset button was pressed.

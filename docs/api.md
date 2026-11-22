@@ -307,7 +307,7 @@ pxui::Column::w_px fn const (self, points: f32) -> Column<'a> @U2b.1
 pxui::Commands use pxui_types::Commands @HEAD
 pxui::CompleteFn type <'a>= dyn Fn(&str, usize) -> Vec<Completion> + 'a @HEAD
 pxui::ContextAtFn type <'a>= dyn Fn(&str, usize) -> CodeContext + 'a @HEAD
-pxui::DescribeFn type <'a>= dyn Fn(&str, usize) -> Option<(usize, usize, String)> + 'a @HEAD
+pxui::DescribeFn type <'a>= dyn Fn(&str, usize, &mut String) -> Option<(usize, usize)> + 'a @U5.9
 pxui::Dialog use pxui_types::ui::Dialog @HEAD
 pxui::DialogButton use pxui_types::ui::DialogButton @HEAD
 pxui::Disclosure impl Clone @U2a.3
@@ -1748,7 +1748,7 @@ pxui::ext::grip fn (ui: &mut Ui, label: Arguments<'_>, axis: Axis, rect: Option<
 pxui::ext::inspector_bar fn (ui: &mut Ui, hints: &[(&str, &str)], count: i64) @U1c.3
 pxui::ext::inspector_body fn (ui: &mut Ui, f: &mut dyn FnMut(&mut Ui)) @U1c.3
 pxui::ext::inspector_button fn (ui: &mut Ui, key: &str, label: &str) -> bool @U1c.3
-pxui::ext::inspector_header fn (ui: &mut Ui, key: &str, kind: Option<&str>, badge: Option<&str>, index: Option<&str>, rename: Option<Rc<dyn Fn(&str) -> bool>>, actions: &[HeadAction], reset: Option<&str>, reset_enabled: bool, title: &str, detail: &str) -> Head @U1c.3
+pxui::ext::inspector_header fn <'ui>(ui: &'ui mut Ui, key: &str, kind: Option<&str>, badge: Option<&str>, index: Option<&str>, rename: Option<Rc<dyn Fn(&str) -> bool>>, actions: &[HeadAction], reset: Option<&str>, reset_enabled: bool, title: &str, detail: &str) -> Head<'ui> @U5.9
 pxui::ext::inspector_label_x fn (ui: &Ui) -> f32 @U1c.3
 pxui::ext::inspector_message fn (ui: &mut Ui, key: &str, message: &str) @U1c.3
 pxui::ext::inspector_readout fn (ui: &mut Ui, width: Option<f32>, key: &str, label: &str, value: &str) @U1c.3
@@ -7059,9 +7059,9 @@ pxui_types::ui::Head impl Debug @HEAD
 pxui_types::ui::Head impl Eq @HEAD
 pxui_types::ui::Head impl PartialEq @HEAD
 pxui_types::ui::Head impl StructuralPartialEq @HEAD
-pxui_types::ui::Head struct @HEAD
+pxui_types::ui::Head struct <'ui> @U5.9
 pxui_types::ui::Head::chosen field Option<i64> @HEAD
-pxui_types::ui::Head::renamed field String @HEAD
+pxui_types::ui::Head::renamed field &'ui str @U5.9
 pxui_types::ui::Head::reset_pressed field bool @HEAD
 pxui_types::ui::HeadAction impl Clone @HEAD
 pxui_types::ui::HeadAction impl Debug @HEAD

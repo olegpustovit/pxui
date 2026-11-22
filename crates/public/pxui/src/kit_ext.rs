@@ -397,10 +397,23 @@ pub fn inspector_bar(ui: &mut Ui, hints: &[(&str, &str)], count: i64) {
 pub fn inspector_body(ui: &mut Ui, mut f: &mut dyn FnMut(&mut Ui)) {
     check(ui, unsafe { lib::pxui_ui_inspector_body(ui.0.as_ptr(), Some(call), &mut f as *mut _ as *mut c_void) })
 }
+/// Builds the inspector header and reports its title and any button press.
+///
+/// The title is borrowed from `ui`. Copy it if it must outlive the next mutable UI call.
+/// Allocates: if retained storage must grow or a rename is being edited. An unchanged warm header does not allocate.
+/// Identity: `key` identifies the header under its current parent.
+/// Panics: if the library refuses the call or there are more than 256 actions.
+///
+/// ```
+/// pxui::doc::frames(1, &mut |ui| {
+///     let head = pxui::ext::inspector_header(ui, "details", None, None, None, None, &[], None, false, "Title", "");
+///     assert_eq!(head.renamed, "Title");
+/// });
+/// ```
 #[allow(clippy::too_many_arguments)]
 #[track_caller]
-pub fn inspector_header(ui: &mut Ui, key: &str, kind: Option<&str>, badge: Option<&str>, index: Option<&str>, rename: Option<Rc<dyn Fn(&str) -> bool>>,
-    actions: &[HeadAction], reset: Option<&str>, reset_enabled: bool, title: &str, detail: &str) -> Head {
+pub fn inspector_header<'ui>(ui: &'ui mut Ui, key: &str, kind: Option<&str>, badge: Option<&str>, index: Option<&str>, rename: Option<Rc<dyn Fn(&str) -> bool>>,
+    actions: &[HeadAction], reset: Option<&str>, reset_enabled: bool, title: &str, detail: &str) -> Head<'ui> {
     let text = |value: Option<&str>| value.map_or_else(Str::default, as_str);
     // The ABI accepts at most 256 actions.
     const MAX_ACTIONS: usize = 256;
@@ -421,7 +434,7 @@ pub fn inspector_header(ui: &mut Ui, key: &str, kind: Option<&str>, badge: Optio
     let mut out = PxuiHeadOut { size: core::mem::size_of::<PxuiHeadOut>() as u32, has_chosen: 0, reset_pressed: 0, reserved: [0; 2], renamed: Str::default(), chosen: 0 };
     let user = rename.as_ref().map_or(core::ptr::null_mut(), |rename| rename as *const Rc<dyn Fn(&str) -> bool> as *mut c_void);
     check(ui, unsafe { lib::pxui_ui_inspector_header(ui.0.as_ptr(), &desc, rename.is_some().then_some(rename_call as extern "C" fn(*mut c_void, Str) -> u8), user, &mut out) });
-    let renamed = if out.renamed.len == 0 { String::new() } else { String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(out.renamed.ptr, out.renamed.len) }).into_owned() };
+    let renamed = crate::lent_str(out.renamed);
     Head { renamed, chosen: (out.has_chosen != 0).then_some(out.chosen), reset_pressed: out.reset_pressed != 0 }
 }
 /// The fraction of a dragged `kept_drag` field's track under the pointer, and the pointer's points from the press.

@@ -812,8 +812,8 @@ fn stop_of(rows: &Rows, i: usize) -> usize {
     rows[i].1
 }
 
-fn row_text(text: &str, rows: &Rows, i: usize) -> String {
-    text[start_of(rows, i)..stop_of(rows, i)].to_owned()
+fn row_text<'a>(text: &'a str, rows: &Rows, i: usize) -> &'a str {
+    &text[start_of(rows, i)..stop_of(rows, i)]
 }
 
 /// the row holding byte `index`
@@ -1044,7 +1044,7 @@ impl Ui {
             self.edit_column
         } else {
             let s = start_of(rows, line);
-            self.caret_x(None, &row_text(&edit.text, rows, line), edit.caret - s)
+            self.caret_x(None, row_text(&edit.text, rows, line), edit.caret - s)
         };
         self.edit_column = x;
         if target < 0 {
@@ -1054,7 +1054,7 @@ impl Ui {
         } else {
             let t = target as usize;
             let rt = row_text(&edit.text, rows, t);
-            let at = start_of(rows, t) + self.text_caret_at(None, &rt, x);
+            let at = start_of(rows, t) + self.text_caret_at(None, rt, x);
             move_caret(edit, at, shift);
         }
     }
@@ -1440,10 +1440,10 @@ fn text_area_submit_body(this: &mut Ui, place: Node, o: &TextAreaOpts, label: &s
         let line = row_at_slot(&notes, count, ((py - by + scroll_pos - pad) / row).floor() as i64);
         let x = px - bx - gutter + horizontal0;
         let line_text = row_text(text, rows, line);
-        if strict && (x < 0.0 || x > ui.text_width(None, &line_text) || py < by || py > by + bh) {
+        if strict && (x < 0.0 || x > ui.text_width(None, line_text) || py < by || py > by + bh) {
             None
         } else {
-            Some(start_of(rows, line) + ui.text_caret_at(None, &line_text, 0.0f32.max(x)))
+            Some(start_of(rows, line) + ui.text_caret_at(None, line_text, 0.0f32.max(x)))
         }
     };
     // a number is dragged by its underline: the lowest 9 points of its row, so a drag that
@@ -1758,7 +1758,9 @@ fn text_area_submit_body(this: &mut Ui, place: Node, o: &TextAreaOpts, label: &s
     }
     if let (Some(l), Some(byte)) = (&language, under_pointer) {
         if hovered_number.is_none() && open == 0 {
-            if let Some((start, _, doc)) = (l.describe)(&final_text, byte as i64) {
+            let mut doc = std::mem::take(&mut this.tooltip_description);
+            doc.clear();
+            if let Some((start, _)) = (l.describe)(&final_text, byte as i64, &mut doc) {
                 if !doc.is_empty() {
                     use std::fmt::Write;
                     let mut wait = std::mem::take(&mut this.tooltip_wait_key);
@@ -1768,6 +1770,7 @@ fn text_area_submit_body(this: &mut Ui, place: Node, o: &TextAreaOpts, label: &s
                     if wait.capacity() > this.tooltip_wait_key.capacity() { this.tooltip_wait_key = wait; }
                 }
             }
+            if doc.capacity() > this.tooltip_description.capacity() { this.tooltip_description = doc; }
         }
     }
     // the completion popup sits under the caret's row (above it near the bottom of the view)

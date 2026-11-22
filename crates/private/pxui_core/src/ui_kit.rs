@@ -5,7 +5,7 @@
 //! no standard widget paints with a closure. Widgets must be built inside a `panel`.
 use crate::ui_core::*;
 use crate::bodies::{body_of, in_body, in_item, ButtonConfig, FooterConfig, GripConfig, LabelConfig, PanelConfig, SplitConfig, ToggleConfig};
-pub use pxui_types::ui::{Head, HeadAction, PanelOpts};
+pub use pxui_types::ui::{HeadAction, PanelOpts};
 pub use pxui_types::Label;
 use pxui_text::{Align as TextAlign, Ellipsis, Style, Wrap};
 use pxui_types::{ffi::PxuiTextStyle as TextStyle, text::LabelFields, ui::{DismissOpts, Presentation}};

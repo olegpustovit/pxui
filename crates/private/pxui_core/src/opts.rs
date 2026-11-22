@@ -110,7 +110,7 @@ pub struct Language {
     /// `complete text caret`: the ranked suggestions for the token ending at `caret`, best first
     pub complete: Rc<dyn Fn(&str, i64) -> Vec<Completion>>,
     /// `describe text byte`: the token at `byte` and its description, shown as a tooltip
-    pub describe: Rc<dyn Fn(&str, i64) -> Option<(i64, i64, String)>>,
+    pub describe: Rc<dyn Fn(&str, i64, &mut String) -> Option<(i64, i64)>>,
     /// `number_at text byte`: the numeric literal at `byte`; dragging it sideways changes the value
     pub number_at: Rc<dyn Fn(&str, i64) -> Option<(i64, i64)>>,
     /// `context_at text caret`: what a character typed at `caret` lands in

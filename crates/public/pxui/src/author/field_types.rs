@@ -567,8 +567,9 @@ pub type BracketsFn<'a> = dyn Fn(&str) -> Vec<(usize, usize)> + 'a;
 pub type IndentFn<'a> = dyn Fn(&str, usize) -> String + 'a;
 /// What a language suggests: `complete(text, caret)` returns the ranked suggestions for the token ending at `caret`, best first.
 pub type CompleteFn<'a> = dyn Fn(&str, usize) -> Vec<Completion> + 'a;
-/// What a language describes: `describe(text, byte)` returns the token at `byte`, as a byte range, and its description.
-pub type DescribeFn<'a> = dyn Fn(&str, usize) -> Option<(usize, usize, String)> + 'a;
+/// Writes the token's description into the cleared buffer and returns its byte range.
+/// Keep output within 64 KiB for warm reuse. Longer text is clipped for display.
+pub type DescribeFn<'a> = dyn Fn(&str, usize, &mut String) -> Option<(usize, usize)> + 'a;
 /// What a language reads as a number: `number_at(text, byte)` returns the numeric literal at `byte`; dragging it sideways changes the value.
 pub type NumberAtFn<'a> = dyn Fn(&str, usize) -> Option<(usize, usize)> + 'a;
 /// What a character typed lands in: `context_at(text, caret)`.
@@ -593,7 +594,7 @@ pub struct Language<'a> {
 
 impl<'a> Language<'a> {
     /// A language that colours, matches, indents, suggests and describes nothing.
-    pub const DEFAULT: Language<'a> = Language { colorize: &|_| Vec::new(), brackets: &|_| Vec::new(), indent: &|_, _| String::new(), pairs: &[], complete: &|_, _| Vec::new(), describe: &|_, _| None, number_at: &|_, _| None, context_at: &|_, _| CodeContext::Code, comment: "", rewrite: None };
+    pub const DEFAULT: Language<'a> = Language { colorize: &|_| Vec::new(), brackets: &|_| Vec::new(), indent: &|_, _| String::new(), pairs: &[], complete: &|_, _| Vec::new(), describe: &|_, _, _| None, number_at: &|_, _| None, context_at: &|_, _| CodeContext::Code, comment: "", rewrite: None };
     /// Sets what the language colours.
     /// Allocates: never.
     /// Panics: never.
@@ -644,7 +645,7 @@ impl<'a> Language<'a> {
     /// Panics: never.
     ///
     /// ```
-    /// let f = |_: &str, _: usize| None;
+    /// let f = |_: &str, _: usize, _: &mut String| None;
     /// let _ = pxui::Language::DEFAULT.describe(&f);
     /// ```
     pub const fn describe(mut self, f: &'a DescribeFn<'a>) -> Language<'a> { self.describe = f; self }

@@ -14,7 +14,7 @@ fn plain_language() -> Language {
         indent: Rc::new(|text, caret| if text[..caret as usize].contains('(') { "  ".to_owned() } else { String::new() }),
         pairs: vec![('(', ')'), ('"', '"')],
         complete: Rc::new(|_, _| Vec::new()),
-        describe: Rc::new(|_, _| None),
+        describe: Rc::new(|_, _, _| None),
         number_at: Rc::new(|_, _| None),
         context_at: Rc::new(|text, caret| {
             // an odd number of quotes before the caret: inside a string

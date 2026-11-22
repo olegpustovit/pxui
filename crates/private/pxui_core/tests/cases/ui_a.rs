@@ -103,7 +103,7 @@ fn scale_3(scale: f64) {
         indent: Rc::new(|_, _| String::new()),
         pairs: Vec::new(),
         complete: Rc::new(|_, _| Vec::new()),
-        describe: Rc::new(|_, _| None),
+        describe: Rc::new(|_, _, _| None),
         number_at: Rc::new(|_, _| None),
         context_at: Rc::new(|_, _| CodeContext::Code),
         comment: ";".to_owned(),
