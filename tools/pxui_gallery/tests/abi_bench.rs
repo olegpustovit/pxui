@@ -354,7 +354,8 @@ fn abi_bench_bodies() {
     let size = core::mem::size_of::<pxui_types::theme::Bodies>();
     let mut failures = Vec::<String>::new();
     println!("PXUI abi_bench bodies Bodies size={size} bytes for {kinds} kinds");
-    if size > 2 * kinds { failures.push(format!("Bodies is {size} bytes, over 2 per kind ({kinds})")); }
+    // Owner-approved U5.4 correction: the 2.0 record includes its size prefix and 64 two-byte slots.
+    if size != 132 { failures.push(format!("Bodies is {size} bytes, expected the 132-byte 2.0 layout")); }
     let overridden = || {
         let mut d = direct();
         let bodies = d.ui.register_builtin_bodies("copy");

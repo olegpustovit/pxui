@@ -190,7 +190,7 @@ Phase B6 of the widget bodies plan. `abi_bench_bodies` (`RAYS_SLOW=1 cargo t --r
 
 - Every limit is the plan's; none was relaxed. The instruction count is the gate (it does not move with load or code placement; the before-B1 figures are release-profile counts, a non-release build retires about 25% more); the time is printed.
 - Default bodies vs `fixtures/bodies_baseline.bin`: identical (`bodies_default_identical`, unchanged).
-- `size_of::<Bodies>()` is 80 bytes for 40 kinds (2 per kind, the plan's limit; asserted by the bench). Each `Theme` grew by that.
+- `size_of::<Bodies>()` is 132 bytes: the U5.4 size prefix (4 bytes), 40 body ids (2 bytes each) and 24 reserved slots (48 bytes). The owner approved correcting the old 80-byte whole-record assertion on 22 Nov 2026; the benchmark pins the complete 2.0 layout. Runtime instruction, time and allocation limits are unchanged.
 - An overridden widget inside a kept view runs no body: `kept_view_runs_no_item_body`, `kept_view_runs_no_container_body`.
 
 Gates raised during this plan (each recorded in `OPEN_ISSUES.md`):
