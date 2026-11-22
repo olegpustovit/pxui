@@ -352,8 +352,9 @@ fn abi_bench_bodies() {
     const GATE_OVERRIDDEN_RATIO: [f64; 6] = [PLAN_OVERRIDDEN_RATIO; 6];
     let kinds = pxui_types::theme::Bodies::KINDS.len();
     let size = core::mem::size_of::<pxui_types::theme::Bodies>();
+    let mut failures = Vec::<String>::new();
     println!("PXUI abi_bench bodies Bodies size={size} bytes for {kinds} kinds");
-    assert!(size <= 2 * kinds, "Bodies is {size} bytes, over 2 per kind ({kinds})");
+    if size > 2 * kinds { failures.push(format!("Bodies is {size} bytes, over 2 per kind ({kinds})")); }
     let overridden = || {
         let mut d = direct();
         let bodies = d.ui.register_builtin_bodies("copy");
@@ -362,7 +363,6 @@ fn abi_bench_bodies() {
         d.ui.set_theme(theme);
         d
     };
-    let mut failures = Vec::<String>::new();
     let (mut d, started, mut count) = (direct(), Instant::now(), 0);
     while started.elapsed() < WARM_UP { direct_frame(&mut d, 0, count + 1, count); count += 1; }
     for (index, name) in PAGES.iter().enumerate() {
