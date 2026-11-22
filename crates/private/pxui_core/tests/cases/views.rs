@@ -253,7 +253,7 @@ pub fn window_pxui_view_damage() {
     let n = node.get().unwrap();
     check(ui.patch_fill(&n, BLUE) && ui.output().damage == Some(Rect::new(0.0, 20.0, 40.0, 20.0)), "patch damage");
     check(ui.patch_offset(&n, 5.0, 0.0) && ui.output().damage == Some(Rect::new(0.0, 20.0, 45.0, 20.0)), &format!("move damage {:?}", ui.output().damage));
-    let mut shadow=Look::NONE.fill(BLUE).shadows([Shadow { color:Rgba::BLACK,blur:4.0,spread:2.0,offset:[3.0,1.0],..Shadow::NONE },Shadow::NONE]);
+    let mut shadow = Look::NONE.fill(BLUE).shadows([Shadow::NONE.color(Rgba::BLACK).blur(4.0).spread(2.0).offset(3.0, 1.0), Shadow::NONE]);
     ui.drawn(0);
     assert!(ui.patch_look(&n,&shadow));
     assert_eq!(ui.output().damage,Some(Rect::new(0.0,12.0,56.0,37.0)));

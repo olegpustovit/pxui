@@ -430,7 +430,10 @@ pub fn styling_transitions_keep_only_used_shadows() {
     let curve = Curve::Bezier { duration: 0.5, points: [0.25, 0.1, 0.25, 1.0] };
     for (i, h) in handles.get().into_iter().enumerate() {
         let mut look = Look::NONE.fill(Rgba::rgb(40, 40, 200));
-        if i > 0 { look.shadows[0] = Shadow { color: Rgba::BLACK, blur: 4.0, inner: i == 2, ..Shadow::NONE }; }
+        if i > 0 {
+            look.shadows[0] = Shadow::NONE.color(Rgba::BLACK).blur(4.0);
+            look.shadows[0].inner = i == 2;
+        }
         assert!(ui.animate(&h.unwrap(), Target::Look(look), curve));
     }
     for tick in 0..12 {

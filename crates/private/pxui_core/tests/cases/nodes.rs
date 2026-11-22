@@ -127,7 +127,7 @@ fn window_pxui_empty_look_keeps_reserved_room_and_focus_ink() {
     frame(&mut ui, 0.0, &mut |ui| {
         layout = Some(ui.node("layout".into(), base));
         ui.node("reserve".into(), base.flags(Flags::KEEP_ROOM));
-        let focused = ui.node("focused".into(), base.flags(Flags::FOCUSABLE | Flags::FOCUS_MARK).look(Look::NONE.ring(Ring { color:ink, width:1.0, sides:0 })));
+        let focused = ui.node("focused".into(), base.flags(Flags::FOCUSABLE | Flags::FOCUS_MARK).look(Look::NONE.ring(Ring::NONE.color(ink).width(1.0))));
         ui.focus_box(&focused);
     });
     let instances = &ui.output().draw[0].instances;

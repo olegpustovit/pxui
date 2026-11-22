@@ -1422,6 +1422,8 @@ const RECORD_TYPES: &[&str] = &[
     "Badge", "Checkbox", "DismissOpts", "Dropdown", "GestureOpts", "GridList", "ImageStyle", "LineField", "Overlay", "Picker",
     "Pressable", "Progress", "Radio", "Scrubber", "SearchField", "SectionIndex", "SelectionList", "Slider", "Spinner", "Table",
     "TableHead", "Tabs", "TextArea", "TextField", "ValueField",
+    "Anchor", "Bar", "Cell", "Column", "Disclosure", "Grid", "Keyframe", "Keyframes", "MenuBar", "MenuBarMenu",
+    "PanelOpts", "PickRow", "Ring", "Segment", "Shadow", "Split", "Toast",
 ];
 
 /// Find constructors written as a literal. Declarations, patterns and locally defined homonyms are not authoring calls.
@@ -2552,6 +2554,7 @@ fn main() {
         _ => shape(&workspace).and_then(|mut errors| {
             errors.extend(deps(&workspace)?);
             errors.extend(tiers(&workspace)?);
+            errors.extend(records(&workspace)?);
             errors.extend(pxui_remote(&workspace)?);
             if errors.is_empty() { errors.extend(abi_exports(&workspace)?); }
             if errors.is_empty() { errors.extend(abi_header(&workspace)?); }
