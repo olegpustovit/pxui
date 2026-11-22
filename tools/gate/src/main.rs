@@ -1516,18 +1516,7 @@ fn docs_source(source: &str) -> Vec<(String, String)> {
     found
 }
 
-/// Errors for gaps not in the allowlist and allowlist entries that no longer match; both print in allowlist format.
-fn docs_compare(found: &BTreeSet<(String, String, String)>, allowed: &BTreeSet<(String, String, String)>) -> Vec<String> {
-    let new = found.difference(allowed).map(|(path, item, missing)| format!("docs gate: undocumented, add the missing parts: {path}\t{item}\t{missing}"));
-    let stale = allowed.difference(found).map(|(path, item, missing)| format!("docs gate: stale allowlist entry, remove or shrink it: {path}\t{item}\t{missing}"));
-    new.chain(stale).collect()
-}
-
-fn docs_allowlist(workspace: &Path) -> Result<Vec<String>, String> {
-    let allowed: BTreeSet<_> = include_str!("../docs-allowlist.tsv").lines().filter(|row| !row.starts_with('#') && !row.is_empty()).map(|row| {
-        let columns: Vec<_> = row.split('\t').collect();
-        if columns.len() == 3 { Ok((columns[0].to_owned(), columns[1].to_owned(), columns[2].to_owned())) } else { Err(format!("invalid docs allowlist row: {row}")) }
-    }).collect::<Result<_, _>>()?;
+fn public_docs(workspace: &Path) -> Result<Vec<String>, String> {
     let mut files = Vec::new();
     for dir in ["crates/public/pxui/src", "crates/public/pxui_types/src"] {
         rust_sources(&workspace.join(dir), &mut files).map_err(|error| format!("cannot read {dir}: {error}"))?;
@@ -1549,11 +1538,11 @@ fn docs_allowlist(workspace: &Path) -> Result<Vec<String>, String> {
             }
         }
     }
-    Ok(docs_compare(&found, &allowed))
+    Ok(found.into_iter().map(|(path, item, missing)| format!("docs gate: {path}\t{item}\t{missing}")).collect())
 }
 
 fn docs(workspace: &Path) -> Result<Vec<String>, String> {
-    let shape_errors = docs_allowlist(workspace)?;
+    let shape_errors = public_docs(workspace)?;
     if !shape_errors.is_empty() { return Ok(shape_errors); }
     // rays-t bounds setup/build, each case and the test run. Gate checks never refresh fixtures.
     for (package, src) in policy::DOCS_CHECKS.iter().copied() {
@@ -2489,8 +2478,7 @@ fn main() {
 
 #[cfg(test)]
 mod docs_tests {
-    use super::{docs_compare, docs_source, doctest_counts};
-    use std::collections::BTreeSet;
+    use super::{docs_source, doctest_counts};
 
     const FULL: &str = "/// Does it.\n/// Allocates: never.\n/// Panics: never.\n///\n/// ```\n/// assert!(true);\n/// ```\npub fn go() {}\n";
 
@@ -2561,16 +2549,7 @@ pub mod documented {
         assert_eq!(orphans, ["dynamic::c/src/c.rs - c::h (line 3)"]);
     }
 
-    #[test]
-    fn unneeded_allowlist_entries_fail() {
-        let row = ("a.rs".to_owned(), "go".to_owned(), "example".to_owned());
-        let allowed = BTreeSet::from([row.clone()]);
-        assert!(docs_compare(&allowed, &allowed).is_empty());
-        let stale = docs_compare(&BTreeSet::new(), &allowed);
-        assert!(stale.len() == 1 && stale[0].contains("stale"));
-        let new = docs_compare(&allowed, &BTreeSet::new());
-        assert!(new.len() == 1 && new[0].contains("undocumented"));
-    }
+
 }
 
 #[cfg(test)]

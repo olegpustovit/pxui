@@ -1,4 +1,5 @@
 #![allow(clippy::all)]
+#![deny(missing_docs)]
 #![cfg_attr(feature = "static", allow(unused_mut, dead_code))] // the static build runs callbacks without a trampoline and calls trusted entries: `mut f` and the C-callback machinery serve the dynamic one
 //! Stable PXUI wrapper. Shape and geometry types are re-exported from the std-only public crate.
 //! Fallible data and host operations return [Error]. Queries use Option for absence, and build

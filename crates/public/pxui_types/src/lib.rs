@@ -1,4 +1,5 @@
 #![allow(clippy::all)]
+#![deny(missing_docs)]
 //! Plain, stable value types shared by PXUI and applications.
 
 #[cfg(test)]
