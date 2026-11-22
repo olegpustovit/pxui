@@ -1414,38 +1414,89 @@ fn install_smoke(workspace: &Path) -> Result<Vec<String>, String> {
     Ok(if status.success() { Vec::new() } else { vec![format!("install-smoke: {} failed ({status})", script.display())] })
 }
 
-/// Public fns missing documentation parts: (item, comma-separated missing parts), by the rule in AGENTS.md.
+/// Public items missing documentation parts, by the rule in AGENTS.md.
 fn docs_source(source: &str) -> Vec<(String, String)> {
     let lines: Vec<&str> = source.lines().collect();
+    let code = library_code(source);
     let (mut found, mut context) = (Vec::new(), String::new());
-    for (at, line) in lines.iter().enumerate() {
-        if line.starts_with("#[cfg(test)]") { break; }
-        if line.starts_with(|c: char| c.is_alphabetic() || c == '#') && !line.starts_with("#[") {
-            context = match line.strip_prefix("impl") {
-                Some(rest) => {
-                    let rest = rest.rsplit(" for ").next().unwrap_or(rest);
-                    let rest = if rest.starts_with('<') && !line.contains(" for ") { rest.split_once("> ").map_or(rest, |(_, tail)| tail) } else { rest };
-                    let name: String = rest.trim_start().chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
-                    format!("{name}::")
-                }
-                None => String::new(),
-            };
+    let (mut depth, mut extern_depth, mut enum_depth) = (0, None, None);
+    let identifier = |s: &str| s.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect::<String>();
+    for (at, code_line) in code.lines().enumerate() {
+        let start_depth = depth;
+        depth += code_line.matches('{').count() as i32 - code_line.matches('}').count() as i32;
+        let in_extern = extern_depth.is_some_and(|start| start < start_depth);
+        let in_enum = enum_depth == Some(start_depth - 1);
+        if extern_depth.is_some_and(|start| start >= depth) { extern_depth = None; }
+        if enum_depth.is_some_and(|start| start >= depth) { enum_depth = None; }
+        if code_line.trim().is_empty() { continue; }
+        let line = lines[at];
+        let mut rest = line.trim_start();
+        let mut attrs = String::new();
+        while let Some((attr, tail)) = rest.strip_prefix("#[").and_then(|value| value.split_once(']')) {
+            attrs.push_str(attr);
+            attrs.push(' ');
+            rest = tail.trim_start();
         }
-        let mut rest = match line.trim_start().strip_prefix("pub ") { Some(rest) => rest, None => continue };
-        for prefix in ["const ", "unsafe ", "async ", "extern \"C\" "] { rest = rest.strip_prefix(prefix).unwrap_or(rest); }
-        let Some(rest) = rest.strip_prefix("fn ") else { continue };
-        let name: String = rest.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
-        let mut signature = String::new();
-        for next in &lines[at..] {
-            signature.push_str(next);
-            if next.contains('{') || next.trim_end().ends_with(';') { break; }
+        if rest.starts_with("extern \"C\" {") || rest.starts_with("unsafe extern \"C\" {") {
+            if depth > start_depth { extern_depth = Some(start_depth); }
+            continue;
         }
+        if in_extern { continue; }
         let mut doc = Vec::new();
         for before in lines[..at].iter().rev() {
             let trimmed = before.trim_start();
-            if let Some(text) = trimmed.strip_prefix("///") { doc.push(text.trim()); } else if !trimmed.starts_with("#[") { break; }
+            if let Some(text) = trimmed.strip_prefix("///") { doc.push(text.trim()); }
+            else if trimmed.starts_with("#[") && trimmed.ends_with(']') { attrs.push_str(trimmed); }
+            else { break; }
         }
         doc.reverse();
+        if attrs.contains("doc(hidden)") { continue; }
+        let described = attrs.contains("doc =") || doc.iter().any(|text| !text.is_empty() && !text.starts_with("```"));
+        if let Some(implementation) = rest.strip_prefix("impl").filter(|rest| rest.starts_with([' ', '<'])) {
+            let implementation = implementation.rsplit(" for ").next().unwrap_or(implementation);
+            let implementation = if implementation.starts_with('<') && !rest.contains(" for ") {
+                implementation.split_once("> ").map_or(implementation, |(_, tail)| tail)
+            } else { implementation };
+            context = format!("{}::", identifier(implementation.trim_start()));
+            continue;
+        }
+        if !line.starts_with(char::is_whitespace) { context.clear(); }
+        let public = rest.strip_prefix("pub ");
+        if in_enum && public.is_none() && rest.chars().next().is_some_and(char::is_uppercase) {
+            if !described { found.push((format!("{context}{}", identifier(rest)), "doc".into())); }
+            continue;
+        }
+        let Some(mut declaration) = public else { continue; };
+        while let Some(tail) = ["const ", "unsafe ", "async ", "extern \"C\" "].iter().find_map(|prefix| declaration.strip_prefix(prefix)) {
+            declaration = tail;
+        }
+        let Some(function) = declaration.strip_prefix("fn ") else {
+            let declaration = declaration.strip_prefix("mut ").unwrap_or(declaration);
+            let kind = identifier(declaration);
+            let tail = declaration[kind.len()..].trim_start();
+            if matches!(kind.as_str(), "struct" | "enum" | "union" | "trait" | "type" | "static") {
+                let name = identifier(tail);
+                if !name.is_empty() && !described { found.push((format!("{context}{name}"), "doc".into())); }
+                if depth > start_depth {
+                    context = format!("{name}::");
+                    if kind == "enum" { enum_depth = Some(start_depth); }
+                }
+            } else if tail.starts_with(':') && !kind.is_empty() && !described {
+                found.push((format!("{context}{kind}"), "doc".into()));
+            } else if kind == "mod" && tail.ends_with('{') && !described && !lines.get(at + 1).is_some_and(|next| next.trim_start().starts_with("//!")) {
+                found.push((format!("mod {}", identifier(tail)), "module doc".into()));
+            }
+            continue;
+        };
+        let name = identifier(function);
+        if name.is_empty() { continue; }
+        let mut signature = function.to_owned();
+        if !function.contains('{') && !function.ends_with(';') {
+            for next in &lines[at + 1..] {
+                signature.push_str(next);
+                if next.contains('{') || next.trim_end().ends_with(';') { break; }
+            }
+        }
         let (mut fences, mut bad, mut open) = (0, false, false);
         for text in &doc {
             if let Some(info) = text.strip_prefix("```") {
@@ -1454,6 +1505,7 @@ fn docs_source(source: &str) -> Vec<(String, String)> {
         }
         let takes = |param: &str| signature.match_indices(param).any(|(i, _)| !signature[..i].ends_with(|c: char| c.is_alphanumeric() || c == '_'));
         let mut missing = Vec::new();
+        if !described { missing.push("doc"); }
         if fences == 0 { missing.push("example"); }
         if bad { missing.push("fence"); }
         for (label, wanted) in [("Allocates:", true), ("Panics:", true), ("Identity:", takes("label:") || takes("key:"))] {
@@ -1485,6 +1537,17 @@ fn docs_allowlist(workspace: &Path) -> Result<Vec<String>, String> {
         let source = fs::read_to_string(&file).map_err(|error| format!("cannot read {}: {error}", file.display()))?;
         let path = file.strip_prefix(workspace).unwrap_or(&file).to_string_lossy().replace('\\', "/");
         found.extend(docs_source(&source).into_iter().map(|(item, missing)| (path.clone(), item, missing)));
+        if file.file_name().is_some_and(|name| name == "lib.rs") {
+            for module in library_code(&source).lines().filter_map(|line| line.strip_prefix("pub mod ")?.trim().strip_suffix(';')) {
+                let parent = file.parent().expect("source has a directory");
+                let flat = parent.join(format!("{module}.rs"));
+                let module_file = if flat.is_file() { flat } else { parent.join(module).join("mod.rs") };
+                let contents = fs::read_to_string(&module_file).map_err(|error| format!("cannot read {}: {error}", module_file.display()))?;
+                if !contents.lines().any(|line| line.trim_start().starts_with("//!")) {
+                    found.insert((path.clone(), format!("mod {module}"), "module doc".into()));
+                }
+            }
+        }
     }
     Ok(docs_compare(&found, &allowed))
 }
@@ -2434,7 +2497,7 @@ mod docs_tests {
     #[test]
     fn complete_comment_passes_and_new_function_fails() {
         assert!(docs_source(FULL).is_empty());
-        assert_eq!(docs_source("pub fn bare() {}"), [("bare".to_owned(), "example,Allocates,Panics".to_owned())]);
+        assert_eq!(docs_source("pub fn bare() {}"), [("bare".to_owned(), "doc,example,Allocates,Panics".to_owned())]);
     }
 
     #[test]
@@ -2457,6 +2520,36 @@ mod docs_tests {
     fn crate_private_and_test_items_are_skipped_and_methods_carry_their_type() {
         assert!(docs_source("pub(crate) fn hidden() {}\n#[cfg(test)]\nmod t { pub fn x() {} }").is_empty());
         assert_eq!(docs_source("impl<'a> Ui {\n    pub fn m(&self) {}\n}")[0].0, "Ui::m");
+    }
+
+    #[test]
+    fn docs_scan_past_test_items_and_same_line_attributes() {
+        let gaps = docs_source("#[cfg(test)]
+mod tests { pub fn hidden() {} }
+#[inline] pub fn exposed() {}
+#[cfg(test)] mod other { pub fn also_hidden() {} }
+#[track_caller] pub fn last() {}");
+        assert_eq!(gaps.iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>(), ["exposed", "last"]);
+        assert!(docs_source(&FULL.replace("pub fn", "#[inline] pub fn")).is_empty());
+    }
+
+    #[test]
+    fn docs_require_public_types_fields_constants_variants_and_inline_modules() {
+        let gaps = docs_source("pub struct Record {
+    pub field: u32,
+}
+pub enum Kind {
+    /// First variant.
+    A,
+    B,
+}
+pub const LIMIT: usize = 1;
+pub mod undocumented {
+}
+pub mod documented {
+    //! A public module.
+}");
+        assert_eq!(gaps.iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>(), ["Record", "Record::field", "Kind", "Kind::B", "LIMIT", "mod undocumented"]);
     }
 
     #[test]
