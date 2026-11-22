@@ -112,7 +112,7 @@ pub fn a11y_transformed_view_rects() {
     let mut build = |ui: &mut Ui| {
         ui.view("outer", outer_rev.get(), Size::Px(300.0), Size::Px(200.0), &mut |ui| {
             let v = ui.view("inner", 1, Size::Px(200.0), Size::Px(100.0), &mut |ui| {
-                let b = ui.node("quit".into(), Node { w: Size::Px(40.0), h: Size::Px(20.0), flags: Flags::CLICKABLE, ..Node::DEFAULT });
+                let b = ui.node("quit".into(), Node::DEFAULT.w(Size::Px(40.0)).h(Size::Px(20.0)).flags(Flags::CLICKABLE));
                 ui.set_role(&b, Role::Button, 0);
                 ui.a11y_name(&b, "Quit");
                 quit.set(Some(b));

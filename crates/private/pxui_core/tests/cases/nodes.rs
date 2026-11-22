@@ -10,8 +10,8 @@ fn frame(ui: &mut Ui, t: f64, f: &mut dyn FnMut(&mut Ui)) {
 }
 
 fn chip(ui: &mut Ui, key: &str, text: &str, fill: Rgba) -> Handle {
-    let look = Look { fill, text: Rgba::BLACK, ..Look::NONE };
-    let h = ui.node_ref(key, &Node { w: Size::Px(80.0), h: Size::Px(20.0), look, inset: Edges { l: 4.0, ..Edges::default() }, ..Node::DEFAULT });
+    let look = Look::NONE.fill(fill).text(Rgba::BLACK);
+    let h = ui.node_ref(key, &Node::DEFAULT.w(Size::Px(80.0)).h(Size::Px(20.0)).look(look).inset(Edges::default().l(4.0)));
     ui.text(&h, text);
     h
 }
@@ -56,7 +56,7 @@ pub fn window_pxui_retired_rich_text_donates_before_slot_reassignment() {
     let style = pxui_core::text::Style::default();
     let ink = Rgba::rgb(240, 16, 32);
     let replacement = Rgba::rgb(12, 42, 255);
-    let span = pxui_text::TextSpan { start:0, end:1, flags:pxui_text::TextSpan::COLOR, color:ink, ..Default::default() };
+    let span = { let mut record = pxui_text::TextSpan::new(0, 1); record.flags = pxui_text::TextSpan::COLOR; record.color = ink; record };
     let mut retired = None;
     for phase in 0..3 {
         frame(&mut ui, phase as f64, &mut |ui| {
@@ -65,12 +65,12 @@ pub fn window_pxui_retired_rich_text_donates_before_slot_reassignment() {
             check(ui.text_spans(&live, "keep", &style, &[]), "live rich text");
             if phase == 0 {
                 let donor = chip(ui, "donor", "label", Rgba::WHITE);
-                check(ui.text_spans(&donor, "label", &style, &[span, pxui_text::TextSpan {start:1,end:5,..span}]), "donor rich text");
+                check(ui.text_spans(&donor, "label", &style, &[span, { let mut record = span; record.start = 1; record.end = 5; record }]), "donor rich text");
                 retired = Some(donor);
             } else if phase == 2 {
                 check(!ui.live(&retired.unwrap()), "donor identity must already be retired");
                 mem_sys::local_reset();
-                check(ui.text_spans(&target, "label", &style, &[pxui_text::TextSpan {color:replacement,..span}]), "target rich text");
+                check(ui.text_spans(&target, "label", &style, &[{ let mut record = span; record.color = replacement; record }]), "target rich text");
                 check(mem_sys::local_alloc_count() == 0, "retired rich storage must donate before its slot is reassigned");
             }
         });
@@ -127,9 +127,7 @@ fn window_pxui_empty_look_keeps_reserved_room_and_focus_ink() {
     frame(&mut ui, 0.0, &mut |ui| {
         layout = Some(ui.node("layout".into(), base));
         ui.node("reserve".into(), base.flags(Flags::KEEP_ROOM));
-        let focused = ui.node("focused".into(), base.flags(Flags::FOCUSABLE | Flags::FOCUS_MARK).look(Look {
-            ring: Ring { color:ink, width:1.0, sides:0 }, ..Look::NONE
-        }));
+        let focused = ui.node("focused".into(), base.flags(Flags::FOCUSABLE | Flags::FOCUS_MARK).look(Look::NONE.ring(Ring { color:ink, width:1.0, sides:0 })));
         ui.focus_box(&focused);
     });
     let instances = &ui.output().draw[0].instances;
@@ -179,7 +177,7 @@ pub fn window_pxui_arena_closures() {
     for t in 0..3 {
         let ran = ran.clone();
         frame(&mut ui, t as f64, &mut |ui| {
-            let h = ui.node("c".into(), Node { w: Size::Px(10.0), h: Size::Px(10.0), ..Node::DEFAULT });
+            let h = ui.node("c".into(), Node::DEFAULT.w(Size::Px(10.0)).h(Size::Px(10.0)));
             let (byte, word, wide, counted, ran) = (7u8, 9u64, 11u128, Counted(5), ran.clone());
             ui.canvas(&h, move |_, _| {
                 let aligned = |p: usize, a: usize| p % a == 0;
@@ -187,7 +185,7 @@ pub fn window_pxui_arena_closures() {
                 assert!(byte == 7 && word == 9 && wide == 11 && counted.0 == 5, "a capture was corrupted");
                 ran.set(ran.get() + 1);
             });
-            let one = ui.node("u8".into(), Node { w: Size::Px(1.0), h: Size::Px(1.0), ..Node::DEFAULT });
+            let one = ui.node("u8".into(), Node::DEFAULT.w(Size::Px(1.0)).h(Size::Px(1.0)));
             ui.canvas_over(&one, move |_, _| assert!(byte == 7));
         });
         check(DROPS.with(|d| d.get()) == t + 1, "a canvas closure was not dropped exactly once after its frame");
@@ -206,7 +204,7 @@ pub fn window_pxui_arena_first_frame() {
             ui.label("PXUI", pxui_core::ui::Label::DEFAULT);
             ui.button("Quit");
             if let Some(key) = extra {
-                let h = ui.node_ref(key, &Node { h: Size::Px(10.0), ..Node::DEFAULT });
+                let h = ui.node_ref(key, &Node::DEFAULT.h(Size::Px(10.0)));
                 let ink = Rgba::rgb(1, 2, 3);
                 ui.canvas(&h, move |paint, r| paint.fill(r.x, r.y, r.w, r.h, ink));
             }
@@ -269,7 +267,7 @@ pub fn window_pxui_arena_over_aligned() {
     let ink = Wide([9, 8, 7, 255]);
     for t in 0..3 {
         frame(&mut ui, t as f64, &mut |ui| {
-            let h = ui.node("wide".into(), Node { w: Size::Px(10.0), h: Size::Px(10.0), ..Node::DEFAULT });
+            let h = ui.node("wide".into(), Node::DEFAULT.w(Size::Px(10.0)).h(Size::Px(10.0)));
             ui.canvas(&h, move |paint, r| {
                 assert_eq!(&ink as *const Wide as usize % 32, 0, "a capture lost its alignment");
                 paint.fill(r.x, r.y, r.w, r.h, Rgba::rgb(ink.0[0], ink.0[1], ink.0[2]));
@@ -284,7 +282,7 @@ pub fn window_pxui_arena_over_aligned() {
 pub fn window_pxui_paint_grid_one_instance() {
     let mut ui = new_ui(None);
     frame(&mut ui, 0.0, &mut |ui| {
-        let h = ui.node("ground".into(), Node { w: Size::Px(600.0), h: Size::Px(400.0), ..Node::DEFAULT });
+        let h = ui.node("ground".into(), Node::DEFAULT.w(Size::Px(600.0)).h(Size::Px(400.0)));
         ui.canvas(&h, |paint, r| paint.grid(r.x, r.y, r.w, r.h, (0.0, 0.0), 24.0, 2.0, Rgba::rgb(9, 9, 9)));
     });
     let grids = ui.output().draw[0].instances.iter().filter(|i| i.kind == pxui_core::draw::kind::GRID).count();
@@ -303,7 +301,7 @@ pub fn window_pxui_node_patch_colour_glyph() {
     let mut build = |ui: &mut Ui| {
         let img = image.clone();
         ui.view("v", 1, Size::Px(200.0), Size::Px(60.0), &mut |ui| {
-            let h = ui.node("pic".into(), Node { w: Size::Px(8.0), h: Size::Px(8.0), ..Node::DEFAULT });
+            let h = ui.node("pic".into(), Node::DEFAULT.w(Size::Px(8.0)).h(Size::Px(8.0)));
             let img = img.clone();
             ui.canvas(&h, move |paint, r| paint.image(r.x, r.y, r.w, r.h, &img));
             label.set(Some(chip(ui, "label", "plain", Rgba::WHITE)));
@@ -327,8 +325,8 @@ pub fn window_pxui_node_line_patch() {
     let handle = Cell::new(None);
     let mut build = |ui: &mut Ui| {
         builds.set(builds.get() + 1);
-        let look = Look { text: Rgba::rgb(0, 0, 200), ..Look::NONE };
-        handle.set(Some(ui.node("line".into(), Node { w: Size::Px(21.0), h: Size::Px(11.0), at: Some((10.0, 20.0)).into(), look, mark: Mark::Line { width: 1.0, rising: false }, ..Node::DEFAULT })));
+        let look = Look::NONE.text(Rgba::rgb(0, 0, 200));
+        handle.set(Some(ui.node("line".into(), Node::DEFAULT.w(Size::Px(21.0)).h(Size::Px(11.0)).at(10.0, 20.0).look(look).mark(Mark::Line { width: 1.0, rising: false }))));
     };
     frame(&mut ui, 0.0, &mut build);
     frame(&mut ui, 0.1, &mut build);
@@ -347,7 +345,7 @@ pub fn window_pxui_node_patch_damage_accumulates() {
     let handles = Cell::new(None);
     let mut build = |ui: &mut Ui| {
         let top = chip(ui, "top", "a", Rgba::WHITE);
-        ui.node("gap".into(), Node { w: Size::Px(80.0), h: Size::Px(150.0), ..Node::DEFAULT });
+        ui.node("gap".into(), Node::DEFAULT.w(Size::Px(80.0)).h(Size::Px(150.0)));
         handles.set(Some((top, chip(ui, "bottom", "b", Rgba::WHITE))));
     };
     frame(&mut ui, 0.0, &mut build);

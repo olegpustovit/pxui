@@ -58,7 +58,7 @@ mod tests {
 
     fn key(ui: &mut Ui, key: crate::KeyCode, build: &mut dyn FnMut(&mut Ui)) -> Chosen {
         let code = key.wire();
-        let events = [Event { kind: Event::KEY_PRESSED, code, ..Default::default() }, Event { kind: Event::KEY_RELEASED, code, ..Default::default() }];
+        let events = [Event::key(Event::KEY_PRESSED, code), Event::key(Event::KEY_RELEASED, code)];
         testing::frame(ui, &events, build);
         LAST.with(Cell::get)
     }
@@ -127,7 +127,7 @@ mod tests {
         ui.slot(c.content);
         for i in 0..c.buttons.len {
             SEEN.with(|s| s.borrow_mut().push((i, c.danger, c.disabled, c.default_at, c.cancel_at)));
-            let n = ui.part(Part::button(i as u8), Node { flags: Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | Flags::TAB_ONLY, w: Size::Grow, h: Size::Px(24.0), ..Node::DEFAULT });
+            let n = ui.part(Part::button(i as u8), Node::DEFAULT.flags(Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | Flags::TAB_ONLY).w(Size::Grow).h(Size::Px(24.0)));
             // the labels come from the config's list without `unsafe`
             assert!(!c.text_at(&c.buttons, i).is_empty(), "a list item reads its real text");
             ui.text(&n, c.text_at(&c.buttons, i));
@@ -161,12 +161,12 @@ mod tests {
     /// one named apart from its label; the second button is left unnamed.
     fn self_described(ui: &mut Ui, c: &DialogConfig) {
         use pxui_types::a11y::state;
-        let title = ui.part(Part::TITLE, Node { role: Role::Label, w: Size::Grow, h: Size::Px(24.0), ..Node::DEFAULT });
+        let title = ui.part(Part::TITLE, Node::DEFAULT.role(Role::Label).w(Size::Grow).h(Size::Px(24.0)));
         ui.text(&title, c.text_of(&c.title));
         ui.slot(c.content);
         for i in 0..c.buttons.len {
             let a11y = state::ENABLED | if i as i64 == c.default_at { state::DEFAULT } else { 0 };
-            let n = ui.part(Part::button(i as u8), Node { flags: Flags::CLICKABLE | Flags::BLOCKING, role: Role::Button, a11y, w: Size::Grow, h: Size::Px(24.0), ..Node::DEFAULT });
+            let n = ui.part(Part::button(i as u8), Node::DEFAULT.flags(Flags::CLICKABLE | Flags::BLOCKING).role(Role::Button).a11y(a11y).w(Size::Grow).h(Size::Px(24.0)));
             if i == 2 { ui.a11y_name(&n, "Delete the layer"); }
             if i == 0 { ui.text(&n, "Cancel"); }
         }
@@ -238,7 +238,7 @@ mod tests {
         DETAILS.with(|d| d.borrow_mut().clear());
         for i in 0..c.buttons.len {
             DETAILS.with(|d| d.borrow_mut().push((i, c.text_at(&c.details, i).len())));
-            let n = ui.part(Part::button(i as u8), Node { flags: Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | Flags::TAB_ONLY, w: Size::Grow, h: Size::Px(24.0), ..Node::DEFAULT });
+            let n = ui.part(Part::button(i as u8), Node::DEFAULT.flags(Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | Flags::TAB_ONLY).w(Size::Grow).h(Size::Px(24.0)));
             ui.text(&n, c.text_at(&c.buttons, i));
         }
     }
@@ -276,7 +276,7 @@ mod tests {
 
     /// A dialog body that draws its own title and frame and has the kit's buttons (`DialogConfig.built_in`, U2b.4.38).
     fn own_title_kit_buttons(ui: &mut Ui, c: &DialogConfig) {
-        let title = ui.part(Part::TITLE, Node { w: Size::Grow, h: Size::Px(30.0), ..Node::DEFAULT });
+        let title = ui.part(Part::TITLE, Node::DEFAULT.w(Size::Grow).h(Size::Px(30.0)));
         ui.text(&title, c.text_of(&c.title));
         ui.slot(c.content);
         ui.slot(c.built_in);

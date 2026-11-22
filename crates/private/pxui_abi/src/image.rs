@@ -90,14 +90,14 @@ mod tests {
         use pxui_types::{ffi::PxuiSizeDesc, PxuiBox, Str, PXUI_ERR_ARGUMENT};
         extern "C" fn build(_: *mut core::ffi::c_void, raw: *mut core::ffi::c_void) {
             let ui: *mut crate::PxuiUi = raw.cast();
-            let name = |t: &'static str| Str { ptr: t.as_ptr(), len: t.len() };
+            let name = |t: &'static str| { let mut record = Str::default(); record.ptr = t.as_ptr(); record.len = t.len(); record };
             let px = PxuiSizeDesc { kind: PxuiSizeDesc::PX, value: 20.0, relative: None };
-            let good = pxui_types::Image { mtl_texture: std::ptr::dangling_mut(), width: 8, height: 4, format: 1, ..Default::default() };
+            let good = { let mut record = pxui_types::Image::default(); record.mtl_texture = std::ptr::dangling_mut(); record.width = 8; record.height = 4; record.format = 1; record };
             let images = || unsafe { crate::get(ui) }.unwrap().shared().images.entries.len();
             let mut out = PxuiBox::default();
             for (image, fit, w) in [
-                (pxui_types::Image { size: 8, ..good }, 1, px),
-                (pxui_types::Image { width: 0, ..good }, 1, px),
+                ({ let mut record = good; record.size = 8; record }, 1, px),
+                ({ let mut record = good; record.width = 0; record }, 1, px),
                 (good, 9, px),
                 (good, 1, PxuiSizeDesc { kind: 99, ..px }),
                 (good, 1, PxuiSizeDesc { value: f32::NAN, ..px }),
@@ -117,9 +117,9 @@ mod tests {
                 // the painter's own `Ui` state (the build's borrowed handle is gone by paint time)
                 let images = || unsafe { (*(*raw).shared).images.entries.len() };
                 let white = pxui_types::geom::Rgba::rgb(255, 255, 255);
-                let good = pxui_types::Image { mtl_texture: 0x10 as *mut _, width: 8, height: 4, format: 1, ..Default::default() };
+                let good = { let mut record = pxui_types::Image::default(); record.mtl_texture = 0x10 as *mut _; record.width = 8; record.height = 4; record.format = 1; record };
                 let before = images();
-                for (image, fit, x) in [(pxui_types::Image { size: 8, ..good }, 1, rect.x), (pxui_types::Image { width: 0, ..good }, 1, rect.x), (good, 9, rect.x), (good, 1, f32::NAN)] {
+                for (image, fit, x) in [({ let mut record = good; record.size = 8; record }, 1, rect.x), ({ let mut record = good; record.width = 0; record }, 1, rect.x), (good, 9, rect.x), (good, 1, f32::NAN)] {
                     let rc = unsafe { super::pxui_paint_image(raw, &image, x, rect.y, 4.0, 4.0, fit, white) };
                     PAINTED.with(|p| p.borrow_mut().push((rc, images() - before)));
                 }
@@ -131,26 +131,26 @@ mod tests {
         thread_local! { static PAINTED: std::cell::RefCell<Vec<(i32, usize)>> = const { std::cell::RefCell::new(Vec::new()) }; }
         let mut ui = unsafe { crate::ui::create_test_ui() };
         let mut frame = crate::FrameOut::default();
-        assert_eq!(unsafe { crate::pxui_frame(ui, &crate::FrameIn { width: 320.0, height: 240.0, ..Default::default() }, Some(build), (&mut ui as *mut *mut crate::PxuiUi).cast(), &mut frame) }, 0);
+        assert_eq!(unsafe { crate::pxui_frame(ui, &crate::FrameIn::new(320.0, 240.0), Some(build), (&mut ui as *mut *mut crate::PxuiUi).cast(), &mut frame) }, 0);
         let painted = PAINTED.with(|p| p.borrow().clone());
         assert_eq!(painted, [(PXUI_ERR_ARGUMENT, 0), (PXUI_ERR_ARGUMENT, 0), (PXUI_ERR_ARGUMENT, 0), (PXUI_ERR_ARGUMENT, 0), (0, 1)],
             "a short record, an invalid descriptor, an unknown fit and a NaN rectangle are refused and register nothing; a valid call registers one");
         // the checked paint call outside a painter, and with bad input, is refused the same way
-        let good = pxui_types::Image { mtl_texture: std::ptr::dangling_mut(), width: 8, height: 4, format: 1, ..Default::default() };
+        let good = { let mut record = pxui_types::Image::default(); record.mtl_texture = std::ptr::dangling_mut(); record.width = 8; record.height = 4; record.format = 1; record };
         assert_eq!(unsafe { super::pxui_paint_image(core::ptr::null_mut(), &good, 0.0, 0.0, 4.0, 4.0, 1, pxui_types::geom::Rgba::rgb(255, 255, 255)) }, PXUI_ERR_ARGUMENT);
         assert_eq!(unsafe { crate::pxui_ui_destroy(ui) }, 0);
     }
     #[test]
     fn image_identities_reuse_large_working_sets_and_bound_metadata_residency() {
         let mut cache=super::Handles::new();
-        let raw=|id|pxui_types::Image { mtl_texture:id as *mut _,width:16,height:16,format:1,..Default::default() };
+        let raw=|id|{ let mut record = pxui_types::Image::default(); record.mtl_texture = id as *mut _; record.width = 16; record.height = 16; record.format = 1; record };
         let handles:Vec<_>=(1..=768).map(|id|cache.get(raw(id))).collect();
         mem_sys::local_reset();
         for _ in 0..10 { for (index,handle) in handles.iter().enumerate() { assert!(std::rc::Rc::ptr_eq(handle,&cache.get(raw(index+1)))); } }
         assert_eq!(mem_sys::local_alloc_count(),0);
         for id in 769..=2048 { cache.get(raw(id)); }
         assert_eq!(cache.entries.len(),super::HANDLES_KEPT);
-        for id in 3000..4000 { cache.get(pxui_types::Image { width:512,height:512,..raw(id) }); }
+        for id in 3000..4000 { cache.get({ let mut record = raw(id); record.width = 512; record.height = 512; record }); }
         assert!(cache.bytes<=super::HANDLES_BYTES);
         assert_eq!(cache.entries.len(),128);
         let image=raw(4000); let handle=cache.get(image); let weak=std::rc::Rc::downgrade(&handle); drop(handle);
@@ -159,12 +159,12 @@ mod tests {
     }
     #[test]
     fn texture_keys_include_both_native_handles_extent_and_format() {
-        let base=pxui_types::Image { width:16,height:32,format:1,..Default::default() };
+        let base={ let mut record = pxui_types::Image::default(); record.width = 16; record.height = 32; record.format = 1; record };
         for changed in [
-            pxui_types::Image { width:32,..base },pxui_types::Image { height:16,..base },
-            pxui_types::Image { format:2,..base },
-            pxui_types::Image { mtl_texture:std::ptr::dangling_mut(),..base },
-            pxui_types::Image { vk_image_view:std::ptr::dangling_mut(),..base },
+            { let mut record = base; record.width = 32; record },{ let mut record = base; record.height = 16; record },
+            { let mut record = base; record.format = 2; record },
+            { let mut record = base; record.mtl_texture = std::ptr::dangling_mut(); record },
+            { let mut record = base; record.vk_image_view = std::ptr::dangling_mut(); record },
         ] { assert_ne!(super::image_key(&base),super::image_key(&changed)); }
     }
 }

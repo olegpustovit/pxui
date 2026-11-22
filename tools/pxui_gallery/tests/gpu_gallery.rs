@@ -159,7 +159,7 @@ fn bodies_page_settled() {
     let mut built = Vec::new();
     for custom in [false, true] {
         // an image the cover body draws (never rendered here)
-        let art = pxui::Image { mtl_texture: std::ptr::dangling_mut(), width: 8, height: 8, format: pxui::Image::FORMAT_RGBA8, ..Default::default() };
+        let art = { let mut record = pxui::Image::default(); record.mtl_texture = std::ptr::dangling_mut(); record.width = 8; record.height = 8; record.format = pxui::Image::FORMAT_RGBA8; record };
         let mut page = BodiesPage { art: Some(art), ..BodiesPage::new(custom) };
         let mut ui = Ui::new(&pxui::UiDesc::new(pxui::Platform::Apple).fonts(&[pxui::FontData(DEPARTURE_MONO)])).expect("pxui Ui");
         bodies_page::register(&mut ui).expect("the proof bodies register");

@@ -27,7 +27,7 @@ pub fn frame(ui: &mut Ui, events: &[Event], build: &mut dyn FnMut(&mut Ui)) {
 /// use pxui::ui::{Flags, Node, Size, Role};
 /// let mut clicked = false;
 /// let mut build = |ui: &mut pxui::Ui| {
-///     let b = ui.node("b", Node { flags: Flags::CLICKABLE, role: Role::Button, w: Size::Px(50.0), h: Size::Px(20.0), ..Node::DEFAULT });
+///     let b = ui.node("b", Node::DEFAULT.flags(Flags::CLICKABLE).role(Role::Button).w(Size::Px(50.0)).h(Size::Px(20.0)));
 ///     clicked |= ui.signal(&b).clicked;
 /// };
 /// let mut ui = pxui::doc::frames(1, &mut build);
@@ -49,7 +49,7 @@ pub fn click(ui: &mut Ui, x: f64, y: f64, build: &mut dyn FnMut(&mut Ui)) {
 /// use std::cell::Cell;
 /// let (clicked, node) = (Cell::new(false), Cell::new(None));
 /// let mut build = |ui: &mut pxui::Ui| {
-///     let b = ui.node("b", Node { flags: Flags::CLICKABLE, role: Role::Button, w: Size::Px(50.0), h: Size::Px(20.0), ..Node::DEFAULT });
+///     let b = ui.node("b", Node::DEFAULT.flags(Flags::CLICKABLE).role(Role::Button).w(Size::Px(50.0)).h(Size::Px(20.0)));
 ///     clicked.set(clicked.get() | ui.signal(&b).clicked);
 ///     node.set(Some(b));
 /// };
@@ -87,7 +87,7 @@ pub fn key(ui: &mut Ui, key: KeyCode, build: &mut dyn FnMut(&mut Ui)) {
 /// ```
 /// use pxui::ui::{Node, Size, Role};
 /// let ui = pxui::doc::frames(1, &mut |ui| {
-///     let n = ui.node("n", Node { role: Role::Button, w: Size::Px(50.0), h: Size::Px(20.0), ..Node::DEFAULT });
+///     let n = ui.node("n", Node::DEFAULT.role(Role::Button).w(Size::Px(50.0)).h(Size::Px(20.0)));
 ///     ui.a11y_name(&n, "Save");
 /// });
 /// let r = pxui::testing::find(&ui, Role::Button, "Save").unwrap();

@@ -369,7 +369,7 @@ mod tests {
         assert_eq!(chosen.get(), 0);
     }
 
-    fn key(code: crate::KeyCode) -> pxui_types::Event { pxui_types::Event { kind: pxui_types::Event::KEY_PRESSED, code: code.wire(), ..Default::default() } }
+    fn key(code: crate::KeyCode) -> pxui_types::Event { pxui_types::Event::key(pxui_types::Event::KEY_PRESSED, code.wire()) }
     const RIGHT: crate::KeyCode = crate::KeyCode::ArrowRight;
     const SPACE: crate::KeyCode = crate::KeyCode::Space;
     const TAB: crate::KeyCode = crate::KeyCode::Tab;
@@ -516,7 +516,7 @@ mod tests {
         let mut ui = crate::doc::frames(3, &mut build);
         let r = node(&ui, Role::Radio, "Two").1;
         let (x, y) = (f64::from(r.x + r.w / 2.0), f64::from(r.y + r.h / 2.0));
-        let right = |kind| pxui_types::Event { kind, code: 1, x, y, ..Default::default() };
+        let right = |kind| pxui_types::Event::pointer(kind, 1, x, y);
         testing::frame(&mut ui, &[right(pxui_types::Event::POINTER_PRESSED)], &mut build);
         let seen = last.get().unwrap();
         assert!(seen.response.secondary && !seen.response.changed && !seen.response.clicked);
@@ -535,9 +535,9 @@ mod tests {
     fn choice_body(ui: &mut Ui, c: &crate::bodies::SegmentedConfig) {
         assert!(c.size as usize >= core::mem::size_of::<crate::bodies::SegmentedConfig>(), "this library carries `has_selected`");
         SELECTED_SEEN.with(|s| s.borrow_mut().push((c.index, c.has_selected, c.selected, c.state.focused)));
-        let segment = Node { w: Size::Px(21.0), ..ui.node_layout(&c.node) };
+        let segment = ui.node_layout(&c.node).w(Size::Px(21.0));
         ui.set_node_layout(&c.node, &segment);
-        ui.node("mine", Node { w: Size::Grow, h: Size::Grow, ..Node::DEFAULT });
+        ui.node("mine", Node::DEFAULT.w(Size::Grow).h(Size::Grow));
     }
 
     /// A registered segment body builds the options: with no choice it is given `has_selected` 0 (and `selected` 0), with one
@@ -571,9 +571,9 @@ mod tests {
     fn chosen_stored_body(ui: &mut Ui, c: &crate::bodies::SegmentedConfig) {
         assert!(c.size as usize >= core::mem::size_of::<crate::bodies::SegmentedConfig>(), "this library carries `stored`");
         if c.index == 2 { STORED_SEEN.with(|s| s.borrow_mut().push((c.has_stored, c.stored, c.has_selected, c.selected))); }
-        let segment = Node { w: Size::Px(21.0), ..ui.node_layout(&c.node) };
+        let segment = ui.node_layout(&c.node).w(Size::Px(21.0));
         ui.set_node_layout(&c.node, &segment);
-        ui.node("mine", Node { w: Size::Grow, h: Size::Grow, ..Node::DEFAULT });
+        ui.node("mine", Node::DEFAULT.w(Size::Grow).h(Size::Grow));
     }
 
     /// A registered segment body is given the choice the caller passed (`stored`): on the frame a press moves the choice it still reads the
@@ -616,9 +616,9 @@ mod tests {
         let at = node(&ui, Role::Radio, "Three").1;
         let (x, y) = (f64::from(at.x + at.w / 2.0), f64::from(at.y + at.h / 2.0));
         // the press alone, before the release, already focuses it
-        testing::frame(&mut ui, &[pxui_types::Event { kind: pxui_types::Event::POINTER_PRESSED, x, y, ..Default::default() }], &mut build);
+        testing::frame(&mut ui, &[pxui_types::Event::pointer(pxui_types::Event::POINTER_PRESSED, 0, x, y)], &mut build);
         assert_eq!(radios(&ui).map(|s| s & state::FOCUSED != 0), [false, false, true], "focused on press");
-        testing::frame(&mut ui, &[pxui_types::Event { kind: pxui_types::Event::POINTER_RELEASED, x, y, ..Default::default() }], &mut build);
+        testing::frame(&mut ui, &[pxui_types::Event::pointer(pxui_types::Event::POINTER_RELEASED, 0, x, y)], &mut build);
         for _ in 0..4 { testing::frame(&mut ui, &[], &mut build); }
         assert_eq!(last.get().unwrap().chosen, Some(0), "the caller's choice stands");
         assert_eq!(radios(&ui).map(|s| s & state::FOCUSED != 0), [false, false, true], "the refused press keeps the focus");
@@ -669,7 +669,7 @@ mod tests {
             let bump = |at: usize, hit: bool| { let mut h = hits.get(); h[at] += hit as u32; hits.set(h); };
             ui.disabled(flag_outer.get(), |ui| {
                 bump(0, ui.button("b", "Button", &crate::Button::DEFAULT).clicked);
-                let node = Node { w: Size::Px(60.0), h: Size::Px(20.0), role: Role::Button, ..Node::DEFAULT };
+                let node = Node::DEFAULT.w(Size::Px(60.0)).h(Size::Px(20.0)).role(Role::Button);
                 bump(1, ui.pressable("p", node, &crate::Pressable::DEFAULT, |ui, _| { ui.label("Pressable", crate::Label::DEFAULT); }).clicked);
                 ui.disabled(flag_inner.get(), |ui| { bump(2, ui.toggle("t", "Toggle", false, &Toggle::DEFAULT).changed); });
             });
@@ -802,14 +802,14 @@ mod tests {
         TOGGLE_SEEN.with(|s| s.set((c.size, c.on, c.row_h, c.switch_w, c.switch_h)));
         TOGGLE_MORE.with(|s| s.set((c.inset, c.press_row, c.detail.len)));
         STYLE_SEEN.with(|s| { let (_, _, p, m) = s.get(); s.set((c.has_style, c.style.size_points, p, m)); });
-        let b = ui.part(Part::HIT, Node { w: Size::Px(10.0), h: Size::Px(10.0), ..Node::DEFAULT });
+        let b = ui.part(Part::HIT, Node::DEFAULT.w(Size::Px(10.0)).h(Size::Px(10.0)));
         ui.text(&b, "custom toggle");
     }
 
     fn segment_body(ui: &mut Ui, c: &crate::bodies::SegmentedConfig) {
         SEGMENT_SEEN.with(|s| s.set((c.size, c.grow, c.index)));
         STYLE_SEEN.with(|s| { let (h, z, _, _) = s.get(); s.set((h, z, c.padding, c.min_segment)); });
-        ui.node("custom", Node { w: Size::Px(33.0), h: Size::Grow, ..Node::DEFAULT });
+        ui.node("custom", Node::DEFAULT.w(Size::Px(33.0)).h(Size::Grow));
     }
 
     /// `toggle` and `segmented` are built through their registered bodies, which get the caller's options in their records.
@@ -850,18 +850,18 @@ mod tests {
         assert!(c.size as usize >= core::mem::size_of::<crate::bodies::ToggleConfig>(), "this library carries `stored` and `clicked`");
         FLIPS.with(|f| f.borrow_mut().push((c.on, c.stored, c.clicked)));
         assert!(c.states_of(&c.track).is_some() && c.states_of(&c.knob).is_some(), "the theme's looks, read without unsafe");
-        ui.part(Part::HIT, Node { w: Size::Px(20.0), h: Size::Px(20.0), ..Node::DEFAULT });
+        ui.part(Part::HIT, Node::DEFAULT.w(Size::Px(20.0)).h(Size::Px(20.0)));
     }
 
     /// A segment body that owns the container: the first segment takes the line's padding away and gives the strip a fill.
     fn container_body(ui: &mut Ui, c: &crate::bodies::SegmentedConfig) {
         assert_eq!(c.states_of(&c.states).map(|s| s.checked.fill), Some(ui.theme().segment.checked.fill), "the theme's segment looks");
         if c.index == 0 {
-            let line = Node { padding: crate::ui::Edges::ZERO, ..ui.node_layout(&c.line) };
+            let line = ui.node_layout(&c.line).padding(crate::ui::Edges::ZERO);
             ui.set_node_layout(&c.line, &line);
-            ui.style(&c.strip, &crate::theme::States::of(Look { fill: crate::geom::Rgba { r: 1, g: 2, b: 3, a: 255 }, ..Look::NONE }), crate::ui::State::default());
+            ui.style(&c.strip, &crate::theme::States::of(Look::NONE.fill(crate::geom::Rgba::rgb(1, 2, 3))), crate::ui::State::default());
         }
-        let segment = Node { w: Size::Px(30.0), ..ui.node_layout(&c.node) };
+        let segment = ui.node_layout(&c.node).w(Size::Px(30.0));
         ui.set_node_layout(&c.node, &segment);
     }
 

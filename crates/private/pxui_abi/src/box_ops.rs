@@ -22,7 +22,7 @@ mod reveal_tests {
             let state = unsafe { &mut *user.cast::<State>() };
             let desc = pxui_types::ffi::PxuiGridListDesc {
                 size: core::mem::size_of::<pxui_types::ffi::PxuiGridListDesc>() as u32,
-                reserved: 0, label: Str { ptr: b"rows".as_ptr(), len: 4 }, count: 100,
+                reserved: 0, label: { let mut record = Str::default(); record.ptr = b"rows".as_ptr(); record.len = 4; record }, count: 100,
                 cell_w: 100.0, cell_h: 20.0, build: None, user: core::ptr::null_mut(),
             };
             assert_eq!(unsafe { crate::pxui_ui_grid_list(raw.cast(), &desc, &mut state.list) }, 0);
@@ -32,7 +32,7 @@ mod reveal_tests {
         let owner = unsafe { crate::ui::create_test_ui() };
         let mut state = State { owner, list: PxuiBox::default() };
         let mut out = crate::FrameOut::default();
-        assert_eq!(unsafe { crate::pxui_frame(owner, &crate::FrameIn { width: 100.0, height: 100.0, ..Default::default() }, Some(build), (&mut state as *mut State).cast(), &mut out) }, 0);
+        assert_eq!(unsafe { crate::pxui_frame(owner, &crate::FrameIn::new(100.0, 100.0), Some(build), (&mut state as *mut State).cast(), &mut out) }, 0);
         assert_eq!(unsafe { pxui_ui_reveal(core::ptr::null_mut(), &state.list, 99) }, PXUI_ERR_ARGUMENT);
         assert_eq!(unsafe { pxui_ui_reveal(owner, core::ptr::null(), 99) }, PXUI_ERR_ARGUMENT);
         let invalid = PxuiBox { box_slot: u64::MAX, ..state.list };
@@ -62,7 +62,7 @@ mod gesture_tests {
             let node = unsafe { &mut *user.cast::<PxuiBox>() };
             let desc = pxui_types::ffi::PxuiGridListDesc {
                 size: core::mem::size_of::<pxui_types::ffi::PxuiGridListDesc>() as u32, reserved: 0,
-                label: Str { ptr: b"rows".as_ptr(), len: 4 }, count: 10, cell_w: 100.0, cell_h: 20.0, build: None, user: core::ptr::null_mut(),
+                label: { let mut record = Str::default(); record.ptr = b"rows".as_ptr(); record.len = 4; record }, count: 10, cell_w: 100.0, cell_h: 20.0, build: None, user: core::ptr::null_mut(),
             };
             assert_eq!(unsafe { crate::pxui_ui_grid_list(raw.cast(), &desc, node) }, 0);
             let sentinel = || PxuiGestureOut { flags: 99, swipe: 1.0, back: 2.0, pull: 3.0, ..Default::default() };
@@ -110,7 +110,7 @@ mod gesture_tests {
         let ui = unsafe { crate::ui::create_test_ui() };
         let mut node = PxuiBox::default();
         let mut out = crate::FrameOut::default();
-        assert_eq!(unsafe { crate::pxui_frame(ui, &crate::FrameIn { width: 100.0, height: 100.0, ..Default::default() }, Some(build), (&mut node as *mut PxuiBox).cast(), &mut out) }, 0);
+        assert_eq!(unsafe { crate::pxui_frame(ui, &crate::FrameIn::new(100.0, 100.0), Some(build), (&mut node as *mut PxuiBox).cast(), &mut out) }, 0);
         assert_eq!(unsafe { pxui_ui_gesture(core::ptr::null_mut(), &node, core::ptr::null(), 0, &mut PxuiGestureOut::default()) }, PXUI_ERR_ARGUMENT);
         assert_eq!(unsafe { crate::pxui_ui_destroy(ui) }, 0);
     }

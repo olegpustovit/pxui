@@ -75,10 +75,7 @@ impl Gpu {
         be::write_texture(&texture, None, Origin { x: 0, y: 0, z: 0 }, Extent { width: w, height: h, depth: 1 }, w * 4, rgba).unwrap_or_else(|e| fail(e));
         let native = be::native_texture(&texture).unwrap_or_else(|e| fail(e));
         self.textures.push(texture);
-        Image {
-            size: core::mem::size_of::<Image>() as u32, vk_image_view: native.vk_image_view, mtl_texture: native.mtl_texture,
-            width: native.width, height: native.height, format: Image::FORMAT_RGBA8,
-        }
+        Image::rgba8(native.width, native.height, native.vk_image_view, native.mtl_texture)
     }
 
     /// A render target `w` x `h` pixels that can be read back.

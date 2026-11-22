@@ -145,7 +145,7 @@ mod tests {
     fn marker(ui: &mut Ui, c: &MenuRowConfig) {
         assert!(c.size as usize >= core::mem::size_of::<MenuRowConfig>(), "this library carries the row height");
         SEEN.with(|s| s.borrow_mut().push((c.text_of(&c.text).to_owned(), c.state.disabled != 0, c.danger != 0, c.selected != 0, c.has_shortcut != 0, c.lead, c.row_h)));
-        ui.node("custom", pxui_types::Node { w: pxui_types::Size::Px(7.0), h: pxui_types::Size::Px(9.0), ..pxui_types::Node::DEFAULT });
+        ui.node("custom", pxui_types::Node::DEFAULT.w(pxui_types::Size::Px(7.0)).h(pxui_types::Size::Px(9.0)));
     }
 
     /// With a registered `menu_row` body every row goes through it, with the item's flags and the menu's row height; its
@@ -180,7 +180,7 @@ mod tests {
         let mut build = |ui: &mut Ui| { let got = ui.menu("song-menu", crate::Point::new(10.0, 10.0), &ITEMS, &menu); if got != Chosen::default() { last.set(got); } };
         let mut ui = crate::doc::frames(3, &mut build);
         let (x, y) = centre(&ui, "New");
-        testing::frame(&mut ui, &[Event { kind: Event::POINTER_MOVED, x, y, ..Default::default() }], &mut build);
+        testing::frame(&mut ui, &[Event::pointer(Event::POINTER_MOVED, 0, x, y)], &mut build);
         testing::frame(&mut ui, &[], &mut build);
         for _ in 0..4 { testing::frame(&mut ui, &[], &mut build); }
         let scope = mem_sys::warm_scope();
@@ -193,7 +193,7 @@ mod tests {
         assert!(mem_sys::take_reports().is_empty());
         // near the row's start: the submenu is as wide as its longest row
         let (x, y) = { let (x, y) = centre(&ui, "Value"); (x - 80.0, y) };
-        testing::frame(&mut ui, &[Event { kind: Event::POINTER_MOVED, x, y, ..Default::default() }], &mut build);
+        testing::frame(&mut ui, &[Event::pointer(Event::POINTER_MOVED, 0, x, y)], &mut build);
         testing::click(&mut ui, x, y, &mut build);
         assert_eq!(last.get().chosen, Some(3));
         let long = [MenuItem::new("Row"); 40];
@@ -217,7 +217,7 @@ mod tests {
         let row = ui.a11y_nodes().iter().find(|n| n.is_role(Role::MenuItem)).unwrap();
         assert_eq!(ui.a11y_name_of(row), expected);
         let (x, y) = (f64::from(row.rect.x + 10.0), f64::from(row.rect.y + 10.0));
-        testing::frame(&mut ui, &[Event { kind: Event::POINTER_MOVED, x, y, ..Default::default() }], &mut build);
+        testing::frame(&mut ui, &[Event::pointer(Event::POINTER_MOVED, 0, x, y)], &mut build);
         testing::frame(&mut ui, &[], &mut build);
         let rows: Vec<_> = ui.a11y_nodes().iter().filter(|n| n.is_role(Role::MenuItem)).collect();
         assert_eq!(rows.len(), 2, "the clipped submenu still opens");
@@ -303,10 +303,10 @@ mod tests {
         let top = |ui: &Ui, name: &str| testing::find(ui, Role::MenuItem, name).unwrap().y;
         let bottom = 10.0 + 7.0 + 8.0 * 24.0;
         assert!(top(&ui, "Row 7") < bottom && top(&ui, "Row 8") >= bottom, "eight rows show: row 8 starts at {}", top(&ui, "Row 8"));
-        testing::frame(&mut ui, &[Event { kind: Event::POINTER_MOVED, x: 60.0, y: 100.0, ..Default::default() }], &mut build);
+        testing::frame(&mut ui, &[Event::pointer(Event::POINTER_MOVED, 0, 60.0, 100.0)], &mut build);
         // one wheel step is a row: 32 of them reach the end of the 40 rows
         for _ in 0..32 {
-            testing::frame(&mut ui, &[Event { kind: Event::SCROLLED, x: 0.0, y: -1.0, ..Default::default() }], &mut build);
+            testing::frame(&mut ui, &[Event::pointer(Event::SCROLLED, 0, 0.0, -1.0)], &mut build);
         }
         for _ in 0..30 { testing::frame(&mut ui, &[], &mut build); }
         assert!(top(&ui, "Row 39") < bottom, "the last row scrolled into view: {}", top(&ui, "Row 39"));
@@ -333,8 +333,8 @@ mod tests {
         let (last, menu) = (Cell::new(Chosen::default()), Menu::DEFAULT.max_h(120.0));
         let mut build = |ui: &mut Ui| { let got = ui.menu("m", crate::Point::new(10.0, 10.0), &LONG, &menu); if got != Chosen::default() { last.set(got); } };
         let mut ui = crate::doc::frames(3, &mut build);
-        testing::frame(&mut ui, &[Event { kind: Event::POINTER_MOVED, x: 60.0, y: 60.0, ..Default::default() }], &mut build);
-        for _ in 0..40 { testing::frame(&mut ui, &[Event { kind: Event::SCROLLED, x: 0.0, y: -1.0, ..Default::default() }], &mut build); }
+        testing::frame(&mut ui, &[Event::pointer(Event::POINTER_MOVED, 0, 60.0, 60.0)], &mut build);
+        for _ in 0..40 { testing::frame(&mut ui, &[Event::pointer(Event::SCROLLED, 0, 0.0, -1.0)], &mut build); }
         for _ in 0..30 { testing::frame(&mut ui, &[], &mut build); }
         let rows: Vec<_> = ui.a11y_nodes().iter().filter(|n| n.is_role(Role::MenuItem)).map(|n| n.rect).collect();
         let r = *rows.last().unwrap();
@@ -399,11 +399,11 @@ mod tests {
         assert_eq!(last.get(), Chosen { chosen: Some(2), chosen_id: Some(9), dismissed: false });
         let mut ui = crate::doc::frames(3, &mut build);
         let (x, y) = centre(&ui, "Add to");
-        testing::frame(&mut ui, &[Event { kind: Event::POINTER_MOVED, x, y, ..Default::default() }], &mut build);
+        testing::frame(&mut ui, &[Event::pointer(Event::POINTER_MOVED, 0, x, y)], &mut build);
         testing::frame(&mut ui, &[], &mut build);
         let second = ui.a11y_nodes().iter().filter(|n| n.is_role(Role::MenuItem) && ui.a11y_name_of(n) == "Mix").map(|n| n.rect).nth(4).expect("the submenu's second Mix");
         let (x, y) = (f64::from(second.x + 20.0), f64::from(second.y + second.h / 2.0));
-        testing::frame(&mut ui, &[Event { kind: Event::POINTER_MOVED, x, y, ..Default::default() }], &mut build);
+        testing::frame(&mut ui, &[Event::pointer(Event::POINTER_MOVED, 0, x, y)], &mut build);
         testing::click(&mut ui, x, y, &mut build);
         assert_eq!(last.get(), Chosen { chosen: Some(5), chosen_id: Some(71), dismissed: false });
     }
@@ -432,7 +432,7 @@ mod tests {
             let mut build = |ui: &mut Ui| { ui.menu("m", crate::Point::new(10.0, 10.0), &ITEMS, &menu); };
             let mut ui = crate::doc::frames(3, &mut build);
             let (x, y) = centre(&ui, "Two");
-            testing::frame(&mut ui, &[Event { kind: Event::POINTER_PRESSED, x, y, ..Default::default() }], &mut build);
+            testing::frame(&mut ui, &[Event::pointer(Event::POINTER_PRESSED, 0, x, y)], &mut build);
             testing::frame(&mut ui, &[], &mut build);
             let states = ui.a11y_nodes().iter().find(|n| n.is_role(Role::MenuItem) && ui.a11y_name_of(n) == "Two").map(|n| n.states).expect("row");
             assert_eq!(states & crate::A11yStates::FOCUSED.bits() != 0, focuses, "focus_on_click {}", menu.focus_on_click);

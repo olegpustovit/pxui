@@ -299,7 +299,7 @@ mod tests {
         assert!(ui.entries.is_empty());
         assert!(worker.prepare("hello", &Style::default(), f32::NAN, &[]).is_none());
         assert!(worker.prepare("hello", &Style { size: 0.0, ..Style::default() }, 200.0, &[]).is_none());
-        assert!(worker.prepare("é", &Style::default(), 200.0, &[TextSpan { start: 1, end: 2, ..Default::default() }]).is_none());
+        assert!(worker.prepare("é", &Style::default(), 200.0, &[TextSpan::new(1, 2)]).is_none());
     }
 
     #[cfg(target_os="macos")]
@@ -410,12 +410,7 @@ mod tests {
         let mut worker = ui.preparer();
         for source in ["لا", "abc العربية e\u{301}", "one two\r\nthree four", "long-file-name.extension", ""] {
             let spans = if let Some(first) = source.chars().next() {
-                vec![TextSpan { start: 0, end: first.len_utf8() as u32, weight: 500,
-                    flags: TextSpan::COLOR | TextSpan::BACKGROUND | TextSpan::UNDERLINE,
-                    color: pxui_types::geom::Rgba { r: 255, g: 0, b: 0, a: 255 },
-                    background: pxui_types::geom::Rgba { r: 0, g: 0, b: 255, a: 255 },
-                    underline: pxui_types::geom::Rgba { r: 0, g: 255, b: 0, a: 255 },
-                }]
+                vec![{ let mut record = TextSpan::new(0, first.len_utf8() as u32); record.weight = 500; record.flags = TextSpan::COLOR | TextSpan::BACKGROUND | TextSpan::UNDERLINE; record.color = pxui_types::geom::Rgba::rgb(255, 0, 0); record.background = pxui_types::geom::Rgba::rgb(0, 0, 255); record.underline = pxui_types::geom::Rgba::rgb(0, 255, 0); record }]
             } else { Vec::new() };
             for mode in [Ellipsis::None, Ellipsis::End, Ellipsis::Middle, Ellipsis::Head] {
                 let style = Style { size: 20.25, line_height: 26.0, wrap: Wrap::WordSpaces, max_lines: 2, ellipsis: mode, ..Style::default() };

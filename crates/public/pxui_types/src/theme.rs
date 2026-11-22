@@ -96,9 +96,9 @@ impl Tokens {
     /// let mut tokens = Tokens::DEFAULT;
     /// (tokens.motion.fast, tokens.motion.normal, tokens.motion.slow) = (0.1, 0.2, 0.3);
     /// let seconds = |to: State| match tokens.transition(idle, to) { Curve::Bezier { duration, .. } => duration, _ => unreachable!() };
-    /// assert_eq!(seconds(State { pressed: true, ..idle }), 0.1);
-    /// assert_eq!(seconds(State { hovered: true, ..idle }), 0.2);
-    /// assert_eq!(seconds(State { checked: true, ..idle }), 0.3);
+    /// assert_eq!(seconds(idle.pressed(true)), 0.1);
+    /// assert_eq!(seconds(idle.hovered(true)), 0.2);
+    /// assert_eq!(seconds(idle.checked(true)), 0.3);
     /// assert!(tokens.transition(idle, idle).instant());
     /// ```
     pub fn transition(&self, from: State, to: State) -> Curve {
@@ -935,7 +935,7 @@ impl Font {
     /// assert_eq!(Font::BODY.size(-9.0).points(13.0), 8.0);
     /// assert_eq!(Font::BODY.size(14.5).points(13.0), 14.5);
     /// // a record that never set `size_points` (a 1.x C record's padding, a Rust literal) reads its integer `size`
-    /// assert_eq!(Font { size: 14, ..Font::BODY }.points(13.0), 14.0);
+    /// assert_eq!({ let mut record = Font::BODY; record.size = 14; record }.points(13.0), 14.0);
     /// ```
     pub fn points(&self, body: f32) -> f32 {
         // `size_points` counts only where it agrees with the rounded `size` it was set with; otherwise `size` is the record's meaning
@@ -1090,7 +1090,7 @@ impl Look {
     ///
     /// ```
     /// use pxui_types::{geom::Rgba, Look};
-    /// const L: Look = Look::NONE.fill(Rgba { r: 1, g: 2, b: 3, a: 255 });
+    /// const L: Look = Look::NONE.fill(Rgba::rgb(1, 2, 3));
     /// assert_eq!(L.fill.g, 2);
     /// ```
     #[inline]
@@ -1120,7 +1120,7 @@ impl Look {
     ///
     /// ```
     /// use pxui_types::{geom::Rgba, Look};
-    /// const L: Look = Look::NONE.border(Rgba { r: 9, g: 9, b: 9, a: 255 }, 1.0);
+    /// const L: Look = Look::NONE.border(Rgba::rgb(9, 9, 9), 1.0);
     /// assert_eq!(L.border_w, 1.0);
     /// ```
     #[inline]
@@ -1136,7 +1136,7 @@ impl Look {
     ///
     /// ```
     /// use pxui_types::{geom::Rgba, Look};
-    /// const L: Look = Look::NONE.text(Rgba { r: 1, g: 2, b: 3, a: 255 });
+    /// const L: Look = Look::NONE.text(Rgba::rgb(1, 2, 3));
     /// assert_eq!(L.text.b, 3);
     /// ```
     #[inline]
@@ -1685,7 +1685,7 @@ impl States {
     /// use pxui_types::theme::{State, States};
     /// use pxui_types::Look;
     /// let states = States::of(Look::NONE.radius(4.0));
-    /// assert_eq!(states.pick(State { hovered: true, ..Default::default() }).radius, [4.0; 4]);
+    /// assert_eq!(states.pick(State::default().hovered(true)).radius, [4.0; 4]);
     /// ```
     pub const fn of(look: Look) -> States {
         States {
@@ -1799,10 +1799,10 @@ impl States {
     /// use pxui_types::{theme::{State, States}, Look};
     /// let mut states = States::of(Look::NONE).checked(Look::NONE.radius(4.0)).disabled(Look::NONE.radius(8.0));
     /// states.pressed = Look::NONE.radius(2.0);
-    /// let both = State { hovered: true, pressed: true, ..Default::default() };
+    /// let both = State::default().hovered(true).pressed(true);
     /// assert_eq!(states.pick(both).radius, [2.0; 4]);
-    /// assert_eq!(states.pick(State { checked: true, ..both }).radius, [4.0; 4]);
-    /// assert_eq!(states.pick(State { checked: true, disabled: true, ..both }).radius, [8.0; 4]);
+    /// assert_eq!(states.pick(both.checked(true)).radius, [4.0; 4]);
+    /// assert_eq!(states.pick(both.checked(true).disabled(true)).radius, [8.0; 4]);
     /// ```
     pub fn pick(&self, s: State) -> &Look {
         if s.disabled {
@@ -1839,13 +1839,11 @@ mod tests {
 
     #[test]
     fn look_color_channels_keep_scalar_rounding() {
-        let from = Look::NONE.fill(Rgba { r: 0, g: 255, b: 127, a: 63 });
-        let to = Look::NONE.fill(Rgba { r: 255, g: 0, b: 127, a: 128 });
+        let from = Look::NONE.fill(Rgba::rgba(0, 255, 127, 63));
+        let to = Look::NONE.fill(Rgba::rgba(255, 0, 127, 128));
         for t in [-2.0, -0.5, 0.125, 0.5, 1.0, 1.5, f32::INFINITY, f32::NAN] {
             let channel = |a: f32, b: f32| (a + (b - a) * t).round() as u8;
-            assert_eq!(from.lerp(&to, t).fill, Rgba {
-                r: channel(0.0, 255.0), g: channel(255.0, 0.0), b: channel(127.0, 127.0), a: channel(63.0, 128.0),
-            });
+            assert_eq!(from.lerp(&to, t).fill, Rgba::rgba(channel(0.0, 255.0), channel(255.0, 0.0), channel(127.0, 127.0), channel(63.0, 128.0)));
         }
     }
 
@@ -1856,11 +1854,11 @@ mod tests {
         let mut tokens = Tokens::DEFAULT;
         tokens.motion = Motion { fast: 0.05, normal: 0.1, slow: 0.4, ease: [0.2, 0.0, 0.0, 1.0] };
         let idle = State::default();
-        for to in [State { checked: true, ..idle }, State { disabled: true, ..idle }] {
+        for to in [idle.checked(true), idle.disabled(true)] {
             assert_eq!(tokens.transition(idle, to), Curve::Bezier { duration: 0.4, points: [0.2, 0.0, 0.0, 1.0] });
         }
         tokens.reduced_motion = true;
-        assert!(tokens.transition(idle, State { checked: true, ..idle }).instant());
+        assert!(tokens.transition(idle, idle.checked(true)).instant());
     }
 
     /// U2b.8: a theme whose only motion is `motion.slow` still moves; reduced motion stops it.

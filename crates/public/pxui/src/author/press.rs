@@ -207,7 +207,7 @@ mod tests {
     use pxui_types::{a11y::state, geom::Rgba, Flags};
     use std::cell::Cell;
 
-    fn node() -> Node { Node { w: Size::Px(50.0), h: Size::Px(20.0), role: Role::Button, ..Node::DEFAULT } }
+    fn node() -> Node { Node::DEFAULT.w(Size::Px(50.0)).h(Size::Px(20.0)).role(Role::Button) }
     const P: Pressable<'static> = Pressable::DEFAULT;
 
     /// Runs `events` as one frame over a pressable and returns its response.
@@ -216,14 +216,14 @@ mod tests {
         testing::frame(ui, events, &mut |ui| { out = Some(ui.pressable("p", node(), &P, |_, _| {})); });
         out.unwrap()
     }
-    fn pointer(kind: u32) -> Event { Event { kind, x: 10.0, y: 10.0, ..Default::default() } }
+    fn pointer(kind: u32) -> Event { Event::pointer(kind, 0, 10.0, 10.0) }
 
     #[test]
     fn click_hover_hold() {
         let mut ui = crate::doc::frames(2, &mut |ui| { ui.pressable("p", node(), &P, |_, _| {}); });
-        let away = Event { kind: Event::POINTER_MOVED, x: 300.0, y: 200.0, ..Default::default() };
+        let away = Event::pointer(Event::POINTER_MOVED, 0, 300.0, 200.0);
         assert!(!respond(&mut ui, &[away]).hovered);
-        let r = respond(&mut ui, &[Event { kind: Event::POINTER_MOVED, x: 10.0, y: 10.0, ..Default::default() }]);
+        let r = respond(&mut ui, &[Event::pointer(Event::POINTER_MOVED, 0, 10.0, 10.0)]);
         assert!(r.hovered && !r.held && !r.clicked);
         let r = respond(&mut ui, &[pointer(Event::POINTER_PRESSED)]);
         assert!(r.held && r.hovered && !r.clicked && !r.secondary);
@@ -239,7 +239,7 @@ mod tests {
         assert!(!r.focused && !r.activated);
         testing::frame(&mut ui, &[], &mut |ui| { let b = ui.pressable("p", node(), &P, |_, _| {}).handle; ui.focus_box(&b); });
         assert!(respond(&mut ui, &[]).focused);
-        let enter = [Event { kind: Event::KEY_PRESSED, code: crate::KeyCode::Enter.wire(), ..Default::default() }];
+        let enter = [Event::key(Event::KEY_PRESSED, crate::KeyCode::Enter.wire())];
         let r = respond(&mut ui, &enter);
         assert!(r.clicked && r.activated && r.focused);
     }
@@ -253,7 +253,7 @@ mod tests {
             button.set(Some(ui.button("b", "Button", &crate::Button::DEFAULT)));
         };
         let mut ui = crate::doc::frames(2, &mut build);
-        let right = |kind: u32, x: f64, y: f64| Event { kind, code: 1, x, y, ..Default::default() };
+        let right = |kind: u32, x: f64, y: f64| Event::pointer(kind, 1, x, y);
         let r = respond(&mut ui, &[right(Event::POINTER_PRESSED, 10.0, 10.0)]);
         assert!(r.secondary && !r.clicked);
         assert_eq!(ui.signal(&r.handle).press_point, (10.0, 10.0), "where it landed is the signal's press point");
@@ -271,8 +271,8 @@ mod tests {
     /// The look follows the state through `States::pick`, and `f` is given the same state.
     #[test]
     fn looks_by_state_and_gives_f_the_state() {
-        let fill = |r: u8| Look { fill: Rgba { r, g: 0, b: 0, a: 255 }, ..Look::NONE };
-        let looks = States { idle: fill(10), hover: fill(20), pressed: fill(30), focus: fill(40), disabled: fill(50), checked: fill(60) };
+        let fill = |r: u8| Look::NONE.fill(Rgba::rgb(r, 0, 0));
+        let looks = States::of(fill(10)).hover(fill(20)).pressed(fill(30)).focus(fill(40)).disabled(fill(50)).checked(fill(60));
         let (selected, enabled, seen) = (Cell::new(false), Cell::new(true), Cell::new(State::default()));
         let mut build = |ui: &mut Ui| {
             let p = Pressable::DEFAULT.look(&looks).selected(selected.get()).disabled(!enabled.get());
@@ -280,13 +280,13 @@ mod tests {
         };
         let shown = |ui: &Ui| ui.layers().flat_map(|l| l.instances.iter()).find(|i| i.color[1..] == [0, 0, 255] && i.color[0] % 10 == 0).map(|i| i.color[0]);
         let mut ui = crate::doc::frames(2, &mut build);
-        testing::frame(&mut ui, &[Event { kind: Event::POINTER_MOVED, x: 300.0, y: 200.0, ..Default::default() }], &mut build);
+        testing::frame(&mut ui, &[Event::pointer(Event::POINTER_MOVED, 0, 300.0, 200.0)], &mut build);
         assert_eq!((shown(&ui), seen.get()), (Some(10), State::default()));
         testing::frame(&mut ui, &[pointer(Event::POINTER_MOVED)], &mut build);
         assert_eq!((shown(&ui), seen.get().hovered), (Some(20), true));
         testing::frame(&mut ui, &[pointer(Event::POINTER_PRESSED)], &mut build);
         assert_eq!((shown(&ui), seen.get().pressed), (Some(30), true));
-        testing::frame(&mut ui, &[pointer(Event::POINTER_RELEASED), Event { kind: Event::POINTER_MOVED, x: 300.0, y: 200.0, ..Default::default() }], &mut build);
+        testing::frame(&mut ui, &[pointer(Event::POINTER_RELEASED), Event::pointer(Event::POINTER_MOVED, 0, 300.0, 200.0)], &mut build);
         selected.set(true);
         testing::frame(&mut ui, &[], &mut build);
         assert_eq!((shown(&ui), seen.get().checked), (Some(60), true));
@@ -303,10 +303,10 @@ mod tests {
     fn disabled_never_clicks_and_tab_stop_is_optional() {
         let (enabled, tab_stop, under, last) = (Cell::new(true), Cell::new(true), Cell::new(false), Cell::new(None));
         let mut build = |ui: &mut Ui| {
-            let b = ui.node("under", Node { at: Some((0.0, 0.0)).into(), flags: Flags::CLICKABLE, role: Role::Unknown, ..node() });
+            let b = ui.node("under", node().at(0.0, 0.0).flags(Flags::CLICKABLE).role(Role::Unknown));
             under.set(under.get() | ui.signal(&b).clicked);
             let p = P.disabled(!enabled.get()).tab_stop(tab_stop.get());
-            last.set(Some(ui.pressable("p", Node { at: Some((0.0, 0.0)).into(), ..node() }, &p, |_, _| {})));
+            last.set(Some(ui.pressable("p", node().at(0.0, 0.0), &p, |_, _| {})));
         };
         let mut ui = crate::doc::frames(2, &mut build);
         let states = |ui: &Ui| ui.a11y_nodes().iter().find(|n| n.is_role(Role::Button)).unwrap().states;
@@ -318,12 +318,12 @@ mod tests {
         testing::click(&mut ui, 10.0, 10.0, &mut build);
         assert!(!last.get().unwrap().clicked && !under.get(), "disabled: no click, and the node under it is blocked");
         testing::frame(&mut ui, &[pointer(Event::POINTER_PRESSED)], &mut build);
-        let code = Event { kind: Event::POINTER_PRESSED, code: 1, x: 10.0, y: 10.0, ..Default::default() };
-        testing::frame(&mut ui, &[Event { kind: Event::POINTER_RELEASED, x: 10.0, y: 10.0, ..Default::default() }, code], &mut build);
+        let code = Event::pointer(Event::POINTER_PRESSED, 1, 10.0, 10.0);
+        testing::frame(&mut ui, &[Event::pointer(Event::POINTER_RELEASED, 0, 10.0, 10.0), code], &mut build);
         assert!(!last.get().unwrap().secondary, "disabled: no context menu");
         assert_eq!(states(&ui) & (state::ENABLED | state::FOCUSABLE), 0);
         (enabled.set(true), tab_stop.set(false));
-        testing::frame(&mut ui, &[Event { kind: Event::POINTER_RELEASED, code: 1, x: 10.0, y: 10.0, ..Default::default() }], &mut build);
+        testing::frame(&mut ui, &[Event::pointer(Event::POINTER_RELEASED, 1, 10.0, 10.0)], &mut build);
         testing::click(&mut ui, 10.0, 10.0, &mut build);
         assert!(last.get().unwrap().clicked, "no tab stop still clicks");
         assert_eq!(states(&ui) & (state::ENABLED | state::FOCUSABLE), state::ENABLED);
@@ -335,14 +335,14 @@ mod tests {
     fn a_gesture_taken_after_pressable_routes_the_next_input() {
         let (opts, seen, gesture, held) = (Cell::new(GestureOpts::DEFAULT.long_press()), Cell::new(State::default()), Cell::new(Default::default()), Cell::new(false));
         let mut build = |ui: &mut Ui| {
-            let r = ui.pressable("row", Node { at: Some((0.0, 0.0)).into(), w: Size::Px(200.0), h: Size::Px(50.0), ..Node::DEFAULT }, &P.tab_stop(false), |_, state| seen.set(state));
+            let r = ui.pressable("row", Node::DEFAULT.at(0.0, 0.0).w(Size::Px(200.0)).h(Size::Px(50.0)), &P.tab_stop(false), |_, state| seen.set(state));
             held.set(r.held);
             gesture.set(ui.gesture(&r.handle, &opts.get()));
         };
         let input = |time: f64| FrameIn::new(320.0, 240.0).time(time);
         let touch = |ui: &mut Ui, phase: u32, at: f64, build: &mut dyn FnMut(&mut Ui)| {
             let packet = Touch::new(1, 7, [100.0, 25.0], at, 1.0, phase);
-            let event = Event { kind: Event::TOUCH, text: Str { ptr: (&packet as *const Touch).cast(), len: core::mem::size_of::<Touch>() }, ..Default::default() };
+            let event = { let mut record = Event::default(); record.kind = Event::TOUCH; record.text = { let mut record = Str::default(); record.ptr = (&packet as *const Touch).cast(); record.len = core::mem::size_of::<Touch>(); record }; record };
             ui.frame(&{
                 let mut frame = input(at);
                 frame.events = core::slice::from_ref(&event);
@@ -385,7 +385,7 @@ mod tests {
     #[test]
     fn node_count_matches_hand_written() {
         let hand = crate::doc::frames(2, &mut |ui| {
-            let b = ui.node("p", Node { flags: Flags::CLICKABLE | Flags::TAB_STOP, ..node() });
+            let b = ui.node("p", node().flags(Flags::CLICKABLE | Flags::TAB_STOP));
             let _ = ui.signal(&b);
             ui.within(&b, &mut |ui| { ui.node("c", node()); });
         });

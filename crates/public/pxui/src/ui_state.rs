@@ -235,7 +235,7 @@ impl Ui {
     /// ```
     /// use pxui::{Event, KeyCode};
     /// let mut ui = pxui::doc::frames(1, &mut |_| {});
-    /// let press = [Event { kind: Event::KEY_PRESSED, code: 'a' as u32, ..Default::default() }];
+    /// let press = [Event::key(Event::KEY_PRESSED, 'a' as u32)];
     /// pxui::testing::frame(&mut ui, &press, &mut |ui| assert!(ui.key_down(KeyCode::Char('a'))));
     /// pxui::testing::frame(&mut ui, &[], &mut |ui| assert!(ui.key_down(KeyCode::Char('a'))));
     /// ```

@@ -574,7 +574,7 @@ impl<'a> TextSpans<'a> {
     ///
     /// ```
     /// use pxui_types::{TextSpan, TextSpans};
-    /// let bold = TextSpan { start: 0, end: 4, weight: 700, ..Default::default() };
+    /// let bold = { let mut record = TextSpan::new(0, 4); record.weight = 700; record };
     /// let list = [bold];
     /// let spans = TextSpans::new(&list);
     /// assert_eq!((spans.spans.len, spans.size), (1, 32));

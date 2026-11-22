@@ -120,8 +120,8 @@ fn ellipsis_modes_preserve_endpoints_and_independent_warm_caches() {
     use pxui_types::geom::Rgba;
     let mut t=Text::new(&[&pragma()]);
     let source="ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    let spans=[TextSpan { start:0,end:1,flags:TextSpan::COLOR,color:Rgba::rgba(255,0,0,255),..Default::default() },
-        TextSpan { start:25,end:26,flags:TextSpan::COLOR,color:Rgba::rgba(0,0,255,255),..Default::default() }];
+    let spans=[{ let mut record = TextSpan::new(0, 1); record.flags = TextSpan::COLOR; record.color = Rgba::rgba(255,0,0,255); record },
+        { let mut record = TextSpan::new(25, 26); record.flags = TextSpan::COLOR; record.color = Rgba::rgba(0,0,255,255); record }];
     let modes=[Ellipsis::None,Ellipsis::End,Ellipsis::Middle,Ellipsis::Head];
     let mut expected=Vec::new();
     t.layout(100,source,&Style { size:20.0,..Default::default() },1000.0);
@@ -488,8 +488,7 @@ fn inline_spans_validate_ranges_and_keep_colors_rules_and_warm_replay() {
     let mut text=Text::new(&[pxui_text::PRAGMASEVKA]);
     let style=Style { size:20.0,..Default::default() };
     let content="ab CD ef";
-    let span=TextSpan { start:3,end:5,weight:700,flags:TextSpan::COLOR|TextSpan::BACKGROUND|TextSpan::UNDERLINE,
-        color:Rgba::rgba(255,0,0,255),background:Rgba::rgba(0,0,255,64),underline:Rgba::rgba(0,255,0,255) };
+    let span={ let mut record = TextSpan::new(3, 5); record.weight = 700; record.flags = TextSpan::COLOR|TextSpan::BACKGROUND|TextSpan::UNDERLINE; record.color = Rgba::rgba(255,0,0,255); record.background = Rgba::rgba(0,0,255,64); record.underline = Rgba::rgba(0,255,0,255); record };
     let metrics=text.layout_spans(1,content,&style,0.0,&[span]).unwrap();
     let glyphs=emitted(&mut text,1);
     assert_eq!(glyphs.iter().filter(|g|g.color==Some([255,0,0,255])).count(),2);
@@ -515,16 +514,16 @@ fn inline_spans_validate_ranges_and_keep_colors_rules_and_warm_replay() {
         assert_eq!(count,glyphs.len()+2);
         assert_eq!(mem_sys::local_alloc_count(),0);
     }
-    for invalid in [TextSpan { end:99,..span },TextSpan { start:5,end:4,..span },TextSpan { start:3,end:3,..span },TextSpan { flags:8,..span }] {
+    for invalid in [{ let mut record = span; record.end = 99; record },{ let mut record = span; record.start = 5; record.end = 4; record },{ let mut record = span; record.start = 3; record.end = 3; record },{ let mut record = span; record.flags = 8; record }] {
         assert!(text.layout_spans(1,content,&style,0.0,&[invalid]).is_none());
     }
     assert!(text.layout_spans(1,content,&style,0.0,&[span,span]).is_none());
-    assert!(text.layout_spans(1,"é",&style,0.0,&[TextSpan { start:1,end:2,..span }]).is_none());
-    let eight:[TextSpan;8]=std::array::from_fn(|i|TextSpan { start:i as u32,end:i as u32+1,..span });
+    assert!(text.layout_spans(1,"é",&style,0.0,&[{ let mut record = span; record.start = 1; record.end = 2; record }]).is_none());
+    let eight:[TextSpan;8]=std::array::from_fn(|i|{ let mut record = span; record.start = i as u32; record.end = i as u32+1; record });
     assert!(text.layout_spans(2,"12345678",&style,0.0,&eight).is_some());
     // up to `TextSpans::MAX` (256) spans, one per byte; one more is refused
     let long="x".repeat(TextSpans::MAX+1);
-    let many:Vec<TextSpan>=(0..TextSpans::MAX+1).map(|i|TextSpan { start:i as u32,end:i as u32+1,..span }).collect();
+    let many:Vec<TextSpan>=(0..TextSpans::MAX+1).map(|i|{ let mut record = span; record.start = i as u32; record.end = i as u32+1; record }).collect();
     assert!(text.layout_spans(3,&long,&style,0.0,&many[..TextSpans::MAX]).is_some());
     assert!(text.layout_spans(4,&long,&style,0.0,&many).is_none());
 }
@@ -539,8 +538,7 @@ fn inline_spans_split_ligature_color_without_reshaping_or_losing_marks() {
     text.layout(1,"لا",&style,0.0);
     let original=emitted(&mut text,1);
     assert_eq!(original.len(),1,"fixture must form a ligature");
-    let span=TextSpan { start:2,end:4,flags:TextSpan::COLOR|TextSpan::BACKGROUND|TextSpan::UNDERLINE,
-        color:Rgba::rgba(255,0,0,255),background:Rgba::rgba(0,0,255,255),underline:Rgba::rgba(0,255,0,255),..Default::default() };
+    let span={ let mut record = TextSpan::new(2, 4); record.flags = TextSpan::COLOR|TextSpan::BACKGROUND|TextSpan::UNDERLINE; record.color = Rgba::rgba(255,0,0,255); record.background = Rgba::rgba(0,0,255,255); record.underline = Rgba::rgba(0,255,0,255); record };
     text.layout_spans(1,"لا",&style,0.0,&[span]).unwrap();
     let pieces=emitted(&mut text,1);
     assert_eq!(pieces.len(),2,"one bitmap clipped into inherited and span-coloured pieces");
@@ -569,7 +567,7 @@ fn inline_spans_use_source_offsets_across_crlf_and_wrapped_lines() {
     let mut text=Text::new(&[pxui_text::PRAGMASEVKA]);
     let content="ab\r\nββ cd ef";
     assert_eq!(&content.as_bytes()[2..4],&[13,10],"exercise actual CRLF offsets");
-    let span=TextSpan { start:4,end:content.len() as u32,flags:TextSpan::COLOR|TextSpan::UNDERLINE,color:Rgba::rgba(255,0,0,255),underline:Rgba::rgba(0,255,0,255),..Default::default() };
+    let span={ let mut record = TextSpan::new(4, content.len() as u32); record.flags = TextSpan::COLOR|TextSpan::UNDERLINE; record.color = Rgba::rgba(255,0,0,255); record.underline = Rgba::rgba(0,255,0,255); record };
     let style=Style { size:20.0,wrap:Wrap::Word,..Default::default() };
     let metrics=text.layout_spans(1,content,&style,45.0,&[span]).unwrap();
     assert!(metrics.lines>=3);
@@ -590,7 +588,7 @@ fn inline_spans_preserve_ellipsized_glyph_output() {
     text.layout(1,content,&style,60.0);
     let plain=emitted(&mut text,1);
     assert!(!plain.is_empty());
-    let span=TextSpan { start:0,end:content.len() as u32,flags:TextSpan::COLOR,color:Rgba::rgba(255,0,0,255),..Default::default() };
+    let span={ let mut record = TextSpan::new(0, content.len() as u32); record.flags = TextSpan::COLOR; record.color = Rgba::rgba(255,0,0,255); record };
     text.layout_spans(1,content,&style,60.0,&[span]).unwrap();
     let rich=emitted(&mut text,1);
     assert_eq!(plain.len(),rich.len());
@@ -605,7 +603,7 @@ fn inline_spans_keep_mixed_bidi_marks_disjoint() {
     const ARABIC:&[u8]=include_bytes!("../../../../assets/fonts/NotoSansArabic.ttf");
     let mut text=Text::new(&[ARABIC,pxui_text::PRAGMASEVKA]);
     let style=Style { size:20.0,..Default::default() };
-    let span=TextSpan { start:1,end:5,flags:TextSpan::BACKGROUND,background:Rgba::rgba(0,0,255,64),..Default::default() };
+    let span={ let mut record = TextSpan::new(1, 5); record.flags = TextSpan::BACKGROUND; record.background = Rgba::rgba(0,0,255,64); record };
     text.layout_spans(1,"ab لا cd",&style,0.0,&[span]).unwrap();
     let mut marks=Vec::new();
     text.decorations(1,false,&mut |d|marks.push(d.rect));
@@ -626,7 +624,7 @@ fn selection_streams_caret_ranges_across_bidi_ligatures_crlf_and_wrapping_withou
         ("cafe\u{301} track 10", 3, 6, 0.0),
         ("one two three\r\nfour five six", 1, 25, 65.0),
     ] {
-        let span = TextSpan { start, end, flags: TextSpan::BACKGROUND, ..Default::default() };
+        let span = { let mut record = TextSpan::new(start, end); record.flags = TextSpan::BACKGROUND; record };
         text.layout_spans(1, source, &style, width, &[span]).unwrap();
         let mut expected = Vec::new();
         text.decorations(1, false, &mut |decoration| expected.push(decoration.rect));

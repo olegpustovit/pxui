@@ -152,7 +152,7 @@ export!(bare pub unsafe fn pxui_prepared_destroy(record:*mut PxuiPreparedText) {
 mod prepared_tests {
     use super::*;
 
-    fn value(text:&str)->Str { Str { ptr:text.as_ptr(),len:text.len() } }
+    fn value(text:&str)->Str { { let mut record = Str::default(); record.ptr = text.as_ptr(); record.len = text.len(); record } }
 
     #[test]
     fn prepared_text_validation_preserves_outputs_and_reads_only_descriptor_prefixes() {
@@ -163,7 +163,7 @@ mod prepared_tests {
             let short=4u32;
             let mut oversized_count=TextSpans::default();
             oversized_count.spans.len=TextSpans::MAX+1;
-            let one=[pxui_types::TextSpan {start:1,end:2,..Default::default()}];
+            let one=[pxui_types::TextSpan::new(1, 2)];
             let mid_utf8=TextSpans::new(&one);
             let bad_utf8=[255u8];
             let mut out=core::ptr::dangling_mut();
@@ -175,7 +175,7 @@ mod prepared_tests {
                 (value("valid"),&style,200.0,&oversized_count),
                 (value("é"),&style,200.0,&mid_utf8),
                 (value("valid"),&style,f32::NAN,&spans),
-                (Str {ptr:bad_utf8.as_ptr(),len:1},&style,200.0,&spans),
+                ({ let mut record = Str::default(); record.ptr = bad_utf8.as_ptr(); record.len = 1; record },&style,200.0,&spans),
             ] {
                 assert_eq!(pxui_shaper_prepare(shaper,text,style,width,spans,&mut out,&mut measured),PXUI_ERR_ARGUMENT);
                 assert_eq!(out,sentinel);
@@ -216,7 +216,7 @@ mod prepared_tests {
             assert_eq!(pxui_text_install(other,record),crate::PXUI_ERR_STATE);
             let mut context=Context {owner:ui,record};
             let mut output=crate::FrameOut::default();
-            assert_eq!(crate::pxui_frame(ui,&crate::FrameIn {width:320.0,height:240.0,..Default::default()},Some(build),(&mut context as *mut Context).cast(),&mut output),0);
+            assert_eq!(crate::pxui_frame(ui,&crate::FrameIn::new(320.0, 240.0),Some(build),(&mut context as *mut Context).cast(),&mut output),0);
             // A split renderer callback owns the engine even though no UI frame is active.
             (*(*ui).shared).current=core::ptr::null_mut();
             assert!(pxui_text_fork(ui).is_null());
@@ -529,7 +529,7 @@ mod tests {
         let short=[8u32,0];
         assert!(unsafe { super::span_packet(short.as_ptr().cast()) }.is_none());
         assert_eq!(unsafe { super::span_packet(&TextSpans::default()) }.map(<[TextSpan]>::len),Some(0));
-        let bold=TextSpan { start:0,end:2,weight:700,..Default::default() };
+        let bold={ let mut record = TextSpan::new(0, 2); record.weight = 700; record };
         let many=[bold;TextSpans::MAX+1];
         assert_eq!(unsafe { super::span_packet(&TextSpans::new(&many[..TextSpans::MAX])) }.map(<[TextSpan]>::len),Some(TextSpans::MAX));
         assert!(unsafe { super::span_packet(&TextSpans::new(&many)) }.is_none(),"257 spans");
@@ -541,7 +541,7 @@ mod tests {
         assert!(unsafe { super::span_packet(&record(Strided { stride:dense.stride-1,..dense })) }.is_none(),"a stride below the span");
         assert!(unsafe { super::span_packet(&record(Strided { stride:dense.stride*2,..dense })) }.is_none(),"a wider stride is not read (spans carry no size)");
         assert!(unsafe { super::span_packet(&record(Strided { ptr:dense.ptr.cast::<u8>().wrapping_add(1).cast(),..dense })) }.is_none(),"a misaligned pointer");
-        let bad_flags=[TextSpan { flags:8,..bold }];
+        let bad_flags=[{ let mut record = bold; record.flags = 8; record }];
         assert!(unsafe { super::span_packet(&TextSpans::new(&bad_flags)) }.is_none(),"an unknown flag");
         let mut grown=TextSpans::new(&one);
         grown.size-=1;

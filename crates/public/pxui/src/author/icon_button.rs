@@ -277,7 +277,7 @@ mod tests {
     fn size_fills_its_line() {
         use crate::ui::{Node, Size};
         let mut build = |ui: &mut Ui| {
-            ui.row(Node { w: Size::Px(200.0), ..Node::DEFAULT }, |ui| { ui.icon_button("wide", PLAY, "Wide", &IconButton::DEFAULT.size(Size::Grow, Size::Px(44.0))); });
+            ui.row(Node::DEFAULT.w(Size::Px(200.0)), |ui| { ui.icon_button("wide", PLAY, "Wide", &IconButton::DEFAULT.size(Size::Grow, Size::Px(44.0))); });
             ui.icon_button("key", PLAY, "Key", &IconButton::DEFAULT.size(Size::Px(36.0), Size::Px(36.0)));
         };
         let ui = crate::doc::frames(2, &mut build);
@@ -308,7 +308,7 @@ mod tests {
     #[test]
     fn a_drawn_icon_is_painted_in_the_plate_with_the_states_ink_and_its_word() {
         use crate::ui::{Look, States};
-        let looks = States::of(Look { text: crate::geom::Rgba { r: 33, g: 0, b: 0, a: 255 }, ..Look::NONE });
+        let looks = States::of(Look::NONE.text(crate::geom::Rgba::rgb(33, 0, 0)));
         let key = KEY.look(&looks);
         let mut build = |ui: &mut Ui| {
             ui.icon_button("play", Icon::draw(play, 7), "Play", &key);

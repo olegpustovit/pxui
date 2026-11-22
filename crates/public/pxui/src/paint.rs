@@ -107,14 +107,14 @@ impl<'a> Paint<'a> {
     /// ```
     /// use pxui::{theme::ColorToken, Node, Rgba, Size, ThemeHandle};
     /// use std::{cell::Cell, rc::Rc};
-    /// let ink = Rgba { r: 20, g: 20, b: 20, a: 255 };
+    /// let ink = Rgba::rgb(20, 20, 20);
     /// let seen = Rc::new(Cell::new(Rgba::default()));
     /// let mut ui = pxui::doc::frames(1, &mut |_| {});
     /// let mut theme = ThemeHandle::default();
     /// theme.set_color(ColorToken(0), ink);
     /// ui.set_theme(&theme).unwrap();
     /// ui.frame(&pxui::FrameIn::new(100.0, 100.0), &mut |ui| {
-    ///     let b = ui.node("canvas", Node { w: Size::Px(10.0), h: Size::Px(10.0), ..Node::DEFAULT });
+    ///     let b = ui.node("canvas", Node::DEFAULT.w(Size::Px(10.0)).h(Size::Px(10.0)));
     ///     let seen = seen.clone();
     ///     ui.canvas(&b, move |p, _| seen.set(p.color(ColorToken(0))));
     /// }).unwrap();
@@ -199,7 +199,7 @@ impl<'a> Paint<'a> {
     /// use std::{cell::Cell, rc::Rc};
     /// let width = Rc::new(Cell::new(0.0));
     /// pxui::doc::frames(2, &mut |ui| {
-    ///     let node = ui.node("title", pxui::Node { w: pxui::ui::Size::Px(100.0), h: pxui::ui::Size::Px(20.0), ..pxui::Node::DEFAULT });
+    ///     let node = ui.node("title", pxui::Node::DEFAULT.w(pxui::ui::Size::Px(100.0)).h(pxui::ui::Size::Px(20.0)));
     ///     let width = width.clone();
     ///     ui.canvas(&node, move |paint, rect| width.set(paint.text(pxui::Point::new(rect.x, rect.y), Label::TITLE, 0.0, "Songs").width));
     /// });
@@ -223,7 +223,7 @@ impl<'a> Paint<'a> {
     /// use std::{cell::Cell, rc::Rc};
     /// let width = Rc::new(Cell::new(0.0));
     /// pxui::doc::frames(2, &mut |ui| {
-    ///     let node = ui.node("clock", pxui::Node { w: pxui::ui::Size::Px(100.0), h: pxui::ui::Size::Px(20.0), ..pxui::Node::DEFAULT });
+    ///     let node = ui.node("clock", pxui::Node::DEFAULT.w(pxui::ui::Size::Px(100.0)).h(pxui::ui::Size::Px(20.0)));
     ///     let width = width.clone();
     ///     ui.canvas(&node, move |paint, rect| width.set(paint.text_chars(pxui::Point::new(rect.x, rect.y), pxui::Label::MONO, "1:23.4")));
     /// });
@@ -247,10 +247,10 @@ impl<'a> Paint<'a> {
     /// let width = Rc::new(Cell::new(0.0));
     /// let out = width.clone();
     /// pxui::doc::frames(2, &mut |ui| {
-    ///     let node = ui.node("rich", pxui::Node { w: pxui::ui::Size::Px(200.0), h: pxui::ui::Size::Px(30.0), ..pxui::Node::DEFAULT });
+    ///     let node = ui.node("rich", pxui::Node::DEFAULT.w(pxui::ui::Size::Px(200.0)).h(pxui::ui::Size::Px(30.0)));
     ///     let out = out.clone();
     ///     ui.canvas(&node, move |paint, rect| {
-    ///         let bold = TextSpan { start: 0, end: 5, weight: 700, ..Default::default() };
+    ///         let bold = { let mut record = TextSpan::new(0, 5); record.weight = 700; record };
     ///         out.set(paint.text_spans(pxui::Point::new(rect.x, rect.y), Label::BODY, 0.0, "Hello world", &[bold]).unwrap().width);
     ///     });
     /// });
@@ -759,13 +759,13 @@ mod tests {
     use crate::FrameIn;
     use pxui_types::{Node, Size};
 
-    const INK: Rgba = Rgba { r: 1, g: 2, b: 3, a: 255 };
+    const INK: Rgba = Rgba::rgb(1, 2, 3);
     const NARROW: Rect = Rect::new(10.0, 10.0, 30.0, 20.0);
 
     fn frame_with(ui: &mut crate::Ui, canvas: fn(&mut Paint<'_>, Rect)) -> Result<(), crate::Error> {
         let mut canvas = Some(canvas);
         ui.frame(&FrameIn::new(200.0, 100.0), &mut |ui: &mut crate::Ui| {
-            let node = ui.node("canvas", Node { w: Size::Px(80.0), h: Size::Px(40.0), ..Node::DEFAULT });
+            let node = ui.node("canvas", Node::DEFAULT.w(Size::Px(80.0)).h(Size::Px(40.0)));
             if let Some(canvas) = canvas.take() { ui.canvas(&node, canvas); }
         }).map(|_| ())
     }

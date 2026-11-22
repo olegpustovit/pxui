@@ -306,7 +306,7 @@ impl Ui {
     /// ```
     /// use pxui::{ui::Size, GestureOpts, Node};
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let row = ui.node("row", Node { h: Size::Px(44.0), ..Node::DEFAULT });
+    ///     let row = ui.node("row", Node::DEFAULT.h(Size::Px(44.0)));
     ///     let state = ui.gesture(&row, &GestureOpts::DEFAULT.long_press().row_swipe(80.0));
     ///     assert!(!state.long_pressed && !state.swiping);
     /// });
@@ -431,7 +431,7 @@ impl Ui {
     ///
     /// ```
     /// let mut b = None;
-    /// let ui = pxui::doc::frames(2, &mut |ui| b = Some(ui.node("n", pxui::Node { w: pxui::ui::Size::Px(30.0), h: pxui::ui::Size::Px(10.0), ..pxui::Node::DEFAULT })));
+    /// let ui = pxui::doc::frames(2, &mut |ui| b = Some(ui.node("n", pxui::Node::DEFAULT.w(pxui::ui::Size::Px(30.0)).h(pxui::ui::Size::Px(10.0)))));
     /// let r = ui.local_rect(&b.unwrap());
     /// assert_eq!((r.w, r.h), (30.0, 10.0));
     /// ```
@@ -745,8 +745,8 @@ impl Ui {
     /// ```
     /// use pxui::{ui::Size, Event, Node};
     /// let mut key = 0;
-    /// let ui = pxui::doc::frames(2, &mut |ui| key = ui.node("n", Node { flags: pxui::ui::Flags::CLICKABLE, w: Size::Px(50.0), h: Size::Px(50.0), ..Node::DEFAULT }).box_key);
-    /// let press = |x| [Event { kind: Event::POINTER_PRESSED, x, y: 10.0, ..Default::default() }];
+    /// let ui = pxui::doc::frames(2, &mut |ui| key = ui.node("n", Node::DEFAULT.flags(pxui::ui::Flags::CLICKABLE).w(Size::Px(50.0)).h(Size::Px(50.0))).box_key);
+    /// let press = |x| [Event::pointer(Event::POINTER_PRESSED, 0, x, 10.0)];
     /// let key = pxui::Key::Resolved(key);
     /// assert_eq!(ui.last_press_within(&press(10.0), &[key]), Some(key));
     /// assert_eq!(ui.last_press_within(&press(200.0), &[key]), None);
@@ -827,7 +827,7 @@ impl Ui {
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let b = ui.node("n", pxui::Node { w: pxui::ui::Size::Px(5.0), ..pxui::Node::DEFAULT });
+    ///     let b = ui.node("n", pxui::Node::DEFAULT.w(pxui::ui::Size::Px(5.0)));
     ///     assert!(matches!(ui.node_layout(&b).w, pxui::ui::Size::Px(5.0)));
     /// });
     /// ```
@@ -848,7 +848,7 @@ impl Ui {
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
     ///     let b = ui.node("n", pxui::Node::DEFAULT);
-    ///     let wide = pxui::Node { w: pxui::ui::Size::Px(80.0), ..ui.node_layout(&b) };
+    ///     let wide = ui.node_layout(&b).w(pxui::ui::Size::Px(80.0));
     ///     ui.set_node_layout(&b, &wide);
     ///     assert!(matches!(ui.node_layout(&b).w, pxui::ui::Size::Px(80.0)));
     /// });

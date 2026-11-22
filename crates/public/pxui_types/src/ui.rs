@@ -800,7 +800,7 @@ impl<'a> Overlay<'a> {
     ///
     /// ```
     /// use pxui_types::{geom::Rgba, ui::Overlay};
-    /// const EDGED: Overlay = Overlay::DEFAULT.stroke(Rgba { r: 0, g: 0, b: 0, a: 40 });
+    /// const EDGED: Overlay = Overlay::DEFAULT.stroke(Rgba::rgba(0, 0, 0, 40));
     /// assert!(EDGED.stroke.is_some());
     /// ```
     pub const fn stroke(mut self, color: Rgba) -> Overlay<'a> { self.stroke = Some(color); self }
@@ -1242,7 +1242,7 @@ impl<'a> MenuItem<'a> {
     ///
     /// ```
     /// use pxui_types::{geom::Rgba, ui::MenuItem};
-    /// let row = MenuItem::new("Red").swatch(Rgba { r: 255, g: 0, b: 0, a: 255 });
+    /// let row = MenuItem::new("Red").swatch(Rgba::rgb(255, 0, 0));
     /// assert!(row.swatch.is_some());
     /// ```
     pub const fn swatch(mut self, color: Rgba) -> MenuItem<'a> { self.swatch = Some(color); self }

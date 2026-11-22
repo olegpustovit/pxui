@@ -122,7 +122,7 @@ impl Paint<'_> {
     ///
     /// ```
     /// use pxui::{draw::Fit, Image, ImageStyle};
-    /// let image = Image { mtl_texture: std::ptr::dangling_mut(), width: 8, height: 4, format: Image::FORMAT_RGBA8, ..Default::default() };
+    /// let image = { let mut record = Image::default(); record.mtl_texture = std::ptr::dangling_mut(); record.width = 8; record.height = 4; record.format = Image::FORMAT_RGBA8; record };
     /// pxui::doc::frames(1, &mut |ui| {
     ///     let node = ui.node("art", pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
     ///     ui.canvas(&node, move |paint, rect| {
@@ -146,7 +146,7 @@ mod tests {
     /// keeps its node; images are keyed by their key, and a different key is a different node.
     #[test]
     fn an_image_name_is_verbatim_accessibility_and_not_identity() {
-        let image = Image { mtl_texture: std::ptr::dangling_mut(), width: 8, height: 4, format: Image::FORMAT_RGBA8, ..Default::default() };
+        let image = { let mut record = Image::default(); record.mtl_texture = std::ptr::dangling_mut(); record.width = 8; record.height = 4; record.format = Image::FORMAT_RGBA8; record };
         let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
         ui.set_a11y(true);
         let mut keys = [(0i64, 0i64); 2];
@@ -167,7 +167,7 @@ mod tests {
     fn warm_image_widgets_painted_images_and_shapes_allocate_nothing() {
         mem_sys::set_peer(crate::library_counter);
         const THUMB: ImageStyle = ImageStyle::DEFAULT.fit(Fit::Cover).w_px(40.0).h_px(40.0);
-        let image = Image { mtl_texture: std::ptr::dangling_mut(), width: 8, height: 4, format: Image::FORMAT_RGBA8, ..Default::default() };
+        let image = { let mut record = Image::default(); record.mtl_texture = std::ptr::dangling_mut(); record.width = 8; record.height = 4; record.format = Image::FORMAT_RGBA8; record };
         let ink = Rgba::rgb(10, 20, 30);
         let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
         for frame in 0..12 {

@@ -159,7 +159,7 @@ mod tests {
     thread_local! { static SEEN: RefCell<Vec<(&'static str, String)>> = const { RefCell::new(Vec::new()) }; }
     fn seen(kind: &'static str, text: &str) { SEEN.with(|s| s.borrow_mut().push((kind, text.to_owned()))); }
     /// Each registered body builds one marker node of its own, named by its kind, so the custom structure shows in the tree.
-    fn marker(ui: &mut Ui, kind: &'static str) { let n = ui.node(kind, Node { w: Size::Px(10.0), h: Size::Px(10.0), role: Role::Image, ..Node::DEFAULT }); ui.a11y_name(&n, kind); }
+    fn marker(ui: &mut Ui, kind: &'static str) { let n = ui.node(kind, Node::DEFAULT.w(Size::Px(10.0)).h(Size::Px(10.0)).role(Role::Image)); ui.a11y_name(&n, kind); }
     fn sheet(ui: &mut Ui, label: &str, content: pxui_types::ffi::PxuiSlot, kind: &'static str) { seen(kind, label); marker(ui, kind); ui.slot(content); }
     fn panel(ui: &mut Ui, c: &PanelConfig) { sheet(ui, c.text_of(&c.label), c.content, "panel") }
     fn popup(ui: &mut Ui, c: &PopupConfig) { sheet(ui, c.text_of(&c.label), c.content, "popup") }
@@ -401,7 +401,7 @@ mod tests {
         let touch = |ui: &mut Ui, build: &mut dyn FnMut(&mut Ui), phase: u32, x: f64, y: f64| {
             time.set(time.get() + 0.016 + if phase == 2 { 0.5 } else { 0.0 });
             let packet = crate::Touch::new(1, 7, [x, y], time.get(), 1.0, phase);
-            let event = Event { kind: Event::TOUCH, text: crate::Str { ptr: (&packet as *const crate::Touch).cast(), len: core::mem::size_of::<crate::Touch>() }, ..Default::default() };
+            let event = { let mut record = Event::default(); record.kind = Event::TOUCH; record.text = { let mut record = crate::Str::default(); record.ptr = (&packet as *const crate::Touch).cast(); record.len = core::mem::size_of::<crate::Touch>(); record }; record };
             let mut frame = FrameIn::new(400.0, 400.0).time(time.get());
             frame.events = core::slice::from_ref(&event);
             ui.frame(&frame, build).unwrap();
@@ -435,7 +435,7 @@ mod tests {
     #[test]
     fn a_panel_look_is_drawn_and_a_plain_panel_keeps_the_theme_look() {
         use pxui_types::{geom::Rgba, theme::Look};
-        static LOOK: Look = Look::NONE.fill(Rgba { r: 201, g: 13, b: 77, a: 255 });
+        static LOOK: Look = Look::NONE.fill(Rgba::rgb(201, 13, 77));
         let painted = |overlay: &Overlay| {
             let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
             let mut build = |ui: &mut Ui| { ui.panel("p", overlay, |ui| { ui.label("x", crate::Label::BODY); }); };

@@ -52,7 +52,7 @@ impl Ui {
     ///
     /// ```
     /// use pxui::{theme::ColorToken, Label, Node};
-    /// let (paper, ink) = (pxui::geom::Rgba { r: 250, g: 250, b: 250, a: 255 }, pxui::geom::Rgba { r: 90, g: 90, b: 90, a: 255 });
+    /// let (paper, ink) = (pxui::geom::Rgba::rgb(250, 250, 250), pxui::geom::Rgba::rgb(90, 90, 90));
     /// const DIM_INK: ColorToken = ColorToken(0);
     /// const ROW: Node = Node::row().h_px(44.0).gap(8.0).center();
     /// const TITLE: Label = Label::BODY.size(15.0).bold();
@@ -74,7 +74,7 @@ impl Ui {
     ///         ui.label_digits(format_args!("{m}:{s:02}"), CLOCK);
     ///         ui.label("Section", Label::DEFAULT);
     ///         let badge = ui.label("New", Label::CAPTION);
-    ///         ui.style(&badge, &pxui::theme::States::of(pxui::ui::Look { fill: ink, ..pxui::ui::Look::NONE }), pxui::ui::State::default());
+    ///         ui.style(&badge, &pxui::theme::States::of(pxui::ui::Look::NONE.fill(ink)), pxui::ui::State::default());
     ///     }).unwrap();
     /// }
     /// assert!(ui.a11y_nodes().iter().any(|n| ui.a11y_name_of(n) == "5 of 12"));
@@ -191,13 +191,13 @@ mod tests {
         ui
     }
 
-    const RED: Rgba = Rgba { r: 255, g: 0, b: 0, a: 255 };
+    const RED: Rgba = Rgba::rgb(255, 0, 0);
     const LONG: &str = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau";
 
     /// `label` inside a column (`Fit` tall, `w` wide), returning the column's handle: its rectangle is the label's.
     fn boxed(ui: &mut crate::Ui, key: &'static str, w: Size, text: &str, style: Label) -> crate::Handle {
         let mut column = None;
-        ui.id(key, |ui| column = Some(ui.column(Node { w, ..Node::DEFAULT }, |ui| { ui.label(text, style); })));
+        ui.id(key, |ui| column = Some(ui.column(Node::DEFAULT.w(w), |ui| { ui.label(text, style); })));
         column.unwrap()
     }
 
@@ -277,8 +277,8 @@ mod tests {
     fn label_width_and_colour_options_apply() {
         let (mut fit, mut fixed, mut grown) = (None, None, None);
         let ui = settle(&mut |ui| {
-            fit = Some(ui.row(Node { w: Size::Fit, ..Node::DEFAULT }, |ui| { ui.label("hi", Label::BODY.color(ColorToken(0))); }));
-            fixed = Some(ui.row(Node { w: Size::Fit, ..Node::DEFAULT }, |ui| { ui.label("hi", Label::BODY.w(Size::Px(50.0))); }));
+            fit = Some(ui.row(Node::DEFAULT.w(Size::Fit), |ui| { ui.label("hi", Label::BODY.color(ColorToken(0))); }));
+            fixed = Some(ui.row(Node::DEFAULT.w(Size::Fit), |ui| { ui.label("hi", Label::BODY.w(Size::Px(50.0))); }));
             grown = Some(ui.row(Node::DEFAULT, |ui| { ui.label("hi", Label::BODY.grow()); }));
         });
         let (fit, fixed, grown) = (ui.rect(&fit.unwrap()), ui.rect(&fixed.unwrap()), ui.rect(&grown.unwrap()));
@@ -331,7 +331,7 @@ mod tests {
     fn digits_take_one_width_whatever_the_digits() {
         let width = |value: u32| {
             let mut b = None;
-            let ui = settle(&mut |ui| b = Some(ui.row(Node { w: Size::Fit, ..Node::DEFAULT }, |ui| { ui.label_digits(format_args!("{}:{}", value, value * 11), Label::BODY); })));
+            let ui = settle(&mut |ui| b = Some(ui.row(Node::DEFAULT.w(Size::Fit), |ui| { ui.label_digits(format_args!("{}:{}", value, value * 11), Label::BODY); })));
             ui.rect(&b.unwrap()).w
         };
         assert!(width(1) > 0.0);
@@ -348,7 +348,7 @@ mod tests {
         assert!(c.size as usize >= core::mem::size_of::<crate::bodies::LabelConfig>(), "this library carries the style and the box");
         SEEN.with(|s| s.borrow_mut().push((c.text_of(&c.text).to_owned(), c.style.set, c.style.digits, c.style.size_points, c.style.color)));
         GROWN.with(|g| g.borrow_mut().push((c.label_box.set, c.label_box.height, c.label_box.role, c.label_box.whole_pixels)));
-        ui.node("mark", Node { h: Size::Px(30.0), ..Node::DEFAULT });
+        ui.node("mark", Node::DEFAULT.h(Size::Px(30.0)));
     }
 
     /// With a registered label body every label goes through it with its style as given: the theme's label with nothing set, a
@@ -411,7 +411,7 @@ mod tests {
         const HEADING: Label = Label::BODY.size(13.0).line_height(18.2).lines(1).ellipsis();
         let (mut boxed, mut plain, mut lined, mut hidden) = (None, None, None, None);
         let ui = settle(&mut |ui| {
-            boxed = Some(ui.row(Node { w: Size::Fit, ..Node::DEFAULT }, |ui| { ui.label("Heading", HEADING.h_px(30.0).whole_pixels().role(Role::Paragraph)); }));
+            boxed = Some(ui.row(Node::DEFAULT.w(Size::Fit), |ui| { ui.label("Heading", HEADING.h_px(30.0).whole_pixels().role(Role::Paragraph)); }));
             plain = Some(ui.label("Heading", HEADING));
             lined = Some(ui.label("Heading", HEADING.line_height(30.0)));
             hidden = Some(ui.label("Caption", HEADING.role(Role::Unknown)));

@@ -372,11 +372,11 @@ mod item_text_tests {
         let input = crate::FrameIn::new(400.0, 300.0);
         for _ in 0..2 {
             ui.frame(&input, &mut |ui: &mut Ui| {
-                let half = ui.node("lists", crate::Node { h: crate::ui::Size::Px(80.0), ..crate::Node::DEFAULT });
+                let half = ui.node("lists", crate::Node::DEFAULT.h(crate::ui::Size::Px(80.0)));
                 ui.within(&half, &mut |ui| { ui.selection_list("list", 1, &|i| i as i64, &mut list, &crate::SelectionList::DEFAULT, &mut |ui, part, _| if let crate::ui::SectionPart::Row(_) = part { ui.item_text("list row") }); });
-                let half = ui.node("trees", crate::Node { h: crate::ui::Size::Px(80.0), ..crate::Node::DEFAULT });
+                let half = ui.node("trees", crate::Node::DEFAULT.h(crate::ui::Size::Px(80.0)));
                 ui.within(&half, &mut |ui| { ui.tree("tree", &nodes, &mut tree, &mut |ui, _| ui.item_text("tree row")); });
-                let half = ui.node("tables", crate::Node { h: crate::ui::Size::Px(80.0), ..crate::Node::DEFAULT });
+                let half = ui.node("tables", crate::Node::DEFAULT.h(crate::ui::Size::Px(80.0)));
                 ui.within(&half, &mut |ui| { ui.table("table", &[crate::Column::new("A").w_px(80.0)], 1, &|i| i as i64, &mut table, &crate::Table::DEFAULT, &mut |ui, _, _, _| ui.item_text("table cell")); });
             }).expect("frame");
         }

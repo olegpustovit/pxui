@@ -94,7 +94,7 @@ fn cells(i: usize, c: usize, put: &mut dyn FnMut(&str)) {
 
 /// A fixed-height box for a widget that fills its parent.
 fn sized(ui: &mut Ui, label: &str, h: f32, f: &mut dyn FnMut(&mut Ui)) {
-    let b = ui.node_ref(label, &Node { h: Size::Px(h), ..Node::DEFAULT });
+    let b = ui.node_ref(label, &Node::DEFAULT.h(Size::Px(h)));
     ui.within(&b, f);
 }
 
@@ -118,9 +118,9 @@ pub fn body(ui: &mut Ui, s: &mut S) {
         s.picked = Some(p);
     }
     s.busy.clear();
-    let row = ui.node("columns".into(), Node { w: Size::Px(W as f32), h: Size::Fit, axis: Axis::Row, at: Some((0.0, 24.0)).into(), ..Node::DEFAULT });
+    let row = ui.node("columns".into(), Node::DEFAULT.w(Size::Px(W as f32)).h(Size::Fit).axis(Axis::Row).at(0.0, 24.0));
     ui.within(&row, &mut |ui| {
-        let left = ui.node("left".into(), Node { w: Size::Px(240.0), ..Node::DEFAULT });
+        let left = ui.node("left".into(), Node::DEFAULT.w(Size::Px(240.0)));
         ui.within(&left, &mut |ui| {
             s.check = s.check ^ ui.checkbox("Check", "Check", s.check, &pxui_core::ui::Checkbox::DEFAULT).clicked;
             s.radio = ui.pick_radio("Radio", "Radio", 3, &|i| pxui_core::ui::Segment::new(["One", "Two", "Three"][i]), Some(s.radio), 0).1.unwrap_or(0);
@@ -133,7 +133,7 @@ pub fn body(ui: &mut Ui, s: &mut S) {
             s.tab = ui.tabs("Tabs", "Tabs", 3, &|i| pxui_core::ui::Segment::new(["Alpha", "Beta", "Gamma"][i]), Some(s.tab), 0, false).1.unwrap_or(s.tab);
             s.seg = ui.segmented_opts("Mode", "Mode", &[Segment::new("A"), Segment::new("B"), Segment::new("C")], Some(s.seg), &SegmentedOpts::DEFAULT).1.unwrap_or(s.seg);
             s.drop = ui.pick_dropdown("Pick", "Pick", NAMES.len(), &|i| pxui_core::ui::Segment::new(NAMES[i]), Some(s.drop), 0).1.unwrap_or(0);
-            let holder = ui.node("add-row".into(), Node { h: Size::Px(24.0), axis: Axis::Row, padding: Edges { l: 12.0, t: 2.0, ..Edges::ZERO }, ..Node::DEFAULT });
+            let holder = ui.node("add-row".into(), Node::DEFAULT.h(Size::Px(24.0)).axis(Axis::Row).padding(Edges::ZERO.l(12.0).t(2.0)));
             ui.within(&holder, &mut |ui| {
                 if ui.icon_button("Add", Icon::Glyph('+'), "Add", &IconButton::DEFAULT).clicked {
                     s.icon += 1;
@@ -151,7 +151,7 @@ pub fn body(ui: &mut Ui, s: &mut S) {
                 (signal.clicked, signal.hovered, signal.held, ui.focused(&r.handle), signal.clicked && !signal.released, signal.pressed && signal.button == Some(input::MouseButton::RightButton)));
             s.scroll = Some(ui.scroll_view("Scroll", Node::DEFAULT.h_px(60.0), &mut |ui| {
                 for name in NAMES {
-                    let n = ui.node_ref(name, &Node { w: Size::Px(400.0), h: Size::Px(24.0), ..Node::DEFAULT });
+                    let n = ui.node_ref(name, &Node::DEFAULT.w(Size::Px(400.0)).h(Size::Px(24.0)));
                     ui.text(&n, name);
                 }
             }));
@@ -160,9 +160,9 @@ pub fn body(ui: &mut Ui, s: &mut S) {
                 ui.image("Picture", &image, pxui_core::draw::Fit::Contain, Size::Px(48.0), Size::Px(32.0));
             }
         });
-        let right = ui.node("right".into(), Node { w: Size::Px(240.0), ..Node::DEFAULT });
+        let right = ui.node("right".into(), Node::DEFAULT.w(Size::Px(240.0)));
         ui.within(&right, &mut |ui| {
-            let b = ui.node("list-box".into(), Node { h: Size::Px(120.0), ..Node::DEFAULT });
+            let b = ui.node("list-box".into(), Node::DEFAULT.h(Size::Px(120.0)));
             ui.within(&b, &mut |ui| {
                 if let Some(a) = ui.selection_rows("List", BIG, &|i| i as i64, &mut s.list, &mut s.list_anchor, None, &pxui_core::ui::SelectionList { mode: s.mode, ..pxui_core::ui::SelectionList::DEFAULT }, &mut |ui, i, _| if i < BIG { names(i, &mut |t| ui.item_text(t)) }).activated {
                     s.activated = Some(a);
@@ -442,7 +442,7 @@ fn widgets_scroll_view_rtl() {
     let (view, row) = (std::cell::Cell::new(None), std::cell::Cell::new(None));
     let mut build = |ui: &mut Ui| {
         view.set(Some(ui.scroll_view("Scroll", Node::DEFAULT.w_px(200.0).h_px(60.0), &mut |ui| {
-            let n = ui.node("wide".into(), Node { w: Size::Px(400.0), h: Size::Px(24.0), inset: Edges { l: 8.0, ..Edges::ZERO }, ..Node::DEFAULT });
+            let n = ui.node("wide".into(), Node::DEFAULT.w(Size::Px(400.0)).h(Size::Px(24.0)).inset(Edges::ZERO.l(8.0)));
             ui.text(&n, "alpha");
             row.set(Some(n));
         })));

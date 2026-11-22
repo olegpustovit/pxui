@@ -119,7 +119,7 @@ mod tests {
         }
         let mut state = (f, i32::MIN);
         let mut out = FrameOut::default();
-        let input = FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() };
+        let input = FrameIn::new(320.0, 240.0);
         assert_eq!(unsafe { pxui_frame(ui, &input, Some(build), (&mut state as *mut (&mut dyn FnMut(*mut PxuiUi) -> i32, i32)).cast(), &mut out) }, 0);
         state.1
     }
@@ -135,7 +135,7 @@ mod tests {
         let nodes: Vec<PxuiTreeNode> = (0..20).map(|i| PxuiTreeNode { depth: (i % 2) as u16, children: (i % 2 == 0) as u8 }).collect();
         let (mut open, mut visible, mut selected, mut shown) = (vec![0u8; 20], vec![0u32; 20], usize::MAX, 0usize);
         open[0] = 1;
-        let label = Str { ptr: b"tree".as_ptr(), len: 4 };
+        let label = { let mut record = Str::default(); record.ptr = b"tree".as_ptr(); record.len = 4; record };
         let call = |ui: *mut PxuiUi, has_revision: u8, reserved: [u8; 3], open: &mut [u8], visible: &mut [u32], selected: &mut usize, shown: &mut usize| {
             let desc = PxuiTreeViewDesc { size: core::mem::size_of::<PxuiTreeViewDesc>() as u32, has_revision, reserved, label, nodes: pxui_types::ffi::Slice { ptr: nodes.as_ptr(), len: nodes.len() },
                 open: PxuiU8MutSpan { ptr: open.as_mut_ptr(), len: open.len() }, selected, visible: PxuiU32MutSpan { ptr: visible.as_mut_ptr(), len: visible.len() }, visible_len: shown,

@@ -285,7 +285,7 @@ impl<'a> ValueField<'a> {
     /// Panics: never.
     ///
     /// ```
-    /// const STYLE: pxui::ValueField = pxui::ValueField::DEFAULT.lead("x", pxui::ui::Rgba { r: 200, g: 200, b: 200, a: 255 });
+    /// const STYLE: pxui::ValueField = pxui::ValueField::DEFAULT.lead("x", pxui::ui::Rgba::rgb(200, 200, 200));
     /// let _ = STYLE;
     /// ```
     pub const fn lead(mut self, text: &'a str, color: Rgba) -> ValueField<'a> { self.lead = Some((text, color)); self }
@@ -294,7 +294,7 @@ impl<'a> ValueField<'a> {
     /// Panics: never.
     ///
     /// ```
-    /// const STYLE: pxui::ValueField = pxui::ValueField::DEFAULT.trail("px", pxui::ui::Rgba { r: 200, g: 200, b: 200, a: 255 });
+    /// const STYLE: pxui::ValueField = pxui::ValueField::DEFAULT.trail("px", pxui::ui::Rgba::rgb(200, 200, 200));
     /// let _ = STYLE;
     /// ```
     pub const fn trail(mut self, text: &'a str, color: Rgba) -> ValueField<'a> { self.trail = Some((text, color)); self }
@@ -303,7 +303,7 @@ impl<'a> ValueField<'a> {
     /// Panics: never.
     ///
     /// ```
-    /// const STYLE: pxui::ValueField = pxui::ValueField::DEFAULT.line(pxui::ui::Rgba { r: 200, g: 200, b: 200, a: 255 });
+    /// const STYLE: pxui::ValueField = pxui::ValueField::DEFAULT.line(pxui::ui::Rgba::rgb(200, 200, 200));
     /// let _ = STYLE;
     /// ```
     pub const fn line(mut self, color: Rgba) -> ValueField<'a> { self.line = Some(color); self }
@@ -543,7 +543,7 @@ impl<'a> TextArea<'a> {
     /// Panics: never.
     ///
     /// ```
-    /// const CHIPS: [(usize, usize, pxui::ui::Rgba); 1] = [(0, 3, pxui::ui::Rgba { r: 200, g: 200, b: 200, a: 255 })];
+    /// const CHIPS: [(usize, usize, pxui::ui::Rgba); 1] = [(0, 3, pxui::ui::Rgba::rgb(200, 200, 200))];
     /// const STYLE: pxui::TextArea = pxui::TextArea::DEFAULT.chips(&CHIPS);
     /// let _ = STYLE;
     /// ```
@@ -600,7 +600,7 @@ impl<'a> Language<'a> {
     /// Panics: never.
     ///
     /// ```
-    /// let ink = pxui::ui::Rgba { r: 200, g: 200, b: 200, a: 255 };
+    /// let ink = pxui::ui::Rgba::rgb(200, 200, 200);
     /// let f = |text: &str| if text.is_empty() { Vec::new() } else { vec![(0, text.len(), ink)] };
     /// let _ = pxui::Language::DEFAULT.colorize(&f);
     /// ```

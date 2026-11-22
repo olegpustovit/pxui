@@ -58,17 +58,17 @@ impl BodiesPage {
     }
 }
 
-fn ink(ui: &Ui) -> Look { Look { fill: ui.theme().tokens.accent, ..Look::NONE } }
+fn ink(ui: &Ui) -> Look { Look::NONE.fill(ui.theme().tokens.accent) }
 
 /// A toggle as a checkbox: a 12-point box at the row's start is the hit area, the label after it.
 fn checkbox_toggle(ui: &mut Ui, c: &ToggleConfig) {
     let state = State::from(c.state);
     let (look, boxes) = { let t = ui.theme(); (*t.toggle.pick(state), t.checkbox) };
     ui.style(&c.row, &pxui::theme::States::of(look), state);
-    ui.node_mut(&c.row, &mut |n| n.inset = Edges { l: 24.0, ..Edges::ZERO });
+    ui.node_mut(&c.row, &mut |n| n.inset = Edges::ZERO.l(24.0));
     ui.text(&c.row, c.text_of(&c.label));
-    let b = ui.part(Part::HIT, Node { at: Some((6.0, 6.0)).into(), w: Size::Px(12.0), h: Size::Px(12.0), ..Node::DEFAULT });
-    ui.style(&b, &boxes, State { hovered: state.hovered, checked: c.on != 0, ..State::default() });
+    let b = ui.part(Part::HIT, Node::DEFAULT.at(6.0, 6.0).w(Size::Px(12.0)).h(Size::Px(12.0)));
+    ui.style(&b, &boxes, State::default().hovered(state.hovered).checked(c.on != 0));
 }
 
 /// A slider with a round 24-point thumb on a 4-point rail: behaviour maps the pointer across the rail, half the thumb kept at each end.
@@ -76,14 +76,14 @@ fn round_slider(ui: &mut Ui, c: &SliderConfig) {
     let state = State::from(c.state);
     let (rail, fill, thumb) = { let t = ui.theme(); (t.separator.idle, t.mark.idle, t.slider) };
     let fraction = c.fraction;
-    ui.part(Part::RAIL, Node { h: Size::Px(4.0), look: rail, ..Node::DEFAULT });
-    ui.node("fill", Node { w: Size::Pct(fraction), h: Size::Px(4.0), look: fill, ..Node::DEFAULT });
-    let lane = ui.node("lane", Node { h: Size::Px(24.0), axis: Axis::Row, ..Node::DEFAULT });
+    ui.part(Part::RAIL, Node::DEFAULT.h(Size::Px(4.0)).look(rail));
+    ui.node("fill", Node::DEFAULT.w(Size::Pct(fraction)).h(Size::Px(4.0)).look(fill));
+    let lane = ui.node("lane", Node::DEFAULT.h(Size::Px(24.0)).axis(Axis::Row));
     ui.within(&lane, &mut |ui: &mut Ui| {
-        ui.node("before", Node { h: Size::Px(1.0), grow: fraction, ..Node::DEFAULT });
-        let th = ui.part(Part::THUMB, Node { w: Size::Px(24.0), h: Size::Px(24.0), look: Look { radius: [12.0; 4], ..Look::NONE }, ..Node::DEFAULT });
+        ui.node("before", Node::DEFAULT.h(Size::Px(1.0)).grow(fraction));
+        let th = ui.part(Part::THUMB, Node::DEFAULT.w(Size::Px(24.0)).h(Size::Px(24.0)).look(Look::NONE.radii([12.0; 4])));
         ui.style(&th, &thumb, state);
-        ui.node("after", Node { h: Size::Px(1.0), grow: 1.0 - fraction, ..Node::DEFAULT });
+        ui.node("after", Node::DEFAULT.h(Size::Px(1.0)).grow(1.0 - fraction));
     });
 }
 
@@ -95,12 +95,12 @@ fn sliding_segment(ui: &mut Ui, c: &SegmentedConfig) {
     let mut node = ui.node_layout(&c.node);
     node.w = Size::Px(70.0);
     ui.set_node_layout(&c.node, &node);
-    ui.style(&c.node, &pxui::theme::States::of(Look { text: look.text, font: look.font, ..Look::NONE }), state);
+    ui.style(&c.node, &pxui::theme::States::of(Look::NONE.text(look.text).font(look.font)), state);
     ui.text(&c.node, c.text_of(&c.text));
     if state.checked {
         let (own, strip) = (ui.rect(&c.node), ui.rect(&c.strip));
         let (at, w) = if own.w > 0.0 { ((own.x - strip.x, 0.0), own.w) } else { ((0.0, 0.0), 40.0) };
-        let marker = Node { at: Some(at).into(), w: Size::Px(w), h: Size::Px(3.0), look: ink(ui), ..Node::DEFAULT };
+        let marker = Node::DEFAULT.at(at.0, at.1).w(Size::Px(w)).h(Size::Px(3.0)).look(ink(ui));
         ui.within(&c.strip, &mut |ui: &mut Ui| { ui.node("marker", marker); });
     }
 }
@@ -109,7 +109,7 @@ fn sliding_segment(ui: &mut Ui, c: &SegmentedConfig) {
 fn ruled_row(ui: &mut Ui, c: &TableRowConfig) {
     let state = State::from(c.state);
     let accent = ui.theme().tokens.accent;
-    let look = if state.checked { Look { fill: accent, ..Look::NONE } } else { Look { border: accent, border_w: 1.0, ..Look::NONE } };
+    let look = if state.checked { Look::NONE.fill(accent) } else { Look::NONE.border(accent, 1.0) };
     ui.style(&c.row, &pxui::theme::States::of(look), state);
     ui.slot(c.content);
 }
@@ -119,12 +119,12 @@ fn boxed_search(ui: &mut Ui, c: &SearchFieldConfig) {
     let state = State::from(c.state);
     let (look, hint, accent) = { let t = ui.theme(); (*t.search.pick(state), t.placeholder.idle, t.tokens.accent) };
     let mut well = ui.node_layout(&c.well);
-    (well.h, well.axis, well.align, well.gap, well.padding) = (Size::Px(24.0), Axis::Row, Align::Center, 6.0, Edges { l: 6.0, ..Edges::ZERO });
+    (well.h, well.axis, well.align, well.gap, well.padding) = (Size::Px(24.0), Axis::Row, Align::Center, 6.0, Edges::ZERO.l(6.0));
     ui.set_node_layout(&c.well, &well);
     ui.style(&c.well, &pxui::theme::States::of(look), state);
-    ui.node("icon", Node { w: Size::Px(14.0), h: Size::Px(14.0), look: Look { fill: accent, radius: [7.0; 4], ..Look::NONE }, ..Node::DEFAULT });
+    ui.node("icon", Node::DEFAULT.w(Size::Px(14.0)).h(Size::Px(14.0)).look(Look::NONE.fill(accent).radii([7.0; 4])));
     if ui.slot(c.editor) {
-        let clear = ui.part(Part::CLEAR, Node { flags: Flags::CLICKABLE | Flags::BLOCKING, w: Size::Px(20.0), h: Size::Px(20.0), look: Look { text: hint.text, ..Look::NONE }, ..Node::DEFAULT });
+        let clear = ui.part(Part::CLEAR, Node::DEFAULT.flags(Flags::CLICKABLE | Flags::BLOCKING).w(Size::Px(20.0)).h(Size::Px(20.0)).look(Look::NONE.text(hint.text)));
         ui.text(&clear, "x");
     }
 }
@@ -134,8 +134,8 @@ fn pill_index(ui: &mut Ui, c: &SectionIndexConfig) {
     let (text, accent) = { let t = ui.theme(); (t.row.idle.text, t.tokens.accent) };
     for i in 0..c.letters.len {
         let active = c.has_active != 0 && c.active == i;
-        let look = Look { fill: if active { accent } else { Look::NONE.fill }, text, radius: [8.0; 4], ..Look::NONE };
-        let pill = ui.node(i as i64, Node { w: Size::Px(16.0), h: Size::Px(16.0), look, ..Node::DEFAULT });
+        let look = Look::NONE.fill(if active { accent } else { Look::NONE.fill }).text(text).radii([8.0; 4]);
+        let pill = ui.node(i as i64, Node::DEFAULT.w(Size::Px(16.0)).h(Size::Px(16.0)).look(look));
         ui.text(&pill, c.text_at(&c.letters, i));
     }
 }
@@ -148,9 +148,9 @@ fn signed_section(ui: &mut Ui, c: &InspectorSectionConfig) {
     (row.axis, row.align) = (Axis::Row, Align::Center);
     ui.set_node_layout(&c.title, &row);
     ui.within(&c.title, &mut |ui: &mut Ui| {
-        let sign = ui.node("sign", Node { w: Size::Px(16.0), h: Size::Px(16.0), look: Look { text, ..Look::NONE }, ..Node::DEFAULT });
+        let sign = ui.node("sign", Node::DEFAULT.w(Size::Px(16.0)).h(Size::Px(16.0)).look(Look::NONE.text(text)));
         ui.text(&sign, if open { "-" } else { "+" });
-        let label = ui.node("text", Node { h: Size::Px(16.0), look: Look { text, ..Look::NONE }, ..Node::DEFAULT });
+        let label = ui.node("text", Node::DEFAULT.h(Size::Px(16.0)).look(Look::NONE.text(text)));
         ui.text(&label, c.text_of(&c.label));
     });
     if open { ui.slot(c.content); }
@@ -160,8 +160,8 @@ fn signed_section(ui: &mut Ui, c: &InspectorSectionConfig) {
 fn handle_sheet(ui: &mut Ui, c: &ModalConfig) {
     if c.present != 0 {
         let ink = ui.theme().hint.idle.text;
-        let row = ui.node("grab", Node { h: Size::Px(12.0), axis: Axis::Row, justify: pxui_types::layout::Justify::Center, align: Align::Center, ..Node::DEFAULT });
-        ui.within(&row, &mut |ui: &mut Ui| { ui.node("handle", Node { w: Size::Px(36.0), h: Size::Px(4.0), look: Look { fill: ink, radius: [2.0; 4], ..Look::NONE }, ..Node::DEFAULT }); });
+        let row = ui.node("grab", Node::DEFAULT.h(Size::Px(12.0)).axis(Axis::Row).justify(pxui_types::layout::Justify::Center).align(Align::Center));
+        ui.within(&row, &mut |ui: &mut Ui| { ui.node("handle", Node::DEFAULT.w(Size::Px(36.0)).h(Size::Px(4.0)).look(Look::NONE.fill(ink).radii([2.0; 4]))); });
     }
     ui.slot(c.content);
 }
@@ -175,11 +175,11 @@ fn counted_tab(ui: &mut Ui, c: &TabsConfig) {
     ui.set_node_layout(&c.node, &node);
     ui.style(&c.node, &pxui::theme::States::of(look), state);
     ui.within(&c.node, &mut |ui: &mut Ui| {
-        let text = ui.node("text", Node { w: Size::Fit, h: Size::Px(16.0), look: Look { text: look.text, font: look.font, ..Look::NONE }, ..Node::DEFAULT });
+        let text = ui.node("text", Node::DEFAULT.w(Size::Fit).h(Size::Px(16.0)).look(Look::NONE.text(look.text).font(look.font)));
         ui.text(&text, c.text_of(&c.text));
         let detail = c.text_of(&c.detail);
         if !detail.is_empty() {
-            let pill = ui.node("detail", Node { w: Size::Fit, h: Size::Px(14.0), padding: Edges { l: 4.0, r: 4.0, ..Edges::ZERO }, look: Look { fill: accent, text: panel, radius: [4.0; 4], ..Look::NONE }, ..Node::DEFAULT });
+            let pill = ui.node("detail", Node::DEFAULT.w(Size::Fit).h(Size::Px(14.0)).padding(Edges::ZERO.l(4.0).r(4.0)).look(Look::NONE.fill(accent).text(panel).radii([4.0; 4])));
             ui.text(&pill, detail);
         }
     });
@@ -191,15 +191,15 @@ fn dotted_checkbox(ui: &mut Ui, c: &CheckboxConfig) {
     let (themed, text, accent) = { let t = ui.theme(); (t.checkbox, t.toggle.pick(state).text, t.tokens.accent) };
     let states = c.states_of(&c.states).copied().unwrap_or(themed);
     let side = c.box_size;
-    let b = ui.node("box", Node { w: Size::Px(side), h: Size::Px(side), axis: Axis::Row, justify: pxui_types::layout::Justify::Center, align: Align::Center, ..Node::DEFAULT });
-    ui.style(&b, &states, State { checked: c.on != 0, ..state });
+    let b = ui.node("box", Node::DEFAULT.w(Size::Px(side)).h(Size::Px(side)).axis(Axis::Row).justify(pxui_types::layout::Justify::Center).align(Align::Center));
+    ui.style(&b, &states, state.checked(c.on != 0));
     if c.on != 0 {
-        let dot = Node { w: Size::Px(side / 2.0), h: Size::Px(side / 2.0), look: Look { fill: accent, radius: [side / 4.0; 4], ..Look::NONE }, ..Node::DEFAULT };
+        let dot = Node::DEFAULT.w(Size::Px(side / 2.0)).h(Size::Px(side / 2.0)).look(Look::NONE.fill(accent).radii([side / 4.0; 4]));
         ui.within(&b, &mut |ui: &mut Ui| { ui.node("dot", dot); });
     }
     let label = c.text_of(&c.label);
     if !(c.passive != 0 && label.is_empty()) {
-        let n = ui.node("label", Node { w: Size::Fit, h: Size::Px(16.0), look: Look { text, ..Look::NONE }, ..Node::DEFAULT });
+        let n = ui.node("label", Node::DEFAULT.w(Size::Fit).h(Size::Px(16.0)).look(Look::NONE.text(text)));
         ui.text(&n, label);
     }
 }
@@ -218,29 +218,29 @@ fn cover_row(ui: &mut Ui, c: &PickerConfig) {
     if c.has_head == 1 {
         ui.style(&c.head, &pxui::theme::States::of(heading), pxui::theme::State::default());
         let row_height = ui.row_height();
-        ui.set_node_layout(&c.head, &Node { w: Size::Grow, h: Size::Px(row_height), margin: Edges { l: inset, ..Edges::ZERO }, ..ui.node_layout(&c.head) });
+        ui.set_node_layout(&c.head, &ui.node_layout(&c.head).w(Size::Grow).h(Size::Px(row_height)).margin(Edges::ZERO.l(inset)));
     }
     ui.style(&c.row, &pxui::theme::States::of(look), state);
     let mut row = ui.node_layout(&c.row);
-    (row.axis, row.align, row.gap, row.padding) = (Axis::Row, Align::Center, 6.0, Edges { l: 8.0, r: 8.0, ..Edges::ZERO });
+    (row.axis, row.align, row.gap, row.padding) = (Axis::Row, Align::Center, 6.0, Edges::ZERO.l(8.0).r(8.0));
     ui.set_node_layout(&c.row, &row);
     const COVER_STYLE: ImageStyle = ImageStyle::DEFAULT.w_px(20.0).h_px(20.0).fit(pxui::draw::Fit::Cover);
-    let tile = Node { w: Size::Px(20.0), h: Size::Px(20.0), look: Look { fill: accent, radius: [3.0; 4], ..Look::NONE }, ..Node::DEFAULT };
+    let tile = Node::DEFAULT.w(Size::Px(20.0)).h(Size::Px(20.0)).look(Look::NONE.fill(accent).radii([3.0; 4]));
     match (c.art_kind, COVER.with(Cell::get)) {
         (2, Some(image)) => { let _ = ui.image("art", c.text_of(&c.label), &image, &COVER_STYLE); }
         (2, None) => { ui.node("art", tile); }
         (1, _) => {
             let mut buf = [0u8; 4];
-            let glyph = ui.node("art", Node { w: Size::Px(20.0), h: Size::Px(20.0), look: Look { text: look.text, ..Look::NONE }, ..Node::DEFAULT });
+            let glyph = ui.node("art", Node::DEFAULT.w(Size::Px(20.0)).h(Size::Px(20.0)).look(Look::NONE.text(look.text)));
             ui.text(&glyph, char::from_u32(c.art as u32).unwrap_or(' ').encode_utf8(&mut buf));
         }
         _ => (),
     }
-    let label = ui.node("label", Node { w: Size::Fit, h: Size::Px(16.0), grow: 1.0, look: Look { text: look.text, font: look.font, ..Look::NONE }, ..Node::DEFAULT });
+    let label = ui.node("label", Node::DEFAULT.w(Size::Fit).h(Size::Px(16.0)).grow(1.0).look(Look::NONE.text(look.text).font(look.font)));
     ui.text(&label, c.text_of(&c.label));
     let detail = c.text_of(&c.detail);
     if !detail.is_empty() {
-        let n = ui.node("detail", Node { w: Size::Fit, h: Size::Px(16.0), look: Look { text: hint, ..Look::NONE }, ..Node::DEFAULT });
+        let n = ui.node("detail", Node::DEFAULT.w(Size::Fit).h(Size::Px(16.0)).look(Look::NONE.text(hint)));
         ui.text(&n, detail);
     }
 }
@@ -265,7 +265,7 @@ const NAMES: [&str; 3] = ["Wi-Fi", "Bluetooth", "Hotspot"];
 const LETTERS: [&str; 6] = ["A", "B", "C", "D", "E", "F"];
 const TABS: [pxui::Segment; 3] = [pxui::Segment::new("Songs").detail("12"), pxui::Segment::new("Albums").detail("3"), pxui::Segment::new("Mixes")];
 /// The checkbox's own look (`Checkbox::look`): an accent outline in every state.
-const BOX_LOOK: pxui::theme::States = pxui::theme::States::of(Look { border: pxui_types::geom::Rgba::rgba(0x4a, 0x90, 0xd9, 255), border_w: 1.0, radius: [3.0; 4], ..Look::NONE });
+const BOX_LOOK: pxui::theme::States = pxui::theme::States::of(Look::NONE.border(pxui_types::geom::Rgba::rgba(0x4a, 0x90, 0xd9, 255), 1.0).radii([3.0; 4]));
 const PICKS: [pxui::PickRow; 5] = [
     pxui::PickRow::new("Rays").detail("09-24").art(pxui::PickArt::Glyph('\u{266b}')).heading("Songs"),
     pxui::PickRow::new("Dusk").detail("03-11").art(pxui::PickArt::Glyph('\u{266b}')),
@@ -285,7 +285,7 @@ pub fn page(ui: &mut Ui, s: &mut BodiesPage) {
         s.volume = ui.slider("volume", "Volume", s.volume, 0.0..=1.0, &pxui::Slider::DEFAULT).value;
         s.align = ui.segmented("align", &[pxui::Segment::new("Left"), pxui::Segment::new("Centre"), pxui::Segment::new("Right")], Some(s.align), &pxui::Segmented::DEFAULT.name("Align")).chosen.unwrap_or(s.align);
         s.tab = ui.tabs("views", &TABS, Some(s.tab), &pxui::Tabs::DEFAULT.name("Views")).chosen.unwrap_or(s.tab);
-        let boxes = ui.node("boxes", Node { h: Size::Fit, axis: Axis::Row, gap: 4.0, ..Node::DEFAULT });
+        let boxes = ui.node("boxes", Node::DEFAULT.h(Size::Fit).axis(Axis::Row).gap(4.0));
         ui.within(&boxes, &mut |ui: &mut Ui| {
             s.sync = s.sync != ui.checkbox("sync", "Sync", s.sync, &pxui::Checkbox::DEFAULT).clicked;
             s.big = s.big != ui.checkbox("big", "Big", s.big, &pxui::Checkbox::DEFAULT.size(16.0).look(&BOX_LOOK)).clicked;
@@ -293,7 +293,7 @@ pub fn page(ui: &mut Ui, s: &mut BodiesPage) {
             ui.checkbox("locked", "Locked", true, &pxui::Checkbox::DEFAULT.disabled(true));
         });
         if let Some(v) = ui.search_field("find", &s.query, &SearchField::DEFAULT.icon("?").placeholder("Search").name("Find")).changed { s.query = v.to_owned(); }
-        let strip = ui.node("letters", Node { h: Size::Px(112.0), axis: Axis::Row, ..Node::DEFAULT });
+        let strip = ui.node("letters", Node::DEFAULT.h(Size::Px(112.0)).axis(Axis::Row));
         ui.within(&strip, &mut |ui: &mut Ui| { s.letter = ui.section_index("index", &LETTERS, &pxui::SectionIndex::DEFAULT.name("Jump to")).chosen.unwrap_or(s.letter); });
         s.sheet = ui.toggle("sheet", "Queue sheet", s.sheet, &pxui::Toggle::DEFAULT).changed != s.sheet;
         s.more = ui.disclosure("more", "More", s.more, &pxui::Disclosure::DEFAULT, &mut |ui: &mut Ui| { ui.label("Shown while open", pxui::Label::DEFAULT); }).changed != s.more;
@@ -308,7 +308,7 @@ pub fn page(ui: &mut Ui, s: &mut BodiesPage) {
         const SETTINGS: [pxui::Column; 2] = [pxui::Column::new("Name").w_px(120.0), pxui::Column::new("On").w_px(120.0)];
         let (table, flags) = (&mut s.table, &mut s.flags);
         // the table fills its parent: give it a height
-        let frame = ui.node("frame", Node { h: Size::Px(140.0), ..Node::DEFAULT });
+        let frame = ui.node("frame", Node::DEFAULT.h(Size::Px(140.0)));
         ui.within(&frame, &mut |ui: &mut Ui| {
             let _ = ui.table("settings", &SETTINGS, 3, &|i| i as i64, table, &pxui::Table::DEFAULT, &mut |ui: &mut Ui, row, column, _| {
                 if column == 0 { ui.label(NAMES[row], pxui::Label::DEFAULT); } else { flags[row] = ui.toggle("toggle", NAMES[row], flags[row], &pxui::Toggle::DEFAULT).changed != flags[row]; }

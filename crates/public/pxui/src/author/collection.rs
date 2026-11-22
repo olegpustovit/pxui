@@ -563,7 +563,7 @@ mod tests {
     thread_local! { static SEEN: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) }; }
     fn seen(what: String) { SEEN.with(|s| s.borrow_mut().push(what)); }
     /// Each registered row body builds one marker node of its own, named by its kind, so the custom structure shows in the tree.
-    fn marker(ui: &mut Ui, kind: &'static str) { let n = ui.node(kind, Node { w: Size::Px(4.0), h: Size::Px(4.0), role: Role::Image, ..Node::DEFAULT }); ui.a11y_name(&n, kind); }
+    fn marker(ui: &mut Ui, kind: &'static str) { let n = ui.node(kind, Node::DEFAULT.w(Size::Px(4.0)).h(Size::Px(4.0)).role(Role::Image)); ui.a11y_name(&n, kind); }
     fn list_row(ui: &mut Ui, c: &SelectionListConfig) { seen(format!("list {}", c.index)); marker(ui, "custom list row"); ui.slot(c.content); }
     fn tree_row(ui: &mut Ui, c: &TreeConfig) { seen(format!("tree {}", c.node)); marker(ui, "custom tree row"); ui.slot(c.content); }
     fn table_row(ui: &mut Ui, c: &TableRowConfig) { seen(format!("table row {}", c.index)); marker(ui, "custom table row"); ui.slot(c.content); }
@@ -718,7 +718,7 @@ mod tests {
         let (two, three) = (row(&ui, 2), row(&ui, 3));
         step(&mut ui, &[pointer(two)], &mut build);
         assert_eq!(step(&mut ui, &[pointer(three)], &mut build), [2, 3], "the pointer leaves row 2 for row 3");
-        let scrolled = step(&mut ui, &[Event { kind: Event::SCROLLED, y: -1.0, ..Default::default() }], &mut build);
+        let scrolled = step(&mut ui, &[Event::pointer(Event::SCROLLED, 0, 0.0, -1.0)], &mut build);
         assert!(scrolled.len() <= 4, "a scroll builds the rows it brings in and the rows the pointer leaves and reaches, not the {shown} in view: {scrolled:?}");
         for _ in 0..2 { step(&mut ui, &[], &mut build); }
         let five = row(&ui, 5);
@@ -739,7 +739,7 @@ mod tests {
         let rebuilt = step(&mut ui, &[], &mut build);
         assert!(rebuilt.len() >= shown && rebuilt.windows(2).all(|w| w[1] == w[0] + 1), "a new revision rebuilds every row in view: {rebuilt:?}");
         // the scroll's first round frees and takes rows the list never held at once before: warm, its rounds allocate nothing
-        let wheel = [[Event { kind: Event::SCROLLED, y: 1.0, ..Default::default() }], [Event { kind: Event::SCROLLED, y: -1.0, ..Default::default() }]];
+        let wheel = [[Event::pointer(Event::SCROLLED, 0, 0.0, 1.0)], [Event::pointer(Event::SCROLLED, 0, 0.0, -1.0)]];
         for round in 0..4 { step(&mut ui, &wheel[round % 2], &mut build); }
         mem_sys::set_peer(crate::library_counter);
         let scope = mem_sys::warm_scope();
@@ -825,7 +825,7 @@ mod tests {
             ui.set_a11y(true);
             // the rows that show in the 240-point window at the painted offset (the list's 1-point inset, 20-point rows)
             let shows = |ui: &Ui, i: usize| { let y = 1.0 + 20.0 * i as f32 - ui.scroll(&list.get().unwrap()).painted; y + 20.0 > 1.0 && y < 239.0 };
-            let (wheel, over) = ([Event { kind: Event::SCROLLED, y: -1.0, ..Default::default() }], [Event::pointer(Event::POINTER_MOVED, 0, 150.0, 30.0)]);
+            let (wheel, over) = ([Event::pointer(Event::SCROLLED, 0, 0.0, -1.0)], [Event::pointer(Event::POINTER_MOVED, 0, 150.0, 30.0)]);
             let (mut ever, mut stale, mut t, mut hovered, mut showed) = (vec![false; 1000], Vec::new(), 0.0, [usize::MAX; 2], vec![false; 1000]);
             for frame in 0..40 {
                 built.borrow_mut().clear();
@@ -865,14 +865,14 @@ mod tests {
         let run = |kept: bool| {
             let (state, items, moved) = (RefCell::new(ListState::new()), RefCell::new((0..10).collect::<Vec<i64>>()), Cell::new(None));
             let mut build = |ui: &mut Ui| {
-                ui.column(Node { h: Size::Px(200.0), ..Node::DEFAULT }, |ui| {
+                ui.column(Node::DEFAULT.h(Size::Px(200.0)), |ui| {
                     let mut s = state.borrow_mut();
                     s.revision = kept.then_some(3);
                     let n = items.borrow().len();
                     let r = ui.selection_list("rows", n, &|i| items.borrow()[i], &mut s, &SelectionList::DEFAULT.row_h(20.0).reorder(true), &mut |ui, part, _| if let SectionPart::Row(i) = part {
-                        ui.row(Node { h: Size::Grow, ..Node::DEFAULT }, |ui| {
+                        ui.row(Node::DEFAULT.h(Size::Grow), |ui| {
                             ui.item_text(NAMES[items.borrow()[i] as usize]);
-                            ui.part(crate::Part::HANDLE, Node { w: Size::Px(20.0), h: Size::Grow, ..Node::DEFAULT });
+                            ui.part(crate::Part::HANDLE, Node::DEFAULT.w(Size::Px(20.0)).h(Size::Grow));
                         });
                     });
                     drop(s);
@@ -933,7 +933,7 @@ mod tests {
         for _ in 0..2 {
             ui.frame(&FrameIn::new(400.0, 600.0), &mut |ui: &mut Ui| {
                 for (key, kind) in [("lists", 0), ("trees", 1), ("tables", 2), ("heads", 3)] {
-                    ui.id(key, |ui| { ui.column(Node { h: Size::Px(80.0), ..Node::DEFAULT }, |ui| match kind {
+                    ui.id(key, |ui| { ui.column(Node::DEFAULT.h(Size::Px(80.0)), |ui| match kind {
                         0 => { ui.selection_list("list", 1, &|i| i as i64, &mut list, &SelectionList::DEFAULT, &mut |ui, part, _| if let SectionPart::Row(_) = part { ui.item_text("list row") }); }
                         1 => { ui.tree("tree", &nodes, &mut tree, &mut |ui, _| ui.item_text("tree row")); }
                         2 => { ui.table("table", &COLUMNS, 1, &|i| i as i64, &mut table, &Table::DEFAULT, &mut |ui, _, _, _| ui.item_text("table cell")); }
@@ -959,14 +959,14 @@ mod tests {
         let (ids, keys) = (RefCell::new([10i64, 20, 30]), RefCell::new(([0i64; 3], [0i64; 3])));
         let (mut list, mut table) = (ListState::new(), TableState::new());
         let mut build = |ui: &mut Ui| {
-            ui.column(Node { h: Size::Px(100.0), ..Node::DEFAULT }, |ui| {
+            ui.column(Node::DEFAULT.h(Size::Px(100.0)), |ui| {
                 ui.selection_list("list", 3, &|i| ids.borrow()[i], &mut list, &SelectionList::DEFAULT, &mut |ui, part, _| if let SectionPart::Row(row) = part {
-                    keys.borrow_mut().0[row] = ui.node("mark", Node { w: Size::Px(4.0), h: Size::Px(4.0), ..Node::DEFAULT }).box_key;
+                    keys.borrow_mut().0[row] = ui.node("mark", Node::DEFAULT.w(Size::Px(4.0)).h(Size::Px(4.0))).box_key;
                 });
             });
-            ui.column(Node { h: Size::Px(100.0), ..Node::DEFAULT }, |ui| {
+            ui.column(Node::DEFAULT.h(Size::Px(100.0)), |ui| {
                 ui.table("table", &[Column::new("A").w_px(60.0)], 3, &|i| ids.borrow()[i], &mut table, &Table::DEFAULT, &mut |ui, row, _, _| {
-                    keys.borrow_mut().1[row] = ui.node("mark", Node { w: Size::Px(4.0), h: Size::Px(4.0), ..Node::DEFAULT }).box_key;
+                    keys.borrow_mut().1[row] = ui.node("mark", Node::DEFAULT.w(Size::Px(4.0)).h(Size::Px(4.0))).box_key;
                 });
             });
         };
@@ -1083,7 +1083,7 @@ mod tests {
         let cases: [&dyn Fn(&mut Ui); 3] = [
             &|ui| { ui.selection_list("files", 3, &|i| i as i64, &mut state.borrow_mut(), &SelectionList::DEFAULT, &mut |ui, part, _| if let SectionPart::Row(row) = part { ui.item_text(["a", "b", "c"][row]) }); },
             &|ui| { ui.table("songs", &COLUMNS, 3, &|i| i as i64, &mut table.borrow_mut(), &Table::DEFAULT, &mut |ui, row, _, _| ui.item_text(["a", "b", "c"][row])); },
-            &|ui| { ui.section_list("plain", &SectionList::new(3).row_h(24.0), &|i| i as i64, &mut |ui, part, _| if let SectionPart::Row(_) = part { ui.node("r", Node { h: Size::Grow, ..Node::DEFAULT }); }); },
+            &|ui| { ui.section_list("plain", &SectionList::new(3).row_h(24.0), &|i| i as i64, &mut |ui, part, _| if let SectionPart::Row(_) = part { ui.node("r", Node::DEFAULT.h(Size::Grow)); }); },
         ];
         for (case, (role, taken)) in cases.iter().zip([(Role::ListItem, true), (Role::Row, true), (Role::Unknown, false)]) {
             let mut build = |ui: &mut Ui| {
@@ -1230,7 +1230,7 @@ mod tests {
         let state = RefCell::new(ListState::new());
         let (stated, modal, seen) = (Cell::new(true), Cell::new(false), Cell::new((false, false)));
         let mut build = |ui: &mut Ui| {
-            ui.node("empty", Node { h: Size::Px(40.0), w: Size::Grow, ..Node::DEFAULT });
+            ui.node("empty", Node::DEFAULT.h(Size::Px(40.0)).w(Size::Grow));
             let r = ui.selection_list("files", 3, &|i| i as i64, &mut state.borrow_mut(), &SelectionList::DEFAULT, &mut |ui, part, _| if let SectionPart::Row(row) = part { ui.item_text(["a", "b", "c"][row]) });
             if stated.get() { ui.focus_default(&r.handle); }
             if modal.get() { ui.modal("over", &crate::Overlay::DEFAULT, |ui| { ui.label("Sure?", crate::Label::BODY); }); }
@@ -1400,10 +1400,10 @@ mod tests {
         let (mut list, mut table) = (ListState::new(), TableState::new());
         const COLUMNS: [Column; 2] = [Column::new("Name").sortable(true).share(1.0), Column::new("Size").w_px(50.0)];
         let mut build = |ui: &mut Ui| {
-            ui.column(Node { h: Size::Px(100.0), ..Node::DEFAULT }, |ui| {
+            ui.column(Node::DEFAULT.h(Size::Px(100.0)), |ui| {
                 ui.selection_list("list", 1000, &|i| i as i64, &mut list, &SelectionList::DEFAULT.mode(SelectMode::Multi).header(20.0), &mut |ui, part, _| if let SectionPart::Row(_) = part { ui.item_text("row") });
             });
-            ui.column(Node { h: Size::Px(100.0), ..Node::DEFAULT }, |ui| {
+            ui.column(Node::DEFAULT.h(Size::Px(100.0)), |ui| {
                 ui.table("table", &COLUMNS, 1000, &|i| i as i64, &mut table, &Table::DEFAULT, &mut |ui, _, _, _| ui.item_text("cell"));
             });
         };
@@ -1434,7 +1434,7 @@ mod tests {
 
     /// A clickable 40-point source at the top of the window that carries a "song" payload while held.
     fn source(ui: &mut Ui) {
-        let src = ui.node("source", Node { flags: crate::Flags::CLICKABLE, h: Size::Px(40.0), ..Node::DEFAULT });
+        let src = ui.node("source", Node::DEFAULT.flags(crate::Flags::CLICKABLE).h(Size::Px(40.0)));
         if ui.signal(&src).held { ui.carry(Some(&src), "song", "7"); }
     }
     /// Presses the source, drags to (`x`, `y`) over three frames and releases there, calling `seen` after each frame.
@@ -1457,8 +1457,8 @@ mod tests {
         let got = Cell::new((false, false));
         let mut build = |ui: &mut Ui| {
             source(ui);
-            let target = ui.node("target", Node { h: Size::Px(100.0), ..Node::DEFAULT });
-            ui.within(&target, &mut |ui| { ui.node("child", Node { w: Size::Px(20.0), h: Size::Px(20.0), ..Node::DEFAULT }); });
+            let target = ui.node("target", Node::DEFAULT.h(Size::Px(100.0)));
+            ui.within(&target, &mut |ui| { ui.node("child", Node::DEFAULT.w(Size::Px(20.0)).h(Size::Px(20.0))); });
             match ui.drop_target(&target) {
                 Some(crate::DropRef::Hover(p)) => { assert_eq!((p.kind, p.value), ("song", "7")); got.set((true, got.get().1)); }
                 Some(crate::DropRef::Dropped(_)) => got.set((got.get().0, true)),
@@ -1478,7 +1478,7 @@ mod tests {
         let dropped = Cell::new(None);
         let mut build = |ui: &mut Ui| {
             source(ui);
-            let r = ui.section_list("queue", &SectionList::new(5).row_h(20.0).reorder(true), &|i| i as i64 * 10, &mut |ui, part, _| if let SectionPart::Row(_) = part { ui.node("cell", Node { h: Size::Px(20.0), ..Node::DEFAULT }); });
+            let r = ui.section_list("queue", &SectionList::new(5).row_h(20.0).reorder(true), &|i| i as i64 * 10, &mut |ui, part, _| if let SectionPart::Row(_) = part { ui.node("cell", Node::DEFAULT.h(Size::Px(20.0))); });
             if r.drop_at.is_some() { dropped.set(r.drop_at); }
         };
         let mut ui = crate::doc::frames(2, &mut build);
@@ -1542,10 +1542,10 @@ mod tests {
         const LOOK: crate::theme::Look = crate::theme::Look::NONE.fill(crate::Rgba::rgb(0, 128, 255));
         let mut build = |ui: &mut Ui| {
             source(ui);
-            ui.column(Node { h: Size::Px(100.0), ..Node::DEFAULT }, |ui| {
-                ui.section_list("queue", &SectionList::new(500).row_h(20.0).reorder(true), &|i| i as i64, &mut |ui, part, _| if let SectionPart::Row(_) = part { ui.node("cell", Node { h: Size::Px(20.0), ..Node::DEFAULT }); });
+            ui.column(Node::DEFAULT.h(Size::Px(100.0)), |ui| {
+                ui.section_list("queue", &SectionList::new(500).row_h(20.0).reorder(true), &|i| i as i64, &mut |ui, part, _| if let SectionPart::Row(_) = part { ui.node("cell", Node::DEFAULT.h(Size::Px(20.0))); });
             });
-            ui.column(Node { h: Size::Px(100.0), ..Node::DEFAULT }, |ui| {
+            ui.column(Node::DEFAULT.h(Size::Px(100.0)), |ui| {
                 ui.selection_list("lists", 500, &|i| i as i64, &mut state.borrow_mut(), &SelectionList::DEFAULT.row_h(20.0).drop_look(LOOK), &mut |ui, part, cell| if let SectionPart::Row(_) = part {
                     ui.item_text("row");
                     let _ = ui.drop_target(&cell.handle);
@@ -1572,13 +1572,13 @@ mod tests {
     /// right end (x 300..320), and its cell's box goes to `cells` by row. The app applies `moved` to `items`.
     fn handle_list(ui: &mut Ui, items: &RefCell<Vec<i64>>, cells: &RefCell<Vec<(usize, crate::Handle)>>, moved: &Cell<Option<(usize, usize)>>) {
         cells.borrow_mut().clear();
-        let r = ui.column(Node { h: Size::Px(200.0), ..Node::DEFAULT }, |ui| {
+        let r = ui.column(Node::DEFAULT.h(Size::Px(200.0)), |ui| {
             let n = items.borrow().len();
             let r = ui.section_list("queue", &SectionList::new(n).row_h(20.0).reorder(true), &|i| items.borrow()[i], &mut |ui, part, _| if let SectionPart::Row(i) = part {
-                ui.row(Node { h: Size::Grow, ..Node::DEFAULT }, |ui| {
-                    let c = ui.node("cell", Node { w: Size::Grow, h: Size::Grow, ..Node::DEFAULT });
+                ui.row(Node::DEFAULT.h(Size::Grow), |ui| {
+                    let c = ui.node("cell", Node::DEFAULT.w(Size::Grow).h(Size::Grow));
                     cells.borrow_mut().push((i, c));
-                    ui.part(crate::Part::HANDLE, Node { w: Size::Px(20.0), h: Size::Grow, ..Node::DEFAULT });
+                    ui.part(crate::Part::HANDLE, Node::DEFAULT.w(Size::Px(20.0)).h(Size::Grow));
                 });
             });
             if let Some((from, to)) = r.moved {
@@ -1690,7 +1690,7 @@ mod tests {
         at(&mut ui, 1.1, &p(Event::POINTER_MOVED, 90.0), &mut build);
         assert_eq!(cell_y(&cells, &ui, 2), 80.0, "the lifted row follows the pointer in the kept view");
         for i in 0..8 {
-            at(&mut ui, 1.2 + f64::from(i) * 0.05, &[Event { kind: Event::SCROLLED, y: -30.0, ..Default::default() }], &mut build);
+            at(&mut ui, 1.2 + f64::from(i) * 0.05, &[Event::pointer(Event::SCROLLED, 0, 0.0, -30.0)], &mut build);
         }
         for t in [1.8, 2.5, 2.51] { at(&mut ui, t, &[], &mut build); }
         assert!(cells.borrow().iter().all(|c| c.0 == 2 || c.0 > 2 + 10), "row 2's place scrolled out of the window");
@@ -1785,10 +1785,10 @@ mod tests {
     #[test]
     fn a_row_body_builds_the_handle() {
         fn handled(ui: &mut Ui, c: &SelectionListConfig) {
-            ui.row(Node { h: Size::Grow, ..Node::DEFAULT }, |ui| {
-                ui.node("content", Node { w: Size::Grow, h: Size::Grow, ..Node::DEFAULT });
+            ui.row(Node::DEFAULT.h(Size::Grow), |ui| {
+                ui.node("content", Node::DEFAULT.w(Size::Grow).h(Size::Grow));
                 ui.slot(c.content);
-                ui.part(crate::Part::HANDLE, Node { w: Size::Px(20.0), h: Size::Grow, ..Node::DEFAULT });
+                ui.part(crate::Part::HANDLE, Node::DEFAULT.w(Size::Px(20.0)).h(Size::Grow));
             });
         }
         let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
@@ -1857,17 +1857,17 @@ mod tests {
         let mut build = |ui: &mut Ui| {
             ys.borrow_mut().clear();
             rows.borrow_mut().clear();
-            ui.column(Node { h: Size::Px(200.0), ..Node::DEFAULT }, |ui| {
+            ui.column(Node::DEFAULT.h(Size::Px(200.0)), |ui| {
                 ui.section_list("fixed", &SectionList::new(3).row_h(20.0).lead(30.0).header(10.0), &|i| i as i64, &mut |ui, part, cell| {
-                    if let SectionPart::Row(i) = part { ys.borrow_mut().push((i, cell.y)); ui.node("r", Node { h: Size::Grow, ..Node::DEFAULT }); }
+                    if let SectionPart::Row(i) = part { ys.borrow_mut().push((i, cell.y)); ui.node("r", Node::DEFAULT.h(Size::Grow)); }
                     else { assert_eq!(cell.handle.box_slot, 0, "{part:?} has no row box"); parts.set(parts.get() + 1); }
                     assert!(cell.enabled && !cell.selected && !cell.focused && !cell.held);
                 });
             });
-            ui.column(Node { h: Size::Px(200.0), ..Node::DEFAULT }, |ui| {
+            ui.column(Node::DEFAULT.h(Size::Px(200.0)), |ui| {
                 ui.section_list("measured", &SectionList::new(2).row_h(20.0).measured().reorder(true), &|i| i as i64, &mut |ui, part, cell| {
                     if let SectionPart::Row(i) = part {
-                        if i == 0 { tall.set(Some(ui.node("tall", Node { h: Size::Px(50.0), ..Node::DEFAULT }))); }
+                        if i == 0 { tall.set(Some(ui.node("tall", Node::DEFAULT.h(Size::Px(50.0))))); }
                         ui.a11y_name(&cell.handle, ["first song", "second song"][i]);
                         rows.borrow_mut().push(cell.handle);
                     }

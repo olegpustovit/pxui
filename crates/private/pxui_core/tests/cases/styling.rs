@@ -82,7 +82,7 @@ pub fn styling_variant_states() {
     let mut ui = new_ui(None);
     let red = Rgba::rgb(220, 30, 40);
     let t = *ui.theme();
-    let danger = States { idle: Look { fill: red, ..t.button.idle }, ..t.button };
+    let danger = (t.button).idle((t.button.idle).fill(red));
     for k in 0..2 {
         ui.frame(&at(k as f64, vec![]), &mut |ui| {
             ui.panel("p", &pxui_core::ui::Overlay::DEFAULT.name("p"), &mut |ui| {
@@ -225,10 +225,8 @@ fn styling_theme_swap_uses_the_look_at_the_swap() {
     let mut theme = Theme::default();
     theme.tokens.motion.normal = 0.2;
     let (red, green, blue) = (Rgba::rgb(200, 20, 20), Rgba::rgb(20, 200, 20), Rgba::rgb(20, 20, 200));
-    let look = |fill| Look { fill, ..Look::NONE };
-    let swatch = |ui: &mut Ui, fill| ui.node("swatch".into(), Node {
-        w: Size::Px(40.0), h: Size::Px(20.0), look: look(fill), ..Node::DEFAULT
-    });
+    let look = |fill| Look::NONE.fill(fill);
+    let swatch = |ui: &mut Ui, fill| ui.node("swatch".into(), Node::DEFAULT.w(Size::Px(40.0)).h(Size::Px(20.0)).look(look(fill)));
     let shows = |ui: &Ui, c: Rgba| ui.output().draw.iter().flat_map(|l| &l.instances).any(|i| i.color == [c.r, c.g, c.b, c.a]);
     let handle = Cell::new(None);
     ui.frame(&at(0.0, vec![]), &mut |ui| handle.set(Some(swatch(ui, red))));
@@ -287,13 +285,13 @@ pub fn styling_colour_token_looks() {
     let c = |v: u8| Rgba::gray(v);
     let (marker, never) = (Rgba::rgb(1, 2, 3), Rgba::rgb(4, 5, 6));
     check(ui.set_colors(&[c(240), c(200), marker, never], &[c(16), c(60), marker, never]), "set_colors");
-    let spelled = Rgba { r: 0x54, g: 0xff, b: 2, a: 0 };
+    let spelled = Rgba::rgba(0x54, 0xff, 2, 0);
     let chip = Cell::new(None);
     let mut build = |ui: &mut Ui| {
         ui.view("v", 1, Size::Px(200.0), Size::Px(100.0), &mut |ui| {
-            let paper = Look { fill: Rgba::token(ColorToken(0)), ..Look::NONE };
-            chip.set(Some(ui.node("chip".into(), Node { w: Size::Px(40.0), h: Size::Px(20.0), look: paper, ..Node::DEFAULT })));
-            ui.node("raw".into(), Node { w: Size::Px(30.0), h: Size::Px(20.0), look: Look { fill: spelled, ..Look::NONE }, ..Node::DEFAULT });
+            let paper = Look::NONE.fill(Rgba::token(ColorToken(0)));
+            chip.set(Some(ui.node("chip".into(), Node::DEFAULT.w(Size::Px(40.0)).h(Size::Px(20.0)).look(paper))));
+            ui.node("raw".into(), Node::DEFAULT.w(Size::Px(30.0)).h(Size::Px(20.0)).look(Look::NONE.fill(spelled)));
         });
     };
     let has = |ui: &Ui, color: [u8; 4]| ui.output().draw.iter().flat_map(|l| l.instances.iter()).any(|i| i.color == color);
@@ -303,7 +301,7 @@ pub fn styling_colour_token_looks() {
     check(has(&ui, rgba(c(240))) && has(&ui, rgba(marker)), "a declared token look and a colour spelling token 2 paint their light entries");
     let chip = chip.get().expect("chip");
     let linear = |duration: f32| Curve::Bezier { duration, points: [0.0, 0.0, 1.0, 1.0] };
-    check(ui.animate(&chip, Target::Look(Look { fill: Rgba::token(ColorToken(1)), ..Look::NONE }), linear(0.4)), "animate refused");
+    check(ui.animate(&chip, Target::Look(Look::NONE.fill(Rgba::token(ColorToken(1)))), linear(0.4)), "animate refused");
     for k in 1..=10 { ui.frame(&at(0.1 + 0.05 * k as f64, vec![]), &mut build); }
     check(ui.transitions() == 0 && has(&ui, rgba(c(200))), "an animation to a token look rests on its entry");
     let mut dark = Theme::default();
@@ -314,7 +312,7 @@ pub fn styling_colour_token_looks() {
     for k in 1..=20 { ui.frame(&at(1.0 + 0.05 * k as f64, vec![]), &mut build); }
     check(has(&ui, rgba(c(16))) && !has(&ui, rgba(c(240))) && !has(&ui, rgba(c(200))), "the swap moves the token look to its dark entry");
     // from a clear colour spelling 0x50 to one spelling 0x58: halfway is 0x54, 0xff, 3, 0, token 3's spelling
-    let clear = |r: u8| Look { fill: Rgba { r, g: 0xff, b: 3, a: 0 }, ..Look::NONE };
+    let clear = |r: u8| Look::NONE.fill(Rgba::rgba(r, 0xff, 3, 0));
     check(ui.animate(&chip, Target::Look(clear(0x50)), linear(0.0)), "animate refused");
     ui.frame(&at(3.0, vec![]), &mut build);
     check(ui.animate(&chip, Target::Look(clear(0x58)), linear(1.0)), "animate refused");
@@ -330,8 +328,8 @@ pub fn styling_animate_spring() {
     let chip = Cell::new(None);
     let mut build = |ui: &mut Ui| {
         ui.view("v", 1, Size::Px(200.0), Size::Px(100.0), &mut |ui| {
-            let look = Look { fill: Rgba::rgb(200, 40, 40), ..Look::NONE };
-            chip.set(Some(ui.node("chip".into(), Node { w: Size::Px(40.0), h: Size::Px(20.0), look, ..Node::DEFAULT })));
+            let look = Look::NONE.fill(Rgba::rgb(200, 40, 40));
+            chip.set(Some(ui.node("chip".into(), Node::DEFAULT.w(Size::Px(40.0)).h(Size::Px(20.0)).look(look))));
         });
     };
     ui.frame(&at(0.0, vec![]), &mut build);
@@ -495,8 +493,8 @@ pub fn styling_animate_keys() {
     let mut build = |ui: &mut Ui| {
         ui.view("v", 1, Size::Px(200.0), Size::Px(100.0), &mut |ui| {
             runs.set(runs.get() + 1);
-            let look = Look { fill: Rgba::rgb(200, 40, 40), ..Look::NONE };
-            chip.set(Some(ui.node("chip".into(), Node { w: Size::Px(40.0), h: Size::Px(20.0), look, ..Node::DEFAULT })));
+            let look = Look::NONE.fill(Rgba::rgb(200, 40, 40));
+            chip.set(Some(ui.node("chip".into(), Node::DEFAULT.w(Size::Px(40.0)).h(Size::Px(20.0)).look(look))));
         });
     };
     ui.frame(&at(0.0, vec![]), &mut build);
@@ -543,7 +541,7 @@ pub fn styling_animate_scale() {
     let mut build = |ui: &mut Ui| {
         let v = ui.view("outer", 1, Size::Px(100.0), Size::Px(80.0), &mut |ui| {
             let inner = ui.view("inner", 1, Size::Px(50.0), Size::Px(40.0), &mut |ui| {
-                let b = ui.node("button".into(), Node { flags: Flags::CLICKABLE, role: Role::Button, w: Size::Px(20.0), h: Size::Px(10.0), look: Look { fill: Rgba::rgb(9, 9, 9), ..Look::NONE }, ..Node::DEFAULT });
+                let b = ui.node("button".into(), Node::DEFAULT.flags(Flags::CLICKABLE).role(Role::Button).w(Size::Px(20.0)).h(Size::Px(10.0)).look(Look::NONE.fill(Rgba::rgb(9, 9, 9))));
                 ui.a11y_name(&b, "Scaled");
                 if ui.signal_owned(&b).clicked { clicks.set(clicks.get() + 1); }
                 button.set(Some(b));
@@ -617,7 +615,7 @@ pub fn styling_view_transform_hits() {
     let (view, clicked) = (Cell::new(None), Cell::new(false));
     let mut build = |ui: &mut Ui| {
         view.set(Some(ui.view("v", 1, Size::Px(100.0), Size::Px(50.0), &mut |ui| {
-            let h = ui.node("chip".into(), Node { flags: Flags::CLICKABLE, w: Size::Px(40.0), h: Size::Px(20.0), look: Look { fill: Rgba::rgb(9, 9, 9), ..Look::NONE }, ..Node::DEFAULT });
+            let h = ui.node("chip".into(), Node::DEFAULT.flags(Flags::CLICKABLE).w(Size::Px(40.0)).h(Size::Px(20.0)).look(Look::NONE.fill(Rgba::rgb(9, 9, 9))));
             clicked.set(clicked.get() || ui.signal_owned(&h).clicked);
         })));
     };
@@ -645,7 +643,7 @@ pub fn styling_nested_view_transform() {
     let mut build = |ui: &mut Ui| {
         outer.set(Some(ui.view("outer", 1, Size::Px(200.0), Size::Px(150.0), &mut |ui| {
             ui.view("inner", 1, Size::Px(100.0), Size::Px(60.0), &mut |ui| {
-                let h = ui.node("btn".into(), Node { flags: Flags::CLICKABLE, w: Size::Px(40.0), h: Size::Px(20.0), at: Some((10.0, 10.0)).into(), look: Look { fill: Rgba::rgb(9, 9, 9), ..Look::NONE }, ..Node::DEFAULT });
+                let h = ui.node("btn".into(), Node::DEFAULT.flags(Flags::CLICKABLE).w(Size::Px(40.0)).h(Size::Px(20.0)).at(10.0, 10.0).look(Look::NONE.fill(Rgba::rgb(9, 9, 9))));
                 btn.set(Some(h));
                 if ui.signal_owned(&h).clicked {
                     clicked.set(clicked.get() + 1);
@@ -695,9 +693,9 @@ pub fn styling_backdrop_blur_record() {
     let mut ui = new_ui(None);
     let view = Cell::new(None);
     let mut build = |ui: &mut Ui| {
-        ui.node("under".into(), Node { w: Size::Px(300.0), h: Size::Px(30.0), look: Look { fill: Rgba::rgb(1, 2, 3), ..Look::NONE }, ..Node::DEFAULT });
+        ui.node("under".into(), Node::DEFAULT.w(Size::Px(300.0)).h(Size::Px(30.0)).look(Look::NONE.fill(Rgba::rgb(1, 2, 3))));
         view.set(Some(ui.view("glass", 1, Size::Px(120.0), Size::Px(40.0), &mut |ui| {
-            ui.node("pane".into(), Node { w: Size::Px(120.0), h: Size::Px(40.0), look: Look { fill: Rgba::rgba(255, 255, 255, 80), ..Look::NONE }, ..Node::DEFAULT });
+            ui.node("pane".into(), Node::DEFAULT.w(Size::Px(120.0)).h(Size::Px(40.0)).look(Look::NONE.fill(Rgba::rgba(255, 255, 255, 80))));
         })));
     };
     ui.frame(&at(0.0, vec![]), &mut build);
@@ -728,7 +726,7 @@ pub fn styling_images_and_icons() {
     for k in 0..2 {
         let image = image.clone();
         ui.frame(&at(k as f64, vec![]), &mut |ui| {
-            let b = ui.node("art".into(), Node { w: Size::Px(100.0), h: Size::Px(100.0), ..Node::DEFAULT });
+            let b = ui.node("art".into(), Node::DEFAULT.w(Size::Px(100.0)).h(Size::Px(100.0)));
             let image = image.clone();
             ui.canvas(&b, move |p, r| {
                 p.image_fit(r.x, r.y, r.w, r.h, &image, Fit::Contain, Rgba::WHITE);

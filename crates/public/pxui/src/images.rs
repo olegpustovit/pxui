@@ -511,7 +511,7 @@ impl Images {
     /// ```
     /// use pxui::{images::{Images, Want}, Image};
     /// let mut images = Images::default();
-    /// let pixels = Some(Image { width: 8, height: 4, ..Default::default() });
+    /// let pixels = Some({ let mut record = Image::default(); record.width = 8; record.height = 4; record });
     /// images.store(Want::new(1, 64).unwrap(), pixels);
     /// images.store(Want::new(2, 64).unwrap(), pixels);
     /// images.store(Want::new(3, 64).unwrap(), None);
@@ -712,12 +712,7 @@ mod tests {
                                 2 => "later",
                                 _ => "prefetch",
                             },
-                            crate::ui::Node {
-                                w: crate::ui::Size::Px(30.0),
-                                h: crate::ui::Size::Px(30.0),
-                                at: Some((0.0, y)).into(),
-                                ..crate::ui::Node::DEFAULT
-                            },
+                            crate::ui::Node::DEFAULT.w(crate::ui::Size::Px(30.0)).h(crate::ui::Size::Px(30.0)).at(0.0, y),
                         );
                         if frame == 0 {
                             images.get(id, "cover.png", 30.0, Some(&node));
@@ -781,11 +776,7 @@ mod tests {
         for index in 0..768 {
             images.store(
                 Want::new(index + 1, 512).unwrap(),
-                Some(Image {
-                    width: 8,
-                    height: 4,
-                    ..Default::default()
-                }),
+                Some({ let mut record = Image::default(); record.width = 8; record.height = 4; record }),
             );
         }
         mem_sys::local_reset();
@@ -800,7 +791,7 @@ mod tests {
     #[test]
     fn an_id_stored_again_keeps_one_slot_and_a_full_table_drops_and_names_the_least_recently_used() {
         let mut images = Images::default();
-        let pixels = Some(Image { width: 8, height: 4, ..Default::default() });
+        let pixels = Some({ let mut record = Image::default(); record.width = 8; record.height = 4; record });
         for id in 1..=CAPACITY {
             assert_eq!(images.store(Want::new(id, 64).unwrap(), pixels), None, "free slots drop nothing");
         }
@@ -825,11 +816,7 @@ mod tests {
         images.configure(2.0, 384);
         images.store(
             Want::new(1, 384).unwrap(),
-            Some(Image {
-                width: 8,
-                height: 4,
-                ..Default::default()
-            }),
+            Some({ let mut record = Image::default(); record.width = 8; record.height = 4; record }),
         );
         assert!(images.get(1, "tiny.png", 184.0, None).is_some());
         assert!(

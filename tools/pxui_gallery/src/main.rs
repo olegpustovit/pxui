@@ -114,12 +114,12 @@ fn encode_events(events: &[HostEvent], raw: &mut Vec<Event>, scratch: &mut Vec<S
         scratch.clear();
         if let HostEvent::Touch(t)=event {
             touches.push(pxui::Touch::new(t.device, t.finger, [t.point.0, t.point.1], t.time, t.pressure, t.phase.code()));
-            raw.push(Event {kind:Event::TOUCH,text:Str {ptr:touches.as_ptr().wrapping_add(touches.len()-1).cast(),len:core::mem::size_of::<pxui::Touch>()},..Default::default()});
+            raw.push({ let mut record = Event::default(); record.kind = Event::TOUCH; record.text = { let mut record = Str::default(); record.ptr = touches.as_ptr().wrapping_add(touches.len()-1).cast(); record.len = core::mem::size_of::<pxui::Touch>(); record }; record });
             continue;
         }
         let r = event.raw(scratch);
         let text = r.text.unwrap_or("");
-        raw.push(Event { kind: r.kind, code: r.code, x: r.x, y: r.y, value: r.value, text: Str { ptr: text.as_ptr(), len: text.len() }, ..Default::default() });
+        raw.push({ let mut record = Event::default(); record.kind = r.kind; record.code = r.code; record.x = r.x; record.y = r.y; record.value = r.value; record.text = { let mut record = Str::default(); record.ptr = text.as_ptr(); record.len = text.len(); record }; record });
     }
 }
 

@@ -257,7 +257,7 @@ impl Shim {
     #[inline]
     fn rebuilding<F: FnMut(&mut pxui::Ui)>(&self, ui: &mut pxui::Ui, key: &'static str, node: pxui::Node, mut f: F) { self.rebuilding_body(ui, key, node, &mut f); }
     fn rebuilding_body(&self, ui: &mut pxui::Ui, key: &'static str, node: pxui::Node, f: &mut dyn FnMut(&mut pxui::Ui)) {
-        let rebuilt = pxui::Node { w: node.w, h: node.h, padding: node.padding, gap: node.gap, axis: node.axis, ..pxui::Node::DEFAULT };
+        let rebuilt = pxui::Node::DEFAULT.w(node.w).h(node.h).padding(node.padding).gap(node.gap).axis(node.axis);
         let b = ui.node(key, std::hint::black_box(rebuilt));
         ui.within(&b, f);
     }
@@ -271,8 +271,8 @@ fn abi_bench_author() {
     let labels: Vec<&'static str> = (0..AUTHOR_ROWS).map(|i| &*format!("row{i}").leak()).collect();
     let leaves: Vec<&'static str> = (0..AUTHOR_CHILDREN).map(|i| &*format!("leaf{i}").leak()).collect();
     // a row in all three paths, so `ui.row` setting the axis lays out the same tree
-    let row = pxui::Node { axis: pxui::ui::Axis::Row, w: Size::Grow, h: Size::Px(24.0), ..pxui::Node::DEFAULT };
-    let leaf = pxui::Node { w: Size::Px(10.0), h: Size::Px(10.0), ..pxui::Node::DEFAULT };
+    let row = pxui::Node::DEFAULT.axis(pxui::ui::Axis::Row).w(Size::Grow).h(Size::Px(24.0));
+    let leaf = pxui::Node::DEFAULT.w(Size::Px(10.0)).h(Size::Px(10.0));
     let mut ui = pxui::Ui::new(&pxui::UiDesc::new(pxui::Platform::Apple).fonts(&[pxui::FontData(DEPARTURE_MONO)])).expect("pxui Ui");
     let shim = Shim;
     // kind 0: node + within; 1: `ui.row` (the authoring layer); 2: the node-rebuilding helper. Each row is one id scope (`ui.id`) holding
@@ -456,12 +456,12 @@ fn abi_bench_gpu() {
 fn abi_bench_paint_calls() {
     if !slow() { return; }
     let mut ui = pxui::Ui::new(&pxui::UiDesc::new(pxui::Platform::Apple).fonts(&[pxui::FontData(DEPARTURE_MONO)])).expect("pxui Ui");
-    let ink = Rgba { r: 20, g: 120, b: 220, a: 255 };
+    let ink = Rgba::rgb(20, 120, 220);
     let mut calls = |shapes: u64, count: u64| {
         let input = FrameIn::new(300.0, 200.0).scale(1.0).time(count as f64 / 60.0);
         let before = ui.library_calls();
         ui.frame(&input, &mut |ui: &mut pxui::Ui| {
-            let b = ui.node("canvas", pxui::Node { w: Size::Px(300.0), h: Size::Px(200.0), ..pxui::Node::DEFAULT });
+            let b = ui.node("canvas", pxui::Node::DEFAULT.w(Size::Px(300.0)).h(Size::Px(200.0)));
             ui.canvas(&b, move |p, _| for i in 0..shapes { p.fill(pxui_types::geom::Rect::new((i % 300) as f32, (i / 300) as f32, 1.0, 1.0), pxui::Fill::new(ink)); });
         }).expect("frame");
         ui.library_calls() - before
@@ -508,7 +508,7 @@ fn warm_gallery_phone() {
         let before = allocations();
         ui.frame(&input, &mut |ui: &mut pxui::Ui| {
             use pxui::ui::{Edges, Node, Size};
-            let content = ui.node("iOS safe content", Node { w: Size::Grow, h: Size::Grow, padding: Edges { t: 62.0, r: 0.0, b: 34.0, l: 0.0 }, ..Node::DEFAULT });
+            let content = ui.node("iOS safe content", Node::DEFAULT.w(Size::Grow).h(Size::Grow).padding(Edges::new(0.0, 62.0, 0.0, 34.0)));
             ui.within(&content, &mut |ui: &mut pxui::Ui| pxui_gallery::app(ui, &mut state));
         }).expect("frame");
         let made = allocations() - before;

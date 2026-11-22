@@ -423,7 +423,7 @@ fn window_pxui_keyboard_signal_reuses_routing_storage() {
     let button = Cell::new(None);
     let clicks = Cell::new(0);
     let mut build = |ui: &mut Ui| {
-        let node = ui.node("button".into(), Node { flags: Flags::CLICKABLE | Flags::TAB_STOP, w: Size::Px(120.0), h: Size::Px(32.0), ..Node::DEFAULT });
+        let node = ui.node("button".into(), Node::DEFAULT.flags(Flags::CLICKABLE | Flags::TAB_STOP).w(Size::Px(120.0)).h(Size::Px(32.0)));
         let state = ui.signal(&node);
         check(state.keys.is_empty(), "scalar signal copied key events");
         clicks.set(clicks.get() + i32::from(state.clicked));
@@ -498,7 +498,7 @@ fn line_box_glyphs_keep_their_half_leading() {
     let glyphs = |ui: &mut Ui, line_height: f32, h: Size| {
         let mut rect = Rect::default();
         ui.frame(&frame, &mut |ui| {
-            let node = ui.node("t".into(), Node { w: Size::Px(200.0), h, ..Node::DEFAULT });
+            let node = ui.node("t".into(), Node::DEFAULT.w(Size::Px(200.0)).h(h));
             check(ui.text_line_box(&node, "Hgx", &pxui_text::Style { size: 12.0, line_height, ..Default::default() }, &[]), "a line box");
             rect = ui.rect(&node);
         });
@@ -596,21 +596,9 @@ fn line_box_fades_inherited_and_inline_colors() {
     use pxui_types::draw::kind;
     let mut ui = new_ui(None);
     let style = pxui_text::Style { size: 14.0, line_height: 20.0, ..Default::default() };
-    let span = TextSpan {
-        start: 1,
-        end: 2,
-        flags: TextSpan::COLOR | TextSpan::BACKGROUND | TextSpan::UNDERLINE,
-        color: Rgba::rgba(5, 6, 7, 201),
-        background: Rgba::rgba(10, 20, 30, 100),
-        underline: Rgba::rgba(50, 60, 70, 90),
-        ..Default::default()
-    };
+    let span = { let mut record = TextSpan::new(1, 2); record.flags = TextSpan::COLOR | TextSpan::BACKGROUND | TextSpan::UNDERLINE; record.color = Rgba::rgba(5, 6, 7, 201); record.background = Rgba::rgba(10, 20, 30, 100); record.underline = Rgba::rgba(50, 60, 70, 90); record };
     let mut build = |ui: &mut Ui| {
-        let handle = ui.node_ref("line", &Node {
-            w: Size::Px(100.0), h: Size::Px(20.0),
-            look: Look { text: Rgba::rgb(200, 10, 20), opacity: 0.5, ..Look::NONE },
-            ..Node::DEFAULT
-        });
+        let handle = ui.node_ref("line", &Node::DEFAULT.w(Size::Px(100.0)).h(Size::Px(20.0)).look(Look::NONE.text(Rgba::rgb(200, 10, 20)).opacity(0.5)));
         assert!(ui.text_line_box(&handle, "AB", &style, &[span]));
     };
     let frame = frame_at(vec![], 2.0, 0.0, vec![]);

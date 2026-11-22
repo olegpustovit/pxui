@@ -11,7 +11,7 @@ fn at(t: f64, events: Vec<Event>) -> input::frame::Frame {
 }
 
 fn px(w: f32, h: f32) -> Node {
-    Node { w: Size::Px(w), h: Size::Px(h), ..Node::DEFAULT }
+    Node::DEFAULT.w(Size::Px(w)).h(Size::Px(h))
 }
 
 /// One frame of `build` in a 320 x 240 window: the rectangles of the handles it returns.
@@ -45,37 +45,37 @@ fn eq(r: Rect, x: f32, y: f32, w: f32, h: f32, what: &str) {
     check(close(r.x, x) && close(r.y, y) && close(r.w, w) && close(r.h, h), &format!("{what}: {r:?}, expected ({x}, {y}, {w}, {h})"));
 }
 
-const ROW: Node = Node { w: Size::Px(300.0), h: Size::Px(40.0), axis: Axis::Row, ..Node::DEFAULT };
+const ROW: Node = Node::DEFAULT.w(Size::Px(300.0)).h(Size::Px(40.0)).axis(Axis::Row);
 
 pub fn layout_grow_shrink() {
-    let grow = |g: f32| Node { w: Size::Grow, h: Size::Px(10.0), grow: g, ..Node::DEFAULT };
+    let grow = |g: f32| Node::DEFAULT.w(Size::Grow).h(Size::Px(10.0)).grow(g);
     let r = once(ROW, &[grow(1.0), grow(2.0), px(60.0, 10.0)]);
     eq(r[1], 0.0, 0.0, 80.0, 10.0, "grow 1");
     eq(r[2], 80.0, 0.0, 160.0, 10.0, "grow 2");
     eq(r[3], 240.0, 0.0, 60.0, 10.0, "fixed after the growers");
-    let shrink = |w: f32, s: f32| Node { shrink: s, ..px(w, 10.0) };
-    let r = once(Node { w: Size::Px(100.0), ..ROW }, &[shrink(80.0, 1.0), shrink(40.0, 3.0)]);
+    let shrink = |w: f32, s: f32| px(w, 10.0).shrink(s);
+    let r = once(ROW.w(Size::Px(100.0)), &[shrink(80.0, 1.0), shrink(40.0, 3.0)]);
     eq(r[1], 0.0, 0.0, 72.0, 10.0, "shrink 1 of 80");
     eq(r[2], 72.0, 0.0, 28.0, 10.0, "shrink 3 of 40");
 }
 
 pub fn layout_min_max_aspect() {
-    let grow = Node { w: Size::Grow, h: Size::Px(10.0), ..Node::DEFAULT };
-    let r = once(ROW, &[Node { max_w: 50.0, ..grow }, grow, Node { min_w: 30.0, ..px(10.0, 10.0) }]);
+    let grow = Node::DEFAULT.w(Size::Grow).h(Size::Px(10.0));
+    let r = once(ROW, &[grow.max_w(50.0), grow, px(10.0, 10.0).min_w(30.0)]);
     eq(r[1], 0.0, 0.0, 50.0, 10.0, "max_w holds a grower");
     eq(r[2], 50.0, 0.0, 220.0, 10.0, "the other grower takes the rest");
     eq(r[3], 270.0, 0.0, 30.0, 10.0, "min_w beats w");
-    let r = once(Node { w: Size::Px(300.0), h: Size::Fit, ..Node::DEFAULT }, &[Node { w: Size::Px(160.0), h: Size::Fit, aspect: 2.0, ..Node::DEFAULT }, Node { w: Size::Grow, h: Size::Fit, aspect: 3.0, max_h: 50.0, ..Node::DEFAULT }]);
+    let r = once(Node::DEFAULT.w(Size::Px(300.0)).h(Size::Fit), &[Node::DEFAULT.w(Size::Px(160.0)).h(Size::Fit).aspect(2.0), Node::DEFAULT.w(Size::Grow).h(Size::Fit).aspect(3.0).max_h(50.0)]);
     eq(r[1], 0.0, 0.0, 160.0, 80.0, "aspect from a fixed width");
     eq(r[2], 0.0, 80.0, 300.0, 50.0, "aspect from the stretched width, held by max_h");
 }
 
 /// A line of 100 growers, one past the 64th held by its max: every other one still grows.
 pub fn layout_grow_many_frozen() {
-    let grow = Node { w: Size::Grow, h: Size::Px(10.0), ..Node::DEFAULT };
+    let grow = Node::DEFAULT.w(Size::Grow).h(Size::Px(10.0));
     let mut kids = vec![grow; 100];
     kids[70].max_w = 1.0;
-    let r = once(Node { w: Size::Px(991.0), ..ROW }, &kids);
+    let r = once(ROW.w(Size::Px(991.0)), &kids);
     eq(r[71], r[70].x + r[70].w, 0.0, 1.0, 10.0, "the 71st child is held by its max");
     for k in [1, 64, 65, 72, 100] {
         check((r[k].w - 10.0).abs() < 0.01, &format!("child {k} grew to {}, not 10", r[k].w));
@@ -83,8 +83,8 @@ pub fn layout_grow_many_frozen() {
 }
 
 pub fn layout_gap_padding_margin() {
-    let column = Node { w: Size::Px(200.0), h: Size::Fit, padding: Edges { l: 5.0, t: 7.0, r: 9.0, b: 11.0 }, gap: 4.0, ..Node::DEFAULT };
-    let r = once(column, &[px(20.0, 10.0), Node { margin: Edges { l: 3.0, t: 2.0, r: 0.0, b: 6.0 }, ..px(20.0, 10.0) }, Node { w: Size::Grow, h: Size::Px(10.0), margin: Edges { l: 1.0, r: 2.0, ..Edges::ZERO }, ..Node::DEFAULT }]);
+    let column = Node::DEFAULT.w(Size::Px(200.0)).h(Size::Fit).padding(Edges::new(5.0, 7.0, 9.0, 11.0)).gap(4.0);
+    let r = once(column, &[px(20.0, 10.0), px(20.0, 10.0).margin(Edges::new(3.0, 2.0, 0.0, 6.0)), Node::DEFAULT.w(Size::Grow).h(Size::Px(10.0)).margin(Edges::ZERO.l(1.0).r(2.0))]);
     eq(r[1], 5.0, 7.0, 20.0, 10.0, "padding start");
     eq(r[2], 8.0, 23.0, 20.0, 10.0, "gap and margin");
     eq(r[3], 6.0, 43.0, 183.0, 10.0, "stretched inside padding and margins");
@@ -94,7 +94,7 @@ pub fn layout_gap_padding_margin() {
 pub fn layout_justify_align() {
     let kids = [px(20.0, 10.0), px(40.0, 20.0)];
     let x = |j: Justify| {
-        let r = once(Node { justify: j, ..ROW }, &kids);
+        let r = once(ROW.justify(j), &kids);
         (r[1].x, r[2].x)
     };
     check(x(Justify::Start) == (0.0, 20.0), "start");
@@ -104,7 +104,7 @@ pub fn layout_justify_align() {
     check(x(Justify::SpaceAround) == (60.0, 200.0), "space-around");
     check(x(Justify::SpaceEvenly) == (80.0, 180.0), "space-evenly");
     let y = |a: Align, own: Option<Align>| {
-        let r = once(Node { align: a, ..ROW }, &[Node { h: Size::Fit, align_self: own.into(), ..px(20.0, 0.0) }, px(40.0, 20.0)]);
+        let r = once(ROW.align(a), &[{ let mut record = px(20.0, 0.0).h(Size::Fit); record.align_self = own.into(); record }, px(40.0, 20.0)]);
         (r[1].y, r[1].h, r[2].y)
     };
     check(y(Align::Start, None) == (0.0, 0.0, 0.0), "align start");
@@ -117,9 +117,9 @@ pub fn layout_justify_align() {
 /// Mixed font sizes in a row aligned on their baselines: one baseline.
 pub fn layout_baseline() {
     let mut ui = new_ui(Some(13));
-    let text = |size: i64| Node { w: Size::Px(60.0), h: Size::Px(size as f32 + 4.0), look: Look { font: Font { size, ..Font::BODY }, text: Rgba::BLACK, ..Look::NONE }, ..Node::DEFAULT };
+    let text = |size: i64| Node::DEFAULT.w(Size::Px(60.0)).h(Size::Px(size as f32 + 4.0)).look(Look::NONE.font({ let mut record = Font::BODY; record.size = size; record }).text(Rgba::BLACK));
     let r = lay(&mut ui, 0.0, vec![], &mut |ui| {
-        let p = ui.node("p".into(), Node { align: Align::Baseline, ..ROW });
+        let p = ui.node("p".into(), ROW.align(Align::Baseline));
         let saved = ui.enter(&p);
         let small = ui.node("s".into(), text(10));
         ui.text(&small, "small");
@@ -137,11 +137,11 @@ pub fn layout_baseline() {
     check((r[0].y + bs - (r[1].y + bb)).abs() < 0.01, &format!("baselines differ: {} vs {}", r[0].y + bs, r[1].y + bb));
     // a padded box without text of its own takes its first child's baseline
     let r = lay(&mut ui, 0.1, vec![], &mut |ui| {
-        let p = ui.node("p".into(), Node { align: Align::Baseline, ..ROW });
+        let p = ui.node("p".into(), ROW.align(Align::Baseline));
         let saved = ui.enter(&p);
         let small = ui.node("s".into(), text(10));
         ui.text(&small, "small");
-        let boxed = ui.node("box".into(), Node { w: Size::Fit, h: Size::Fit, axis: Axis::Column, padding: Edges::all(6.0), ..Node::DEFAULT });
+        let boxed = ui.node("box".into(), Node::DEFAULT.w(Size::Fit).h(Size::Fit).axis(Axis::Column).padding(Edges::all(6.0)));
         let inner = ui.enter(&boxed);
         let big = ui.node("b".into(), text(30));
         ui.text(&big, "Big");
@@ -157,14 +157,14 @@ pub fn layout_baseline() {
 pub fn layout_fit_text_child() {
     let mut ui = new_ui(Some(13));
     let want = ui.text_width(Some(13), "Artist") ;
-    let look = Look { font: Font { size: 13, ..Font::BODY }, text: Rgba::BLACK, ..Look::NONE };
+    let look = Look::NONE.font({ let mut record = Font::BODY; record.size = 13; record }).text(Rgba::BLACK);
     for (wrap, flags) in [(false, Flags::NONE), (true, Flags::NONE), (false, Flags::FIT_TEXT), (true, Flags::FIT_TEXT), (false, Flags::FIT_TEXT_PIXEL)] {
         let r = lay(&mut ui, 0.0, vec![], &mut |ui| {
-            let row = ui.node("row".into(), Node { axis: Axis::Row, wrap, w: Size::Px(300.0), h: Size::Fit, ..Node::DEFAULT });
+            let row = ui.node("row".into(), { let mut record = Node::DEFAULT.axis(Axis::Row).w(Size::Px(300.0)).h(Size::Fit); record.wrap = wrap; record });
             let saved = ui.enter(&row);
-            let chip = ui.node("chip".into(), Node { axis: Axis::Row, w: Size::Fit, h: Size::Px(32.0), padding: Edges { l: 12.0, r: 12.0, ..Edges::ZERO }, ..Node::DEFAULT });
+            let chip = ui.node("chip".into(), Node::DEFAULT.axis(Axis::Row).w(Size::Fit).h(Size::Px(32.0)).padding(Edges::ZERO.l(12.0).r(12.0)));
             let inner = ui.enter(&chip);
-            let label = ui.node("label".into(), Node { flags, w: Size::Fit, h: Size::Grow, look, ..Node::DEFAULT });
+            let label = ui.node("label".into(), Node::DEFAULT.flags(flags).w(Size::Fit).h(Size::Grow).look(look));
             ui.text(&label, "Artist");
             ui.leave(inner);
             ui.leave(saved);
@@ -180,11 +180,11 @@ pub fn layout_baseline_wrapped() {
     let mut ui = new_ui(Some(13));
     let sizes = [10, 30, 20, 10];
     let r = lay(&mut ui, 0.0, vec![], &mut |ui| {
-        let p = ui.node("p".into(), Node { axis: Axis::Row, wrap: true, align: Align::Baseline, w: Size::Px(100.0), h: Size::Fit, row_gap: 3.0, ..Node::DEFAULT });
+        let p = ui.node("p".into(), Node::DEFAULT.axis(Axis::Row).wrap().align(Align::Baseline).w(Size::Px(100.0)).h(Size::Fit).row_gap(3.0));
         let saved = ui.enter(&p);
         let mut out = vec![];
         for (i, size) in sizes.into_iter().enumerate() {
-            let n = ui.node_ref(&format!("t{i}"), &Node { w: Size::Px(45.0), h: Size::Px(size as f32 + 4.0), look: Look { font: Font { size, ..Font::BODY }, text: Rgba::BLACK, ..Look::NONE }, ..Node::DEFAULT });
+            let n = ui.node_ref(&format!("t{i}"), &Node::DEFAULT.w(Size::Px(45.0)).h(Size::Px(size as f32 + 4.0)).look(Look::NONE.font({ let mut record = Font::BODY; record.size = size; record }).text(Rgba::BLACK)));
             ui.text(&n, "Ag");
             out.push(n);
         }
@@ -204,7 +204,7 @@ pub fn layout_baseline_wrapped() {
 
 pub fn layout_wrap() {
     let kid = px(40.0, 10.0);
-    let r = once(Node { w: Size::Px(100.0), h: Size::Fit, axis: Axis::Row, wrap: true, gap: 10.0, row_gap: 5.0, ..Node::DEFAULT }, &[kid, kid, Node { h: Size::Px(12.0), ..kid }, kid]);
+    let r = once(Node::DEFAULT.w(Size::Px(100.0)).h(Size::Fit).axis(Axis::Row).wrap().gap(10.0).row_gap(5.0), &[kid, kid, kid.h(Size::Px(12.0)), kid]);
     eq(r[1], 0.0, 0.0, 40.0, 10.0, "first");
     eq(r[2], 50.0, 0.0, 40.0, 10.0, "second on the first line");
     eq(r[3], 0.0, 15.0, 40.0, 12.0, "third wraps below the row gap");
@@ -215,8 +215,8 @@ pub fn layout_wrap() {
 /// A wrapping Fit row whose width its parent gives (Grow, Pct) breaks its lines at that width.
 pub fn layout_wrap_resolved() {
     let kid = px(40.0, 10.0);
-    let column = Node { w: Size::Px(100.0), h: Size::Px(200.0), ..Node::DEFAULT };
-    let wrapping = |w: Size| Node { w, h: Size::Fit, axis: Axis::Row, wrap: true, padding: Edges { t: 1.0, b: 2.0, ..Edges::ZERO }, ..Node::DEFAULT };
+    let column = Node::DEFAULT.w(Size::Px(100.0)).h(Size::Px(200.0));
+    let wrapping = |w: Size| Node::DEFAULT.w(w).h(Size::Fit).axis(Axis::Row).wrap().padding(Edges::ZERO.t(1.0).b(2.0));
     let mut ui = new_ui(None);
     let r = lay(&mut ui, 0.0, vec![], &mut |ui| {
         let p = ui.node("p".into(), column);
@@ -243,9 +243,9 @@ pub fn layout_wrap_resolved() {
 
 pub fn layout_grid() {
     const COLS: &[Track] = &[Track::Px(50.0), Track::Fr(1.0), Track::Fit];
-    let grid = Node { w: Size::Px(300.0), h: Size::Fit, grid: Some(Grid::new(COLS, &[])).into(), gap: 10.0, row_gap: 4.0, ..Node::DEFAULT };
-    let cell = Node { w: Size::Grow, h: Size::Px(20.0), ..Node::DEFAULT };
-    let r = once(grid, &[cell, cell, Node { w: Size::Px(70.0), ..cell }, Node { cell: Cell::DEFAULT.span(2, 1), h: Size::Px(30.0), ..cell }, Node { cell: Cell::at(2, 2), ..cell }]);
+    let grid = Node::DEFAULT.w(Size::Px(300.0)).h(Size::Fit).grid(Grid::new(COLS, &[])).gap(10.0).row_gap(4.0);
+    let cell = Node::DEFAULT.w(Size::Grow).h(Size::Px(20.0));
+    let r = once(grid, &[cell, cell, cell.w(Size::Px(70.0)), cell.cell(Cell::DEFAULT.span(2, 1)).h(Size::Px(30.0)), cell.cell(Cell::at(2, 2))]);
     eq(r[1], 0.0, 0.0, 50.0, 20.0, "fixed track");
     eq(r[2], 60.0, 0.0, 160.0, 20.0, "fractional track takes what is left");
     eq(r[3], 230.0, 0.0, 70.0, 20.0, "content track");
@@ -257,8 +257,8 @@ pub fn layout_grid() {
 /// A grid of 100 items in 4 columns has 25 rows (rows are not capped).
 pub fn layout_grid_many_rows() {
     const COLS: &[Track] = &[Track::Fr(1.0); 4];
-    let grid = Node { w: Size::Px(400.0), h: Size::Fit, grid: Some(Grid::new(COLS, &[])).into(), row_gap: 2.0, ..Node::DEFAULT };
-    let kids = vec![Node { w: Size::Grow, h: Size::Px(10.0), ..Node::DEFAULT }; 100];
+    let grid = Node::DEFAULT.w(Size::Px(400.0)).h(Size::Fit).grid(Grid::new(COLS, &[])).row_gap(2.0);
+    let kids = vec![Node::DEFAULT.w(Size::Grow).h(Size::Px(10.0)); 100];
     let mut ui = new_ui(None);
     let mut build = |ui: &mut Ui| holder(ui, grid, &kids);
     let r = lay(&mut ui, 0.0, vec![], &mut build);
@@ -270,12 +270,12 @@ pub fn layout_grid_many_rows() {
 /// Spanning children size the content tracks they cross; fixed and fractional tracks keep theirs.
 pub fn layout_grid_spans() {
     const COLS: &[Track] = &[Track::Fit, Track::Fit, Track::Px(30.0)];
-    let grid = Node { w: Size::Fit, h: Size::Fit, grid: Some(Grid::new(COLS, &[])).into(), gap: 10.0, row_gap: 4.0, ..Node::DEFAULT };
+    let grid = Node::DEFAULT.w(Size::Fit).h(Size::Fit).grid(Grid::new(COLS, &[])).gap(10.0).row_gap(4.0);
     let r = once(grid, &[
-        Node { cell: Cell::at(0, 0), ..px(20.0, 10.0) },
-        Node { cell: Cell::at(0, 1).span(3, 1), ..px(120.0, 10.0) },
-        Node { cell: Cell::at(0, 2).span(1, 2), ..px(10.0, 50.0) },
-        Node { cell: Cell::at(1, 2), ..px(5.0, 10.0) },
+        px(20.0, 10.0).cell(Cell::at(0, 0)),
+        px(120.0, 10.0).cell(Cell::at(0, 1).span(3, 1)),
+        px(10.0, 50.0).cell(Cell::at(0, 2).span(1, 2)),
+        px(5.0, 10.0).cell(Cell::at(1, 2)),
     ]);
     // columns: 75 of 120 there (20 + 5 + 30 + two gaps), 22.5 more to each Fit column
     eq(r[1], 0.0, 0.0, 20.0, 10.0, "single cell");
@@ -284,7 +284,7 @@ pub fn layout_grid_spans() {
     // rows: 10 + 0 + a gap of the 50 spanned, 18 more to each
     eq(r[0], 0.0, 0.0, 120.0, 10.0 + 10.0 + 28.0 + 18.0 + 12.0, "fit size of the grown tracks");
     const FR: &[Track] = &[Track::Fr(1.0), Track::Fit];
-    let r = once(Node { w: Size::Px(300.0), grid: Some(Grid::new(FR, &[])).into(), ..grid }, &[Node { cell: Cell::DEFAULT.span(2, 1), ..px(280.0, 10.0) }, px(10.0, 10.0), px(40.0, 10.0)]);
+    let r = once(grid.w(Size::Px(300.0)).grid(Grid::new(FR, &[])), &[px(280.0, 10.0).cell(Cell::DEFAULT.span(2, 1)), px(10.0, 10.0), px(40.0, 10.0)]);
     eq(r[3], 300.0 - 40.0, 14.0, 40.0, 10.0, "a span over a fractional track leaves the Fit one at its content");
 }
 
@@ -293,10 +293,10 @@ pub fn layout_stack_order() {
     let mut ui = new_ui(None);
     let (red, blue) = (Rgba::rgb(200, 0, 0), Rgba::rgb(0, 0, 200));
     let r = lay(&mut ui, 0.0, vec![], &mut |ui| {
-        let p = ui.node("p".into(), Node { w: Size::Px(100.0), h: Size::Px(60.0), axis: Axis::Stack, justify: Justify::Center, align: Align::End, ..Node::DEFAULT });
+        let p = ui.node("p".into(), Node::DEFAULT.w(Size::Px(100.0)).h(Size::Px(60.0)).axis(Axis::Stack).justify(Justify::Center).align(Align::End));
         let saved = ui.enter(&p);
-        let top = ui.node("top".into(), Node { z: 2, look: Look { fill: red, ..Look::NONE }, ..px(40.0, 20.0) });
-        let under = ui.node("under".into(), Node { w: Size::Grow, h: Size::Grow, look: Look { fill: blue, ..Look::NONE }, ..Node::DEFAULT });
+        let top = ui.node("top".into(), px(40.0, 20.0).z(2).look(Look::NONE.fill(red)));
+        let under = ui.node("under".into(), Node::DEFAULT.w(Size::Grow).h(Size::Grow).look(Look::NONE.fill(blue)));
         ui.leave(saved);
         vec![top, under]
     });
@@ -335,9 +335,9 @@ pub fn layout_anchored_flip() {
 pub fn layout_scroll_sticky() {
     let mut ui = new_ui(None);
     let mut build = |ui: &mut Ui| {
-        let p = ui.node("p".into(), Node { flags: Flags::SCROLL | Flags::SCROLL_X | Flags::CLIP, scroll_step: 10.0, at: Some((0.0, 0.0)).into(), ..px(100.0, 100.0) });
+        let p = ui.node("p".into(), px(100.0, 100.0).flags(Flags::SCROLL | Flags::SCROLL_X | Flags::CLIP).scroll_step(10.0).at(0.0, 0.0));
         let saved = ui.enter(&p);
-        let head = ui.node("head".into(), Node { flags: Flags::STICKY, w: Size::Px(300.0), h: Size::Px(20.0), ..Node::DEFAULT });
+        let head = ui.node("head".into(), Node::DEFAULT.flags(Flags::STICKY).w(Size::Px(300.0)).h(Size::Px(20.0)));
         let body = ui.node("body".into(), px(300.0, 300.0));
         ui.leave(saved);
         vec![p, head, body]
@@ -360,7 +360,7 @@ pub fn layout_scroll_x_elastic() {
             ui.set_dir(Direction::Rtl);
         }
         let mut build = |ui: &mut Ui| {
-            let p = ui.node("p".into(), Node { flags: Flags::SCROLL_X | Flags::CLIP, at: Some((0.0, 0.0)).into(), ..px(100.0, 100.0) });
+            let p = ui.node("p".into(), px(100.0, 100.0).flags(Flags::SCROLL_X | Flags::CLIP).at(0.0, 0.0));
             let saved = ui.enter(&p);
             let body = ui.node("body".into(), px(300.0, 100.0));
             ui.leave(saved);
@@ -406,12 +406,12 @@ pub fn layout_scroll_x_elastic() {
 /// A `Fit` column holding a wrapping `Grow` row hugs all its lines from the first frame (the row's
 /// lines are measured at its resolved width; the frame settles when that changes).
 pub fn layout_fit_hugs_wrapped_row() {
-    let column = Node { w: Size::Px(100.0), h: Size::Fit, axis: Axis::Column, ..Node::DEFAULT };
+    let column = Node::DEFAULT.w(Size::Px(100.0)).h(Size::Fit).axis(Axis::Column);
     let mut ui = new_ui(None);
     let mut build = |ui: &mut Ui| {
         let col = ui.node("col".into(), column);
         let inner = ui.enter(&col);
-        let row = ui.node("row".into(), Node { w: Size::Grow, h: Size::Fit, axis: Axis::Row, wrap: true, ..Node::DEFAULT });
+        let row = ui.node("row".into(), Node::DEFAULT.w(Size::Grow).h(Size::Fit).axis(Axis::Row).wrap());
         let saved = ui.enter(&row);
         for k in 0..10 {
             ui.node_ref(&format!("b{k}"), &px(40.0, 10.0));
@@ -434,10 +434,10 @@ pub fn layout_list_measured() {
     let rows = RefCell::new(vec![None; 200]);
     let height = |i: usize| 10.0 + (i % 3) as f32 * 10.0;
     let mut build = |ui: &mut Ui| {
-        let col = ui.node("col".into(), Node { w: Size::Px(100.0), h: Size::Px(200.0), ..Node::DEFAULT });
+        let col = ui.node("col".into(), Node::DEFAULT.w(Size::Px(100.0)).h(Size::Px(200.0)));
         ui.within(&col, &mut |ui| {
             ui.list_measured("rows", 200, 12.0, &mut |ui, i| {
-                let h = ui.node("r".into(), Node { w: Size::Px(80.0), h: Size::Px(height(i)), ..Node::DEFAULT });
+                let h = ui.node("r".into(), Node::DEFAULT.w(Size::Px(80.0)).h(Size::Px(height(i))));
                 rows.borrow_mut()[i] = Some(h);
             });
         });
@@ -459,12 +459,12 @@ pub fn layout_grid_list_resize_settles() {
     let (width, third) = (std::cell::Cell::new(200.0f32), std::cell::Cell::new(None));
     let fifth = std::cell::Cell::new(None);
     let build = |ui: &mut Ui| {
-        let col = ui.node("col".into(), Node { w: Size::Px(width.get()), h: Size::Px(200.0), ..Node::DEFAULT });
+        let col = ui.node("col".into(), Node::DEFAULT.w(Size::Px(width.get())).h(Size::Px(200.0)));
         ui.within(&col, &mut |ui| {
             ui.view("outer", 1, Size::Grow, Size::Grow, &mut |ui| {
                 ui.view("inner", 1, Size::Grow, Size::Grow, &mut |ui| {
                     ui.grid_list("cells", 10, 50.0, 20.0, &mut |ui, i| {
-                        let h = ui.node("c".into(), Node { w: Size::Grow, h: Size::Grow, ..Node::DEFAULT });
+                        let h = ui.node("c".into(), Node::DEFAULT.w(Size::Grow).h(Size::Grow));
                         if i == 4 { fifth.set(Some(h)); }
                         if i == 2 { third.set(Some(h)); }
                     });
@@ -570,7 +570,7 @@ pub fn layout_grid_list() {
             let mut f = |ui: &mut Ui, i: usize| {
                 let (n, first) = built.get();
                 built.set((n + 1, first.min(i)));
-                let h = ui.node("cell".into(), Node { w: Size::Grow, h: Size::Grow, ..Node::DEFAULT });
+                let h = ui.node("cell".into(), Node::DEFAULT.w(Size::Grow).h(Size::Grow));
                 if i == if sideways { 12_003 } else { 10_003 } {
                     *probe.borrow_mut() = Some(h);
                 }
@@ -613,7 +613,7 @@ pub fn layout_grid_list() {
 pub fn layout_rtl() {
     let mut ui = new_ui(None);
     ui.set_dir(Direction::Rtl);
-    let r = lay(&mut ui, 0.0, vec![], &mut |ui| holder(ui, Node { padding: Edges { l: 10.0, ..Edges::ZERO }, gap: 5.0, ..ROW }, &[px(20.0, 10.0), px(40.0, 10.0), Node { at: Some((0.0, 0.0)).into(), ..px(5.0, 5.0) }]));
+    let r = lay(&mut ui, 0.0, vec![], &mut |ui| holder(ui, ROW.padding(Edges::ZERO.l(10.0)).gap(5.0), &[px(20.0, 10.0), px(40.0, 10.0), px(5.0, 5.0).at(0.0, 0.0)]));
     // the root mirrors too: the row sits at the window's right
     eq(r[0], 20.0, 0.0, 300.0, 40.0, "the row at the window's start (right)");
     eq(r[1], 290.0, 0.0, 20.0, 10.0, "first child at the right, inside the start padding");
@@ -628,10 +628,10 @@ pub fn layout_split_drag() {
     let ratio = std::cell::Cell::new(0.25);
     let panes = RefCell::new((Rect::default(), Rect::default()));
     let mut build = |ui: &mut Ui| {
-        let host = ui.node("host".into(), Node { at: Some((0.0, 0.0)).into(), ..px(201.0, 100.0) });
+        let host = ui.node("host".into(), px(201.0, 100.0).at(0.0, 0.0));
         let saved = ui.enter(&host);
         let (mut a, mut b) = (None, None);
-        let (_, moved, held) = ui.split_result("split", Axis::Row, ratio.get(), 20.0, 30.0, &mut |ui| a = Some(ui.node("a".into(), Node { h: Size::Grow, ..Node::DEFAULT })), &mut |ui| b = Some(ui.node("b".into(), Node { h: Size::Grow, ..Node::DEFAULT })));
+        let (_, moved, held) = ui.split_result("split", Axis::Row, ratio.get(), 20.0, 30.0, &mut |ui| a = Some(ui.node("a".into(), Node::DEFAULT.h(Size::Grow))), &mut |ui| b = Some(ui.node("b".into(), Node::DEFAULT.h(Size::Grow))));
         let got = held.filter(|_| moved);
         if let Some(r) = got {
             ratio.set(r);
@@ -682,16 +682,16 @@ pub fn layout_warm_zero_alloc() {
     let mut ui = new_ui(None);
     let mut build = |ui: &mut Ui| {
         let kinds = [
-            Node { axis: Axis::Row, wrap: true, gap: 4.0, row_gap: 2.0, justify: Justify::SpaceBetween, align: Align::Baseline, ..px(200.0, 60.0) },
-            Node { grid: Some(Grid::new(COLS, &[])).into(), gap: 3.0, ..px(200.0, 60.0) },
-            Node { axis: Axis::Stack, justify: Justify::Center, ..px(200.0, 60.0) },
-            Node { flags: Flags::SCROLL | Flags::SCROLL_X | Flags::CLIP, ..px(200.0, 60.0) },
+            px(200.0, 60.0).axis(Axis::Row).wrap().gap(4.0).row_gap(2.0).justify(Justify::SpaceBetween).align(Align::Baseline),
+            px(200.0, 60.0).grid(Grid::new(COLS, &[])).gap(3.0),
+            px(200.0, 60.0).axis(Axis::Stack).justify(Justify::Center),
+            px(200.0, 60.0).flags(Flags::SCROLL | Flags::SCROLL_X | Flags::CLIP),
         ];
         for (k, n) in kinds.iter().enumerate() {
             let p = ui.node_keyed(int_key(7, k as i64), *n);
             let saved = ui.enter(&p);
             for i in 0..12 {
-                let c = ui.node_keyed(int_key(p.box_key, i), Node { flags: if i == 0 { Flags::STICKY } else { Flags::NONE }, z: (i % 3) as i16, grow: 1.0 + i as f32, shrink: 1.0, margin: Edges::all(1.0), ..px(30.0, 10.0 + i as f32) });
+                let c = ui.node_keyed(int_key(p.box_key, i), px(30.0, 10.0 + i as f32).flags(if i == 0 { Flags::STICKY } else { Flags::NONE }).z((i % 3) as i16).grow(1.0 + i as f32).shrink(1.0).margin(Edges::all(1.0)));
                 ui.text(&c, "x");
             }
             ui.leave(saved);
@@ -744,7 +744,7 @@ const ALIGN: [Align; 5] = [Align::Start, Align::Center, Align::End, Align::Stret
 /// spans over content tracks, a wrapping row whose width a column gives it), in a wrapping row after
 /// a virtual grid of 100,000 cells (48 nodes built): 20 x `groups` + 49 nodes.
 pub fn stress(ui: &mut Ui, groups: usize) {
-    let all = ui.node_keyed(int_key(9, 0), Node { w: Size::Px(2400.0), h: Size::Fit, axis: Axis::Row, wrap: true, gap: 2.0, row_gap: 2.0, ..Node::DEFAULT });
+    let all = ui.node_keyed(int_key(9, 0), Node::DEFAULT.w(Size::Px(2400.0)).h(Size::Fit).axis(Axis::Row).wrap().gap(2.0).row_gap(2.0));
     let saved = ui.enter(&all);
     let cells = ui.node("stress-cells-box".into(), px(100.0, 40.0));
     let inner = ui.enter(&cells);
@@ -752,46 +752,31 @@ pub fn stress(ui: &mut Ui, groups: usize) {
     ui.leave(inner);
     for g in 0..groups {
         let mode = g % 6;
-        let look = Look { fill: Rgba::rgb(40 + (g % 7) as u8 * 20, 90, 140), text: Rgba::BLACK, ..Look::NONE };
+        let look = Look::NONE.fill(Rgba::rgb(40 + (g % 7) as u8 * 20, 90, 140)).text(Rgba::BLACK);
         let n = match mode {
-            0 => Node { axis: Axis::Row, justify: JUSTIFY[g / 5 % 6], align: ALIGN[g / 5 % 5], gap: 1.0, padding: Edges { l: 1.0, t: 2.0, r: 3.0, b: 4.0 }, ..px(110.0, 110.0) },
-            1 => Node { axis: Axis::Row, wrap: true, gap: 2.0, row_gap: 1.0, align: Align::Baseline, ..px(110.0, 110.0) },
-            2 => Node { grid: Some(Grid::new(STRESS_COLS, &[])).into(), gap: 1.0, row_gap: 1.0, ..px(110.0, 110.0) },
-            3 => Node { axis: Axis::Stack, justify: Justify::Center, align: Align::End, ..px(110.0, 110.0) },
-            4 => Node { flags: Flags::SCROLL | Flags::SCROLL_X | Flags::CLIP, axis: Axis::Column, justify: Justify::SpaceBetween, ..px(110.0, 110.0) },
-            _ => Node { axis: Axis::Column, padding: Edges::all(2.0), ..px(110.0, 110.0) },
+            0 => px(110.0, 110.0).axis(Axis::Row).justify(JUSTIFY[g / 5 % 6]).align(ALIGN[g / 5 % 5]).gap(1.0).padding(Edges::new(1.0, 2.0, 3.0, 4.0)),
+            1 => px(110.0, 110.0).axis(Axis::Row).wrap().gap(2.0).row_gap(1.0).align(Align::Baseline),
+            2 => px(110.0, 110.0).grid(Grid::new(STRESS_COLS, &[])).gap(1.0).row_gap(1.0),
+            3 => px(110.0, 110.0).axis(Axis::Stack).justify(Justify::Center).align(Align::End),
+            4 => px(110.0, 110.0).flags(Flags::SCROLL | Flags::SCROLL_X | Flags::CLIP).axis(Axis::Column).justify(Justify::SpaceBetween),
+            _ => px(110.0, 110.0).axis(Axis::Column).padding(Edges::all(2.0)),
         };
-        let p = ui.node_keyed(int_key(all.box_key, g as i64), Node { look, ..n });
+        let p = ui.node_keyed(int_key(all.box_key, g as i64), n.look(look));
         let inner = ui.enter(&p);
         let mut nest = None;
         for i in 0..19usize {
             // a column's first child: a wrapping row as wide as the column, holding the rest
             if mode == 5 && i == 0 {
-                let w = ui.node_keyed(int_key(p.box_key, 0), Node { axis: Axis::Row, wrap: true, w: Size::Grow, h: Size::Fit, gap: 1.0, row_gap: 1.0, align: Align::Baseline, ..Node::DEFAULT });
+                let w = ui.node_keyed(int_key(p.box_key, 0), Node::DEFAULT.axis(Axis::Row).wrap().w(Size::Grow).h(Size::Fit).gap(1.0).row_gap(1.0).align(Align::Baseline));
                 nest = Some(ui.enter(&w));
                 continue;
             }
             let f = i as f32;
-            let mut c = Node {
-                w: if i % 3 == 0 { Size::Grow } else { Size::Px(4.0 + f) },
-                h: if i % 4 == 0 { Size::Fit } else { Size::Px(3.0 + f / 2.0) },
-                grow: 1.0 + (i % 3) as f32,
-                shrink: (i % 2) as f32,
-                min_w: if i % 5 == 0 { 2.0 } else { 0.0 },
-                max_w: if i % 7 == 0 { 30.0 } else { f32::INFINITY },
-                aspect: if i % 4 == 0 { 2.0 } else { 0.0 },
-                margin: Edges { l: (i % 2) as f32, t: 1.0, r: 0.0, b: (i % 3) as f32 },
-                align_self: if i % 6 == 0 { Some(ALIGN[i % 5]).into() } else { None.into() },
-                z: (i % 4) as i16,
-                cell: match i {
+            let mut c = { let mut record = Node::DEFAULT.w(if i % 3 == 0 { Size::Grow } else { Size::Px(4.0 + f) }).h(if i % 4 == 0 { Size::Fit } else { Size::Px(3.0 + f / 2.0) }).grow(1.0 + (i % 3) as f32).shrink((i % 2) as f32).min_w(if i % 5 == 0 { 2.0 } else { 0.0 }).max_w(if i % 7 == 0 { 30.0 } else { f32::INFINITY }).aspect(if i % 4 == 0 { 2.0 } else { 0.0 }).margin(Edges::new((i % 2) as f32, 1.0, 0.0, (i % 3) as f32)).z((i % 4) as i16).cell(match i {
                     5 => Cell::DEFAULT.span(2, 2),
                     9 => Cell::DEFAULT.span(1, 3),
                     _ => Cell::DEFAULT,
-                },
-                flags: if mode == 4 && i == 0 { Flags::STICKY } else { Flags::NONE },
-                look: Look { font: Font { size: 10 + (i % 3) as i64 * 4, ..Font::BODY }, ..look },
-                ..Node::DEFAULT
-            };
+                }).flags(if mode == 4 && i == 0 { Flags::STICKY } else { Flags::NONE }).look(look.font({ let mut record = Font::BODY; record.size = 10 + (i % 3) as i64 * 4; record })); record.align_self = if i % 6 == 0 { Some(ALIGN[i % 5]).into() } else { None.into() }; record };
             if mode == 4 {
                 c.h = Size::Px(12.0);
             }
@@ -811,8 +796,8 @@ pub fn stress(ui: &mut Ui, groups: usize) {
 pub fn stress_popup(ui: &mut Ui) {
     let popup = Placement { side: Side::Below, align: Along::Start, gap: 2.0, margin: 4.0, flip: true };
     ui.anchored("stress-pop", Rect::new(2300.0, 2390.0, 40.0, 20.0), &pxui_core::ui::Overlay::DEFAULT.place(popup), &mut |ui| {
-        ui.node("pop-body".into(), Node { look: Look { fill: Rgba::WHITE, ..Look::NONE }, ..px(120.0, 60.0) });
-        ui.node("pop-line".into(), Node { w: Size::Grow, h: Size::Px(1.0), ..Node::DEFAULT });
+        ui.node("pop-body".into(), px(120.0, 60.0).look(Look::NONE.fill(Rgba::WHITE)));
+        ui.node("pop-line".into(), Node::DEFAULT.w(Size::Grow).h(Size::Px(1.0)));
     });
 }
 
@@ -923,22 +908,18 @@ pub fn layout_leaf_scroll_geometry_and_parent_transitions() {
     let mut ui = new_ui(None);
     let (mode, scrolling, plain, child) = (Cell::new(0), Cell::new(None), Cell::new(None), Cell::new(None));
     let mut build = |ui: &mut Ui| {
-        let parent = ui.node("parent".into(),Node {axis:Axis::Stack,padding:Edges::all(7.0),..px(200.0,160.0)});
+        let parent = ui.node("parent".into(),px(200.0,160.0).axis(Axis::Stack).padding(Edges::all(7.0)));
         ui.within(&parent,&mut |ui| {
-            let scroll = ui.node("scrolling-leaf".into(),Node {
-                flags:Flags::SCROLL | Flags::SCROLL_X | Flags::CLIP,
-                grid:Some(Grid::new(COLS,if mode.get()==0 {TALL} else {SHORT})).into(),
-                at:Some((0.0,80.0)).into(),..px(100.0,40.0)
-            });
+            let scroll = ui.node("scrolling-leaf".into(),{ let mut record = px(100.0,40.0).flags(Flags::SCROLL | Flags::SCROLL_X | Flags::CLIP).grid(Grid::new(COLS,if mode.get()==0 {TALL} else {SHORT})); record.at = Some((0.0,80.0)).into(); record });
             scrolling.set(Some(scroll));
             ui.set_scroll_offset(&scroll,500.0);
             ui.set_scroll_offset_x(&scroll,500.0);
-            let node=ui.node("plain-leaf".into(),Node {at:Some((11.0,13.0)).into(),w:Size::Pct(0.5),h:Size::Px(40.0),..Node::DEFAULT});
+            let node=ui.node("plain-leaf".into(),{ let mut record = Node::DEFAULT.w(Size::Pct(0.5)).h(Size::Px(40.0)); record.at = Some((11.0,13.0)).into(); record });
             plain.set(Some(node));
             child.set(None);
             if mode.get()==2 {
                 ui.within(&node,&mut |ui| {
-                    child.set(Some(ui.node("child".into(),Node {at:Some((3.0,4.0)).into(),..px(20.0,10.0)})));
+                    child.set(Some(ui.node("child".into(),{ let mut record = px(20.0,10.0); record.at = Some((3.0,4.0)).into(); record })));
                 });
             }
         });
@@ -967,7 +948,7 @@ pub fn layout_carry_edge_scroll() {
         let (source, list, dropped) = (Cell::new(None), Cell::new(None), Cell::new(false));
         let mut build = |ui: &mut Ui| {
             let mut row = |ui: &mut Ui, index: usize| {
-                let grip = ui.node("grip".into(), Node { flags: Flags::CLICKABLE, w: Size::Grow, h: Size::Grow, ..Node::DEFAULT });
+                let grip = ui.node("grip".into(), Node::DEFAULT.flags(Flags::CLICKABLE).w(Size::Grow).h(Size::Grow));
                 if index == 0 {
                     source.set(Some(grip));
                     if ui.signal(&grip).held { ui.carry(Some(&grip), "item", "track"); }

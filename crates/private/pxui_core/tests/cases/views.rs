@@ -10,11 +10,11 @@ fn at(t: f64, events: Vec<Event>) -> input::frame::Frame {
 }
 
 fn chip(ui: &mut Ui, key: &str, fill: Rgba, flags: Flags) -> Handle {
-    ui.node_ref(key, &Node { flags, w: Size::Px(40.0), h: Size::Px(20.0), look: Look { fill, ..Look::NONE }, ..Node::DEFAULT })
+    ui.node_ref(key, &Node::DEFAULT.flags(flags).w(Size::Px(40.0)).h(Size::Px(20.0)).look(Look::NONE.fill(fill)))
 }
 
-const RED: Rgba = Rgba { r: 200, g: 0, b: 0, a: 255 };
-const BLUE: Rgba = Rgba { r: 0, g: 0, b: 200, a: 255 };
+const RED: Rgba = Rgba::rgb(200, 0, 0);
+const BLUE: Rgba = Rgba::rgb(0, 0, 200);
 
 /// The P5 exit criterion: bumping one view's revision runs only that view's build.
 pub fn window_pxui_view_rebuilds_one() {
@@ -204,7 +204,7 @@ pub fn window_pxui_view_kept_atlas_break() {
         let img = image.clone();
         ui.label(&format!("before {}", rev.get()), pxui_core::ui::Label::DEFAULT);
         ui.view("v", 1, Size::Px(100.0), Size::Px(40.0), &mut |ui| {
-            let h = ui.node("pic".into(), Node { w: Size::Px(8.0), h: Size::Px(8.0), ..Node::DEFAULT });
+            let h = ui.node("pic".into(), Node::DEFAULT.w(Size::Px(8.0)).h(Size::Px(8.0)));
             let img = img.clone();
             ui.canvas(&h, move |paint, r| paint.image(r.x, r.y, r.w, r.h, &img));
             ui.label("\u{1f600}", pxui_core::ui::Label::DEFAULT);
@@ -253,7 +253,7 @@ pub fn window_pxui_view_damage() {
     let n = node.get().unwrap();
     check(ui.patch_fill(&n, BLUE) && ui.output().damage == Some(Rect::new(0.0, 20.0, 40.0, 20.0)), "patch damage");
     check(ui.patch_offset(&n, 5.0, 0.0) && ui.output().damage == Some(Rect::new(0.0, 20.0, 45.0, 20.0)), &format!("move damage {:?}", ui.output().damage));
-    let mut shadow=Look { fill:BLUE,shadows:[Shadow { color:Rgba::BLACK,blur:4.0,spread:2.0,offset:[3.0,1.0],..Shadow::NONE },Shadow::NONE],..Look::NONE };
+    let mut shadow=Look::NONE.fill(BLUE).shadows([Shadow { color:Rgba::BLACK,blur:4.0,spread:2.0,offset:[3.0,1.0],..Shadow::NONE },Shadow::NONE]);
     ui.drawn(0);
     assert!(ui.patch_look(&n,&shadow));
     assert_eq!(ui.output().damage,Some(Rect::new(0.0,12.0,56.0,37.0)));
@@ -298,7 +298,7 @@ pub fn window_pxui_list() {
         built.set(0);
         ui.list("rows", 100_000, 24.0, &mut |ui, i| {
             built.set(built.get() + 1);
-            let cell = ui.node("cell".into(), Node { h: Size::Px(24.0), ..Node::DEFAULT });
+            let cell = ui.node("cell".into(), Node::DEFAULT.h(Size::Px(24.0)));
             if i == 5 {
                 cells.set(Some(cell));
             }
@@ -347,13 +347,13 @@ fn verify_failure(ui: &mut Ui, t: f64, build: &mut dyn FnMut(&mut Ui)) -> String
 /// look the build declares unlike the kept build's is named: under a running fade, as a stale state
 /// that starts one, and after a fade came to rest.
 pub fn window_pxui_view_verify_transition() {
-    const GREEN: Rgba = Rgba { r: 0, g: 200, b: 0, a: 255 };
+    const GREEN: Rgba = Rgba::rgb(0, 200, 0);
     let (hot, fill, rev) = (Cell::new(false), Cell::new(BLUE), Cell::new(1u64));
     let mut build = |ui: &mut Ui| {
         ui.view("fade", rev.get(), Size::Px(100.0), Size::Px(50.0), &mut |ui| {
             let n = chip(ui, "x", RED, Flags::NONE);
-            let look = Look { fill: if hot.get() { fill.get() } else { RED }, ..Look::NONE };
-            ui.set_look(&n, look, State { hovered: hot.get(), ..State::default() });
+            let look = Look::NONE.fill(if hot.get() { fill.get() } else { RED });
+            ui.set_look(&n, look, State::default().hovered(hot.get()));
         });
     };
     let fresh = || {
@@ -572,7 +572,7 @@ pub fn window_pxui_budget_cached_per_view() {
                     for v in 0..20 {
                         ui.view(&format!("v{v}"), 1, Size::Px(300.0), Size::Px(100.0), &mut |ui| {
                             for i in 0..sizes[k] {
-                                ui.node_keyed(int_key(7, i as i64), Node { w: Size::Px(4.0), h: Size::Px(4.0), look: Look { fill: RED, ..Look::NONE }, ..Node::DEFAULT });
+                                ui.node_keyed(int_key(7, i as i64), Node::DEFAULT.w(Size::Px(4.0)).h(Size::Px(4.0)).look(Look::NONE.fill(RED)));
                             }
                         });
                     }
@@ -603,7 +603,7 @@ pub fn window_pxui_list_text_survives_idle() {
     let mut list = |ui: &mut Ui| {
         ui.list("rows", 10_000, 24.0, &mut |ui, i| {
             ui.view("row", rev.get(), Size::Grow, Size::Px(24.0), &mut |ui| {
-                let row = ui.node("name".into(), Node { w: Size::Grow, h: Size::Px(24.0), ..Node::DEFAULT });
+                let row = ui.node("name".into(), Node::DEFAULT.w(Size::Grow).h(Size::Px(24.0)));
                 ui.text(&row, &names[i % 64]);
             });
         });
@@ -635,14 +635,14 @@ pub fn window_pxui_new_view_grows_within_its_room() {
         // the first frame declares as many nodes and hits as any later one, outside the views
         if !warm {
             for i in 0..33 {
-                ui.node_keyed(int_key(9, i), Node { flags: Flags::CLICKABLE, w: Size::Px(4.0), h: Size::Px(4.0), ..Node::DEFAULT });
+                ui.node_keyed(int_key(9, i), Node::DEFAULT.flags(Flags::CLICKABLE).w(Size::Px(4.0)).h(Size::Px(4.0)));
             }
         }
         for (name, count, first) in [("grow", n, 0), ("spare", 33 - n, n)] {
             ui.view(name, n as u64, Size::Px(300.0), Size::Px(200.0), &mut |ui| {
                 for i in first..first + count {
                     let flags = if i < 8 || i >= 25 { Flags::CLICKABLE } else { Flags::NONE };
-                    ui.node_keyed(int_key(7, i as i64), Node { flags, w: Size::Px(4.0), h: Size::Px(4.0), ..Node::DEFAULT });
+                    ui.node_keyed(int_key(7, i as i64), Node::DEFAULT.flags(flags).w(Size::Px(4.0)).h(Size::Px(4.0)));
                 }
             });
         }
@@ -671,9 +671,9 @@ pub fn window_pxui_kept_view_text_survives_idle() {
     let mut ui = new_ui(None);
     let mut header = |ui: &mut Ui| {
         ui.view("header", rev.get(), Size::Grow, Size::Px(48.0), &mut |ui| {
-            let title = ui.node("title".into(), Node { w: Size::Grow, h: Size::Px(24.0), ..Node::DEFAULT });
+            let title = ui.node("title".into(), Node::DEFAULT.w(Size::Grow).h(Size::Px(24.0)));
             ui.text(&title, "Songs");
-            let hint = ui.node("hint".into(), Node { w: Size::Grow, h: Size::Px(24.0), ..Node::DEFAULT });
+            let hint = ui.node("hint".into(), Node::DEFAULT.w(Size::Grow).h(Size::Px(24.0)));
             ui.text(&hint, "Click a header to sort. Double-click or Return plays.");
         });
     };
@@ -706,7 +706,7 @@ const FLING_CEILING: u64 = 116;
 fn song_rows(ui: &mut Ui, names: &[String], second: &[String], measured: bool) {
     let mut row = |ui: &mut Ui, i: usize| {
         ui.view("row", 1, Size::Grow, Size::Px(24.0), &mut |ui| {
-            let title = ui.node("title".into(), Node { w: Size::Grow, h: Size::Px(24.0), ..Node::DEFAULT });
+            let title = ui.node("title".into(), Node::DEFAULT.w(Size::Grow).h(Size::Px(24.0)));
             ui.text(&title, &names[i]);
             ui.label(&second[i], Label::BODY.line_height(20.0).lines(1).ellipsis().w(Size::Px(120.0)));
         });
@@ -886,7 +886,7 @@ pub fn window_pxui_budget_zero_alloc() {
     let mut list = |ui: &mut Ui| {
         ui.list("rows", 10_000, 24.0, &mut |ui, i| {
             ui.view("row", 0, Size::Grow, Size::Px(24.0), &mut |ui| {
-                let row = ui.node("name".into(), Node { w: Size::Grow, h: Size::Px(24.0), role: pxui_core::a11y::Role::Label, ..Node::DEFAULT });
+                let row = ui.node("name".into(), Node::DEFAULT.w(Size::Grow).h(Size::Px(24.0)).role(pxui_core::a11y::Role::Label));
                 ui.text(&row, WORDS[i % 4]);
                 ui.a11y_name(&row, WORDS[i % 4]);
                 ui.a11y_value(&row, WORDS[(i + 1) % 4], (0, 0));
@@ -950,11 +950,11 @@ pub fn window_pxui_view_resize_settles() {
     let (parent_h, runs) = (Cell::new(100.0f32), Cell::new(0));
     let ink = Rgba::rgb(1, 2, 3);
     let mut build = |ui: &mut Ui| {
-        let col = ui.node("col".into(), Node { w: Size::Px(200.0), h: Size::Px(parent_h.get()), ..Node::DEFAULT });
+        let col = ui.node("col".into(), Node::DEFAULT.w(Size::Px(200.0)).h(Size::Px(parent_h.get())));
         ui.within(&col, &mut |ui| {
             ui.view("v", 1, Size::Grow, Size::Grow, &mut |ui| {
                 runs.set(runs.get() + 1);
-                let h = ui.node("fill".into(), Node { w: Size::Grow, h: Size::Grow, ..Node::DEFAULT });
+                let h = ui.node("fill".into(), Node::DEFAULT.w(Size::Grow).h(Size::Grow));
                 ui.canvas(&h, move |paint, r| paint.fill(r.x, r.y, r.w, r.h, ink));
             });
         });
@@ -975,7 +975,7 @@ pub fn window_pxui_view_fit() {
     let (runs, rows_a) = ([Cell::new(0), Cell::new(0), Cell::new(0)], Cell::new(1usize));
     let (views, last) = (Cell::new([None; 3]), Cell::new(None));
     let mut build = |ui: &mut Ui| {
-        let col = ui.node("col".into(), Node { w: Size::Px(200.0), h: Size::Px(400.0), ..Node::DEFAULT });
+        let col = ui.node("col".into(), Node::DEFAULT.w(Size::Px(200.0)).h(Size::Px(400.0)));
         ui.within(&col, &mut |ui| {
             let mut vs = [None; 3];
             for (i, name) in ["a", "b", "c"].iter().enumerate() {
@@ -1107,8 +1107,8 @@ pub fn window_pxui_empty_buffers_preserve_names_and_values() {
     ui.set_a11y(true);
     let reuse = Cell::new(false);
     let mut build = |ui: &mut Ui| {
-        let spare = ui.node("spare".into(), Node { role: pxui_core::a11y::Role::Label, h: Size::Px(24.0), ..Node::DEFAULT });
-        let target = ui.node("target".into(), Node { role: pxui_core::a11y::Role::Label, h: Size::Px(24.0), ..Node::DEFAULT });
+        let spare = ui.node("spare".into(), Node::DEFAULT.role(pxui_core::a11y::Role::Label).h(Size::Px(24.0)));
+        let target = ui.node("target".into(), Node::DEFAULT.role(pxui_core::a11y::Role::Label).h(Size::Px(24.0)));
         if !reuse.get() {
             ui.text(&spare, LONG);
             ui.a11y_name(&spare, LONG);
@@ -1145,7 +1145,7 @@ pub fn window_pxui_more_kept_views_reuse_compaction_scratch() {
             ui.view("outer", frame, Size::Px(200.0), Size::Px(200.0), &mut |ui| {
                 for (i, label) in labels.iter().enumerate() {
                     ui.view(label, if i < 3 { 1 } else { phase }, Size::Px(20.0), Size::Px(10.0), &mut |ui| {
-                        ui.node("tile".into(), Node { w: Size::Grow, h: Size::Grow, look: Look { fill: Rgba::rgb(9, 9, 9), ..Look::NONE }, ..Node::DEFAULT });
+                        ui.node("tile".into(), Node::DEFAULT.w(Size::Grow).h(Size::Grow).look(Look::NONE.fill(Rgba::rgb(9, 9, 9))));
                     });
                 }
             });
@@ -1167,7 +1167,7 @@ pub fn window_pxui_view_newcomer_keeps_warm_buffers() {
             ui.frame(&at(frame as f64 / 60.0, vec![]), &mut |ui| {
                 for &(label, n) in labels {
                     ui.view(label, 1, Size::Px(100.0), Size::Px(50.0), &mut |ui| {
-                        for name in &names[..n] { ui.node_ref(name, &Node { w: Size::Px(4.0), h: Size::Px(4.0), ..Node::DEFAULT }); }
+                        for name in &names[..n] { ui.node_ref(name, &Node::DEFAULT.w(Size::Px(4.0)).h(Size::Px(4.0))); }
                     });
                 }
             });
@@ -1191,12 +1191,12 @@ pub fn window_pxui_damage_containment_preserves_other_views() {
     let (view, revision, fill) = (Cell::new(None), Cell::new(0), Cell::new(RED));
     let mut build = |ui: &mut Ui| {
         view.set(Some(ui.view("clipped", revision.get(), Size::Px(100.0), Size::Px(60.0), &mut |ui| {
-            ui.node("background".into(), Node { w: Size::Px(100.0), h: Size::Px(60.0), at: Some((0.0, 0.0)).into(), look: Look { fill: fill.get(), ..Look::NONE }, ..Node::DEFAULT });
+            ui.node("background".into(), Node::DEFAULT.w(Size::Px(100.0)).h(Size::Px(60.0)).at(0.0, 0.0).look(Look::NONE.fill(fill.get())));
             ui.view("nested", revision.get(), Size::Px(100.0), Size::Px(60.0), &mut |ui| {
-                ui.node("inside".into(), Node { w: Size::Px(20.0), h: Size::Px(10.0), at: Some((20.0, 20.0)).into(), look: Look { fill: fill.get(), ..Look::NONE }, ..Node::DEFAULT });
+                ui.node("inside".into(), Node::DEFAULT.w(Size::Px(20.0)).h(Size::Px(10.0)).at(20.0, 20.0).look(Look::NONE.fill(fill.get())));
             });
         })));
-        ui.node("outside".into(), Node { w: Size::Px(20.0), h: Size::Px(20.0), at: Some((150.0, 80.0)).into(), look: Look { fill: fill.get(), ..Look::NONE }, ..Node::DEFAULT });
+        ui.node("outside".into(), Node::DEFAULT.w(Size::Px(20.0)).h(Size::Px(20.0)).at(150.0, 80.0).look(Look::NONE.fill(fill.get())));
     };
     ui.frame(&at(0.0, vec![]), &mut build);
     let view = view.get().unwrap();
@@ -1244,13 +1244,13 @@ pub fn window_pxui_streaming_rows_reuse_retained_gaps() {
             mem_sys::local_reset();
             let mut ends = [None; 2];
             ui.frame(&frame, &mut |ui| {
-                let viewport = ui.node("viewport".into(), Node { flags: Flags::CLIP, w: Size::Px(600.0), h: Size::Px(400.0), ..Node::DEFAULT });
+                let viewport = ui.node("viewport".into(), Node::DEFAULT.flags(Flags::CLIP).w(Size::Px(600.0)).h(Size::Px(400.0)));
                 ui.within(&viewport, &mut |ui| {
                     for row in first..first + ROWS {
-                        let holder = ui.node_keyed(int_key(viewport.box_key, row as i64), Node { w: Size::Px(600.0), h: Size::Px(20.0), at: Some((0.0, (row - first) as f32 * 20.0)).into(), ..Node::DEFAULT });
+                        let holder = ui.node_keyed(int_key(viewport.box_key, row as i64), Node::DEFAULT.w(Size::Px(600.0)).h(Size::Px(20.0)).at(0.0, (row - first) as f32 * 20.0));
                         ui.within(&holder, &mut |ui| {
                             let view = ui.view("row", if fresh { tick as u64 } else { 1 }, Size::Grow, Size::Grow, &mut |ui| {
-                                let node = ui.node("tiles".into(), Node { w: Size::Grow, h: Size::Grow, ..Node::DEFAULT });
+                                let node = ui.node("tiles".into(), Node::DEFAULT.w(Size::Grow).h(Size::Grow));
                                 ui.canvas(&node, move |paint, rect| {
                                     for tile in 0..TILES { paint.fill(rect.x + tile as f32 * 8.0, rect.y, 8.0, 20.0, Rgba::rgb(20 + (row % 200) as u8, 10, 10)); }
                                 });

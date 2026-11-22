@@ -134,12 +134,12 @@ fn cpu_phase_clock_counts_settling_and_rejects_failed_or_regressing_reads() {
     ui.frame(&frame, &mut |ui| {
         calls += 1;
         CLOCK.with(|value| value.set(value.get() + 1000));
-        let col=ui.node("col".into(),Node {w:Size::Px(200.0),h:Size::Px(200.0),..Node::DEFAULT});
+        let col=ui.node("col".into(),Node::DEFAULT.w(Size::Px(200.0)).h(Size::Px(200.0)));
         ui.within(&col,&mut |ui| {
             ui.view("outer",1,Size::Grow,Size::Grow,&mut |ui| {
                 ui.view("inner",1,Size::Grow,Size::Grow,&mut |ui| {
                     ui.grid_list("cells",10,50.0,20.0,&mut |ui,_| {
-                        ui.node("cell".into(),Node {w:Size::Grow,h:Size::Grow,..Node::DEFAULT});
+                        ui.node("cell".into(),Node::DEFAULT.w(Size::Grow).h(Size::Grow));
                     });
                 });
             });
@@ -206,7 +206,7 @@ fn cached_glyph_paint_keeps_instance_bytes_without_warm_allocations() {
         frame.input.t = tick as f64 / 60.0;
         mem_sys::local_reset();
         ui.frame(&frame, &mut |ui| {
-            let node = ui.node("text".into(), Node { w: Size::Px(1000.0), h: Size::Px(1400.0), ..Node::DEFAULT });
+            let node = ui.node("text".into(), Node::DEFAULT.w(Size::Px(1000.0)).h(Size::Px(1400.0)));
             ui.canvas(&node, |paint, _| {
                 for row in 0..100 {
                     paint.text_styled((3.0, row as f32 * 14.0), &Style { size: 11.0, ..Style::default() }, 0.0, None,
@@ -243,7 +243,7 @@ fn covered_glyph_damage_preserves_instances_and_uploads() {
         ui.frame(&frame, &mut |ui| {
             ui.view("page", tick as u64, Size::Px(1000.0), Size::Px(1400.0), &mut |ui| {
                 let fill = pxui_core::geom::Rgba::rgb(20 + variant as u8, 20, 20);
-                let node = ui.node("text".into(), Node { w: Size::Px(1000.0), h: Size::Px(1400.0), look: Look { fill, ..Look::NONE }, ..Node::DEFAULT });
+                let node = ui.node("text".into(), Node::DEFAULT.w(Size::Px(1000.0)).h(Size::Px(1400.0)).look(Look::NONE.fill(fill)));
                 ui.canvas(&node, move |paint, _| {
                     for row in 0..100 {
                         paint.text_styled((3.0 + variant as f32, row as f32 * 14.0), &Style { size: 11.0, ..Style::default() }, 0.0, None,

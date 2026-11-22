@@ -110,7 +110,7 @@ impl Ui {
     /// pxui::doc::frames(1, &mut |ui| {
     ///     rows.clear();
     ///     let list = ui.node("list", Node::DEFAULT);
-    ///     ui.within(&list, &mut |ui| for id in [41u64, 42] { rows.push(ui.node(id, Node { h: Size::Px(24.0), ..Node::DEFAULT })); });
+    ///     ui.within(&list, &mut |ui| for id in [41u64, 42] { rows.push(ui.node(id, Node::DEFAULT.h(Size::Px(24.0)))); });
     /// });
     /// assert_ne!(rows[0].box_key, rows[1].box_key);
     /// ```
@@ -133,8 +133,8 @@ impl Ui {
     /// let (mut a, mut b) = (None, None);
     /// let ui = pxui::doc::frames(2, &mut |ui| {
     ///     ui.row(Node::row().h_px(24.0), |ui| {
-    ///         a = Some(ui.node("a", Node { w: Size::Px(10.0), ..Node::DEFAULT }));
-    ///         b = Some(ui.node("b", Node { w: Size::Px(10.0), ..Node::DEFAULT }));
+    ///         a = Some(ui.node("a", Node::DEFAULT.w(Size::Px(10.0))));
+    ///         b = Some(ui.node("b", Node::DEFAULT.w(Size::Px(10.0))));
     ///     });
     /// });
     /// assert_eq!(ui.rect(&b.unwrap()).x, ui.rect(&a.unwrap()).x + 10.0);
@@ -158,7 +158,7 @@ impl Ui {
     /// let ui = pxui::doc::frames(2, &mut |ui| {
     ///     rows.clear();
     ///     ui.column(Node::DEFAULT, |ui| {
-    ///         for id in songs { ui.id(id, |ui| rows.push(ui.row(Node { h: Size::Px(24.0), ..Node::DEFAULT }, |_| {}))); }
+    ///         for id in songs { ui.id(id, |ui| rows.push(ui.row(Node::DEFAULT.h(Size::Px(24.0)), |_| {}))); }
     ///     });
     /// });
     /// assert_eq!(ui.rect(&rows[1]).y, ui.rect(&rows[0]).y + 24.0);
@@ -180,8 +180,8 @@ impl Ui {
     /// let (mut a, mut b) = (None, None);
     /// let ui = pxui::doc::frames(2, &mut |ui| {
     ///     ui.stack(Node::DEFAULT, |ui| {
-    ///         a = Some(ui.node("art", Node { w: Size::Px(40.0), h: Size::Px(40.0), ..Node::DEFAULT }));
-    ///         b = Some(ui.node("dot", Node { w: Size::Px(8.0), h: Size::Px(8.0), ..Node::DEFAULT }));
+    ///         a = Some(ui.node("art", Node::DEFAULT.w(Size::Px(40.0)).h(Size::Px(40.0))));
+    ///         b = Some(ui.node("dot", Node::DEFAULT.w(Size::Px(8.0)).h(Size::Px(8.0))));
     ///     });
     /// });
     /// assert_eq!((ui.rect(&a.unwrap()).x, ui.rect(&a.unwrap()).y), (ui.rect(&b.unwrap()).x, ui.rect(&b.unwrap()).y));
@@ -270,7 +270,7 @@ mod tests {
         let mut handles = Vec::new();
         crate::doc::frames(1, &mut |ui| {
             handles.clear();
-            for parent in ["a", "b"] { ui.id(parent, |ui| { ui.column(Node::DEFAULT, |ui| { ui.id(7i64, |ui| handles.push(ui.row(Node { h: Size::Px(4.0), ..Node::DEFAULT }, |_| {}))); }); }); }
+            for parent in ["a", "b"] { ui.id(parent, |ui| { ui.column(Node::DEFAULT, |ui| { ui.id(7i64, |ui| handles.push(ui.row(Node::DEFAULT.h(Size::Px(4.0)), |_| {}))); }); }); }
             ui.column(Node::DEFAULT, |ui| { ui.id(7u64, |ui| handles.push(ui.row(Node::DEFAULT, |_| {}))); ui.id("7", |ui| handles.push(ui.row(Node::DEFAULT, |_| {}))); });
         });
         assert_ne!(handles[0].box_key, handles[1].box_key);
@@ -286,11 +286,11 @@ mod tests {
         let (built, list) = (Cell::new(0), Cell::new(None));
         let mut ui = crate::Ui::new(&crate::UiDesc::DEFAULT).expect("library");
         let mut build = |ui: &mut crate::Ui| {
-            let column = ui.node("column", Node { w: Size::Px(100.0), h: Size::Px(200.0), ..Node::DEFAULT });
+            let column = ui.node("column", Node::DEFAULT.w(Size::Px(100.0)).h(Size::Px(200.0)));
             ui.within(&column, &mut |ui| {
                 list.set(Some(ui.list("rows", 10_000, 20.0, &|i| i as i64 * 3 + 1, |ui, i| {
                     built.set(built.get() + 1);
-                    rows[i].set(Some(ui.node("cell", Node { h: Size::Px(20.0), ..Node::DEFAULT })));
+                    rows[i].set(Some(ui.node("cell", Node::DEFAULT.h(Size::Px(20.0)))));
                 }).handle));
             });
         };
@@ -317,7 +317,7 @@ mod tests {
         let mut build = |ui: &mut crate::Ui| {
             let ids = ids.borrow();
             ui.list("items", ids.len(), 20.0, &|i| ids[i], |ui, i| {
-                let child = ui.node("title", Node { h: Size::Px(20.0), ..Node::DEFAULT });
+                let child = ui.node("title", Node::DEFAULT.h(Size::Px(20.0)));
                 seen[i].set((ids[i], child.box_key));
             });
         };

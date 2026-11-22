@@ -138,11 +138,11 @@ fn cells(i: usize, c: usize, put: &mut dyn FnMut(&str)) {
     put(NAMES[(i * 7 + c * 3) % NAMES.len()]);
 }
 
-fn text_only(look: &Look) -> Look { Look { text: look.text, font: look.font, ..Look::NONE } }
+fn text_only(look: &Look) -> Look { Look::NONE.text(look.text).font(look.font) }
 
 /// A column `w` wide at `at` in its parent (a page's free-standing panel spot).
 fn column(ui: &mut Ui, label: &'static str, at: (f32, f32), w: f32, h: Size, f: &mut dyn FnMut(&mut Ui)) {
-    let n = node(ui, label, Node { w: Size::Px(w), h, at: Some(at).into(), ..Node::DEFAULT });
+    let n = node(ui, label, Node::DEFAULT.w(Size::Px(w)).h(h).at(at.0, at.1));
     ui.within(&n, f);
 }
 
@@ -171,7 +171,7 @@ pub fn kit_page(ui: &mut Ui, s: &mut Gallery) {
                 s.scale = "1.5".to_owned();
             }
         });
-        let notes = node(ui, "notes", Node { h: Size::Px(64.0), ..Node::DEFAULT });
+        let notes = node(ui, "notes", Node::DEFAULT.h(Size::Px(64.0)));
         ui.within(&notes, &mut |ui: &mut Ui| {
             // None: unchanged. Some: the new text, borrowed until the next call on `ui`.
             inputs::notes(ui, &mut s.notes);
@@ -201,7 +201,7 @@ pub fn controls_page(ui: &mut Ui, s: &mut Gallery) {
         let _ = ui.progress("export", "Export", Some(s.slider), &pxui::Progress::DEFAULT);
         let p = ui.progress("indexing", "Indexing", None, &pxui::Progress::DEFAULT);
         s.busy.push(p);
-        let row = node(ui, "spin-row", Node { h: Size::Px(24.0), axis: Axis::Row, align: Align::Center, padding: Edges { l: 12.0, ..Edges::ZERO }, gap: 8.0, ..Node::DEFAULT });
+        let row = node(ui, "spin-row", Node::DEFAULT.h(Size::Px(24.0)).axis(Axis::Row).align(Align::Center).padding(Edges::ZERO.l(12.0)).gap(8.0));
         ui.within(&row, &mut |ui: &mut Ui| {
             let sp = ui.spinner("loading", "Loading", &pxui::Spinner::DEFAULT);
             s.busy.push(sp);
@@ -215,7 +215,7 @@ pub fn controls_page(ui: &mut Ui, s: &mut Gallery) {
     ui.panel("more", &Overlay::DEFAULT.at(pxui_types::geom::Point::new(332.0, 12.0)).w_px(296.0), &mut |ui: &mut Ui| {
         s.tab = ui.tabs("sections", &[pxui::Segment::new("Layer"), pxui::Segment::new("Mask"), pxui::Segment::new("Effects")], Some(s.tab), &pxui::Tabs::DEFAULT.name("Sections")).chosen.unwrap_or(s.tab);
         inputs::layer_search(ui, &mut s.search);
-        let row = node(ui, "icons", Node { h: Size::Px(28.0), axis: Axis::Row, align: Align::Center, padding: Edges { l: 12.0, ..Edges::ZERO }, gap: 4.0, ..Node::DEFAULT });
+        let row = node(ui, "icons", Node::DEFAULT.h(Size::Px(28.0)).axis(Axis::Row).align(Align::Center).padding(Edges::ZERO.l(12.0)).gap(4.0));
         ui.within(&row, &mut |ui: &mut Ui| {
             for (key, name, glyph) in [("add", "Add", '+'), ("remove", "Remove", '-'), ("close", "Close", '\u{d7}')] {
                 if ui.icon_button(key, pxui::Icon::Glyph(glyph), name, &pxui::IconButton::DEFAULT).clicked {
@@ -226,12 +226,12 @@ pub fn controls_page(ui: &mut Ui, s: &mut Gallery) {
         let _ = ui.scroll_view("scroll-both", Node::DEFAULT.h_px(96.0), &mut |ui: &mut Ui| {
             for (i, name) in NAMES.iter().enumerate() {
                 let text = ui.theme().value.idle.text;
-                let n = node(ui, name, Node { w: Size::Px(420.0), h: Size::Px(22.0), inset: Edges { l: 8.0 + 8.0 * i as f32, ..Edges::ZERO }, look: Look { text, ..Look::NONE }, ..Node::DEFAULT });
+                let n = node(ui, name, Node::DEFAULT.w(Size::Px(420.0)).h(Size::Px(22.0)).inset(Edges::ZERO.l(8.0 + 8.0 * i as f32)).look(Look::NONE.text(text)));
                 let _ = ui.text(&n, name);
             }
         });
         if let Some(image) = s.image.clone() {
-            let row = node(ui, "images", Node { h: Size::Px(56.0), axis: Axis::Row, align: Align::Center, padding: Edges { l: 12.0, ..Edges::ZERO }, gap: 8.0, ..Node::DEFAULT });
+            let row = node(ui, "images", Node::DEFAULT.h(Size::Px(56.0)).axis(Axis::Row).align(Align::Center).padding(Edges::ZERO.l(12.0)).gap(8.0));
             ui.within(&row, &mut |ui: &mut Ui| {
                 inputs::images(ui, &image);
             });
@@ -244,20 +244,20 @@ const POINTS: [pxui::Column; 3] = [pxui::Column::new("Name").sortable(true).w_px
 
 /// The collections page: a list beside a split of a tree over a table, all virtual over 100,000.
 pub fn collections_page(ui: &mut Ui, s: &mut Gallery) {
-    let pad = node(ui, "collections", Node { w: Size::Grow, h: Size::Grow, padding: Edges::all(12.0), ..Node::DEFAULT });
+    let pad = node(ui, "collections", Node::DEFAULT.w(Size::Grow).h(Size::Grow).padding(Edges::all(12.0)));
     ui.within(&pad, &mut |ui: &mut Ui| {
         let ratio = s.split;
         if let Some(r) = ui.split("split", ratio, &pxui::Split::DEFAULT.min_a(120.0).min_b(200.0), &mut |ui: &mut Ui| {
             let _ = ui.selection_list("files", ROWS, &|i| i as i64, &mut s.list, &pxui::SelectionList::DEFAULT.mode(pxui::SelectMode::Multi), &mut |ui: &mut Ui, part, _| if let pxui_types::ui::SectionPart::Row(i) = part { names(i, &mut |t| ui.item_text(t)) });
         }, &mut |ui: &mut Ui| {
-            let half = node(ui, "right", Node { w: Size::Grow, h: Size::Grow, padding: Edges { l: 8.0, ..Edges::ZERO }, gap: 8.0, ..Node::DEFAULT });
+            let half = node(ui, "right", Node::DEFAULT.w(Size::Grow).h(Size::Grow).padding(Edges::ZERO.l(8.0)).gap(8.0));
             ui.within(&half, &mut |ui: &mut Ui| {
-                let top = node(ui, "tree-box", Node { h: Size::Grow, ..Node::DEFAULT });
+                let top = node(ui, "tree-box", Node::DEFAULT.h(Size::Grow));
                 ui.within(&top, &mut |ui: &mut Ui| {
                     // the outline's nodes never change and only the tree expands them: one revision keeps its rows
                     let _ = ui.tree("outline", &s.nodes, &mut s.tree, &mut |ui: &mut Ui, i: usize| names(i, &mut |t| ui.item_text(t)));
                 });
-                let bottom = node(ui, "table-box", Node { h: Size::Grow, ..Node::DEFAULT });
+                let bottom = node(ui, "table-box", Node::DEFAULT.h(Size::Grow));
                 ui.within(&bottom, &mut |ui: &mut Ui| {
                     let _ = ui.table("points", &POINTS, ROWS, &|i| i as i64, &mut s.table, &pxui::Table::DEFAULT, &mut |ui: &mut Ui, r: usize, c: usize, _| cells(r, c, &mut |t| ui.item_text(t)));
                 });
@@ -285,7 +285,7 @@ pub fn overlays_page(ui: &mut Ui, s: &mut Gallery) {
                 }
             }
         }
-        let row = node(ui, "tip-row", Node { h: Size::Px(28.0), axis: Axis::Row, align: Align::Center, padding: Edges { l: 12.0, ..Edges::ZERO }, ..Node::DEFAULT });
+        let row = node(ui, "tip-row", Node::DEFAULT.h(Size::Px(28.0)).axis(Axis::Row).align(Align::Center).padding(Edges::ZERO.l(12.0)));
         ui.within(&row, &mut |ui: &mut Ui| {
             let help = ui.icon_button("Help", pxui::Icon::Glyph('?'), "Help", &pxui::IconButton::DEFAULT).handle;
             ui.tooltip(&help, "Rest the pointer on a control to see its tip");
@@ -328,12 +328,12 @@ pub fn overlays_page(ui: &mut Ui, s: &mut Gallery) {
 /// box with a hairline (`body` its layout).
 fn demo(ui: &mut Ui, title: &'static str, at: (f32, f32), (w, h): (f32, f32), body: Node, f: &mut dyn FnMut(&mut Ui)) {
     let (hint, border) = { let t = ui.theme(); (text_only(&t.hint.idle), t.field.idle.border) };
-    let outer = node(ui, title, Node { w: Size::Px(w), h: Size::Px(h), at: Some(at).into(), gap: 4.0, ..Node::DEFAULT });
+    let outer = node(ui, title, Node::DEFAULT.w(Size::Px(w)).h(Size::Px(h)).at(at.0, at.1).gap(4.0));
     ui.within(&outer, &mut |ui: &mut Ui| {
-        let cap = node(ui, "caption", Node { w: Size::Grow, h: Size::Px(14.0), look: hint, ..Node::DEFAULT });
+        let cap = node(ui, "caption", Node::DEFAULT.w(Size::Grow).h(Size::Px(14.0)).look(hint));
         let _ = ui.text(&cap, title);
-        let frame = Look { border, border_w: 1.0, ..Look::NONE };
-        let b = node(ui, "body", Node { w: Size::Grow, h: Size::Grow, look: frame, padding: Edges::all(4.0), ..body });
+        let frame = Look::NONE.border(border, 1.0);
+        let b = node(ui, "body", body.w(Size::Grow).h(Size::Grow).look(frame).padding(Edges::all(4.0)));
         ui.within(&b, &mut *f);
     });
 }
@@ -344,11 +344,11 @@ fn chip(ui: &mut Ui, key: Key, k: usize, n: Node) -> Handle {
     let t = ui.tokens();
     let fill = [t.accent, t.control, t.track][k % 3];
     let border = if k % 3 == 2 { t.foreground } else { fill };
-    ui.node(key, Node { look: Look { fill, border, border_w: 1.0, ..n.look }, ..n })
+    ui.node(key, n.look((n.look).fill(fill).border(border, 1.0)))
 }
 
 fn px(w: f32, h: f32) -> Node {
-    Node { w: Size::Px(w), h: Size::Px(h), ..Node::DEFAULT }
+    Node::DEFAULT.w(Size::Px(w)).h(Size::Px(h))
 }
 
 /// The layout page: flex weights and shrink, min/max/aspect, every justify and align mode with
@@ -356,38 +356,38 @@ fn px(w: f32, h: f32) -> Node {
 /// a virtual grid, an anchored popup and a keyframed chip; right to left with the RTL switch.
 pub fn layout_page(ui: &mut Ui, s: &mut Gallery) {
     const COLS: &[Track] = &[Track::Fr(1.0), Track::Fit, Track::Px(24.0)];
-    let row = Node { axis: Axis::Row, ..Node::DEFAULT };
+    let row = Node::DEFAULT.axis(Axis::Row);
     let ink = text_only(&ui.theme().value.idle);
     let (col_w, gap) = (196.0, 14.0);
     let x = |c: usize| 12.0 + c as f32 * (col_w + gap);
-    demo(ui, "Weights and shrink", (x(0), 12.0), (col_w, 104.0), Node { gap: 6.0, ..Node::DEFAULT }, &mut |ui: &mut Ui| {
+    demo(ui, "Weights and shrink", (x(0), 12.0), (col_w, 104.0), Node::DEFAULT.gap(6.0), &mut |ui: &mut Ui| {
         for weights in [[1.0, 2.0, 3.0], [1.0, 1.0, 1.0]].iter() {
-            let line = node(ui, "line", Node { w: Size::Grow, h: Size::Px(16.0), gap: 4.0, ..row });
+            let line = node(ui, "line", row.w(Size::Grow).h(Size::Px(16.0)).gap(4.0));
             ui.within(&line, &mut |ui: &mut Ui| {
                 for (i, g) in weights.iter().enumerate() {
-                    chip(ui, "chip".into(), i, Node { w: Size::Grow, h: Size::Grow, grow: *g, ..Node::DEFAULT });
+                    chip(ui, "chip".into(), i, Node::DEFAULT.w(Size::Grow).h(Size::Grow).grow(*g));
                 }
             });
         }
         // two 100-point chips in 120 points, shrinking 1 : 3
-        let line = node(ui, "shrink", Node { w: Size::Px(120.0), h: Size::Px(16.0), ..row });
+        let line = node(ui, "shrink", row.w(Size::Px(120.0)).h(Size::Px(16.0)));
         ui.within(&line, &mut |ui: &mut Ui| {
             for (i, sh) in [1.0, 3.0].iter().enumerate() {
-                chip(ui, "chip".into(), i + 1, Node { shrink: *sh, ..px(100.0, 16.0) });
+                chip(ui, "chip".into(), i + 1, px(100.0, 16.0).shrink(*sh));
             }
         });
-        let line = node(ui, "minmax", Node { w: Size::Grow, h: Size::Px(16.0), gap: 4.0, ..row });
+        let line = node(ui, "minmax", row.w(Size::Grow).h(Size::Px(16.0)).gap(4.0));
         ui.within(&line, &mut |ui: &mut Ui| {
-            chip(ui, "max".into(), 0, Node { w: Size::Grow, h: Size::Grow, max_w: 40.0, ..Node::DEFAULT });
-            chip(ui, "free".into(), 1, Node { w: Size::Grow, h: Size::Grow, ..Node::DEFAULT });
-            chip(ui, "min".into(), 2, Node { min_w: 50.0, ..px(10.0, 16.0) });
-            chip(ui, "aspect".into(), 0, Node { w: Size::Fit, h: Size::Px(16.0), aspect: 2.0, ..Node::DEFAULT });
+            chip(ui, "max".into(), 0, Node::DEFAULT.w(Size::Grow).h(Size::Grow).max_w(40.0));
+            chip(ui, "free".into(), 1, Node::DEFAULT.w(Size::Grow).h(Size::Grow));
+            chip(ui, "min".into(), 2, px(10.0, 16.0).min_w(50.0));
+            chip(ui, "aspect".into(), 0, Node::DEFAULT.w(Size::Fit).h(Size::Px(16.0)).aspect(2.0));
         });
     });
     const JUSTIFY: [Justify; 6] = [Justify::Start, Justify::Center, Justify::End, Justify::SpaceBetween, Justify::SpaceAround, Justify::SpaceEvenly];
-    demo(ui, "Justify, gap 4", (x(1), 12.0), (col_w, 104.0), Node { gap: 4.0, ..Node::DEFAULT }, &mut |ui: &mut Ui| {
+    demo(ui, "Justify, gap 4", (x(1), 12.0), (col_w, 104.0), Node::DEFAULT.gap(4.0), &mut |ui: &mut Ui| {
         for j in JUSTIFY.iter() {
-            let line = node(ui, "line", Node { w: Size::Grow, h: Size::Px(10.0), justify: *j, gap: 4.0, ..row });
+            let line = node(ui, "line", row.w(Size::Grow).h(Size::Px(10.0)).justify(*j).gap(4.0));
             ui.within(&line, &mut |ui: &mut Ui| {
                 for i in 0..3 {
                     chip(ui, "chip".into(), i, px(18.0, 10.0));
@@ -396,15 +396,15 @@ pub fn layout_page(ui: &mut Ui, s: &mut Gallery) {
         }
     });
     const ALIGN: [Align; 5] = [Align::Start, Align::Center, Align::End, Align::Stretch, Align::Baseline];
-    demo(ui, "Align, baseline last", (x(2), 12.0), (col_w, 104.0), Node { gap: 6.0, ..row }, &mut |ui: &mut Ui| {
+    demo(ui, "Align, baseline last", (x(2), 12.0), (col_w, 104.0), row.gap(6.0), &mut |ui: &mut Ui| {
         for a in ALIGN.iter() {
-            let col = node(ui, "col", Node { w: Size::Grow, h: Size::Grow, align: *a, gap: 2.0, ..row });
+            let col = node(ui, "col", row.w(Size::Grow).h(Size::Grow).align(*a).gap(2.0));
             ui.within(&col, &mut |ui: &mut Ui| {
                 for size in [9i64, 13, 20].iter() {
                     let h = if *a == Align::Stretch { Size::Fit } else { Size::Px(*size as f32 + 4.0) };
-                    let look = Look { font: Font { size: *size, ..Font::BODY }, ..ink };
+                    let look = ink.font({ let mut record = Font::BODY; record.size = *size; record });
                     let fill = ui.tokens().track;
-                    let n = node(ui, "tile", Node { w: Size::Px(10.0), h, look: Look { fill, ..look }, ..Node::DEFAULT });
+                    let n = node(ui, "tile", Node::DEFAULT.w(Size::Px(10.0)).h(h).look(look.fill(fill)));
                     let _ = ui.text(&n, "x");
                 }
             });
@@ -412,32 +412,32 @@ pub fn layout_page(ui: &mut Ui, s: &mut Gallery) {
     });
     demo(ui, "Wrap at the given width", (x(0), 128.0), (col_w, 104.0), Node::DEFAULT, &mut |ui: &mut Ui| {
         // a wrapping Fit row whose width the column gives it
-        let wrap = node(ui, "wrap", Node { w: Size::Grow, h: Size::Fit, wrap: true, gap: 4.0, row_gap: 4.0, ..row });
+        let wrap = node(ui, "wrap", row.w(Size::Grow).h(Size::Fit).wrap().gap(4.0).row_gap(4.0));
         ui.within(&wrap, &mut |ui: &mut Ui| {
             for i in 0..11 {
                 chip(ui, "chip".into(), i, px(14.0 + (i % 4) as f32 * 8.0, 14.0));
             }
         });
-        chip(ui, "below".into(), 1, Node { w: Size::Grow, h: Size::Px(8.0), margin: Edges { t: 4.0, ..Edges::ZERO }, ..Node::DEFAULT });
+        chip(ui, "below".into(), 1, Node::DEFAULT.w(Size::Grow).h(Size::Px(8.0)).margin(Edges::ZERO.t(4.0)));
     });
-    demo(ui, "Grid: fr, fit, 24; spans", (x(1), 128.0), (col_w, 104.0), Node { grid: Some(Grid::new(COLS, &[])).into(), gap: 4.0, row_gap: 4.0, ..Node::DEFAULT }, &mut |ui: &mut Ui| {
-        chip(ui, "a".into(), 0, Node { w: Size::Grow, h: Size::Px(14.0), ..Node::DEFAULT });
+    demo(ui, "Grid: fr, fit, 24; spans", (x(1), 128.0), (col_w, 104.0), Node::DEFAULT.grid(Grid::new(COLS, &[])).gap(4.0).row_gap(4.0), &mut |ui: &mut Ui| {
+        chip(ui, "a".into(), 0, Node::DEFAULT.w(Size::Grow).h(Size::Px(14.0)));
         chip(ui, "b".into(), 1, px(30.0, 14.0));
-        chip(ui, "c".into(), 2, Node { w: Size::Grow, h: Size::Px(14.0), ..Node::DEFAULT });
+        chip(ui, "c".into(), 2, Node::DEFAULT.w(Size::Grow).h(Size::Px(14.0)));
         // two rows of 14 under a 40-point row span: the content rows grow to hold it
-        chip(ui, "row-span".into(), 1, Node { cell: Cell::at(0, 1).span(1, 2), w: Size::Grow, h: Size::Px(40.0), ..Node::DEFAULT });
+        chip(ui, "row-span".into(), 1, Node::DEFAULT.cell(Cell::at(0, 1).span(1, 2)).w(Size::Grow).h(Size::Px(40.0)));
         // 70 points over the Fit and the 24 columns: the Fit one grows to hold it
-        chip(ui, "col-span".into(), 0, Node { cell: Cell::at(1, 1).span(2, 1), ..px(70.0, 14.0) });
-        chip(ui, "d".into(), 2, Node { cell: Cell::at(1, 2), w: Size::Grow, h: Size::Px(14.0), ..Node::DEFAULT });
+        chip(ui, "col-span".into(), 0, px(70.0, 14.0).cell(Cell::at(1, 1).span(2, 1)));
+        chip(ui, "d".into(), 2, Node::DEFAULT.cell(Cell::at(1, 2)).w(Size::Grow).h(Size::Px(14.0)));
     });
-    demo(ui, "Stack in z order", (x(2), 128.0), (col_w, 104.0), Node { axis: Axis::Stack, justify: Justify::Center, align: Align::Center, ..Node::DEFAULT }, &mut |ui: &mut Ui| {
+    demo(ui, "Stack in z order", (x(2), 128.0), (col_w, 104.0), Node::DEFAULT.axis(Axis::Stack).justify(Justify::Center).align(Align::Center), &mut |ui: &mut Ui| {
         for (i, (w, z, l)) in [(120.0, 0i16, 0.0), (70.0, 2, 40.0), (50.0, 1, 110.0)].iter().enumerate() {
-            chip(ui, "chip".into(), i, Node { z: *z, margin: Edges { l: *l, ..Edges::ZERO }, ..px(*w, *w / 2.0) });
+            chip(ui, "chip".into(), i, px(*w, *w / 2.0).z(*z).margin(Edges::ZERO.l(*l)));
         }
     });
-    demo(ui, "Scroll both ways, sticky", (x(0), 244.0), (col_w, 104.0), Node { flags: Flags::SCROLL | Flags::SCROLL_X | Flags::CLIP, gap: 2.0, ..Node::DEFAULT }, &mut |ui: &mut Ui| {
+    demo(ui, "Scroll both ways, sticky", (x(0), 244.0), (col_w, 104.0), Node::DEFAULT.flags(Flags::SCROLL | Flags::SCROLL_X | Flags::CLIP).gap(2.0), &mut |ui: &mut Ui| {
         let input = ui.tokens().input;
-        let head = chip(ui, "head".into(), 0, Node { flags: Flags::STICKY, w: Size::Px(320.0), h: Size::Px(14.0), look: Look { text: input, ..Look::NONE }, ..Node::DEFAULT });
+        let head = chip(ui, "head".into(), 0, Node::DEFAULT.flags(Flags::STICKY).w(Size::Px(320.0)).h(Size::Px(14.0)).look(Look::NONE.text(input)));
         let _ = ui.text(&head, "sticky header");
         for i in 0..8 {
             chip(ui, "chip".into(), 1 + i % 2, px(320.0 - 20.0 * i as f32, 14.0));
@@ -446,12 +446,12 @@ pub fn layout_page(ui: &mut Ui, s: &mut Gallery) {
     demo(ui, "grid_list of 100,000", (x(1), 244.0), (col_w, 104.0), Node::DEFAULT, &mut |ui: &mut Ui| {
         let t = ui.tokens();
         let _ = ui.grid_list("cells", 100_000, &pxui::GridList::DEFAULT.w_px(22.0).h_px(14.0), &mut |ui: &mut Ui, i: usize| {
-            let look = Look { fill: if i % 7 == 0 { t.accent } else { t.control }, border: t.panel, border_w: 1.0, ..Look::NONE };
-            node(ui, "cell", Node { w: Size::Grow, h: Size::Grow, look, ..Node::DEFAULT });
+            let look = Look::NONE.fill(if i % 7 == 0 { t.accent } else { t.control }).border(t.panel, 1.0);
+            node(ui, "cell", Node::DEFAULT.w(Size::Grow).h(Size::Grow).look(look));
         });
     });
     let mut anchor = None;
-    demo(ui, "Anchored popup, keyframes", (x(2), 244.0), (col_w, 104.0), Node { gap: 6.0, ..Node::DEFAULT }, &mut |ui: &mut Ui| {
+    demo(ui, "Anchored popup, keyframes", (x(2), 244.0), (col_w, 104.0), Node::DEFAULT.gap(6.0), &mut |ui: &mut Ui| {
         if ui.button("button", "Bounce", &pxui::Button::DEFAULT).clicked {
             s.bounce = true;
         }
@@ -478,17 +478,17 @@ pub fn layout_page(ui: &mut Ui, s: &mut Gallery) {
         let place = Placement { side: Side::Right, align: Along::Center, gap: 4.0, margin: 4.0, flip: true };
         let (input, border, foreground) = { let t = ui.theme(); (t.tokens.input, t.field.idle.border, t.tokens.foreground) };
         let _ = ui.anchored("popup", a, &Overlay::DEFAULT.place(place), &mut |ui: &mut Ui| {
-            let n = node(ui, "popup-body", Node { w: Size::Px(96.0), h: Size::Px(24.0), look: Look { fill: input, border, border_w: 1.0, text: foreground, ..Look::NONE }, inset: Edges { l: 6.0, ..Edges::ZERO }, ..Node::DEFAULT });
+            let n = node(ui, "popup-body", Node::DEFAULT.w(Size::Px(96.0)).h(Size::Px(24.0)).look(Look::NONE.fill(input).border(border, 1.0).text(foreground)).inset(Edges::ZERO.l(6.0)));
             let _ = ui.text(&n, "anchored, flips");
         });
     }
-    demo(ui, "Column of rows, fit height", (x(0), 360.0), (col_w * 3.0 + gap * 2.0, 92.0), Node { axis: Axis::Row, gap: 8.0, align: Align::Start, ..Node::DEFAULT }, &mut |ui: &mut Ui| {
+    demo(ui, "Column of rows, fit height", (x(0), 360.0), (col_w * 3.0 + gap * 2.0, 92.0), Node::DEFAULT.axis(Axis::Row).gap(8.0).align(Align::Start), &mut |ui: &mut Ui| {
         for words in [["one", "two", "three"], ["start", "middle", "end"], ["a", "bb", "ccc"]].iter() {
             let border = ui.theme().field.idle.border;
-            let col = node(ui, "col", Node { w: Size::Grow, h: Size::Fit, gap: 2.0, padding: Edges { l: 4.0, t: 2.0, r: 4.0, b: 2.0 }, look: Look { border, border_w: 1.0, ..Look::NONE }, ..Node::DEFAULT });
+            let col = node(ui, "col", Node::DEFAULT.w(Size::Grow).h(Size::Fit).gap(2.0).padding(Edges::new(4.0, 2.0, 4.0, 2.0)).look(Look::NONE.border(border, 1.0)));
             ui.within(&col, &mut |ui: &mut Ui| {
                 for w in words {
-                    let n = node(ui, w, Node { w: Size::Grow, h: Size::Px(16.0), look: ink, inset: Edges { l: 2.0, ..Edges::ZERO }, ..Node::DEFAULT });
+                    let n = node(ui, w, Node::DEFAULT.w(Size::Grow).h(Size::Px(16.0)).look(ink).inset(Edges::ZERO.l(2.0)));
                     let _ = ui.text(&n, w);
                 }
             });
@@ -499,19 +499,19 @@ pub fn layout_page(ui: &mut Ui, s: &mut Gallery) {
 /// The lists page: a queue whose rows move by their handles (and take a dragged name between rows), a plain node that takes a drop,
 /// playlists (virtual over 100,000) that take a drop between rows, and a palette in a top-anchored modal.
 pub fn lists_page(ui: &mut Ui, s: &mut Gallery) {
-    let pad = node(ui, "lists", Node { w: Size::Grow, h: Size::Grow, axis: Axis::Row, padding: Edges::all(12.0), gap: 12.0, ..Node::DEFAULT });
-    let ink = Look { text: ui.theme().value.idle.text, ..Look::NONE };
-    let grip = Look { border: ui.theme().field.idle.border, border_w: 1.0, radius: [2.0; 4], ..Look::NONE };
+    let pad = node(ui, "lists", Node::DEFAULT.w(Size::Grow).h(Size::Grow).axis(Axis::Row).padding(Edges::all(12.0)).gap(12.0));
+    let ink = Look::NONE.text(ui.theme().value.idle.text);
+    let grip = Look::NONE.border(ui.theme().field.idle.border, 1.0).radii([2.0; 4]);
     ui.within(&pad, &mut |ui: &mut Ui| {
-        let left = node(ui, "queue-box", Node { w: Size::Px(220.0), h: Size::Grow, ..Node::DEFAULT });
+        let left = node(ui, "queue-box", Node::DEFAULT.w(Size::Px(220.0)).h(Size::Grow));
         ui.within(&left, &mut |ui: &mut Ui| {
             let queue = &s.queue;
             let r = ui.section_list("queue", &SectionList::new(queue.len()).row_h(24.0).reorder(true), &|i| queue[i] as i64, &mut |ui: &mut Ui, part, _| if let SectionPart::Row(i) = part {
-                let row = node(ui, "row", Node { w: Size::Grow, h: Size::Grow, axis: Axis::Row, align: Align::Center, ..Node::DEFAULT });
+                let row = node(ui, "row", Node::DEFAULT.w(Size::Grow).h(Size::Grow).axis(Axis::Row).align(Align::Center));
                 ui.within(&row, &mut |ui: &mut Ui| {
                     // the handle: a small ridged box (no text, so a row is three library nodes and one text)
-                    ui.part(Part::HANDLE, Node { w: Size::Px(12.0), h: Size::Px(12.0), margin: Edges { l: 4.0, r: 8.0, ..Edges::ZERO }, look: grip, ..Node::DEFAULT });
-                    let name = node(ui, "name", Node { w: Size::Grow, h: Size::Px(18.0), look: ink, ..Node::DEFAULT });
+                    ui.part(Part::HANDLE, Node::DEFAULT.w(Size::Px(12.0)).h(Size::Px(12.0)).margin(Edges::ZERO.l(4.0).r(8.0)).look(grip));
+                    let name = node(ui, "name", Node::DEFAULT.w(Size::Grow).h(Size::Px(18.0)).look(ink));
                     let _ = ui.text(&name, NAMES[queue[i] % NAMES.len()]);
                 });
             });
@@ -523,21 +523,21 @@ pub fn lists_page(ui: &mut Ui, s: &mut Gallery) {
                 s.queue.insert(at, s.queue.len());
             }
         });
-        let right = node(ui, "drops", Node { w: Size::Grow, h: Size::Grow, gap: 8.0, ..Node::DEFAULT });
+        let right = node(ui, "drops", Node::DEFAULT.w(Size::Grow).h(Size::Grow).gap(8.0));
         ui.within(&right, &mut |ui: &mut Ui| {
             s.palette = ui.toggle("palette", "Palette", s.palette, &pxui::Toggle::DEFAULT).changed != s.palette;
             let field = ui.theme().field.idle;
-            let chip = node(ui, "chip", Node { flags: Flags::CLICKABLE, h: Size::Px(24.0), look: field, inset: Edges { l: 8.0, ..Edges::ZERO }, ..Node::DEFAULT });
+            let chip = node(ui, "chip", Node::DEFAULT.flags(Flags::CLICKABLE).h(Size::Px(24.0)).look(field).inset(Edges::ZERO.l(8.0)));
             let _ = ui.text(&chip, "Drag me to a list or the bin");
             if ui.signal(&chip).held {
                 ui.carry(Some(&chip), "name", "omega");
             }
-            let bin = node(ui, "bin", Node { h: Size::Px(48.0), look: Look { border: field.border, border_w: 1.0, ..ink }, inset: Edges { l: 8.0, t: 4.0, ..Edges::ZERO }, ..Node::DEFAULT });
+            let bin = node(ui, "bin", Node::DEFAULT.h(Size::Px(48.0)).look(ink.border(field.border, 1.0)).inset(Edges::ZERO.l(8.0).t(4.0)));
             let _ = ui.text(&bin, if s.dropped.is_empty() { "Bin: any node takes a drop" } else { s.dropped });
             if let Some(pxui::DropRef::Dropped(_)) = ui.drop_target(&bin) {
                 s.dropped = "Dropped in the bin";
             }
-            let lists = node(ui, "playlists-box", Node { h: Size::Grow, ..Node::DEFAULT });
+            let lists = node(ui, "playlists-box", Node::DEFAULT.h(Size::Grow));
             ui.within(&lists, &mut |ui: &mut Ui| {
                 if ui.selection_list("playlists", ROWS, &|i| i as i64, &mut s.playlists, &pxui::SelectionList::DEFAULT.reorder(true), &mut |ui: &mut Ui, part, _| if let SectionPart::Row(i) = part {
                     names(i, &mut |t| ui.item_text(t));
@@ -553,7 +553,7 @@ pub fn lists_page(ui: &mut Ui, s: &mut Gallery) {
         let open = ui.modal("palette", &PALETTE, &mut |ui: &mut Ui| {
             ui.label("Go to", pxui::Label::DEFAULT);
             for name in &NAMES[..4] {
-                let n = node(ui, name, Node { h: Size::Px(22.0), look: ink, inset: Edges { l: 12.0, ..Edges::ZERO }, ..Node::DEFAULT });
+                let n = node(ui, name, Node::DEFAULT.h(Size::Px(22.0)).look(ink).inset(Edges::ZERO.l(12.0)));
                 let _ = ui.text(&n, name);
             }
         }).open;
@@ -579,7 +579,7 @@ pub fn page(ui: &mut Ui, s: &mut Gallery, i: usize) {
 pub fn app(ui: &mut Ui, s: &mut Gallery) {
     // one Window node holds the menu bar and the page: the screen reader's application -> window
     let (w, h) = inputs::view_size(ui);
-    let window = node(ui, "window", Node { w: Size::Px(w), h: Size::Px(h), role: Role::Window, ..Node::DEFAULT });
+    let window = node(ui, "window", Node::DEFAULT.w(Size::Px(w)).h(Size::Px(h)).role(Role::Window));
     ui.a11y_name(&window, "PXUI kit gallery");
     ui.within(&window, &mut |ui: &mut Ui| {
         match ui.menu_bar("menus", &MENUS, &pxui::MenuBar::DEFAULT).chosen {
@@ -589,15 +589,15 @@ pub fn app(ui: &mut Ui, s: &mut Gallery) {
             Some(i) if i - FILE_ITEMS.len() != s.page => (s.page, s.page_rev, s.chrome_rev) = (i - FILE_ITEMS.len(), s.page_rev + 1, s.chrome_rev + 1),
             _ => {}
         }
-        let body = node(ui, "body", Node { w: Size::Px(w), h: Size::Px(h - 24.0), at: Some((0.0, 24.0)).into(), ..Node::DEFAULT });
+        let body = node(ui, "body", Node::DEFAULT.w(Size::Px(w)).h(Size::Px(h - 24.0)).at(0.0, 24.0));
         ui.within(&body, &mut |ui: &mut Ui| {
-            let chrome = node(ui, "chrome", Node { h: Size::Px(CHROME_H), ..Node::DEFAULT });
+            let chrome = node(ui, "chrome", Node::DEFAULT.h(Size::Px(CHROME_H)));
             ui.within(&chrome, &mut |ui: &mut Ui| { ui.view_of("chrome", &s.chrome_rev, &mut |ui: &mut Ui| {
                 let page = ui.tabs("pages", &PAGE_TABS, Some(s.page), &pxui::Tabs::DEFAULT.name("Pages")).chosen.unwrap_or(s.page);
                 if page != s.page {
                     (s.page, s.page_rev) = (page, s.page_rev + 1); // the tabs show the click in this build
                 }
-                let row = node(ui, "switches", Node { h: Size::Px(24.0), axis: Axis::Row, ..Node::DEFAULT });
+                let row = node(ui, "switches", Node::DEFAULT.h(Size::Px(24.0)).axis(Axis::Row));
                 ui.within(&row, &mut |ui: &mut Ui| {
                     let theme = ui.segmented("theme", &[pxui::Segment::new("Rays"), pxui::Segment::new("Dusk")], Some(s.dusk as usize), &pxui::Segmented::DEFAULT.name("Theme")).chosen == Some(1);
                     let compact = s.compact != ui.checkbox("compact", "Compact", s.compact, &pxui::Checkbox::DEFAULT).clicked;
@@ -611,11 +611,11 @@ pub fn app(ui: &mut Ui, s: &mut Gallery) {
             let rev = s.page_rev;
             let index = s.page;
             ui.view_of("page", &rev, &mut |ui: &mut Ui| page(ui, s, index));
-            let readout = node(ui, "readout-bar", Node { h: Size::Px(24.0), ..Node::DEFAULT });
+            let readout = node(ui, "readout-bar", Node::DEFAULT.h(Size::Px(24.0)));
             ui.within(&readout, &mut |ui: &mut Ui| { ui.view_of("readout", &0, &mut |ui: &mut Ui| {
                 let look = ui.theme().footer.idle;
                 let hint = ui.theme().hint.idle;
-                let n = node(ui, "readout", Node { h: Size::Px(24.0), look: Look { text: hint.text, font: hint.font, ..look }, inset: Edges { l: 12.0, t: 1.0, ..Edges::ZERO }, role: Role::StatusBar, ..Node::DEFAULT });
+                let n = node(ui, "readout", Node::DEFAULT.h(Size::Px(24.0)).look(look.text(hint.text).font(hint.font)).inset(Edges::ZERO.l(12.0).t(1.0)).role(Role::StatusBar));
                 let _ = ui.text(&n, "-");
                 s.readout = Some(n);
             }); });

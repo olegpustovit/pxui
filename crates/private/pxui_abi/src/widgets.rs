@@ -16,7 +16,7 @@ mod scrub_tests {
     fn scrub_validates_before_building_or_writing_and_preserves_callback_ownership() {
         extern "C" fn build(user: *mut core::ffi::c_void, raw: *mut core::ffi::c_void) {
             let ui = raw.cast();
-            let label = Str { ptr: b"Scrub".as_ptr(), len: 5 };
+            let label = { let mut record = Str::default(); record.ptr = b"Scrub".as_ptr(); record.len = 5; record };
             let sentinel = || PxuiScrubOut { flags: 99, node: PxuiBox { box_key: 777, ..Default::default() }, preview: 3.0, commit: 4.0, ..Default::default() };
             let mut out = sentinel();
             let mut r = PxuiResponse::EMPTY;
@@ -25,8 +25,8 @@ mod scrub_tests {
                 assert_eq!((out.flags,out.node.box_key,out.preview,out.commit),(99,777,3.0,4.0));
             }
             let invalid = [255u8];
-            assert_eq!(unsafe { pxui_ui_scrub(ui,Str {ptr:invalid.as_ptr(),len:1},0.5,0.0,1.0,0.1,&mut r,&mut out) }, PXUI_ERR_ARGUMENT);
-            assert_eq!(unsafe { pxui_ui_scrub(ui,Str {ptr:core::ptr::null(),len:1},0.5,0.0,1.0,0.1,&mut r,&mut out) }, PXUI_ERR_ARGUMENT);
+            assert_eq!(unsafe { pxui_ui_scrub(ui,{ let mut record = Str::default(); record.ptr = invalid.as_ptr(); record.len = 1; record },0.5,0.0,1.0,0.1,&mut r,&mut out) }, PXUI_ERR_ARGUMENT);
+            assert_eq!(unsafe { pxui_ui_scrub(ui,{ let mut record = Str::default(); record.ptr = core::ptr::null(); record.len = 1; record },0.5,0.0,1.0,0.1,&mut r,&mut out) }, PXUI_ERR_ARGUMENT);
             let mut short = 4u32;
             assert_eq!(unsafe { pxui_ui_scrub(ui,label,0.5,0.0,1.0,0.1,&mut r,(&mut short as *mut u32).cast()) }, PXUI_ERR_ARGUMENT);
             assert_eq!(short,4);
@@ -49,7 +49,7 @@ mod scrub_tests {
         assert_eq!(unsafe { pxui_ui_scrub(ui,Str::default(),0.5,0.0,1.0,0.1,&mut { PxuiResponse::EMPTY },&mut out) },crate::PXUI_ERR_STATE);
         assert_eq!(out.flags,99);
         let mut frame = crate::FrameOut::default();
-        assert_eq!(unsafe { crate::pxui_frame(ui,&crate::FrameIn {width:320.0,height:240.0,..Default::default()},Some(build),(&mut ui as *mut *mut PxuiUi).cast(),&mut frame) },0);
+        assert_eq!(unsafe { crate::pxui_frame(ui,&crate::FrameIn::new(320.0, 240.0),Some(build),(&mut ui as *mut *mut PxuiUi).cast(),&mut frame) },0);
         assert_eq!(unsafe { crate::pxui_ui_destroy(ui) },0);
     }
 }
@@ -64,7 +64,7 @@ mod keyed_tests {
     fn keyed_calls_validate_and_key_by_key() {
         extern "C" fn build(user: *mut core::ffi::c_void, raw: *mut core::ffi::c_void) {
             let ui = raw.cast();
-            let s = |t: &'static str| Str { ptr: t.as_ptr(), len: t.len() };
+            let s = |t: &'static str| { let mut record = Str::default(); record.ptr = t.as_ptr(); record.len = t.len(); record };
             let k = |key: &'static str, name: &'static str| PxuiKeyedDesc::new(key, name);
             let (mut out, mut b) = (PxuiResponse::EMPTY, PxuiBox::default());
             assert_eq!(unsafe { pxui_ui_progress(ui, &PxuiKeyedDesc { size: 8, ..k("c", "Check") }, 0, 0.0, &mut b) }, PXUI_ERR_ARGUMENT);
@@ -94,7 +94,7 @@ mod keyed_tests {
         }
         let mut ui = unsafe { crate::ui::create_test_ui() };
         let mut frame = crate::FrameOut::default();
-        assert_eq!(unsafe { crate::pxui_frame(ui, &crate::FrameIn { width: 320.0, height: 240.0, ..Default::default() }, Some(build), (&mut ui as *mut *mut PxuiUi).cast(), &mut frame) }, 0);
+        assert_eq!(unsafe { crate::pxui_frame(ui, &crate::FrameIn::new(320.0, 240.0), Some(build), (&mut ui as *mut *mut PxuiUi).cast(), &mut frame) }, 0);
         assert_eq!(unsafe { crate::pxui_ui_destroy(ui) }, 0);
     }
 }

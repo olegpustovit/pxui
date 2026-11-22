@@ -428,7 +428,7 @@ mod tests {
         static REGISTERED_IN_FRAME: Cell<u16> = const { Cell::new(99) };
     }
 
-    fn text(s: &str) -> Str { Str { ptr: s.as_ptr(), len: s.len() } }
+    fn text(s: &str) -> Str { { let mut record = Str::default(); record.ptr = s.as_ptr(); record.len = s.len(); record } }
     fn error(ui: *mut PxuiUi) -> String { let e = unsafe { pxui_last_error(ui) }; String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(e.ptr, e.len) }).into_owned() }
 
     extern "C" fn toggle_body(_: *mut c_void, ui: *mut c_void, config: *const c_void) {
@@ -450,7 +450,7 @@ mod tests {
 
     fn frame(ui: *mut PxuiUi, build: extern "C" fn(*mut c_void, *mut c_void)) {
         let mut out = FrameOut::default();
-        assert_eq!(unsafe { pxui_frame(ui, &FrameIn { width: 200.0, height: 100.0, ..FrameIn::default() }, Some(build), core::ptr::null_mut(), &mut out) }, 0);
+        assert_eq!(unsafe { pxui_frame(ui, &FrameIn::new(200.0, 100.0), Some(build), core::ptr::null_mut(), &mut out) }, 0);
     }
 
     /// The body id `ui` registers `name` under (0 when refused).
@@ -515,7 +515,7 @@ mod tests {
 
     extern "C" fn scroll_frame(_: *mut c_void, ui: *mut c_void) {
         let mut out = PxuiBox::default();
-        let grow = pxui_types::Node { w: pxui_types::Size::Grow, h: pxui_types::Size::Grow, ..pxui_types::Node::DEFAULT };
+        let grow = pxui_types::Node::DEFAULT.w(pxui_types::Size::Grow).h(pxui_types::Size::Grow);
         assert_eq!(unsafe { crate::pxui_ui_scroll_view(ui.cast(), &pxui_types::ffi::PxuiKeyedDesc::new("list", ""), &grow, Some(count_content), core::ptr::null_mut(), &mut out) }, 0);
     }
 
@@ -552,7 +552,7 @@ mod tests {
     }
 
     extern "C" fn reentering_frame(_: *mut c_void, ui: *mut c_void) {
-        let (mut out, grow) = (PxuiBox::default(), pxui_types::Node { w: pxui_types::Size::Grow, h: pxui_types::Size::Grow, ..pxui_types::Node::DEFAULT });
+        let (mut out, grow) = (PxuiBox::default(), pxui_types::Node::DEFAULT.w(pxui_types::Size::Grow).h(pxui_types::Size::Grow));
         assert_eq!(unsafe { crate::pxui_ui_scroll_view(ui.cast(), &pxui_types::ffi::PxuiKeyedDesc::new("list", ""), &grow, Some(reentering_content), core::ptr::null_mut(), &mut out) }, 0);
     }
 
@@ -705,7 +705,7 @@ mod tests {
         let mut depth = 3u32;
         let mut run = || {
             let mut out = FrameOut::default();
-            assert_eq!(unsafe { pxui_frame(ui, &FrameIn { width: 400.0, height: 300.0, ..FrameIn::default() }, Some(nested_dialogs), (&mut depth as *mut u32).cast(), &mut out) }, 0, "{}", error(ui));
+            assert_eq!(unsafe { pxui_frame(ui, &FrameIn::new(400.0, 300.0), Some(nested_dialogs), (&mut depth as *mut u32).cast(), &mut out) }, 0, "{}", error(ui));
         };
         for _ in 0..4 { run(); }
         mem_sys::local_reset();
@@ -738,7 +738,7 @@ mod tests {
         assert_eq!(unsafe { crate::theme::pxui_ui_use_theme(a, theme) }, 0, "{}", error(a));
         assert_eq!(unsafe { crate::theme::pxui_ui_use_theme(b, theme) }, PXUI_ERR_ARGUMENT, "b registered no beta");
         let mut out = FrameOut::default();
-        assert_eq!(unsafe { pxui_frame(b, &FrameIn { width: 200.0, height: 100.0, ..FrameIn::default() }, Some(themed_toggle_frame), theme.cast(), &mut out) }, 0, "{}", error(b));
+        assert_eq!(unsafe { pxui_frame(b, &FrameIn::new(200.0, 100.0), Some(themed_toggle_frame), theme.cast(), &mut out) }, 0, "{}", error(b));
         assert_eq!(WRONG.with(Cell::get), 0, "a body of another Ui ran");
         unsafe { crate::theme::pxui_theme_destroy(theme); }
         assert_eq!(unsafe { pxui_ui_destroy(a) } | unsafe { pxui_ui_destroy(b) }, 0);

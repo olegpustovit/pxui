@@ -670,7 +670,7 @@ mod tests {
     #[test]
     fn a_search_body_styles_its_clear_key_for_the_kits_state() {
         use pxui_types::a11y::Role;
-        thread_local! { static SEEN: Cell<crate::theme::State> = const { Cell::new(crate::theme::State { hovered: false, pressed: false, focused: false, disabled: false, checked: false }) }; }
+        thread_local! { static SEEN: Cell<crate::theme::State> = const { Cell::new(crate::Node::DEFAULT.state) }; }
         const KEY: crate::theme::States = crate::theme::States::of(crate::theme::Look::NONE.fill(crate::Rgba::rgb(1, 1, 1)))
             .hover(crate::theme::Look::NONE.fill(crate::Rgba::rgb(2, 2, 2))).pressed(crate::theme::Look::NONE.fill(crate::Rgba::rgb(3, 3, 3)));
         fn search(ui: &mut Ui, c: &SearchFieldConfig) {
@@ -694,13 +694,13 @@ mod tests {
         let key = crate::testing::find(&ui, Role::Button, "Clear").expect("behaviour names the body's clear key");
         let (x, y) = (f64::from(key.x + key.w / 2.0), f64::from(key.y + key.h / 2.0));
         assert!(filled(&ui, 1) && SEEN.with(|s| s.get()) == crate::theme::State::default(), "idle");
-        crate::testing::frame(&mut ui, &[crate::Event { kind: crate::Event::POINTER_MOVED, x, y, ..Default::default() }], &mut build);
+        crate::testing::frame(&mut ui, &[crate::Event::pointer(crate::Event::POINTER_MOVED, 0, x, y)], &mut build);
         crate::testing::frame(&mut ui, &[], &mut build);
         assert!(SEEN.with(|s| s.get()).hovered && filled(&ui, 2), "the body sees the key hovered and shows its hovered look");
-        crate::testing::frame(&mut ui, &[crate::Event { kind: crate::Event::POINTER_PRESSED, x, y, ..Default::default() }], &mut build);
+        crate::testing::frame(&mut ui, &[crate::Event::pointer(crate::Event::POINTER_PRESSED, 0, x, y)], &mut build);
         crate::testing::frame(&mut ui, &[], &mut build);
         assert!(SEEN.with(|s| s.get()).pressed && filled(&ui, 3), "held: the pressed look wins over hovered");
-        crate::testing::frame(&mut ui, &[crate::Event { kind: crate::Event::POINTER_RELEASED, x, y, ..Default::default() }], &mut build);
+        crate::testing::frame(&mut ui, &[crate::Event::pointer(crate::Event::POINTER_RELEASED, 0, x, y)], &mut build);
         assert_eq!(changed.borrow().as_deref(), Some(""), "the release clears the query");
     }
 
@@ -745,7 +745,7 @@ mod tests {
     fn a_picker_row_body_gets_its_image_and_heading_and_sets_its_height() {
         use pxui_types::a11y::Role;
         thread_local! { static GOT: RefCell<Vec<(i64, u32, bool)>> = const { RefCell::new(Vec::new()) }; }
-        const IMAGE: crate::Image = crate::Image { mtl_texture: core::ptr::dangling_mut(), width: 8, height: 4, format: crate::Image::FORMAT_RGBA8, ..crate::Image::rgba8(8, 4, core::ptr::null_mut(), core::ptr::null_mut()) };
+        const IMAGE: crate::Image = { let mut record = crate::Image::rgba8(8, 4, core::ptr::null_mut(), core::ptr::null_mut()); record.mtl_texture = core::ptr::dangling_mut(); record.width = 8; record.height = 4; record.format = crate::Image::FORMAT_RGBA8; record };
         fn row(ui: &mut Ui, c: &PickerConfig) {
             GOT.with(|g| g.borrow_mut().push((c.index, c.image().map_or(0, |i| i.width), c.head().is_some())));
             ui.set_node_layout(&c.row, &Node::row().w(Size::Grow).h_px(44.0));
@@ -808,11 +808,11 @@ mod tests {
         assert_eq!(list.h, 5.0 * row.h, "limit rows of the kit's height show");
         let first = row.y;
         let over = (f64::from(list.x + 10.0), f64::from(list.y + 10.0));
-        step(&mut ui, &[crate::Event { kind: crate::Event::POINTER_MOVED, x: over.0, y: over.1, ..Default::default() }]);
-        step(&mut ui, &[Event { kind: Event::SCROLLED, y: -3.0 * f64::from(row.h), ..Default::default() }]);
+        step(&mut ui, &[crate::Event::pointer(crate::Event::POINTER_MOVED, 0, over.0, over.1)]);
+        step(&mut ui, &[Event::pointer(Event::SCROLLED, 0, 0.0, -3.0 * f64::from(row.h))]);
         for _ in 0..30 { step(&mut ui, &[]); }
         assert!(crate::testing::find(&ui, Role::ListItem, "P00").is_none_or(|r| r.y < first), "the wheel scrolled the results");
-        for _ in 0..20 { step(&mut ui, &[Event { kind: Event::KEY_PRESSED, code: crate::KeyCode::ArrowDown.wire(), ..Default::default() }]); step(&mut ui, &[]); }
+        for _ in 0..20 { step(&mut ui, &[Event::key(Event::KEY_PRESSED, crate::KeyCode::ArrowDown.wire())]); step(&mut ui, &[]); }
         for _ in 0..10 { step(&mut ui, &[]); }
         let current = crate::testing::find(&ui, Role::ListItem, "P20").expect("the keyboard's row is built");
         assert!(current.y >= list.y - 0.5 && current.y + current.h <= list.y + list.h + 0.5, "the keyboard's row is in view: {current:?} in {list:?}");
@@ -988,15 +988,15 @@ mod tests {
         let fill = |ui: &Ui, c: u8| ui.layers().flat_map(|l| l.instances.iter()).any(|i| i.color == [c, c, c, 255]);
         let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
         crate::testing::frame(&mut ui, &[], &mut build);
-        let over = crate::Event { kind: crate::Event::POINTER_MOVED, x: 20.0, y: 20.0, ..Default::default() };
+        let over = crate::Event::pointer(crate::Event::POINTER_MOVED, 0, 20.0, 20.0);
         crate::testing::frame(&mut ui, &[over], &mut build);
         assert!(fill(&ui, 4) && !fill(&ui, 2), "hovered and on: the checked look");
-        let down = crate::Event { kind: crate::Event::POINTER_PRESSED, ..over };
+        let down = { let mut record = over; record.kind = crate::Event::POINTER_PRESSED; record };
         crate::testing::frame(&mut ui, &[down], &mut build);
         crate::testing::frame(&mut ui, &[], &mut build);
         assert!(fill(&ui, 4) && !fill(&ui, 3), "held and on: the checked look");
         assert!(ui.repaint_at().is_some(), "the press scale springs");
-        crate::testing::frame(&mut ui, &[crate::Event { kind: crate::Event::POINTER_RELEASED, ..over }], &mut build);
+        crate::testing::frame(&mut ui, &[{ let mut record = over; record.kind = crate::Event::POINTER_RELEASED; record }], &mut build);
         on.set(false);
         crate::testing::frame(&mut ui, &[], &mut build);
         crate::testing::frame(&mut ui, &[over], &mut build);
@@ -1016,13 +1016,13 @@ mod tests {
         let fill = |ui: &Ui, c: u8| ui.layers().flat_map(|l| l.instances.iter()).any(|i| i.color == [c, c, c, 255]);
         let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
         crate::testing::frame(&mut ui, &[], &mut build);
-        let over = crate::Event { kind: crate::Event::POINTER_MOVED, x: 20.0, y: 20.0, ..Default::default() };
+        let over = crate::Event::pointer(crate::Event::POINTER_MOVED, 0, 20.0, 20.0);
         crate::testing::frame(&mut ui, &[over], &mut build);
         assert!(fill(&ui, 4) && !fill(&ui, 2), "hovered and selected: the checked look");
-        crate::testing::frame(&mut ui, &[crate::Event { kind: crate::Event::POINTER_PRESSED, ..over }], &mut build);
+        crate::testing::frame(&mut ui, &[{ let mut record = over; record.kind = crate::Event::POINTER_PRESSED; record }], &mut build);
         crate::testing::frame(&mut ui, &[], &mut build);
         assert!(fill(&ui, 4) && !fill(&ui, 3), "held and selected: the checked look");
-        crate::testing::frame(&mut ui, &[crate::Event { kind: crate::Event::POINTER_RELEASED, ..over }], &mut build);
+        crate::testing::frame(&mut ui, &[{ let mut record = over; record.kind = crate::Event::POINTER_RELEASED; record }], &mut build);
         off.set(true);
         crate::testing::frame(&mut ui, &[], &mut build);
         assert!(fill(&ui, 5) && !fill(&ui, 4), "disabled and selected: the disabled look");
@@ -1057,7 +1057,7 @@ mod tests {
     fn probe(ui: &mut Ui, c: &crate::bodies::ToggleConfig) {
         TOGGLES.with(|t| t.borrow_mut().push((c.text_of(&c.label).to_owned(), c.on != 0, c.state.hovered != 0)));
         ROWS.with(|r| r.set(c.row.box_key));
-        let b = ui.part(Part::HIT, Node { w: Size::Px(12.0), h: Size::Px(12.0), ..Node::DEFAULT });
+        let b = ui.part(Part::HIT, Node::DEFAULT.w(Size::Px(12.0)).h(Size::Px(12.0)));
         ui.text(&b, "x");
     }
 
@@ -1178,7 +1178,7 @@ mod tests {
 
     fn forger(_: &mut Ui, c: &crate::bodies::ToggleConfig) {
         let mut copy: pxui_types::ffi::PxuiToggleConfig = **c;
-        copy.label = Str { ptr: "forged".as_ptr(), len: 6 };
+        copy.label = { let mut record = Str::default(); record.ptr = "forged".as_ptr(); record.len = 6; record };
         FORGED.with(|f| f.set((c.text_of(&c.label) == "Real", c.text_of(&copy.label).is_empty())));
     }
 
@@ -1196,7 +1196,7 @@ mod tests {
         let real = c.hint_at(&c.hints, 0).map(|(k, v)| (k.to_owned(), v.to_owned()));
         let past = c.hint_at(&c.hints, c.hints.len).is_none();
         let copy = c.hints;
-        let texts = [Str { ptr: "forged".as_ptr(), len: 6 }];
+        let texts = [{ let mut record = Str::default(); record.ptr = "forged".as_ptr(); record.len = 6; record }];
         let forged = pxui_types::ffi::Slice { ptr: texts.as_ptr(), len: 1 };
         let forged_hints = pxui_types::ffi::Slice::<pxui_types::ffi::PxuiHintDesc> { ptr: c.hints.ptr, len: c.hints.len };
         HINTS.with(|h| *h.borrow_mut() = Some((real, past, c.hint_at(&copy, 0).is_none(), c.text_at(&forged, 0).is_empty(), c.hint_at(&forged_hints, 0).is_none())));

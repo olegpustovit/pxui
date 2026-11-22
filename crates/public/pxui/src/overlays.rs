@@ -355,7 +355,7 @@ mod tests {
             results.push(call(ui, &with(&|r| r.reserved = [0, 1]), &options(full)));
             results.push(call(ui, &with(&|r| (r.has_id, r.id) = (1, 9)), &options(full)));
             results.push(call(ui, &with(&|r| r.has_id = 2), &options(full)));
-            results.push(call(ui, &with(&|r| r.text = pxui_types::Str { ptr: b"\xff".as_ptr(), len: 1 }), &options(full)));
+            results.push(call(ui, &with(&|r| r.text = { let mut record = pxui_types::Str::default(); record.ptr = b"\xff".as_ptr(); record.len = 1; record }), &options(full)));
             let child = [PxuiMenuRow::new("child")];
             results.push(call(ui, &with(&|r| r.submenu = Strided::of(&child)), &options(full)));
             let nested = [PxuiMenuRow { submenu: Strided::of(&child), ..PxuiMenuRow::new("nested") }];

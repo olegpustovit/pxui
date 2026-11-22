@@ -120,7 +120,7 @@ fn table(ui: &mut Ui) {
     let columns = [0, 1, 2, 3].map(|id| pxui_core::ui_lists::ColumnSpec { id, share: 0.0, w: 70.0, grip: true, sortable: false });
     let mut widths = [0, 1, 2, 3].map(|id| pxui_types::ffi::PxuiColumnWidth { id, w: 70.0, reserved: 0 });
     let (mut flags, mut anchor, mut sort) = (vec![0u8; 1_000_000], None, None);
-    let at = ui.node("table-at".into(), Node { at: Some((8.0, 8.0)).into(), w: Size::Px(304.0), h: Size::Px(280.0), ..Node::DEFAULT });
+    let at = ui.node("table-at".into(), Node::DEFAULT.at(8.0, 8.0).w(Size::Px(304.0)).h(Size::Px(280.0)));
     ui.within(&at, &mut |ui| { ui.table("table", &columns, &headers, &mut widths, &mut sort, 1_000_000, &|i| i as i64, &mut flags, &mut anchor, None, (pxui_types::ui::SelectMode::Single, false, false), 24.0, 24.0, 0, &mut |ui, r, c, _| ui.item_text(&cell(r as i64, c as i64))); });
 }
 
@@ -238,8 +238,8 @@ fn gpu_patch() {
     }
     let chip = |text: &'static str, fill: (u8, u8, u8)| {
         move |ui: &mut Ui| -> Handle {
-            let look = Look { fill: pxui_core::geom::Rgba::rgb(fill.0, fill.1, fill.2), text: pxui_core::geom::Rgba::BLACK, ..Look::NONE };
-            let h = ui.node("clock".into(), Node { w: Size::Px(120.0), h: Size::Px(24.0), at: Some((10.0, 10.0)).into(), look, inset: Edges { l: 6.0, ..Edges::default() }, ..Node::DEFAULT });
+            let look = Look::NONE.fill(pxui_core::geom::Rgba::rgb(fill.0, fill.1, fill.2)).text(pxui_core::geom::Rgba::BLACK);
+            let h = ui.node("clock".into(), Node::DEFAULT.w(Size::Px(120.0)).h(Size::Px(24.0)).at(10.0, 10.0).look(look).inset(Edges::default().l(6.0)));
             ui.text(&h, text);
             h
         }
@@ -298,7 +298,7 @@ fn gpu_view_offset_pixels() {
         for count in 0..2 {
             ui.frame(&frame_at(count, 240, 2), &mut |ui| {
                 let at = if offset { (0.0, 0.0) } else { (24.0, 16.0) };
-                let holder = ui.node("holder".into(), Node { w: Size::Px(300.0), h: Size::Px(200.0), at: Some(at).into(), ..Node::DEFAULT });
+                let holder = ui.node("holder".into(), Node::DEFAULT.w(Size::Px(300.0)).h(Size::Px(200.0)).at(at.0, at.1));
                 let saved = ui.enter(&holder);
                 view = Some(ui.view("kit", 1, Size::Px(300.0), Size::Px(200.0), &mut |ui| new_panel(ui)));
                 ui.leave(saved);
@@ -326,8 +326,8 @@ fn gpu_retained_bytes() {
     let mut build = |ui: &mut Ui| {
         ui.view("kit", 1, Size::Px(WIDTH as f32), Size::Px(200.0), &mut |ui| new_panel(ui));
         ui.view("chip", 1, Size::Px(100.0), Size::Px(30.0), &mut |ui| {
-            let look = Look { fill: pxui_core::geom::Rgba::rgb(200, 40, 40), ..Look::NONE };
-            chip = Some(ui.node("chip".into(), Node { w: Size::Px(80.0), h: Size::Px(20.0), look, ..Node::DEFAULT }));
+            let look = Look::NONE.fill(pxui_core::geom::Rgba::rgb(200, 40, 40));
+            chip = Some(ui.node("chip".into(), Node::DEFAULT.w(Size::Px(80.0)).h(Size::Px(20.0)).look(look)));
         });
     };
     let mut painter = gpu::painter(&mut ui);
@@ -356,9 +356,9 @@ fn gpu_round_clip() {
     }
     let red = pxui_core::geom::Rgba::rgb(220, 20, 20);
     let (pixels, _) = render(1, 80, &mut |ui| {
-        let clip = ui.node("clip".into(), Node { flags: Flags::CLIP | Flags::ROUND_CLIP, w: Size::Px(100.0), h: Size::Px(60.0), at: Some((10.0, 10.0)).into(), look: Look { radius: [16.0; 4], ..Look::NONE }, ..Node::DEFAULT });
+        let clip = ui.node("clip".into(), Node::DEFAULT.flags(Flags::CLIP | Flags::ROUND_CLIP).w(Size::Px(100.0)).h(Size::Px(60.0)).at(10.0, 10.0).look(Look::NONE.radii([16.0; 4])));
         ui.within(&clip, &mut |ui| {
-            ui.node("fill".into(), Node { w: Size::Grow, h: Size::Grow, look: Look { fill: red, ..Look::NONE }, ..Node::DEFAULT });
+            ui.node("fill".into(), Node::DEFAULT.w(Size::Grow).h(Size::Grow).look(Look::NONE.fill(red)));
         });
     });
     let at = |x: usize, y: usize| &pixels[(y * WIDTH as usize + x) * 4..][..3];
@@ -442,11 +442,11 @@ fn gpu_plain_keyframe_cached_owner_visibility() {
             let frame = frame_at(tick as i64, 80, density);
             mem_sys::local_reset();
             ui.frame(&frame, &mut |ui| {
-                let clip = ui.node("clip".into(), Node { flags: Flags::CLIP, w: Size::Px(100.0), h: Size::Px(40.0), at: Some((10.0, 10.0)).into(), ..Node::DEFAULT });
+                let clip = ui.node("clip".into(), Node::DEFAULT.flags(Flags::CLIP).w(Size::Px(100.0)).h(Size::Px(40.0)).at(10.0, 10.0));
                 ui.within(&clip, &mut |ui| {
                     let cached = ui.view("cached", 1, Size::Grow, Size::Px(20.0), &mut |ui| {
                         builds.set(builds.get() + 1);
-                        let fill = ui.node("fill".into(), Node { w: Size::Grow, h: Size::Grow, look: Look { fill: pxui_core::geom::Rgba::rgb(220, 20, 20), ..Look::NONE }, ..Node::DEFAULT });
+                        let fill = ui.node("fill".into(), Node::DEFAULT.w(Size::Grow).h(Size::Grow).look(Look::NONE.fill(pxui_core::geom::Rgba::rgb(220, 20, 20))));
                         let curve = Curve::Bezier { duration: 1.0, points: [0.0, 0.0, 1.0, 1.0] };
                         ui.animate_keys(&fill, &[Keyframe::opacity(0.0, 1.0).curve(curve), Keyframe::opacity(1.0, 1.0).curve(curve)], &Keyframes::DEFAULT.repeat(Repeat::Forever));
                     });

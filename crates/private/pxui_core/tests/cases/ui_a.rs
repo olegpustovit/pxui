@@ -1048,17 +1048,17 @@ fn window_modal_input_and_fitted_labels_reuse_warm_storage() {
     let background = Cell::new(false);
     let mut build = |ui: &mut Ui| {
         open.set(ui.modal_root("warm-modal", &pxui_core::ui::Overlay::DEFAULT.w_px(300.0).name("warm-modal"), &mut |ui| {
-            let body = ui.node("body".into(), Node { w: Size::Grow, h: Size::Px(140.0), flags: Flags::CLICKABLE | Flags::TAB_STOP | Flags::SCROLL, ..Node::DEFAULT });
+            let body = ui.node("body".into(), Node::DEFAULT.w(Size::Grow).h(Size::Px(140.0)).flags(Flags::CLICKABLE | Flags::TAB_STOP | Flags::SCROLL));
             inside.set(Some(body));
             ui.within(&body, &mut |ui| {
                 for (key, width, caps) in [("wide", 80.0, false), ("tiny", 1.0, true), ("caps", 60.0, true)] {
-                    let label = ui.node_ref(key, &Node { w: Size::Px(width), h: Size::Px(24.0), flags: Flags::FIT_TEXT, look: Look { font: Font { caps, ..Font::BODY }, ..Look::NONE }, ..Node::DEFAULT });
+                    let label = ui.node_ref(key, &Node::DEFAULT.w(Size::Px(width)).h(Size::Px(24.0)).flags(Flags::FIT_TEXT).look(Look::NONE.font({ let mut record = Font::BODY; record.caps = caps; record })));
                     ui.text(&label, "a long label with café and 🎵");
                 }
             });
             let _ = ui.signal(&body);
         }).is_some());
-        let behind = ui.node("background".into(), Node { w: Size::Grow, h: Size::Grow, flags: Flags::CLICKABLE | Flags::TAB_STOP, ..Node::DEFAULT });
+        let behind = ui.node("background".into(), Node::DEFAULT.w(Size::Grow).h(Size::Grow).flags(Flags::CLICKABLE | Flags::TAB_STOP));
         let signal = ui.signal(&behind);
         background.set(signal.clicked || signal.hovered);
     };
@@ -1086,14 +1086,14 @@ fn window_fitted_paint_matches_legacy_ellipsis_and_ascii_caps() {
                 let mut shown = if expected.text_width(Some(11), label) <= width { label.to_owned() }
                     else { let cut = ellipsis(&mut |s| expected.text_width(Some(11), s), width, label); if cut.is_empty() { "\u{2026}".to_owned() } else { cut.into_owned() } };
                 if caps { shown.make_ascii_uppercase(); }
-                let look = Look { text: Rgba { r: 0, g: 0, b: 0, a: 255 }, font: Font { caps, ..Font::BODY }, ..Look::NONE };
+                let look = Look::NONE.text(Rgba::rgb(0, 0, 0)).font({ let mut record = Font::BODY; record.caps = caps; record });
                 let frame = frame_at(vec![], 1.0, 0.0, vec![]);
                 actual.frame(&frame, &mut |ui| {
-                    let row = ui.node("label".into(), Node { w: Size::Px(width), h: Size::Px(24.0), flags: Flags::FIT_TEXT, look, ..Node::DEFAULT });
+                    let row = ui.node("label".into(), Node::DEFAULT.w(Size::Px(width)).h(Size::Px(24.0)).flags(Flags::FIT_TEXT).look(look));
                     ui.text(&row, label);
                 });
                 expected.frame(&frame, &mut |ui| {
-                    let row = ui.node("label".into(), Node { w: Size::Px(width), h: Size::Px(24.0), look: Look { font: Font { caps: false, ..look.font }, ..look }, ..Node::DEFAULT });
+                    let row = ui.node("label".into(), Node::DEFAULT.w(Size::Px(width)).h(Size::Px(24.0)).look(look.font({ let mut record = look.font; record.caps = false; record })));
                     ui.text(&row, &shown);
                 });
                 let a = actual.output().draw;
@@ -1112,11 +1112,11 @@ fn window_fitted_paint_matches_legacy_ellipsis_and_ascii_caps() {
 fn window_focused_key_reuses_a_warmed_key_list() {
     let mut ui = new_ui(Some(11));
     let mut build = |ui: &mut Ui| {
-        let focused = ui.node("focused".into(), Node { w: Size::Px(100.0), h: Size::Px(40.0), flags: Flags::CLICKABLE | Flags::TAB_STOP, ..Node::DEFAULT });
+        let focused = ui.node("focused".into(), Node::DEFAULT.w(Size::Px(100.0)).h(Size::Px(40.0)).flags(Flags::CLICKABLE | Flags::TAB_STOP));
         ui.focus_box(&focused);
         let _ = ui.signal(&focused);
-        let list = ui.node("list".into(), Node { w: Size::Px(100.0), h: Size::Px(80.0), flags: Flags::SCROLL | Flags::CLIP, scroll_step: 24.0, ..Node::DEFAULT });
-        ui.within(&list, &mut |ui| { ui.node("tall".into(), Node { w: Size::Grow, h: Size::Px(400.0), ..Node::DEFAULT }); });
+        let list = ui.node("list".into(), Node::DEFAULT.w(Size::Px(100.0)).h(Size::Px(80.0)).flags(Flags::SCROLL | Flags::CLIP).scroll_step(24.0));
+        ui.within(&list, &mut |ui| { ui.node("tall".into(), Node::DEFAULT.w(Size::Grow).h(Size::Px(400.0))); });
         let _ = ui.signal(&list);
     };
     let scroll = |step: f64| vec![Event::PointerMoved((50.0, 80.0)), Event::Scrolled((0.0, step))];

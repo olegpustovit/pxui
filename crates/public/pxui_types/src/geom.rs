@@ -135,7 +135,7 @@ impl Edges {
     ///
     /// ```
     /// use pxui_types::geom::Edges;
-    /// assert_eq!(Edges::all(4.0), Edges { l: 4.0, t: 4.0, r: 4.0, b: 4.0 });
+    /// assert_eq!(Edges::all(4.0), Edges::new(4.0, 4.0, 4.0, 4.0));
     /// ```
     pub const fn all(v: f32) -> Edges { Edges { l: v, t: v, r: v, b: v } }
     /// Edges with `x` on the left and right and `y` on the top and bottom.
@@ -146,7 +146,7 @@ impl Edges {
     /// ```
     /// use pxui_types::geom::Edges;
     /// const E: Edges = Edges::xy(2.0, 3.0);
-    /// assert_eq!(E, Edges { l: 2.0, t: 3.0, r: 2.0, b: 3.0 });
+    /// assert_eq!(E, Edges::new(2.0, 3.0, 2.0, 3.0));
     /// ```
     #[inline]
     pub const fn xy(x: f32, y: f32) -> Edges {
@@ -166,7 +166,7 @@ impl Rgba {
     /// ```
     /// use pxui_types::geom::Rgba;
     /// const INK: Rgba = Rgba::rgb(1, 2, 3);
-    /// assert_eq!(INK, Rgba { r: 1, g: 2, b: 3, a: 255 });
+    /// assert_eq!(INK, Rgba::rgb(1, 2, 3));
     /// ```
     #[inline]
     pub const fn rgb(r: u8, g: u8, b: u8) -> Rgba { Rgba { r, g, b, a: 255 } }
@@ -186,7 +186,7 @@ impl Rgba {
     /// ```
     /// use pxui_types::geom::Rgba;
     /// const SCRIM: Rgba = Rgba::rgba(0, 0, 0, 128);
-    /// assert_eq!(SCRIM, Rgba { r: 0, g: 0, b: 0, a: 128 });
+    /// assert_eq!(SCRIM, Rgba::rgba(0, 0, 0, 128));
     /// ```
     #[inline]
     pub const fn rgba(r: u8, g: u8, b: u8, a: u8) -> Rgba { Rgba { r, g, b, a } }

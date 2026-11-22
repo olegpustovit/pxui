@@ -740,7 +740,7 @@ mod tests {
         extern "C" fn run(user: *mut core::ffi::c_void, ui: *mut core::ffi::c_void) { unsafe { (*user.cast::<&mut dyn FnMut(*mut super::PxuiUi)>())(ui.cast()) } }
         let mut f = f;
         let mut out = crate::FrameOut::default();
-        let input = crate::FrameIn { width: 320.0, height: 240.0, ..Default::default() };
+        let input = crate::FrameIn::new(320.0, 240.0);
         assert_eq!(unsafe { super::pxui_frame(ui, &input, Some(run), (&mut f as *mut &mut dyn FnMut(*mut super::PxuiUi)).cast(), &mut out) }, 0);
     }
 
@@ -749,9 +749,9 @@ mod tests {
         use super::*;
         use pxui_types::ffi::PxuiTextFieldDesc;
         let ui=unsafe {crate::ui::create_test_ui()};
-        let text=|s:&'static str| Str {ptr:s.as_ptr(),len:s.len()};
+        let text=|s:&'static str| { let mut record = Str::default(); record.ptr = s.as_ptr(); record.len = s.len(); record };
         let good=PxuiTextFieldDesc {size:core::mem::size_of::<PxuiTextFieldDesc>() as u32,autocorrect:1,capitalization:1,action:0,reserved:0,key:text("k"),name:text("n"),value:text("v"),variant:0,reserved_variant:[0;6]};
-        let bad_utf8=Str {ptr:[0xff_u8].as_ptr(),len:1};
+        let bad_utf8={ let mut record = Str::default(); record.ptr = [0xff_u8].as_ptr(); record.len = 1; record };
         let cases=[
             PxuiTextFieldDesc {size:core::mem::size_of::<PxuiTextFieldDesc>() as u32-1,..good},
             PxuiTextFieldDesc {size:0,..good},
@@ -764,7 +764,7 @@ mod tests {
             PxuiTextFieldDesc {value:bad_utf8,..good},
             PxuiTextFieldDesc {key:Str {ptr:core::ptr::null(),len:1},..good},
         ];
-        let mut changed=Str {ptr:b"sentinel".as_ptr(),len:8};
+        let mut changed={ let mut record = Str::default(); record.ptr = b"sentinel".as_ptr(); record.len = 8; record };
         let mut flag=77;
         let mut r=pxui_types::ffi::PxuiResponse::EMPTY;
         // outside a frame the builder is refused before its descriptor is read
@@ -795,7 +795,7 @@ mod tests {
         use crate::text_inputs::{pxui_ui_text_area, pxui_ui_value_field};
         use crate::widgets::pxui_ui_search_field;
         use pxui_types::ffi::{PxuiResponse, PxuiTextAreaDesc, PxuiTextFieldDesc, PxuiValueFieldDesc};
-        let s=|t: &'static str| Str {ptr:t.as_ptr(),len:t.len()};
+        let s=|t: &'static str| { let mut record = Str::default(); record.ptr = t.as_ptr(); record.len = t.len(); record };
         let ui=unsafe {crate::ui::create_test_ui()};
         let field=PxuiTextFieldDesc {size:core::mem::size_of::<PxuiTextFieldDesc>() as u32,autocorrect:0,capitalization:0,action:0,reserved:0,key:s("f"),name:s("Field"),value:s("abc"),variant:0,reserved_variant:[0;6]};
         let value=PxuiValueFieldDesc {label:s("v"),value:s("1"),width:40.0,height:20.0,size:core::mem::size_of::<PxuiValueFieldDesc>() as u32,..unsafe {core::mem::zeroed()}};
@@ -846,7 +846,7 @@ mod tests {
         let mut d=base(); d.messages=pxui_types::ffi::Slice {ptr:notes.as_ptr(),len:1}; cases.push(d);
         let mut d=base(); d.splice=pxui_types::ffi::Slice {ptr:splices.as_ptr(),len:1}; cases.push(d);
         let mut d=base(); d.chips=pxui_types::ffi::Slice {ptr:chips.as_ptr(),len:1}; cases.push(d);
-        let (mut out,mut changed,mut submitted)=(Str {ptr:b"sentinel".as_ptr(),len:8},7u8,9u8);
+        let (mut out,mut changed,mut submitted)=({ let mut record = Str::default(); record.ptr = b"sentinel".as_ptr(); record.len = 8; record },7u8,9u8);
         in_frame(ui,&mut |ui| {
             let built=unsafe {&*(*ui).engine}.built_nodes();
             for (i,desc) in cases.iter().enumerate() {
@@ -904,7 +904,7 @@ mod tests {
         for (code, payload) in [(0, "/Music/名前.flac\0/Music/Björk.m4a"), (1, "transport limit exceeded"), (0, "")] {
             let backing = payload.to_owned();
             let event = Wire { kind: Wire::FILES_DROPPED, code, x: -12.5, y: 31.25, text: pair(&backing), ..Default::default() };
-            let frame = FrameIn { events: pxui_types::ffi::Strided { ptr: &event, len: 1, stride: core::mem::size_of::<pxui_types::Event>() }, ..FrameIn::new(320.0, 240.0) };
+            let frame = { let mut record = FrameIn::new(320.0, 240.0); record.events = pxui_types::ffi::Strided { ptr: &event, len: 1, stride: core::mem::size_of::<pxui_types::Event>() }; record };
             assert_eq!(unsafe { pxui_frame(ui, &frame, None, core::ptr::null_mut(), &mut out) }, 0);
             drop(backing);
             for (has_owner, owner) in [(0, 0), (1, 123)] {
@@ -922,10 +922,10 @@ mod tests {
             Wire { code: 2, ..empty },
             Wire { x: f64::NAN, ..empty },
             Wire { y: f64::INFINITY, ..empty },
-            Wire { text: Str { ptr: core::ptr::null(), len: 1 }, ..empty },
-            Wire { text: Str { ptr: bad_utf8.as_ptr(), len: 1 }, ..empty },
+            Wire { text: { let mut record = Str::default(); record.ptr = core::ptr::null(); record.len = 1; record }, ..empty },
+            Wire { text: { let mut record = Str::default(); record.ptr = bad_utf8.as_ptr(); record.len = 1; record }, ..empty },
         ] {
-            let frame = FrameIn { events: pxui_types::ffi::Strided { ptr: &invalid, len: 1, stride: core::mem::size_of::<pxui_types::Event>() }, ..FrameIn::new(320.0, 240.0) };
+            let frame = { let mut record = FrameIn::new(320.0, 240.0); record.events = pxui_types::ffi::Strided { ptr: &invalid, len: 1, stride: core::mem::size_of::<pxui_types::Event>() }; record };
             let mut built = false;
             out.size = 777;
             assert_eq!(unsafe {
@@ -934,7 +934,7 @@ mod tests {
             assert!(!built);
             assert_eq!(out.size, 777);
         }
-        let frame = FrameIn { events: pxui_types::ffi::Strided { ptr: &empty, len: 1, stride: core::mem::size_of::<pxui_types::Event>() }, ..FrameIn::new(320.0, 240.0) };
+        let frame = { let mut record = FrameIn::new(320.0, 240.0); record.events = pxui_types::ffi::Strided { ptr: &empty, len: 1, stride: core::mem::size_of::<pxui_types::Event>() }; record };
         for round in 0..20 {
             mem_sys::local_reset();
             assert_eq!(unsafe { pxui_frame(ui, &frame, None, core::ptr::null_mut(), &mut out) }, 0);
@@ -959,11 +959,11 @@ mod tests {
             for (index, packet) in packets.iter_mut().enumerate() {
                 *packet = Touch::new(u64::MAX, u64::MAX - index as u64, [-1.25, 99.5], tick as f64 / 120.0, 0.375, (tick % 4) as u32);
                 events[index] = Wire { kind: Wire::TOUCH,
-                    text: Str { ptr: (packet as *const Touch).cast(), len: core::mem::size_of::<Touch>() },
+                    text: { let mut record = Str::default(); record.ptr = (packet as *const Touch).cast(); record.len = core::mem::size_of::<Touch>(); record },
                     ..Default::default() };
             }
             let expected = packets;
-            let frame = FrameIn { time: tick as f64 / 120.0, events: pxui_types::ffi::Strided { ptr: events.as_ptr(), len: count, stride: core::mem::size_of::<pxui_types::Event>() }, ..FrameIn::new(320.0, 240.0) };
+            let frame = { let mut record = FrameIn::new(320.0, 240.0); record.time = tick as f64 / 120.0; record.events = pxui_types::ffi::Strided { ptr: events.as_ptr(), len: count, stride: core::mem::size_of::<pxui_types::Event>() }; record };
             mem_sys::local_reset();
             assert_eq!(unsafe { pxui_frame(ui, &frame, None, core::ptr::null_mut(), &mut out) }, 0);
             packets.fill(Touch::default());
@@ -991,7 +991,7 @@ mod tests {
             packet.phase=(frame%4) as u32;
             let event=C {kind:C::TOUCH,text:Str {ptr:(&packet as *const Touch).cast(),len:core::mem::size_of::<Touch>()},..Default::default()};
             mem_sys::local_reset();
-            assert_eq!(unsafe {super::pxui_frame(ui,&FrameIn {events: pxui_types::ffi::Strided { ptr: &event, len: 1, stride: core::mem::size_of::<pxui_types::Event>() },width:320.0,height:240.0,time:frame as f64,..Default::default()},None,core::ptr::null_mut(),&mut out)},0);
+            assert_eq!(unsafe {super::pxui_frame(ui,&{ let mut record = FrameIn::default(); record.events = pxui_types::ffi::Strided { ptr: &event, len: 1, stride: core::mem::size_of::<pxui_types::Event>() }; record.width = 320.0; record.height = 240.0; record.time = frame as f64; record },None,core::ptr::null_mut(),&mut out)},0);
             let mut input=pxui_types::ffi::Input::default();
             assert_eq!(unsafe {super::pxui_ui_input(ui,0,0,&mut input)},0);
             assert_eq!(input.events.len,1);
@@ -1001,27 +1001,27 @@ mod tests {
             assert_eq!(unsafe {encoded.text.ptr.cast::<Touch>().read_unaligned()},packet);
             if frame>=82 {assert_eq!(mem_sys::local_alloc_count(),0,"warm touch frame and routed read allocated");}
         }
-        let input=FrameIn {width:320.0,height:240.0,..Default::default()};
+        let input=FrameIn::new(320.0, 240.0);
         for field in 0..7 {
             let mut bad=packet;
             match field {0=>bad.phase=4,1=>bad.x=f64::NAN,2=>bad.y=f64::INFINITY,3=>bad.time=f64::NAN,4=>bad.pressure=-1.0,5=>bad.pressure=1.01,_=>bad.pressure=f32::NAN}
             let events=[C {kind:C::KEY_PRESSED,code:input::Key::Meta.code(),..Default::default()},C {kind:C::TOUCH,text:Str {ptr:(&bad as *const Touch).cast(),len:core::mem::size_of::<Touch>()},..Default::default()}];
             out.size=777;
-            assert_eq!(unsafe {super::pxui_frame(ui,&FrameIn {events: pxui_types::ffi::Strided { ptr: events.as_ptr(), len: 2, stride: core::mem::size_of::<pxui_types::Event>() },..input},None,core::ptr::null_mut(),&mut out)},crate::PXUI_ERR_ARGUMENT);
+            assert_eq!(unsafe {super::pxui_frame(ui,&{ let mut record = input; record.events = pxui_types::ffi::Strided { ptr: events.as_ptr(), len: 2, stride: core::mem::size_of::<pxui_types::Event>() }; record },None,core::ptr::null_mut(),&mut out)},crate::PXUI_ERR_ARGUMENT);
             assert_eq!(out.size,777);
             let engine=unsafe {&*(*ui).engine};
             assert!(!engine.key_down(input::Key::Meta));
             assert_eq!(unsafe {super::pxui_frame(ui,&input,None,core::ptr::null_mut(),&mut out)},0);
             assert!(!unsafe {&*(*ui).engine}.key_down(input::Key::Meta), "the rejected batch must leave the next frame's held keys intact");
         }
-        for text in [Str::default(),Str {ptr:(&packet as *const Touch).cast(),len:47}] {
+        for text in [Str::default(),{ let mut record = Str::default(); record.ptr = (&packet as *const Touch).cast(); record.len = 47; record }] {
             let event=C {kind:C::TOUCH,text,..Default::default()};
-            assert_eq!(unsafe {super::pxui_frame(ui,&FrameIn {events: pxui_types::ffi::Strided { ptr: &event, len: 1, stride: core::mem::size_of::<pxui_types::Event>() },..input},None,core::ptr::null_mut(),&mut out)},crate::PXUI_ERR_ARGUMENT);
+            assert_eq!(unsafe {super::pxui_frame(ui,&{ let mut record = input; record.events = pxui_types::ffi::Strided { ptr: &event, len: 1, stride: core::mem::size_of::<pxui_types::Event>() }; record },None,core::ptr::null_mut(),&mut out)},crate::PXUI_ERR_ARGUMENT);
         }
         // the record's own size: short, or past the payload, is refused; a longer payload than the record is read as its first bytes
         let mut frame=|touch:&Touch,len:usize| {
             let event=C {kind:C::TOUCH,text:Str {ptr:(touch as *const Touch).cast(),len},..Default::default()};
-            unsafe {super::pxui_frame(ui,&FrameIn {events: pxui_types::ffi::Strided { ptr: &event, len: 1, stride: core::mem::size_of::<pxui_types::Event>() },..input},None,core::ptr::null_mut(),&mut out)}
+            unsafe {super::pxui_frame(ui,&{ let mut record = input; record.events = pxui_types::ffi::Strided { ptr: &event, len: 1, stride: core::mem::size_of::<pxui_types::Event>() }; record },None,core::ptr::null_mut(),&mut out)}
         };
         let whole=Touch::new(1,2,[10.0,20.0],1.0,1.0,0);
         for size in [0,4,55] { assert_eq!(frame(&Touch {size,..whole},core::mem::size_of::<Touch>()),crate::PXUI_ERR_ARGUMENT,"touch size {size}"); }
@@ -1037,7 +1037,7 @@ mod tests {
         use pxui_types::{Environment,FrameIn};
         let ui=unsafe { crate::ui::create_test_ui() };
         let value=Environment::new([47.0,0.0,34.0,0.0]).keyboard_animation([0.0,500.0,390.0,344.0],[0.0,844.0,390.0,344.0],1.0,0.25,7,true);
-        let input=FrameIn { width:390.0,height:844.0,environment:value,..Default::default() };
+        let input={ let mut record = FrameIn::default(); record.width = 390.0; record.height = 844.0; record.environment = value; record };
         let mut out=crate::FrameOut::default();
         assert_eq!(unsafe {super::pxui_frame(ui,&input,None,core::ptr::null_mut(),&mut out)},0);
         let mut got=Environment::default();
@@ -1055,7 +1055,7 @@ mod tests {
                 9=>bad.keyboard_duration=-0.1, 10=>bad.keyboard_duration=f64::INFINITY, _=>bad.keyboard_visible=2,
             }
             out.size=123;
-            assert_eq!(unsafe {super::pxui_frame(ui,&FrameIn {environment:bad,..input},None,core::ptr::null_mut(),&mut out)},crate::PXUI_ERR_ARGUMENT);
+            assert_eq!(unsafe {super::pxui_frame(ui,&{ let mut record = input; record.environment = bad; record },None,core::ptr::null_mut(),&mut out)},crate::PXUI_ERR_ARGUMENT);
             assert_eq!(out.size,123);
             assert_eq!(unsafe {crate::ui_state::pxui_ui_environment(ui,&mut got)},0);
             assert_eq!(got,value);
@@ -1073,13 +1073,13 @@ mod tests {
         let full=core::mem::size_of::<FrameIn>() as u32;
         for size in [0,4,48,56,128,152,full-1] {
             out.size=777;
-            let input=FrameIn { size,..FrameIn::new(320.0,240.0) };
+            let input={ let mut record = FrameIn::new(320.0,240.0); record.size = size; record };
             assert_eq!(unsafe { super::pxui_frame(ui,&input,None,core::ptr::null_mut(),&mut out) },crate::PXUI_ERR_ARGUMENT,"size {size}");
             assert_eq!(out.size,777);
         }
         assert_eq!(unsafe { super::pxui_frame(ui,core::ptr::null(),None,core::ptr::null_mut(),&mut out) },crate::PXUI_ERR_ARGUMENT);
         for size in [full,full+8,u32::MAX] {
-            let input=FrameIn { size,appearance:2,reduced_motion:1,..FrameIn::new(320.0,240.0) };
+            let input={ let mut record = FrameIn::new(320.0,240.0); record.size = size; record.appearance = 2; record.reduced_motion = 1; record };
             assert_eq!(unsafe { super::pxui_frame(ui,&input,None,core::ptr::null_mut(),&mut out) },0,"size {size}");
             let mut appearance=99;
             assert_eq!(unsafe { super::pxui_ui_system_appearance(ui,&mut appearance) },0);
@@ -1090,16 +1090,16 @@ mod tests {
         let good=FrameIn::new(320.0,240.0);
         for size in [0,4,79] {
             out.size=777;
-            let bad=FrameIn { environment:pxui_types::Environment { size,..good.environment },..good };
+            let bad={ let mut record = good; record.environment = pxui_types::Environment { size,..good.environment }; record };
             assert_eq!(unsafe { super::pxui_frame(ui,&bad,None,core::ptr::null_mut(),&mut out) },crate::PXUI_ERR_ARGUMENT,"environment size {size}");
             assert_eq!(out.size,777);
         }
         for size in [0,4,23] {
-            let bad=FrameIn { keyboard:pxui_types::Keyboard { size,..good.keyboard },..good };
+            let bad={ let mut record = good; record.keyboard = pxui_types::Keyboard { size,..good.keyboard }; record };
             assert_eq!(unsafe { super::pxui_frame(ui,&bad,None,core::ptr::null_mut(),&mut out) },crate::PXUI_ERR_ARGUMENT,"keyboard size {size}");
         }
         // a longer one is read as its first bytes and stored with the library's own size
-        let longer=FrameIn { environment:pxui_types::Environment { size:200,..pxui_types::Environment::new([7.0,0.0,0.0,0.0]) },..good };
+        let longer={ let mut record = good; record.environment = pxui_types::Environment { size:200,..pxui_types::Environment::new([7.0,0.0,0.0,0.0]) }; record };
         assert_eq!(unsafe { super::pxui_frame(ui,&longer,None,core::ptr::null_mut(),&mut out) },0);
         // the out records: the caller's size must cover the library's
         let mut environment=pxui_types::Environment::default();
@@ -1141,7 +1141,7 @@ mod keyboard_tests {
         let ui = unsafe { pxui_ui_create(&crate::PxuiUiDesc::default(), core::ptr::null(), 0, core::ptr::null_mut()) };
         let mut out = FrameOut::default();
         let frame = |ui, input: &FrameIn, out: &mut FrameOut| unsafe { super::pxui_frame(ui, input, None, core::ptr::null_mut(), out) };
-        let input = FrameIn { width: 390.0, height: 844.0, keyboard: Keyboard::new(pxui_types::geom::Rect::new(0.0, 508.0, 390.0, 336.0), Keyboard::VALID), ..FrameIn::default() };
+        let input = { let mut record = FrameIn::default(); record.width = 390.0; record.height = 844.0; record.keyboard = Keyboard::new(pxui_types::geom::Rect::new(0.0, 508.0, 390.0, 336.0), Keyboard::VALID); record };
         // no surface registered yet: the frame is refused, whatever it names
         assert_eq!(frame(ui, &input, &mut out), PXUI_ERR_ARGUMENT);
         assert_eq!(unsafe { super::pxui_ui_add_surface(ui, 0) }, PXUI_ERR_ARGUMENT, "0 is no surface");
@@ -1151,22 +1151,22 @@ mod keyboard_tests {
         assert_eq!(unsafe { super::pxui_ui_add_surface(ui, 8) }, crate::PXUI_ERR_STATE);
         assert_eq!(unsafe { super::pxui_ui_add_surface(ui, 7) }, crate::PXUI_ERR_STATE);
         // an unknown surface: an argument error, the full record or a legacy one (a 152-byte record names the main surface)
-        for surface in [0, 1, 8, u64::MAX] { assert_eq!(frame(ui, &FrameIn { surface, ..input }, &mut out), PXUI_ERR_ARGUMENT, "surface {surface}"); }
-        assert_eq!(frame(ui, &FrameIn { size: 152, surface: 7, ..input }, &mut out), PXUI_ERR_ARGUMENT, "a 152-byte record is for the main surface");
-        assert_eq!(frame(ui, &FrameIn { surface: 7, ..input }, &mut out), 0);
+        for surface in [0, 1, 8, u64::MAX] { assert_eq!(frame(ui, &{ let mut record = input; record.surface = surface; record }, &mut out), PXUI_ERR_ARGUMENT, "surface {surface}"); }
+        assert_eq!(frame(ui, &{ let mut record = input; record.size = 152; record.surface = 7; record }, &mut out), PXUI_ERR_ARGUMENT, "a 152-byte record is for the main surface");
+        assert_eq!(frame(ui, &{ let mut record = input; record.surface = 7; record }, &mut out), 0);
         let mut got = Keyboard::default();
         assert_eq!(unsafe { crate::ui_state::pxui_ui_keyboard(ui, &mut got) }, 0);
         assert_eq!(got, input.keyboard);
         // events: the frame's surface, a whole record, at most 4096 of them
-        let on = |surface, size| [Event { surface, size, ..Event::new(Event::FOCUS_GAINED) }];
-        let with = |events: &[Event]| FrameIn { surface: 7, events: pxui_types::ffi::Strided { ptr: events.as_ptr(), len: events.len(), stride: core::mem::size_of::<pxui_types::Event>() }, ..input };
+        let on = |surface, size| [{ let mut record = Event::new(Event::FOCUS_GAINED); record.surface = surface; record.size = size; record }];
+        let with = |events: &[Event]| { let mut record = input; record.surface = 7; record.events = pxui_types::ffi::Strided { ptr: events.as_ptr(), len: events.len(), stride: core::mem::size_of::<pxui_types::Event>() }; record };
         assert_eq!(frame(ui, &with(&on(7, 64)), &mut out), 0);
         assert_eq!(frame(ui, &with(&on(7, 100)), &mut out), 0, "a longer record is read as its first 64 bytes");
         assert_eq!(frame(ui, &with(&on(1, 64)), &mut out), PXUI_ERR_ARGUMENT, "an event for another surface");
         assert_eq!(frame(ui, &with(&on(0, 64)), &mut out), PXUI_ERR_ARGUMENT);
         assert_eq!(frame(ui, &with(&on(7, 48)), &mut out), PXUI_ERR_ARGUMENT, "a short record");
         assert_eq!(frame(ui, &with(&on(7, 0)), &mut out), PXUI_ERR_ARGUMENT);
-        let many = vec![Event { surface: 7, ..Event::new(Event::FOCUS_GAINED) }; 4097];
+        let many = vec![{ let mut record = Event::new(Event::FOCUS_GAINED); record.surface = 7; record }; 4097];
         assert_eq!(frame(ui, &with(&many[..4096]), &mut out), 0);
         assert_eq!(frame(ui, &with(&many), &mut out), PXUI_ERR_ARGUMENT, "more than 4096 events");
         // `pxui_ui_wants_frame` holds its events to the Ui's surface too
@@ -1178,10 +1178,10 @@ mod keyboard_tests {
         assert_eq!(unsafe { super::pxui_ui_remove_surface(ui, 8) }, PXUI_ERR_ARGUMENT);
         assert_eq!(unsafe { super::pxui_ui_remove_surface(ui, 0) }, PXUI_ERR_ARGUMENT);
         assert_eq!(unsafe { super::pxui_ui_remove_surface(ui, 7) }, 0);
-        assert_eq!(frame(ui, &FrameIn { surface: 7, ..input }, &mut out), PXUI_ERR_ARGUMENT);
+        assert_eq!(frame(ui, &{ let mut record = input; record.surface = 7; record }, &mut out), PXUI_ERR_ARGUMENT);
         for surface in [0, 7] { assert_eq!(unsafe { crate::kit::pxui_ui_wants_frame(ui, slice(&on(surface, 64)), 1.0, &mut wants) }, PXUI_ERR_ARGUMENT, "wants_frame with no registered surface, event surface {surface}"); }
         assert_eq!(unsafe { super::pxui_ui_add_surface(ui, 8) }, 0);
-        assert_eq!(frame(ui, &FrameIn { surface: 8, ..input }, &mut out), 0);
+        assert_eq!(frame(ui, &{ let mut record = input; record.surface = 8; record }, &mut out), 0);
         assert_eq!(unsafe { super::pxui_ui_destroy(ui) }, 0);
     }
 
@@ -1194,7 +1194,7 @@ mod keyboard_tests {
         let (a, b) = (unsafe { crate::ui::create_test_ui() }, unsafe { crate::ui::create_test_ui() });
         let (mut mine, mut theirs) = (PxuiBox::default(), PxuiBox::default());
         let mut out = FrameOut::default();
-        let input = FrameIn { width: 100.0, height: 100.0, ..FrameIn::default() };
+        let input = FrameIn::new(100.0, 100.0);
         assert_eq!(unsafe { super::pxui_frame(a, &input, Some(declare), (&mut mine as *mut PxuiBox).cast(), &mut out) }, 0);
         assert_eq!(unsafe { super::pxui_frame(b, &input, Some(declare), (&mut theirs as *mut PxuiBox).cast(), &mut out) }, 0);
         // the two handles name the same slot and key and differ in the serial only
@@ -1207,7 +1207,7 @@ mod keyboard_tests {
         let wrong = [theirs, zeroed, PxuiBox { ui: u32::MAX, ..mine }, PxuiBox { ui: 0, ..mine }];
         let mut rect = pxui_types::geom::Rect::new(0.0, 0.0, 0.0, 0.0);
         let (mut value, mut focused, mut signal) = (0i64, 0u8, PxuiSignal::default());
-        let text = pxui_types::Str { ptr: b"x".as_ptr(), len: 1 };
+        let text = { let mut record = pxui_types::Str::default(); record.ptr = b"x".as_ptr(); record.len = 1; record };
         // the trusted calls (rect, text), the checked ones (state, focused, signal) and the core-box ones (patch_text, a11y name)
         assert_eq!(unsafe { crate::pxui_ui_rect(a, &mine, &mut rect) }, 0);
         assert_eq!(unsafe { crate::pxui_ui_state(a, &mine, 7, &mut value) }, 0);
@@ -1237,7 +1237,7 @@ mod keyboard_tests {
             let case = unsafe { &mut *user.cast::<Case>() };
             let ui = ui.cast();
             assert_eq!(unsafe { crate::pxui_ui_node_keyed(ui, 4242, &pxui_types::Node::DEFAULT, &mut case.mine) }, 0);
-            let text = pxui_types::Str { ptr: b"x".as_ptr(), len: 1 };
+            let text = { let mut record = pxui_types::Str::default(); record.ptr = b"x".as_ptr(); record.len = 1; record };
             extern "C" fn nothing(_: *mut core::ffi::c_void, _: *mut core::ffi::c_void) {}
             assert_eq!(unsafe { crate::pxui_ui_within(ui, &case.mine, Some(nothing), core::ptr::null_mut()) }, 0);
             assert_eq!(unsafe { crate::pxui_ui_text(ui, &case.mine, text, core::ptr::null(), core::ptr::null(), 0) }, 0);
@@ -1251,7 +1251,7 @@ mod keyboard_tests {
         }
         let (a, b) = (unsafe { crate::ui::create_test_ui() }, unsafe { crate::ui::create_test_ui() });
         let mut out = FrameOut::default();
-        let input = FrameIn { width: 100.0, height: 100.0, ..FrameIn::default() };
+        let input = FrameIn::new(100.0, 100.0);
         let mut theirs = Case { mine: PxuiBox::default(), wrong: [PxuiBox::default(); 3], checked: false };
         // the other Ui's box lives in `b`; a zeroed one and one with the serial cleared come from it too
         assert_eq!(unsafe { super::pxui_frame(b, &input, Some(declare), (&mut theirs as *mut Case).cast(), &mut out) }, 0);
@@ -1296,7 +1296,7 @@ mod keyboard_tests {
         }
         let ui = unsafe { crate::ui::create_test_ui() };
         let mut out = FrameOut::default();
-        let input = FrameIn { width: 100.0, height: 100.0, ..FrameIn::default() };
+        let input = FrameIn::new(100.0, 100.0);
         let mut case = Case { saved: PxuiBox::default(), tries: [PxuiBox::default(); 4], codes: [0; 4], within: [0; 4], asked: 0, frame: 0, built: 0 };
         assert_eq!(unsafe { super::pxui_frame(ui, &input, Some(declare), (&mut case as *mut Case).cast(), &mut out) }, 0);
         let s = case.saved;
@@ -1318,7 +1318,7 @@ mod keyboard_tests {
         let ui=unsafe {crate::ui::create_test_ui()};
         let keyboard=Keyboard::new(pxui_types::geom::Rect::new(0.0, 508.0, 390.0, 336.0), Keyboard::VALID);
         let environment=Environment::new([47.0,0.0,34.0,0.0]);
-        let input=FrameIn {width:390.0,height:844.0,environment,keyboard,..FrameIn::default()};
+        let input={ let mut record = FrameIn::default(); record.width = 390.0; record.height = 844.0; record.environment = environment; record.keyboard = keyboard; record };
         let mut out=FrameOut::default();
         assert_eq!(unsafe {super::pxui_frame(ui,&input,None,core::ptr::null_mut(),&mut out)},0);
         let mut got=Keyboard::default();
@@ -1331,7 +1331,7 @@ mod keyboard_tests {
             let mut bad=keyboard;
             match field {0=>bad.frame[0]=f32::NAN,1=>bad.frame[1]=f32::INFINITY,2=>bad.frame[2]=-1.0,3=>bad.frame[3]=-1.0,4=>bad.frame=[f32::MAX;4],5=>bad.flags=2,_=>bad.flags=4}
             out.size=123;
-            assert_eq!(unsafe {super::pxui_frame(ui,&FrameIn {keyboard:bad,..input},None,core::ptr::null_mut(),&mut out)},PXUI_ERR_ARGUMENT);
+            assert_eq!(unsafe {super::pxui_frame(ui,&{ let mut record = input; record.keyboard = bad; record },None,core::ptr::null_mut(),&mut out)},PXUI_ERR_ARGUMENT);
             assert_eq!(out.size,123);
             assert_eq!(unsafe {crate::ui_state::pxui_ui_keyboard(ui,&mut got)},0);
             assert_eq!(got,keyboard);

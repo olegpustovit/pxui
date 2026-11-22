@@ -428,7 +428,7 @@ mod tests {
         let valid = |_: &str| -> bool { panic!("validator failed") };
         let mut field = Field { valid: &valid, slide: None, scrub: None, produced: String::new() };
         let value = b"x";
-        assert_eq!(valid_call(&mut field as *mut Field as *mut c_void, Str { ptr: value.as_ptr(), len: value.len() }), 0);
+        assert_eq!(valid_call(&mut field as *mut Field as *mut c_void, { let mut record = Str::default(); record.ptr = value.as_ptr(); record.len = value.len(); record }), 0);
         assert!(crate::composite::take_callback_panic().is_some());
     }
 }

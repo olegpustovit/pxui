@@ -246,7 +246,7 @@ impl Text {
     /// ```
     /// let style = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap().resolve(&pxui::Label::BODY);
     /// let mut text = pxui::Text::new(&[pxui::pragmasevka()]).unwrap();
-    /// let bold = pxui::TextSpan { start: 0, end: 4, weight: 700, ..Default::default() };
+    /// let bold = { let mut record = pxui::TextSpan::new(0, 4); record.weight = 700; record };
     /// assert!(text.measure_spans("Song title", &style, 0.0, &[bold]).unwrap().width > 0.0);
     /// ```
     pub fn measure_spans(&mut self,value:&str,style:&TextStyle,max_width:f32,spans:&[TextSpan])->Result<TextMetrics,Error> { Backing(self.0.as_ptr()).measure_spans(0,value,&style.0,max_width,spans) }
@@ -355,7 +355,7 @@ impl Ui {
     /// const NAME: pxui::Label = pxui::Label::BODY.line_height(20.0);
     /// pxui::doc::frames(1, &mut |ui| {
     ///     let node = ui.node("name", pxui::Node::DEFAULT);
-    ///     let bold = pxui::TextSpan { start: 0, end: 4, weight: 700, ..Default::default() };
+    ///     let bold = { let mut record = pxui::TextSpan::new(0, 4); record.weight = 700; record };
     ///     ui.text_spans(&node, "Song title", NAME, &[bold]).unwrap();
     /// });
     /// ```
@@ -598,7 +598,7 @@ impl UiText<'_> {
     ///
     /// ```
     /// let mut ui = pxui::doc::frames(1, &mut |ui| { ui.label("x", pxui::Label::DEFAULT); });
-    /// let bold = pxui::TextSpan { start: 0, end: 4, weight: 700, ..Default::default() };
+    /// let bold = { let mut record = pxui::TextSpan::new(0, 4); record.weight = 700; record };
     /// assert!(ui.text_service().measure_spans("Song title", pxui::Label::BODY, None, &[bold]).unwrap().width > 0.0);
     /// ```
     pub fn measure_spans(&mut self,value:&str,style:Label,max_width:Option<f32>,spans:&[TextSpan])->Result<TextMetrics,Error> {

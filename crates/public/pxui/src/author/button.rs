@@ -169,7 +169,7 @@ impl<'a> Button<'a> {
     ///
     /// ```
     /// use pxui::{ui::Edges, Button};
-    /// const B: Button = Button::DEFAULT.pad(Edges { l: 4.0, t: 0.0, r: 4.0, b: 0.0 });
+    /// const B: Button = Button::DEFAULT.pad(Edges::new(4.0, 0.0, 4.0, 0.0));
     /// let _ = B;
     /// ```
     pub const fn pad(mut self, pad: Edges) -> Button<'a> { self.pad = pad; self.plain = false; self }
@@ -366,7 +366,7 @@ impl Ui {
     ///     let pill = Button::DEFAULT.size(Size::Px(90.0), Size::Px(30.0)).name("Play all");
     ///     ui.button_content("play", &pill, |ui, state| {
     ///         let w = if state.pressed { 14.0 } else { 16.0 };
-    ///         ui.node("icon", Node { w: Size::Px(w), h: Size::Px(w), ..Node::DEFAULT });
+    ///         ui.node("icon", Node::DEFAULT.w(Size::Px(w)).h(Size::Px(w)));
     ///     });
     /// });
     /// assert!(ui.a11y_nodes().iter().any(|n| ui.a11y_name_of(n) == "Play all"));
@@ -479,8 +479,8 @@ mod tests {
         let last: Cell<Option<Response>> = Cell::new(None);
         let inner = Cell::new(None);
         let mut build = |ui: &mut Ui| {
-            let b = Button::DEFAULT.size(Size::Px(90.0), Size::Px(30.0)).name("Play all").pad(Edges { l: 2.0, ..Edges::ZERO });
-            last.set(Some(ui.button_content("play-all", &b, |ui, _| { inner.set(Some(ui.node("icon", Node { w: Size::Px(16.0), h: Size::Px(16.0), ..Node::DEFAULT }))); })));
+            let b = Button::DEFAULT.size(Size::Px(90.0), Size::Px(30.0)).name("Play all").pad(Edges::ZERO.l(2.0));
+            last.set(Some(ui.button_content("play-all", &b, |ui, _| { inner.set(Some(ui.node("icon", Node::DEFAULT.w(Size::Px(16.0)).h(Size::Px(16.0))))); })));
         };
         let ui = crate::doc::frames(3, &mut build);
         let (is_button, _, w, h) = node(&ui, "Play all");
@@ -514,13 +514,13 @@ mod tests {
     #[test]
     fn centered_button_is_its_box_with_the_text_centred() {
         use crate::ui::{Look, States};
-        let red = crate::geom::Rgba { r: 200, g: 0, b: 0, a: 255 };
-        let plate = States::of(Look { fill: red, text: crate::geom::Rgba { r: 1, g: 2, b: 3, a: 255 }, ..Look::NONE });
+        let red = crate::geom::Rgba::rgb(200, 0, 0);
+        let plate = States::of(Look::NONE.fill(red).text(crate::geom::Rgba::rgb(1, 2, 3)));
         let (action, tab) = (Button::sized(120.0, 44.0).look(&plate), Button::DEFAULT.size(Size::Grow, Size::Px(44.0)).centered().look(&plate));
         let last: Cell<Option<Response>> = Cell::new(None);
         let mut build = |ui: &mut Ui| {
             last.set(Some(ui.button("action", "Save", &action)));
-            ui.row(Node { w: Size::Px(200.0), ..Node::DEFAULT }, |ui| { ui.button("tab", "Songs", &tab); });
+            ui.row(Node::DEFAULT.w(Size::Px(200.0)), |ui| { ui.button("tab", "Songs", &tab); });
         };
         let ui = crate::doc::frames(3, &mut build);
         let (_, _, w, h) = node(&ui, "Save");
@@ -657,7 +657,7 @@ mod tests {
             enabled.set(true);
             testing::frame(&mut ui, &[], &mut build);
             let r = a11y(&ui, role, name).rect;
-            let at = |kind| [crate::Event { kind, x: f64::from(r.x + r.w / 2.0), y: f64::from(r.y + r.h / 2.0), ..Default::default() }];
+            let at = |kind| [crate::Event::pointer(kind, 0, f64::from(r.x + r.w / 2.0), f64::from(r.y + r.h / 2.0))];
             testing::frame(&mut ui, &at(crate::Event::POINTER_PRESSED), &mut build);
             enabled.set(false);
             testing::frame(&mut ui, &at(crate::Event::POINTER_RELEASED), &mut build);
@@ -690,8 +690,8 @@ mod tests {
     fn label_text_is_placed_by_content_align() {
         use crate::ui::{Along, Look, States};
         use crate::Label;
-        let ink = crate::geom::Rgba { r: 1, g: 2, b: 3, a: 255 };
-        let plate = States::of(Look { text: ink, ..Look::NONE });
+        let ink = crate::geom::Rgba::rgb(1, 2, 3);
+        let plate = States::of(Look::NONE.text(ink));
         let align = Cell::new(Along::Start);
         let centered = Cell::new(true);
         let last: Cell<Option<Response>> = Cell::new(None);
@@ -740,8 +740,8 @@ mod tests {
             let mut inner = None;
             let r = ui.button_content("tile", &tile, |ui, state| {
                 seen.set(state);
-                let a = ui.node("a", Node { w: Size::Px(10.0), h: Size::Px(10.0), ..Node::DEFAULT });
-                let b = ui.node("b", Node { w: Size::Px(20.0), h: Size::Px(10.0), ..Node::DEFAULT });
+                let a = ui.node("a", Node::DEFAULT.w(Size::Px(10.0)).h(Size::Px(10.0)));
+                let b = ui.node("b", Node::DEFAULT.w(Size::Px(20.0)).h(Size::Px(10.0)));
                 inner = Some((a, b));
             });
             let (a, b) = inner.unwrap();
@@ -754,10 +754,10 @@ mod tests {
         assert!((a.x + 5.0 - (box_.x + 50.0)).abs() <= 0.5 && (b.x + 10.0 - (box_.x + 50.0)).abs() <= 0.5, "centred across: {a:?} {b:?} in {box_:?}");
         assert!(((a.y + b.y + b.h) / 2.0 - (box_.y + 30.0)).abs() <= 0.5, "centred down: {a:?} {b:?} in {box_:?}");
         assert!(!seen.get().pressed && !seen.get().checked && !seen.get().disabled, "at rest: {:?}", seen.get());
-        let at = [crate::Event { kind: crate::Event::POINTER_PRESSED, x: f64::from(box_.x + 50.0), y: f64::from(box_.y + 30.0), ..Default::default() }];
+        let at = [crate::Event::pointer(crate::Event::POINTER_PRESSED, 0, f64::from(box_.x + 50.0), f64::from(box_.y + 30.0))];
         testing::frame(&mut ui, &at, &mut build);
         assert!(seen.get().pressed && seen.get().hovered, "pressed while held: {:?}", seen.get());
-        testing::frame(&mut ui, &[crate::Event { kind: crate::Event::POINTER_RELEASED, ..at[0] }], &mut build);
+        testing::frame(&mut ui, &[{ let mut record = at[0]; record.kind = crate::Event::POINTER_RELEASED; record }], &mut build);
         selected.set(true);
         testing::frame(&mut ui, &[], &mut build);
         assert!(seen.get().checked && !seen.get().pressed);
@@ -887,7 +887,7 @@ mod tests {
 
     #[test]
     fn warm_frames_allocate_nothing() {
-        let content = |ui: &mut Ui, _: crate::ui::State| { ui.node("i", Node { w: Size::Px(8.0), h: Size::Px(8.0), ..Node::DEFAULT }); };
+        let content = |ui: &mut Ui, _: crate::ui::State| { ui.node("i", Node::DEFAULT.w(Size::Px(8.0)).h(Size::Px(8.0))); };
         let states = crate::doc::frames(1, &mut |_| {}).theme().button;
         let mut ui = crate::doc::frames(1, &mut |_| {});
         let name = String::from("Row button");
@@ -904,7 +904,7 @@ mod tests {
             ui.button("rescan", "Rescan", &Button::DEFAULT.size(Size::Grow, Size::Fit).detail("Every source").accessory(">"));
             ui.button_content("state", &Button::sized(90.0, 30.0).axis(crate::ui::Axis::Column), |ui, state| {
                 let w = if state.hovered { 6.0 } else { 8.0 };
-                ui.node("i", Node { w: Size::Px(w), h: Size::Px(8.0), ..Node::DEFAULT });
+                ui.node("i", Node::DEFAULT.w(Size::Px(w)).h(Size::Px(8.0)));
             });
         };
         for round in 0..20 {

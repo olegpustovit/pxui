@@ -9,7 +9,7 @@ use std::cell::{Cell, RefCell};
 thread_local! { static SEEN: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) }; }
 const LOOK: States = States::of(Look::NONE);
 fn seen(what: String) { SEEN.with(|v| v.borrow_mut().push(what)); }
-fn marker(ui: &mut Ui, kind: &'static str) { let n = ui.node(kind, Node { w: Size::Px(10.0), h: Size::Px(10.0), role: Role::Image, ..Node::DEFAULT }); ui.a11y_name(&n, kind); }
+fn marker(ui: &mut Ui, kind: &'static str) { let n = ui.node(kind, Node::DEFAULT.w(Size::Px(10.0)).h(Size::Px(10.0)).role(Role::Image)); ui.a11y_name(&n, kind); }
 fn check(ui: &mut Ui, c: &CheckboxConfig) {
     seen(format!("checkbox {} {} {} {}", c.variant, c.box_size, c.passive, c.states_of(&c.states) == Some(&LOOK)));
     marker(ui, "custom checkbox");
@@ -54,7 +54,7 @@ fn the_new_widgets_are_built_through_their_registered_bodies() {
 fn passive_and_disabled_checkboxes_take_no_input() {
     let (passive, disabled, enabled, row) = (Cell::new(false), Cell::new(false), Cell::new(false), Cell::new(false));
     let mut build = |ui: &mut Ui| {
-        let r = ui.node("row", Node { flags: crate::ui::Flags::CLICKABLE, w: Size::Px(300.0), h: Size::Px(24.0), axis: crate::ui::Axis::Row, ..Node::DEFAULT });
+        let r = ui.node("row", Node::DEFAULT.flags(crate::ui::Flags::CLICKABLE).w(Size::Px(300.0)).h(Size::Px(24.0)).axis(crate::ui::Axis::Row));
         ui.within(&r, &mut |ui| {
             passive.set(passive.get() | ui.checkbox("p", "", false, &Checkbox::DEFAULT.passive(true)).clicked);
         });
@@ -93,18 +93,18 @@ fn the_section_index_reports_the_letter_under_the_pointer() {
     let got = Cell::new(None);
     let letters = ["A", "B", "C", "D"];
     let mut build = |ui: &mut Ui| {
-        let column = ui.node("column", Node { w: Size::Px(40.0), h: Size::Px(200.0), ..Node::DEFAULT });
+        let column = ui.node("column", Node::DEFAULT.w(Size::Px(40.0)).h(Size::Px(200.0)));
         ui.within(&column, &mut |ui| { let r = ui.section_index("index", &letters, &SectionIndex::DEFAULT); assert_eq!(r.response.changed, r.chosen.is_some()); got.set(r.chosen); });
     };
     let mut ui = crate::doc::frames(2, &mut build);
     assert_eq!(got.get(), None);
     let strip = testing::find(&ui, Role::Slider, "").expect("the strip");
     let at = |i: f32| strip.y + strip.h * (i + 0.5) / 4.0;
-    testing::frame(&mut ui, &[Event { kind: Event::POINTER_PRESSED, x: f64::from(strip.x + 4.0), y: f64::from(at(2.0)), ..Default::default() }], &mut build);
+    testing::frame(&mut ui, &[Event::pointer(Event::POINTER_PRESSED, 0, f64::from(strip.x + 4.0), f64::from(at(2.0)))], &mut build);
     assert_eq!(got.get(), Some(2));
-    testing::frame(&mut ui, &[Event { kind: Event::POINTER_MOVED, x: f64::from(strip.x + 4.0), y: f64::from(at(3.0)), ..Default::default() }], &mut build);
+    testing::frame(&mut ui, &[Event::pointer(Event::POINTER_MOVED, 0, f64::from(strip.x + 4.0), f64::from(at(3.0)))], &mut build);
     assert_eq!(got.get(), Some(3));
-    testing::frame(&mut ui, &[Event { kind: Event::POINTER_RELEASED, x: f64::from(strip.x + 4.0), y: f64::from(at(3.0)), ..Default::default() }], &mut build);
+    testing::frame(&mut ui, &[Event::pointer(Event::POINTER_RELEASED, 0, f64::from(strip.x + 4.0), f64::from(at(3.0)))], &mut build);
     assert_eq!(got.get(), Some(3), "the release frame reports the final letter");
     testing::frame(&mut ui, &[], &mut build);
     assert_eq!(got.get(), None);
@@ -125,7 +125,7 @@ fn the_new_widgets_report_their_role_and_state() {
         ui.checkbox("off", "Off", false, &Checkbox::DEFAULT.disabled(true));
         ui.checkbox("seen", "Seen", true, &Checkbox::DEFAULT.passive(true));
         ui.disclosure("more", "More", open.get(), &Disclosure::DEFAULT, &mut |_| {});
-        let column = ui.node("column", Node { w: Size::Px(40.0), h: Size::Px(120.0), ..Node::DEFAULT });
+        let column = ui.node("column", Node::DEFAULT.w(Size::Px(40.0)).h(Size::Px(120.0)));
         ui.within(&column, &mut |ui| { ui.section_index("index", &["A", "B", "C"], &SectionIndex::DEFAULT.name("Jump to")); });
     };
     let mut ui = crate::doc::frames(2, &mut build);

@@ -366,13 +366,9 @@ mod tests {
             assert_eq!(unsafe { pxui_ui_box_of_key(ui, key, &mut out) }, 0);
         }
         let place = |node: &Raw| { let mut out = PxuiBox::default(); unsafe { pxui_ui_node_keyed(ui, 7, (node.0.as_ptr()).cast(), &mut out) } };
-        let full = Node {
-            align_self: Some(Align::Center).into(), anchor: Some(Anchor::new(Rect::default(), Placement::BELOW)).into(),
-            at: Some((1.0, 2.0)).into(), mark: Mark::Line { width: 1.0, rising: true }, bar: Some(Bar::new(Default::default(), 2.0).whole()).into(),
-            transition: Some(Transition::Spring { omega: 9.0 }).into(), ..Node::DEFAULT
-        };
+        let full = { let mut record = Node::DEFAULT.align_self(Align::Center).anchor(Anchor::new(Rect::default(), Placement::BELOW)).at(1.0, 2.0).mark(Mark::Line { width: 1.0, rising: true }).bar(Bar::new(Default::default(), 2.0).whole()); record.transition = Some(Transition::Spring { omega: 9.0 }).into(); record };
         assert_eq!(place(&raw(full)), 0);
-        assert_eq!(place(&raw(Node { mark: Mark::Chevron(Dir::Right), ..full })), 0);
+        assert_eq!(place(&raw(full.mark(Mark::Chevron(Dir::Right)))), 0);
         // an anchor's align is Start, Center or End: 3 and 4 (Stretch and Baseline, a node's alignments, not a placement's) are refused by every node entry
         let at = offset_of!(Node, anchor) + payload(1, align_of::<OptAnchor>()) + offset_of!(Anchor, placement.align);
         for bad in [3, 4] {
@@ -386,16 +382,16 @@ mod tests {
             assert_eq!(unsafe { pxui_ui_set_node_layout(ui, &good, node.0.as_ptr().cast()) }, PXUI_ERR_ARGUMENT);
         }
         // the head's unchecked bytes take any value (`z` is all ones here)
-        assert_eq!(place(&raw(Node { z: -1, ..full })), 0);
+        assert_eq!(place(&raw(full.z(-1))), 0);
         // a table or steps is not a node's transition (the engine picks Bezier); only an animation takes one
         assert!(Transition::of(Curve::Steps { duration: 0.14, count: 2 }).is_none());
         for curve in [Transition::Bezier { duration: f32::NAN, points: [0.0; 4] }, Transition::Spring { omega: 0.0 }] {
-            let node = Node { transition: Some(curve).into(), ..full };
+            let node = { let mut record = full; record.transition = Some(curve).into(); record };
             assert_eq!(place(&raw(node)), PXUI_ERR_ARGUMENT);
             let mut out = PxuiBox::default();
             assert_eq!(unsafe { crate::trusted::pxui_ui_node_keyed(ui, 8, &node, &mut out) }, PXUI_ERR_ARGUMENT);
             assert_eq!(unsafe { crate::trusted::node(ui, "bad-curve", &node, &mut out) }, PXUI_ERR_ARGUMENT);
-            let grid = Node { grid: Some(Grid::new(&[Track::Fit], &[])).into(), ..node };
+            let grid = node.grid(Grid::new(&[Track::Fit], &[]));
             assert_eq!(unsafe { pxui_ui_node_keyed(ui, 9, &grid, &mut out) }, PXUI_ERR_ARGUMENT);
         }
         let mut refused = Vec::new();
@@ -409,10 +405,10 @@ mod tests {
             (value(offset_of!(Node, mark), align_of::<Mark>()) + size_of::<f32>(), 2), (value(offset_of!(Node, bar), align_of::<OptBar>()) + offset_of!(Bar, whole), 2),
             (value(offset_of!(Node, transition), align_of::<OptTransition>()), 4), (offset_of!(Node, w), 5), (offset_of!(Node, size), 8),
         ] { let mut bad = raw(full); bad.0[at] = byte; refused.push(bad); }
-        let mut chevron = raw(Node { mark: Mark::Chevron(Dir::Right), ..full });
+        let mut chevron = raw(full.mark(Mark::Chevron(Dir::Right)));
         chevron.0[value(offset_of!(Node, mark), align_of::<Mark>())] = 4;
         refused.push(chevron);
-        refused.push(raw(Node { w: Size::Px(f32::NAN), ..full }));
+        refused.push(raw(full.w(Size::Px(f32::NAN))));
         let mut no_function = raw(full);
         no_function.0[offset_of!(Node, h)..offset_of!(Node, h) + 4].copy_from_slice(&2u32.to_ne_bytes());
         no_function.0[offset_of!(Node, h) + 8..offset_of!(Node, h) + 16].fill(0);
@@ -424,7 +420,7 @@ mod tests {
     fn a_node_crosses_as_its_bytes_and_any_unknown_tag_or_flag_is_refused() {
         let ui = unsafe { crate::ui::create_test_ui() };
         let mut out = FrameOut::default();
-        assert_eq!(unsafe { pxui_frame(ui, &FrameIn { width: 100.0, height: 100.0, ..FrameIn::default() }, Some(build), core::ptr::null_mut(), &mut out) }, 0);
+        assert_eq!(unsafe { pxui_frame(ui, &FrameIn::new(100.0, 100.0), Some(build), core::ptr::null_mut(), &mut out) }, 0);
         assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
     }
 }

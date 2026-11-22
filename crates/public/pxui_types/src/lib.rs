@@ -808,7 +808,7 @@ impl Image {
     /// ```
     /// use pxui_types::Image;
     /// assert!(!Image::default().valid());
-    /// assert!(Image { mtl_texture: std::ptr::dangling_mut(), width: 8, height: 4, format: Image::FORMAT_RGBA8, ..Default::default() }.valid());
+    /// assert!({ let mut record = Image::default(); record.mtl_texture = std::ptr::dangling_mut(); record.width = 8; record.height = 4; record.format = Image::FORMAT_RGBA8; record }.valid());
     /// ```
     pub fn valid(&self) -> bool {
         self.size >= core::mem::size_of::<Image>() as u32 && self.width != 0 && self.height != 0
@@ -1222,7 +1222,7 @@ mod builders {
     use crate::geom::{Edges, Rgba};
     use crate::layout::{Align, Justify};
 
-    const INK: Rgba = Rgba { r: 10, g: 20, b: 30, a: 255 };
+    const INK: Rgba = Rgba::rgb(10, 20, 30);
     const FONT: Font = Font::BODY.size(14.0).weight(700);
     const LOOK: Look = Look::NONE.fill(INK).radius(6.0).border(INK, 1.0).text(INK).font(FONT);
     const NODE: Node = Node::row().w(Size::Px(44.0)).h_px(30.0).grow(0.0).gap(8.0).pad(2.0).pad_x(4.0).pad_y(6.0)
@@ -1237,32 +1237,12 @@ mod builders {
 
     #[test]
     fn builder_chains_equal_struct_literals() {
-        same(&NODE, &Node {
-            axis: Axis::Row,
-            w: Size::Px(44.0),
-            h: Size::Px(30.0),
-            grow: 0.0,
-            gap: 8.0,
-            padding: Edges { l: 4.0, t: 6.0, r: 4.0, b: 6.0 },
-            justify: Justify::Center,
-            align: Align::End,
-            role: Role::Button,
-            flags: Flags(5),
-            ..Node::DEFAULT
-        });
-        same(&COLUMN, &Node { axis: Axis::Column, ..Node::DEFAULT });
-        same(&STACK, &Node { axis: Axis::Stack, w: Size::Fit, h: Size::Grow, ..Node::DEFAULT });
-        assert_eq!(Edges::xy(1.0, 2.0), Edges { l: 1.0, t: 2.0, r: 1.0, b: 2.0 });
-        assert_eq!(FONT, Font { size: 14, size_points: 14.0, weight: 700, ..Font::BODY });
-        assert_eq!(LOOK, Look {
-            fill: INK,
-            radius: [6.0; 4],
-            border: INK,
-            border_w: 1.0,
-            text: INK,
-            font: Font { size: 14, size_points: 14.0, weight: 700, ..Font::BODY },
-            ..Look::NONE
-        });
+        same(&NODE, &Node::DEFAULT.axis(Axis::Row).w(Size::Px(44.0)).h(Size::Px(30.0)).grow(0.0).gap(8.0).padding(Edges::new(4.0, 6.0, 4.0, 6.0)).justify(Justify::Center).align(Align::End).role(Role::Button).flags(Flags(5)));
+        same(&COLUMN, &Node::DEFAULT.axis(Axis::Column));
+        same(&STACK, &Node::DEFAULT.axis(Axis::Stack).w(Size::Fit).h(Size::Grow));
+        assert_eq!(Edges::xy(1.0, 2.0), Edges::new(1.0, 2.0, 1.0, 2.0));
+        assert_eq!(FONT, { let mut record = Font::BODY.weight(700); record.size = 14; record.size_points = 14.0; record });
+        assert_eq!(LOOK, Look::NONE.fill(INK).radii([6.0; 4]).border(INK, 1.0).text(INK).font({ let mut record = Font::BODY.weight(700); record.size = 14; record.size_points = 14.0; record }));
     }
 
     #[test]

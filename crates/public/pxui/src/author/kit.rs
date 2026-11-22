@@ -465,7 +465,7 @@ mod tests {
     thread_local! { static SEEN: RefCell<Vec<(&'static str, u16)>> = const { RefCell::new(Vec::new()) }; }
     fn seen(kind: &'static str, variant: u16) { SEEN.with(|s| s.borrow_mut().push((kind, variant))); }
     /// Each registered body builds one marker node of its own, named by its kind, so the custom structure shows in the tree.
-    fn marker(ui: &mut Ui, kind: &'static str) { let n = ui.node(kind, Node { w: Size::Px(10.0), h: Size::Px(10.0), role: Role::Image, ..Node::DEFAULT }); ui.a11y_name(&n, kind); }
+    fn marker(ui: &mut Ui, kind: &'static str) { let n = ui.node(kind, Node::DEFAULT.w(Size::Px(10.0)).h(Size::Px(10.0)).role(Role::Image)); ui.a11y_name(&n, kind); }
     fn check(ui: &mut Ui, c: &CheckboxConfig) { seen("checkbox", c.variant); marker(ui, "custom checkbox"); }
     fn radio(ui: &mut Ui, c: &RadioConfig) { seen("radio", c.variant); marker(ui, "custom radio"); }
     fn tab(ui: &mut Ui, c: &TabsConfig) { seen("tab", c.variant); marker(ui, "custom tab"); }
@@ -555,9 +555,9 @@ mod tests {
         let (songs, albums) = (find(&ui, "Songs"), find(&ui, "Albums"));
         let (x, y) = (f64::from(albums.1.x + 4.0), f64::from(albums.1.y + 4.0));
         // the press alone, before the release, already focuses the bar
-        testing::frame(&mut ui, &[pxui_types::Event { kind: pxui_types::Event::POINTER_PRESSED, x, y, ..Default::default() }], &mut build);
+        testing::frame(&mut ui, &[pxui_types::Event::pointer(pxui_types::Event::POINTER_PRESSED, 0, x, y)], &mut build);
         assert!(ui.a11y_nodes().iter().any(|n| n.is_role(Role::TabList) && n.states & pxui_types::a11y::state::FOCUSED != 0), "focused on press");
-        testing::frame(&mut ui, &[pxui_types::Event { kind: pxui_types::Event::POINTER_RELEASED, x, y, ..Default::default() }], &mut build);
+        testing::frame(&mut ui, &[pxui_types::Event::pointer(pxui_types::Event::POINTER_RELEASED, 0, x, y)], &mut build);
         testing::frame(&mut ui, &[], &mut build);
         assert_eq!((chosen.get(), last_id.get()), (Some(1), Some(8)));
         assert_eq!(selected(&ui), 1);

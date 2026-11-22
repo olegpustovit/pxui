@@ -980,7 +980,7 @@ mod ffi_tests {
         let text = b"GalleryButton";
         let nodes = [FfiNode { id: 9, parent: NO_PARENT, role: Role::Button as u32, name_start: 0, name_end: 7, value: A11yValue::default(), ..FfiNode::default() },
             FfiNode { id: 10, parent: 0, role: Role::Label as u32, name_start: 7, name_end: 13, value: A11yValue::default(), ..FfiNode::default() }];
-        let raw = FfiA11yTree { nodes: Strided::of(&nodes), strings: Str { ptr: text.as_ptr(), len: text.len() }, revision: 4, first_child: 0, child_count: 1, ..FfiA11yTree::default() };
+        let raw = FfiA11yTree { nodes: Strided::of(&nodes), strings: { let mut record = Str::default(); record.ptr = text.as_ptr(); record.len = text.len(); record }, revision: 4, first_child: 0, child_count: 1, ..FfiA11yTree::default() };
         let (mut tree, mut ids) = (A11yTree::new(), std::collections::HashSet::new());
         unsafe { copy_ffi_tree(&raw, &mut tree, &mut ids) }.unwrap();
         assert_eq!(tree.revision, 4);
@@ -995,7 +995,7 @@ mod ffi_tests {
         let first = FfiNode { id: 9, parent: NO_PARENT, role: Role::Button as u32, name_start: 0, name_end: 7, ..FfiNode::default() };
         let second = FfiNode { id: 10, parent: 0, role: Role::Label as u32, name_start: 7, name_end: 13, ..FfiNode::default() };
         let wide = [Wide { node: first, tail: [0; 8] }, Wide { node: second, tail: [0; 8] }];
-        let raw = |nodes: Strided<FfiNode>| FfiA11yTree { nodes, strings: Str { ptr: text.as_ptr(), len: text.len() }, revision: 1, first_child: 0, child_count: 1, ..FfiA11yTree::default() };
+        let raw = |nodes: Strided<FfiNode>| FfiA11yTree { nodes, strings: { let mut record = Str::default(); record.ptr = text.as_ptr(); record.len = text.len(); record }, revision: 1, first_child: 0, child_count: 1, ..FfiA11yTree::default() };
         let copy = |tree: &FfiA11yTree| { let (mut out, mut ids) = (A11yTree::new(), std::collections::HashSet::new()); unsafe { copy_ffi_tree(tree, &mut out, &mut ids) }.map(|_| out) };
         let wide_first = [first];
         let stride = std::mem::size_of::<Wide>();
