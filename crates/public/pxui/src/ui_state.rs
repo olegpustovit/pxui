@@ -41,15 +41,19 @@ library!(lib {
 /// The platform whose editing conventions the `Ui` follows.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Platform {
+    /// Uses Apple keyboard conventions.
     Apple,
-    #[default] Other,
+    #[default] #[doc = "Uses keyboard conventions for other platforms."] Other,
 }
 
 /// The heap a `Ui` holds, for the host to account for.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Bytes {
+    /// Bytes in the glyph atlases.
     pub atlas: i64,
+    /// Bytes in retained glyph lists.
     pub glyph_lists: i64,
+    /// Bytes retained by the text undo history.
     pub text_undo: i64,
 }
 
@@ -64,6 +68,13 @@ pub struct Ime {
 
 impl Ui {
     /// The last frame asked for the clipboard's text: send it with the next frame as a paste event.
+    /// Allocates: never.
+    /// Panics: when the library refuses the call.
+    ///
+    /// ```
+    /// let ui = pxui::doc::frames(1, &mut |_| {});
+    /// assert!(!ui.paste_requested());
+    /// ```
     #[inline] pub fn paste_requested(&self) -> bool { self.output().platform.paste != 0 }
     /// The text the last frame wants on the clipboard (a copy or cut), or `None` when it asked for none.
     ///
@@ -82,6 +93,13 @@ impl Ui {
         core::str::from_utf8(unsafe { core::slice::from_raw_parts(p.clipboard.ptr, p.clipboard.len) }).ok()
     }
     /// The window ground colour the last frame asked for.
+    /// Allocates: never.
+    /// Panics: when the library refuses the call.
+    ///
+    /// ```
+    /// let ui = pxui::doc::frames(1, &mut |_| {});
+    /// let _ = ui.background_request();
+    /// ```
     #[inline] pub fn background_request(&self) -> Option<pxui_types::geom::Rgba> { let p = &self.output().platform; (p.has_background != 0).then_some(p.background) }
     /// Reports the active input-method rectangle and caret, if any.
     ///
@@ -198,6 +216,86 @@ impl Ui {
         check(self, unsafe { lib::pxui_ui_content_rect(self.0.as_ptr(), &mut value) });
         value
     }
+    /// Reports the current frame’s monotonic time in seconds.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let ui = pxui::doc::frames(1, &mut |_| {});
+    /// assert!(ui.now().is_finite());
+    /// ```
+    #[inline] pub fn now(&self) -> f64 { unsafe { lib::pxui_ui_now(self.0.as_ptr()) } }
+    /// Reports the serial of the most recent frame.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let ui = pxui::doc::frames(1, &mut |_| {});
+    /// let _ = ui.frame_index();
+    /// ```
+    #[inline] pub fn frame_index(&self) -> u64 { unsafe { lib::pxui_ui_frame_index(self.0.as_ptr()) } }
+    /// Reports whether a node currently holds pointer capture.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let ui = pxui::doc::frames(1, &mut |_| {});
+    /// assert!(!ui.captured());
+    /// ```
+    #[inline] pub fn captured(&self) -> bool { unsafe { lib::pxui_ui_captured(self.0.as_ptr()) != 0 } }
+    /// A reorderable list's row is lifted by its handle this frame (`SectionList::reorder`, `SelectionList::reorder`): the drag
+    /// Escape, a cancelled pointer or lost focus puts back. An app spends its own Escape on nothing else while it is true.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let ui = pxui::doc::frames(1, &mut |_| {});
+    /// assert!(!ui.reordering());
+    /// ```
+    #[inline] pub fn reordering(&self) -> bool { unsafe { lib::pxui_ui_reordering(self.0.as_ptr()) != 0 } }
+    /// A text editor (a text field, search field, picker field or text area) holds the keyboard focus. A focused list, button or
+    /// other control is not one: those take only the keys they handle from `key_pressed`, so app shortcuts gate on this alone.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let ui = pxui::doc::frames(1, &mut |_| {});
+    /// assert!(!ui.text_input_focused());
+    /// ```
+    #[inline] pub fn text_input_focused(&self) -> bool { unsafe { lib::pxui_ui_text_input_focused(self.0.as_ptr()) != 0 } }
+    /// Reports whether the UI verifies retained view revisions.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let ui = pxui::doc::frames(1, &mut |_| {});
+    /// let _ = ui.verifying();
+    /// ```
+    #[inline] pub fn verifying(&self) -> bool { unsafe { lib::pxui_ui_verifying(self.0.as_ptr()) != 0 } }
+    /// Reports bytes held by the text undo history.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let ui = pxui::doc::frames(1, &mut |_| {});
+    /// assert_eq!(ui.text_undo_bytes(), 0);
+    /// ```
+    #[inline] pub fn text_undo_bytes(&self) -> usize { unsafe { lib::pxui_ui_text_undo_bytes(self.0.as_ptr()) as usize } }
+    /// Reports the platform keyboard convention the UI uses.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let ui = pxui::doc::frames(1, &mut |_| {});
+    /// let _ = ui.platform();
+    /// ```
+    #[inline] pub fn platform(&self) -> Platform { if unsafe { lib::pxui_ui_platform(self.0.as_ptr()) } == 1 { Platform::Apple } else { Platform::Other } }
     /// The undo or redo keystroke the focused text field could not apply because its own history was exhausted, or `None`.
     /// Valid for the frame that received the key: hand the step to the application's own undo when it is `Some`.
     /// Allocates: never.
@@ -207,20 +305,6 @@ impl Ui {
     /// let ui = pxui::doc::frames(1, &mut |_| {});
     /// assert_eq!(ui.passed_undo(), None);
     /// ```
-    #[inline] pub fn now(&self) -> f64 { unsafe { lib::pxui_ui_now(self.0.as_ptr()) } }
-    #[inline] pub fn frame_index(&self) -> u64 { unsafe { lib::pxui_ui_frame_index(self.0.as_ptr()) } }
-    #[inline] pub fn captured(&self) -> bool { unsafe { lib::pxui_ui_captured(self.0.as_ptr()) != 0 } }
-    /// A reorderable list's row is lifted by its handle this frame (`SectionList::reorder`, `SelectionList::reorder`): the drag
-    /// Escape, a cancelled pointer or lost focus puts back. An app spends its own Escape on nothing else while it is true.
-    /// Allocates: never. Panics: never.
-    #[inline] pub fn reordering(&self) -> bool { unsafe { lib::pxui_ui_reordering(self.0.as_ptr()) != 0 } }
-    /// A text editor (a text field, search field, picker field or text area) holds the keyboard focus. A focused list, button or
-    /// other control is not one: those take only the keys they handle from `key_pressed`, so app shortcuts gate on this alone.
-    /// Allocates: never. Panics: never.
-    #[inline] pub fn text_input_focused(&self) -> bool { unsafe { lib::pxui_ui_text_input_focused(self.0.as_ptr()) != 0 } }
-    #[inline] pub fn verifying(&self) -> bool { unsafe { lib::pxui_ui_verifying(self.0.as_ptr()) != 0 } }
-    #[inline] pub fn text_undo_bytes(&self) -> usize { unsafe { lib::pxui_ui_text_undo_bytes(self.0.as_ptr()) as usize } }
-    #[inline] pub fn platform(&self) -> Platform { if unsafe { lib::pxui_ui_platform(self.0.as_ptr()) } == 1 { Platform::Apple } else { Platform::Other } }
     #[inline]
     pub fn passed_undo(&self) -> Option<UndoKind> {
         match unsafe { lib::pxui_ui_passed_undo(self.0.as_ptr()) } { 1 => Some(UndoKind::Undo), 2 => Some(UndoKind::Redo), _ => None }
@@ -297,7 +381,23 @@ impl Ui {
         let rc = unsafe { lib::pxui_ui_set_font_points(self.0.as_ptr(), points) };
         if rc == 0 { Ok(()) } else { Err(crate::Error::from_code(rc)) }
     }
+    /// Clears keyboard focus.
+    ///
+    /// Allocates: never.
+    /// Panics: when the library refuses the call.
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| { ui.unfocus(); });
+    /// ```
     #[inline] #[track_caller] pub fn unfocus(&mut self) { check(self, unsafe { lib::pxui_ui_unfocus(self.0.as_ptr()) }) }
+    /// Dismisses the active popup.
+    ///
+    /// Allocates: never.
+    /// Panics: when the library refuses the call.
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| { ui.dismiss_popup(); });
+    /// ```
     #[inline] #[track_caller] pub fn dismiss_popup(&mut self) { check(self, unsafe { lib::pxui_ui_dismiss_popup(self.0.as_ptr()) }) }
     /// Asks the window host for a pointer cursor `shape` for this frame; the request lapses unless it is repeated every build.
     /// Allocates: never.
@@ -312,6 +412,14 @@ impl Ui {
         let code = match shape { Cursor::HorizontalResize => 1, Cursor::VerticalResize => 2, Cursor::Text => 3 };
         check(self, unsafe { lib::pxui_ui_request_cursor(self.0.as_ptr(), code) })
     }
+    /// Requests another frame after the given number of seconds.
+    ///
+    /// Allocates: never.
+    /// Panics: when the library refuses the call.
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| { ui.repaint_after(0.1); });
+    /// ```
     #[inline] #[track_caller] pub fn repaint_after(&mut self, seconds: f64) { check(self, unsafe { lib::pxui_ui_repaint_after(self.0.as_ptr(), seconds) }) }
     /// Turns view verification on or off for this `Ui`: while on, every clean retained view is built again each frame and a view whose
     /// output differs from the kept one (a revision the app forgot to bump) panics, naming the view.
@@ -326,6 +434,15 @@ impl Ui {
     #[inline]
     #[track_caller]
     pub fn verify_views(&mut self, on: bool) { check(self, unsafe { lib::pxui_ui_verify_views(self.0.as_ptr(), on as u8) }) }
+    /// Enables or disables phase timing for diagnostics.
+    ///
+    /// Allocates: never.
+    /// Panics: when the library refuses the call.
+    ///
+    /// ```
+    /// let mut ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
+    /// ui.set_timing(true);
+    /// ```
     #[inline] #[track_caller] pub fn set_timing(&mut self, on: bool) { let mut d = pxui_types::ffi::PxuiDiagnostics { timing: if on { 1 } else { 2 }, ..pxui_types::ffi::PxuiDiagnostics::new() }; check(self, unsafe { lib::pxui_ui_diagnostics(self.0.as_ptr(), &mut d) }) }
     /// The diagnostics record of this `Ui` (extension set), read whole.
     #[track_caller]
@@ -431,5 +548,23 @@ impl Ui {
 }
 
 // The extension set (`pxui::ext`): free functions on a `Ui`, out of the prelude, with no stability promise.
+/// Reports the available inspector control width in logical points.
+///
+/// Allocates: never.
+/// Panics: never.
+///
+/// ```
+/// let ui = pxui::doc::frames(1, &mut |_| {});
+/// let _ = pxui::ext::inspector_width(&ui);
+/// ```
 #[inline] pub fn inspector_width(ui: &Ui) -> f32 { unsafe { lib::pxui_ui_inspector_width(ui.0.as_ptr()) } }
+/// Reports the inspector label origin in logical points.
+///
+/// Allocates: never.
+/// Panics: never.
+///
+/// ```
+/// let ui = pxui::doc::frames(1, &mut |_| {});
+/// let _ = pxui::ext::inspector_label_x(&ui);
+/// ```
 #[inline] pub fn inspector_label_x(ui: &Ui) -> f32 { unsafe { lib::pxui_ui_inspector_label_x(ui.0.as_ptr()) } }

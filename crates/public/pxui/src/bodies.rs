@@ -13,6 +13,7 @@ use pxui_types::{geom::Rect, theme::{BodyId, BodyKind, Curve, Part, States}, ffi
 use pxui_types::ffi::{PxuiToggleConfig, PxuiSliderConfig, PxuiProgressConfig, PxuiButtonConfig, PxuiIconButtonConfig, PxuiCheckConfig, PxuiSpinnerConfig, PxuiBadgeConfig, PxuiLabelConfig, PxuiFooterConfig, PxuiGripConfig, PxuiPanelConfig, PxuiDialogConfig, PxuiSectionConfig, PxuiInspectorRowConfig, PxuiSplitConfig, PxuiScrollConfig, PxuiToastsConfig, PxuiTooltipConfig, PxuiTabsConfig, PxuiSegmentedConfig, PxuiDropdownConfig, PxuiMenuItemConfig, PxuiMenuRowConfig, PxuiRowConfig, PxuiTreeRowConfig, PxuiTableHeadConfig, PxuiPickerRowConfig, PxuiSearchFieldConfig, PxuiTextFieldConfig, PxuiLineFieldConfig, PxuiValueFieldConfig, PxuiPickerFieldConfig, PxuiSectionIndexConfig};
 
 mod sealed {
+    /// Private restriction on which types can expose a body configuration.
     pub trait Sealed { fn bounds(&self) -> (usize, usize); }
 }
 
@@ -170,11 +171,22 @@ impl Ui {
         Ok(BodyId(id))
     }
 
-    /// Builds a node as `part` of the widget whose body is running: behaviour finds it again by role (see the config's documentation
-    /// for the parts its widget reads). Only inside a body, or, for `Part::HANDLE`, inside a reorderable list's row (`SectionList::reorder`,
-    /// `SelectionList::reorder`).
+    // Out of line, the static Lists benchmark copies the node once more.
+    /// Builds a node as a named part of the running widget body.
+    ///
+    /// The widget looks up the node by `part`. Call this inside a body, or for `Part::HANDLE` inside a reorderable list row.
+    /// Allocates: if node storage must grow.
+    /// Panics: if the library refuses the part or its node.
+    ///
+    /// ```
+    /// use pxui::{bodies::ButtonConfig, Button, Node, Part, ThemeHandle, Ui, UiDesc};
+    /// fn body(ui: &mut Ui, _: &ButtonConfig) { ui.part(Part::HIT, Node::DEFAULT.w_px(20.0).h_px(20.0)); }
+    /// let mut ui = Ui::new(&UiDesc::DEFAULT).unwrap();
+    /// ui.register_button_body("sample", body).unwrap();
+    /// ui.set_theme(&ThemeHandle::parse("button.body = sample").unwrap()).unwrap();
+    /// ui.frame(&pxui::FrameIn::new(320.0, 240.0), &mut |ui| { ui.button("go", "Go", &Button::DEFAULT); }).unwrap();
+    /// ```
     #[track_caller]
-    // Inline: out of line, the 600-byte node is copied once more per part (abi_bench Lists page, static release).
     #[inline]
     pub fn part(&mut self, part: Part, node: Node) -> Handle {
         let mut out = Handle::default();
@@ -224,6 +236,17 @@ impl Ui {
     /// `built_in`, the kit's own body for that config, so a registered body draws the kit's widget for configs it does not style; a
     /// dialog config's `built_in`, the kit's buttons for the dialog, each through the button body with the dialog's variant); for a search field's editor slot
     /// the answer is whether the query is not empty, otherwise false. A slot is valid only during the body call that received it, and not inside its own content or a nested body: else this panics.
+    /// Allocates: when the body or node storage grows.
+    /// Panics: for an invalid slot or a panic in the callback.
+    ///
+    /// ```
+    /// use pxui::{bodies::ButtonConfig, Button, ThemeHandle, Ui, UiDesc};
+    /// fn body(ui: &mut Ui, config: &ButtonConfig) { ui.slot(config.built_in); }
+    /// let mut ui = Ui::new(&UiDesc::DEFAULT).unwrap();
+    /// ui.register_button_body("sample", body).unwrap();
+    /// ui.set_theme(&ThemeHandle::parse("button.body = sample").unwrap()).unwrap();
+    /// ui.frame(&pxui::FrameIn::new(320.0, 240.0), &mut |ui| { ui.button("go", "Go", &Button::DEFAULT); }).unwrap();
+    /// ```
     #[track_caller]
     pub fn slot(&mut self, slot: PxuiSlot) -> bool {
         let mut out = 0u8;

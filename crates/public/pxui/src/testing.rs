@@ -6,7 +6,9 @@ use crate::{Event, FrameIn, Handle, KeyCode, Ui};
 
 /// Runs one 320 x 240 frame of `build` with `events` as that frame's input.
 ///
-/// Events are in points, window space. Allocates: as any frame. Panics: when the frame fails.
+/// Events use logical window points.
+/// Allocates: as any frame.
+/// Panics: when the frame fails.
 ///
 /// ```
 /// let mut ui = pxui::doc::frames(1, &mut |ui| { ui.label("x", pxui::Label::DEFAULT); });
@@ -21,7 +23,8 @@ pub fn frame(ui: &mut Ui, events: &[Event], build: &mut dyn FnMut(&mut Ui)) {
 
 /// Clicks the point (`x`, `y`) in window points: a press frame, then a release frame.
 ///
-/// Allocates: as two frames. Panics: when a frame fails.
+/// Allocates: as two frames.
+/// Panics: when a frame fails.
 ///
 /// ```
 /// use pxui::ui::{Flags, Node, Size, Role};
@@ -42,7 +45,8 @@ pub fn click(ui: &mut Ui, x: f64, y: f64, build: &mut dyn FnMut(&mut Ui)) {
 
 /// Clicks the center of `node` as laid out by the last frame.
 ///
-/// Allocates: as two frames. Panics: when a frame fails.
+/// Allocates: as two frames.
+/// Panics: when a frame fails.
 ///
 /// ```
 /// use pxui::ui::{Flags, Node, Size, Role};
@@ -82,7 +86,9 @@ pub fn key(ui: &mut Ui, key: KeyCode, build: &mut dyn FnMut(&mut Ui)) {
 
 /// The rectangle, in window points, of the first accessibility node of the last frame with `role` and `name`.
 ///
-/// `None` when no node matches, or accessibility is off (`doc::frames` turns it on). Allocates: never. Panics: never.
+/// Returns `None` when no node matches or accessibility is off (`doc::frames` turns it on).
+/// Allocates: never.
+/// Panics: when reading the accessibility output fails.
 ///
 /// ```
 /// use pxui::ui::{Node, Size, Role};

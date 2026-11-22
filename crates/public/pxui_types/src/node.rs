@@ -1,3 +1,5 @@
+//! Layout node descriptors and interaction appearance.
+
 use crate::{Flags, Size};
 use crate::a11y::Role;
 use crate::geom::{Edges, Rgba};
@@ -12,12 +14,38 @@ macro_rules! opt {
         #[repr(C, u8)]
         #[derive(Clone, Copy, Debug, Default, PartialEq)]
         pub enum $name {
+            /// Leaves the optional value unset.
             #[default] None,
+            /// Carries the optional value.
             Some($($t),+),
         }
         impl $name {
+            /// Returns the carried value as an Option.
+            ///
+            /// Allocates: never.
+            /// Panics: never.
+            ///
+            /// ```
+            /// assert_eq!(pxui_types::node::OptPoint::Some(2.0, 3.0).get(), Some((2.0, 3.0)));
+            /// ```
             #[inline] pub const fn get(self) -> Option<$get> { match self { Self::Some($($v),+) => Some($some), Self::None => None } }
+            /// Reports whether the optional record carries a value.
+            ///
+            /// Allocates: never.
+            /// Panics: never.
+            ///
+            /// ```
+            /// assert!(pxui_types::node::OptPoint::Some(2.0, 3.0).is_some());
+            /// ```
             #[inline] pub const fn is_some(&self) -> bool { matches!(self, Self::Some(..)) }
+            /// Reports whether the optional record has no value.
+            ///
+            /// Allocates: never.
+            /// Panics: never.
+            ///
+            /// ```
+            /// assert!(pxui_types::node::OptPoint::None.is_none());
+            /// ```
             #[inline] pub const fn is_none(&self) -> bool { matches!(self, Self::None) }
         }
         impl From<Option<$get>> for $name {
@@ -35,8 +63,10 @@ opt!(/** `Option<Bar>` */ OptBar(Bar) Bar, |v| v, |v| Self::Some(v));
 #[repr(C, u8)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Transition {
-    Bezier { duration: f32, points: [f32; 4] },
-    Spring { omega: f32 },
+    /// Animates with a cubic Bézier easing over a fixed duration.
+    Bezier { #[doc = "Animation duration in seconds."] duration: f32, #[doc = "Cubic Bézier control coordinates in x1, y1, x2, y2 order."] points: [f32; 4] },
+    /// Animates with spring motion.
+    Spring { #[doc = "Natural angular frequency of the spring."] omega: f32 },
 }
 impl Transition {
     /// The node-carriable `Transition` of `curve`: `Some` for a Bezier or Spring, `None` for a table or steps (a node does not carry those).
@@ -77,22 +107,30 @@ impl Transition {
 opt!(/** `Option<Transition>` */ OptTransition(Transition) Transition, |v| v, |v| Self::Some(v));
 opt!(/** `Option<Rgba>` */ OptColor(Rgba) Rgba, |v| v, |v| Self::Some(v));
 
+/// Direction in which children are laid out.
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Axis {
+    /// Arranges children horizontally.
     Row,
+    /// Arranges children vertically.
     Column,
     /// children overlap at the padding origin, in `z` order (equal `z`: build order); `justify`
     /// places them across, `align` down
     Stack,
 }
 
+/// Cardinal direction of a procedural mark.
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Dir {
+    /// Points downward.
     Down,
+    /// Points upward.
     Up,
+    /// Points left.
     Left,
+    /// Points right.
     Right,
 }
 
@@ -100,13 +138,17 @@ pub enum Dir {
 #[repr(C, u8)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Mark {
+    /// Leaves the optional value unset.
     None,
+    /// Draws a chevron pointing in the specified direction.
     Chevron(Dir),
     /// a line `width` thick in the look's text colour across the node's rectangle, between its
     /// corners inset by half the width: top left to bottom right (`rising`: bottom left to top
     /// right); `patch_rect` moves its ends, `patch_mark` turns it over, `patch_look` colours it
     Line {
+        /// Width in logical points.
         width: f32,
+        /// Whether the line rises from left to right.
         rising: bool,
     },
 }
@@ -228,40 +270,71 @@ pub struct Node {
     #[doc(hidden)]
     pub size: u32,
     // the byte-sized fields and `z`, back to back after `size`: the library tests the first 16 bytes of a node as two words
+    /// Sizeof(PxuiNode).
     pub axis: Axis,
+    /// Distribution of children along the layout axis.
     pub justify: Justify,
+    /// Alignment of children on the cross axis.
     pub align: Align,
+    /// Whether content wraps when it reaches the available extent.
     pub wrap: bool,
     /// what the node is to a screen reader (`Unknown`: not in the accessibility tree); `a11y` holds the states
     /// its widget declares (`a11y::state` bits: CHECKABLE, CHECKED, EXPANDABLE, EXPANDED, EDITABLE,
     /// MULTILINE, SELECTED, MODAL); focus, press, enabled and visibility come from the engine
     pub role: Role,
+    /// Declared interaction state used to resolve appearance.
     pub state: State,
+    /// Relative paint order among siblings.
     pub z: i16,
+    /// The first 16 bytes are tested as two words.
     pub flags: Flags,
+    /// Width rule used by layout.
     pub w: Size,
+    /// Height rule used by layout.
     pub h: Size,
+    /// Minimum width in logical points.
     pub min_w: f32,
+    /// Minimum height in logical points.
     pub min_h: f32,
+    /// Maximum width in logical points.
     pub max_w: f32,
+    /// Maximum height in logical points.
     pub max_h: f32,
+    /// Share of surplus space given to this item.
     pub grow: f32,
+    /// Share of the deficit this item absorbs.
     pub shrink: f32,
+    /// Width to height ratio.
     pub aspect: f32,
+    /// Inner spacing in logical points.
     pub padding: Edges,
+    /// Outer spacing in logical points.
     pub margin: Edges,
+    /// Spacing between adjacent elements in logical points.
     pub gap: f32,
+    /// Spacing between successive rows in logical points.
     pub row_gap: f32,
+    /// Grid tracks used to lay out children.
     pub grid: OptGrid,
+    /// Cell occupied in the parent grid.
     pub cell: Cell,
+    /// Alignment override for this node.
     pub align_self: OptAlign,
+    /// Anchor for positioning or selection, as specified by the operation.
     pub anchor: OptAnchor,
+    /// Accessibility state bits declared by the widget.
     pub a11y: u32,
+    /// Optional position relative to the containing layer.
     pub at: OptPoint,
+    /// Scroll distance in logical points per step.
     pub scroll_step: f32,
+    /// Visual appearance of the element.
     pub look: Look,
+    /// Inner offsets in logical points.
     pub inset: Edges,
+    /// Procedural mark drawn in the box.
     pub mark: Mark,
+    /// Bar painted by the widget.
     pub bar: OptBar,
     /// the node's own transition: declared, it runs each change of the node's state (`style`) instead of the theme's, under a theme
     /// that does not move too (U2b.4.5); else the one `style` picked from the theme for a change of state
@@ -298,6 +371,7 @@ impl Node {
         Node { transition, ..self }
     }
 
+    /// Default value used when no options have been supplied.
     pub const DEFAULT: Node = Node {
         size: core::mem::size_of::<Node>() as u32,
         flags: Flags::NONE,

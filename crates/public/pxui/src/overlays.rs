@@ -21,9 +21,13 @@ mod raw {
     use core::ffi::c_void;
     use pxui_types::{PxuiBox, Str, ffi::{PxuiKeyedDesc, PxuiMenuOptions, PxuiMenuRow, Slice, Strided}};
     use crate::sys::PxuiUi;
+    /// Callback that supplies borrowed rows for a picker query.
     pub type PickerRows = Option<extern "C" fn(*mut c_void, Str, *mut Slice<pxui_types::ffi::PxuiPickRow>)>;
+    /// Callback that supplies an optional colour mark for a row.
     pub type PickerMark = Option<extern "C" fn(*mut c_void, i64, *mut pxui_types::geom::Rgba) -> u8>;
+    /// Callback that reports whether a row is unavailable.
     pub type PickerOff = Option<extern "C" fn(*mut c_void, i64) -> u8>;
+    /// Callback that supplies an optional native image for a row.
     pub type PickerImage = Option<extern "C" fn(*mut c_void, i64, *mut crate::Image) -> u8>;
     #[link(name = "pxui")]
     unsafe extern "C" {

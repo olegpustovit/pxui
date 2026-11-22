@@ -1,71 +1,16 @@
 # PXUI interaction and visual contract
 
-PXUI is a wrapped sibling library. It depends on `rays`; the core library
-does not depend on PXUI. Its compact creative-tool character is inspired by
-[ofxUI](https://github.com/liquidzym/ofxUI), adapted to Rays's functional
-scene and event model.
+PXUI builds native UI from application state and ordered host input. See the [public API ledger](../docs/api.md) for names and the [ABI contract](../docs/abi.md) for record layouts, ownership and errors.
 
-## Architecture: one box, one pass, one draw list
+## Architecture
 
-`Pxui.Ui` is the only UI engine. The panel kit, the parameter inspector
-(`Rays_shell.Inspector`), the workspace chrome (`rays_shell`, `rays_editor`), and the graph canvas
-(`rays_graph`) all build boxes in the same `Ui` frame, share one pointer
-capture, one focus, and one hit list, and paint into one instance list.
+A `Ui` owns retained layout, input and draw state for its registered surface. The application holds widget values and responds to the results returned by widget calls. The frame input borrows its events for the duration of the call. Each event names the same nonzero surface as the frame carrying it.
 
-```text
-let update model frame =
-  Pxui.Ui.frame model.ui frame @@ fun ui ->
-  Pxui.Ui.panel ui "Motion" @@ fun () ->
-  let animate = Pxui.Ui.toggle ui "Animate" model.animate in
-  let name = Pxui.Ui.text_field ui "Name" model.name in
-  if Pxui.Ui.button ui "Quit" then Sketch.quit ();
-  { model with animate; name }
+A frame routes input against the previous hit tree, builds the next logical tree, lays it out in points and emits instances in paint order. A press captures the topmost eligible box until release or cancellation. The focused box receives keyboard and text input. Scroll input goes to the foremost eligible scroll box. The app can ask which input remains available after routing.
 
-let view model _frame = scene_of model @ Rays_shell.Host.scene model.ui
-```
+Interactive widgets keep identity through explicit keys scoped to their parent. A displayed label can change while the widget keeps focus, animation and retained state. Collection row keys follow model ids through reorder. Unused retained entries are reclaimed under the engine's bounded cache policies.
 
-Widget values live in the sketch model; widgets return them. There are no
-named change lists, value getters, or setters to keep in sync. `Ui.t` is a
-mutable cache handle threaded through the model like `Assets`, released with
-`Ui.destroy` from `Sketch.run_state ~on_stop`.
-
-Each frame runs four steps:
-
-1. **Route.** The frame's ordered events are resolved against the previous
-   frame's hit list (paint order, clipped). The topmost box under a press
-   becomes the single `active` box and captures the pointer until the
-   matching release; clickable presses also update keyboard focus. Wheel
-   steps go to the topmost `scroll` box under the pointer unless a
-   `blocking` box covers it. Key, text, and IME events go to the focused box.
-   One frame of input latency buys a single build pass.
-   After the frame, `Ui.input ~owner` gives a viewport only pointer events
-   routed to its exact root; children and unowned ground retain their events.
-   Without an owner, unconsumed pointer events pass through. Unconsumed keys,
-   focus loss and pointer cancellation retain their existing routing.
-2. **Build.** User code creates boxes. A box key hashes its label (text after
-   `##` is key-only, `###id` replaces the key) with the enclosing box, so
-   state follows labels. Duplicate keys in one frame receive order-stable
-   distinct keys. Per-key state — rectangles, scroll offsets, section
-   state, text-editing buffers, double-click timing — lives
-   in a retained cache: an open-addressing integer table into structure-of-
-   arrays pools. A key not built for a frame is pruned. Relative-size, hit and
-   paint callbacks live only through that frame's layout and painting; publishing
-   the frame releases their captures, including boxes absent from the next frame.
-3. **Layout.** A bottom-up pass computes `Px`, `Text`, and `Fit` sizes; a
-   top-down pass resolves `Pct`, `Rel`, and `Grow`, reserves a 10-point
-   gutter in overflowing scroll boxes, clamps scroll offsets, and positions
-   flow and floating (`at`) children in logical screen points.
-4. **Paint.** Boxes paint depth-first with nested clip rectangles, culling
-   boxes outside their clip. Painters receive the final rectangle and emit
-   `pxui_core::draw::Instance`s, the clip riding in each. `Ui.to_front ~order` raises a root in both
-   painting and hit testing. `Ui.frame` returns `FrameOut`: the paint layers
-   (instances, image breaks and images per raised root, borrowed) and `PlatformOut` (cursor,
-   the focused text's input-method area, window ground, clipboard write, paste
-   request; the host sends `Event.Paste` with the next frame).
-   `rays_shell::host::scene ~under` wraps the layers as native-only UI scene
-   nodes plus `Scene.text_input_region`, inserting a host Scene immediately
-   before a raised root's batch, so floating native viewports share the UI's
-   paint order without another hit-test path.
+Layout fits content from the leaves up and resolves available space from the root down. Paint clips instances to their enclosing layout and creates draw breaks for image textures. The host owns the render pass, input method, window and GPU objects. It borrows the frame output and must keep native images alive until every GPU submission that sampled them has completed.
 
 ## Renderer
 
@@ -361,7 +306,7 @@ the title bar of a PXUI host is the ground its chrome is painted on.
   tile boxes move in the frame that receives the pointer motion.
   The node menu (host-opened, `Rays_graph.Node_menu`) uses `Ui.popup`, with a search row
   that takes focus in the frame it opens; a
-  right click opens `Ui.context_menu` for a tile.
+  right click opens `Ui::menu` for a tile.
   Levels point/chip/card/full are set explicitly (`o`, `p`) and never by the zoom; cards
   show wired and written parameters. Numeric `Ui.value_field` controls scrub when dragged;
   Option-click opens the shared text editor. A right or middle drag pans.
@@ -402,7 +347,7 @@ the title bar of a PXUI host is the ground its chrome is painted on.
   `crates/rays_graph/fixtures/graph_*_{1,2}x.png` (`gpu_graph_pixels`).
 - `Ui.popup` uses the last laid-out rectangle for outside-press dismissal;
   an estimated height is used only until the first layout. `Ui.modal` and
-  `Ui.context_menu` share that dismissal path. `Ui.modal` centers a panel
+  `Ui::menu` share that dismissal path. `Ui.modal` centers a panel
   using its last height. Escape and focus loss also dismiss. The node menu
   uses `Ui.fuzzy_match` on labels, keys, and category breadcrumbs, as the
   preset picker does. `Ui.picker` retains its
@@ -418,7 +363,7 @@ the title bar of a PXUI host is the ground its chrome is painted on.
   and a drag is view state until release (one edit of the editor graph, one history
   entry; the same three edits are the keys `/ o v/h/x` and `/ l g/l/t/i/u/m/w` on the
   focused panel).  Every leaf is an instance with its own view state, however many of a kind the layout has
-  (`flow.md` §11.11); box keys are seeded by the enclosing box, an explicit `###id` included, so two
+  (`flow.md` §11.11); box keys are seeded by the enclosing box, an explicit key included, so two
   instances never share widget state.  The graph canvas paints its grid, zones and wires in a clipped
   child, so a pane beside it is never painted over. The Lisp pane is a `Ui.text_area` in the same hit tree;
   the list and text
@@ -838,5 +783,5 @@ redo kept per focused text with consecutive typing as one step); `Ui.signal.clic
 double or triple click.  A language's optional `rewrite` runs after each edited frame and maps
 the caret: the editor's Lisp supplies parinfer's indent mode (`Lisp_text.parinfer_text`), toggled
 from the text pane's right-click menu.
-`Ui.context_menu` is as wide as its longest row and an empty label is a separator. `Ui.set_font_size`
+`Ui::menu` is as wide as its longest row and an empty label is a separator. `Ui.set_font_size`
 scales every kit text and row between frames (the editor's Command +/-).

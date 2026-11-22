@@ -379,7 +379,15 @@ impl Ui {
 }
 
 // The extension set (`pxui::ext`): free functions on a `Ui`, out of the prelude, with no stability promise.
-/// A 1-point splitter line (see the engine): its box and what happened to it.
+/// Builds a splitter grip and returns its handle and input signal.
+///
+/// Allocates: when formatting the label or growing the frame storage.
+/// Identity: the formatted `label` identifies the grip under its current parent.
+/// Panics: when the library refuses the build.
+///
+/// ```
+/// pxui::doc::frames(1, &mut |ui| { let _ = pxui::ext::grip(ui, format_args!("divider"), pxui::ui::Axis::Row, None); });
+/// ```
 #[track_caller]
 pub fn grip(ui: &mut Ui, label: Arguments, axis: Axis, rect: Option<Rect>) -> (Handle, Signal) {
     let (mut out, mut raw) = (Handle::default(), PxuiSignal::default());
@@ -388,11 +396,27 @@ pub fn grip(ui: &mut Ui, label: Arguments, axis: Axis, rect: Option<Rect>) -> (H
     check(ui, unsafe { lib::pxui_ui_grip(ui.0.as_ptr(), as_str(label.as_str()), code, rect.is_some() as u8, rect.unwrap_or_default(), &mut out, &mut raw) });
     (out, decode_signal(&raw))
 }
+/// Builds the inspector’s hint bar and item count.
+///
+/// Allocates: when the frame arena or retained storage first grows; never on a warm frame.
+/// Panics: when the library refuses the call.
+///
+/// ```
+/// pxui::doc::frames(1, &mut |ui| { pxui::ext::inspector_bar(ui, &[("?", "Help")], 1); });
+/// ```
 #[track_caller]
 pub fn inspector_bar(ui: &mut Ui, hints: &[(&str, &str)], count: i64) {
     let hints = crate::kit::Hints::new(hints);
     check(ui, unsafe { lib::pxui_ui_inspector_bar(ui.0.as_ptr(), hints.span(), count) })
 }
+/// Builds the contents of the inspector body.
+///
+/// Allocates: when the frame arena or retained storage first grows; never on a warm frame.
+/// Panics: when the library refuses the call.
+///
+/// ```
+/// pxui::doc::frames(1, &mut |ui| { pxui::ext::inspector_body(ui, &mut |ui| { ui.label("Contents", pxui::Label::DEFAULT); }); });
+/// ```
 #[track_caller]
 pub fn inspector_body(ui: &mut Ui, mut f: &mut dyn FnMut(&mut Ui)) {
     check(ui, unsafe { lib::pxui_ui_inspector_body(ui.0.as_ptr(), Some(call), &mut f as *mut _ as *mut c_void) })
@@ -438,6 +462,16 @@ pub fn inspector_header<'ui>(ui: &'ui mut Ui, key: &str, kind: Option<&str>, bad
     Head { renamed, chosen: (out.has_chosen != 0).then_some(out.chosen), reset_pressed: out.reset_pressed != 0 }
 }
 /// The fraction of a dragged `kept_drag` field's track under the pointer, and the pointer's points from the press.
+/// A stale field or one that is not being dragged returns `None`.
+/// Allocates: never.
+/// Panics: for library errors other than a stale handle.
+///
+/// ```
+/// pxui::doc::frames(1, &mut |ui| {
+///     let field = ui.node("gain", pxui::Node::DEFAULT);
+///     assert!(pxui::ext::field_drag(ui, &field).is_none());
+/// });
+/// ```
 #[track_caller]
 pub fn field_drag(ui: &Ui, field: &Handle) -> Option<(f32, f32)> {
     let (mut present, mut out) = (0, Point::default());

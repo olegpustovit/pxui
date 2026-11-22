@@ -237,7 +237,7 @@ mod tests {
     use std::cell::Cell;
     use crate::bodies::BodyConfig;
 
-    /// LocalWave's settings switch: a 60 point row with a 48 x 28 switch.
+    /// A settings switch: a 60 point row with a 48 x 28 switch.
     const SETTING: Toggle = Toggle::DEFAULT.row_h(60.0).switch(48.0, 28.0);
 
     /// The a11y node of `role` named `name` in the last frame: (states, rect).
@@ -314,7 +314,7 @@ mod tests {
         assert!(on.get());
     }
 
-    /// LocalWave's chips: a 28 point strip filling its line, three equal segments (Radio, named by their text, CHECKED on the choice); a
+    /// A choice strip: a 28 point strip filling its line, three equal segments (Radio, named by their text, CHECKED on the choice); a
     /// press on one moves the choice and reports `changed`.
     #[test]
     fn chips_have_their_sizes_states_and_choose_on_click() {

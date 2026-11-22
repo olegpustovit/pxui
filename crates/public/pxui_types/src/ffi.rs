@@ -1,9 +1,10 @@
 //! C-compatible frame, platform, accessibility, and theme exchange records.
 use crate::{Event, PxuiBox, Str, geom::{Edges, Rect, Rgba}};
 
+/// Borrowed contiguous span of ABI records.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-pub struct Slice<T> { pub ptr: *const T, pub len: usize }
+pub struct Slice<T> { #[doc = "Pointer to the first element of the borrowed span."] pub ptr: *const T, #[doc = "Number of elements in the span."] pub len: usize }
 
 impl From<&'static [u8]> for Slice<u8> {
     /// A wire byte span whose backing storage remains alive for the process.
@@ -17,7 +18,7 @@ impl<T> Default for Slice<T> { fn default() -> Self { Self { ptr: core::ptr::nul
 /// `size_of::<T>()`.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-pub struct Strided<T> { pub ptr: *const T, pub len: usize, pub stride: usize }
+pub struct Strided<T> { #[doc = "Pointer to the first element of the borrowed span."] pub ptr: *const T, #[doc = "Number of elements in the span."] pub len: usize, #[doc = "Distance in bytes between adjacent records."] pub stride: usize }
 impl<T> Default for Strided<T> { fn default() -> Self { Self { ptr: core::ptr::null(), len: 0, stride: core::mem::size_of::<T>() } } }
 impl<T> Strided<T> {
     /// `records` as a dense span (stride the record size).
@@ -76,21 +77,35 @@ impl<T> Strided<T> {
     }
 }
 
+/// Snapshot of native input and frame timing.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct Input {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Time in seconds on the host monotonic clock.
     pub time: f64,
+    /// Elapsed seconds since the previous frame.
     pub dt: f64,
+    /// Frame serial.
     pub frame: i64,
+    /// Input update serial.
     pub tick: i64,
+    /// Width and height in logical points.
     pub logical_size: [i64; 2],
+    /// Pointer position in logical points.
     pub pointer: [f64; 2],
+    /// Key codes currently held down.
     pub keys: Slice<u32>,
+    /// Pointer buttons currently held down.
     pub buttons: Slice<u32>,
+    /// Input events attached to this frame.
     pub events: Strided<Event>,
+    /// Drawable pixels per logical point on each axis.
     pub pixel_scale: [f64; 2],
+    /// Pointer movement in logical points since the previous frame.
     pub mouse_delta: [f64; 2],
+    /// Frame rate in frames per second.
     pub fps: f64,
 }
 
@@ -101,21 +116,33 @@ impl Default for Input {
     }
 }
 
+/// Requests to apply to the native window, input method and clipboard.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct PlatformOut {
+    /// Size of this record in bytes.
     pub size: u32,
     /// 0 default, 1 horizontal resize, 2 vertical resize, 3 text
     pub cursor: u32,
+    /// Nonzero when `cursor` is present.
     pub has_cursor: u8,
+    /// Nonzero when `ime` is present.
     pub has_ime: u8,
+    /// Nonzero when `background` is present.
     pub has_background: u8,
+    /// Nonzero when `clipboard` is present.
     pub has_clipboard: u8,
+    /// Input method candidate rectangle in logical points.
     pub ime_rect: [i64; 4],
+    /// Caret position within the input method target.
     pub ime_caret: i64,
+    /// Text to copy to the native clipboard.
     pub clipboard: Str,
+    /// Requested native window background colour.
     pub background: Rgba,
+    /// Nonzero when the app should fetch the native clipboard.
     pub paste: u8,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved: [u8; 7],
 }
 impl Default for PlatformOut {
@@ -130,7 +157,9 @@ impl Default for PlatformOut {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PxuiDirty {
+    /// Inclusive start of the range.
     pub start: u32,
+    /// Exclusive end of the range.
     pub end: u32,
 }
 
@@ -142,43 +171,67 @@ pub struct PxuiDirty {
 pub struct PxuiLayerInfo {
     /// `size_of::<PxuiLayerInfo>()`; the library writes it (a reader steps by `PxuiLayerSpan.stride`).
     pub size: u32,
+    /// Identifier supplied by the caller.
     pub id: u32,
+    /// Draw breaks separating runs of instances.
     pub breaks: u32,
     /// What the layer is: 0 base (the window's content), 1 popup or menu, 2 modal sheet, 3 tooltip, 4 what a drag carries, 5 the merged
     /// last layer (every root past `MAX_LAYERS`; a host presents it in the window). A host may present a floating layer in a surface of its
     /// own; input for it then arrives with that surface's id.
     pub role: u32,
+    /// Key used to identify the element across frames.
     pub key: i64,
+    /// Borrowed draw instances in paint order.
     pub instances: Slice<crate::draw::Instance>,
+    /// Dirty ranges changed since the previous frame.
     pub dirty: Slice<PxuiDirty>,
     /// Where a floating layer is placed, in window points: the rectangle its root was anchored to, else the root's own; empty for the base.
     pub anchor: crate::geom::Rect,
 }
 
+/// Rectangle that needs redrawing after the frame.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Damage {
+    /// Nonzero when `damage` is present.
     pub has_damage: u8,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved: [u8; 3],
+    /// Rectangle in logical points.
     pub rect: Rect,
 }
 
+/// Tagged value exposed to assistive technology.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct A11yValue {
     /// 0 none, 1 text range, 2 number (ABI 1.126: its text range, when not empty, says the number in words, a section index's letter)
     pub tag: u32,
+    /// Start byte offset in the tree string buffer.
     pub text_start: u32,
+    /// End byte offset in the tree string buffer.
     pub text_end: u32,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved: u32,
+    /// Current numeric value.
     pub now: f64,
+    /// Minimum permitted value.
     pub min: f64,
+    /// Maximum permitted value.
     pub max: f64,
+    /// Increment for a numeric value.
     pub step: f64,
 }
 
 impl A11yNode {
     /// Whether the node has `role`.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let node = pxui_types::ffi::A11yNode::default();
+    /// assert_eq!(node.is_role(pxui_types::a11y::Role::Button), node.role == pxui_types::a11y::Role::Button as u32);
+    /// ```
     #[inline] pub fn is_role(&self, role: crate::a11y::Role) -> bool { self.role == role as u32 }
 }
 
@@ -186,23 +239,39 @@ impl A11yNode {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct A11yNode {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Index of the parent, with the no-parent sentinel for roots.
     pub parent: u32,
+    /// Identifier supplied by the caller.
     pub id: u64,
+    /// Accessibility role code.
     pub role: u32,
+    /// Start byte offset of the accessible name in the tree string buffer.
     pub name_start: u32,
+    /// End byte offset of the accessible name in the tree string buffer.
     pub name_end: u32,
+    /// Start byte offset of the accessible description in the tree string buffer.
     pub description_start: u32,
+    /// End byte offset of the accessible description in the tree string buffer.
     pub description_end: u32,
+    /// Value carried by this record.
     pub value: A11yValue,
+    /// Rectangle in logical points.
     pub rect: Rect,
+    /// Bit mask of accessibility states.
     pub states: u32,
+    /// Bit mask of supported accessibility actions.
     pub actions: u32,
     /// Anchor and caret in Unicode scalar values, as in the engine's text widgets and AT-SPI.
     pub selection: [u32; 2],
+    /// Number of immediate children.
     pub child_count: u32,
+    /// Index of the first child, with the no-child sentinel for an empty list.
     pub first_child: u32,
+    /// Index of the following sibling, with the sentinel at the end of a chain.
     pub next_sibling: u32,
+    /// Index of the final child, with the no-child sentinel for an empty list.
     pub last_child: u32,
 }
 impl Default for A11yNode {
@@ -216,13 +285,16 @@ impl Default for A11yNode {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct A11yAction {
+    /// Size of this record in bytes.
     pub size: u32,
     /// One action bit: 1 press, 2 focus, 4 set value, 8 scroll, 16 expand, 32 collapse, 64 select, 128 move up and 256 move down
     /// (ABI 1.89: a reorderable list row, offered in its node's `actions`).
     pub action_code: u32,
+    /// Identifier supplied by the caller.
     pub id: u64,
     /// Finite action data; scroll deltas saturate to the finite point range before layout clamps them to content.
     pub payload: f64,
+    /// Exclusive end of the range.
     pub end: u32,
     /// Zero on input.
     pub reserved: u32,
@@ -233,18 +305,25 @@ impl Default for A11yAction {
     fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, action_code: 0, id: 0, payload: 0.0, end: 0, reserved: 0, surface: crate::FrameIn::MAIN } }
 }
 
+/// Borrowed accessible nodes, strings and queued actions.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct A11yTree {
     /// `size_of::<A11yTree>()`: a record whose size is short is refused (`pxui_a11y_update`).
     pub size: u32,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved: u32,
     /// `nodes.stride` is the node record the writer used (the tree's node stride).
     pub nodes: Strided<A11yNode>,
+    /// Borrowed UTF-8 storage addressed by the accessibility nodes.
     pub strings: Str,
+    /// Revision of the borrowed data, used to detect changes.
     pub revision: u64,
+    /// Index of the first child, with the no-child sentinel for an empty list.
     pub first_child: u32,
+    /// Number of immediate children.
     pub child_count: u32,
+    /// Borrowed pending accessibility actions.
     pub actions: Strided<A11yAction>,
 }
 impl Default for A11yTree {
@@ -253,19 +332,29 @@ impl Default for A11yTree {
     }
 }
 
+/// Borrowed frame results and requests for the host.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct Output {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved: u32,
+    /// Revision of the draw list for detecting changes.
     pub draw_revision: u64,
     /// Positive infinity means no scheduled repaint.
     pub repaint_at: f64,
+    /// Count of nodes built in the frame.
     pub built_nodes: u64,
+    /// Count of retained views rebuilt in the frame.
     pub rebuilt_views: u64,
+    /// Count of nodes arranged during layout.
     pub arranged_nodes: u64,
+    /// Requests to apply to the native window, input method and clipboard.
     pub platform: PlatformOut,
+    /// Region of the frame that changed.
     pub damage: Damage,
+    /// Accessibility state bits declared by the widget.
     pub a11y: A11yTree,
     /// the last frame's layers in draw order, borrowed until the next frame
     pub layers: Strided<PxuiLayerInfo>,
@@ -278,12 +367,17 @@ impl Default for Output {
     }
 }
 
+/// Theme animation durations and easing.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct PxuiMotion {
+    /// Fast transition duration in seconds.
     pub fast: f32,
+    /// Standard transition duration in seconds.
     pub normal: f32,
+    /// Slow transition duration in seconds.
     pub slow: f32,
+    /// Theme cubic Bézier easing coordinates.
     pub ease: [f32; 4],
 }
 
@@ -291,27 +385,47 @@ pub struct PxuiMotion {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct ThemeTokens {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Panel background colour.
     pub panel: Rgba,
+    /// Default foreground colour.
     pub foreground: Rgba,
+    /// Control background colour.
     pub control: Rgba,
+    /// Text input background colour.
     pub input: Rgba,
+    /// Track background colour.
     pub track: Rgba,
+    /// Accent colour for selection and emphasis.
     pub accent: Rgba,
+    /// Optional contrast surface behind text.
     pub ink_ground: Rgba,
+    /// Nonzero when `ink_ground` is present.
     pub has_ink_ground: u8,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved: [u8; 3],
+    /// Theme spacing scale in logical points.
     pub space: [f32; 4],
+    /// Corner radius values in logical points.
     pub radius: [f32; 3],
+    /// Display text size in logical points.
     pub display_size: i64,
+    /// Title text size in logical points.
     pub title_size: i64,
+    /// Text size in logical points.
     pub font_size: i64,
+    /// Label text size in logical points.
     pub label_size: i64,
+    /// Theme timings and easing values.
     pub motion: PxuiMotion,
+    /// Nonzero when animations should respect reduced motion.
     pub reduced_motion: u8,
     /// 0 or 1: the theme is dark (`Tokens::dark`).
     pub dark: u8,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved_tail: [u8; 2],
+    /// Theme density multiplier.
     pub density: f32,
 }
 
@@ -320,10 +434,15 @@ pub struct ThemeTokens {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct PxuiNodeFields {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved: u32,
+    /// Visual appearance of the element.
     pub look: PxuiLookDesc,
+    /// Procedural mark drawn in the box.
     pub mark: PxuiMarkDesc,
+    /// Inner offsets in logical points.
     pub inset: Edges,
 }
 
@@ -331,7 +450,9 @@ pub struct PxuiNodeFields {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct PxuiRange {
+    /// Inclusive start of the range.
     pub start: i64,
+    /// Exclusive end of the range.
     pub end: i64,
 }
 
@@ -339,9 +460,13 @@ pub struct PxuiRange {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct PxuiColorSpan {
+    /// Inclusive start of the range.
     pub start: i64,
+    /// Exclusive end of the range.
     pub end: i64,
+    /// Colour of the element.
     pub color: Rgba,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved: u32,
 }
 
@@ -349,11 +474,17 @@ pub struct PxuiColorSpan {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct PxuiNote {
+    /// Zero-based text line of the diagnostic.
     pub line: i64,
+    /// Inclusive start of the range.
     pub start: i64,
+    /// Exclusive end of the range.
     pub end: i64,
+    /// Nonzero when `range` is present.
     pub has_range: u8,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved: [u8; 7],
+    /// Borrowed UTF-8 text.
     pub text: Str,
 }
 
@@ -361,8 +492,11 @@ pub struct PxuiNote {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct PxuiSplice {
+    /// Inclusive start of the range.
     pub start: i64,
+    /// Exclusive end of the range.
     pub end: i64,
+    /// Borrowed UTF-8 text.
     pub text: Str,
 }
 
@@ -370,11 +504,17 @@ pub struct PxuiSplice {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct PxuiCompletion {
+    /// Inclusive byte offset at which to start replacing text.
     pub start: i64,
+    /// Exclusive byte offset at which to end replacing text.
     pub end: i64,
+    /// Replacement text inserted when accepting the completion.
     pub insert: Str,
+    /// Label supplied by the caller.
     pub label: Str,
+    /// Secondary text accompanying the main label.
     pub detail: Str,
+    /// Documentation displayed for this completion.
     pub doc: Str,
 }
 
@@ -382,10 +522,15 @@ pub struct PxuiCompletion {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct PxuiDescription {
+    /// Nonzero when this optional record contains a value.
     pub has: u8,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved: [u8; 7],
+    /// Inclusive start of the range.
     pub start: i64,
+    /// Exclusive end of the range.
     pub end: i64,
+    /// Borrowed UTF-8 text.
     pub text: Str,
 }
 
@@ -393,9 +538,13 @@ pub struct PxuiDescription {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct PxuiMaybeRange {
+    /// Nonzero when this optional record contains a value.
     pub has: u8,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved: [u8; 7],
+    /// Inclusive start of the range.
     pub start: i64,
+    /// Exclusive end of the range.
     pub end: i64,
 }
 
@@ -403,7 +552,9 @@ pub struct PxuiMaybeRange {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct PxuiRewrite {
+    /// Borrowed UTF-8 text.
     pub text: Str,
+    /// Caret position or colour, as specified by the record.
     pub caret: i64,
 }
 
@@ -411,21 +562,37 @@ pub struct PxuiRewrite {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct PxuiTextAreaDesc {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Bit flags defined for this record.
     pub flags: u32,
+    /// Horizontal coordinate in logical points.
     pub x: f32,
+    /// Vertical coordinate in logical points.
     pub y: f32,
+    /// Width in logical points.
     pub width: f32,
+    /// Height in logical points.
     pub height: f32,
+    /// Requested visible extent or target range.
     pub reveal: i64,
+    /// Change token for repeating a reveal request.
     pub reveal_nonce: i64,
+    /// Text range requested for selection.
     pub select: PxuiRange,
+    /// Label supplied by the caller.
     pub label: Str,
+    /// Value carried by this record.
     pub value: Str,
+    /// Editor error ranges.
     pub errors: Slice<i64>,
+    /// Editor diagnostic messages.
     pub messages: Slice<PxuiNote>,
+    /// Borrowed run of styled text spans.
     pub spans: Slice<PxuiRange>,
+    /// Optional externally requested text replacement.
     pub splice: Slice<PxuiSplice>,
+    /// Inline editor controls.
     pub chips: Slice<PxuiColorSpan>,
     /// what starts a line comment (the language's `comment`)
     pub comment: Str,
@@ -433,14 +600,21 @@ pub struct PxuiTextAreaDesc {
     pub pairs: Slice<u32>,
 }
 impl PxuiTextAreaDesc {
+    /// Bit enabling line wrapping.
     pub const WRAP: u32 = 1;
+    /// Bit indicating that the reveal option is present.
     pub const HAS_REVEAL: u32 = 2;
+    /// Bit indicating that the select option is present.
     pub const HAS_SELECT: u32 = 4;
+    /// Bit indicating that the language option is present.
     pub const HAS_LANGUAGE: u32 = 8;
+    /// Bit indicating that the rewrite option is present.
     pub const HAS_REWRITE: u32 = 16;
+    /// Mask of all supported bits in this record.
     pub const KNOWN: u32 = 31;
 }
 
+/// Editor callback receiving the user pointer and a changed byte range.
 pub type AreaNotify = Option<extern "C" fn(*mut core::ffi::c_void, i64, i64)>;
 /// The app's closures of a text area (`TextAreaOpts::on_*` and `Language`), called only during the widget's call with
 /// `user`. A callback that returns data writes it to its `out` (borrowed until the next callback). `colorize` and the
@@ -448,24 +622,43 @@ pub type AreaNotify = Option<extern "C" fn(*mut core::ffi::c_void, i64, i64)>;
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct PxuiAreaCallbacks {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved: u32,
+    /// User pointer forwarded unchanged to the callback.
     pub user: *mut core::ffi::c_void,
+    /// Callback for a context action over the editor.
     pub on_context: Option<extern "C" fn(*mut core::ffi::c_void, f32, f32)>,
+    /// Callback for a numeric scrub gesture.
     pub on_scrub: Option<extern "C" fn(*mut core::ffi::c_void, u32)>,
+    /// Callback for an edit from numeric scrubbing.
     pub on_scrub_edit: Option<extern "C" fn(*mut core::ffi::c_void, i64, i64, Str)>,
+    /// Callback for a pointer click in the editor.
     pub on_click: Option<extern "C" fn(*mut core::ffi::c_void, i64, u8)>,
+    /// Callback reporting the caret.
     pub on_caret: Option<extern "C" fn(*mut core::ffi::c_void, i64)>,
+    /// Callback for caret movement.
     pub on_caret_move: Option<extern "C" fn(*mut core::ffi::c_void, i64)>,
+    /// Callback reporting a new selection.
     pub on_select: AreaNotify,
+    /// Callback for dropped text or objects.
     pub on_drop: Option<extern "C" fn(*mut core::ffi::c_void, i64, u8, Str, Str)>,
+    /// Callback that fills syntax colours for the supplied text.
     pub colorize: Option<extern "C" fn(*mut core::ffi::c_void, Str, *mut Slice<PxuiColorSpan>)>,
+    /// Callback that finds matching bracket ranges.
     pub brackets: Option<extern "C" fn(*mut core::ffi::c_void, Str, *mut Slice<PxuiRange>)>,
+    /// Callback that computes indentation for the editor.
     pub indent: Option<extern "C" fn(*mut core::ffi::c_void, Str, i64, *mut Str)>,
+    /// Callback that supplies completion candidates.
     pub complete: Option<extern "C" fn(*mut core::ffi::c_void, Str, i64, *mut Slice<PxuiCompletion>)>,
+    /// Callback that supplies a description for the given range.
     pub describe: Option<extern "C" fn(*mut core::ffi::c_void, Str, i64, *mut PxuiDescription)>,
+    /// Callback that finds a numeric token at the given offset.
     pub number_at: Option<extern "C" fn(*mut core::ffi::c_void, Str, i64, *mut PxuiMaybeRange)>,
+    /// Callback that supplies semantic context at the given offset.
     pub context_at: Option<extern "C" fn(*mut core::ffi::c_void, Str, i64) -> u32>,
+    /// Callback that rewrites an edit and returns the caret position.
     pub rewrite: Option<extern "C" fn(*mut core::ffi::c_void, Str, i64, *mut PxuiRewrite)>,
 }
 
@@ -611,35 +804,62 @@ impl PxuiDiagnostics {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct PxuiLabelStyle {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Bits indicating which values are explicitly set.
     pub set: u32,
+    /// Typeface or font descriptor used for text.
     pub font: u16,
+    /// Font weight, with zero selecting the default where supported.
     pub weight: u16,
+    /// Colour of the element.
     pub color: u16,
+    /// Maximum number of lines, or zero for the default.
     pub max_lines: u16,
+    /// Whether to shape uppercase text.
     pub caps: u8,
+    /// Digit spacing option.
     pub digits: u8,
+    /// Truncation option when text overflows.
     pub ellipsis: u8,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved: u8,
+    /// Fractional font size in logical points.
     pub size_points: f32,
+    /// Additional letter spacing in ems.
     pub tracking: f32,
+    /// Line advance in logical points.
     pub line_height: f32,
+    /// Text inset in logical points.
     pub pad: f32,
+    /// Whether content wraps when it reaches the available extent.
     pub wrap: u32,
+    /// Alignment within the available space.
     pub align: u32,
+    /// Feature bits available to this operation.
     pub features: u32,
+    /// Width in logical points.
     pub width: PxuiSizeDesc,
 }
 
 impl PxuiLabelStyle {
+    /// Bit applying the explicit font override.
     pub const SET_FONT: u32 = 1;
+    /// Bit applying the explicit size override.
     pub const SET_SIZE: u32 = 2;
+    /// Bit applying the explicit weight override.
     pub const SET_WEIGHT: u32 = 4;
+    /// Bit applying the explicit tracking override.
     pub const SET_TRACKING: u32 = 8;
+    /// Bit applying the explicit caps override.
     pub const SET_CAPS: u32 = 16;
+    /// Bit applying the explicit color override.
     pub const SET_COLOR: u32 = 32;
+    /// Bit applying the explicit width override.
     pub const SET_WIDTH: u32 = 64;
+    /// Bit applying the explicit line height override.
     pub const SET_LINE_HEIGHT: u32 = 128;
+    /// Bit applying the explicit pad override.
     pub const SET_PAD: u32 = 256;
     /// Every bit a 1.45 library knows.
     pub const SET_ALL: u32 = 511;
@@ -651,10 +871,15 @@ impl PxuiLabelStyle {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct PxuiLabelBox {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Bits indicating which values are explicitly set.
     pub set: u32,
+    /// Height in logical points.
     pub height: f32,
+    /// Accessibility role code.
     pub role: u8,
+    /// Whether to snap the box to drawable pixels.
     pub whole_pixels: u8,
     /// The body variant the widget is built with (0: the theme's), read as its registered body's config `variant`.
     pub variant: u16,
@@ -775,15 +1000,23 @@ impl PxuiTextStyle {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct PxuiSizeDesc {
+    /// Discriminant that determines the meaning of the remaining fields.
     pub kind: u32,
+    /// Value carried by this record.
     pub value: f32,
+    /// Callback that computes length from the available extent.
     pub relative: Option<extern "C" fn(f32) -> f32>,
 }
 impl PxuiSizeDesc {
+    /// Size in logical points.
     pub const PX: u32 = 0;
+    /// Size as a fraction of the available extent.
     pub const PCT: u32 = 1;
+    /// Size computed by a callback.
     pub const REL: u32 = 2;
+    /// Size that fills the available extent.
     pub const GROW: u32 = 3;
+    /// Size determined by the contents.
     pub const FIT: u32 = 4;
 }
 
@@ -791,51 +1024,78 @@ impl PxuiSizeDesc {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct PxuiAnchorDesc {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Nonzero when `anchor` is present.
     pub has_anchor: u8,
+    /// Whether placement may switch sides to stay visible.
     pub flip: u8,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved: [u8; 2],
+    /// Rectangle in logical points.
     pub rect: Rect,
+    /// Preferred side of the anchor rectangle.
     pub side: u32,
+    /// Alignment within the available space.
     pub align: u32,
+    /// Spacing between adjacent elements in logical points.
     pub gap: f32,
+    /// Outer spacing in logical points.
     pub margin: f32,
 }
 impl Default for PxuiAnchorDesc {
     fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, has_anchor: 0, flip: 0, reserved: [0; 2], rect: Rect::default(), side: 0, align: 0, gap: 0.0, margin: 0.0 } }
 }
 
+/// C representation of a font choice.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct PxuiFontDesc {
+    /// Font family identifier.
     pub family: u16,
+    /// Font weight, with zero selecting the default where supported.
     pub weight: u16,
     /// The size in points, fractions kept, in the 1.x record's alignment hole (offsets unchanged); read only while it agrees with
     /// `size` within half a point, so a 1.x caller's record keeps its integer meaning.
     #[doc(hidden)]
     pub size_points: f32,
+    /// Nominal integer font size in logical points.
     pub size: i64,
+    /// Additional letter spacing in ems.
     pub tracking: f32,
+    /// Whether to shape uppercase text.
     pub caps: u8,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved: [u8; 3],
 }
 
+/// C representation of an inner or outer shadow.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct PxuiShadowDesc {
+    /// Colour of the element.
     pub color: Rgba,
+    /// Distance from the relevant origin in logical points.
     pub offset: [f32; 2],
+    /// Shadow blur radius in logical points.
     pub blur: f32,
+    /// Additional shadow extent in logical points.
     pub spread: f32,
+    /// Whether the shadow is drawn inside the element.
     pub inner: u8,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved: [u8; 3],
 }
 
+/// C representation of a focus ring.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct PxuiRingDesc {
+    /// Colour of the element.
     pub color: Rgba,
+    /// Focus ring width in logical points.
     pub width: f32,
+    /// Mask of sides that receive the border or ring.
     pub sides: u32,
 }
 
@@ -844,24 +1104,43 @@ pub struct PxuiRingDesc {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct PxuiLookDesc {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Background colour or gradient start.
     pub fill: Rgba,
+    /// Optional colour at the end of the gradient.
     pub gradient: Rgba,
+    /// Nonzero when `gradient` is present.
     pub has_gradient: u8,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved: [u8; 3],
+    /// Gradient direction in degrees.
     pub angle: f32,
+    /// Border colour.
     pub border: Rgba,
+    /// Border width in logical points.
     pub border_w: f32,
+    /// Mask of sides that receive the border or ring.
     pub sides: u32,
+    /// Corner radius values in logical points.
     pub radius: [f32; 4],
+    /// Outer and inner shadows in paint order.
     pub shadows: [PxuiShadowDesc; 2],
+    /// Borrowed UTF-8 text.
     pub text: Rgba,
+    /// Typeface or font descriptor used for text.
     pub font: PxuiFontDesc,
+    /// Multiplier for the element alpha, from zero to one.
     pub opacity: f32,
+    /// Focus ring appearance.
     pub ring: PxuiRingDesc,
+    /// Selection endpoints.
     pub selection: Rgba,
+    /// Caret position or colour, as specified by the record.
     pub caret: Rgba,
+    /// Whether the border uses a dashed line.
     pub dashed: u8,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved_tail: [u8; 3],
 }
 impl Default for PxuiLookDesc {
@@ -872,13 +1151,19 @@ impl Default for PxuiLookDesc {
     }
 }
 
+/// C representation of a procedural mark.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct PxuiMarkDesc {
+    /// Discriminant that determines the meaning of the remaining fields.
     pub kind: u32,
+    /// Direction in which the mark points.
     pub direction: u32,
+    /// Width in logical points.
     pub width: f32,
+    /// Whether the line rises from left to right.
     pub rising: u8,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved: [u8; 3],
 }
 
@@ -886,12 +1171,19 @@ pub struct PxuiMarkDesc {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct PxuiStateDesc {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Whether the pointer is over the element.
     pub hovered: u8,
+    /// Whether the pointer or keyboard is pressing the element.
     pub pressed: u8,
+    /// Whether the element holds keyboard focus.
     pub focused: u8,
+    /// Whether the element is disabled.
     pub disabled: u8,
+    /// Whether the element is checked.
     pub checked: u8,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved: [u8; 3],
 }
 impl Default for PxuiStateDesc {
@@ -909,13 +1201,21 @@ impl From<PxuiStateDesc> for crate::theme::State {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct PxuiCurveDesc {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Discriminant that determines the meaning of the remaining fields.
     pub kind: u32,
+    /// Animation duration in seconds.
     pub duration: f32,
+    /// Cubic Bézier control coordinates in x1, y1, x2, y2 order.
     pub points: [f32; 4],
+    /// Natural angular frequency of the spring.
     pub omega: f32,
+    /// Number of items.
     pub count: u32,
+    /// Normalized sample positions along the animation.
     pub positions: [f32; 16],
+    /// Values associated with the record in declared order.
     pub values: [f32; 16],
 }
 impl Default for PxuiCurveDesc {
@@ -935,20 +1235,32 @@ impl From<crate::Curve> for PxuiCurveDesc {
 }
 
 impl PxuiCurveDesc {
+    /// Selects the unset or inactive option.
     pub const NONE: u32 = 0;
+    /// Selects cubic Bézier interpolation.
     pub const BEZIER: u32 = 1;
+    /// Selects spring interpolation.
     pub const SPRING: u32 = 2;
+    /// Selects sampled interpolation.
     pub const TABLE: u32 = 3;
+    /// Selects a step curve.
     pub const STEPS: u32 = 4;
 }
 
 impl PxuiMarkDesc {
+    /// Selects the unset or inactive option.
     pub const NONE: u32 = 0;
+    /// Draws a chevron.
     pub const CHEVRON: u32 = 1;
+    /// Draws a diagonal line.
     pub const LINE: u32 = 2;
+    /// Points downward.
     pub const DIR_DOWN: u32 = 0;
+    /// Points upward.
     pub const DIR_UP: u32 = 1;
+    /// Points left.
     pub const DIR_LEFT: u32 = 2;
+    /// Points right.
     pub const DIR_RIGHT: u32 = 3;
 }
 
@@ -956,23 +1268,41 @@ impl PxuiMarkDesc {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct PxuiSignal {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Bit flags defined for this record.
     pub flags: u32,
+    /// Nonzero when `subtree_press` is present.
     pub has_subtree_press: u8,
+    /// Code of the pointer button associated with the interaction.
     pub button: u8,
+    /// Nonzero when `a11y_value` is present.
     pub has_a11y_value: u8,
+    /// Nonzero when `a11y_select` is present.
     pub has_a11y_select: u8,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved: [u8; 4],
+    /// Origin of the active press inside this subtree.
     pub subtree_press: i64,
+    /// Number of consecutive clicks.
     pub clicks: i64,
+    /// Pointer displacement from the start of the drag.
     pub drag: [f32; 2],
+    /// Pointer position in logical points.
     pub pointer: [f32; 2],
+    /// Pointer position at press in logical points.
     pub press_point: [f32; 2],
+    /// Pointer position at release in logical points.
     pub release_point: [f32; 2],
+    /// Scroll displacement in logical points.
     pub scroll: [f32; 2],
+    /// Scale change reported by the pinch gesture.
     pub pinch: f64,
+    /// New value requested by assistive technology.
     pub a11y_value: f64,
+    /// Selection requested by assistive technology.
     pub a11y_select: [u32; 2],
+    /// Key codes currently held down.
     pub keys: Strided<Event>,
 }
 
@@ -980,10 +1310,15 @@ pub struct PxuiSignal {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct PxuiScrubOut {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Bit flags defined for this record.
     pub flags: u32,
+    /// Handle of the corresponding UI node.
     pub node: PxuiBox,
+    /// Intermediate value while the gesture is active.
     pub preview: f32,
+    /// Final value committed by the gesture.
     pub commit: f32,
 }
 impl Default for PxuiScrubOut {
@@ -994,9 +1329,13 @@ impl Default for PxuiScrubOut {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct PxuiGestureIn {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Mask of gestures this operation recognizes.
     pub kinds: u32,
+    /// Requested visible extent or target range.
     pub reveal: f32,
+    /// Gesture activation threshold in logical points.
     pub threshold: f32,
 }
 impl Default for PxuiGestureIn {
@@ -1009,9 +1348,13 @@ impl Default for PxuiGestureIn {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct PxuiSwipeIn {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Width of the leading action region in logical points.
     pub leading: f32,
+    /// Width of the trailing action region in logical points.
     pub trailing: f32,
+    /// Whether to activate a full swipe.
     pub full: f32,
 }
 impl Default for PxuiSwipeIn {
@@ -1023,8 +1366,11 @@ impl Default for PxuiSwipeIn {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct PxuiDismissIn {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Fraction of the available distance.
     pub fraction: f32,
+    /// Velocity in logical points per second.
     pub velocity: f32,
 }
 impl Default for PxuiDismissIn {
@@ -1036,8 +1382,11 @@ impl Default for PxuiDismissIn {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct PxuiDismissOut {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Bit flags defined for this record.
     pub flags: u32,
+    /// Distance from the relevant origin in logical points.
     pub offset: f32,
 }
 impl Default for PxuiDismissOut {
@@ -1049,10 +1398,15 @@ impl Default for PxuiDismissOut {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct PxuiGestureOut {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Bit flags defined for this record.
     pub flags: u32,
+    /// Progress of the swipe gesture.
     pub swipe: f32,
+    /// Progress of the navigation gesture.
     pub back: f32,
+    /// Progress of the pull gesture.
     pub pull: f32,
 }
 impl Default for PxuiGestureOut {
@@ -1066,39 +1420,64 @@ impl Default for PxuiSignal {
     }
 }
 impl PxuiSignal {
+    /// Pointer hovers over the node.
     pub const HOVERED: u32 = 1;
+    /// This frame started a press on the node.
     pub const PRESSED: u32 = 2;
+    /// The node still holds an active press.
     pub const HELD: u32 = 4;
+    /// This frame released the active press.
     pub const RELEASED: u32 = 8;
+    /// The node received a click.
     pub const CLICKED: u32 = 16;
+    /// The node received a double click.
     pub const DOUBLE_CLICKED: u32 = 32;
+    /// The node is being dragged.
     pub const DRAGGING: u32 = 64;
 }
 
+/// C header name for [`Input`].
 pub type PxuiInput = Input;
+/// C header name for [`Output`].
 pub type PxuiOutput = Output;
+/// C header name for [`PlatformOut`].
 pub type PxuiPlatformOut = PlatformOut;
+/// C header name for [`Damage`].
 pub type PxuiDamage = Damage;
+/// C header name for [`A11yValue`].
 pub type PxuiA11yValue = A11yValue;
+/// C header name for [`A11yNode`].
 pub type PxuiA11yNode = A11yNode;
+/// C header name for [`A11yAction`].
 pub type PxuiA11yAction = A11yAction;
 /// A span of actions, as `pxui_a11y_pump` hands them out.
 pub type A11yActionSpan = Strided<A11yAction>;
+/// C header name for [`A11yTree`].
 pub type PxuiA11yTree = A11yTree;
+/// C header name for [`ThemeTokens`].
 pub type PxuiThemeTokens = ThemeTokens;
 
 /// What a paint callback needs to know about its painter, read once per callback: the sizes, the clip and the theme tokens.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct PxuiPaintInfo {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Whether layout follows right-to-left direction.
     pub rtl: u8,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved: [u8; 3],
+    /// Text size in logical points.
     pub font_size: i64,
+    /// Row height in logical points.
     pub row_height: i64,
+    /// Theme density multiplier.
     pub density: i64,
+    /// Clip region in logical points.
     pub clip: Rect,
+    /// Corner radii of the clip in logical points.
     pub clip_radius: f32,
+    /// Theme snapshot used for the current frame.
     pub theme: ThemeTokens,
 }
 
@@ -1107,40 +1486,72 @@ pub struct PxuiPaintInfo {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct PxuiValueFieldDesc {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Bit flags defined for this record.
     pub flags: u32,
+    /// Text size in logical points.
     pub font_size: i64,
+    /// Fraction of the available distance.
     pub fraction: f32,
+    /// Additional letter spacing in ems.
     pub tracking: f32,
+    /// Optional line size override for the value field.
     pub line: Rgba,
+    /// Colour of the text before the value.
     pub lead_color: Rgba,
+    /// Colour of the text after the value.
     pub trail_color: Rgba,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved: [u8; 4],
+    /// Horizontal coordinate in logical points.
     pub x: f32,
+    /// Vertical coordinate in logical points.
     pub y: f32,
+    /// Width in logical points.
     pub width: f32,
+    /// Height in logical points.
     pub height: f32,
+    /// Text displayed when the field is not being edited.
     pub display: Str,
+    /// Text shown when the editor is empty.
     pub placeholder: Str,
+    /// Text or icon before the main value.
     pub lead: Str,
+    /// Text after the main value.
     pub trail: Str,
+    /// Label supplied by the caller.
     pub label: Str,
+    /// Value carried by this record.
     pub value: Str,
 }
 
 impl PxuiValueFieldDesc {
+    /// Bit positioning the value on the leading side.
     pub const LEFT: u32 = 1;
+    /// Bit allowing edits to the value.
     pub const EDIT: u32 = 2;
+    /// Bit selecting a field without its normal background.
     pub const BARE: u32 = 4;
+    /// Bit enabling drag behavior for a retained field.
     pub const KEPT_DRAG: u32 = 8;
+    /// Bit indicating that the size option is present.
     pub const HAS_SIZE: u32 = 16;
+    /// Bit indicating that the fraction option is present.
     pub const HAS_FRACTION: u32 = 32;
+    /// Bit indicating that the tracking option is present.
     pub const HAS_TRACKING: u32 = 64;
+    /// Bit indicating that the line option is present.
     pub const HAS_LINE: u32 = 128;
+    /// Bit indicating that the lead option is present.
     pub const HAS_LEAD: u32 = 256;
+    /// Bit indicating that the trail option is present.
     pub const HAS_TRAIL: u32 = 512;
+    /// Bit indicating that the display option is present.
     pub const HAS_DISPLAY: u32 = 1024;
+    /// Bit indicating that the placeholder option is present.
     pub const HAS_PLACEHOLDER: u32 = 2048;
+    /// Mask of all supported bits in this record.
     pub const KNOWN: u32 = 4095;
 }
 
@@ -1148,17 +1559,29 @@ impl PxuiValueFieldDesc {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct PxuiPopupDesc {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Nonzero when `stroke` is present.
     pub has_stroke: u8,
+    /// Nonzero when `max_height` is present.
     pub has_max_height: u8,
+    /// Whether the opening press can also dismiss the popup.
     pub dismiss_initial: u8,
+    /// Whether the popup is attached to the parent element.
     pub attached: u8,
+    /// Appearance of the outline.
     pub stroke: Rgba,
+    /// Maximum height in logical points.
     pub max_height: f32,
+    /// Horizontal coordinate in logical points.
     pub x: f32,
+    /// Vertical coordinate in logical points.
     pub y: f32,
+    /// Width in logical points.
     pub width: f32,
+    /// Height in logical points.
     pub height: f32,
+    /// Label supplied by the caller.
     pub label: Str,
 }
 
@@ -1261,13 +1684,21 @@ pub struct PxuiButtonDesc {
 pub struct PxuiDialogDesc {
     /// Size of this record in bytes.
     pub size: u32,
+    /// Width in logical points.
     pub width: f32,
+    /// Key used to identify the element across frames.
     pub key: Str,
+    /// Primary title shown to the user.
     pub title: Str,
+    /// Pointer buttons currently held down.
     pub buttons: Slice<Str>,
+    /// Index of the default button, with the no-button sentinel for none.
     pub default_at: i64,
+    /// Index of the cancel button, with the no-button sentinel for none.
     pub cancel_at: i64,
+    /// Whether to use the destructive action appearance.
     pub danger: u64,
+    /// Whether the element is disabled.
     pub disabled: u64,
     /// ABI 1.71 (an 88-byte record is read without it): each button's detail line under its label (`DialogButton::detail`), as many as
     /// `buttons` or none (length 0); an empty detail is none.
@@ -1285,9 +1716,13 @@ pub struct PxuiDialogDesc {
 pub struct PxuiDialogResult {
     /// Size of this record in bytes.
     pub size: u32,
+    /// Nonzero when `chosen` is present.
     pub has_chosen: u8,
+    /// Whether the surface closed without a choice.
     pub dismissed: u8,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved: [u8; 2],
+    /// Index of the chosen item.
     pub chosen: u64,
 }
 
@@ -1680,11 +2115,17 @@ pub struct PxuiPickItem {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct PxuiHeadActionDesc {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Whether the action is active.
     pub active: u8,
+    /// Whether the action can be triggered.
     pub usable: u8,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved: [u8; 2],
+    /// Action caption shown to the user.
     pub caption: Str,
+    /// Keyboard shortcut caption.
     pub keycap: Str,
 }
 
@@ -1692,20 +2133,35 @@ pub struct PxuiHeadActionDesc {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct PxuiHeaderDesc {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Nonzero when `kind` is present.
     pub has_kind: u8,
+    /// Nonzero when `badge` is present.
     pub has_badge: u8,
+    /// Nonzero when `index` is present.
     pub has_index: u8,
+    /// Nonzero when `reset` is present.
     pub has_reset: u8,
+    /// Whether the reset control can be used.
     pub reset_enabled: u8,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved: [u8; 3],
+    /// Key used to identify the element across frames.
     pub key: Str,
+    /// Discriminant that determines the meaning of the remaining fields.
     pub kind: Str,
+    /// Optional badge displayed beside the title.
     pub badge: Str,
+    /// Index within the owning collection.
     pub index: Str,
+    /// Optional caption of the reset control.
     pub reset: Str,
+    /// Primary title shown to the user.
     pub title: Str,
+    /// Secondary text accompanying the main label.
     pub detail: Str,
+    /// Actions exposed by the record.
     pub actions: Slice<PxuiHeadActionDesc>,
 }
 
@@ -1714,11 +2170,17 @@ pub struct PxuiHeaderDesc {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct PxuiHeadOut {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Nonzero when `chosen` is present.
     pub has_chosen: u8,
+    /// Whether the reset control was activated.
     pub reset_pressed: u8,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved: [u8; 2],
+    /// Borrowed title returned by the header, valid for the frame.
     pub renamed: Str,
+    /// Index of the chosen item.
     pub chosen: i64,
 }
 
@@ -1730,29 +2192,45 @@ pub type UiBuild = Option<extern "C" fn(*mut core::ffi::c_void, *mut core::ffi::
 // Descriptors of the kit widgets (`kit.rs` of `pxui_abi` and `pxui`): the one definition both sides use. Each starts with `size`,
 // read before anything else: a descriptor passed alone may grow by appending fields; one in a span (menus, hints, head actions,
 // keyframes) is read at its exact size, since a span's stride cannot grow.
+/// Body builder called with a UI and its user pointer.
 pub type PxuiBuild = UiBuild;
+/// Grid builder called with each visible item index.
 pub type PxuiGridBuild = Option<extern "C" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, usize)>;
 /// A button's content callback (ABI 1.56, `pxui_ui_button`): `(user, ui, state)`, `state` the button's interaction state this
 /// frame, valid for the call.
 pub type PxuiButtonBuild = Option<extern "C" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *const PxuiStateDesc)>;
 
+/// One menu and its ordered items.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct PxuiMenuDesc {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved: u32,
+    /// Primary title shown to the user.
     pub title: Str,
+    /// Items in declaration order.
     pub items: Slice<Str>,
 }
+/// Geometry and builder callback for a virtual grid.
 #[repr(C)]
 pub struct PxuiGridListDesc {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved: u32,
+    /// Label supplied by the caller.
     pub label: Str,
+    /// Number of items.
     pub count: usize,
+    /// Cell width in logical points.
     pub cell_w: f32,
+    /// Cell height in logical points.
     pub cell_h: f32,
+    /// Callback that supplies the contents.
     pub build: PxuiGridBuild,
+    /// User pointer forwarded unchanged to the callback.
     pub user: *mut core::ffi::c_void,
 }
 
@@ -1839,6 +2317,7 @@ pub struct PxuiListResult {
     pub drop_at: usize,
     /// ABI 1.89: a row moved this frame (a reorderable list): the row at `moved_from` now sits at `moved_to` (its final index).
     pub moved_from: usize,
+    /// Destination row of the completed reorder.
     pub moved_to: usize,
 }
 
@@ -2050,136 +2529,226 @@ pub struct PxuiTableResult {
     pub head: PxuiHeadResult,
 }
 
+/// Split pane geometry and callbacks for both bodies.
 #[repr(C)]
 pub struct PxuiSplitDesc {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Layout direction for the children.
     pub axis: u32,
+    /// Label supplied by the caller.
     pub label: Str,
+    /// Fraction of the split assigned to the first pane.
     pub ratio: f32,
+    /// Minimum extent of the first split pane in logical points.
     pub min_a: f32,
+    /// Minimum extent of the second split pane in logical points.
     pub min_b: f32,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved: u32,
+    /// Callback that supplies the contents of the first split pane.
     pub build_a: PxuiBuild,
+    /// User pointer forwarded unchanged to the first callback.
     pub user_a: *mut core::ffi::c_void,
+    /// Callback that supplies the contents of the second split pane.
     pub build_b: PxuiBuild,
+    /// User pointer forwarded unchanged to the second callback.
     pub user_b: *mut core::ffi::c_void,
 }
+/// Menu bar style and ordered menus.
 #[repr(C)]
 pub struct PxuiMenuBarDesc {
+    /// Size of this record in bytes.
     pub size: u32,
     /// The body variant the widget is built with (0: the theme's), read as its registered body's config `variant`.
     pub variant: u16,
     /// Zero.
     pub reserved: u16,
+    /// Label supplied by the caller.
     pub label: Str,
+    /// Menus in display order.
     pub menus: Slice<PxuiMenuDesc>,
 }
+/// Indices identifying a choice from a menu bar.
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
 pub struct PxuiMenuOut {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved: u32,
+    /// Index of the chosen menu.
     pub menu: usize,
+    /// Index of the chosen item within the menu.
     pub item: usize,
 }
+/// Key caption and action text for a footer hint.
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
 pub struct PxuiHintDesc {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved: u32,
+    /// Key used to identify the element across frames.
     pub key: Str,
+    /// Value carried by this record.
     pub value: Str,
 }
+/// Footer hints and optional trailing text.
 #[repr(C)]
 pub struct PxuiFooterDesc {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Nonzero when `right` is present.
     pub has_right: u8,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved: [u8; 3],
+    /// Optional text at the trailing side of the footer.
     pub right: Str,
+    /// Keyboard and action hints displayed in the footer.
     pub hints: Slice<PxuiHintDesc>,
 }
+/// Animation keyframe and the property it changes.
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
 pub struct PxuiKeyframeDesc {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Time in seconds on the host monotonic clock.
     pub time: f32,
+    /// Property targeted by the animation.
     pub target: u32,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved: u32,
+    /// Values associated with the record in declared order.
     pub values: [f32; 4],
+    /// Visual appearance of the element.
     pub look: PxuiLookDesc,
+    /// Curve used to interpolate this animation.
     pub curve: PxuiCurveDesc,
 }
 
+/// Arguments and returned bounds for an inspector row.
 #[repr(C)]
 pub struct PxuiInspectorRowDesc {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Nonzero when `width` is present.
     pub has_width: u8,
+    /// Nonzero when `pin` is present.
     pub has_pin: u8,
+    /// State of the inspector row pin.
     pub pin: u8,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved: u8,
+    /// Key used to identify the element across frames.
     pub key: Str,
+    /// Label supplied by the caller.
     pub label: Str,
+    /// Width in logical points.
     pub width: f32,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved_tail: u32,
+    /// Row index or handle, as specified by the operation.
     pub row: PxuiBox,
+    /// Horizontal origin of the row control in logical points.
     pub control_x: f32,
+    /// Vertical origin of the row control in logical points.
     pub control_y: f32,
+    /// Width available to the row control in logical points.
     pub control_w: f32,
 }
+/// Inspector section expansion state and contents callback.
 #[repr(C)]
 pub struct PxuiInspectorSectionDesc {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Current expansion state of the section.
     pub expanded: u8,
+    /// Nonzero when `set` is present.
     pub has_set: u8,
+    /// Requested expansion state.
     pub set_expanded: u8,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved: u8,
+    /// Key used to identify the element across frames.
     pub key: Str,
+    /// Label supplied by the caller.
     pub label: Str,
+    /// Callback that supplies the contents.
     pub build: PxuiBuild,
+    /// User pointer forwarded unchanged to the callback.
     pub user: *mut core::ffi::c_void,
+    /// Optional output for the section expansion state.
     pub out_open: u8,
 }
+/// Caption and value text for an inspector readout.
 #[repr(C)]
 pub struct PxuiInspectorValueDesc {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Nonzero when `width` is present.
     pub has_width: u8,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved: [u8; 3],
+    /// Key used to identify the element across frames.
     pub key: Str,
+    /// Label supplied by the caller.
     pub label: Str,
+    /// Value carried by this record.
     pub value: Str,
+    /// Width in logical points.
     pub width: f32,
 }
+/// Text and key for an inspector message.
 #[repr(C)]
 pub struct PxuiInspectorTextDesc {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved: u32,
+    /// Key used to identify the element across frames.
     pub key: Str,
+    /// Borrowed UTF-8 text.
     pub text: Str,
 }
 
+/// Caller-owned writable bytes.
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
 pub struct PxuiU8MutSpan {
+    /// Pointer to the first element of the borrowed span.
     pub ptr: *mut u8,
+    /// Number of elements in the span.
     pub len: usize,
 }
+/// Caller-owned writable span of 32-bit floats.
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
 pub struct PxuiF32MutSpan {
+    /// Pointer to the first element of the borrowed span.
     pub ptr: *mut f32,
+    /// Number of elements in the span.
     pub len: usize,
 }
+/// Caller-owned writable span of 32-bit unsigned integers.
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
 pub struct PxuiU32MutSpan {
+    /// Pointer to the first element of the borrowed span.
     pub ptr: *mut u32,
+    /// Number of elements in the span.
     pub len: usize,
 }
 
+/// Tree topology for a single item in preorder.
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
 pub struct PxuiTreeNode {
+    /// Nesting depth of the tree node.
     pub depth: u16,
+    /// Number of immediate children.
     pub children: u8,
 }
 
@@ -2192,7 +2761,7 @@ pub struct PxuiTreeNode {
 /// run with `pxui_ui_slot`. A slot that is stale is refused.
 #[repr(C)]
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
-pub struct PxuiSlot { pub serial: u64 }
+pub struct PxuiSlot { #[doc = "Serial identifying the handle in its owner."] pub serial: u64 }
 
 /// A registered body: `(user, ui, config)`, `ui` a borrowed `PxuiUi` valid for the call and `config` the kind's record below.
 pub type PxuiBodyFn = Option<extern "C" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *const core::ffi::c_void)>;
@@ -2207,18 +2776,27 @@ pub type PxuiCellBuild = Option<extern "C" fn(*mut core::ffi::c_void, *mut core:
 /// own expansions hold (ABI 1.112). The caller sets `size`; a flag above 1 or non-zero `reserved` is refused.
 #[repr(C)]
 pub struct PxuiTreeViewDesc {
+    /// Size of this record in bytes.
     pub size: u32,
     /// 1 (ABI 1.112): `revision` is the content revision of `nodes` and `open`; the caller changes it when it changes either.
     pub has_revision: u8,
     /// Zero.
     pub reserved: [u8; 3],
+    /// Label supplied by the caller.
     pub label: Str,
+    /// Borrowed nodes in traversal order.
     pub nodes: Slice<PxuiTreeNode>,
+    /// Expansion flags indexed by node.
     pub open: PxuiU8MutSpan,
+    /// Current selection or whether this item is selected.
     pub selected: *mut usize,
+    /// Output storage for the visible traversal indices.
     pub visible: PxuiU32MutSpan,
+    /// Count of visible traversal indices written.
     pub visible_len: *mut usize,
+    /// Callback that supplies the contents.
     pub build: PxuiCellBuild,
+    /// User pointer forwarded unchanged to the callback.
     pub user: *mut core::ffi::c_void,
     /// ABI 1.112: the content revision of `nodes` and `open` (read when `has_revision` is 1).
     pub revision: u64,
@@ -2231,6 +2809,7 @@ use crate::theme::States as PxuiStates;
 macro_rules! configs {
     ($($(#[$doc:meta])* $name:ident { $($(#[$fdoc:meta])* $f:ident: $t:ty),* $(,)? } $(@variant { $($(#[$adoc:meta])* $a:ident: $at:ty),* $(,)? })?)*) => {
         $($(#[$doc])* #[repr(C)] #[derive(Clone, Copy)] pub struct $name {
+            /// Size of this record in bytes.
             pub size: u32, $($(#[$fdoc])* pub $f: $t,)*
             /// The variant the widget call asked for (`Button::variant` and its siblings; ABI 1.52), 0 when it asked for none: one registered body
             /// builds different structures by it. Read it only when `size` covers it.
@@ -2248,16 +2827,16 @@ macro_rules! configs {
 configs! {
     /// `row` is entered and owns `Part::HIT`.
     PxuiToggleConfig {
-        state: PxuiStateDesc, on: u8, row: PxuiBox, label: Str,
+        #[doc = "Current interaction state of the widget."] state: PxuiStateDesc, #[doc = "Current on/off state after input for this frame."] on: u8, #[doc = "Handle of the row the body is drawing."] row: PxuiBox, #[doc = "Borrowed label used by the widget."] label: Str,
         /// The row's height in points the caller asked for (0 the kit's).
         row_h: f32,
         /// The switch's width and height in points the caller asked for (0 the kit's 28 x 14); the knob is 6 less than its height.
         switch_w: f32,
-        switch_h: f32,
+        #[doc = "Requested switch height in logical points."] switch_h: f32,
         /// The looks of the switch and of its knob (`pick(checked)`): the caller's or the theme's; valid for the call. From ABI 1.124 they
         /// carry the caller's looks as given, with colour tokens intact: a C body resolves them with `pxui_ui_color`.
         track: *const PxuiStates,
-        knob: *const PxuiStates,
+        #[doc = "Look of the switch knob, valid for the body call."] knob: *const PxuiStates,
         /// The distance of the label and the switch from the row's sides in points the caller asked for (0 the kit's).
         inset: f32,
         /// 0 or 1: a press anywhere on the row toggles it (behaviour then ignores `Part::HIT`).
@@ -2281,11 +2860,12 @@ configs! {
         reserved3: [u8; 6],
     }
     /// `track` is entered; `fraction` is the value's place, 0 to 1. Behaviour reads `Part::RAIL` and `Part::THUMB`.
-    PxuiSliderConfig { state: PxuiStateDesc, fraction: f32, track: PxuiBox, label: Str }
-    PxuiProgressConfig { has_value: u8, value: f32, row: PxuiBox, label: Str }
+    PxuiSliderConfig { #[doc = "Current interaction state of the widget."] state: PxuiStateDesc, #[doc = "Current progress as a fraction from zero to one."] fraction: f32, #[doc = "Handle of the entered track."] track: PxuiBox, #[doc = "Borrowed label used by the widget."] label: Str }
+    /// Body configuration for a progress indicator.
+    PxuiProgressConfig { #[doc = "Nonzero when a progress value was supplied."] has_value: u8, #[doc = "Value supplied to the widget."] value: f32, #[doc = "Handle of the row the body is drawing."] row: PxuiBox, #[doc = "Borrowed label used by the widget."] label: Str }
     /// `states.pick(state)` is the look the caller asked for, as the caller gave it (U2b.4.30: its colours may name tokens, which `pxui_ui_style` resolves; resolve one with `pxui_ui_color` before a C paint call), or the theme's (resolved); `states` is valid for the call.
     PxuiButtonConfig {
-        state: PxuiStateDesc, bare: u8, icon: u8, at_end: u8, line: PxuiBox, row: PxuiBox, states: *const PxuiStates, label: Str,
+        #[doc = "Current interaction state of the widget."] state: PxuiStateDesc, #[doc = "Whether the body should omit its standard background."] bare: u8, #[doc = "Nonzero when called for an icon-only button."] icon: u8, #[doc = "Whether the button aligns to the end of its line."] at_end: u8, #[doc = "Handle of the line containing the widget."] line: PxuiBox, #[doc = "Handle of the row the body is drawing."] row: PxuiBox, #[doc = "Borrowed looks for the widget states, valid for the body call."] states: *const PxuiStates, #[doc = "Borrowed label used by the widget."] label: Str,
         /// Width kind the caller asked for: 0 the kit's, 1 `w` points, 2 fill.
         w_kind: u8,
         /// Height kind the caller asked for: 0 the kit's, 1 `h` points, 2 fill.
@@ -2360,7 +2940,7 @@ configs! {
     }
     /// `states.pick(state)` is the look the caller asked for, as the caller gave it (U2b.4.30: its colours may name tokens, which `pxui_ui_style` resolves; resolve one with `pxui_ui_color` before a C paint call), or the theme's (resolved); `states` is valid for the call.
     PxuiIconButtonConfig {
-        state: PxuiStateDesc, node: PxuiBox, label: Str, icon: Str, states: *const PxuiStates,
+        #[doc = "Current interaction state of the widget."] state: PxuiStateDesc, #[doc = "Handle of the widget node."] node: PxuiBox, #[doc = "Borrowed label used by the widget."] label: Str, #[doc = "Borrowed glyph text; empty when using the drawing callback."] icon: Str, #[doc = "Borrowed looks for the widget states, valid for the body call."] states: *const PxuiStates,
         /// Width kind the caller asked for: 0 the kit's square, 1 `w` points, 2 fill.
         w_kind: u8,
         /// Height kind the caller asked for: 0 the kit's square, 1 `h` points, 2 fill.
@@ -2376,7 +2956,7 @@ configs! {
         /// The app's drawing of the icon (null for a glyph or a drawing that did not cross the ABI) and its user data: the body
         /// paints it, in `ink`, by calling it from a paint callback of its own on a node (`pxui_ui_draw`).
         draw: PxuiIconDraw,
-        draw_user: *mut core::ffi::c_void,
+        #[doc = "User pointer passed unchanged to the icon drawing callback."] draw_user: *mut core::ffi::c_void,
         /// The look's text colour for `state`.
         ink: Rgba,
     } @variant {
@@ -2390,7 +2970,7 @@ configs! {
         built_in: PxuiSlot,
     }
     /// A checkbox or a radio option.
-    PxuiCheckConfig { state: PxuiStateDesc, on: u8, row: PxuiBox, label: Str } @variant {
+    PxuiCheckConfig { #[doc = "Current interaction state of the widget."] state: PxuiStateDesc, #[doc = "Current on/off state after input for this frame."] on: u8, #[doc = "Handle of the row the body is drawing."] row: PxuiBox, #[doc = "Borrowed label used by the widget."] label: Str } @variant {
         /// ABI 1.85 (read when `size` covers it): the box's look per state (`pick(checked)`): the caller's (`Checkbox::look`)
         /// as the caller gave it (U2b.4.30: its colours may name tokens, which `pxui_ui_style` resolves; resolve one with `pxui_ui_color` before a C paint call), or the theme's (resolved); valid for the call.
         states: *const PxuiStates,
@@ -2402,18 +2982,22 @@ configs! {
         /// Zero.
         reserved2: [u8; 3],
     }
-    PxuiSpinnerConfig { node: PxuiBox, label: Str }
-    PxuiBadgeConfig { node: PxuiBox, label: Str, text: Str }
+    /// Body configuration for an indeterminate activity indicator.
+    PxuiSpinnerConfig { #[doc = "Handle of the widget node."] node: PxuiBox, #[doc = "Borrowed label used by the widget."] label: Str }
+    /// Body configuration for a badge.
+    PxuiBadgeConfig { #[doc = "Handle of the widget node."] node: PxuiBox, #[doc = "Borrowed label used by the widget."] label: Str, #[doc = "Borrowed text displayed by the body."] text: Str }
     /// The record grows at its end in ABI 1.45 by `style`, the label's style as the caller gave it (unset fields: the theme's);
     /// a body reads it only when `size` covers it.
-    PxuiLabelConfig { first: u8, node: PxuiBox, text: Str, style: PxuiLabelStyle } @variant {
+    PxuiLabelConfig { #[doc = "Whether this is the first item in the group."] first: u8, #[doc = "Handle of the widget node."] node: PxuiBox, #[doc = "Borrowed text displayed by the body."] text: Str, #[doc = "Text style supplied by the caller."] style: PxuiLabelStyle } @variant {
         /// ABI 1.54 (read when `size` covers it): the label's box as the caller gave it (height, role, whole pixels).
         label_box: PxuiLabelBox,
     }
-    PxuiFooterConfig { row: PxuiBox, has_right: u8, right: Str, hints: Slice<PxuiHintDesc> }
-    PxuiGripConfig { state: PxuiStateDesc, vertical: u8, floating: u8, grip: PxuiBox }
+    /// Body configuration for footer text and hints.
+    PxuiFooterConfig { #[doc = "Handle of the row the body is drawing."] row: PxuiBox, #[doc = "Nonzero when trailing footer text was supplied."] has_right: u8, #[doc = "Borrowed trailing footer text."] right: Str, #[doc = "Borrowed footer hints in display order."] hints: Slice<PxuiHintDesc> }
+    /// Body configuration for a resize grip.
+    PxuiGripConfig { #[doc = "Current interaction state of the widget."] state: PxuiStateDesc, #[doc = "Whether the grip is vertical."] vertical: u8, #[doc = "Whether the grip floats above adjacent content."] floating: u8, #[doc = "Handle of the grip node."] grip: PxuiBox }
     /// A panel, window, popup or modal sheet.
-    PxuiPanelConfig { node: PxuiBox, label: Str, content: PxuiSlot } @variant {
+    PxuiPanelConfig { #[doc = "Handle of the widget node."] node: PxuiBox, #[doc = "Borrowed label used by the widget."] label: Str, #[doc = "Slot that builds the supplied contents."] content: PxuiSlot } @variant {
         /// ABI 1.86 (read when `size` covers it): how the sheet is presented (`Overlay::present`): 0 centred (every sheet but a modal's),
         /// 1 on the content area's bottom edge, 2 filling it, 3 anchored at its top (ABI 1.90, a modal asked to be `Top`; a body draws a
         /// value it does not know as 0). A body may dress the sheet by it; its place and drag-to-dismiss stay with
@@ -2423,7 +3007,7 @@ configs! {
     /// The record grows at its end in ABI 1.53 by the buttons' flags (the first 64 buttons): `default_at` and `cancel_at` are the index
     /// of the button Return and Escape choose (-1 for none), bit `i` of `danger` marks button `i` as a destructive choice (its label in the
     /// theme's invalid colour) and bit `i` of `disabled` as one that takes no press; a body reads them only when `size` covers them.
-    PxuiDialogConfig { title: Str, buttons: Slice<Str>, content: PxuiSlot, default_at: i64, cancel_at: i64, danger: u64, disabled: u64 } @variant {
+    PxuiDialogConfig { #[doc = "Title of the widget or handle of its title node, according to the field type."] title: Str, #[doc = "Borrowed dialog button labels in declaration order."] buttons: Slice<Str>, #[doc = "Slot that builds the supplied contents."] content: PxuiSlot, #[doc = "Index selected by Return, or -1 for none."] default_at: i64, #[doc = "Index selected by Escape, or -1 for none."] cancel_at: i64, #[doc = "Mask of destructive buttons, one bit per index."] danger: u64, #[doc = "Mask of disabled buttons, one bit per index."] disabled: u64 } @variant {
         /// ABI 1.71 (read when `size` covers it): each button's detail line (`DialogButton::detail`; empty: none), as many as `buttons`;
         /// valid for the call.
         details: Slice<Str>,
@@ -2432,14 +3016,20 @@ configs! {
         /// `variant`, so their presses, focus and looks for each state are the kit's and the theme's.
         built_in: PxuiSlot,
     }
-    PxuiSectionConfig { open: u8, gap: f32, title: PxuiBox, label: Str, content: PxuiSlot }
-    PxuiInspectorRowConfig { state: PxuiStateDesc, has_pin: u8, pin: u8, label_w: f32, row: PxuiBox, label: Str }
+    /// Body configuration for a collapsible section.
+    PxuiSectionConfig { #[doc = "Current expansion state."] open: u8, #[doc = "Spacing between the title and contents in logical points."] gap: f32, #[doc = "Title of the widget or handle of its title node, according to the field type."] title: PxuiBox, #[doc = "Borrowed label used by the widget."] label: Str, #[doc = "Slot that builds the supplied contents."] content: PxuiSlot }
+    /// Body configuration for an inspector row.
+    PxuiInspectorRowConfig { #[doc = "Current interaction state of the widget."] state: PxuiStateDesc, #[doc = "Nonzero when the row has a pin control."] has_pin: u8, #[doc = "Current pin state."] pin: u8, #[doc = "Width of the label column in logical points."] label_w: f32, #[doc = "Handle of the row the body is drawing."] row: PxuiBox, #[doc = "Borrowed label used by the widget."] label: Str }
     /// `axis` is 0 row, 1 column, 2 stack.
-    PxuiSplitConfig { axis: u32, ratio: f32, min_a: f32, min_b: f32, split: PxuiBox, first: PxuiSlot, second: PxuiSlot }
-    PxuiScrollConfig { node: PxuiBox, content: PxuiSlot }
-    PxuiToastsConfig { state: PxuiStateDesc, node: PxuiBox, text: Str }
-    PxuiTooltipConfig { width: f32, height: f32, tip: PxuiBox, lines: Slice<Str> }
-    PxuiTabsConfig { state: PxuiStateDesc, index: usize, node: PxuiBox, text: Str } @variant {
+    PxuiSplitConfig { #[doc = "Axis along which the panes are laid out."] axis: u32, #[doc = "Fraction of the split assigned to the first pane."] ratio: f32, #[doc = "Minimum extent of the first pane in logical points."] min_a: f32, #[doc = "Minimum extent of the second pane in logical points."] min_b: f32, #[doc = "Handle of the split container."] split: PxuiBox, #[doc = "Slot that builds the first pane."] first: PxuiSlot, #[doc = "Slot that builds the second pane."] second: PxuiSlot }
+    /// Body configuration for a scroll view.
+    PxuiScrollConfig { #[doc = "Handle of the widget node."] node: PxuiBox, #[doc = "Slot that builds the supplied contents."] content: PxuiSlot }
+    /// Body configuration for a toast.
+    PxuiToastsConfig { #[doc = "Current interaction state of the widget."] state: PxuiStateDesc, #[doc = "Handle of the widget node."] node: PxuiBox, #[doc = "Borrowed text displayed by the body."] text: Str }
+    /// Body configuration for wrapped tooltip text.
+    PxuiTooltipConfig { #[doc = "Width in logical points."] width: f32, #[doc = "Height in logical points."] height: f32, #[doc = "Handle of the tooltip container."] tip: PxuiBox, #[doc = "Borrowed tooltip lines in display order."] lines: Slice<Str> }
+    /// Body configuration for a tab in the tab bar.
+    PxuiTabsConfig { #[doc = "Current interaction state of the widget."] state: PxuiStateDesc, #[doc = "Index of this item in declaration order."] index: usize, #[doc = "Handle of the widget node."] node: PxuiBox, #[doc = "Borrowed text displayed by the body."] text: Str } @variant {
         /// ABI 1.84 (read when `size` covers it): the tab's detail after its text (`Segment::detail`: a count or badge; empty: none);
         /// valid for the call.
         detail: Str,
@@ -2450,12 +3040,12 @@ configs! {
     }
     /// A section index (ABI 1.85): the strip of letters of `Ui::section_index`, entered as `node`; `letters` are the letters (valid for the
     /// call), `active` the letter the pointer holds or the last one chosen when `has_active` is 1.
-    PxuiSectionIndexConfig { state: PxuiStateDesc, has_active: u8, active: usize, node: PxuiBox, letters: Slice<Str> }
+    PxuiSectionIndexConfig { #[doc = "Current interaction state of the widget."] state: PxuiStateDesc, #[doc = "Nonzero when `active` names a letter."] has_active: u8, #[doc = "Index of the active letter."] active: usize, #[doc = "Handle of the widget node."] node: PxuiBox, #[doc = "Borrowed section letters in display order."] letters: Slice<Str> }
     /// `selected` is the chosen option's index when `has_selected` is 1 (ABI 1.67, read when `size` covers it; 0 with `selected` 0 for no
     /// choice, final); `state.focused` the segment holding the keyboard focus (from ABI 1.67 the strip's one Tab stop is the chosen
     /// segment, else the first).
     PxuiSegmentedConfig {
-        state: PxuiStateDesc, index: usize, selected: usize, group: i64, node: PxuiBox, text: Str,
+        #[doc = "Current interaction state of the widget."] state: PxuiStateDesc, #[doc = "Index of this item in declaration order."] index: usize, #[doc = "Current selection or selection state of this item."] selected: usize, #[doc = "Key of the group containing this segment."] group: i64, #[doc = "Handle of the widget node."] node: PxuiBox, #[doc = "Borrowed text displayed by the body."] text: Str,
         /// The look per state of a segment: the caller's as the caller gave it (U2b.4.30: its colours may name tokens, which `pxui_ui_style` resolves; resolve one with `pxui_ui_color` before a C paint call), or the theme's (resolved); valid for the call.
         states: *const PxuiStates,
         /// 0 or 1: the segments share the strip's width instead of each being as wide as its text.
@@ -2468,7 +3058,7 @@ configs! {
         /// ABI 1.58 (read when `size` covers it): the line the strip sits in (the row's height, `space(2)` padding at its ends) and the
         /// strip (a group holding the segments, no look of its own): a body may restyle or resize both, so it owns the container.
         line: PxuiBox,
-        strip: PxuiBox,
+        #[doc = "Handle of the segment strip."] strip: PxuiBox,
         /// ABI 1.67 (read when `size` covers it): 1 when `selected` is the choice, 0 when no option is chosen (`selected` then 0).
         has_selected: u8,
         /// Zero.
@@ -2477,32 +3067,36 @@ configs! {
         /// `PxuiToggleConfig::stored` is the toggle's: `stored` is that option's index when `has_stored` is 1, 0 when the caller passed no choice
         /// (`stored` then 0). Clamped to the options, as `selected`.
         stored: usize,
-        has_stored: u8,
+        #[doc = "Nonzero when the caller supplied a previously selected option."] has_stored: u8,
         /// Zero.
         reserved4: [u8; 7],
     }
-    PxuiDropdownConfig { state: PxuiStateDesc, open: u8, key: i64, button: PxuiBox, text: Str }
+    /// Body configuration for a dropdown trigger.
+    PxuiDropdownConfig { #[doc = "Current interaction state of the widget."] state: PxuiStateDesc, #[doc = "Current expansion state."] open: u8, #[doc = "Widget identity key."] key: i64, #[doc = "Handle of the dropdown trigger."] button: PxuiBox, #[doc = "Borrowed text displayed by the body."] text: Str }
     /// A menu bar title or a row of an open menu.
-    PxuiMenuItemConfig { state: PxuiStateDesc, index: usize, node: PxuiBox, text: Str }
+    PxuiMenuItemConfig { #[doc = "Current interaction state of the widget."] state: PxuiStateDesc, #[doc = "Index of this item in declaration order."] index: usize, #[doc = "Handle of the widget node."] node: PxuiBox, #[doc = "Borrowed text displayed by the body."] text: Str }
     /// A context menu row: `selected` is the accent mark of `MenuItem::checked`; `state.checked` (from ABI 1.55) the row being the current
     /// choice of a settings menu (`MenuItem::selected`, the theme's `checked` menu look).
     PxuiMenuRowConfig {
-        state: PxuiStateDesc, selected: u8, chevron: u8, danger: u8, has_swatch: u8, swatch: Rgba, has_shortcut: u8, index: i64, lead: f32, swatch_pad: f32,
-        row: PxuiBox, text: Str, shortcut: Str, row_h: f32
+        #[doc = "Current interaction state of the widget."] state: PxuiStateDesc, #[doc = "Current selection or selection state of this item."] selected: u8, #[doc = "Nonzero when this menu item opens a submenu."] chevron: u8, #[doc = "Whether to draw a destructive action."] danger: u8, #[doc = "Nonzero when the row carries a colour swatch."] has_swatch: u8, #[doc = "Colour swatch requested by the caller."] swatch: Rgba, #[doc = "Nonzero when shortcut text is present."] has_shortcut: u8, #[doc = "Index of this item in declaration order."] index: i64, #[doc = "Extent of the leading contents in logical points."] lead: f32, #[doc = "Space around the swatch in logical points."] swatch_pad: f32,
+        #[doc = "Handle of the row the body is drawing."] row: PxuiBox, #[doc = "Borrowed text displayed by the body."] text: Str, #[doc = "Borrowed text describing the keyboard shortcut."] shortcut: Str, #[doc = "Requested row height in logical points."] row_h: f32
     }
     /// A `selection_list` or `table_row` row; `content` is the text or the caller's cells. `drop` (ABI 1.88): a carried payload, 0 none,
     /// 1 would land before the row, 2 after it (a reorderable list: the body draws the insertion line), 3 over the row (a list with a
     /// drop look, which behaviour has applied to the row).
-    PxuiRowConfig { state: PxuiStateDesc, index: usize, row: PxuiBox, content: PxuiSlot, drop: u8 }
-    PxuiTreeRowConfig { state: PxuiStateDesc, has: u8, open: u8, index: usize, node: usize, depth: usize, row: PxuiBox, content: PxuiSlot }
-    PxuiTableHeadConfig { state: PxuiStateDesc, has_ascending: u8, ascending: u8, index: usize, node: PxuiBox, title: Str } @variant {
+    PxuiRowConfig { #[doc = "Current interaction state of the widget."] state: PxuiStateDesc, #[doc = "Index of this item in declaration order."] index: usize, #[doc = "Handle of the row the body is drawing."] row: PxuiBox, #[doc = "Slot that builds the supplied contents."] content: PxuiSlot, #[doc = "Position where releasing the carried payload would drop it."] drop: u8 }
+    /// Body configuration for a row in a tree.
+    PxuiTreeRowConfig { #[doc = "Current interaction state of the widget."] state: PxuiStateDesc, #[doc = "Nonzero when this tree row has children."] has: u8, #[doc = "Current expansion state."] open: u8, #[doc = "Index of this item in declaration order."] index: usize, #[doc = "Index of this node in the input tree."] node: usize, #[doc = "Tree depth of this row."] depth: usize, #[doc = "Handle of the row the body is drawing."] row: PxuiBox, #[doc = "Slot that builds the supplied contents."] content: PxuiSlot }
+    /// Body configuration for a table column heading.
+    PxuiTableHeadConfig { #[doc = "Current interaction state of the widget."] state: PxuiStateDesc, #[doc = "Nonzero when this column controls sorting."] has_ascending: u8, #[doc = "Whether the active sort is ascending."] ascending: u8, #[doc = "Index of this item in declaration order."] index: usize, #[doc = "Handle of the widget node."] node: PxuiBox, #[doc = "Title of the widget or handle of its title node, according to the field type."] title: Str } @variant {
         /// ABI 1.129: the kit's built-in table heading body for this config, run with `pxui_ui_slot` (the Rust `Ui::slot`): a registered
         /// body that does not style a heading (another table's) draws the kit's heading exactly as an unregistered theme would.
         built_in: PxuiSlot,
     }
+    /// Body configuration for a result in the picker.
     PxuiPickerRowConfig {
-        state: PxuiStateDesc, current: u8, doomed: u8, unavailable: u8, marked: u8, has_swatch: u8, swatch: Rgba, index: i64,
-        row: PxuiBox, label: Str, detail: Str, query: Str
+        #[doc = "Current interaction state of the widget."] state: PxuiStateDesc, #[doc = "Whether this is the current picker result."] current: u8, #[doc = "Whether the result is marked for removal."] doomed: u8, #[doc = "Whether the result is unavailable."] unavailable: u8, #[doc = "Whether this picker result is marked."] marked: u8, #[doc = "Nonzero when the row carries a colour swatch."] has_swatch: u8, #[doc = "Colour swatch requested by the caller."] swatch: Rgba, #[doc = "Index of this item in declaration order."] index: i64,
+        #[doc = "Handle of the row the body is drawing."] row: PxuiBox, #[doc = "Borrowed label used by the widget."] label: Str, #[doc = "Borrowed secondary text."] detail: Str, #[doc = "Borrowed search query."] query: Str
     } @variant {
         /// ABI 1.86 (extension set; read when `size` covers it): the row's artwork or icon slot, `PXUI_PICK_ART_NONE` 0, `_GLYPH` 1 (`art`
         /// is the icon font character's code point, which the built-in body draws), `_IMAGE` 2 (`art` is an `Images` id, drawn by a
@@ -2510,7 +3104,7 @@ configs! {
         art_kind: u8,
         /// Zero.
         reserved3: [u8; 7],
-        art: u64,
+        #[doc = "Artwork identifier interpreted according to `art_kind`."] art: u64,
         /// ABI 1.110 (U2b.4.15): 1 when the picker gave the row an image (`image`, which the built-in body draws in the art slot).
         has_image: u8,
         /// ABI 1.110 (U2b.4.15): 1 when the row starts a group: `head` is its heading, a box above the row that behaviour made (its
@@ -2525,7 +3119,7 @@ configs! {
     }
     /// `editor` is a slot that builds the editing surface and returns whether the query is not empty (`pxui_ui_slot`'s `out`); a
     /// `Part::EDITOR` the body built before it is that surface, edited in its look's font (U2b.4.4). Behaviour reads `Part::CLEAR`.
-    PxuiSearchFieldConfig { state: PxuiStateDesc, key: i64, well: PxuiBox, icon: Str, editor: PxuiSlot } @variant {
+    PxuiSearchFieldConfig { #[doc = "Current interaction state of the widget."] state: PxuiStateDesc, #[doc = "Widget identity key."] key: i64, #[doc = "Handle of the search field well."] well: PxuiBox, #[doc = "Icon requested by the caller."] icon: Str, #[doc = "Slot that builds the text editor."] editor: PxuiSlot } @variant {
         /// ABI 1.102: the field's line (the kit's row: the control height, `space(2)` at each side, `well` inside it), which a body
         /// sizes with `pxui_ui_set_node_layout` as a button body sizes `PxuiButtonConfig.line`.
         line: PxuiBox,
@@ -2533,11 +3127,14 @@ configs! {
         /// behaviour owns with the key's press, role and name; the body styles the key for it (`pxui_ui_style`).
         clear: PxuiStateDesc,
     }
-    PxuiTextFieldConfig { state: PxuiStateDesc, row: PxuiBox, label: Str, value: Str }
-    PxuiLineFieldConfig { state: PxuiStateDesc, empty: u8, field: PxuiBox, text: Str }
+    /// Body configuration for a single-line text field.
+    PxuiTextFieldConfig { #[doc = "Current interaction state of the widget."] state: PxuiStateDesc, #[doc = "Handle of the row the body is drawing."] row: PxuiBox, #[doc = "Borrowed label used by the widget."] label: Str, #[doc = "Value supplied to the widget."] value: Str }
+    /// Body configuration for a line field.
+    PxuiLineFieldConfig { #[doc = "Current interaction state of the widget."] state: PxuiStateDesc, #[doc = "Whether the field has no text."] empty: u8, #[doc = "Handle of the field container."] field: PxuiBox, #[doc = "Borrowed text displayed by the body."] text: Str }
     /// `opts` holds the caller's options (its strings borrowed for the call); its place, label and value are unset.
-    PxuiValueFieldConfig { state: PxuiStateDesc, invalid: u8, w: f32, h: f32, field: PxuiBox, opts: PxuiValueFieldDesc, text: Str }
-    PxuiPickerFieldConfig { state: PxuiStateDesc, empty: u8, slash: u8, prefix: f32, inset: f32, search: PxuiBox, placeholder: Str } @variant {
+    PxuiValueFieldConfig { #[doc = "Current interaction state of the widget."] state: PxuiStateDesc, #[doc = "Whether the current value is invalid."] invalid: u8, #[doc = "Requested width in logical points."] w: f32, #[doc = "Requested height in logical points."] h: f32, #[doc = "Handle of the field container."] field: PxuiBox, #[doc = "Field options supplied by the caller."] opts: PxuiValueFieldDesc, #[doc = "Borrowed text displayed by the body."] text: Str }
+    /// Body configuration for the search and results of a picker.
+    PxuiPickerFieldConfig { #[doc = "Current interaction state of the widget."] state: PxuiStateDesc, #[doc = "Whether the field has no text."] empty: u8, #[doc = "Whether the picker is showing slash commands."] slash: u8, #[doc = "Width reserved for the query prefix in logical points."] prefix: f32, #[doc = "Inner spacing in logical points."] inset: f32, #[doc = "Handle of the search container."] search: PxuiBox, #[doc = "Borrowed text shown for an empty query."] placeholder: Str } @variant {
         /// ABI 1.111 (U2b.4.16): the results region, the scrolling list built before the body runs (`Fit` high, at most the picker's
         /// limit of kit rows), which a body lays out with `pxui_ui_set_node_layout` (maximum and minimum height, padding inside the
         /// scroll) as a search field body sizes `PxuiSearchFieldConfig.line`.

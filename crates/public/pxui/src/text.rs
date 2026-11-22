@@ -156,7 +156,18 @@ pub struct RetiredText(NonNull<PxuiPreparedText>);
 unsafe impl Send for PreparedText {}
 unsafe impl Send for RetiredText {}
 
-impl PreparedText { pub fn metrics(&self)->TextMetrics { self.metrics } }
+impl PreparedText {
+    /// Returns measurements of text prepared by the worker.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// fn width(text: &pxui::PreparedText) -> f32 { text.metrics().width }
+    /// let _ = width;
+    /// ```
+    pub fn metrics(&self)->TextMetrics { self.metrics }
+}
 impl Drop for PreparedText { fn drop(&mut self) { unsafe { lib::pxui_prepared_destroy(self.raw.as_ptr()) } } }
 impl Drop for RetiredText { fn drop(&mut self) { unsafe { lib::pxui_prepared_destroy(self.0.as_ptr()) } } }
 

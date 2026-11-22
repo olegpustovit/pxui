@@ -233,13 +233,13 @@ impl<'a> Paint<'a> {
         let style = PxuiLabelStyle::from(&style);
         unsafe { lib::pxui_paint_label_chars(self.raw(), at.x, at.y, &style, crate::as_str(s)) }
     }
-    /// Draws `text` at `at` (the top-left of its layout, in points; the first baseline is `TextMetrics::baseline` below it) in one shaped layout, wrapped within `width` points (0: unbounded), with up to eight styled byte ranges `spans`; returns its metrics.
+    /// Draws `text` at `at` (the top-left of its layout, in points; the first baseline is `TextMetrics::baseline` below it) in one shaped layout, wrapped within `width` points (0: unbounded), with up to 256 styled byte ranges `spans`; returns its metrics.
     ///
     /// `style` is a `Label`, resolved in this call under the painter's theme as `Paint::text` resolves it; the text is in the label's colour
     /// token, or the theme's ink when the label sets none. Spans may colour their own ranges. Spans are ordered, non-overlapping and nonempty, as UTF-8 byte ranges of `text` on character boundaries.
     /// Allocates: never when warm; text it has not shaped before is shaped once.
     /// Panics: never; a bad argument is the `Err` below.
-    /// Errors: `Error::InvalidInput` for more than eight or overlapping spans, a bad range or a non-finite size; `Error::State` when a span is open.
+    /// Errors: `Error::InvalidInput` for more than 256 or overlapping spans, a bad range or a non-finite size; `Error::State` when a span is open.
     ///
     /// ```
     /// use pxui::{Label, TextSpan};
@@ -250,7 +250,7 @@ impl<'a> Paint<'a> {
     ///     let node = ui.node("rich", pxui::Node::DEFAULT.w(pxui::ui::Size::Px(200.0)).h(pxui::ui::Size::Px(30.0)));
     ///     let out = out.clone();
     ///     ui.canvas(&node, move |paint, rect| {
-    ///         let bold = { let mut record = TextSpan::new(0, 5); record.weight = 700; record };
+    ///         let bold = TextSpan::new(0, 5).weight(700);
     ///         out.set(paint.text_spans(pxui::Point::new(rect.x, rect.y), Label::BODY, 0.0, "Hello world", &[bold]).unwrap().width);
     ///     });
     /// });

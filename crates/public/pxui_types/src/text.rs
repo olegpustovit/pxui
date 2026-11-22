@@ -447,25 +447,33 @@ impl Label {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TextMetrics {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Width in logical points.
     pub width: f32,
+    /// Height in logical points.
     pub height: f32,
     /// Distance, in points, from the top of the layout to its first line's baseline: `Paint::text`, `text_spans` and `text_chars` put
     /// the first baseline this far below `at`.
     pub baseline: f32,
+    /// Number of laid-out text lines.
     pub lines: u32,
 }
 impl Default for TextMetrics {
     fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, width: 0.0, height: 0.0, baseline: 0.0, lines: 0 } }
 }
 
+/// Positioned glyph and its atlas coordinates.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct TextGlyph {
+    /// Glyph bounds as x, y, width and height in logical points.
     pub rect: [f32; 4],
+    /// Texture coordinates of the glyph in its atlas page.
     pub uv: [f32; 4],
     /// 0/1: first mask/colour pages; 2/3: second mask/colour pages (ABI 1.7).
     pub atlas: u32,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved: u32,
 }
 
@@ -474,11 +482,17 @@ pub struct TextGlyph {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct TextSpan {
+    /// Inclusive UTF-8 byte offset of the span.
     pub start: u32,
+    /// Exclusive UTF-8 byte offset of the span.
     pub end: u32,
+    /// Font weight, with zero selecting the default where supported.
     pub weight: u16,
+    /// Mask of colour, background and underline overrides.
     pub flags: u16,
+    /// Text colour used when the colour bit is set.
     pub color: crate::geom::Rgba,
+    /// Background colour used when the background bit is set.
     pub background: crate::geom::Rgba,
     /// A 1.5-point rule at the bottom of the line box, independent of glyph colour.
     pub underline: crate::geom::Rgba,
@@ -542,8 +556,11 @@ impl TextSpan {
     /// ```
     pub const fn underline(self, underline: crate::geom::Rgba) -> TextSpan { TextSpan { underline, flags: self.flags | TextSpan::UNDERLINE, ..self } }
 
+    /// Bit indicating a text colour override.
     pub const COLOR: u16=1;
+    /// Bit indicating a background colour override.
     pub const BACKGROUND: u16=2;
+    /// Bit indicating an underline colour override.
     pub const UNDERLINE: u16=4;
 }
 
@@ -557,7 +574,9 @@ impl TextSpan {
 pub struct TextSpans<'a> {
     /// `size_of::<TextSpans>()` (32); a shorter record is refused.
     pub size: u32,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved: u32,
+    /// Borrowed run of styled text spans.
     pub spans: crate::ffi::Strided<TextSpan>,
     borrowed: core::marker::PhantomData<&'a [TextSpan]>,
 }

@@ -12,6 +12,7 @@ mod sys {
     use crate::sys::PxuiUi;
     use pxui_types::{ffi::A11yTree, Str};
 
+    /// Opaque ABI handle for the native accessibility bridge.
     #[repr(C)] pub struct PxuiA11y { _private: [u8; 0] }
     #[link(name = "pxui")]
     unsafe extern "C" {

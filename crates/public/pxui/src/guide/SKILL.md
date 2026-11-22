@@ -11,20 +11,19 @@ the function you call (what it does, `Allocates:`, `Identity:`, `Panics:`, examp
 
 ## The shape
 
-- Style and option types (`Label`, `Button`, `IconButton`, `Toggle`, `Segmented`, `Menu`, `MenuItem`, `Dialog`,
-  `DialogButton`, `Segment`, `Node`) are `Copy` values with a `DEFAULT` (labels also `BODY`, `CAPTION`, `TITLE`, `MONO`)
-  and `const fn` builders that take `self` by value. Declare them as `const` items; never write a struct literal with
-  `..Default::default()` at a call site, and never build a style per frame from data.
-- One function per job. `label`, `label_fmt`, `label_digits`; `button` (text) and `button_content` (your own
-  contents); `icon_button`; `toggle`; `segmented`; `menu`; `dialog`; `pressable`; `list`; `view_of`;
-  `row`, `column`, `stack`; `id` scopes keys. Interactive calls take a key first; there are no keyless short forms.
-- Labels are leaves: no key, identity by position among siblings, no state. Everything interactive takes a key first.
+- Build shared style values as constants using presets and const builders. `Button::DEFAULT` and `Label::BODY` are starting points. A one-off style can be built inline, including options such as `.disabled(!ready)` that depend on the model.
+- Use the kit call for each widget. `button(key, text, &style)` supplies text and `button_content` supplies custom children. The C ABI’s `*_plain` entries serve the string-only fast path. Use a registered body and theme variant to change a kit widget's structure.
+- Interactive calls take their identity first. Static labels already follow their sibling position. Use `id` to give a section its own key scope, and use `view_of` or virtual collections to retain stable content.
 
 ## Keys
 
 A key is a `&'static str` or an item id (`i64`/`u64`). Never the display text: text changes (translation, a
 counter, a song title) would reset the widget's hover, press, focus and animation state, and two equal texts
 collide. A list row is keyed by its model id, so reordering moves its state with it.
+
+## Frames and hosts
+
+Create a `Ui` with `Ui::new(&UiDesc::DEFAULT)`. Submit borrowed `Event`s using `FrameIn::new(width, height).events(&events)`, then use the same `Ui` to build each frame. A second surface has a distinct id and registration. The host applies input method and clipboard requests from the frame output and uses the draw layers until the next mutable call.
 
 ## Rows, labels and pressables
 

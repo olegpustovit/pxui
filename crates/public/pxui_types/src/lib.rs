@@ -152,14 +152,27 @@ impl core::ops::BitOrAssign for Flags {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub enum Size {
+    /// Uses a fixed length in logical points.
     Px(f32),
+    /// Uses a fraction of the available extent.
     Pct(f32),
+    /// Evaluates a host function against the available extent.
     Rel(extern "C" fn(f32) -> f32),
+    /// Fills the space available from the parent.
     Grow,
+    /// Sizes to fit the content.
     Fit,
 }
 
 impl Size {
+    /// Reports whether this size fills the available extent.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert!(pxui_types::Size::Grow.is_grow());
+    /// ```
     pub fn is_grow(&self) -> bool {
         matches!(self, Self::Grow)
     }
@@ -169,15 +182,22 @@ impl Size {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct View {
+    /// Distance from the relevant origin in logical points.
     pub offset: [f32; 2],
+    /// Multiplier for the element alpha, from zero to one.
     pub opacity: f32,
+    /// Clip region in logical points.
     pub clip: [f32; 4],
+    /// Drawable pixels per logical point.
     pub scale: f32,
+    /// Transform applied to local coordinates.
     pub transform: [f32; 4],
+    /// Origin about which the transform is applied.
     pub pivot: [f32; 2],
 }
 
 impl View {
+    /// Transform that leaves coordinates and opacity unchanged.
     pub const IDENTITY: Self = Self {
         offset: [0.0; 2],
         opacity: 1.0,
@@ -187,6 +207,15 @@ impl View {
         pivot: [0.0; 2],
     };
 
+    /// Creates a view rotated by radians about the supplied pivot.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let view = pxui_types::View::rotation(0.0, [0.0, 0.0]);
+    /// assert_eq!(view.transform, pxui_types::View::IDENTITY.transform);
+    /// ```
     pub fn rotation(radians: f32, pivot: [f32; 2]) -> Self {
         let (s, c) = radians.sin_cos();
         Self {
@@ -197,6 +226,7 @@ impl View {
     }
 }
 
+/// Maximum number of draw layers available in a frame.
 pub const MAX_LAYERS: usize = 64;
 
 /// Status codes of every `pxui_*` call that returns `i32`: 0 is success, a negative value one of these.
@@ -218,12 +248,16 @@ pub const PXUI_ERR_VERSION: i32 = -6;
 /// is that character; `KEY_SPECIAL + n` is the special key `n` (arrows, enter, F-keys...) in the
 /// order documented in `pxui.h`; `KEY_UNKNOWN | code` carries a platform code the library has no name for.
 pub const KEY_SPECIAL: u32 = 0x11_0000;
+/// Bit identifying a platform key code without a portable name.
 pub const KEY_UNKNOWN: u32 = 0x8000_0000;
 
+/// Borrowed byte span containing UTF-8 text where required.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Str {
+    /// Pointer to the first byte of the borrowed span.
     pub ptr: *const u8,
+    /// Length of the byte span in bytes.
     pub len: usize,
 }
 
@@ -344,14 +378,32 @@ impl TextTraits {
     /// ```
     pub const fn action(mut self, action: ReturnKey) -> Self { self.action = action; self }
     /// Whether the platform keyboard corrects words.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert!(pxui_types::TextTraits::DEFAULT.autocorrects());
+    /// ```
     pub const fn autocorrects(&self) -> bool { self.autocorrect }
     /// The platform keyboard's capitalization.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert_eq!(pxui_types::TextTraits::DEFAULT.capitalizes(), pxui_types::Capitalize::Sentences);
+    /// ```
     pub const fn capitalizes(&self) -> Capitalize { self.capitalization }
     /// The return key's action.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert_eq!(pxui_types::TextTraits::DEFAULT.return_key(), pxui_types::ReturnKey::Return);
+    /// ```
     pub const fn return_key(&self) -> ReturnKey { self.action }
 }
 
-/// ABI 1.25 TOUCH payload, borrowed through Event::text (len = size_of::<Touch>()).
+/// Sized `TOUCH` payload borrowed through `Event::text`, with `size_of::<Touch>()` bytes.
 /// Phase: 0 began, 1 moved, 2 ended, 3 cancelled. Position: logical points; time: source monotonic seconds.
 /// Pressure is finite in 0..=1. Positions may lie outside the window; identities retain all 64 bits.
 #[repr(C)]
@@ -362,12 +414,19 @@ pub struct Touch {
     pub size:u32,
     /// Phase: 0 began, 1 moved, 2 ended, 3 cancelled; any other value is refused.
     pub phase:u32,
+    /// Stable id of the touch input device.
     pub device:u64,
+    /// Id of the contact on that device.
     pub finger:u64,
+    /// Horizontal coordinate in logical points.
     pub x:f64,
+    /// Vertical coordinate in logical points.
     pub y:f64,
+    /// Time in seconds on the host monotonic clock.
     pub time:f64,
+    /// Normalized pressure reported by the touch device.
     pub pressure:f32,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved:u32,
 }
 impl Default for Touch { fn default() -> Self { Touch::new(0, 0, [0.0; 2], 0.0, 0.0, 0) } }
@@ -399,13 +458,21 @@ impl Touch {
 pub struct Event {
     /// `size_of::<Event>()` (64); a longer record is read as its first 64 bytes, a shorter one refused. `new` and `default` set it.
     pub size: u32,
+    /// Discriminant that determines the meaning of the remaining fields.
     pub kind: u32,
+    /// Nonzero id of the surface this record addresses.
     pub surface: u64,
+    /// Code interpreted according to the event kind.
     pub code: u32,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved: u32,
+    /// Horizontal coordinate in logical points.
     pub x: f64,
+    /// Vertical coordinate in logical points.
     pub y: f64,
+    /// Scalar payload interpreted according to `kind`.
     pub value: f64,
+    /// Borrowed event payload, interpreted according to `kind`.
     pub text: Str,
 }
 impl Default for Event { fn default() -> Self { Event::new(0) } }
@@ -449,31 +516,56 @@ impl Event {
     /// ```
     pub const fn pointer(kind: u32, code: u32, x: f64, y: f64) -> Event { Event { code, x, y, ..Event::new(kind) } }
 
+    /// Key down, with the key code in `code`.
     pub const KEY_PRESSED: u32 = 1;
+    /// Key up, with the key code in `code`.
     pub const KEY_RELEASED: u32 = 2;
+    /// Pointer movement to the logical position in `x` and `y`.
     pub const POINTER_MOVED: u32 = 3;
+    /// Pointer button down at the given logical position.
     pub const POINTER_PRESSED: u32 = 4;
+    /// Pointer button up at the given logical position.
     pub const POINTER_RELEASED: u32 = 5;
+    /// Cancels the active pointer interaction.
     pub const POINTER_CANCELLED: u32 = 6;
+    /// Wheel movement with horizontal and vertical scroll deltas.
     pub const SCROLLED: u32 = 7;
+    /// Committed UTF-8 text input.
     pub const TEXT_INPUT: u32 = 8;
+    /// Text obtained from the native clipboard.
     pub const PASTE: u32 = 9;
+    /// Input method preedit text with selection in `x` and `y`.
     pub const TEXT_EDITING: u32 = 10;
     // 11 (FILE_DROPPED, one path) is reserved: FILES_DROPPED carries any number of paths.
+    /// File drag movement over the surface.
     pub const FILE_DRAG_MOVED: u32 = 12;
+    /// Ends an external file drag.
     pub const FILE_DRAG_ENDED: u32 = 13;
+    /// Pinch gesture update.
     pub const PINCHED: u32 = 14;
+    /// File chooser result carrying its dialog id in `value`.
     pub const FILE_DIALOG: u32 = 15;
+    /// Native dialog opened.
     pub const DIALOG_OPENED: u32 = 16;
+    /// Logical window dimensions changed.
     pub const RESIZED: u32 = 17;
+    /// Surface lost focus and held keys are cleared.
     pub const FOCUS_LOST: u32 = 18;
+    /// Surface gained focus.
     pub const FOCUS_GAINED: u32 = 19;
+    /// Surface requested close.
     pub const CLOSED: u32 = 20;
+    /// Drawable dimensions changed.
     pub const PIXEL_SIZE_CHANGED: u32 = 21;
+    /// Surface visibility changed.
     pub const VISIBILITY_CHANGED: u32 = 22;
+    /// Trackpad-originated scroll update.
     pub const TRACKPAD_SCROLLED: u32 = 23;
+    /// Native environment or keyboard geometry changed.
     pub const ENVIRONMENT_CHANGED: u32 = 24;
+    /// Borrowed sized `Touch` record in `text`.
     pub const TOUCH: u32 = 25;
+    /// External drop carrying one or more file paths.
     pub const FILES_DROPPED: u32 = 26;
 }
 
@@ -487,14 +579,17 @@ pub struct Environment {
     pub keyboard_curve: u32,
     /// 0 or 1; set after native did-show, cleared after native did-hide.
     pub keyboard_visible: u32,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved: u32,
     /// Insets in top, right, bottom, left order; backgrounds may draw behind them.
     pub safe_area: [f32; 4],
     /// Keyboard's animation target and starting frame, including offscreen hide targets.
     pub keyboard_frame: [f32; 4],
+    /// Keyboard rectangle at the start of the native animation.
     pub keyboard_from: [f32; 4],
     /// Start time uses FrameIn::time's clock. Duration and curve come from the host.
     pub keyboard_started: f64,
+    /// Duration of the native keyboard animation in seconds.
     pub keyboard_duration: f64,
 }
 impl Default for Environment { fn default() -> Self { Environment::new([0.0; 4]) } }
@@ -542,7 +637,9 @@ impl Environment {
 pub struct Keyboard {
     /// `size_of::<Keyboard>()` (24): `new` and `default` set it, and the frame call writes it itself.
     pub size: u32,
+    /// Bit flags defined for this record.
     pub flags: u32,
+    /// Keyboard bounds in logical window points.
     pub frame: [f32; 4],
 }
 impl Default for Keyboard { fn default() -> Self { Keyboard::new(geom::Rect::new(0.0, 0.0, 0.0, 0.0), 0) } }
@@ -561,7 +658,9 @@ impl Keyboard {
         Keyboard { size: core::mem::size_of::<Keyboard>() as u32, flags, frame: [frame.x, frame.y, frame.w, frame.h] }
     }
 
+    /// Bit indicating the keyboard rectangle is available.
     pub const VALID: u32 = 1;
+    /// Bit indicating the native keyboard is in motion.
     pub const ANIMATING: u32 = 2;
     /// Whether the geometry is valid: a whole record (`size`), flags 0..=3 without ANIMATING alone, finite non-negative frame.
     ///
@@ -653,14 +752,21 @@ pub enum Appearance {
     Dark = FrameIn::APPEARANCE_DARK,
 }
 
+/// Frame result holding damage information and borrowed layers.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct FrameOut {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Region of the frame that changed.
     pub damage: [f32; 4],
+    /// Nonzero when `damage` is present.
     pub has_damage: u8,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved: [u8; 3],
+    /// Number of layers in the range.
     pub layer_count: u32,
+    /// Borrowed layer records produced by the frame.
     pub layers: *const core::ffi::c_void,
 }
 
@@ -673,23 +779,41 @@ pub struct FrameOut {
 #[repr(C)]
 #[derive(Debug)]
 pub struct Gpu {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Native GPU backend code.
     pub backend: u32,
+    /// Vulkan instance used to create the device.
     pub instance: *mut core::ffi::c_void,
+    /// Vulkan physical device backing the renderer.
     pub physical_device: *mut core::ffi::c_void,
+    /// Vulkan logical device.
     pub device: *mut core::ffi::c_void,
+    /// Vulkan graphics queue.
     pub queue: *mut core::ffi::c_void,
+    /// Vulkan graphics queue family index.
     pub queue_family: u32,
+    /// Vulkan API version selected by the host.
     pub api_version: u32,
+    /// Feature bits available to this operation.
     pub features: u64,
+    /// Vulkan entry point used to look up instance and device functions.
     pub get_instance_proc_addr: *mut core::ffi::c_void,
+    /// Optional host Vulkan pipeline cache.
     pub pipeline_cache: *mut core::ffi::c_void,
+    /// Host Metal device.
     pub mtl_device: *mut core::ffi::c_void,
+    /// Optional Wayland display associated with the target.
     pub wl_display: *mut core::ffi::c_void,
+    /// Optional Wayland surface associated with the target.
     pub wl_surface: *mut core::ffi::c_void,
+    /// Optional native Metal layer associated with the target.
     pub metal_layer: *mut core::ffi::c_void,
+    /// Optional native Windows window handle.
     pub hwnd: *mut core::ffi::c_void,
+    /// Opaque token for the host-owned device lease.
     pub owner_token: *mut core::ffi::c_void,
+    /// Callback invoked when the device lease ends.
     pub release_owner: Option<extern "C" fn(*mut core::ffi::c_void)>,
 }
 
@@ -712,8 +836,11 @@ impl Default for Gpu {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct Commands {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Vulkan command buffer into which the library records work.
     pub vk_command_buffer: *mut core::ffi::c_void,
+    /// Metal command buffer into which the library records work.
     pub mtl_command_buffer: *mut core::ffi::c_void,
 }
 impl Default for Commands {
@@ -737,16 +864,27 @@ pub type PassSplit = extern "C" fn(*mut core::ffi::c_void, PassRecord, *mut core
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct Pass {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Vulkan command buffer into which the library records work.
     pub vk_command_buffer: *mut core::ffi::c_void,
+    /// Metal render encoder for the target pass.
     pub mtl_render_encoder: *mut core::ffi::c_void,
+    /// Drawable width in physical pixels.
     pub width_px: u32,
+    /// Drawable height in physical pixels.
     pub height_px: u32,
+    /// Drawable pixels per logical point.
     pub scale: f32,
+    /// Metal command buffer into which the library records work.
     pub mtl_command_buffer: *mut core::ffi::c_void,
+    /// Index of the first layer in the requested range.
     pub first_layer: u32,
+    /// Number of layers in the range.
     pub layer_count: u32,
+    /// Callback to end and reopen the pass around a backdrop capture.
     pub split: Option<PassSplit>,
+    /// User pointer forwarded unchanged to the pass split callback.
     pub split_user: *mut core::ffi::c_void,
 }
 impl Default for Pass {
@@ -763,11 +901,17 @@ impl Default for Pass {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct Image {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Vulkan image view sampled by the renderer.
     pub vk_image_view: *mut core::ffi::c_void,
+    /// Metal texture sampled by the renderer.
     pub mtl_texture: *mut core::ffi::c_void,
+    /// Native texture width in pixels.
     pub width: u32,
+    /// Native texture height in pixels.
     pub height: u32,
+    /// Pixel format code.
     pub format: u32,
 }
 impl Default for Image { fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, vk_image_view: core::ptr::null_mut(), mtl_texture: core::ptr::null_mut(), width: 0, height: 0, format: 0 } } }
@@ -790,12 +934,19 @@ impl Image {
         Image { size: core::mem::size_of::<Image>() as u32, vk_image_view, mtl_texture, width, height, format: Image::FORMAT_RGBA8 }
     }
 
+    /// Texture format code for `R8`.
     pub const FORMAT_R8: u32 = 0;
+    /// Texture format code for `RGBA8`.
     pub const FORMAT_RGBA8: u32 = 1;
+    /// Texture format code for `BGRA8`.
     pub const FORMAT_BGRA8: u32 = 2;
+    /// Texture format code for `BGRA8_SRGB`.
     pub const FORMAT_BGRA8_SRGB: u32 = 3;
+    /// Texture format code for `RGBA16F`.
     pub const FORMAT_RGBA16F: u32 = 4;
+    /// Texture format code for `RGBA32F`.
     pub const FORMAT_RGBA32F: u32 = 5;
+    /// Texture format code for `DEPTH32F`.
     pub const FORMAT_DEPTH32F: u32 = 6;
 
     /// Whether PXUI can sample this descriptor: a `size` covering this record, a nonzero width and height, a native handle
@@ -816,37 +967,56 @@ impl Image {
     }
 }
 
+/// Opaque box handle checked against its owning UI.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct PxuiBox {
+    /// Index within the owning collection.
     pub index: u64,
+    /// Stable key carried by the box handle.
     pub box_key: i64,
+    /// Handle slot used to look up the retained box.
     pub box_slot: u64,
+    /// Generation checked before using the handle.
     pub generation: u32,
     /// Serial of the `Ui` that made the handle (nonzero): every call compares it with its own `Ui`'s and refuses another's, or a zeroed
     /// handle (`PxuiBox::default()`), as stale. Fills the padding: still 32 bytes.
     pub ui: u32,
 }
 
+/// Panel descriptor with logical bounds and appearance.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct PxuiPanel {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Horizontal coordinate in logical points.
     pub x: f32,
+    /// Vertical coordinate in logical points.
     pub y: f32,
+    /// Width in logical points.
     pub width: f32,
+    /// Height in logical points.
     pub height: f32,
     /// The inner padding in points, fractions kept, in the 1.x record's alignment hole (offsets unchanged). It counts only while it
     /// agrees with `padding` (within half a point, as the wrapper writes them), so a 1.x caller's record keeps its integer meaning.
     #[doc(hidden)]
     pub padding_points: f32,
+    /// Padding in points, fractions kept; read only while it agrees with padding within half a point.
     pub padding: i64,
+    /// Nonzero when `height` is present.
     pub has_height: u8,
+    /// Whether to use window appearance and behavior.
     pub window: u8,
+    /// Nonzero when `max_height` is present.
     pub has_max_height: u8,
+    /// Nonzero when `stroke` is present.
     pub has_stroke: u8,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved: [u8; 4],
+    /// Maximum height in logical points.
     pub max_height: f32,
+    /// Appearance of the outline.
     pub stroke: geom::Rgba,
     /// The look in place of the theme's, read where it lies for the call (ABI 1.132: a pointer, the record no longer carries the 152-byte
     /// look); null for the theme's.
@@ -859,26 +1029,40 @@ impl Default for PxuiPanel {
     }
 }
 
+/// Native renderer target and atlas dimensions.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct PxuiTargetDesc {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Pixel format code.
     pub format: u32,
+    /// Render target sample count.
     pub samples: u8,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved: [u8; 3],
+    /// Width of a mask atlas page in pixels.
     pub mask_width: u32,
+    /// Height of a mask atlas page in pixels.
     pub mask_height: u32,
+    /// Width of a colour atlas page in pixels.
     pub color_width: u32,
+    /// Height of a colour atlas page in pixels.
     pub color_height: u32,
+    /// Reserved for the ABI. Write zero on input.
     pub reserved_tail: u32,
 }
 impl Default for PxuiTargetDesc { fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, format: 0, samples: 1, reserved: [0; 3], mask_width: 0, mask_height: 0, color_width: 0, color_height: 0, reserved_tail: 0 } } }
 
+/// Options for creating a UI and declaring the ABI it was built against.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct PxuiUiDesc {
+    /// Size of this record in bytes.
     pub size: u32,
+    /// Platform code used to choose keyboard and input conventions.
     pub platform: u32,
+    /// Default font size in logical points.
     pub font_size: i32,
     /// ABI 1.60 tail: the version (`major << 16 | minor`) the caller was built against; only its major is checked (a newer minor may run on an older
     /// library and ask `pxui_supports`); 0 (a 12-byte record from before 1.60) means "unstated".

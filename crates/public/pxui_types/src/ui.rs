@@ -918,6 +918,7 @@ pub struct PickerResponse<'a> {
 /// Points a pressed pointer travels before a press is a drag: a carry starts, a click ends.
 pub const DRAG_THRESHOLD: f32 = 4.0;
 
+/// Cursor requested for the native pointer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Cursor {
     /// The pointer shape for dragging an edge left or right.
@@ -949,7 +950,7 @@ pub enum Target {
     Opacity(f32),
     /// A view's contents, after its manual transform, about a fractional point of its box.
     /// The anchor is fixed for the segment; (0, 0) is top-left, (0.5, 0.5) centre.
-    Scale { x: f32, y: f32, anchor: (f32, f32) },
+    Scale { #[doc = "Horizontal coordinate in logical points."] x: f32, #[doc = "Vertical coordinate in logical points."] y: f32, #[doc = "Anchor for positioning or selection, as specified by the operation."] anchor: (f32, f32) },
 }
 
 /// One stop of `Ui::animate_keys`: the node reaches a target `time` seconds after the start, the segment before it shaped by a curve.

@@ -289,7 +289,7 @@ mod tests {
     thread_local! { static SEEN: Cell<(u32, f32, f32, u8)> = const { Cell::new((0, 0.0, 0.0, 0)) }; }
     thread_local! { static WORDS: Cell<[u32; 2]> = const { Cell::new([0; 2]) }; }
 
-    /// LocalWave's play drawing, through the C ABI: the app's function is called with the 20-point square at the centre of the plate and
+    /// A custom play drawing, through the C ABI: the app's function is called with the 20-point square at the centre of the plate and
     /// the look's text ink, and paints one triangle.
     fn play(paint: &mut crate::Paint<'_>, rect: crate::geom::Rect, ink: crate::geom::Rgba, word: u32) {
         WORDS.with(|w| w.set([word, w.get()[1]]));

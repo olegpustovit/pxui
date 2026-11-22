@@ -282,8 +282,9 @@ impl Images {
     /// Sets the screen density and the largest decode size `get` will ask for; true when either value changed.
     ///
     /// `density` (device pixels per point) is clamped to 1 to 4, a non-finite one becomes 1; `max_pixels` is clamped to 32 to 1024.
-    /// A change bumps `revision` but drops nothing: cached images stay returned, and `get` asks again only when its size now needs more
-    /// pixels than the cached image was decoded at.
+    /// A change bumps the revision without ejecting cached descriptors. When `get` finds a successful decode below its updated
+    /// size target, it queues another request and returns the existing descriptor while the upgrade is pending. A cached failure
+    /// stays cached until removed.
     /// Allocates: never.
     /// Panics: never.
     ///
@@ -503,7 +504,7 @@ impl Images {
     }
     /// The id of the least recently used cached image that holds pixels (a failed decode holds none), or `None` when none does.
     ///
-    /// A host over its pixel budget releases that image's pixels and `remove`s it. Each `get` that finds an id cached, and each `store`,
+    /// A host over its pixel budget removes the descriptor and retires the native texture after all sampling frames have completed. Each `get` that finds an id cached, and each `store`,
     /// makes that id the most recently used.
     /// Allocates: never.
     /// Panics: never.
@@ -528,7 +529,8 @@ impl Images {
     /// Stores the worker's result for `want` (`None` records a failed decode, so it is not retried), replacing what was cached for
     /// `want.id()`; returns the id of another image it dropped to make room, if any.
     ///
-    /// With `CAPACITY` ids cached, the least recently used one is dropped: the host releases its pixels. Pending wants for the id are
+    /// With `CAPACITY` ids cached, the least recently used descriptor is dropped. The host still owns its texture and can retire it
+    /// only after all sampling frames have completed. Pending wants for the id are
     /// cleared, except when `image` is present and a want asked for more pixels than `want.max_pixels()`. A replaced image is only
     /// forgotten here: the host still owns and destroys it. Moves `revision` on.
     /// Allocates: never.

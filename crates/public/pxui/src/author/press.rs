@@ -6,6 +6,7 @@ use super::Key;
 use crate::Ui;
 use pxui_types::Flags;
 
+// C layout, the engine's own record (`trusted::EngineResponse`) with `changed` in its padding: the static wrapper copies it whole
 /// What happened to a widget this frame (a pressable node, a button, a toggle, a segmented control), read from its signal when it was
 /// declared.
 ///
@@ -13,7 +14,6 @@ use pxui_types::Flags;
 /// the widget adds (focus, keyboard activation, an edited value, a context request). `ui.signal(&response.handle)` reads the rest of the
 /// raw record (drag, wheel, pinch, press points, click count). A one-off choice (`menu`, `dialog`) answers with `Chosen` instead.
 #[derive(Clone, Copy, Debug)]
-// C layout, the engine's own record (`trusted::EngineResponse`) with `changed` in its padding: the static wrapper copies it whole
 #[repr(C)]
 pub struct Response {
     /// The node was clicked: the primary button released over it after a press on it, or keyboard activation (Enter or Space) while focused.

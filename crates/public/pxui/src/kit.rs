@@ -305,6 +305,15 @@ impl Ui {
         crate::Chosen { chosen, chosen_id: picked.and_then(|(item, _)| item.id), dismissed: dismissed != 0 }
     }
 
+    /// Reports whether input or a pending repaint requires another frame.
+    ///
+    /// Allocates: never.
+    /// Panics: when the library refuses the call.
+    ///
+    /// ```
+    /// let ui = pxui::doc::frames(1, &mut |_| {});
+    /// let _ = ui.wants_frame(&[], ui.now());
+    /// ```
     #[inline]
     #[track_caller] pub fn wants_frame(&self, events: &[pxui_types::Event], now: f64) -> bool {
         let mut out = 0;
@@ -351,6 +360,15 @@ impl Ui {
 }
 
 // The extension set (`pxui::ext`): free functions on a `Ui`, out of the prelude, with no stability promise.
+/// Builds an inspector row and returns the handle and control bounds.
+///
+/// Allocates: when the frame arena or retained storage first grows; never on a warm frame.
+/// Identity: `key` identifies the widget within its parent; the display text does not change it.
+/// Panics: when the library refuses the call.
+///
+/// ```
+/// pxui::doc::frames(1, &mut |ui| { let _ = pxui::ext::inspector_row(ui, None, None, "track", "Track"); });
+/// ```
 #[inline]
 #[track_caller] pub fn inspector_row(ui: &mut Ui, width: Option<f32>, pin: Option<bool>, key: &str, label: &str) -> (Handle, f32, f32, f32) {
     #[cfg(feature = "static")]
@@ -362,6 +380,15 @@ impl Ui {
         (desc.row, desc.control_x, desc.control_y, desc.control_w)
     }
 }
+/// Builds a collapsible inspector section and reports whether it is open.
+///
+/// Allocates: when the frame arena or retained storage first grows; never on a warm frame.
+/// Identity: `key` identifies the widget within its parent; the display text does not change it.
+/// Panics: when the library refuses the call.
+///
+/// ```
+/// pxui::doc::frames(1, &mut |ui| { let _ = pxui::ext::inspector_section(ui, "info", true, None, "Info", &mut |_| {}); });
+/// ```
 #[inline]
 #[track_caller] pub fn inspector_section(ui: &mut Ui, key: &str, expanded: bool, set_expanded: Option<bool>, label: &str, build: &mut dyn FnMut(&mut Ui)) -> bool {
     #[cfg(feature = "static")]
@@ -375,6 +402,15 @@ impl Ui {
         desc.out_open != 0
     }
 }
+/// Builds a labeled inspector switch and returns its current value.
+///
+/// Allocates: when the frame arena or retained storage first grows; never on a warm frame.
+/// Identity: `key` identifies the widget within its parent; the display text does not change it.
+/// Panics: when the library refuses the call.
+///
+/// ```
+/// pxui::doc::frames(1, &mut |ui| { let _ = pxui::ext::inspector_toggle(ui, "repeat", "Repeat", false); });
+/// ```
 #[inline]
 #[track_caller] pub fn inspector_toggle(ui: &mut Ui, key: &str, label: &str, value: bool) -> bool {
     #[cfg(feature = "static")]
@@ -382,6 +418,15 @@ impl Ui {
     #[cfg(not(feature = "static"))]
     { let mut out = 0; check(ui, unsafe { sys::pxui_ui_inspector_toggle(ui.0.as_ptr(), as_str(key), as_str(label), value as u8, &mut out) }); out != 0 }
 }
+/// Builds an inspector button and reports its activation.
+///
+/// Allocates: when the frame arena or retained storage first grows; never on a warm frame.
+/// Identity: `key` identifies the widget within its parent; the display text does not change it.
+/// Panics: when the library refuses the call.
+///
+/// ```
+/// pxui::doc::frames(1, &mut |ui| { let _ = pxui::ext::inspector_button(ui, "reset", "Reset"); });
+/// ```
 #[inline]
 #[track_caller] pub fn inspector_button(ui: &mut Ui, key: &str, label: &str) -> bool {
     #[cfg(feature = "static")]
@@ -389,6 +434,15 @@ impl Ui {
     #[cfg(not(feature = "static"))]
     { let mut out = 0; check(ui, unsafe { sys::pxui_ui_inspector_button(ui.0.as_ptr(), as_str(key), as_str(label), &mut out) }); out != 0 }
 }
+/// Builds a read-only value and its caption.
+///
+/// Allocates: when the frame arena or retained storage first grows; never on a warm frame.
+/// Identity: `key` identifies the widget within its parent; the display text does not change it.
+/// Panics: when the library refuses the call.
+///
+/// ```
+/// pxui::doc::frames(1, &mut |ui| { pxui::ext::inspector_readout(ui, None, "length", "Length", "3:20"); });
+/// ```
 #[inline]
 #[track_caller] pub fn inspector_readout(ui: &mut Ui, width: Option<f32>, key: &str, label: &str, value: &str)  {
     #[cfg(feature = "static")]
@@ -399,6 +453,15 @@ impl Ui {
         check(ui, unsafe { sys::pxui_ui_inspector_readout(ui.0.as_ptr(), &desc) })
     }
 }
+/// Builds a message in the inspector.
+///
+/// Allocates: when the frame arena or retained storage first grows; never on a warm frame.
+/// Identity: `key` identifies the widget within its parent; the display text does not change it.
+/// Panics: when the library refuses the call.
+///
+/// ```
+/// pxui::doc::frames(1, &mut |ui| { pxui::ext::inspector_message(ui, "status", "Ready"); });
+/// ```
 #[inline]
 #[track_caller] pub fn inspector_message(ui: &mut Ui, key: &str, message: &str)  {
     #[cfg(feature = "static")]
@@ -409,6 +472,14 @@ impl Ui {
         check(ui, unsafe { sys::pxui_ui_inspector_message(ui.0.as_ptr(), &desc) })
     }
 }
+/// Builds footer hints and optional trailing text.
+///
+/// Allocates: when the frame arena or retained storage first grows; never on a warm frame.
+/// Panics: when the library refuses the call.
+///
+/// ```
+/// pxui::doc::frames(1, &mut |ui| { pxui::ext::footer(ui, Some("Ready"), &[("?", "Help")]); });
+/// ```
 #[inline]
 #[track_caller] pub fn footer(ui: &mut Ui, right: Option<&str>, hints: &[(&str, &str)])  {
     #[cfg(feature = "static")]

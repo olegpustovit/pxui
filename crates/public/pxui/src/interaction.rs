@@ -136,6 +136,10 @@ impl Ui {
     /// Return); the focused widget sees the press first when it builds before this box.
     /// Allocates: never.
     /// Panics: if the handle has retired or the library refuses the Ui.
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| { let b = ui.node("sample", pxui::Node::DEFAULT.flags(pxui::Flags::FOCUSABLE)); ui.focus_default(&b); });
+    /// ```
     #[inline] #[track_caller] pub fn focus_default(&mut self,box_:&Handle) {check(self, unsafe{sys::pxui_ui_focus_default(self.0.as_ptr(),box_)})}
     #[inline] #[track_caller] pub(crate) fn focused(&self,box_:&Handle)-> bool {let mut out=0;check(self, unsafe{sys::pxui_ui_focused(self.0.as_ptr(),box_,&mut out)});out!=0}
     /// `box_`'s state slot, or `default` while it was never set: the one per-node value a build keeps across frames.

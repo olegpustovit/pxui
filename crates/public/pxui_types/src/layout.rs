@@ -76,13 +76,13 @@ pub enum Track {
     Fit,
 }
 
-/// Grid tracks. `rows` empty: rows are added as children need them, each sized to its content.
-/// Gaps are the node's `gap` (between columns) and `row_gap`.
 // Columns: at most MAX_TRACKS (stack arrays in the passes); rows: as many as the children reach (a
 // scratch the Ui keeps, no allocation once warm). Spans are spread in build order, not smallest span
 // first as CSS.
 // A pointer and a length each, not slices, so that a node is the same bytes in C; only `Grid::new` makes one, from 'static
 // slices, so the accessors are sound (the library replaces a C caller's tracks by its own copies before the engine sees them).
+/// Grid tracks. `rows` empty: rows are added as children need them, each sized to its content.
+/// Gaps are the node's `gap` (between columns) and `row_gap`.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct Grid {

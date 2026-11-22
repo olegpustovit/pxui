@@ -368,6 +368,15 @@ impl Ui {
 }
 
 impl Ui {
+    /// Sets the box’s position in logical points.
+    ///
+    /// Allocates: never.
+    /// Panics: when the library refuses the call.
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| { let b = ui.node("sample", pxui::Node::DEFAULT.w_px(20.0).h_px(20.0)); ui.set_at(&b, (10.0, 20.0)); });
+    /// ```
+    #[inline] #[track_caller] pub fn set_at(&mut self, b: &Handle, at: (f32, f32)) { check(self, unsafe { lib::pxui_ui_set_at(self.0.as_ptr(), b, at.0, at.1) }) }
     /// Between builds, gives `b` the look `value` and repaints only its instances; true when the change is applied or held for the next paint, false for a stale handle or when it must wait for the next frame.
     ///
     /// Inside a build the look is recorded and the frame paints it; the owner's next declaration of the node wins over a patch.
@@ -380,7 +389,6 @@ impl Ui {
     ///     assert!(ui.patch_look(&b, &pxui::ui::Look::NONE));
     /// });
     /// ```
-    #[inline] #[track_caller] pub fn set_at(&mut self, b: &Handle, at: (f32, f32)) { check(self, unsafe { lib::pxui_ui_set_at(self.0.as_ptr(), b, at.0, at.1) }) }
     #[track_caller]
     pub fn patch_look(&mut self, b: &Handle, value: &Look) -> bool {
         let mut out = 0;
@@ -492,6 +500,14 @@ impl Ui {
         check(self, unsafe { lib::pxui_ui_scroll_offset(self.0.as_ptr(), b, 1, &mut painted) });
         Scroll { settled, painted }
     }
+    /// Sets the settled vertical scroll offset in logical points.
+    ///
+    /// Allocates: never.
+    /// Panics: when the library refuses the call.
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| { let b = ui.scroll_view("items", pxui::Node::DEFAULT.h_px(40.0), |_| {}); ui.set_scroll_offset(&b, 0.0); });
+    /// ```
     #[inline] #[track_caller] pub fn set_scroll_offset(&mut self, b: &Handle, value: f32) { check(self, unsafe { lib::pxui_ui_set_scroll_offset(self.0.as_ptr(), b, value) }) }
     /// The text kept in the box's slot, or none when it holds none; borrowed from the library, valid until the
     /// next call on `ui`.
@@ -553,6 +569,14 @@ impl Ui {
         if out.len == 0 { return ""; }
         unsafe { core::str::from_utf8_unchecked(core::slice::from_raw_parts(out.ptr, out.len)) }
     }
+    /// Sets the stacking order of a floating box.
+    ///
+    /// Allocates: never.
+    /// Panics: when the library refuses the call.
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| { let b = ui.node("sample", pxui::Node::DEFAULT.w_px(20.0).h_px(20.0)); ui.to_front(1, &b); });
+    /// ```
     #[inline] #[track_caller] pub fn to_front(&mut self, order: i64, b: &Handle) { check(self, unsafe { lib::pxui_ui_to_front(self.0.as_ptr(), order, b) }) }
 
     /// The payload a drag or key carry is holding, borrowed from the library until the next mutable call on the `Ui`, or `None` when nothing is carried.
@@ -972,7 +996,10 @@ impl Default for ViewTransform {
 /// What `Ui::node_mut` edits of a node.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct NodeFields {
+    /// Visual appearance of the element.
     pub look: Look,
+    /// Procedural mark drawn in the box.
     pub mark: Mark,
+    /// Inner offsets in logical points.
     pub inset: pxui_types::geom::Edges,
 }

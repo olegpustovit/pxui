@@ -1,3 +1,5 @@
+//! Accessibility roles, state flags and actions.
+
 /// What a node is to a screen reader: the kit's widgets and the planned widget set.
 /// Its number crosses the C ABI (`PxuiNode.role`, `PxuiA11yNode.role`): variants are appended, never renumbered.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

@@ -1,12 +1,8 @@
 # PXUI
 
-A small, fast, native UI engine in Rust. Plain events go in, a draw list comes out; one instanced
-pipeline paints it on Metal (Apple Silicon) or Vulkan (Windows, Linux). It is the UI of
-Rays, which embeds this repository as a submodule at `pxui/`, and it
-builds and tests on its own.
+PXUI is a native UI engine written in Rust. Hosts feed it input and draw its retained instance lists on Metal or Vulkan. Applications author keyed widgets with the `pxui` crate and use the owning host for window, GPU and accessibility integration.
 
-Writing an app on it: read [crates/public/pxui/src/guide/SKILL.md](crates/public/pxui/src/guide/SKILL.md), the current API shape
-(const style values, keyed widgets, no per-frame allocation); its samples run as doctests.
+The Rust wrapper supports static linking and the `libpxui.2` shared library. The C interface starts at ABI 2.0. Use the [app authoring guide](crates/public/pxui/src/guide/SKILL.md) for runnable examples and [the ABI contract](docs/abi.md) for host and C integration.
 
 Dependencies are std and `cc`; `pxui_text` alone adds cosmic-text for shaping and glyph rasterisation.
 
@@ -40,9 +36,10 @@ On macOS and experimental iOS, `pxui_host` owns GPU setup, frame presentation an
 
 ```rust
 let mut window = pxui_host::Window::open("demo", 900, 600)?;
-let mut ui = pxui::Ui::new()?;
+let mut ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT)?;
 let mut graphics = pxui_host::Graphics::open(&mut window, &ui)?;
-// Build UI with public pxui APIs, then present it:
+let input = pxui::FrameIn::new(900.0, 600.0);
+ui.frame(&input, &mut |ui| { ui.label("Demo", pxui::Label::TITLE); })?;
 graphics.draw(&mut window, &ui, None)?;
 ```
 

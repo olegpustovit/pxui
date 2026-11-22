@@ -146,11 +146,17 @@ mod sys {
     /// The handle's public head (`include/pxui.h`): the theme in effect for it, null until a theme read fills it.
     #[repr(C)] pub struct PxuiUi { pub theme: *const pxui_types::theme::ThemeSnapshot, _private: [u8; 0] }
     pub use pxui_types::{PxuiBox, PxuiTargetDesc, PxuiUiDesc};
+    /// Opaque ABI handle for a native renderer.
     #[repr(C)] pub struct PxuiRenderer { _private:[u8;0] }
+    /// Opaque ABI handle for a loaded theme.
     #[repr(C)] pub struct PxuiTheme { _private:[u8;0] }
+    /// Opaque ABI handle for a active painter.
     #[repr(C)] pub struct PxuiPaint { _private:[u8;0] }
+    /// Opaque ABI handle for a standalone text shaper.
     #[repr(C)] pub struct PxuiShaper { _private:[u8;0] }
+    /// Opaque ABI handle for a prepared text buffer.
     #[repr(C)] pub struct PxuiPreparedText { _private:[u8;0] }
+    /// Opaque ABI handle for a text preparation worker.
     #[repr(C)] pub struct PxuiTextWorker { _private:[u8;0] }
     #[link(name = "pxui")]
     unsafe extern "C" {
@@ -195,9 +201,12 @@ library!(renderer_lib {
     fn pxui_renderer_create(ui: *mut PxuiUi, gpu: *const Gpu, target: *const PxuiTargetDesc, out: *mut *mut sys::PxuiRenderer) -> i32;
 });
 
+/// Pixel format and sample count for a render target.
 #[derive(Clone, Copy, Default)]
 pub struct TargetDesc {
+    /// Pixel format code.
     pub format:u32,
+    /// Render target sample count.
     pub samples:u8,
 }
 
@@ -229,7 +238,16 @@ impl Renderer {
         status(unsafe { renderer_lib::pxui_renderer_create(ui.0.as_ptr(), &gpu, &desc, &mut raw) })?;
         NonNull::new(raw).map(|raw| Self { raw }).ok_or(Error::Engine)
     }
+    /// Prepares a new renderer frame before the host begins its draw pass.
+    ///
     /// Errors: InvalidInput for a frame serial that repeats, regresses or runs more than the in-flight frames past `completed`; Gpu when recording fails.
+    /// Allocates: when preparing newly needed glyph pages, uploads, or renderer storage.
+    /// Panics: if deferred host callback code panicked.
+    ///
+    /// ```
+    /// fn example(renderer: &mut pxui::Renderer, commands: &pxui_types::Commands, frame: u64, completed: u64) -> Result<(), pxui::Error> { renderer.prepare(commands, frame, completed) }
+    /// let _ = example;
+    /// ```
     pub fn prepare(&mut self,commands:&pxui_types::Commands,frame:u64,completed:u64)->Result<(),Error> {
         let rc=unsafe { sys::pxui_renderer_prepare(self.raw.as_ptr(),commands,frame,completed) };
         composite::resume_deferred();
@@ -238,6 +256,13 @@ impl Renderer {
     /// Prepare blur targets at startup/resize, before recording the next frame. Dimensions are drawable pixels.
     ///
     /// Errors: InvalidInput for a zero dimension; State inside a frame or draw callback.
+    /// Allocates: when the renderer needs new blur targets.
+    /// Panics: never.
+    ///
+    /// ```
+    /// fn example(renderer: &mut pxui::Renderer, width: u32, height: u32) -> Result<(), pxui::Error> { renderer.resize(width, height) }
+    /// let _ = example;
+    /// ```
     pub fn resize(&mut self,width:u32,height:u32)->Result<(),Error> {
         let rc=unsafe { sys::pxui_renderer_resize(self.raw.as_ptr(),width,height) };
         if rc==0 { Ok(()) } else { Err(Error::from_code(rc)) }
@@ -247,11 +272,27 @@ impl Renderer {
     /// Refuses while any draw of the image remains incomplete. No additional frame is needed.
     ///
     /// Errors: InvalidInput for an unknown image or a `completed` that goes back; State while a draw of the image is incomplete.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// fn example(renderer: &mut pxui::Renderer, image: &pxui::Image, completed: u64) -> Result<(), pxui::Error> { renderer.forget_image(image, completed) }
+    /// let _ = example;
+    /// ```
     pub fn forget_image(&mut self,image:&Image,completed:u64)->Result<(),Error> {
         let rc=unsafe { sys::pxui_renderer_forget_image(self.raw.as_ptr(),image,completed) };
         if rc==0 { Ok(()) } else { Err(Error::from_code(rc)) }
     }
+    /// Records the prepared UI layers into the host’s open render pass.
+    ///
     /// Errors: Gpu when recording fails; State when a draw is already open.
+    /// Allocates: when render storage first grows or the host callback allocates.
+    /// Panics: if the host callback panics.
+    ///
+    /// ```
+    /// fn example(renderer: &mut pxui::Renderer, pass: &pxui_types::Pass) -> Result<(), pxui::Error> { renderer.draw(pass) }
+    /// let _ = example;
+    /// ```
     pub fn draw(&mut self,pass:&pxui_types::Pass)->Result<(),Error> {
         let rc=unsafe { sys::pxui_renderer_draw(self.raw.as_ptr(),pass) };
         composite::resume_deferred();
@@ -261,6 +302,13 @@ impl Renderer {
 
 impl Renderer {
     /// The draw calls the renderer has issued so far.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// fn example(renderer: &mut pxui::Renderer) -> u64 { renderer.draw_calls() }
+    /// let _ = example;
+    /// ```
     pub fn draw_calls(&self)->u64 { unsafe { sys::pxui_renderer_draw_calls(self.raw.as_ptr()) } }
 }
 
@@ -343,6 +391,13 @@ impl Renderer {
     /// viewport and scissor) and return it; the rest of the layer draws into that pass.
     ///
     /// Errors: Gpu when recording fails; the `Error` the `split` closure returned, when it failed.
+    /// Allocates: when render storage first grows or the host callback allocates.
+    /// Panics: if the host callback panics.
+    ///
+    /// ```
+    /// fn example(renderer: &mut pxui::Renderer, pass: &pxui_types::Pass) -> Result<(), pxui::Error> { renderer.draw_layer(pass, 0, &mut |_| Err(pxui::Error::InvalidInput)) }
+    /// let _ = example;
+    /// ```
     pub fn draw_layer(&mut self, pass: &pxui_types::Pass, layer: u32, split: &mut dyn FnMut(Recorder) -> Result<pxui_types::Pass, Error>) -> Result<(), Error> {
         let mut ctx = PassSplitContext { f: split, error: None };
         let pass = pxui_types::Pass { first_layer: layer, layer_count: 1, split: Some(split_pass), split_user: (&mut ctx as *mut PassSplitContext).cast(), ..*pass };
@@ -355,9 +410,13 @@ impl Renderer {
 /// A glyph atlas of the renderer, for an app pass that draws text quads.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AtlasKind {
+    /// Primary grayscale glyph mask page.
     Mask,
+    /// Primary colour glyph page.
     Color,
+    /// Secondary grayscale glyph mask page.
     Mask2,
+    /// Secondary colour glyph page.
     Color2,
 }
 
@@ -366,6 +425,13 @@ impl Renderer {
     /// Second pages return `PXUI_ERR_STATE` until a prepare uploads their first glyphs.
     ///
     /// Errors: State for a second page before a prepare has uploaded its first glyphs.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// fn example(renderer: &mut pxui::Renderer, kind: pxui::AtlasKind) -> Result<pxui::Image, pxui::Error> { renderer.atlas(kind) }
+    /// let _ = example;
+    /// ```
     pub fn atlas(&self, kind: AtlasKind) -> Result<pxui_types::Image, Error> {
         let mut out = pxui_types::Image::default();
         let rc = unsafe { sys::pxui_renderer_atlas(self.raw.as_ptr(), kind as u32, &mut out) };
@@ -380,6 +446,12 @@ impl Drop for Renderer {
 }
 
 /// The UTF-8 text of an event (empty when it has none).
+/// Allocates: never.
+/// Panics: never.
+///
+/// ```
+/// assert_eq!(pxui::event_text(&pxui::Event::new(pxui::Event::FOCUS_LOST)), "");
+/// ```
 pub fn event_text(event: &Event) -> &str {
     if event.kind==Event::TOUCH || event.text.len == 0 || event.text.ptr.is_null() { return ""; }
     core::str::from_utf8(unsafe { core::slice::from_raw_parts(event.text.ptr, event.text.len) }).unwrap_or("")
@@ -545,6 +617,13 @@ impl Ui {
     pub fn engine_ptr(&self) -> *const c_void { pxui_abi_link::engine_of(self.instance_id()).cast() }
 
     /// The library's handle of this `Ui`: stable while it lives, so an app can key its own per-`Ui` state by it.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let ui = pxui::doc::frames(1, &mut |_| {});
+    /// assert_ne!(ui.instance_id(), 0);
+    /// ```
     #[inline] pub fn instance_id(&self) -> usize { self.0.as_ptr() as usize }
 
     /// Routes the frame's input and builds its draw and platform output.
@@ -606,8 +685,22 @@ impl Ui {
     /// Removes the registered surface (an unregistered id is `Error::InvalidInput`; inside a frame `Error::State`).
     /// Allocates: never.
     /// Panics: never.
+    ///
+    /// ```
+    /// let mut ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
+    /// ui.remove_surface(pxui_types::FrameIn::MAIN).unwrap();
+    /// ```
     pub fn remove_surface(&mut self, surface: u64) -> Result<(), Error> { status(unsafe { sys::pxui_ui_remove_surface(self.0.as_ptr(), surface) }) }
 
+    /// Borrows the most recent diagnostic for this UI.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let ui = pxui::doc::frames(1, &mut |_| {});
+    /// let _ = ui.last_error();
+    /// ```
     pub fn last_error(&self) -> &str {
         let s = unsafe { sys::pxui_last_error(self.0.as_ptr()) };
         if s.len == 0 || s.ptr.is_null() { return ""; }
@@ -615,6 +708,9 @@ impl Ui {
     }
 
     /// The accessibility nodes of the last frame (parents before children), when `set_a11y(true)`.
+    ///
+    /// Allocates: never.
+    /// Panics: if reading the frame output fails or its node stride differs from this build’s.
     ///
     /// ```
     /// let ui = pxui::doc::frames(1, &mut |ui| { ui.label("hi", pxui::Label::DEFAULT); });
@@ -642,6 +738,13 @@ impl Ui {
     }
 
     /// The accessible name of `node`, one of `a11y_nodes()`.
+    /// Allocates: never.
+    /// Panics: when the library refuses the call.
+    ///
+    /// ```
+    /// let ui = pxui::doc::frames(1, &mut |ui| { ui.label("Hello", pxui::Label::DEFAULT); });
+    /// assert!(ui.a11y_nodes().iter().any(|node| ui.a11y_name_of(node) == "Hello"));
+    /// ```
     pub fn a11y_name_of(&self, node: &A11yNode) -> &str {
         let strings = self.output().a11y.strings;
         if strings.len == 0 { return ""; }
@@ -650,6 +753,13 @@ impl Ui {
     }
 
     /// The text value of a current accessibility node (a number's words, ABI 1.126); None for no value or a number without words.
+    /// Allocates: never.
+    /// Panics: when the library refuses the call.
+    ///
+    /// ```
+    /// let ui = pxui::doc::frames(1, &mut |ui| { ui.label("Hello", pxui::Label::DEFAULT); });
+    /// for node in ui.a11y_nodes() { let _ = ui.a11y_value_of(node); }
+    /// ```
     pub fn a11y_value_of(&self,node:&A11yNode)->Option<&str> {
         if node.value.tag==0 || (node.value.tag==2 && node.value.text_end<=node.value.text_start) {return None;}
         let strings=self.output().a11y.strings;
@@ -658,6 +768,13 @@ impl Ui {
     }
 
     /// How many layers the last frame has (a floating root's each, in draw order).
+    /// Allocates: never.
+    /// Panics: when the library refuses the call.
+    ///
+    /// ```
+    /// let ui = pxui::doc::frames(1, &mut |_| {});
+    /// assert_eq!(ui.layer_count(), ui.layers().count());
+    /// ```
     #[inline] pub fn layer_count(&self) -> usize { self.output().layers.len }
 
     /// Looks up a draw layer of the last frame by zero-based index.
@@ -691,6 +808,13 @@ impl Ui {
 
     /// Marks layer `index` of the last frame drawn (its dirty ranges clear), as `Renderer::draw_layer` does: for a host that
     /// reads the layers itself.
+    /// Allocates: never.
+    /// Panics: when the library refuses the call.
+    ///
+    /// ```
+    /// let mut ui = pxui::doc::frames(1, &mut |ui| { ui.label("Layer", pxui::Label::DEFAULT); });
+    /// if ui.layer_count() != 0 { ui.drawn(0); }
+    /// ```
     #[track_caller] pub fn drawn(&mut self, index: usize) { check(self, unsafe { sys::pxui_ui_layer_drawn(self.0.as_ptr(), index as u64) }) }
 
     /// Reads the last frame's platform and draw output records.
@@ -737,11 +861,25 @@ impl Ui {
     }
 
     /// The theme in effect's tokens, by value: what a canvas closure captures.
+    /// Allocates: never.
+    /// Panics: when the library refuses the call.
+    ///
+    /// ```
+    /// let ui = pxui::doc::frames(1, &mut |_| {});
+    /// assert!(ui.tokens().font_size > 0.0);
+    /// ```
     #[inline] pub fn tokens(&self) -> pxui_types::theme::Tokens { self.theme().tokens }
     /// The theme in effect, whole: the library's own fractional snapshot, lent (no copy). Text sizes and fonts keep fractional
     /// points. Anything that could change it takes `&mut self`, so the borrow cannot outlive it.
     /// Panics with the library's message when the first read of a handle is refused (a `Ui` an earlier panic poisoned): the library
     /// returns null. A later read is the handle's own record of it (one load, no call), which stays valid while the handle does.
+    /// Allocates: never.
+    /// Panics: when the library refuses the call.
+    ///
+    /// ```
+    /// let ui = pxui::doc::frames(1, &mut |_| {});
+    /// assert_eq!(ui.theme().tokens.font_size, ui.tokens().font_size);
+    /// ```
     #[inline]
     #[track_caller]
     pub fn theme(&self) -> &pxui_types::theme::Theme {
@@ -761,9 +899,45 @@ impl Ui {
         theme
     }
 
+    /// Reports the revision of the last draw list.
+    ///
+    /// Allocates: never.
+    /// Panics: when the library refuses the call.
+    ///
+    /// ```
+    /// let ui = pxui::doc::frames(1, &mut |_| {});
+    /// let _ = ui.draw_revision();
+    /// ```
     #[inline] pub fn draw_revision(&self) -> u64 { self.output().draw_revision }
+    /// Reports the number of nodes built for the last frame.
+    ///
+    /// Allocates: never.
+    /// Panics: when the library refuses the call.
+    ///
+    /// ```
+    /// let ui = pxui::doc::frames(1, &mut |_| {});
+    /// let _ = ui.built_nodes();
+    /// ```
     #[inline] pub fn built_nodes(&self) -> usize { self.output().built_nodes as usize }
+    /// Reports the number of retained views rebuilt for the last frame.
+    ///
+    /// Allocates: never.
+    /// Panics: when the library refuses the call.
+    ///
+    /// ```
+    /// let ui = pxui::doc::frames(1, &mut |_| {});
+    /// let _ = ui.rebuilt_views();
+    /// ```
     #[inline] pub fn rebuilt_views(&self) -> usize { self.output().rebuilt_views as usize }
+    /// Reports the number of nodes arranged for the last frame.
+    ///
+    /// Allocates: never.
+    /// Panics: when the library refuses the call.
+    ///
+    /// ```
+    /// let ui = pxui::doc::frames(1, &mut |_| {});
+    /// let _ = ui.arranged_nodes();
+    /// ```
     #[inline] pub fn arranged_nodes(&self) -> usize { self.output().arranged_nodes as usize }
     /// Returns the logical extent of this UI surface.
     ///
@@ -781,13 +955,40 @@ impl Ui {
         check(self, unsafe { sys::pxui_ui_view_size(self.0.as_ptr(), &mut out) });
         ViewSize { width: out.x, height: out.y }
     }
+    /// Reports the next requested repaint time on the frame clock.
+    ///
+    /// Allocates: never.
+    /// Panics: when the library refuses the call.
+    ///
+    /// ```
+    /// let ui = pxui::doc::frames(1, &mut |_| {});
+    /// let _ = ui.repaint_at();
+    /// ```
     #[inline]
     pub fn repaint_at(&self) -> Option<f64> {
         let at = self.output().repaint_at;
         at.is_finite().then_some(at)
     }
 
+    /// Sets whether text and directional layout use right-to-left order.
+    ///
+    /// Allocates: never.
+    /// Panics: when the UI is poisoned or the operation is refused in its current state.
+    ///
+    /// ```
+    /// let mut ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
+    /// ui.set_dir(true);
+    /// ```
     #[track_caller] pub fn set_dir(&mut self,rtl:bool) {check(self, unsafe{sys::pxui_ui_set_dir(self.0.as_ptr(),rtl as u32)})}
+    /// Enables or disables publishing an accessibility tree.
+    ///
+    /// Allocates: never at this call; building the next tree may grow its storage.
+    /// Panics: when the UI is poisoned or the operation is refused in its current state.
+    ///
+    /// ```
+    /// let mut ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
+    /// ui.set_a11y(true);
+    /// ```
     #[track_caller] pub fn set_a11y(&mut self,on:bool) {check(self, unsafe{sys::pxui_ui_set_a11y(self.0.as_ptr(),on as u8)})}
     /// Queues accessibility requests for this Ui's registered surface, applying them at the next frame.
     ///
@@ -800,9 +1001,42 @@ impl Ui {
     /// ui.inject_a11y(&[]);
     /// ```
     #[track_caller] pub fn inject_a11y(&mut self,actions:&[A11yAction]) {check(self, unsafe{sys::pxui_ui_inject_a11y(self.0.as_ptr(),pxui_types::ffi::Strided::of(actions))})}
+    /// Replaces a live box’s text between builds and reports whether it was applied.
+    ///
+    /// Allocates: when cached shaping or draw storage grows.
+    /// Panics: when the library refuses the call.
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| { let b = ui.node("sample", pxui::Node::DEFAULT.w_px(20.0).h_px(20.0)); let _ = ui.patch_text(&b, "Updated"); });
+    /// ```
     #[inline] #[track_caller] pub fn patch_text(&mut self,box_:&Handle,value:&str)->bool{let mut out=0;let rc=unsafe{sys::pxui_ui_patch_text(self.0.as_ptr(),box_,as_str(value),&mut out)};live(self,rc)&&out!=0}
+    /// Advances the busy indicator of a live box to the given frame time in seconds.
+    ///
+    /// Allocates: if draw storage must grow.
+    /// Panics: when the library refuses the call.
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| { let b = ui.node("sample", pxui::Node::DEFAULT.w_px(20.0).h_px(20.0)); let _ = ui.busy_step(&b, 0.0); });
+    /// ```
     #[inline] #[track_caller] pub fn busy_step(&mut self,box_:&Handle,now:f64)->bool{let mut out=0;let rc=unsafe{sys::pxui_ui_busy_step(self.0.as_ptr(),box_,now,&mut out)};live(self,rc)&&out!=0}
+    /// Requests another frame from the host.
+    ///
+    /// Allocates: never.
+    /// Panics: when the UI is poisoned or the operation is refused in its current state.
+    ///
+    /// ```
+    /// let mut ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
+    /// ui.request_frame();
+    /// ```
     #[track_caller] pub fn request_frame(&mut self) {check(self, unsafe{sys::pxui_ui_request_frame(self.0.as_ptr())})}
+    /// Returns the live box’s rectangle in logical points.
+    ///
+    /// Allocates: never.
+    /// Panics: when the library refuses the call.
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| { let b = ui.node("sample", pxui::Node::DEFAULT.w_px(20.0).h_px(20.0)); let _ = ui.rect(&b); });
+    /// ```
     #[inline]
     #[track_caller] pub fn rect(&self,box_:&Handle)-> geom::Rect {
         let mut out=geom::Rect::default();
@@ -851,6 +1085,13 @@ impl Ui {
         found.then_some(out)
     }
     /// The live node for a published accessibility identity; `None` after it retires.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let ui = pxui::doc::frames(1, &mut |_| {});
+    /// assert!(ui.box_of_a11y(u64::MAX).is_none());
+    /// ```
     #[inline] pub fn box_of_a11y(&self,id:u64)->Option<Handle> {
         let mut out=Handle::default();
         #[cfg(feature = "static")]
@@ -859,6 +1100,14 @@ impl Ui {
         let found=unsafe {sys::pxui_ui_box_of_a11y(self.0.as_ptr(),id,&mut out)};
         (found!=0).then_some(out)
     }
+    /// Sets the text of a box being built.
+    ///
+    /// Allocates: when the text cache or frame storage grows.
+    /// Panics: when the library refuses the call.
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| { let b = ui.node("sample", pxui::Node::DEFAULT.w_px(20.0).h_px(20.0)); ui.text(&b, "Hello"); });
+    /// ```
     #[inline] #[track_caller] pub fn text(&mut self,box_:&Handle,value:&str) {
         #[cfg(feature = "static")]
         let rc = unsafe { sys::pxui_ui_text(self.0.as_ptr(), box_, as_str(value)) };
@@ -867,6 +1116,14 @@ impl Ui {
         check(self, rc)
     }
 
+    /// Builds child nodes within a live parent box.
+    ///
+    /// Allocates: when the frame arena or retained storage first grows; never on a warm frame.
+    /// Panics: for a stale parent, a refused build call, or a panic from the callback.
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| { let b = ui.node("sample", pxui::Node::DEFAULT.w_px(20.0).h_px(20.0)); ui.within(&b, &mut |ui| { ui.label("Child", pxui::Label::DEFAULT); }); });
+    /// ```
     #[inline]
     #[track_caller]
     pub fn within(&mut self, box_: &Handle, mut f: &mut dyn FnMut(&mut Ui)) {
@@ -1028,6 +1285,7 @@ pub fn library_counter(which: u32) -> u64 {
     #[cfg(not(feature = "static"))]
     { sys::pxui_counter(which) }
 }
+/// Counter id for allocations made by the pxui library.
 pub const COUNTER_ALLOCATIONS:u32=1;
 /// A capability a library may or may not have, as `pxui_supports` numbers them (`PXUI_FEATURE_*`; ids are append-only and mirror `pxui_types::feature`).
 #[repr(u32)]
@@ -1050,9 +1308,18 @@ pub enum Feature {
 /// let _ = pxui::supports(pxui::Feature::ExtensionSet);
 /// ```
 ///
-/// Allocates: nothing. Panics: never.
+/// Allocates: never.
+/// Panics: never.
 #[cfg(feature="static")]
 pub fn supports(feature:Feature)->bool { unsafe { sys::pxui_supports(feature as u32) != 0 } }
+/// Whether the library has `feature`, as it was built: backends and the accessibility bridge depend on the platform. Everything not named in `Feature` is in every build.
+///
+/// ```
+/// let _ = pxui::supports(pxui::Feature::ExtensionSet);
+/// ```
+///
+/// Allocates: never.
+/// Panics: never.
 #[cfg(not(feature="static"))]
 pub fn supports(feature:Feature)->bool { sys::pxui_supports(feature as u32) != 0 }
 #[cfg(feature="static")]

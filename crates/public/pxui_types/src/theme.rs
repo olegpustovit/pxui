@@ -1,3 +1,5 @@
+//! UI theme tokens, visual states and animation curves.
+
 use crate::geom::Rgba;
 
 /// Motion durations in seconds and the CSS cubic-bezier easing curve `[x1, y1, x2, y2]`.
@@ -528,8 +530,8 @@ macro_rules! snapshot {
             pub scrollbar_gap: f32,
             /// The body each widget kind builds with (its own size; its reserved slots keep it from growing).
             pub body: Bodies,
-            /// The kit parts, last: the part this record grows by is the next one.
-            $($(#[$doc])* pub $name: States,)*
+            // The kit parts go last so a future part can append a new field.
+            $(#[doc = concat!("Looks for the `", stringify!($name), "` part.")] $(#[$doc])* pub $name: States,)*
         }
         /// How many kit parts a snapshot lists.
         pub const WIDGET_COUNT: usize = [$(stringify!($name)),*].len();
@@ -1399,13 +1401,13 @@ impl Look {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Curve {
     /// A CSS cubic-bezier over `duration` seconds with control points `[x1, y1, x2, y2]`.
-    Bezier { duration: f32, points: [f32; 4] },
+    Bezier { #[doc = "Animation duration in seconds."] duration: f32, #[doc = "Cubic Bézier control coordinates in x1, y1, x2, y2 order."] points: [f32; 4] },
     /// A critically damped spring of angular frequency `omega` per second; it has no fixed duration.
-    Spring { omega: f32 },
+    Spring { #[doc = "Natural angular frequency of the spring."] omega: f32 },
     /// Piecewise linear: `count` (2 to 16) samples of `values` at `positions` (0 to 1) over `duration` seconds.
-    Table { duration: f32, count: u32, positions: [f32; 16], values: [f32; 16] },
+    Table { #[doc = "Animation duration in seconds."] duration: f32, #[doc = "Number of entries used by the curve."] count: u32, #[doc = "Normalized sample positions along the animation."] positions: [f32; 16], #[doc = "Sampled curve values in interpolation order."] values: [f32; 16] },
     /// `count` equal end-steps over `duration` seconds, as CSS `steps(count, jump-end)`.
-    Steps { duration: f32, count: u32 },
+    Steps { #[doc = "Animation duration in seconds."] duration: f32, #[doc = "Number of entries used by the curve."] count: u32 },
 }
 
 impl Curve {
