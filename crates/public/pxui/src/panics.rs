@@ -29,7 +29,7 @@ fn a_paint_callback_panic_is_carried_to_the_frame_that_paints() {
     let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
     let result = catch_unwind(AssertUnwindSafe(|| {
         let _ = ui.frame(&input(), &mut |ui: &mut Ui| {
-            let node = ui.node("canvas", Node { w: Size::Px(40.0), h: Size::Px(40.0), ..Node::DEFAULT });
+            let node = ui.node("canvas", Node::DEFAULT.w(Size::Px(40.0)).h(Size::Px(40.0)));
             ui.canvas(&node, |_, _| panic!("paint callback"));
         });
     }));

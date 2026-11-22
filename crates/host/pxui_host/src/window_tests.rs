@@ -66,11 +66,7 @@ fn framework_host_uploads_exact_rgba_reuses_warm_frames_and_fences_texture_relea
             &mut |ui| {
                 let node = ui.node(
                     "image",
-                    Node {
-                        w: Size::Px(64.0),
-                        h: Size::Px(32.0),
-                        ..Node::DEFAULT
-                    },
+                    Node::DEFAULT.w(Size::Px(64.0)).h(Size::Px(32.0)),
                 );
                 let image = graphics
                     .images()
@@ -179,7 +175,7 @@ fn framework_platform_applies_focused_ime_reuses_warm_frames_and_rejects_dead_wi
     let mut build = |ui: &mut Ui| { assert!(ui.text_field("Caption", "café track 10", &pxui::TextField::DEFAULT).changed.is_none()); };
     let input = FrameIn::new(320.0, 240.0);
     ui.frame(&input, &mut build).unwrap();
-    let focus = Event { kind: Event::KEY_PRESSED, code: input::Key::Tab.code(), ..Event::default() };
+    let focus = Event::key(Event::KEY_PRESSED, input::Key::Tab.code());
     ui.frame(&input.events(core::slice::from_ref(&focus)), &mut build).unwrap();
     assert!(ui.ime().is_some());
     for frame in 0..100 {

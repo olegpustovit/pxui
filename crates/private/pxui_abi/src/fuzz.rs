@@ -135,14 +135,14 @@ impl Arg for Str {
     fn arg(v: u32) -> Self {
         match v % VARIANTS {
             // the second round of the first three variants: an unusable resolved label (`UNRESOLVED`)
-            0..=2 if v % 12 >= 6 => Str { ptr: UNRESOLVED[(v % 6) as usize].as_ptr(), len: 17 },
-            0 => Str { ptr: core::ptr::null(), len: 0 },
-            1 => Str { ptr: core::ptr::null(), len: 5 },
-            2 => Str { ptr: GARBAGE.as_ptr(), len: GARBAGE.len() },
-            3 => Str { ptr: GARBAGE.as_ptr(), len: 1 << 40 },
-            4 => Str { ptr: b"k".as_ptr(), len: 1 },
+            0..=2 if v % 12 >= 6 => { let mut record = Str::default(); record.ptr = UNRESOLVED[(v % 6) as usize].as_ptr(); record.len = 17; record },
+            0 => { let mut record = Str::default(); record.ptr = core::ptr::null(); record.len = 0; record },
+            1 => { let mut record = Str::default(); record.ptr = core::ptr::null(); record.len = 5; record },
+            2 => { let mut record = Str::default(); record.ptr = GARBAGE.as_ptr(); record.len = GARBAGE.len(); record },
+            3 => { let mut record = Str::default(); record.ptr = GARBAGE.as_ptr(); record.len = 1 << 40; record },
+            4 => Str::from("k"),
             // past the key cap (300) and past the label cap (70 000)
-            _ => Str { ptr: LONG.as_ptr(), len: if v % 12 == 5 { 300 } else { LONG.len() } },
+            _ => { let mut record = Str::default(); record.ptr = LONG.as_ptr(); record.len = if v % 12 == 5 { 300 } else { LONG.len() }; record },
         }
     }
 }
@@ -157,15 +157,15 @@ impl Arg for *const PxuiTextWorker { fn arg(_: u32) -> Self { core::ptr::null() 
 impl Arg for *const PxuiKeyedDesc {
     fn arg(v: u32) -> Self {
         let size = core::mem::size_of::<PxuiKeyedDesc>() as u32;
-        let ok = Str { ptr: b"k".as_ptr(), len: 1 };
+        let ok = Str::from("k");
         let desc = match v % VARIANTS {
             1 => return core::ptr::null(),
             2 => PxuiKeyedDesc { size: 0, variant: 0, reserved: 0, key: ok, name: ok },
-            3 => PxuiKeyedDesc { size, variant: 0, reserved: 0, key: Str { ptr: GARBAGE.as_ptr(), len: GARBAGE.len() }, name: Str { ptr: LONG.as_ptr(), len: LONG.len() } },
-            4 => PxuiKeyedDesc { size, variant: 0, reserved: 0, key: Str { ptr: LONG.as_ptr(), len: 300 }, name: Str { ptr: GARBAGE.as_ptr(), len: 1 << 40 } },
-            5 if v % 12 == 11 => PxuiKeyedDesc { size, variant: 0, reserved: 0, key: Str { ptr: UNRESOLVED[0].as_ptr(), len: 17 }, name: ok },
+            3 => PxuiKeyedDesc { size, variant: 0, reserved: 0, key: { let mut record = Str::default(); record.ptr = GARBAGE.as_ptr(); record.len = GARBAGE.len(); record }, name: { let mut record = Str::default(); record.ptr = LONG.as_ptr(); record.len = LONG.len(); record } },
+            4 => PxuiKeyedDesc { size, variant: 0, reserved: 0, key: { let mut record = Str::default(); record.ptr = LONG.as_ptr(); record.len = 300; record }, name: { let mut record = Str::default(); record.ptr = GARBAGE.as_ptr(); record.len = 1 << 40; record } },
+            5 if v % 12 == 11 => PxuiKeyedDesc { size, variant: 0, reserved: 0, key: { let mut record = Str::default(); record.ptr = UNRESOLVED[0].as_ptr(); record.len = 17; record }, name: ok },
             5 => PxuiKeyedDesc { size, variant: 0, reserved: 7, key: ok, name: ok },
-            _ => PxuiKeyedDesc { size, variant: 0, reserved: 0, key: ok, name: Str { ptr: b"Name".as_ptr(), len: 4 } },
+            _ => PxuiKeyedDesc { size, variant: 0, reserved: 0, key: ok, name: Str::from("Name") },
         };
         unsafe { buf().cast::<PxuiKeyedDesc>().write(desc) };
         buf().cast()
@@ -287,7 +287,7 @@ fn special() {
             pxui_renderer_destroy(core::ptr::null_mut());
             pxui_a11y_stop(core::ptr::null_mut());
             // a name that is refused before any bus is reached
-            assert!(pxui_a11y_start(Str { ptr: core::ptr::null(), len: 5 }).is_null());
+            assert!(pxui_a11y_start({ let mut record = Str::default(); record.ptr = core::ptr::null(); record.len = 5; record }).is_null());
         }
         check("special", &0i32, panics);
     }
@@ -301,11 +301,11 @@ fn special() {
     for k in 0..VARIANTS {
         let panics = PANICS.with(Cell::get);
         unsafe {
-            assert_eq!(pxui_shaper_measure(shaper, 0, Str { ptr: b"a".as_ptr(), len: 1 }, &style, 0.0, core::ptr::null(), &mut metrics), PXUI_ERR_PANIC);
+            assert_eq!(pxui_shaper_measure(shaper, 0, Str::from("a"), &style, 0.0, core::ptr::null(), &mut metrics), PXUI_ERR_PANIC);
             assert_eq!(pxui_shaper_measure(shaper, Arg::arg(k), Arg::arg(k + 1), Arg::arg(k + 2), Arg::arg(k + 3), Arg::arg(k + 4), Arg::arg(k + 5)), PXUI_ERR_PANIC);
             assert_eq!(pxui_shaper_add_font(shaper, font), u32::MAX);
             assert_eq!(pxui_shaper_system_fonts(shaper), PXUI_ERR_PANIC);
-            assert_eq!(pxui_theme_parse(theme, Str { ptr: b"tokens.accent = #ff0000".as_ptr(), len: 23 }), PXUI_ERR_PANIC);
+            assert_eq!(pxui_theme_parse(theme, Str::from("tokens.accent = #ff0000")), PXUI_ERR_PANIC);
             assert_eq!(pxui_theme_parse(theme, Arg::arg(k)), PXUI_ERR_PANIC);
         }
         check("a poisoned shaper or theme", &0i32, panics);
@@ -340,7 +340,7 @@ fn every_export_refuses_bad_arguments_without_panicking() {
     THEME.with(|t| t.set(unsafe { pxui_theme_create(core::ptr::null()) }));
     // a stale box (declared in one frame, gone in the next) and a box of another `Ui`, kept alive meanwhile
     extern "C" fn declare(user: *mut c_void, ui: *mut c_void) { assert_eq!(unsafe { pxui_ui_node_keyed(ui.cast(), 4242, &Node::DEFAULT, &mut *user.cast::<PxuiBox>()) }, 0); }
-    let input = FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() };
+    let input = FrameIn::new(320.0, 240.0);
     let mut out = FrameOut::default();
     let (mut stale, mut foreign) = (PxuiBox::default(), PxuiBox::default());
     let other = unsafe { crate::ui::create_test_ui() };
@@ -381,8 +381,8 @@ fn unusable_resolved_labels_are_refused_with_the_argument_error() {
         let ui: *mut PxuiUi = ui.cast();
         let panics = PANICS.with(Cell::get);
         for label in UNRESOLVED {
-            let key = Str { ptr: label.as_ptr(), len: 17 };
-            let keyed = PxuiKeyedDesc { size: core::mem::size_of::<PxuiKeyedDesc>() as u32, variant: 0, reserved: 0, key, name: Str { ptr: b"n".as_ptr(), len: 1 } };
+            let key = { let mut record = Str::default(); record.ptr = label.as_ptr(); record.len = 17; record };
+            let keyed = PxuiKeyedDesc { size: core::mem::size_of::<PxuiKeyedDesc>() as u32, variant: 0, reserved: 0, key, name: Str::from("n") };
             let (mut b, mut flag) = (PxuiBox::default(), 0u8);
             let image = VALID_IMAGE;
             let px = PX;
@@ -398,27 +398,27 @@ fn unusable_resolved_labels_are_refused_with_the_argument_error() {
         // each legacy label-keyed export, called with arguments it takes with a plain label, refuses the unusable resolved ones
         for (name, call) in LEGACY_KEYED {
             let failed = |what: String| FAILURES.with(|f| f.borrow_mut().push(format!("{name}: {what}")));
-            let rc = call(ui, Str { ptr: b"k".as_ptr(), len: 1 });
+            let rc = call(ui, Str::from("k"));
             if rc == PXUI_ERR_ARGUMENT { failed(format!("a plain label refused: {}", lent(unsafe { pxui_last_error(ui) }))); }
-            for label in UNRESOLVED { let rc = call(ui, Str { ptr: label.as_ptr(), len: 17 }); if rc != PXUI_ERR_ARGUMENT { failed(format!("{label:?} answered {rc}")); } }
+            for label in UNRESOLVED { let rc = call(ui, { let mut record = Str::default(); record.ptr = label.as_ptr(); record.len = 17; record }); if rc != PXUI_ERR_ARGUMENT { failed(format!("{label:?} answered {rc}")); } }
         }
         // each keyed-record export (`read_keyed`, whose key's resolved form is checked once, by the entry or the export), likewise
         for (name, call) in KEYED {
             let failed = |what: String| FAILURES.with(|f| f.borrow_mut().push(format!("{name}: {what}")));
-            let rc = call(ui, Str { ptr: b"k".as_ptr(), len: 1 });
+            let rc = call(ui, Str::from("k"));
             if rc == PXUI_ERR_ARGUMENT { failed(format!("a plain key refused: {}", lent(unsafe { pxui_last_error(ui) }))); }
-            for label in UNRESOLVED { let rc = call(ui, Str { ptr: label.as_ptr(), len: 17 }); if rc != PXUI_ERR_ARGUMENT { failed(format!("{label:?} answered {rc}")); } }
+            for label in UNRESOLVED { let rc = call(ui, { let mut record = Str::default(); record.ptr = label.as_ptr(); record.len = 17; record }); if rc != PXUI_ERR_ARGUMENT { failed(format!("{label:?} answered {rc}")); } }
         }
         // a usable resolved label is still taken as the key itself
         let mut b = PxuiBox::default();
-        assert_eq!(unsafe { pxui_ui_image(ui, Str { ptr: b"img".as_ptr(), len: 3 }, Str::default(), &VALID_IMAGE, 0, PX, PX, &mut b) }, 0);
-        assert_eq!(unsafe { pxui_ui_node(ui, Str { ptr: b"\x010000000000000abc".as_ptr(), len: 17 }, &Node::DEFAULT, &mut b) }, 0);
+        assert_eq!(unsafe { pxui_ui_image(ui, Str::from("img"), Str::default(), &VALID_IMAGE, 0, PX, PX, &mut b) }, 0);
+        assert_eq!(unsafe { pxui_ui_node(ui, { let mut record = Str::default(); record.ptr = b"\x010000000000000abc".as_ptr(); record.len = 17; record }, &Node::DEFAULT, &mut b) }, 0);
         assert_eq!(b.box_key, 0xabc);
         assert_eq!(PANICS.with(Cell::get), panics, "no call panicked");
         assert!(!unsafe { (*(*ui).shared).poisoned });
     }
     let ui = unsafe { crate::ui::create_test_ui() };
-    let input = FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() };
+    let input = FrameIn::new(320.0, 240.0);
     let mut out = FrameOut::default();
     assert_eq!(unsafe { pxui_frame(ui, &input, Some(build), core::ptr::null_mut(), &mut out) }, 0);
     assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
@@ -438,12 +438,9 @@ fn menu_out() -> PxuiMenuOut { PxuiMenuOut { size: core::mem::size_of::<PxuiMenu
 type LegacyCall = fn(*mut PxuiUi, Str) -> i32;
 const PX: PxuiSizeDesc = PxuiSizeDesc { kind: 0, value: 10.0, relative: None };
 /// An image the image calls take (its texture is only an identity here: nothing is drawn).
-const VALID_IMAGE: pxui_types::Image = pxui_types::Image {
-    size: core::mem::size_of::<pxui_types::Image>() as u32, vk_image_view: core::ptr::null_mut(), mtl_texture: core::ptr::dangling_mut(), width: 1, height: 1,
-    format: pxui_types::Image::FORMAT_RGBA8,
-};
+const VALID_IMAGE: pxui_types::Image = pxui_types::Image::rgba8(1, 1, core::ptr::null_mut(), core::ptr::dangling_mut());
 /// A keyed record of `key`, named `n`.
-fn keyed(key: Str) -> PxuiKeyedDesc { PxuiKeyedDesc { size: core::mem::size_of::<PxuiKeyedDesc>() as u32, variant: 0, reserved: 0, key, name: Str { ptr: b"n".as_ptr(), len: 1 } } }
+fn keyed(key: Str) -> PxuiKeyedDesc { PxuiKeyedDesc { size: core::mem::size_of::<PxuiKeyedDesc>() as u32, variant: 0, reserved: 0, key, name: Str::from("n") } }
 /// Every export that takes its key in a `PxuiKeyedDesc`, each called with otherwise valid arguments and `key`.
 static KEYED: &[(&str, LegacyCall)] = &[
         ("pxui_ui_panel", |ui, k| unsafe { pxui_ui_panel(ui, &keyed(k), &PxuiPanel { width: 100.0, ..PxuiPanel::default() }, None, core::ptr::null_mut(), &mut PxuiBox::default()) }),
@@ -455,7 +452,7 @@ static KEYED: &[(&str, LegacyCall)] = &[
         ("pxui_ui_toasts", |ui, k| unsafe { pxui_ui_toasts(ui, &keyed(k), Slice { ptr: core::ptr::null(), len: 0 }, Slice { ptr: core::ptr::null(), len: 0 }, 1.0, &mut 0) }),
         ("pxui_ui_slider", |ui, k| unsafe { pxui_ui_slider(ui, &keyed(k), 0.5, 0.0, 1.0, &mut response(), &mut PxuiScrubOut::default()) }),
         ("pxui_ui_spinner", |ui, k| unsafe { pxui_ui_spinner(ui, &keyed(k), &mut PxuiBox::default()) }),
-        ("pxui_ui_badge", |ui, k| unsafe { pxui_ui_badge(ui, &keyed(k), Str { ptr: b"1".as_ptr(), len: 1 }, &mut PxuiBox::default()) }),
+        ("pxui_ui_badge", |ui, k| unsafe { pxui_ui_badge(ui, &keyed(k), Str::from("1"), &mut PxuiBox::default()) }),
         ("pxui_ui_disclosure", |ui, k| unsafe { pxui_ui_disclosure(ui, &keyed(k), 0, None, core::ptr::null_mut(), &mut response()) }),
         ("pxui_ui_pick", |ui, k| unsafe { pxui_ui_pick(ui, &keyed(k), 0, Slice { ptr: core::ptr::null(), len: 0 }, 0, 0, &mut response(), &mut { PxuiSegmentedResult::EMPTY }) }),
         ("pxui_ui_section_index", |ui, k| unsafe { pxui_ui_section_index(ui, &keyed(k), Slice { ptr: core::ptr::null(), len: 0 }, &mut response(), &mut { PxuiSegmentedResult::EMPTY }) }),

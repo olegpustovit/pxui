@@ -1164,14 +1164,14 @@ mod segment_tests {
     fn overlay_ok_takes_finite_places_and_sizes_from_zero_to_max() {
         let base = Overlay::DEFAULT;
         assert!(overlay_ok(&base));
-        assert!(overlay_ok(&Overlay { at: (-5.0, f32::MAX), w: Some(-0.0), h: Some(f32::MAX), max_h: Some(-1.0), ..base }));
+        assert!(overlay_ok(&{ let mut bounds = base; bounds.at = (-5.0, f32::MAX); bounds.w = Some(-0.0); bounds.h = Some(f32::MAX); bounds.max_h = Some(-1.0); bounds }));
         for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
-            assert!(!overlay_ok(&Overlay { at: (bad, 0.0), ..base }));
-            assert!(!overlay_ok(&Overlay { max_h: Some(bad), ..base }));
+            assert!(!overlay_ok(&{ let mut position = base; position.at = (bad, 0.0); position }));
+            assert!(!overlay_ok(&{ let mut height = base; height.max_h = Some(bad); height }));
         }
         for bad in [f32::NAN, f32::INFINITY, -1.0, -f32::MIN_POSITIVE] {
-            assert!(!overlay_ok(&Overlay { w: Some(bad), ..base }));
-            assert!(!overlay_ok(&Overlay { padding: bad, ..base }));
+            assert!(!overlay_ok(&{ let mut width = base; width.w = Some(bad); width }));
+            assert!(!overlay_ok(&base.padding(bad)));
         }
     }
 }

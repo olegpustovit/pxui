@@ -122,7 +122,7 @@ mod tests {
 
     fn tree(surface: u64) -> Ui {
         extern "C" fn build(user: *mut core::ffi::c_void, raw: *mut core::ffi::c_void) {
-            let text = Str { ptr: b"Button".as_ptr(), len: 6 };
+            let text = Str::from("Button");
             let mut response = pxui_types::ffi::PxuiResponse::EMPTY;
             unsafe { *user.cast::<i32>() = crate::pxui_ui_button_plain(raw.cast(), text, text, &mut response); }
         }
@@ -132,7 +132,7 @@ mod tests {
         assert_eq!(unsafe { crate::pxui_ui_add_surface(ui.0, surface) }, 0);
         assert_eq!(unsafe { crate::pxui_ui_set_a11y(ui.0, 1) }, 0);
         let mut status = i32::MIN;
-        let input = pxui_types::FrameIn { width: 320.0, height: 240.0, surface, ..Default::default() };
+        let input = { let mut record = pxui_types::FrameIn::default(); record.width = 320.0; record.height = 240.0; record.surface = surface; record };
         assert_eq!(unsafe { crate::pxui_frame(ui.0, &input, Some(build), (&mut status as *mut i32).cast(), &mut pxui_types::FrameOut::default()) }, 0);
         assert_eq!(status, 0);
         ui

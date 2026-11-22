@@ -762,7 +762,7 @@ mod tests {
             PxuiTextFieldDesc {key:bad_utf8,..good},
             PxuiTextFieldDesc {name:bad_utf8,..good},
             PxuiTextFieldDesc {value:bad_utf8,..good},
-            PxuiTextFieldDesc {key:Str {ptr:core::ptr::null(),len:1},..good},
+            PxuiTextFieldDesc {key:{ let mut span = Str::default(); span.len = 1; span },..good},
         ];
         let mut changed={ let mut record = Str::default(); record.ptr = b"sentinel".as_ptr(); record.len = 8; record };
         let mut flag=77;
@@ -884,7 +884,7 @@ mod tests {
         assert!(super::same_keyboard(&keyboard, &keyboard.clone()) && !super::same_keyboard(&keyboard, &Keyboard { flags: 0, ..keyboard }));
         // a pointer that is not finite is refused before either path
         for (x, y) in [(1.5, -2.0), (f64::NAN, 0.0), (f64::INFINITY, -0.0)] {
-            let event = C { kind: C::POINTER_MOVED, x, y, ..Default::default() };
+            let event = C::pointer(C::POINTER_MOVED, 0, x, y);
             let general = input::Event::from_raw(&input::wire::Raw { kind: event.kind, code: event.code, x, y, value: event.value, text: unsafe { super::text(event.text) }, touch: None })
                 .filter(|_| x.is_finite() && y.is_finite());
             let got = super::translate_event(&event, event.surface, &mut 0);
@@ -903,7 +903,7 @@ mod tests {
         let mut out = FrameOut::default();
         for (code, payload) in [(0, "/Music/名前.flac\0/Music/Björk.m4a"), (1, "transport limit exceeded"), (0, "")] {
             let backing = payload.to_owned();
-            let event = Wire { kind: Wire::FILES_DROPPED, code, x: -12.5, y: 31.25, text: pair(&backing), ..Default::default() };
+            let event = { let mut record = Wire::default(); record.kind = Wire::FILES_DROPPED; record.code = code; record.x = -12.5; record.y = 31.25; record.text = pair(&backing); record };
             let frame = { let mut record = FrameIn::new(320.0, 240.0); record.events = pxui_types::ffi::Strided { ptr: &event, len: 1, stride: core::mem::size_of::<pxui_types::Event>() }; record };
             assert_eq!(unsafe { pxui_frame(ui, &frame, None, core::ptr::null_mut(), &mut out) }, 0);
             drop(backing);
@@ -917,13 +917,13 @@ mod tests {
             }
         }
         let bad_utf8 = [255u8];
-        let empty = Wire { kind: Wire::FILES_DROPPED, ..Default::default() };
+        let empty = Wire::new(Wire::FILES_DROPPED);
         for invalid in [
-            Wire { code: 2, ..empty },
-            Wire { x: f64::NAN, ..empty },
-            Wire { y: f64::INFINITY, ..empty },
-            Wire { text: { let mut record = Str::default(); record.ptr = core::ptr::null(); record.len = 1; record }, ..empty },
-            Wire { text: { let mut record = Str::default(); record.ptr = bad_utf8.as_ptr(); record.len = 1; record }, ..empty },
+            { let mut record = empty; record.code = 2; record },
+            { let mut record = empty; record.x = f64::NAN; record },
+            { let mut record = empty; record.y = f64::INFINITY; record },
+            { let mut record = empty; record.text = { let mut record = Str::default(); record.ptr = core::ptr::null(); record.len = 1; record }; record },
+            { let mut record = empty; record.text = { let mut record = Str::default(); record.ptr = bad_utf8.as_ptr(); record.len = 1; record }; record },
         ] {
             let frame = { let mut record = FrameIn::new(320.0, 240.0); record.events = pxui_types::ffi::Strided { ptr: &invalid, len: 1, stride: core::mem::size_of::<pxui_types::Event>() }; record };
             let mut built = false;
@@ -958,9 +958,7 @@ mod tests {
             let count = [32, 1, 0, 3][tick % 4];
             for (index, packet) in packets.iter_mut().enumerate() {
                 *packet = Touch::new(u64::MAX, u64::MAX - index as u64, [-1.25, 99.5], tick as f64 / 120.0, 0.375, (tick % 4) as u32);
-                events[index] = Wire { kind: Wire::TOUCH,
-                    text: { let mut record = Str::default(); record.ptr = (packet as *const Touch).cast(); record.len = core::mem::size_of::<Touch>(); record },
-                    ..Default::default() };
+                events[index] = { let mut record = Wire::default(); record.kind = Wire::TOUCH; record.text = { let mut record = Str::default(); record.ptr = (packet as *const Touch).cast(); record.len = core::mem::size_of::<Touch>(); record }; record };
             }
             let expected = packets;
             let frame = { let mut record = FrameIn::new(320.0, 240.0); record.time = tick as f64 / 120.0; record.events = pxui_types::ffi::Strided { ptr: events.as_ptr(), len: count, stride: core::mem::size_of::<pxui_types::Event>() }; record };
@@ -989,7 +987,7 @@ mod tests {
         let mut out=crate::FrameOut::default();
         for frame in 0..182 {
             packet.phase=(frame%4) as u32;
-            let event=C {kind:C::TOUCH,text:Str {ptr:(&packet as *const Touch).cast(),len:core::mem::size_of::<Touch>()},..Default::default()};
+            let event={ let mut event = C::new(C::TOUCH); event.text.ptr = (&packet as *const Touch).cast(); event.text.len = core::mem::size_of::<Touch>(); event };
             mem_sys::local_reset();
             assert_eq!(unsafe {super::pxui_frame(ui,&{ let mut record = FrameIn::default(); record.events = pxui_types::ffi::Strided { ptr: &event, len: 1, stride: core::mem::size_of::<pxui_types::Event>() }; record.width = 320.0; record.height = 240.0; record.time = frame as f64; record },None,core::ptr::null_mut(),&mut out)},0);
             let mut input=pxui_types::ffi::Input::default();
@@ -1005,7 +1003,7 @@ mod tests {
         for field in 0..7 {
             let mut bad=packet;
             match field {0=>bad.phase=4,1=>bad.x=f64::NAN,2=>bad.y=f64::INFINITY,3=>bad.time=f64::NAN,4=>bad.pressure=-1.0,5=>bad.pressure=1.01,_=>bad.pressure=f32::NAN}
-            let events=[C {kind:C::KEY_PRESSED,code:input::Key::Meta.code(),..Default::default()},C {kind:C::TOUCH,text:Str {ptr:(&bad as *const Touch).cast(),len:core::mem::size_of::<Touch>()},..Default::default()}];
+            let events=[C::key(C::KEY_PRESSED, input::Key::Meta.code()),{ let mut event = C::new(C::TOUCH); event.text.ptr = (&bad as *const Touch).cast(); event.text.len = core::mem::size_of::<Touch>(); event }];
             out.size=777;
             assert_eq!(unsafe {super::pxui_frame(ui,&{ let mut record = input; record.events = pxui_types::ffi::Strided { ptr: events.as_ptr(), len: 2, stride: core::mem::size_of::<pxui_types::Event>() }; record },None,core::ptr::null_mut(),&mut out)},crate::PXUI_ERR_ARGUMENT);
             assert_eq!(out.size,777);
@@ -1015,12 +1013,12 @@ mod tests {
             assert!(!unsafe {&*(*ui).engine}.key_down(input::Key::Meta), "the rejected batch must leave the next frame's held keys intact");
         }
         for text in [Str::default(),{ let mut record = Str::default(); record.ptr = (&packet as *const Touch).cast(); record.len = 47; record }] {
-            let event=C {kind:C::TOUCH,text,..Default::default()};
+            let event={ let mut event = C::new(C::TOUCH); event.text = text; event };
             assert_eq!(unsafe {super::pxui_frame(ui,&{ let mut record = input; record.events = pxui_types::ffi::Strided { ptr: &event, len: 1, stride: core::mem::size_of::<pxui_types::Event>() }; record },None,core::ptr::null_mut(),&mut out)},crate::PXUI_ERR_ARGUMENT);
         }
         // the record's own size: short, or past the payload, is refused; a longer payload than the record is read as its first bytes
         let mut frame=|touch:&Touch,len:usize| {
-            let event=C {kind:C::TOUCH,text:Str {ptr:(touch as *const Touch).cast(),len},..Default::default()};
+            let event={ let mut event = C::new(C::TOUCH); event.text.ptr = (touch as *const Touch).cast(); event.text.len = len; event };
             unsafe {super::pxui_frame(ui,&{ let mut record = input; record.events = pxui_types::ffi::Strided { ptr: &event, len: 1, stride: core::mem::size_of::<pxui_types::Event>() }; record },None,core::ptr::null_mut(),&mut out)}
         };
         let whole=Touch::new(1,2,[10.0,20.0],1.0,1.0,0);

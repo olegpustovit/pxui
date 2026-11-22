@@ -4,7 +4,7 @@ use crate::*;
 use core::ffi::c_void;
 
 fn create() -> *mut PxuiUi { unsafe { crate::ui::create_test_ui() } }
-fn frame_in() -> FrameIn { FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() } }
+fn frame_in() -> FrameIn { FrameIn::new(320.0, 240.0) }
 fn error(ui: *mut PxuiUi) -> String { let e = unsafe { pxui_last_error(ui) }; String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(e.ptr, e.len) }).into_owned() }
 fn run(ui: *mut PxuiUi, build: Build, user: *mut c_void) -> i32 {
     let mut out = FrameOut::default();
@@ -77,7 +77,7 @@ fn a_builder_outside_a_frame_is_refused_without_poisoning_the_ui() {
     let mut out = PxuiBox::default();
     assert_eq!(unsafe { pxui_ui_node_keyed(ui, 7, &desc, &mut out) }, PXUI_ERR_STATE);
     assert!(error(ui).contains("frame callback"), "{}", error(ui));
-    let x = Str { ptr: b"x".as_ptr(), len: 1 };
+    let x = Str::from("x");
     assert_eq!(unsafe { pxui_ui_button_plain(ui, x, x, &mut { pxui_types::ffi::PxuiResponse::EMPTY }) }, PXUI_ERR_STATE);
     assert!(!unsafe { (*(*ui).shared).poisoned });
     assert_eq!(unsafe { pxui_ui_set_dir(ui, 0) }, 0);
@@ -97,7 +97,7 @@ fn a_caught_panic_poisons_the_ui_until_its_next_frame() {
     // every later call on this Ui fails at once with the same code, even valid ones
     assert_eq!(unsafe { pxui_ui_set_dir(ui, 0) }, PXUI_ERR_PANIC);
     assert_eq!(unsafe { pxui_ui_request_frame(ui) }, PXUI_ERR_PANIC);
-    let x = Str { ptr: b"x".as_ptr(), len: 1 };
+    let x = Str::from("x");
     assert_eq!(unsafe { pxui_ui_button_plain(ui, x, x, &mut { pxui_types::ffi::PxuiResponse::EMPTY }) }, PXUI_ERR_PANIC);
     // another Ui is untouched
     let other = create();
@@ -259,7 +259,7 @@ fn default_descriptors_carry_their_size() {
 fn text_with_nul_crosses_as_ordinary_text() {
     extern "C" fn build(user: *mut c_void, ui: *mut c_void) {
         let ui = ui.cast::<PxuiUi>();
-        let query = Str { ptr: b"a\0b".as_ptr(), len: 3 };
+        let query = { let mut record = Str::default(); record.ptr = b"a\0b".as_ptr(); record.len = 3; record };
         let (mut returned, mut tag, mut index) = (Str::default(), 0u32, 0i64);
         let rc = unsafe { pxui_ui_picker(ui, &pxui_types::ffi::PxuiKeyedDesc::new("pick", ""), 5, 0, 0, query, None, None, None, None, core::ptr::null_mut(), &mut returned, &mut tag, &mut index) };
         assert_eq!(rc, 0, "{}", error(ui));
@@ -289,9 +289,9 @@ fn picker_rows_are_checked_and_old_str_fills_are_refused_unread() {
     let pick = |fill: &mut Fill| in_frame(ui, &mut |ui| {
         let (mut query, mut tag, mut index) = (Str::default(), 0u32, 0i64);
         let keyed = pxui_types::ffi::PxuiKeyedDesc::new("pick", "Search");
-        unsafe { pxui_ui_picker(ui, &keyed, 5, 0, 1, Str { ptr: b"s".as_ptr(), len: 1 }, Some(rows), None, None, None, (fill as *mut Fill).cast(), &mut query, &mut tag, &mut index) }
+        unsafe { pxui_ui_picker(ui, &keyed, 5, 0, 1, Str::from("s"), Some(rows), None, None, None, (fill as *mut Fill).cast(), &mut query, &mut tag, &mut index) }
     });
-    let row = PxuiPickRow { art_kind: 1, art: 0x266B, heading: Str { ptr: b"S".as_ptr(), len: 1 }, ..PxuiPickRow::new("Song", "Artist") };
+    let row = PxuiPickRow { art_kind: 1, art: 0x266B, heading: Str::from("S"), ..PxuiPickRow::new("Song", "Artist") };
     let good = [row, PxuiPickRow { art_kind: 2, art: 7, ..PxuiPickRow::new("Album", "") }];
     let mut fill: Fill = (good.as_ptr().cast(), 2, 0);
     assert_eq!(pick(&mut fill), 0, "{}", error(ui));
@@ -301,7 +301,7 @@ fn picker_rows_are_checked_and_old_str_fills_are_refused_unread() {
     assert_eq!(pick(&mut fill), 0, "{}", error(ui));
     assert!(fill.2 > 0, "the fill ran");
     // a pre-1.86 fill: two `PxuiStr`s (one label and detail pair) whose pointers would fault if read
-    let poison = [Str { ptr: 0xdead_0001usize as *const u8, len: 4 }, Str { ptr: 0xdead_1001usize as *const u8, len: 6 }];
+    let poison = [{ let mut record = Str::default(); record.ptr = 0xdead_0001usize as *const u8; record.len = 4; record }, { let mut record = Str::default(); record.ptr = 0xdead_1001usize as *const u8; record.len = 6; record }];
     let refused = |ptr: *const c_void, len: usize, why: &str| {
         let mut fill: Fill = (ptr, len, 0);
         assert_ne!(pick(&mut fill), 0, "{why}");
@@ -315,7 +315,7 @@ fn picker_rows_are_checked_and_old_str_fills_are_refused_unread() {
     refused(bad(PxuiPickRow { art_kind: 1, art: 0xD800, ..good[1] }).as_ptr().cast(), 2, "a glyph that is not a Unicode scalar value");
     refused(bad(PxuiPickRow { art_kind: 0, art: 5, ..good[1] }).as_ptr().cast(), 2, "art with no kind");
     refused(bad(PxuiPickRow { reserved: [0, 1, 0], ..good[1] }).as_ptr().cast(), 2, "a non-zero reserved byte");
-    refused(bad(PxuiPickRow { heading: Str { ptr: b"\xff".as_ptr(), len: 1 }, ..good[1] }).as_ptr().cast(), 2, "a heading that is not UTF-8");
+    refused(bad(PxuiPickRow { heading: { let mut record = Str::default(); record.ptr = b"\xff".as_ptr(); record.len = 1; record }, ..good[1] }).as_ptr().cast(), 2, "a heading that is not UTF-8");
     refused(core::ptr::null(), 2, "a null span with a length");
     assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
 }
@@ -364,9 +364,9 @@ fn modal_sheet_checks_every_field_before_the_build() {
 fn refused_calls_leave_their_outputs_untouched() {
     use pxui_types::ffi::{PxuiInspectorSectionDesc, PxuiKeyedDesc, PxuiResponse, PxuiSheetDesc, PxuiSplitDesc, PxuiTextAreaDesc};
     let ui = create();
-    let s = |t: &'static str| Str { ptr: t.as_ptr(), len: t.len() };
-    let bad_utf8 = Str { ptr: [0xff_u8].as_ptr(), len: 1 };
-    let sentinel = Str { ptr: b"sentinel".as_ptr(), len: 8 };
+    let s = |t: &'static str| { let mut record = Str::default(); record.ptr = t.as_ptr(); record.len = t.len(); record };
+    let bad_utf8 = { let mut record = Str::default(); record.ptr = [0xff_u8].as_ptr(); record.len = 1; record };
+    let sentinel = Str::from("sentinel");
     let marked = || { let mut r = PxuiResponse::EMPTY; r.flags = 0xdead; r };
     let keyed = PxuiKeyedDesc::new("k", "K");
     // the search field: outside a frame, and inside one with a label that is not UTF-8
@@ -431,7 +431,7 @@ fn theme_tokens_that_cannot_be_a_theme_make_none() {
 /// Calls every kind of export on `ui` and returns the statuses: a default-form one, a trusted-form one (C entry), the trusted entry the
 /// static wrapper calls, a bare one that touches the engine and a container.
 fn probe(ui: *mut PxuiUi) -> [i32; 6] {
-    let (label, mut out) = (Str { ptr: b"x".as_ptr(), len: 1 }, PxuiBox::default());
+    let (label, mut out) = (Str::from("x"), PxuiBox::default());
     unsafe {
         [pxui_ui_set_dir(ui, 0), pxui_ui_toggle_plain(ui, label, label, 0, &mut { pxui_types::ffi::PxuiResponse::EMPTY }), pxui_ui_button_plain(ui, label, label, &mut { pxui_types::ffi::PxuiResponse::EMPTY }),
          crate::trusted::pxui_ui_node_keyed(ui, 7, &pxui_types::Node::DEFAULT, &mut out),
@@ -455,7 +455,7 @@ fn only_the_innermost_callbacks_handle_may_be_used_while_a_frame_is_built() {
         let owner = unsafe { *user.cast::<*mut PxuiUi>() };
         assert_eq!(probe(ui.cast()), [0; 6]);
         let mut handles = [owner, ui.cast::<PxuiUi>()];
-        assert_eq!(unsafe { pxui_ui_scope(ui.cast(), Str { ptr: b"s".as_ptr(), len: 1 }, Some(inner), handles.as_mut_ptr().cast()) }, 0);
+        assert_eq!(unsafe { pxui_ui_scope(ui.cast(), Str::from("s"), Some(inner), handles.as_mut_ptr().cast()) }, 0);
         // the child returned: this handle is the current one again
         assert_eq!(probe(ui.cast()), [0; 6]);
         assert_eq!(probe(owner), [PXUI_ERR_STATE; 6]);
@@ -501,7 +501,7 @@ fn the_current_handle_is_restored_when_a_callback_unwinds() {
 #[test]
 fn carry_text_borrows_survive_replacement_cancellation_and_many_reads_until_next_frame() {
     let ui = create();
-    let text = |s: &str| Str { ptr: s.as_ptr(), len: s.len() };
+    let text = |s: &str| { let mut record = Str::default(); record.ptr = s.as_ptr(); record.len = s.len(); record };
     let mut kind = Str::default(); let mut value = Str::default(); let mut present = 0;
     assert_eq!(unsafe { pxui_ui_carry(ui, 0, core::ptr::null(), text("kind"), text("café")) }, 0);
     assert_eq!(unsafe { pxui_ui_carrying(ui, &mut present, &mut kind, &mut value) }, 0);
@@ -549,7 +549,7 @@ fn image_retirement_rejects_a_missing_renderer() {
 fn accessibility_batches_validate_the_entire_span_before_applying_any_chunk() {
     extern "C" fn slider(user:*mut c_void,raw:*mut c_void) {
         let ui=raw.cast::<PxuiUi>();
-        let desc=pxui_types::Node {flags:pxui_types::Flags::FOCUSABLE,role:pxui_types::a11y::Role::Slider,w:pxui_types::Size::Px(200.0),h:pxui_types::Size::Px(20.0),..pxui_types::Node::DEFAULT};
+        let desc=pxui_types::Node::DEFAULT.flags(pxui_types::Flags::FOCUSABLE).role(pxui_types::a11y::Role::Slider).w(pxui_types::Size::Px(200.0)).h(pxui_types::Size::Px(20.0));
         unsafe { assert_eq!(pxui_ui_node_keyed(ui,27,&desc,user.cast()),0); }
     }
     let ui=create();
@@ -598,7 +598,7 @@ fn accessibility_batches_validate_the_entire_span_before_applying_any_chunk() {
     assert_eq!(unsafe {pxui_ui_inject_a11y(ui,pxui_types::ffi::Strided::of(&batch[..1]))},0);
     assert_eq!(unsafe {pxui_ui_remove_surface(ui,FrameIn::MAIN)},0);
     assert_eq!(unsafe {pxui_ui_add_surface(ui,9)},0);
-    assert_eq!(unsafe {pxui_frame(ui,&FrameIn {surface:9,..frame_in()},Some(slider),(&mut node as *mut PxuiBox).cast(),&mut FrameOut::default())},0);
+    assert_eq!(unsafe {pxui_frame(ui,&{ let mut record = frame_in(); record.surface = 9; record },Some(slider),(&mut node as *mut PxuiBox).cast(),&mut FrameOut::default())},0);
     assert_eq!(unsafe {(&*(*ui).engine).signal(&crate::state::core_box_of(ui, node).unwrap()).a11y_value},None,"removing a surface discards its pending actions");
     assert_eq!(unsafe {pxui_ui_inject_a11y(ui,pxui_types::ffi::Strided{ptr:core::ptr::null(),len:0,stride:40})},0);
     assert_eq!(unsafe {pxui_ui_inject_a11y(ui,pxui_types::ffi::Strided{ptr:core::ptr::null(),len:1,stride:40})},PXUI_ERR_ARGUMENT);
@@ -618,7 +618,7 @@ fn accessibility_actions_route_identical_node_ids_to_their_own_surface() {
         assert_eq!(unsafe { pxui_ui_remove_surface(ui, FrameIn::MAIN) }, 0);
         assert_eq!(unsafe { pxui_ui_add_surface(ui, surface) }, 0);
         assert_eq!(unsafe { pxui_ui_set_a11y(ui, 1) }, 0);
-        assert_eq!(unsafe { pxui_frame(ui, &FrameIn { surface, ..frame_in() }, Some(build), core::ptr::null_mut(), &mut FrameOut::default()) }, 0);
+        assert_eq!(unsafe { pxui_frame(ui, &{ let mut record = frame_in(); record.surface = surface; record }, Some(build), core::ptr::null_mut(), &mut FrameOut::default()) }, 0);
         let output = unsafe { &*pxui_ui_output(ui) };
         let nodes = unsafe { core::slice::from_raw_parts(output.a11y.nodes.ptr, output.a11y.nodes.len) };
         ids[i] = nodes.iter().find(|n| n.role == pxui_types::a11y::Role::Slider as u32).unwrap().id;
@@ -671,7 +671,7 @@ fn section_list_validates_before_callbacks_and_builds_every_part() {
         if index >= usize::MAX - 2 { seen.1[usize::MAX - index] = true; }
         seen.0 += 1;
         let mut node = PxuiBox::default();
-        assert_eq!(unsafe { pxui_ui_node_keyed(raw.cast(), 17, &pxui_types::Node { h: pxui_types::Size::Px(20.0), ..pxui_types::Node::DEFAULT }, &mut node) }, 0);
+        assert_eq!(unsafe { pxui_ui_node_keyed(raw.cast(), 17, &pxui_types::Node::DEFAULT.h(pxui_types::Size::Px(20.0)), &mut node) }, 0);
     }
     extern "C" fn build(user: *mut c_void, raw: *mut c_void) {
         let ui = raw.cast::<PxuiUi>();
@@ -717,7 +717,7 @@ fn list_and_table_rows_key_by_item_id() {
     type State = ([i64; 3], [[i64; 3]; 3], [u8; 3], [PxuiColumnWidth; 1], usize);
     fn child(raw: *mut c_void) -> i64 {
         let mut node = PxuiBox::default();
-        assert_eq!(unsafe { crate::pxui_ui_node(raw.cast(), Str { ptr: b"title".as_ptr(), len: 5 }, &pxui_types::Node::DEFAULT, &mut node) }, 0);
+        assert_eq!(unsafe { crate::pxui_ui_node(raw.cast(), Str::from("title"), &pxui_types::Node::DEFAULT, &mut node) }, 0);
         node.box_key
     }
     extern "C" fn part(user: *mut c_void, raw: *mut c_void, index: usize, _: *const pxui_types::ffi::PxuiCellState) { let s = unsafe { &mut *user.cast::<State>() }; if index < 3 { s.1[0][index] = child(raw); } }
@@ -734,7 +734,7 @@ fn list_and_table_rows_key_by_item_id() {
         let mut list: PxuiSelectionListDesc = unsafe { core::mem::zeroed() };
         (list.size, list.count, list.row_height, list.rows, list.anchor) = (core::mem::size_of::<PxuiSelectionListDesc>() as u32, 3, 20.0, PxuiU8MutSpan { ptr: state.2.as_mut_ptr(), len: 3 }, usize::MAX);
         assert_eq!(unsafe { pxui_ui_selection_list(ui, &PxuiKeyedDesc::new("list", ""), &list, Some(key), Some(cell), user, &mut out) }, 0);
-        let columns = [PxuiColumn { size: core::mem::size_of::<PxuiColumn>() as u32, sortable: 0, grip: 0, has_id: 0, reserved: 0, title: Str { ptr: b"A".as_ptr(), len: 1 }, id: 0, share: 1.0, w: 0.0 }];
+        let columns = [PxuiColumn { size: core::mem::size_of::<PxuiColumn>() as u32, sortable: 0, grip: 0, has_id: 0, reserved: 0, title: Str::from("A"), id: 0, share: 1.0, w: 0.0 }];
         let mut table: PxuiTableDesc = unsafe { core::mem::zeroed() };
         (table.size, table.columns, table.widths, table.rows, table.row_h, table.head_h, table.anchor) = (core::mem::size_of::<PxuiTableDesc>() as u32, Slice { ptr: columns.as_ptr(), len: 1 },
             PxuiColumnWidthSpan { ptr: state.3.as_mut_ptr(), len: 1 }, 3, 20.0, 20.0, usize::MAX);
@@ -794,7 +794,7 @@ fn selection_list_table_and_heading_refuse_invalid_records_before_effects() {
     assert!(calls >= 4, "the valid list builds its rows");
 
     let col = |title: &'static [u8], id: Option<i64>| PxuiColumn { size: core::mem::size_of::<PxuiColumn>() as u32, sortable: 1, grip: 1, has_id: id.is_some() as u8, reserved: 0,
-        title: Str { ptr: title.as_ptr(), len: title.len() }, id: id.unwrap_or(0), share: 0.0, w: 80.0 };
+        title: { let mut record = Str::default(); record.ptr = title.as_ptr(); record.len = title.len(); record }, id: id.unwrap_or(0), share: 0.0, w: 80.0 };
     let good = [col(b"Name", Some(4)), col(b"Size", None)];
     let mut widths = [PxuiColumnWidth::default(); 65];
     let table_of = |columns: &[PxuiColumn], widths: &mut [PxuiColumnWidth], width_len: usize| {
@@ -851,8 +851,8 @@ fn selection_list_table_and_heading_refuse_invalid_records_before_effects() {
 #[test]
 fn tabs_result_refuses_invalid_arguments_and_items() {
     use pxui_types::ffi::{PxuiKeyedDesc, PxuiPickItem, PxuiResponse, PxuiSegmentedResult, Slice};
-    let item = |text: &'static [u8]| PxuiPickItem { text: Str { ptr: text.as_ptr(), len: text.len() }, ..PxuiPickItem::default() };
-    let good = [item(b"Songs"), PxuiPickItem { has_id: 1, id: 7, detail: Str { ptr: b"12".as_ptr(), len: 2 }, ..item(b"Albums") }];
+    let item = |text: &'static [u8]| PxuiPickItem { text: { let mut record = Str::default(); record.ptr = text.as_ptr(); record.len = text.len(); record }, ..PxuiPickItem::default() };
+    let good = [item(b"Songs"), PxuiPickItem { has_id: 1, id: 7, detail: Str::from("12"), ..item(b"Albums") }];
     let ui = create();
     let keyed = PxuiKeyedDesc::new("tabs", "Sections");
     let tabs = |items: &[PxuiPickItem], has_selected: u8, focus: u8, result: &mut PxuiSegmentedResult| in_frame(ui, &mut |ui| {
@@ -872,7 +872,7 @@ fn tabs_result_refuses_invalid_arguments_and_items() {
     refused(&[PxuiPickItem { has_id: 2, ..good[0] }], 0, 0, "has_id not 0 or 1");
     refused(&[PxuiPickItem { reserved: [0, 0, 0, 1, 0, 0, 0], ..good[0] }], 0, 0, "a non-zero reserved byte");
     refused(&[item(b"\xff")], 0, 0, "text that is not UTF-8");
-    refused(&[PxuiPickItem { detail: Str { ptr: core::ptr::null(), len: 3 }, ..good[0] }], 0, 0, "a null detail with a length");
+    refused(&[PxuiPickItem { detail: { let mut record = Str::default(); record.ptr = core::ptr::null(); record.len = 3; record }, ..good[0] }], 0, 0, "a null detail with a length");
     let mut result = PxuiSegmentedResult::EMPTY;
     assert_ne!(in_frame(ui, &mut |ui| { let mut out = PxuiResponse::EMPTY; unsafe { pxui_ui_tabs(ui, &keyed, Slice { ptr: core::ptr::null(), len: 2 }, 0, 0, 0, &mut out, &mut result) } }), 0, "a null span with a length");
     assert_ne!(in_frame(ui, &mut |ui| unsafe { pxui_ui_tabs(ui, &keyed, Slice { ptr: good.as_ptr(), len: 2 }, 0, 0, 0, core::ptr::null_mut(), &mut result) }), 0, "a null response");
@@ -884,7 +884,7 @@ fn tabs_result_refuses_invalid_arguments_and_items() {
 #[test]
 fn section_index_and_disclosure_refuse_invalid_arguments() {
     use pxui_types::ffi::{PxuiKeyedDesc, PxuiResponse, PxuiSegmentedResult, Slice};
-    let s = |t: &'static [u8]| Str { ptr: t.as_ptr(), len: t.len() };
+    let s = |t: &'static [u8]| { let mut record = Str::default(); record.ptr = t.as_ptr(); record.len = t.len(); record };
     let letters = [s(b"A"), s(b"B")];
     let ui = create();
     let keyed = PxuiKeyedDesc::new("index", "Jump to");
@@ -932,10 +932,10 @@ fn section_index_and_disclosure_refuse_invalid_arguments() {
 fn accessible_text_value_guards_validate_the_whole_input_before_mutation() {
     extern "C" fn build(_: *mut c_void,raw:*mut c_void) {
         let ui=raw.cast::<PxuiUi>();let mut node=PxuiBox::default();
-        assert_eq!(unsafe {pxui_ui_node_keyed(ui,123,&pxui_types::Node {role:pxui_types::a11y::Role::Button,w:pxui_types::Size::Px(100.0),h:pxui_types::Size::Px(30.0),..pxui_types::Node::DEFAULT},&mut node)},0);
-        let valid=Str {ptr:"Café".as_ptr(),len:5};
+        assert_eq!(unsafe {pxui_ui_node_keyed(ui,123,&pxui_types::Node::DEFAULT.role(pxui_types::a11y::Role::Button).w(pxui_types::Size::Px(100.0)).h(pxui_types::Size::Px(30.0)),&mut node)},0);
+        let valid={ let mut record = Str::default(); record.ptr = "Café".as_ptr(); record.len = 5; record };
         assert_eq!(unsafe {pxui_ui_a11y_value(ui,&node,valid,5,0)},0);
-        for value in [Str {ptr:core::ptr::null(),len:1},Str {ptr:b"x".as_ptr(),len:crate::state::MAX_TEXT_BYTES+1},Str {ptr:b"\xff".as_ptr(),len:1}] {
+        for value in [{ let mut record = Str::default(); record.ptr = core::ptr::null(); record.len = 1; record },{ let mut record = Str::default(); record.ptr = b"x".as_ptr(); record.len = crate::state::MAX_TEXT_BYTES+1; record },{ let mut record = Str::default(); record.ptr = b"\xff".as_ptr(); record.len = 1; record }] {
             assert_eq!(unsafe {pxui_ui_a11y_value(ui,&node,value,0,0)},PXUI_ERR_ARGUMENT);
         }
         for (anchor,caret) in [(4,0),(0,4),(6,0),(0,u32::MAX)] {assert_eq!(unsafe {pxui_ui_a11y_value(ui,&node,valid,anchor,caret)},PXUI_ERR_ARGUMENT);}
@@ -952,7 +952,7 @@ fn accessible_text_value_guards_validate_the_whole_input_before_mutation() {
     assert_eq!(unsafe {pxui_ui_destroy(ui)},0);
 }
 
-fn str_of(bytes: &[u8]) -> Str { Str { ptr: bytes.as_ptr(), len: bytes.len() } }
+fn str_of(bytes: &[u8]) -> Str { { let mut record = Str::default(); record.ptr = bytes.as_ptr(); record.len = bytes.len(); record } }
 fn frame_with(ui: *mut PxuiUi, input: &FrameIn) -> i32 { let mut out = FrameOut::default(); unsafe { pxui_frame(ui, input, None, core::ptr::null_mut(), &mut out) } }
 
 /// One validator for the frame entries and `pxui_ui_wants_frame`: coordinates and values finite for every kind, a text editing range
@@ -964,28 +964,28 @@ fn events_are_validated_alike_on_every_path_with_a_frame_text_budget() {
     let ui = create();
     let big = vec![b'a'; crate::state::MAX_TOTAL_TEXT_BYTES / 2 + 1];
     let refused = [
-        vec![E { kind: E::POINTER_MOVED, x: f64::NAN, ..E::default() }],
-        vec![E { kind: E::KEY_PRESSED, code: input::Key::Enter.code(), value: f64::INFINITY, ..E::default() }],
-        vec![E { kind: E::SCROLLED, y: f64::NEG_INFINITY, ..E::default() }],
-        vec![E { kind: E::TEXT_EDITING, x: -1.0, text: str_of(b"ime"), ..E::default() }],
-        vec![E { kind: E::RESIZED, x: 70_000.0, y: 10.0, ..E::default() }],
-        vec![E { kind: E::RESIZED, x: -1.0, y: 10.0, ..E::default() }],
+        vec![E::pointer(E::POINTER_MOVED, 0, f64::NAN, 0.0)],
+        vec![{ let mut record = E::default(); record.kind = E::KEY_PRESSED; record.code = input::Key::Enter.code(); record.value = f64::INFINITY; record }],
+        vec![E::pointer(E::SCROLLED, 0, 0.0, f64::NEG_INFINITY)],
+        vec![{ let mut record = E::default(); record.kind = E::TEXT_EDITING; record.x = -1.0; record.text = str_of(b"ime"); record }],
+        vec![E::pointer(E::RESIZED, 0, 70_000.0, 10.0)],
+        vec![E::pointer(E::RESIZED, 0, -1.0, 10.0)],
         // each text within the cap, the two past the frame's budget
-        vec![E { kind: E::PASTE, text: str_of(&big), ..E::default() }, E { kind: E::PASTE, text: str_of(&big), ..E::default() }],
+        vec![{ let mut record = E::default(); record.kind = E::PASTE; record.text = str_of(&big); record }, { let mut record = E::default(); record.kind = E::PASTE; record.text = str_of(&big); record }],
         // a length past the cap is refused before a byte is read
-        vec![E { kind: E::TEXT_INPUT, text: Str { ptr: b"x".as_ptr(), len: crate::state::MAX_TEXT_BYTES + 1 }, ..E::default() }],
+        vec![{ let mut record = E::default(); record.kind = E::TEXT_INPUT; record.text = { let mut record = Str::default(); record.ptr = b"x".as_ptr(); record.len = crate::state::MAX_TEXT_BYTES + 1; record }; record }],
     ];
     for (i, events) in refused.iter().enumerate() {
-        let input = FrameIn { events: pxui_types::ffi::Strided { ptr: events.as_ptr(), len: events.len(), stride: core::mem::size_of::<pxui_types::Event>() }, ..frame_in() };
+        let input = { let mut record = frame_in(); record.events = pxui_types::ffi::Strided { ptr: events.as_ptr(), len: events.len(), stride: core::mem::size_of::<pxui_types::Event>() }; record };
         assert_eq!(frame_with(ui, &input), PXUI_ERR_ARGUMENT, "frame, case {i}");
         let mut wants = 7u8;
         assert_eq!(unsafe { pxui_ui_wants_frame(ui, pxui_types::ffi::Strided { ptr: events.as_ptr(), len: events.len(), stride: 64 }, 0.0, &mut wants) }, PXUI_ERR_ARGUMENT, "wants_frame, case {i}");
         assert_eq!(wants, 7);
     }
     // one paste of half the budget is fine, and so is a resize at the limit
-    let fine = [E { kind: E::PASTE, text: str_of(&big), ..E::default() }, E { kind: E::RESIZED, x: 65_536.0, y: 0.0, ..E::default() }];
-    assert_eq!(frame_with(ui, &FrameIn { events: pxui_types::ffi::Strided { ptr: fine.as_ptr(), len: 2, stride: core::mem::size_of::<pxui_types::Event>() }, ..frame_in() }), 0, "{}", error(ui));
-    let moves = [E { kind: E::POINTER_MOVED, x: 1.0, y: 2.0, ..E::default() }; 3];
+    let fine = [{ let mut record = E::default(); record.kind = E::PASTE; record.text = str_of(&big); record }, E::pointer(E::RESIZED, 0, 65_536.0, 0.0)];
+    assert_eq!(frame_with(ui, &{ let mut record = frame_in(); record.events = pxui_types::ffi::Strided { ptr: fine.as_ptr(), len: 2, stride: core::mem::size_of::<pxui_types::Event>() }; record }), 0, "{}", error(ui));
+    let moves = [E::pointer(E::POINTER_MOVED, 0, 1.0, 2.0); 3];
     let mut wants = 0u8;
     for _ in 0..2 { assert_eq!(unsafe { pxui_ui_wants_frame(ui, pxui_types::ffi::Strided { ptr: moves.as_ptr(), len: 3, stride: 64 }, 0.0, &mut wants) }, 0); }
     mem_sys::local_reset();
@@ -1004,10 +1004,10 @@ fn strided_spans_step_by_stride_and_refuse_a_stride_below_the_record() {
     #[repr(C)] #[derive(Clone, Copy)] struct WideEvent { e: E, tail: [u8; 8] }
     #[repr(C)] #[derive(Clone, Copy)] struct WideAction { a: A11yAction, tail: [u8; 8] }
     let ui = create();
-    let moved = E { kind: E::POINTER_MOVED, x: 1.0, y: 2.0, ..E::default() };
+    let moved = E::pointer(E::POINTER_MOVED, 0, 1.0, 2.0);
     let wide = [WideEvent { e: moved, tail: [0; 8] }; 2];
     let span = |stride: usize, len: usize| Strided::<E> { ptr: wide.as_ptr().cast(), len, stride };
-    let frame = |events: Strided<E>| frame_with(ui, &FrameIn { events, ..frame_in() });
+    let frame = |events: Strided<E>| frame_with(ui, &{ let mut record = frame_in(); record.events = events; record });
     let mut wants = 0u8;
     let mut ask = |events: Strided<E>| unsafe { pxui_ui_wants_frame(ui, events, 0.0, &mut wants) };
     // the real stride of the wide record reads both events; the dense one reads the second at the tail (size 0, refused)
@@ -1049,7 +1049,7 @@ fn every_box_taking_export_answers_a_foreign_handle_with_the_stale_status() {
     let (a, b) = (create(), create());
     let mut theirs = PxuiBox::default();
     assert_eq!(in_frame(b, &mut |ui| unsafe { pxui_ui_node_keyed(ui, 4242, &Node::DEFAULT, &mut theirs) }), 0);
-    let text = Str { ptr: b"x".as_ptr(), len: 1 };
+    let text = Str::from("x");
     let (look, state, rect, mark) = (PxuiLookDesc::default(), PxuiStateDesc::default(), Rect::new(0.0, 0.0, 10.0, 10.0), PxuiMarkDesc::default());
     let label = PxuiLabelStyle::from(&pxui_types::Label::BODY);
     let spans = pxui_types::TextSpans::default();
@@ -1151,7 +1151,7 @@ fn encoding_rules() {
         if !kept { assert_eq!(out.anchor, usize::MAX, "anchor {anchor} is none"); }
     }
     // the text key: 0 derives the layout from the content; a nonzero key is a cache name, so other content under it is laid out again
-    let (style, text_a, text_b) = (PxuiTextStyle::default(), Str { ptr: b"a".as_ptr(), len: 1 }, Str { ptr: b"abcdef".as_ptr(), len: 6 });
+    let (style, text_a, text_b) = (PxuiTextStyle::default(), Str::from("a"), Str::from("abcdef"));
     let shaper = unsafe { pxui_text_fork(ui) };
     assert!(!shaper.is_null());
     let width = |key: u64, text: Str| { let mut m = pxui_types::TextMetrics::default(); assert_eq!(unsafe { pxui_shaper_measure(shaper, key, text, &style, 0.0, core::ptr::null(), &mut m) }, 0); m.width };
@@ -1163,7 +1163,7 @@ fn encoding_rules() {
     // zero: a clear SET bit ignores the field whatever it holds, a set bit reads it; a documented 0 outside a mask is the default
     let label = PxuiLabelStyle::from(&pxui_types::Label::BODY);
     let (mut base, mut ignored, mut used) = (pxui_types::TextMetrics::default(), pxui_types::TextMetrics::default(), pxui_types::TextMetrics::default());
-    let text = Str { ptr: b"Song title".as_ptr(), len: 10 };
+    let text = Str::from("Song title");
     for (record, out) in [(PxuiLabelStyle { set: 0, ..label }, &mut base), (PxuiLabelStyle { set: 0, size_points: 90.0, ..label }, &mut ignored), (PxuiLabelStyle { set: PxuiLabelStyle::SET_SIZE, size_points: 90.0, ..label }, &mut used)] {
         assert_eq!(unsafe { pxui_ui_label_measure(ui, text, &record, 0.0, core::ptr::null(), out) }, 0, "{}", error(ui));
     }
@@ -1217,17 +1217,17 @@ fn enum_values_are_range_checked_on_input() {
         assert_eq!(!made.is_null(), accepted, "platform {platform}");
         if !made.is_null() { assert_eq!(unsafe { pxui_ui_destroy(made) }, 0); }
     }
-    for (input, accepted) in [(FrameIn { appearance: 2, ..frame_in() }, true), (FrameIn { appearance: 3, ..frame_in() }, false), (FrameIn { reduced_motion: 1, ..frame_in() }, true), (FrameIn { reduced_motion: 2, ..frame_in() }, false)] {
+    for (input, accepted) in [({ let mut record = frame_in(); record.appearance = 2; record }, true), ({ let mut record = frame_in(); record.appearance = 3; record }, false), ({ let mut record = frame_in(); record.reduced_motion = 1; record }, true), ({ let mut record = frame_in(); record.reduced_motion = 2; record }, false)] {
         assert_eq!(frame_with(ui, &input) == 0, accepted, "{}", error(ui));
     }
     for (kind, accepted) in [(pxui_types::Event::FILES_DROPPED, true), (0, false), (11, false), (pxui_types::Event::FILES_DROPPED + 1, false)] {
-        let event = [pxui_types::Event { kind, ..pxui_types::Event::default() }];
-        let input = FrameIn { events: pxui_types::ffi::Strided::of(&event), ..frame_in() };
+        let event = [{ let mut record = pxui_types::Event::default(); record.kind = kind; record }];
+        let input = { let mut record = frame_in(); record.events = pxui_types::ffi::Strided::of(&event); record };
         // FILES_DROPPED carries paths: an empty payload is the kind that decides, so only the rest (unknown kinds) are asserted refused
         if !accepted { assert_eq!(frame_with(ui, &input), PXUI_ERR_ARGUMENT, "event kind {kind}"); }
     }
     // a button's justification and size kinds, an anchor's side and alignment, a sheet's presentation, a keyframe's target
-    let k = Str { ptr: b"k".as_ptr(), len: 1 };
+    let k = Str::from("k");
     let mut button: PxuiButtonDesc = unsafe { core::mem::zeroed() };
     (button.size, button.enabled, button.key, button.text) = (core::mem::size_of::<PxuiButtonDesc>() as u32, 1, k, k);
     for (field, largest) in [(0u8, 2u8), (1, 2), (2, 2)] {
@@ -1258,7 +1258,7 @@ fn enum_values_are_range_checked_on_input() {
     }
     // a label style's wrap, alignment and ellipsis
     let label = PxuiLabelStyle::from(&pxui_types::Label::BODY);
-    let (text, mut out) = (Str { ptr: b"x".as_ptr(), len: 1 }, pxui_types::TextMetrics::default());
+    let (text, mut out) = (Str::from("x"), pxui_types::TextMetrics::default());
     for (what, bad) in [("wrap", PxuiLabelStyle { wrap: 9, ..label }), ("align", PxuiLabelStyle { align: 9, ..label }), ("ellipsis", PxuiLabelStyle { ellipsis: 9, ..label })] {
         assert_eq!(unsafe { pxui_ui_label_measure(ui, text, &bad, 0.0, core::ptr::null(), &mut out) }, PXUI_ERR_ARGUMENT, "label style {what}");
     }
@@ -1271,11 +1271,11 @@ fn enum_values_are_range_checked_on_input() {
 fn frame_sizes_and_held_keys_are_checked() {
     let ui = create();
     for (w, h) in [(-1.0, 10.0), (10.0, 1e30), (f32::NAN, 10.0), (65_537.0, 10.0)] {
-        assert_eq!(frame_with(ui, &FrameIn { width: w, height: h, ..frame_in() }), PXUI_ERR_ARGUMENT, "{w} x {h}");
+        assert_eq!(frame_with(ui, &{ let mut record = frame_in(); record.width = w; record.height = h; record }), PXUI_ERR_ARGUMENT, "{w} x {h}");
     }
-    assert_eq!(frame_with(ui, &FrameIn { width: 65_536.0, height: 0.0, ..frame_in() }), 0);
+    assert_eq!(frame_with(ui, &{ let mut record = frame_in(); record.width = 65_536.0; record.height = 0.0; record }), 0);
     let key = |code| [pxui_types::Event::key(pxui_types::Event::KEY_PRESSED, code)];
-    let with = |events: &[pxui_types::Event]| frame_with(ui, &FrameIn { events: pxui_types::ffi::Strided { ptr: events.as_ptr(), len: events.len(), stride: core::mem::size_of::<pxui_types::Event>() }, ..frame_in() });
+    let with = |events: &[pxui_types::Event]| frame_with(ui, &{ let mut record = frame_in(); record.events = pxui_types::ffi::Strided { ptr: events.as_ptr(), len: events.len(), stride: core::mem::size_of::<pxui_types::Event>() }; record });
     assert_eq!(with(&key(0)), PXUI_ERR_ARGUMENT, "code 0 names no key");
     assert_eq!(with(&key(input::Key::Enter.code())), 0);
     assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
@@ -1413,7 +1413,7 @@ fn grid_track_lists_are_shared_by_hash_and_retired_with_their_boxes() {
     extern "C" fn grids(user: *mut c_void, ui: *mut c_void) {
         let n = unsafe { *user.cast::<i64>() };
         for key in 0..n {
-            let node = pxui_types::Node { grid: Some(Grid::new(&COLS, &ROWS)).into(), ..pxui_types::Node::DEFAULT };
+            let node = pxui_types::Node::DEFAULT.grid(Grid::new(&COLS, &ROWS));
             let mut out = PxuiBox::default();
             assert_eq!(unsafe { pxui_ui_node_keyed(ui.cast(), 100 + key, &node, &mut out) }, 0);
         }
@@ -1475,8 +1475,8 @@ mod sized_records {
             let build = |key: &[u8], title: &[u8]| {
                 let mut d: PxuiHeaderDesc = unsafe { core::mem::zeroed() };
                 d.size = core::mem::size_of::<PxuiHeaderDesc>() as u32;
-                d.key = Str { ptr: key.as_ptr(), len: key.len() };
-                d.title = Str { ptr: title.as_ptr(), len: title.len() };
+                d.key = { let mut record = Str::default(); record.ptr = key.as_ptr(); record.len = key.len(); record };
+                d.title = { let mut record = Str::default(); record.ptr = title.as_ptr(); record.len = title.len(); record };
                 let mut out = head_out();
                 assert_eq!(unsafe { pxui_ui_inspector_header(ui, &d, None, core::ptr::null_mut(), &mut out) }, 0);
                 out.renamed
@@ -1530,7 +1530,7 @@ mod sized_records {
     #[test]
     fn frame_in() {
         let ui = create();
-        let value = FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() };
+        let value = FrameIn::new(320.0, 240.0);
         four_min(ui, ((&value as *const FrameIn).cast(), size_of_val(&value), align_of_val(&value)), &[], &mut |p| {
             let mut out = FrameOut::default();
             unsafe { pxui_frame(ui, p.cast(), None, core::ptr::null_mut(), &mut out) }
@@ -1548,7 +1548,7 @@ mod sized_records {
             let p = p.cast::<PxuiMenuOptions>();
             in_frame(ui, &mut |ui| {
                 let (mut tag, mut index) = (0u32, 0i64);
-                unsafe { pxui_ui_context_menu(ui, 1.0, 1.0, Str { ptr: b"m".as_ptr(), len: 1 }, pxui_types::ffi::Strided::default(), 0, 0.0, p, &mut tag, &mut index) }
+                unsafe { pxui_ui_context_menu(ui, 1.0, 1.0, Str::from("m"), pxui_types::ffi::Strided::default(), 0, 0.0, p, &mut tag, &mut index) }
             })
         });
         unsafe { pxui_ui_destroy(ui); }
@@ -1576,7 +1576,7 @@ mod sized_records {
         four_min(ui, ((&value as *const PxuiUiDesc).cast(), size_of_val(&value), align_of_val(&value)), &[], &mut |p| {
             let p = p.cast::<PxuiUiDesc>();
             {
-        let font = Str { ptr: pxui_core::text::PRAGMASEVKA.as_ptr(), len: pxui_core::text::PRAGMASEVKA.len() };
+        let font = { let mut record = Str::default(); record.ptr = pxui_core::text::PRAGMASEVKA.as_ptr(); record.len = pxui_core::text::PRAGMASEVKA.len(); record };
         created(unsafe { pxui_ui_create(p, &font, 1, core::ptr::null_mut()) })
     }
         });
@@ -1638,7 +1638,7 @@ mod sized_records {
         let options = pxui_types::PxuiTextInputOptions::default();
         four(ui, ((&options as *const pxui_types::PxuiTextInputOptions).cast(), size_of_val(&options), align_of_val(&options)), true, &mut |p| unsafe { pxui_ui_text_input_options(ui, p.cast()) });
         let metrics = pxui_types::TextMetrics::default();
-        let (label, text) = (PxuiLabelStyle::from(&pxui_types::Label::BODY), Str { ptr: b"x".as_ptr(), len: 1 });
+        let (label, text) = (PxuiLabelStyle::from(&pxui_types::Label::BODY), Str::from("x"));
         four(ui, ((&metrics as *const pxui_types::TextMetrics).cast(), size_of_val(&metrics), align_of_val(&metrics)), true, &mut |p| unsafe { pxui_ui_label_measure(ui, text, &label, 0.0, core::ptr::null(), p.cast()) });
         // an anchor with a reserved byte set is refused (the reserved bytes are zero)
         let reserved = PxuiAnchorDesc { reserved: [0, 1], ..anchor };
@@ -1653,7 +1653,7 @@ mod sized_records {
     fn six_looks_are_spaced_by_the_first_size() {
         use pxui_types::ffi::{PxuiButtonDesc, PxuiLookDesc};
         let ui = create();
-        let k = Str { ptr: b"k".as_ptr(), len: 1 };
+        let k = Str::from("k");
         let full = size_of::<PxuiLookDesc>();
         let wide = full + 8;
         let build = |size: usize, stride: usize, disagree: Option<usize>| {
@@ -1799,7 +1799,7 @@ mod sized_records {
     #[test]
     fn grown_button_records_take_their_old_size() {
         let ui = create();
-        let k = Str { ptr: b"k".as_ptr(), len: 1 };
+        let k = Str::from("k");
         let mut button: PxuiButtonDesc = unsafe { core::mem::zeroed() };
         (button.size, button.enabled, button.key, button.text, button.centered) = (size_of::<PxuiButtonDesc>() as u32, 1, k, k, 1);
         let mut icon: PxuiIconButtonDesc = unsafe { core::mem::zeroed() };
@@ -1822,7 +1822,7 @@ mod sized_records {
         }
         assert_eq!(press(&PxuiButtonDesc { has_label: 0, label: pxui_types::ffi::PxuiLabelStyle { size: 8, ..label }, ..laid }), 0, "the label is read only when has_label is 1");
         // the whole record's leading icon, detail and accessory are checked; an earlier size is refused
-        let garbage = Str { ptr: b"\xff".as_ptr(), len: 1 };
+        let garbage = { let mut record = Str::default(); record.ptr = b"\xff".as_ptr(); record.len = 1; record };
         assert_eq!(press(&PxuiButtonDesc { size: 200, ..laid }), PXUI_ERR_ARGUMENT);
         let parts = PxuiButtonDesc { lead: k, detail: k, accessory: k, has_detail_label: 1, detail_label: label, detail_box: label_box, has_accessory_label: 1, accessory_label: label, accessory_box: label_box, ..laid };
         assert_eq!(press(&parts), 0, "{}", error(ui));
@@ -1857,7 +1857,7 @@ mod sized_records {
     #[test]
     fn response_calls() {
         let ui = create();
-        let k = Str { ptr: b"k".as_ptr(), len: 1 };
+        let k = Str::from("k");
         let mut value: PxuiButtonDesc = unsafe { core::mem::zeroed() };
         (value.enabled, value.key, value.text) = (1, k, k);
         four_min(ui, ((&value as *const PxuiButtonDesc).cast(), size_of_val(&value), align_of_val(&value)), &[], &mut |p| {
@@ -1877,10 +1877,10 @@ mod sized_records {
             assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_button(ui, &value, None, core::ptr::null_mut(), out) }), PXUI_ERR_ARGUMENT);
             assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_icon_button(ui, &icon, out) }), PXUI_ERR_ARGUMENT);
         }
-        let bad = Str { ptr: [0xffu8].as_ptr(), len: 1 };
+        let bad = { let mut record = Str::default(); record.ptr = [0xffu8].as_ptr(); record.len = 1; record };
         assert_eq!(in_frame(ui, &mut |ui| { let mut out = PxuiResponse::EMPTY; unsafe { pxui_ui_button_plain(ui, k, bad, &mut out) } }), PXUI_ERR_ARGUMENT);
         let mut plain = (PxuiResponse::EMPTY, PxuiResponse::EMPTY);
-        assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_button_plain(ui, k, k, &mut plain.0) + pxui_ui_icon_button_plain(ui, Str { ptr: b"i".as_ptr(), len: 1 }, k, k, &mut plain.1) }), 0);
+        assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_button_plain(ui, k, k, &mut plain.0) + pxui_ui_icon_button_plain(ui, Str::from("i"), k, k, &mut plain.1) }), 0);
         assert!(plain.0.node.box_key != 0 && plain.1.node.box_key != 0 && plain.0.node.box_key != plain.1.node.box_key, "{plain:?}");
         unsafe { pxui_ui_destroy(ui); }
     }
@@ -1890,7 +1890,7 @@ mod sized_records {
     #[test]
     fn dialog_response_desc() {
         let ui = create();
-        let k = Str { ptr: b"k".as_ptr(), len: 1 };
+        let k = Str::from("k");
         let buttons = [k, k];
         let mut value: PxuiDialogDesc = unsafe { core::mem::zeroed() };
         value.size = size_of_val(&value) as u32;
@@ -1907,7 +1907,7 @@ mod sized_records {
             assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_dialog(ui, &value, None, core::ptr::null_mut(), bad_out) }), PXUI_ERR_ARGUMENT);
         }
         // as many details as buttons (or none); the 88-byte record is refused
-        let details = [k, Str { ptr: b"\xff".as_ptr(), len: 1 }];
+        let details = [k, { let mut record = Str::default(); record.ptr = b"\xff".as_ptr(); record.len = 1; record }];
         let mut sink = PxuiDialogResult::EMPTY;
         assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_dialog(ui, &PxuiDialogDesc { details: Slice { ptr: buttons.as_ptr(), len: 2 }, ..value }, None, core::ptr::null_mut(), &mut sink) }), 0, "{}", error(ui));
         assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_dialog(ui, &PxuiDialogDesc { size: 88, ..value }, None, core::ptr::null_mut(), &mut sink) }), PXUI_ERR_ARGUMENT);
@@ -1930,7 +1930,7 @@ mod sized_records {
     #[test]
     fn segmented_desc() {
         let ui = create();
-        let k = Str { ptr: b"k".as_ptr(), len: 1 };
+        let k = Str::from("k");
         let options = [PxuiPickItem { text: k, ..PxuiPickItem::default() }; 2];
         let span = Slice { ptr: options.as_ptr(), len: 2 };
         let mut value: PxuiSegmentedDesc = unsafe { core::mem::zeroed() };
@@ -1966,7 +1966,7 @@ mod sized_records {
     fn header_desc() {
         let ui = create();
         let mut value: PxuiHeaderDesc = unsafe { core::mem::zeroed() };
-        let fix: fn(&mut PxuiHeaderDesc) = |d| { d.key = Str { ptr: b"k".as_ptr(), len: 1 }; d.title = d.key; };
+        let fix: fn(&mut PxuiHeaderDesc) = |d| { d.key = Str::from("k"); d.title = d.key; };
         fix(&mut value);
         four(ui, ((&value as *const PxuiHeaderDesc).cast(), size_of_val(&value), align_of_val(&value)), true, &mut |p| {
             let p = p.cast::<PxuiHeaderDesc>();
@@ -1983,7 +1983,7 @@ mod sized_records {
         fix(&mut value);
         four(ui, ((&value as *const PxuiHeadOut).cast(), size_of_val(&value), align_of_val(&value)), true, &mut |p| {
             let p = p.cast::<PxuiHeadOut>();
-            in_frame(ui, &mut |ui| { let mut d: PxuiHeaderDesc = unsafe { core::mem::zeroed() }; d.size = core::mem::size_of::<PxuiHeaderDesc>() as u32; d.key = Str { ptr: b"k".as_ptr(), len: 1 }; d.title = d.key; unsafe { pxui_ui_inspector_header(ui, &d, None, core::ptr::null_mut(), p) } })
+            in_frame(ui, &mut |ui| { let mut d: PxuiHeaderDesc = unsafe { core::mem::zeroed() }; d.size = core::mem::size_of::<PxuiHeaderDesc>() as u32; d.key = Str::from("k"); d.title = d.key; unsafe { pxui_ui_inspector_header(ui, &d, None, core::ptr::null_mut(), p) } })
         });
         unsafe { pxui_ui_destroy(ui); }
     }
@@ -2264,9 +2264,9 @@ mod sized_records {
         let fix: fn(&mut pxui_types::ffi::PxuiTextStyle) = |s| *s = pxui_types::ffi::PxuiTextStyle::default();
         fix(&mut value);
         four(ui, ((&value as *const pxui_types::ffi::PxuiTextStyle).cast(), size_of_val(&value), align_of_val(&value)), true, &mut |p| {
-            unsafe { crate::text::text_prewarm(ui, Str { ptr: b"Song".as_ptr(), len: 4 }, p.cast::<pxui_types::ffi::PxuiTextStyle>(), 0.0) }
+            unsafe { crate::text::text_prewarm(ui, Str::from("Song"), p.cast::<pxui_types::ffi::PxuiTextStyle>(), 0.0) }
         });
-        let (style, title) = (pxui_types::ffi::PxuiTextStyle::default(), Str { ptr: b"Song title".as_ptr(), len: 10 });
+        let (style, title) = (pxui_types::ffi::PxuiTextStyle::default(), Str::from("Song title"));
         let long = vec![b'a'; pxui_core::text::QUEUE_BYTES + 1];
         unsafe {
             let worker = pxui_text_worker_create();
@@ -2278,8 +2278,8 @@ mod sized_records {
                 assert_eq!(crate::text::text_prewarm(ui, title, core::ptr::null(), 0.0), PXUI_ERR_ARGUMENT);
                 assert_eq!(crate::text::text_prewarm(ui, title, &style, f32::NAN), PXUI_ERR_ARGUMENT);
                 assert_eq!(crate::text::text_prewarm(ui, title, &style, -1.0), PXUI_ERR_ARGUMENT);
-                assert_eq!(crate::text::text_prewarm(ui, Str { ptr: b"\xff".as_ptr(), len: 1 }, &style, 0.0), PXUI_ERR_ARGUMENT);
-                assert_eq!(crate::text::text_prewarm(ui, Str { ptr: long.as_ptr(), len: long.len() }, &style, 0.0), PXUI_ERR_ARGUMENT);
+                assert_eq!(crate::text::text_prewarm(ui, { let mut record = Str::default(); record.ptr = b"\xff".as_ptr(); record.len = 1; record }, &style, 0.0), PXUI_ERR_ARGUMENT);
+                assert_eq!(crate::text::text_prewarm(ui, { let mut record = Str::default(); record.ptr = long.as_ptr(); record.len = long.len(); record }, &style, 0.0), PXUI_ERR_ARGUMENT);
                 assert_eq!(crate::text::text_prewarm(ui, title, &style, 200.0), 0);
                 assert_eq!(crate::text::text_prewarm(other, title, &style, 0.0), 0);
             }
@@ -2357,7 +2357,7 @@ fn supports_answers_from_the_feature_registry_of_this_build() {
 fn earlier_toggle_and_segmented_sizes_are_refused() {
     use pxui_types::ffi::{PxuiResponse, PxuiSegmentedDesc, PxuiToggleDesc, Slice};
     let ui = create();
-    let k = Str { ptr: b"k".as_ptr(), len: 1 };
+    let k = Str::from("k");
     let build = |f: &mut dyn FnMut(*mut PxuiUi) -> i32| { extern "C" fn b(user: *mut c_void, ui: *mut c_void) { let (f, rc) = unsafe { &mut *user.cast::<(&mut dyn FnMut(*mut PxuiUi) -> i32, i32)>() }; *rc = f(ui.cast()); }
         let mut st = (f, i32::MIN); assert_eq!(run(ui, Some(b), (&mut st as *mut (&mut dyn FnMut(*mut PxuiUi) -> i32, i32)).cast()), 0); st.1 };
     let mut toggle: PxuiToggleDesc = unsafe { core::mem::zeroed() };
@@ -2382,11 +2382,11 @@ fn earlier_toggle_and_segmented_sizes_are_refused() {
 #[test]
 fn fonts_and_renderer_records_are_validated() {
     let ui = create();
-    let font = |bytes: &[u8]| Str { ptr: bytes.as_ptr(), len: bytes.len() };
+    let font = |bytes: &[u8]| { let mut record = Str::default(); record.ptr = bytes.as_ptr(); record.len = bytes.len(); record };
     unsafe {
         assert_eq!(pxui_text_add_font(ui, font(b"not a font")), u32::MAX);
-        assert_eq!(pxui_text_add_font(ui, Str { ptr: core::ptr::null(), len: 0 }), u32::MAX);
-        assert_eq!(pxui_text_add_font(ui, Str { ptr: b"x".as_ptr(), len: pxui_text::MAX_FONT_BYTES + 1 }), u32::MAX);
+        assert_eq!(pxui_text_add_font(ui, { let mut record = Str::default(); record.ptr = core::ptr::null(); record.len = 0; record }), u32::MAX);
+        assert_eq!(pxui_text_add_font(ui, { let mut record = Str::default(); record.ptr = b"x".as_ptr(); record.len = pxui_text::MAX_FONT_BYTES + 1; record }), u32::MAX);
         assert_ne!(pxui_text_add_font(ui, font(pxui_text::PRAGMASEVKA)), u32::MAX);
         let garbage = [font(b"not a font")];
         assert!(pxui_ui_create(&PxuiUiDesc::default(), garbage.as_ptr(), 1, core::ptr::null_mut()).is_null());
@@ -2407,7 +2407,7 @@ fn fonts_and_renderer_records_are_validated() {
 #[test]
 fn every_text_entry_refuses_text_over_the_cap() {
     let ui = create();
-    let over = Str { ptr: b"x".as_ptr(), len: crate::state::MAX_TEXT_BYTES + 1 };
+    let over = { let mut record = Str::default(); record.ptr = b"x".as_ptr(); record.len = crate::state::MAX_TEXT_BYTES + 1; record };
     let style = pxui_types::ffi::PxuiTextStyle::default();
     let mut out = pxui_types::TextMetrics::default();
     unsafe {
@@ -2435,7 +2435,7 @@ fn every_text_entry_refuses_text_over_the_cap() {
 fn label_text_calls_resolve_in_the_same_call_and_refuse_bad_records() {
     use pxui_types::{ffi::{PxuiLabelStyle, PxuiTextStyle}, Label, TextMetrics};
     let ui = create();
-    let value = Str { ptr: b"Song title".as_ptr(), len: 10 };
+    let value = Str::from("Song title");
     let label = PxuiLabelStyle::from(&Label::BODY.size(15.0).bold());
     let mut resolved = PxuiTextStyle::default();
     assert_eq!(unsafe { crate::ui::pxui_ui_resolve_label(ui, &label, &mut resolved) }, 0);

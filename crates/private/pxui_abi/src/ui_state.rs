@@ -239,7 +239,7 @@ fn diagnostics_read_the_counters_and_refuse_a_bad_record() {
     // each refusal writes nothing
     d = PxuiDiagnostics { calls: 77, ..PxuiDiagnostics::new() };
     for bad in [PxuiDiagnostics { size: 8, ..d }, PxuiDiagnostics { timing: 3, ..d }, PxuiDiagnostics { reserved: 1, ..d },
-        PxuiDiagnostics { rebuilt_prefix: Str { ptr: b"\xff".as_ptr(), len: 1 }, ..d }] {
+        PxuiDiagnostics { rebuilt_prefix: { let mut record = Str::default(); record.ptr = b"\xff".as_ptr(); record.len = 1; record }, ..d }] {
         let mut bad = bad;
         assert_eq!(unsafe { pxui_ui_diagnostics(ui, &mut bad) }, PXUI_ERR_ARGUMENT);
         assert_eq!(bad.calls, 77);

@@ -48,29 +48,14 @@ impl Probe {
         self.clicked = false;
         self.body = Some(ui.section_list(
             "native touch songs",
-            &SectionList {
-                count: 10_000,
-                row_height: 44.0,
-                leading_height: 0.0,
-                header_height: 0.0,
-                trailing_height: 0.0,
-                overlay_scrollbar: true,
-                measured: false,
-                reorder: false,
-            },
+            &SectionList::new(10_000).row_h(44.0).lead(0.0).header(0.0).trail(0.0).overlay_scrollbar().reorder(false),
             &|i| i as i64,
             &mut |ui, part, _| {
                 if let SectionPart::Row(_) = part {
                     self.rows += 1;
                     let row = ui.node(
                         "song",
-                        Node {
-                            flags: Flags::CLICKABLE,
-                            role: Role::Button,
-                            w: Size::Grow,
-                            h: Size::Grow,
-                            ..Node::DEFAULT
-                        },
+                        Node::DEFAULT.flags(Flags::CLICKABLE).role(Role::Button).w(Size::Grow).h(Size::Grow),
                     );
                     ui.a11y_name(&row, "Native touch song");
                     ui.text(&row, "Native touch song");

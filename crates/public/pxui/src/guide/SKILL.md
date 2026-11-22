@@ -87,7 +87,7 @@ is the glyph or drawn-icon button; `name` is the accessible name. `Ui::disabled(
 interactive widget inside.
 
 ```rust
-use pxui::{ui::{Node, Size}, Button, Icon, IconButton};
+use pxui::{ui::Node, Button, Icon, IconButton};
 const SAVE: Button = Button::sized(90.0, 30.0);
 const DELETE: Button = Button::sized(120.0, 30.0).danger();
 const KEY: IconButton = IconButton::sized(36.0, 36.0).press_scale(0.96);
@@ -99,7 +99,7 @@ pxui::doc::frames(2, &mut |ui| {
     let pill = Button::sized(90.0, 30.0).name("Shuffle");
     ui.button_content("shuffle", &pill, |ui, state| {
         let side = if state.pressed { 14.0 } else { 16.0 };
-        ui.node("icon", Node { w: Size::Px(side), h: Size::Px(side), ..Node::DEFAULT });
+        ui.node("icon", Node::DEFAULT.w_px(side).h_px(side));
     });
 });
 ```

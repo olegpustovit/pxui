@@ -11,8 +11,8 @@ const SIZE: (f32, f32) = (300.0, 200.0);
 // The same drawing on both painters: the engine's through its `Shapes` calls, the wrapper's through its own `Rect` + `Fill`/`Stroke`
 // shapes, each line of one the twin of the same line of the other; text through the label path on both. (A clip changed mid-drawing
 // across a span refill is `paint::tests::a_clip_set_mid_drawing_restamps_every_refilled_span`.)
-const INK: Rgba = Rgba { r: 20, g: 120, b: 220, a: 255 };
-const WASH: Rgba = Rgba { r: 240, g: 200, b: 60, a: 128 };
+const INK: Rgba = Rgba::rgb(20, 120, 220);
+const WASH: Rgba = Rgba::rgba(240, 200, 60, 128);
 const CAPTION: Label = Label::CAPTION.caps(true);
 
 fn engine_art(p: &mut pxui_core::ui::Paint) {
@@ -94,9 +94,9 @@ fn engine_instances() -> Vec<pxui_types::draw::Instance> {
     input.events = vec![Event::PointerMoved((-100.0, -100.0))];
     let frame = frame::Frame { input, pixel_scale: (1.0, 1.0), fps: 60.0, mouse_delta: (0.0, 0.0) };
     ui.frame(&frame, &mut |ui| {
-        let round = ui.node("round".into(), Node { flags: pxui_types::Flags::CLIP | pxui_types::Flags::ROUND_CLIP, w: Size::Px(SIZE.0), h: Size::Px(SIZE.1), look: Look { radius: [6.0; 4], ..Look::NONE }, ..Node::DEFAULT });
+        let round = ui.node("round".into(), Node::DEFAULT.flags(pxui_types::Flags::CLIP | pxui_types::Flags::ROUND_CLIP).w(Size::Px(SIZE.0)).h(Size::Px(SIZE.1)).look(Look::NONE.radii([6.0; 4])));
         ui.within(&round, &mut |ui| {
-            let b = ui.node("canvas".into(), Node { w: Size::Px(SIZE.0), h: Size::Px(SIZE.1), ..Node::DEFAULT });
+            let b = ui.node("canvas".into(), Node::DEFAULT.w(Size::Px(SIZE.0)).h(Size::Px(SIZE.1)));
             ui.canvas(&b, |p, _| engine_art(p));
         });
     });
@@ -106,9 +106,9 @@ fn engine_instances() -> Vec<pxui_types::draw::Instance> {
 fn wrapper_instances() -> Vec<pxui_types::draw::Instance> {
     let mut ui = pxui::Ui::new(&pxui::UiDesc::new(pxui::Platform::Apple).fonts(&[pxui::FontData(pxui_core::text::PRAGMASEVKA)])).expect("pxui Ui");
     ui.frame(&FrameIn::new(SIZE.0, SIZE.1).scale(1.0), &mut |ui: &mut pxui::Ui| {
-        let round = ui.node("round", pxui::Node { flags: pxui_types::Flags::CLIP | pxui_types::Flags::ROUND_CLIP, w: Size::Px(SIZE.0), h: Size::Px(SIZE.1), look: Look { radius: [6.0; 4], ..Look::NONE }, ..pxui::Node::DEFAULT });
+        let round = ui.node("round", pxui::Node::DEFAULT.flags(pxui_types::Flags::CLIP | pxui_types::Flags::ROUND_CLIP).w(Size::Px(SIZE.0)).h(Size::Px(SIZE.1)).look(Look::NONE.radii([6.0; 4])));
         ui.within(&round, &mut |ui: &mut pxui::Ui| {
-            let b = ui.node("canvas", pxui::Node { w: Size::Px(SIZE.0), h: Size::Px(SIZE.1), ..pxui::Node::DEFAULT });
+            let b = ui.node("canvas", pxui::Node::DEFAULT.w(Size::Px(SIZE.0)).h(Size::Px(SIZE.1)));
             ui.canvas(&b, |p, _| wrapper_art(p));
         });
     }).expect("frame");

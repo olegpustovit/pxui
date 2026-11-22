@@ -144,7 +144,7 @@ fn menu_rows_share_one_text_budget_including_shortcuts_and_submenus() {
     let (mut menu, mut subs) = (Vec::new(), Vec::new());
     let mut rows: Vec<_> = (0..256).map(|_| PxuiMenuRow::new(&text)).collect();
     assert!(unsafe { decode_rows(&Strided::of(&rows), &mut menu, &mut subs) });
-    rows[0].shortcut = Str { ptr: b"x".as_ptr(), len: 1 };
+    rows[0].shortcut = Str::from("x");
     assert!(!unsafe { decode_rows(&Strided::of(&rows), &mut menu, &mut subs) });
     rows[0].shortcut = Str::default();
     let child = [PxuiMenuRow::new("x")];

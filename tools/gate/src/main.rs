@@ -1414,6 +1414,101 @@ fn install_smoke(workspace: &Path) -> Result<Vec<String>, String> {
     Ok(if status.success() { Vec::new() } else { vec![format!("install-smoke: {} failed ({status})", script.display())] })
 }
 
+// Authoring records shared by the public wrapper and its consumers. Internal wire marshalling uses
+// raw fields because it must preserve invalid values for validation as well as valid inputs.
+const RECORD_TYPES: &[&str] = &[
+    "Node", "Edges", "Look", "Rgba", "Font", "State", "States", "FrameIn", "Event", "TextSpan", "Image", "SectionList", "Str",
+    "Label", "Button", "IconButton", "Toggle", "Segmented", "Menu", "MenuItem", "Dialog", "DialogButton", "TextInputOptions",
+    "Badge", "Checkbox", "DismissOpts", "Dropdown", "GestureOpts", "GridList", "ImageStyle", "LineField", "Overlay", "Picker",
+    "Pressable", "Progress", "Radio", "Scrubber", "SearchField", "SectionIndex", "SelectionList", "Slider", "Spinner", "Table",
+    "TableHead", "Tabs", "TextArea", "TextField", "ValueField",
+];
+
+/// Find constructors written as a literal. Declarations, patterns and locally defined homonyms are not authoring calls.
+fn record_literals(path: &str, source: &str, tests_only: bool) -> Vec<String> {
+    let tokens = lex(source);
+    let tests = if tests_only { test_regions(&tokens) } else { Vec::new() };
+    let shadows: HashSet<_> = tokens.windows(2).filter(|pair| matches!(pair[0].text.as_str(), "struct" | "enum"))
+        .map(|pair| pair[1].text.as_str()).collect();
+    let aliases: HashMap<_, _> = tokens.windows(3).filter(|parts| RECORD_TYPES.contains(&parts[0].text.as_str())
+        && parts[1].text == "as" && parts[2].text.starts_with(char::is_uppercase))
+        .map(|parts| (parts[2].text.as_str(), parts[0].text.as_str())).collect();
+    let mut errors = Vec::new();
+    for (index, token) in tokens.iter().enumerate() {
+        let name = aliases.get(token.text.as_str()).copied().unwrap_or(token.text.as_str());
+        if !RECORD_TYPES.contains(&name) || !tokens.get(index + 1).is_some_and(|next| next.text == "{") {
+            continue;
+        }
+        if tests_only && !tests.iter().any(|(open, end)| *open < index && index < *end) { continue; }
+        let mut path_start = index;
+        while path_start >= 2 && tokens[path_start - 1].text == "::" && is_identifier(&tokens[path_start - 2].text) {
+            path_start -= 2;
+        }
+        if path_start == index && shadows.contains(token.text.as_str()) { continue; }
+        if (token.text == "IconButton" && path.starts_with("crates/private/pxui_core/"))
+            || (token.text == "Node" && path_start < index && tokens[path_start].text == "pxui_sdl") { continue; }
+        if path_start < index && (tokens[index - 2].text.starts_with(char::is_uppercase)
+            || (token.text == "Image" && tokens[path_start].text == "pxui_core")) { continue; }
+        if path_start > 0 && matches!(tokens[path_start - 1].text.as_str(), "struct" | "enum" | "union" | "impl" | "for" | "->" | "let" | "mod" | "type" | "use" | "as") {
+            continue;
+        }
+        let Some(close) = matching(&tokens, index + 1, "{", "}") else { continue; };
+        if tokens.get(close + 1).is_some_and(|next| matches!(next.text.as_str(), "=>" | "|" | "=")) { continue; }
+        let fields = &tokens[index + 2..close];
+        if fields.is_empty() { continue; }
+        if fields.len() == 2 && fields.iter().all(|part| part.text == ".") { continue; }
+        if token.text == "Image" && fields.windows(2).any(|pair| pair[0].text == "handle" && pair[1].text == ":") {
+            continue; // pxui_core's retained image owns a handle; the public ABI image is borrowed.
+        }
+        issue(&mut errors, path, token.line, format!("build {name} with its constructor and builders"));
+    }
+    errors
+}
+
+fn record_examples(path: &str, source: &str, markdown: bool) -> Vec<String> {
+    let mut errors = Vec::new();
+    let mut example = None;
+    for (index, line) in source.lines().enumerate() {
+        let code = if markdown { Some(line) } else { line.trim_start().strip_prefix("///").or_else(|| line.trim_start().strip_prefix("//!")) };
+        let Some(line) = code else { example = None; continue; };
+        let trimmed = line.trim();
+        if matches!(trimmed, "```" | "```rust") && example.is_none() {
+            example = Some("\n".repeat(index + 1));
+        } else if trimmed == "```" && example.is_some() {
+            let code = example.take().expect("an open example");
+            errors.extend(record_literals(path, &code, false));
+        } else if let Some(code) = example.as_mut() {
+            code.push_str(line.trim_start().strip_prefix("# ").unwrap_or(line));
+            code.push('\n');
+        }
+    }
+    errors
+}
+
+fn records(workspace: &Path) -> Result<Vec<String>, String> {
+    let mut files = Vec::new();
+    for dir in ["crates/public", "crates/private", "crates/host", "tools/pxui_gallery", "tools/abi_bench", "tools/abi_equal", "tools/ios_spike"] {
+        rust_sources(&workspace.join(dir), &mut files).map_err(|error| format!("cannot read {dir}: {error}"))?;
+    }
+    let read = |path: &Path| fs::read_to_string(workspace.join(path)).map_err(|error| format!("cannot read {}: {error}", path.display()));
+    let mut errors = Vec::new();
+    for file in files {
+        let relative = file.strip_prefix(workspace).expect("source under this workspace");
+        if relative.starts_with("crates/public/pxui_types") { continue; }
+        let path = relative.to_string_lossy().replace('\\', "/");
+        let source = read(relative)?;
+        let name = relative.file_name().and_then(|name| name.to_str()).unwrap_or("");
+        let authoring_file = relative.starts_with("tools") || path.contains("/tests/") || name == "tests.rs"
+            || name.starts_with("test_") || name.ends_with("_tests.rs");
+        errors.extend(record_literals(&path, &source, !authoring_file));
+        errors.extend(record_examples(&path, &source, false));
+    }
+    let guide = Path::new("crates/public/pxui/src/guide/SKILL.md");
+    errors.extend(record_examples(&guide.to_string_lossy(), &read(guide)?, true));
+    errors.sort_unstable();
+    Ok(errors)
+}
+
 /// Public items missing documentation parts, by the rule in AGENTS.md.
 fn docs_source(source: &str) -> Vec<(String, String)> {
     let lines: Vec<&str> = source.lines().collect();
@@ -2424,8 +2519,8 @@ fn main() {
     let command = args.next().unwrap_or_else(|| "all".into());
     let option = args.next();
     let write_snapshot = option.as_deref() == Some("--write");
-    if args.next().is_some() || (option.is_some() && !write_snapshot) || (write_snapshot && command != "abi-snapshot") || !matches!(command.as_str(), "shape" | "deps" | "tiers" | "docs" | "pxui" | "abi-exports" | "abi-header" | "abi-snapshot" | "abi-frozen" | "abi-compat" | "install-smoke" | "all") {
-        eprintln!("usage: cargo run -p gate -- <shape|deps|tiers|docs|pxui|abi-exports|abi-header|abi-snapshot [--write]|abi-frozen|abi-compat|install-smoke|all>");
+    if args.next().is_some() || (option.is_some() && !write_snapshot) || (write_snapshot && command != "abi-snapshot") || !matches!(command.as_str(), "shape" | "deps" | "tiers" | "docs" | "records" | "pxui" | "abi-exports" | "abi-header" | "abi-snapshot" | "abi-frozen" | "abi-compat" | "install-smoke" | "all") {
+        eprintln!("usage: cargo run -p gate -- <shape|deps|tiers|docs|records|pxui|abi-exports|abi-header|abi-snapshot [--write]|abi-frozen|abi-compat|install-smoke|all>");
         process::exit(2);
     }
     let workspace = match workspace_root() {
@@ -2440,6 +2535,7 @@ fn main() {
         "deps" => deps(&workspace),
         "tiers" => tiers(&workspace),
         "docs" => docs(&workspace),
+        "records" => records(&workspace),
         "pxui" => pxui_remote(&workspace),
         "abi-exports" => abi_exports(&workspace),
         "abi-header" => abi_header(&workspace),
@@ -2473,6 +2569,35 @@ fn main() {
             eprintln!("gate: {error}");
             process::exit(2);
         }
+    }
+}
+
+#[cfg(test)]
+mod record_tests {
+    use super::{record_examples, record_literals};
+
+    #[test]
+    fn records_gate_distinguishes_construction_from_declarations_and_patterns() {
+        let source = "fn make() -> pxui::Node { pxui::Node { w: width, ..BASE } }
+let pxui::Node { w, .. } = sample;
+fn lay(n: Node) { match n { Node { w: Size::Grow, .. } => (), _ => () } }";
+        let hits = record_literals("sample.rs", source, false);
+        assert_eq!(hits, ["sample.rs:1: build Node with its constructor and builders"]);
+        assert!(record_literals("sample.rs", "struct Event { kind: u8 } let e = Event { kind: 2 };", false).is_empty());
+        assert_eq!(record_literals("sample.rs", "use pxui::Node as Layout; let n = Layout { ..BASE };", false),
+                   ["sample.rs:1: build Node with its constructor and builders"]);
+    }
+
+    #[test]
+    fn records_gate_reads_only_rust_examples_and_reaches_test_modules() {
+        assert_eq!(record_examples("sample.rs", "/// `Node { .. }` is prose.
+/// ```
+/// # let n = Node { ..BASE };
+/// ```", false),
+                   ["sample.rs:3: build Node with its constructor and builders"]);
+        assert_eq!(record_literals("sample.rs", "fn engine() { let _ = Node { ..BASE }; }
+#[cfg(test)] mod tests { fn t() { let _ = Node { ..BASE }; } }", true),
+                   ["sample.rs:2: build Node with its constructor and builders"]);
     }
 }
 

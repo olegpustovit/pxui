@@ -35,11 +35,11 @@ fn panel(ui: &mut Ui, s: &mut State) {
         s.volume = ui.slider("volume", "Volume", s.volume, 0.0..=1.0, &crate::Slider::DEFAULT).value;
         s.mode = ui.radio("mode", &[crate::Segment::new("Auto"), crate::Segment::new("Light"), crate::Segment::new("Dark")], Some(s.mode), &crate::Radio::DEFAULT.name("Mode")).chosen.unwrap_or(s.mode);
         let _ = ui.text_field("Name", "abc", &crate::TextField::DEFAULT);
-        let row = ui.node("row", Node { h: Size::Px(24.0), axis: Axis::Row, ..Node::DEFAULT });
+        let row = ui.node("row", Node::DEFAULT.h(Size::Px(24.0)).axis(Axis::Row));
         ui.within(&row, &mut |ui: &mut Ui| {
             // a keyed node of a grid, as a custom widget declares it
             const COLS: [Track; 2] = [Track::Fr(1.0), Track::Px(40.0)];
-            let cell = ui.node(7i64, Node { grid: Some(Grid::new(&COLS, &[])).into(), cell: Cell::at(0, 0), ..Node::DEFAULT });
+            let cell = ui.node(7i64, Node::DEFAULT.grid(Grid::new(&COLS, &[])).cell(Cell::at(0, 0)));
             let signal = ui.signal(&cell);
             s.clicks += signal.clicked as u32;
             ui.text(&cell, "custom");
@@ -53,7 +53,7 @@ fn panel(ui: &mut Ui, s: &mut State) {
 // list, a table and a popup.
 fn engine_shaped(ui: &mut Ui, s: &mut State) {
     s.seen += (ui.font_size() + ui.row_height()) as u64 + ui.frame_index() + ui.captured() as u64;
-    let scroller = ui.node("scroller", Node { at: Some((4.0, 4.0)).into(), ..Node::DEFAULT.flags(Flags::SCROLL | Flags::CLIP).w(Size::Px(60.0)).h(Size::Px(40.0)) });
+    let scroller = ui.node("scroller", Node::DEFAULT.flags(Flags::SCROLL | Flags::CLIP).w(Size::Px(60.0)).h(Size::Px(40.0)).at(4.0, 4.0));
     s.seen += ui.scroll(&scroller).settled as u64 + ui.local_rect(&scroller).w as u64 + ui.cached_label(&scroller, 0, "cached").len() as u64;
     ui.set_text_state(&scroller, None);
     s.seen += ui.text_state(&scroller).is_some() as u64 + ui.hovered(&scroller, false) as u64 + ui.drop_target(&scroller).is_some() as u64;
@@ -61,13 +61,13 @@ fn engine_shaped(ui: &mut Ui, s: &mut State) {
     let origin = s.clicks as f32;
     ui.canvas(&canvas, move |p, _| {
         CANVAS_RUNS.fetch_add(1, Ordering::Relaxed);
-        for i in 0..SHAPES { p.fill(Rect::new(i as f32 * 0.25, 0.0, 1.0, 1.0), Fill::new(Rgba { r: 5, g: 5, b: 5, a: 255 })); }
+        for i in 0..SHAPES { p.fill(Rect::new(i as f32 * 0.25, 0.0, 1.0, 1.0), Fill::new(Rgba::rgb(5, 5, 5))); }
         CANVAS_SHAPES.fetch_add(SHAPES, Ordering::Relaxed);
-        p.fill(Rect::new(origin, 0.0, 8.0, 8.0), Fill::new(Rgba { r: 9, g: 9, b: 9, a: 255 }));
-        p.line((0.0, 0.0), (20.0, 9.0), Stroke::new(Rgba { r: 1, g: 2, b: 3, a: 255 }).width(1.5));
-        p.circle((30.0, 10.0), 4.0, Some(Fill::new(Rgba { r: 7, g: 7, b: 7, a: 255 })), None);
+        p.fill(Rect::new(origin, 0.0, 8.0, 8.0), Fill::new(Rgba::rgb(9, 9, 9)));
+        p.line((0.0, 0.0), (20.0, 9.0), Stroke::new(Rgba::rgb(1, 2, 3)).width(1.5));
+        p.circle((30.0, 10.0), 4.0, Some(Fill::new(Rgba::rgb(7, 7, 7))), None);
         p.text(crate::Point::new(2.0, 12.0), Label::BODY, 0.0, "span");
-        p.fill(Rect::new(40.0, 0.0, 8.0, 8.0), Fill::new(Rgba { r: 9, g: 9, b: 9, a: 255 }));
+        p.fill(Rect::new(40.0, 0.0, 8.0, 8.0), Fill::new(Rgba::rgb(9, 9, 9)));
     });
     s.seen += ui.selection_list("items", 3, &|i| i as i64, &mut s.list, &crate::SelectionList::DEFAULT, &mut |ui, part, _| if let crate::ui::SectionPart::Row(row) = part { ui.item_text(["one", "two", "three"][row]) }).activated.is_some() as u64;
     const COLUMNS: [crate::Column; 2] = [crate::Column::new("Name").sortable(true).share(1.0), crate::Column::new("Size").w_px(40.0)];

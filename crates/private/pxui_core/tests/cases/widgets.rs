@@ -164,7 +164,7 @@ pub fn body(ui: &mut Ui, s: &mut S) {
         ui.within(&right, &mut |ui| {
             let b = ui.node("list-box".into(), Node::DEFAULT.h(Size::Px(120.0)));
             ui.within(&b, &mut |ui| {
-                if let Some(a) = ui.selection_rows("List", BIG, &|i| i as i64, &mut s.list, &mut s.list_anchor, None, &pxui_core::ui::SelectionList { mode: s.mode, ..pxui_core::ui::SelectionList::DEFAULT }, &mut |ui, i, _| if i < BIG { names(i, &mut |t| ui.item_text(t)) }).activated {
+                if let Some(a) = ui.selection_rows("List", BIG, &|i| i as i64, &mut s.list, &mut s.list_anchor, None, &pxui_core::ui::SelectionList::DEFAULT.mode(s.mode), &mut |ui, i, _| if i < BIG { names(i, &mut |t| ui.item_text(t)) }).activated {
                     s.activated = Some(a);
                 }
             });

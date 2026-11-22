@@ -366,21 +366,12 @@ mod ios {
                         } else { (t, r, b, l) };
                         let content = ui.node(
                             "iOS safe content",
-                            Node {
-                                w: Size::Grow,
-                                h: Size::Grow,
-                                padding: Edges { t, r, b, l },
-                                ..Node::DEFAULT
-                            },
+                            Node::DEFAULT.w(Size::Grow).h(Size::Grow).padding(Edges::new(l, t, r, b)),
                         );
                         ui.within(&content, &mut |ui| {
                             let inner = ui.node(
                                 "iOS safe bounds",
-                                Node {
-                                    w: Size::Grow,
-                                    h: Size::Grow,
-                                    ..Node::DEFAULT
-                                },
+                                Node::DEFAULT.w(Size::Grow).h(Size::Grow),
                             );
                             bounds = Some(inner);
                             ui.within(&inner, &mut |ui| {
@@ -388,7 +379,7 @@ mod ios {
                                     touch.view(ui);
                                 } else if self.keyboard_check {
                                     ui.label("PXUI native keyboard", pxui::Label::DEFAULT);
-                                    ui.node("field spacer", Node { w:Size::Grow,h:Size::Grow,..Node::DEFAULT });
+                                    ui.node("field spacer", Node::DEFAULT.w(Size::Grow).h(Size::Grow));
                                     if let Some(text) = self.text.as_mut() {text.view(ui,self.frames);}
                                     else {ui.text_field("Mobile input", "café track", &pxui::TextField::DEFAULT);}
                                 } else {
