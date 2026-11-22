@@ -1184,9 +1184,6 @@ pub struct Ui {
     pointer: (f32, f32),
     hot: i64,
     hover_rest: Option<(HoverId, (f32, f32), f64, i64)>,
-    tooltip_lines: Vec<core::ops::Range<usize>>,
-    pub(crate) tooltip_wait_key: String,
-    pub(crate) tooltip_description: String,
     active: Option<i64>,
     active_button: MouseButton,
     active_press: (f32, f32),
@@ -1213,7 +1210,6 @@ pub struct Ui {
     pub(crate) area_cache: Vec<crate::ui_text::AreaCacheEntry>,
     /// A text table cell's text, as its callback gave `item_text` (kept between frames), and whether it gave one.
     pub(crate) text_cell: String,
-    pub(crate) inspector_chip: String,
     pub(crate) text_cell_set: bool,
     pub(crate) edit_caret: usize,
     pub(crate) edit_anchor: usize,
@@ -1357,6 +1353,11 @@ pub struct Ui {
     pub(crate) tree_walked: u64,
     /// kept tree rows checked against the nodes where they were read (`Ui::tree_rows_checked`)
     pub(crate) tree_checked: u64,
+    // Append scratch here to keep earlier hot fields within their existing load offsets.
+    tooltip_lines: Vec<core::ops::Range<usize>>,
+    pub(crate) tooltip_wait_key: String,
+    pub(crate) tooltip_description: String,
+    pub(crate) inspector_chip: String,
     /// last, and `repr(C)` to keep it so: the 57 KB theme inline anywhere earlier puts every hot field past one aarch64
     /// load's reach (32 KB scaled, 4 KB for bytes), an address instruction per access (measured: see git log)
     theme: Theme,
@@ -1493,9 +1494,6 @@ impl Ui {
             pointer: (f32::NAN, f32::NAN),
             hot: 0,
             hover_rest: None,
-            tooltip_lines: Vec::new(),
-            tooltip_wait_key: String::new(),
-            tooltip_description: String::new(),
             active: None,
             active_button: MouseButton::LeftButton,
             active_press: (0.0, 0.0),
@@ -1517,7 +1515,6 @@ impl Ui {
             input_box: None,
             area_cache: Vec::new(),
             text_cell: String::new(),
-            inspector_chip: String::new(),
             text_cell_set: false,
             edit_caret: 0,
             edit_anchor: 0,
@@ -1621,6 +1618,10 @@ impl Ui {
             tree_rows: Vec::new(),
             tree_walked: 0,
             tree_checked: 0,
+            tooltip_lines: Vec::new(),
+            tooltip_wait_key: String::new(),
+            tooltip_description: String::new(),
+            inspector_chip: String::new(),
         }
     }
 
