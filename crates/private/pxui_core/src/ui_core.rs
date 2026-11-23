@@ -1743,7 +1743,8 @@ impl Ui {
             spare: Vec::new(),
             draw_revision: 0,
             painted: -1,
-            patch_layers: Vec::new(),
+            // A tween can finish after the UI has warmed without ever using the patch painter.
+            patch_layers: vec![Layer { pieces: Vec::with_capacity(1), ..Layer::new(0, 0) }],
             repatch: Vec::new(),
             press_chain: Vec::new(),
             views: vec![ViewRec::new()],
