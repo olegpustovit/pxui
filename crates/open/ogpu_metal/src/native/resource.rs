@@ -567,6 +567,7 @@ struct CommandBufferInner {
     queue: CommandQueue,
     queue_attached: AtomicBool,
     resources: RefCell<Vec<RetainedResource>>,
+    uploads: RefCell<Option<metal_sys::uploads::Batch>>,
 }
 impl Drop for CommandBufferInner {
     fn drop(&mut self) {
@@ -586,7 +587,7 @@ impl CommandBuffer {
         let raw = unsafe { metal_sys::native::retain_object(pointer, metal_sys::native::KIND_COMMAND_BUFFER) }
             .map_err(|failure| sys_error(operation, failure))?;
         queue.0.lifetime.dependents.fetch_add(1, Ordering::AcqRel);
-        Ok(Self(Arc::new(CommandBufferInner { raw, lifetime: Lifetime::new(), queue: queue.clone(), queue_attached: AtomicBool::new(true), resources: RefCell::new(Vec::with_capacity(16)) })))
+        Ok(Self(Arc::new(CommandBufferInner { raw, lifetime: Lifetime::new(), queue: queue.clone(), queue_attached: AtomicBool::new(true), resources: RefCell::new(Vec::with_capacity(16)), uploads: RefCell::new(None) })))
     }
     pub(crate) fn native_ptr(&self) -> Result<*mut std::ffi::c_void, Error> {
         self.0.raw.object_ptr(metal_sys::native::KIND_COMMAND_BUFFER).map_err(|failure| sys_error("Metal.Command_buffer.native_ptr", failure))
@@ -597,7 +598,7 @@ impl CommandBuffer {
         queue.0.lifetime.ensure_live(operation)?;
         let raw = metal_sys::registry::command_buffer_create(queue.raw()).map_err(|failure| sys_error(operation, failure))?;
         queue.0.lifetime.dependents.fetch_add(1, Ordering::AcqRel);
-        Ok(Self(Arc::new(CommandBufferInner { raw, lifetime: Lifetime::new(), queue: queue.clone(), queue_attached: AtomicBool::new(true), resources: RefCell::new(Vec::with_capacity(16)) })))
+        Ok(Self(Arc::new(CommandBufferInner { raw, lifetime: Lifetime::new(), queue: queue.clone(), queue_attached: AtomicBool::new(true), resources: RefCell::new(Vec::with_capacity(16)), uploads: RefCell::new(None) })))
     }
     pub fn device(&self) -> &Device { self.0.queue.device() }
 
@@ -620,6 +621,7 @@ impl CommandBuffer {
         Ok(CommandBufferDiagnostics { error_options: value.error_options, gpu_start_time: value.gpu_start_time, gpu_end_time: value.gpu_end_time, kernel_start_time: value.kernel_start_time, kernel_end_time: value.kernel_end_time, retained_references: value.retained_references != 0 })
     }
     pub fn commit(&self) -> Result<(), Error> {
+        self.end_texture_uploads();
         let operation = "Metal.Command_buffer.commit";
         enter_main(operation)?;
         self.0.lifetime.ensure_live(operation)?;
@@ -657,10 +659,36 @@ impl CommandBuffer {
         Ok(())
     }
     pub fn destroy(&self) -> Result<(), Error> {
+        self.end_texture_uploads();
         self.0.lifetime.destroy_parent("Metal.Command_buffer.destroy")?;
         self.0.resources.borrow_mut().clear(); // a destroyed command buffer retains nothing (ogpu_metal abandons uncommitted work this way)
         if self.0.queue_attached.swap(false, Ordering::AcqRel) { self.0.queue.0.lifetime.dependents.fetch_sub(1, Ordering::AcqRel); }
         Ok(())
+    }
+    /// Upload to shared textures directly and stage private writes in one blit encoder.
+    pub fn write_texture(&self, texture: &Texture, write: &TextureRead, bytes: &[u8]) -> Result<(), Error> {
+        const OP: &str = "Metal.Command_buffer.write_texture";
+        if texture.0.descriptor.storage != StorageMode::Private {
+            return texture.write_bytes(write, bytes);
+        }
+        enter_main(OP)?;
+        self.0.lifetime.ensure_live(OP)?;
+        texture.validate_read_owner(OP, write)?;
+        if !self.device().same(&texture.0.device) {
+            return Err(error(OP, ErrorKind::CrossDevice, "texture belongs to another device"));
+        }
+        let region = write.region();
+        if region.z != 0 || region.depth != 1 || write.slice() != 0 || !texture.0.descriptor.usage.contains(&ogpu_core::types::TextureUsage::TextureCopyDst) {
+            return Err(error(OP, ErrorKind::Unsupported, "staged upload requires a 2D copy destination"));
+        }
+        let mut active = self.0.uploads.borrow_mut();
+        if active.is_none() {
+            *active = Some(metal_sys::uploads::Batch::new(&self.0.raw).map_err(|failure| sys_error(OP, failure))?);
+        }
+        active.as_mut().expect("batch created").write(&texture.0.raw, write, bytes).map_err(|failure| sys_error(OP, failure))
+    }
+    pub(crate) fn end_texture_uploads(&self) {
+        self.0.uploads.borrow_mut().take();
     }
     fn retain(&self, resource: RetainedResource) {
         resource.dependents().fetch_add(1, Ordering::AcqRel);
@@ -675,6 +703,7 @@ impl CommandBuffer {
     pub(crate) fn same(&self, other: &CommandBuffer) -> bool { Arc::ptr_eq(&self.0, &other.0) }
     /// An adopted command buffer names the app's next one (`pointer`), its retained resources let go: no allocation.
     pub(crate) fn readopt(&self, pointer: *mut std::ffi::c_void) -> Result<(), Error> {
+        self.end_texture_uploads();
         let operation = "Metal.Command_buffer.readopt";
         enter_main(operation)?;
         self.0.lifetime.ensure_live(operation)?;

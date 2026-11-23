@@ -527,20 +527,27 @@ impl DriverCommands for MetalCommands {
         Ok(true)
     }
     fn compute_encoder(&self) -> Result<Box<dyn DriverComputeEncoder>, Error> {
+        self.context.native.end_texture_uploads();
         compute_encoder::create(&self.context)
     }
     fn accel_encoder(&self) -> Result<Box<dyn DriverAccelEncoder>, Error> {
+        self.context.native.end_texture_uploads();
         accel_encoder(&self.context)
     }
     fn blit_encoder(&self) -> Result<Box<dyn DriverBlitEncoder>, Error> {
+        self.context.native.end_texture_uploads();
         blit_encoder::create(&self.context)
     }
     fn render_encoder(&self, target: &DriverRenderTarget) -> Result<Box<dyn DriverRenderEncoder>, Error> {
+        self.context.native.end_texture_uploads();
         render_encoder::create(&self.context, target)
     }
-    /// Completes the texture update before submission; callers keep rewritten regions out of frames in flight.
+    fn settle(&mut self) { self.context.native.end_texture_uploads(); }
     fn write_texture(&self, texture: &dyn DriverResource, write: &TextureRead, bytes: &[u8]) -> Result<(), Error> {
-        texture.write_texture(write, bytes)
+        if self.context.open_encoder.borrow().is_some() {
+            return Err(fail(self.context.operation, ErrorKind::InvalidState, "texture uploads require commands outside an encoder"));
+        }
+        self.context.native.write_texture(self.context.find_texture(texture)?.metal(), write, bytes)
     }
     fn commit(&self) -> Result<Receipt, Error> {
         let context = &self.context;
@@ -594,6 +601,7 @@ impl DriverCommands for MetalCommands {
             mtl_command_buffer: self.context.native.native_ptr()?, frame_serial: self.frame_serial, ..Default::default() })
     }
     fn adopt_render_encoder(&self, native: ogpu_core::backend::NativePass, _target: &DriverRenderTarget) -> Result<Box<dyn DriverRenderEncoder>, Error> {
+        self.context.native.end_texture_uploads();
         render_encoder::adopt(&self.context, native)
     }
 }
