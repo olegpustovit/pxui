@@ -145,3 +145,4 @@ and name the replacement; nothing is removed from the manifest.
 | 2.5 | Added `pxui_ui_frame_reasons` for opt-in scheduling counters and the last one-shot transition. |
 | 2.6 | Added `pxui_ui_damage_list` and appended `PxuiDamageList` to `PxuiOutput`. The legacy damage fields report the bounding box. |
 | 2.7 | Added `pxui_ui_animate_keys_at_rate` for display and shared ambient keyframe cadences. |
+| 2.11 | Defined bit 0 of `PxuiTargetDesc.reserved_tail` (`PXUI_TARGET_BACKDROP_UI_DAMAGE`). The host guarantees backdrop pixels change only through Ui damage, uses one target and ordered queue per renderer, and leaves damage acknowledgement to that renderer. Call `pxui_renderer_resize` on canvas replacement, frame cancellation or GPU errors to invalidate reuse. Default renderers recompute. `PXUI_NO_BLUR_REUSE=1` disables reuse. The record layout is unchanged. |

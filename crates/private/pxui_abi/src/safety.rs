@@ -2436,6 +2436,9 @@ fn fonts_and_renderer_records_are_validated() {
         let mut renderer = core::ptr::null_mut();
         assert_ne!(pxui_renderer_create(ui, (&short as *const u32).cast(), &PxuiTargetDesc::default(), &mut renderer), 0);
         assert_ne!(pxui_renderer_create(ui, &pxui_types::Gpu::default(), (&short as *const u32).cast(), &mut renderer), 0);
+        let unknown=PxuiTargetDesc { format:1, reserved_tail:!PxuiTargetDesc::BACKDROP_UI_DAMAGE, ..PxuiTargetDesc::default() };
+        assert_eq!(pxui_renderer_create(ui, &pxui_types::Gpu::default(), &unknown, &mut renderer), PXUI_ERR_ARGUMENT);
+        assert_eq!(error(ui), "invalid target descriptor");
         assert!(renderer.is_null());
         assert_eq!(pxui_ui_destroy(ui), 0);
     }

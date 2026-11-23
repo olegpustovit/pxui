@@ -102,7 +102,7 @@ arg!(sized: PxuiTextFieldDesc, pxui_types::ffi::PxuiDiagnostics, Environment, Gp
     PxuiDismissIn, PxuiDismissOut, PxuiFooterDesc, PxuiGestureIn, PxuiGestureOut, PxuiGridListDesc, PxuiHeaderDesc, PxuiHeadOut, PxuiIconButtonDesc,
     PxuiInspectorRowDesc, PxuiInspectorSectionDesc, PxuiInspectorTextDesc, PxuiInspectorValueDesc, PxuiKeyframeDesc, PxuiLabelStyle, PxuiLookDesc, PxuiMenuBarDesc, PxuiMenuOptions, PxuiMenuOut, PxuiNodeFields, PxuiPopupDesc, PxuiResponse,
     PxuiScrubOut, PxuiSignal, PxuiSplitDesc, PxuiStateDesc, PxuiSwipeIn, PxuiTreeViewDesc, PxuiValueFieldDesc, ThemeTokens, FrameIn, FrameOut, Image, Node, PxuiPanel,
-    PxuiTargetDesc, PxuiUiDesc, TextMetrics, PxuiTextStyle, PxuiAnchorDesc, PxuiAreaCallbacks, PxuiLabelBox, PxuiMarkDesc, PxuiSegmentedDesc,
+    PxuiUiDesc, TextMetrics, PxuiTextStyle, PxuiAnchorDesc, PxuiAreaCallbacks, PxuiLabelBox, PxuiMarkDesc, PxuiSegmentedDesc,
     PxuiTextAreaDesc, PxuiTextInputOptions, PxuiToggleDesc, PxuiCheckboxDesc, PxuiSheetDesc, Span, TextGlyph,
     PxuiSectionListDesc, PxuiListResult, PxuiSelectionListDesc, PxuiTableHeadDesc, PxuiHeadResult, PxuiTableDesc, PxuiTableResult);
 arg!(plain: pxui_types::ffi::PxuiDamageList, u16, *mut PxuiRenderer, u8, u32, u64, i64, usize, f32, c_void, Str, geom::Rgba, geom::Rect, geom::Point, *const u32, *mut PxuiPreparedText, A11yTree, PxuiFrameReasons, Strided<A11yAction>);
@@ -169,6 +169,24 @@ impl Arg for *const PxuiKeyedDesc {
         };
         unsafe { buf().cast::<PxuiKeyedDesc>().write(desc) };
         buf().cast()
+    }
+}
+impl Arg for *const PxuiTargetDesc {
+    fn arg(v: u32) -> Self {
+        let mut target=PxuiTargetDesc::default();
+        target.format=1;
+        target.reserved_tail=match v % VARIANTS {
+            0=>PxuiTargetDesc::BACKDROP_UI_DAMAGE,
+            1=>return core::ptr::null(),
+            2=>{ target.size=0; 0 },
+            3=>{ target.size=u32::MAX; u32::MAX },
+            4=>{ target.size-=1; 0 },
+            _=>!PxuiTargetDesc::BACKDROP_UI_DAMAGE,
+        };
+        // renderer_create also receives a GPU record in the front of the fuzz buffer.
+        let slot=unsafe { buf().add(BUF_BYTES/2).cast::<PxuiTargetDesc>() };
+        unsafe { slot.write(target) };
+        slot
     }
 }
 impl Arg for PxuiSizeDesc { fn arg(v: u32) -> Self { PxuiSizeDesc { kind: u32::arg(v), value: f32::arg(v), relative: None } } }

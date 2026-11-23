@@ -794,6 +794,7 @@ pxui::Renderer::draw_layer fn (&mut self, pass: &Pass, layer: u32, split: &mut d
 pxui::Renderer::draw_with_split fn (&mut self, pass: &Pass, split: &mut dyn FnMut(Recorder) -> Result<Pass, Error>) -> Result<(), Error> @HEAD
 pxui::Renderer::forget_image fn (&mut self, image: &Image, completed: u64) -> Result<(), Error> @HEAD
 pxui::Renderer::new fn (ui: &Ui, gpu: Gpu, target: TargetDesc) -> Result<Self, Error> @U1a.3
+pxui::Renderer::new_with_target_record fn (ui: &Ui, gpu: Gpu, target: PxuiTargetDesc) -> Result<Self, Error> @HEAD
 pxui::Renderer::prepare fn (&mut self, commands: &Commands, frame: u64, completed: u64) -> Result<(), Error> @HEAD
 pxui::Renderer::resize fn (&mut self, width: u32, height: u32) -> Result<(), Error> @HEAD
 pxui::Repeat use pxui_types::ui::Repeat @HEAD
@@ -3603,6 +3604,7 @@ pxui_types::PxuiTargetDesc impl Copy @HEAD
 pxui_types::PxuiTargetDesc impl Debug @HEAD
 pxui_types::PxuiTargetDesc impl Default @HEAD
 pxui_types::PxuiTargetDesc struct @HEAD
+pxui_types::PxuiTargetDesc::BACKDROP_UI_DAMAGE const u32 @HEAD
 pxui_types::PxuiTargetDesc::color_height field u32 @HEAD
 pxui_types::PxuiTargetDesc::color_width field u32 @HEAD
 pxui_types::PxuiTargetDesc::format field u32 @HEAD

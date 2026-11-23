@@ -52,7 +52,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built: the version the app was built against, PXUI_ABI_BUILT (major << 16 | minor); pxui_ui_create refuses 0, another major and a newer minor (PXUI_ERR_VERSION). */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((2u << 16) | 7u)
+#define PXUI_ABI_BUILT ((2u << 16) | 11u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 /* size-prefixed (16 bytes); pxui_ui_text_input_options needs the caller's size to cover it. */
@@ -230,6 +230,11 @@ typedef int32_t (*PxuiPassRecord)(void *user, const PxuiImage *target);
 typedef int32_t (*PxuiPassSplit)(void *user, PxuiPassRecord record, void *record_user, PxuiPass *out);
 /* Draws layers first_layer.. (layer_count of them; 0 means every layer from first_layer), so an app can draw its own content between. */
 struct PxuiPass { uint32_t size; void *vk_command_buffer, *mtl_render_encoder; uint32_t width_px,height_px; float scale; void *mtl_command_buffer; uint32_t first_layer,layer_count; PxuiPassSplit split; void *split_user; };
+/* PxuiTargetDesc.reserved_tail flags (2.11). Zero always recomputes the backdrop. The opt-in
+   guarantees all backdrop changes are reported in Ui damage, one ordered queue and target per
+   renderer, and exclusive draw acknowledgement. Call resize on canvas replacement, cancel,
+   or GPU error even if the extent stays the same. Draw all UI layers in order. */
+#define PXUI_TARGET_BACKDROP_UI_DAMAGE (1u << 0)
 typedef struct { uint32_t size, format; uint8_t samples; uint8_t reserved[3]; uint32_t mask_width,mask_height,color_width,color_height,reserved_tail; } PxuiTargetDesc;
 /* wrap: 0 none, 1 word, 2 glyph, 3 word with omitted soft-wrap separator advances in fitting width . */
 typedef struct { uint32_t size; uint16_t font,weight; float size_points,line_height; uint32_t wrap,align; uint16_t max_lines; uint8_t italic,ellipsis; uint32_t features; float tracking; } PxuiTextStyle;

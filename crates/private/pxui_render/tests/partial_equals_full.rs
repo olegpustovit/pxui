@@ -1,4 +1,4 @@
-use super::{finish, ok, open, public_commands, shared_renderer, texture};
+use super::{finish, ok, open, public_commands, shared_renderer, shared_renderer_with_flags, texture};
 use ogpu_core::backend::{self as be, ColorAttachment, RenderTarget, Texture};
 use ogpu_core::render_pass::{Load, Rect, Store};
 use ogpu_core::types::{BufferDescriptor, BufferUsage, TextureUsage};
@@ -28,6 +28,17 @@ fn draw(
     frame: u64,
     clip: Option<Rect>,
 ) -> Vec<u8> {
+    draw_backdrop(queue, target, renderer, frame, clip, (0.0, 0.0, 0.0, 1.0)).0
+}
+
+fn draw_backdrop(
+    queue: &be::Queue,
+    target: &Texture,
+    renderer: &mut Renderer,
+    frame: u64,
+    clip: Option<Rect>,
+    clear: (f64, f64, f64, f64),
+) -> (Vec<u8>, usize) {
     let commands = ok(be::begin_commands(queue));
     let handles = public_commands(&commands);
     renderer.prepare(&handles, frame, frame - 1).unwrap();
@@ -40,7 +51,7 @@ fn draw(
                     load,
                     store: Store::Store,
                     resolve: None,
-                    clear: (0.0, 0.0, 0.0, 1.0),
+                    clear,
                 }],
                 depth: None,
             },
@@ -55,7 +66,9 @@ fn draw(
         ok(be::set_scissor(&encoder, clip));
     }
     let opened = pass(&encoder, handles);
+    let mut splits=0;
     let drawn = renderer.draw_with_split(&opened, &mut |record| {
+        splits+=1;
         assert!(clip.is_none(), "blur redraws the complete backdrop");
         ok(be::invalidate_state(&encoder));
         ok(be::end_render(&encoder));
@@ -77,7 +90,7 @@ fn draw(
     ok(be::end_render(&encoder));
     let receipt = ok(be::commit(&commands));
     ok(be::complete_through(queue, receipt.epoch));
-    ok(be::read_texture(target, i64::from(opened.width_px) * 4))
+    (ok(be::read_texture(target, i64::from(opened.width_px) * 4)), splits)
 }
 
 /// Offscreen Metal/Vulkan. CI selects Mesa's lavapipe ICD on Linux.
@@ -144,6 +157,75 @@ pub(super) fn native() {
         }
     }
     assert!(saw_partial);
+    drop(renderer);
+    ok(be::destroy_texture(&target));
+    finish(device, queue);
+}
+
+/// A changing external clear is visible to default renderers. A trusted, completed backdrop can
+/// be read from its cache during a scissored redraw, and matches a fresh full redraw byte for byte.
+pub(super) fn backdrop_reuse() {
+    use pxui::{FrameIn, Node, PxuiTargetDesc, Rgba, ViewTransform};
+    use pxui::ui::Look;
+
+    let Some(device) = open() else { return };
+    let queue = ok(be::create_queue(&device));
+    let target = texture(&device, 240, 160, &[TextureUsage::RenderAttachment, TextureUsage::TextureBinding, TextureUsage::TextureCopySrc]);
+    let build = |ui: &mut Ui, source, marker, time| {
+        ui.frame(&FrameIn::new(240.0, 160.0).time(time), &mut |ui| {
+            ui.node("backdrop source", Node::DEFAULT.w_px(22.0).h_px(32.0).at(18.0, 18.0)
+                .look(Look::NONE.fill(source)));
+            let glass = ui.view_of("glass", &0, |ui| {
+                ui.node("tint", Node::DEFAULT.w_px(64.0).h_px(48.0)
+                    .look(Look::NONE.fill(Rgba::rgba(0, 0, 0, 8))));
+            });
+            ui.set_node_layout(&glass, &Node::column().w_px(64.0).h_px(48.0).at(20.0, 20.0));
+            ui.set_view(&glass, &ViewTransform::DEFAULT.blur(8.0));
+            ui.node("marker", Node::DEFAULT.w_px(12.0).h_px(12.0).at(210.0, 135.0)
+                .look(Look::NONE.fill(marker)));
+        }).unwrap();
+    };
+    let pane_pixel = |pixels: &[u8], x: usize| -> [u8; 4] {
+        let at = (42 * 240 + x) * 4;
+        pixels[at..at + 4].try_into().unwrap()
+    };
+    let mut ui = Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
+    let mut renderer = shared_renderer(&device, &ui);
+    renderer.resize(240, 160).unwrap();
+    build(&mut ui, Rgba::BLACK, Rgba::BLACK, 0.0);
+    let red = (1.0, 0.0, 0.0, 1.0);
+    let green = (0.0, 1.0, 0.0, 1.0);
+    let (first, first_splits) = draw_backdrop(&queue, &target, &mut renderer, 1, None, red);
+    assert_eq!(ui.damage_list().count, 0);
+    let (second, second_splits) = draw_backdrop(&queue, &target, &mut renderer, 2, None, green);
+    assert_eq!((first_splits, second_splits), (1, 1));
+    assert!(pane_pixel(&first, 65)[0] > 200 && pane_pixel(&second, 65)[1] > 200);
+    drop(renderer);
+
+    let mut ui = Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
+    let mut renderer = shared_renderer_with_flags(&device, &ui, PxuiTargetDesc::BACKDROP_UI_DAMAGE);
+    renderer.resize(240, 160).unwrap();
+    build(&mut ui, Rgba::BLACK, Rgba::BLACK, 0.0);
+    let (first, seeded) = draw_backdrop(&queue, &target, &mut renderer, 1, None, green);
+    assert_eq!(seeded, 1);
+    build(&mut ui, Rgba::BLACK, Rgba::WHITE, 0.1);
+    assert_eq!(ui.damage_list().count, 1);
+    let clip = Rect { x: 208, y: 133, width: 16, height: 16 };
+    let (partial, reused) = draw_backdrop(&queue, &target, &mut renderer, 2, Some(clip), green);
+    assert_eq!(reused, 0, "the unchanged footprint must not split the render pass");
+    assert_ne!(partial, first, "the marker changed");
+    let (cached_full, still_reused) = draw_backdrop(&queue, &target, &mut renderer, 3, None, green);
+    assert_eq!(still_reused, 0, "the cached image can also repaint its whole footprint");
+    renderer.resize(240, 160).unwrap();
+    let (full, recomputed) = draw_backdrop(&queue, &target, &mut renderer, 4, None, green);
+    assert_eq!(recomputed, 1);
+    diff(&partial, &full, 0, 2);
+    diff(&cached_full, &full, 0, 3);
+
+    build(&mut ui, Rgba::WHITE, Rgba::WHITE, 0.2);
+    let (changed, damaged) = draw_backdrop(&queue, &target, &mut renderer, 5, None, green);
+    assert_eq!(damaged, 1, "damage within the footprint invalidates the cached result");
+    assert_ne!(pane_pixel(&changed, 46), pane_pixel(&full, 46));
     drop(renderer);
     ok(be::destroy_texture(&target));
     finish(device, queue);

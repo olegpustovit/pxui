@@ -1,6 +1,6 @@
 use metal_sys::frames::Frames;
 use ogpu_core::backend as be;
-use pxui::{Commands, DamageList, Error, Gpu, Pass, Rect, Renderer, TargetDesc, Ui};
+use pxui::{Commands, DamageList, Error, Gpu, Pass, PxuiTargetDesc, Rect, Renderer, Ui};
 use pxui_sdl::Window;
 
 /// One surface's GPU state: its own device, queue, frame pacing (`Frames` on the window's layer),
@@ -59,7 +59,7 @@ impl Graphics {
         let layer = window.token().map_err(|_| Error::Host("could not get surface token"))?;
         host.frames = Some(Frames::new(&host.device, layer).map_err(|_| Error::Host("could not open native frame context"))?);
         let native = be::native_leased(&host.device).map_err(|_| Error::Host("could not lease graphics device"))?;
-        let renderer = Renderer::new(
+        let renderer = Renderer::new_with_target_record(
             ui,
             Gpu {
                 size: native.size,
@@ -81,9 +81,10 @@ impl Graphics {
                 owner_token: native.owner_token,
                 release_owner: native.release_owner,
             },
-            TargetDesc {
+            PxuiTargetDesc {
                 format: 2,
-                samples: 1,
+                reserved_tail: PxuiTargetDesc::BACKDROP_UI_DAMAGE,
+                ..PxuiTargetDesc::default()
             },
         )?;
         host.renderer = Some(renderer);
@@ -171,6 +172,7 @@ impl Graphics {
         #[cfg(target_os = "ios")]
         if !self.can_draw() { return Ok(false); }
         if size.0 == 0 || size.1 == 0 {
+            self.blur_extent = (0, 0);
             self.held = Some(DamageList::full(viewport));
             return Ok(false);
         }
@@ -196,6 +198,7 @@ impl Graphics {
             Ok(true) => {}
             Ok(false) => return Ok(false),
             Err(_) => {
+                self.blur_extent = (0, 0);
                 self.held = Some(DamageList::full(viewport));
                 return Err(Error::Host("could not begin native frame"));
             }
@@ -238,7 +241,7 @@ impl Graphics {
                     scale,
                     ..Pass::default()
                 };
-                // shortcut: use a full canvas for blur until partial draws can reconstruct its backdrop.
+                // A cache miss needs a full canvas to reconstruct its backdrop.
                 let mut redraw = false;
                 let result = renderer.draw_with_split(&pass, &mut |record| {
                     if partial != 0 {
@@ -269,6 +272,7 @@ impl Graphics {
             Ok(result) => result,
             Err(error) => {
                 frames.cancel();
+                self.blur_extent = (0, 0);
                 self.held = Some(DamageList::full(viewport));
                 return Err(error);
             }
@@ -278,6 +282,7 @@ impl Graphics {
         // Suspending iOS may discard the command buffer while waiting for a drawable.
         #[cfg(target_os = "ios")]
         if !frames.can_draw() {
+            self.blur_extent = (0, 0);
             self.held = Some(DamageList::full(viewport));
         }
         self.images.submitted(frames.serial());
@@ -308,6 +313,7 @@ impl Graphics {
 
     pub(crate) fn capture_frame(&mut self, window: &mut Window, ui: &Ui, full: bool) -> Result<(u32, u32, Vec<u8>), Error> {
         if full {
+            self.blur_extent = (0, 0);
             self.held = Some(DamageList::full(Rect::default()));
         }
         let frames = self.frames.as_mut().expect("Live frame context");
@@ -322,7 +328,10 @@ impl Graphics {
         }
         let (width, height, mut pixels) = frames
             .read_capture()
-            .map_err(|_| Error::Host("could not read the frame capture"))?
+            .map_err(|_| {
+                self.blur_extent = (0, 0);
+                Error::Host("could not read the frame capture")
+            })?
             .ok_or(Error::Host("no frame was captured"))?;
         for pixel in pixels.chunks_exact_mut(4) {
             pixel.swap(0, 2); // BGRA drawable to RGBA
