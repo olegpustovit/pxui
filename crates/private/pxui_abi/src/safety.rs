@@ -1215,7 +1215,9 @@ fn encoding_rules() {
     assert_eq!(unsafe { (*pxui_ui_output(ui)).repaint_at }, f64::INFINITY, "an idle Ui has no scheduled repaint");
     let moving = in_frame(ui, &mut |ui| {
         let mut node = PxuiBox::default();
-        assert_eq!(unsafe { pxui_ui_node_keyed(ui, 77, &pxui_types::Node::DEFAULT, &mut node) }, 0);
+        let swatch = pxui_types::Node::DEFAULT.w_px(20.0).h_px(20.0)
+            .look(pxui_types::theme::Look::NONE.fill(pxui_types::geom::Rgba::rgb(240, 40, 40)));
+        assert_eq!(unsafe { pxui_ui_node_keyed(ui, 77, &swatch, &mut node) }, 0);
         let mut key: pxui_types::ffi::PxuiKeyframeDesc = unsafe { core::mem::zeroed() };
         key.size = core::mem::size_of::<pxui_types::ffi::PxuiKeyframeDesc>() as u32;
         (key.time, key.target, key.values, key.look, key.curve) = (1.0, 0, [10.0, 0.0, 0.0, 0.0], pxui_types::ffi::PxuiLookDesc::default(), pxui_types::ffi::PxuiCurveDesc { kind: pxui_types::ffi::PxuiCurveDesc::BEZIER, duration: 1.0, points: [0.0, 0.0, 1.0, 1.0], ..pxui_types::ffi::PxuiCurveDesc::default() });
