@@ -55,6 +55,11 @@ fn framework_host_uploads_exact_rgba_reuses_warm_frames_and_fences_texture_relea
     }
     // each 8x4 image carries its 4x2, 2x1 and 1x1 mip levels
     assert_eq!(graphics.resident_image_bytes(),8*(pixels.len()+(4*2+2+1)*4));
+    let draw_changed_marker = |ui: &mut Ui, frame: usize| {
+        let marker = ui.node("frame-marker", Node::DEFAULT.w(Size::Px(2.0)).h(Size::Px(2.0)).at(70.0, 0.0));
+        let red = if frame % 2 == 0 { 255 } else { 0 };
+        ui.canvas(&marker, move |paint, r| paint.fill(r, pxui::Fill::new(pxui::Rgba::rgb(red, 0, 0))));
+    };
     for frame in 0..32 {
         mem_sys::local_reset();
         assert!(
@@ -73,6 +78,7 @@ fn framework_host_uploads_exact_rgba_reuses_warm_frames_and_fences_texture_relea
                     .images()
                     .get(1, "memory:rgba", 32.0, Some(&node))
                     .unwrap();
+                draw_changed_marker(ui, frame);
                 ui.canvas(&node, move |paint, r| {
                     paint.image(r, &image, &pxui::ImageStyle::DEFAULT.fit(Fit::Cover)).unwrap();
                 });
@@ -100,7 +106,7 @@ fn framework_host_uploads_exact_rgba_reuses_warm_frames_and_fences_texture_relea
     for frame in 0..3 {
         ui.frame(
             &FrameIn::new(320.0, 240.0).time(1.0 + frame as f64 / 60.0),
-            &mut |_| {},
+            &mut |ui| draw_changed_marker(ui, frame),
         )
         .unwrap();
         assert!(graphics.draw(&mut window, &ui, None).unwrap());
@@ -123,13 +129,13 @@ fn framework_host_screenshot_returns_presented_rgba_and_keeps_warm_draws_allocat
     let mut ui = Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
     let mut graphics = Graphics::open(&mut window, &ui).unwrap();
     let scale = window.scale();
-    let build = |ui: &mut Ui, time: f64| {
+    let build = |ui: &mut Ui, time: f64, green: u8| {
         ui.frame(&FrameIn::new(320.0, 240.0).scale(scale as f32).time(time), &mut |ui| {
             let node = ui.node("swatch", Node::DEFAULT.w(Size::Px(40.0)).h(Size::Px(20.0)));
-            ui.canvas(&node, |paint, r| paint.fill(r, Fill::new(Rgba::rgb(255, 0, 0))));
+            ui.canvas(&node, move |paint, r| paint.fill(r, Fill::new(Rgba::rgb(255, green, 0))));
         }).unwrap();
     };
-    build(&mut ui, 0.0);
+    build(&mut ui, 0.0, 0);
     let (width, height, pixels) = graphics.screenshot(&mut window, &ui).unwrap();
     assert_eq!((width, height), ((320.0 * scale) as u32, (240.0 * scale) as u32));
     assert_eq!(pixels.len(), width as usize * height as usize * 4);
@@ -137,9 +143,11 @@ fn framework_host_screenshot_returns_presented_rgba_and_keeps_warm_draws_allocat
     assert_eq!(at(10.0, 10.0), [255, 0, 0, 255], "the swatch reads back as RGBA");
     let panel = ui.theme().tokens.panel;
     assert_eq!(at(200.0, 200.0), [panel.r, panel.g, panel.b, 255], "the cleared panel outside it");
+    assert!(!graphics.draw(&mut window, &ui, None).unwrap(), "a clean canvas needs no present");
+    assert!(graphics.acquire_wall().is_zero(), "a clean canvas never acquires a drawable");
     for frame in 0..16 {
         mem_sys::local_reset();
-        build(&mut ui, 1.0 + frame as f64 / 60.0);
+        build(&mut ui, 1.0 + frame as f64 / 60.0, u8::from(frame % 2 == 0) * 255);
         assert!(graphics.draw(&mut window, &ui, None).unwrap());
         if frame >= 4 {
             assert_eq!(mem_sys::local_alloc_count(), 0, "draws after a screenshot stay allocation-free");

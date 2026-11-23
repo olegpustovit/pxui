@@ -18,8 +18,9 @@ pub struct Graphics {
     blur_extent: (u32, u32),
     acquire_wall: std::time::Duration,
     /// Damage of frames that could not start (no drawable, an inactive app, an empty surface), in window points: the next
-    /// draw adds it. `Some(None)` is a frame with no damage reported, which redraws everything.
+    /// draw adds it. `Some(None)` requests a full redraw.
     held: Option<Option<[f32; 4]>>,
+    present_debt: bool,
 }
 
 impl Graphics {
@@ -51,6 +52,7 @@ impl Graphics {
             blur_extent: (0, 0),
             acquire_wall: std::time::Duration::ZERO,
             held: None,
+            present_debt: false,
         };
         let layer = window.token().map_err(|_| Error::Host("could not get surface token"))?;
         host.frames = Some(Frames::new(&host.device, layer).map_err(|_| Error::Host("could not open native frame context"))?);
@@ -103,7 +105,7 @@ impl Graphics {
         self.images.configure(density, max_pixels)
     }
 
-    /// Renders the UI into the surface, or returns false when no frame can be submitted.
+    /// Renders pending damage into the surface. Returns false if nothing needed presenting or no drawable was available.
     ///
     /// Native failures name the operation and renderer errors retain their library category.
     pub fn draw(
@@ -112,6 +114,27 @@ impl Graphics {
         ui: &Ui,
         trace: Option<&mut [u64; 4]>,
     ) -> Result<bool, Error> {
+        self.draw_inner(window, ui, trace, false)
+    }
+
+    /// Presents even when the UI is clean, for workloads that measure a fixed number of GPU frames.
+    pub fn draw_forced(
+        &mut self,
+        window: &mut Window,
+        ui: &Ui,
+        trace: Option<&mut [u64; 4]>,
+    ) -> Result<bool, Error> {
+        self.draw_inner(window, ui, trace, true)
+    }
+
+    fn draw_inner(
+        &mut self,
+        window: &mut Window,
+        ui: &Ui,
+        trace: Option<&mut [u64; 4]>,
+        force: bool,
+    ) -> Result<bool, Error> {
+        self.acquire_wall = std::time::Duration::ZERO;
         let count = || {
             if trace.is_some() {
                 mem_sys::local_alloc_count()
@@ -122,16 +145,19 @@ impl Graphics {
         let before = count();
         let reported = ui.output().damage;
         let reported = (reported.has_damage != 0).then_some([reported.rect.x, reported.rect.y, reported.rect.w, reported.rect.h]);
-        // a frame that cannot start keeps its damage for the next one; whatever reaches the renderer is in the canvas
-        self.held = Some(match self.held.take() {
-            Some(held) => held.zip(reported).map(|(a, b)| union(a, b)),
-            None => reported,
-        });
+        // Damage survives a skipped frame until a canvas pass can encode it.
+        if let Some(reported) = reported {
+            self.held = Some(match self.held {
+                Some(held) => held.map(|held| union(held, reported)),
+                None => Some(reported),
+            });
+        }
         #[cfg(target_os = "ios")]
         if !self.can_draw() { return Ok(false); }
         let extent = window.extent();
         let size = (extent.drawable.0 as u32, extent.drawable.1 as u32);
         if size.0 == 0 || size.1 == 0 {
+            self.held = Some(None);
             return Ok(false);
         }
         if self.blur_extent != size {
@@ -140,46 +166,62 @@ impl Graphics {
                 .expect("Live graphics renderer")
                 .resize(size.0, size.1)?;
             self.blur_extent = size;
+            self.held = Some(None);
+        }
+        if force && self.held.is_none() {
+            self.held = Some(None);
+        }
+        if self.held.is_none() && !self.present_debt {
+            return Ok(false);
         }
         let frames = self.frames.as_mut().expect("Live frame context");
         let acquiring = std::time::Instant::now();
-        let began = frames.begin(extent.drawable.0 as u32, extent.drawable.1 as u32)
-            .map_err(|_| Error::Host("could not begin native frame"))?;
+        let began = frames.begin(size.0, size.1).map_err(|_| Error::Host("could not begin native frame"))?;
         self.acquire_wall = acquiring.elapsed();
         if !began {
             return Ok(false);
         }
-        let frames = self.frames.as_mut().expect("Live frame context");
         let acquired = count();
-        let renderer = self.renderer.as_mut().expect("Live graphics renderer");
-        let commands = frames.commands();
-        renderer
-            .prepare(
-                &Commands {
-                    size: core::mem::size_of::<Commands>() as u32,
+        let mut prepared = acquired;
+        if let Some(held) = self.held {
+            let renderer = self.renderer.as_mut().expect("Live graphics renderer");
+            let commands = frames.commands();
+            renderer
+                .prepare(
+                    &Commands {
+                        size: core::mem::size_of::<Commands>() as u32,
+                        mtl_command_buffer: commands,
+                        ..Commands::default()
+                    },
+                    frames.serial(),
+                    frames.completed(),
+                )?;
+            prepared = count();
+            let color = ui.theme().tokens.panel;
+            let damage = damage_px(held, window.scale() as f32, size);
+            let encoder = frames.pass([color.r, color.g, color.b], damage)
+                .map_err(|_| Error::Host("could not open native render pass"))?;
+            renderer
+                .draw(&Pass {
+                    size: core::mem::size_of::<Pass>() as u32,
                     mtl_command_buffer: commands,
-                    ..Commands::default()
-                },
-                frames.serial(),
-                frames.completed(),
-            )?;
-        let prepared = count();
-        let color = ui.theme().tokens.panel;
-        let damage = damage_px(self.held.take().flatten(), window.scale() as f32, size);
-        let encoder = frames.pass([color.r, color.g, color.b], damage)
-            .map_err(|_| Error::Host("could not open native render pass"))?;
-        renderer
-            .draw(&Pass {
-                size: core::mem::size_of::<Pass>() as u32,
-                mtl_command_buffer: commands,
-                mtl_render_encoder: encoder,
-                width_px: extent.drawable.0 as u32,
-                height_px: extent.drawable.1 as u32,
-                scale: window.scale() as f32,
-                ..Pass::default()
-            })?;
+                    mtl_render_encoder: encoder,
+                    width_px: size.0,
+                    height_px: size.1,
+                    scale: window.scale() as f32,
+                    ..Pass::default()
+                })?;
+        }
         let drawn = count();
-        if !frames.submit().map_err(|_| Error::Host("could not submit native frame"))? { return Ok(false); }
+        self.acquire_wall += frames.acquire().map_err(|_| Error::Host("could not acquire native drawable"))?;
+        let presented = frames.submit().map_err(|_| Error::Host("could not submit native frame"))?;
+        self.present_debt = !presented;
+        self.held = None;
+        // Suspending iOS may discard the command buffer while waiting for a drawable.
+        #[cfg(target_os = "ios")]
+        if !frames.can_draw() {
+            self.held = Some(None);
+        }
         self.images.submitted(frames.serial());
         let completed = frames.completed();
         self.retire_images(completed)?;
@@ -192,7 +234,7 @@ impl Graphics {
                 submitted - drawn,
             ];
         }
-        Ok(true)
+        Ok(presented)
     }
 
     /// Draws one frame like `draw` and returns what it presented: drawable-pixel width, height and
@@ -205,7 +247,7 @@ impl Graphics {
     pub fn screenshot(&mut self, window: &mut Window, ui: &Ui) -> Result<(u32, u32, Vec<u8>), Error> {
         let frames = self.frames.as_mut().expect("Live frame context");
         frames.capture(true).map_err(|_| Error::Host("could not start frame capture"))?;
-        let drawn = self.draw(window, ui, None);
+        let drawn = self.draw_inner(window, ui, None, true);
         let frames = self.frames.as_mut().expect("Live frame context");
         let stopped = frames.capture(false);
         let drawn = drawn?;
@@ -221,6 +263,11 @@ impl Graphics {
             pixel.swap(0, 2); // BGRA drawable to RGBA
         }
         Ok((width, height, pixels))
+    }
+
+    /// Whether encoded canvas content or held damage still needs to reach the surface.
+    pub fn needs_present(&self) -> bool {
+        self.present_debt || self.held.is_some()
     }
 
     /// Wall time the last `draw` spent acquiring its drawable and frame slot: display pacing,

@@ -17,6 +17,7 @@ unsafe extern "C" {
     fn rays_metal_frames_completed(host: *mut c_void) -> u64;
     fn rays_metal_frames_commands(host: *mut c_void) -> *mut c_void;
     fn rays_metal_frames_pass(host: *mut c_void, red: f64, green: f64, blue: f64, x: u32, y: u32, width: u32, height: u32) -> *mut c_void;
+    fn rays_metal_frames_acquire(host: *mut c_void, wait_ns: *mut u64) -> i32;
     fn rays_metal_frames_submit(host: *mut c_void) -> i32;
     fn rays_metal_frames_capture(host: *mut c_void, on: i32) -> i32;
     fn rays_metal_frames_read(
@@ -96,6 +97,14 @@ impl Frames {
             Err("Could not open Metal render pass".into())
         } else {
             Ok(pass)
+        }
+    }
+    /// Ends canvas encoding before waiting for a drawable. A missed drawable still permits a canvas commit.
+    pub fn acquire(&mut self) -> Result<std::time::Duration, String> {
+        let mut wait_ns = 0;
+        match unsafe { rays_metal_frames_acquire(self.raw, &mut wait_ns) } {
+            1 | 0 => Ok(std::time::Duration::from_nanos(wait_ns)),
+            _ => Err("Could not acquire Metal drawable".into()),
         }
     }
     pub fn submit(&mut self) -> Result<bool, String> {
