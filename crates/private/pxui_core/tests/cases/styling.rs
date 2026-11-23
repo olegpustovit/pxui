@@ -680,7 +680,7 @@ pub fn styling_nested_view_transform() {
     // a patch damages the drawn rectangle (the host drew the moved view first)
     ui.drawn(0);
     check(ui.patch_fill(&btn, Rgba::rgb(9, 9, 10)), "patch refused");
-    let d = ui.output().damage.expect("a patch damages");
+    let d = ui.output().damage.bounds().expect("a patch damages");
     check(d.x <= 50.0 && d.y <= 40.0 && d.x + d.w >= 130.0 && d.y + d.h >= 80.0 && d.w <= 82.0 && d.h <= 42.0, &format!("damage {d:?}, drawn at {drawn:?}"));
     // a click where it is drawn, outside where layout put it, hits it; one where layout put it misses
     ui.frame(&at(0.2, vec![press((120, 70)), release((120, 70))]), &mut build);
@@ -695,8 +695,10 @@ pub fn styling_nested_view_transform() {
 pub fn styling_backdrop_blur_record() {
     let mut ui = new_ui(None);
     let view = Cell::new(None);
+    let under = Cell::new(None);
     let mut build = |ui: &mut Ui| {
-        ui.node("under".into(), Node::DEFAULT.w(Size::Px(300.0)).h(Size::Px(30.0)).look(Look::NONE.fill(Rgba::rgb(1, 2, 3))));
+        let node = Node::DEFAULT.w(Size::Px(10.0)).h(Size::Px(30.0)).look(Look::NONE.fill(Rgba::rgb(1, 2, 3)));
+        under.set(Some(ui.node("under".into(), node)));
         view.set(Some(ui.view("glass", 1, Size::Px(120.0), Size::Px(40.0), &mut |ui| {
             ui.node("pane".into(), Node::DEFAULT.w(Size::Px(120.0)).h(Size::Px(40.0)).look(Look::NONE.fill(Rgba::rgba(255, 255, 255, 80))));
         })));
@@ -709,10 +711,16 @@ pub fn styling_backdrop_blur_record() {
     check(blurs.len() == 1 && blurs[0].sigma == 6.0 && blurs[0].saturation == 1.0 && blurs[0].rect == Rect::new(0.0, 30.0, 120.0, 40.0), &format!("blur record {blurs:?}"));
     let layer = &ui.output().draw[blurs[0].layer];
     check(blurs[0].at_instance >= 1 && layer.instances[blurs[0].at_instance as usize].color == [255, 255, 255, 80], "the blur does not start at the view's run");
+    ui.drawn(0);
+    assert!(ui.patch_fill(&under.get().unwrap(), Rgba::WHITE));
+    let damage = ui.output().damage;
+    assert!(damage.covers(blurs[0].rect), "a change above the blur touched its sampling footprint");
+    ui.drawn(0);
     ui.view_offset(&view.get().unwrap(), 10.0, 0.0);
     check(ui.output().blurs[0].rect == Rect::new(10.0, 30.0, 120.0, 40.0), "the blur did not follow the view");
     ui.view_backdrop_saturation(&view.get().unwrap(), 0.9);
     check(ui.output().blurs[0].saturation == 0.9, "the blur did not update saturation");
+    assert!(ui.output().damage.covers(ui.output().blurs[0].rect));
     for invalid in [-1.0, f32::NAN, f32::INFINITY] {
         ui.view_backdrop_saturation(&view.get().unwrap(), invalid);
         check(ui.output().blurs[0].saturation == 0.9, "invalid saturation changed the view");

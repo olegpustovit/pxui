@@ -339,14 +339,14 @@ pub fn window_pxui_node_line_patch() {
     ui.destroy();
 }
 
-/// Two between-frame patches on far-apart nodes before one draw: the damage covers both.
+/// An equalizer row and transport clock change before the same draw.
 pub fn window_pxui_node_patch_damage_accumulates() {
     let mut ui = new_ui(None);
     let handles = Cell::new(None);
     let mut build = |ui: &mut Ui| {
-        let top = chip(ui, "top", "a", Rgba::WHITE);
+        let top = chip(ui, "equalizer", "a", Rgba::WHITE);
         ui.node("gap".into(), Node::DEFAULT.w(Size::Px(80.0)).h(Size::Px(150.0)));
-        handles.set(Some((top, chip(ui, "bottom", "b", Rgba::WHITE))));
+        handles.set(Some((top, chip(ui, "clock", "b", Rgba::WHITE))));
     };
     frame(&mut ui, 0.0, &mut build);
     frame(&mut ui, 0.1, &mut build);
@@ -354,14 +354,17 @@ pub fn window_pxui_node_patch_damage_accumulates() {
     // one warm-up round sizes the patch scratch and dirty ranges, then a draw consumes its damage
     check(ui.patch_fill(&top, Rgba::rgb(7, 7, 7)) && ui.patch_fill(&bottom, Rgba::rgb(8, 8, 8)), "warm-up patch");
     ui.drawn(0);
-    check(ui.output().damage.is_none(), "a draw left damage");
+    check(ui.output().damage.bounds().is_none(), "a draw left damage");
     mem_sys::local_reset();
     check(ui.patch_fill(&top, Rgba::rgb(1, 2, 3)), "patch top");
     check(ui.patch_fill(&bottom, Rgba::rgb(4, 5, 6)), "patch bottom");
     let allocs = mem_sys::local_alloc_count();
-    let d = ui.output().damage.expect("patches left no damage");
-    let (t, b) = (ui.rect(&top), ui.rect(&bottom));
-    check(d.y <= t.y && d.y + d.h >= b.y + b.h, &format!("damage {d:?} lost a patch ({t:?}, {b:?})"));
+    let damage = ui.output().damage;
+    assert_eq!(damage.rects().len(), 2, "{damage:?}");
+    assert!(damage.covers(ui.rect(&top)) && damage.covers(ui.rect(&bottom)), "{damage:?}");
+    let area: f32 = damage.rects().iter().map(|r| r.w * r.h).sum();
+    let (w, h) = ui.view_size();
+    assert!(area < w * h * 0.05, "{area} of {w} × {h} points");
     check(allocs == 0, "warm patches allocated");
     ui.destroy();
 }
@@ -379,12 +382,12 @@ pub fn window_pxui_patch_damage_survives_an_undrawn_frame() {
     let bottom = handle.get().unwrap();
     check(ui.patch_fill(&bottom, Rgba::rgb(4, 5, 6)), "patch bottom");
     frame(&mut ui, 0.1, &mut build);
-    let d = ui.output().damage.expect("the undrawn frame dropped the patch's damage");
+    let d = ui.output().damage.bounds().expect("the undrawn frame dropped the patch's damage");
     let b = ui.rect(&bottom);
     check(d.y <= b.y && d.y + d.h >= b.y + b.h, &format!("damage {d:?} lost the patch at {b:?}"));
     ui.drawn(0);
     frame(&mut ui, 0.2, &mut build);
-    check(ui.output().damage.is_none(), "a drawn patch's damage came back");
+    check(ui.output().damage.bounds().is_none(), "a drawn patch's damage came back");
     ui.destroy();
 }
 

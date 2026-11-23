@@ -215,3 +215,4 @@ Ui|section_list|LocalWave|done: pxui_ui_section_list
 Ui|a11y_value|LocalWave|done: UTF-8 text value and selection via pxui_ui_a11y_value
 Ui|a11y_value_of|LocalWave|done: borrowed text value from a current accessibility node
 Paint|triangle|LocalWave|done: one analytic instance through the shape span
+Ui|damage_list|LocalWave|done: pxui_ui_damage_list

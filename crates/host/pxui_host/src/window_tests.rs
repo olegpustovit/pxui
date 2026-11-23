@@ -172,7 +172,7 @@ fn framework_host_damage_redraws_only_the_change_and_keeps_the_rest() {
     let (red, green, blue) = (Rgba::rgb(255, 0, 0), Rgba::rgb(0, 255, 0), Rgba::rgb(0, 0, 255));
     let panel = ui.theme().tokens.panel;
     let panel = [panel.r, panel.g, panel.b, 255];
-    let read = |graphics: &mut Graphics, window: &mut Window, ui: &Ui| graphics.screenshot(window, ui).unwrap().2;
+    let read = |graphics: &mut Graphics, window: &mut Window, ui: &Ui| graphics.capture_frame(window, ui, false).unwrap().2;
     let width = (320.0 * scale) as usize;
     let at = |pixels: &[u8], x: f64, y: f64| { let i = ((y * scale) as usize * width + (x * scale) as usize) * 4; [pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3]] };
     build(&mut ui, 0.0, red, Some(blue));
@@ -191,8 +191,34 @@ fn framework_host_damage_redraws_only_the_change_and_keeps_the_rest() {
     let third = read(&mut graphics, &mut window, &ui);
     assert_eq!((at(&third, 10.0, 10.0), at(&third, 250.0, 10.0)), ([0, 255, 0, 255], panel), "a removed swatch's damage is cleared");
     // and every pixel matches a full redraw of the same frame
-    let mut fresh = Graphics::open(&mut window, &ui).unwrap();
-    assert!(read(&mut fresh, &mut window, &ui) == third, "a damage-limited frame differs from a full redraw");
+    let mut full_ui = Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
+    let mut fresh = Graphics::open(&mut window, &full_ui).unwrap();
+    build(&mut full_ui, 0.2, green, None);
+    assert!(fresh.screenshot(&mut window, &full_ui).unwrap().2 == third, "a damage-limited frame differs from a full redraw");
+    // Seeded translucent edits and removals on both sides exercise two scissors on one encoder.
+    let mut seed = 13u32;
+    for frame in 0..12 {
+        seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+        let [r, g, b, _] = seed.to_le_bytes();
+        let left = Rgba::rgba(r, g, b, 100);
+        let right = (frame % 4 != 3).then_some(Rgba::rgba(b, r, g, 175));
+        let time = 0.3 + frame as f64 * 0.1;
+        build(&mut ui, time, left, right);
+        build(&mut full_ui, time, left, right);
+        assert_eq!(ui.damage_list().count, 2);
+        let calls = graphics.draw_calls();
+        let partial = read(&mut graphics, &mut window, &ui);
+        assert_eq!(graphics.draw_calls() - calls, 2);
+        assert_eq!(partial, fresh.screenshot(&mut window, &full_ui).unwrap().2, "seed {seed}");
+    }
+    // Build, query damage, encode two scissors and submit with both allocation counters on.
+    mem_sys::local_reset();
+    build(&mut ui, 2.0, red, Some(green));
+    assert_eq!(ui.damage_list().count, 2);
+    let mut allocs = [0; 4];
+    assert!(graphics.draw(&mut window, &ui, Some(&mut allocs)).unwrap());
+    assert_eq!(allocs, [0; 4]);
+    assert_eq!(mem_sys::local_alloc_count(), 0);
     fresh.close().unwrap();
     graphics.close().unwrap();
     window.destroy().unwrap();

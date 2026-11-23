@@ -24,6 +24,7 @@ mod reveal;
 use reveal::Geometry as ListGeometry;
 use text_identity::lay_out_node;
 pub use crate::geom::Rect;
+use pxui_types::damage::DamageList;
 /// An input point (`f64` window points) as the engine's `f32` point.
 #[inline]
 pub(crate) fn p32(p: (f64, f64)) -> (f32, f32) { (p.0 as f32, p.1 as f32) }
@@ -354,6 +355,28 @@ pub struct BlurOut {
     pub saturation: f32,
     pub radii: [f32; 4],
     pub opacity: f32,
+}
+
+fn expand_blur_damage(damage: &mut DamageList, blurs: &[BlurOut], viewport: Rect) {
+    // A newly damaged blur may feed another one earlier in this list.
+    while !damage.is_full() {
+        let mut changed = false;
+        for blur in blurs {
+            let rect = blur.rect.intersect(viewport);
+            if rect.w <= 0.0 || rect.h <= 0.0 || damage.covers(rect) { continue; }
+            let pad = blur.sigma * 2.0;
+            let footprint = Rect::new(blur.rect.x - pad, blur.rect.y - pad, blur.rect.w + 2.0 * pad, blur.rect.h + 2.0 * pad);
+            if damage.rects().iter().any(|r| {
+                let overlap = r.intersect(footprint);
+                overlap.w > 0.0 && overlap.h > 0.0
+            }) {
+                let before = *damage;
+                damage.add(rect, viewport);
+                changed |= *damage != before;
+            }
+        }
+        if !changed { break; }
+    }
 }
 
 /// `Ui::list_measured`'s cache: each row's measured (or estimated) height, the rows' tops (prefix
@@ -1032,12 +1055,12 @@ pub struct PlatformOut {
 }
 
 /// The completed frame: its paint layers, the platform requests, what changed on screen since the
-/// output before (`damage`, window points; `None` when nothing did) and the view table entries the
+/// output before (`damage`, window points; empty when nothing did) and the view table entries the
 /// layers' instances name (the host sets each with `pxui_render::Painter::set_view`).
 pub struct FrameOut<'a> {
     pub draw: &'a [Layer],
     pub platform: &'a PlatformOut,
-    pub damage: Option<Rect>,
+    pub damage: &'a DamageList,
     pub views: &'a [(u16, ViewEntry)],
     pub blurs: &'a [BlurOut],
     /// the accessibility tree (empty unless `Ui::set_a11y(true)`): its `revision` changes only when
@@ -1369,7 +1392,7 @@ pub struct Ui {
     /// hot, focus, keyboard focus and carrying as the last frame left them
     seen: (i64, i64, bool, bool),
     marks: Vec<i64>,
-    damage: Option<Rect>,
+    damage: DamageList,
     view_out: Vec<(u16, ViewEntry)>,
     blur_out: Vec<BlurOut>,
     view_prev: Vec<(u16, ViewEntry)>,
@@ -1412,7 +1435,7 @@ pub struct Ui {
     /// Inside `step`: no node was painted this frame, so every running transition patches its node.
     stepping: bool,
     /// `damage` as the last frame left it: a difference at the next paint is between-frame damage not drawn yet.
-    frame_damage: Option<Rect>,
+    frame_damage: DamageList,
     /// views built (not kept) this frame
     rebuilt: usize,
     /// the earliest `repaint_after` the root asked for this frame
@@ -1672,7 +1695,7 @@ impl Ui {
             stamp: 0,
             seen: (0, 0, false, false),
             marks: Vec::new(),
-            damage: None,
+            damage: DamageList::default(),
             view_out: Vec::new(),
             blur_out: Vec::new(),
             view_prev: Vec::new(),
@@ -1698,7 +1721,7 @@ impl Ui {
             frame_requested: false,
             input_at: f64::NEG_INFINITY,
             stepping: false,
-            frame_damage: None,
+            frame_damage: DamageList::default(),
             rebuilt: 0,
             wake: f64::INFINITY,
             out: PlatformOut::default(),
@@ -2133,13 +2156,13 @@ impl Ui {
 
     /// The most recently completed frame.
     pub fn output(&self) -> FrameOut<'_> {
-        FrameOut { draw: &self.draw[..self.draw_len], platform: &self.out, damage: self.damage, views: &self.view_out, blurs: &self.blur_out, a11y: &self.a11y }
+        FrameOut { draw: &self.draw[..self.draw_len], platform: &self.out, damage: &self.damage, views: &self.view_out, blurs: &self.blur_out, a11y: &self.a11y }
     }
 
     /// The host drew layer `index` of the output with its `dirty` ranges: they start over empty, and
     /// so does the damage (between frames it accumulates over every patch until a draw consumes it).
     pub fn drawn(&mut self, index: usize) {
-        self.damage = None;
+        self.damage = DamageList::default();
         if let Some(layer) = self.draw[..self.draw_len].get_mut(index) {
             layer.dirty.clear();
         }
@@ -6982,8 +7005,8 @@ impl Ui {
         let clip = Rect::new(0.0, 0.0, frame.input.size.0 as f32, frame.input.size.1 as f32);
         // a frame reports its own damage, plus what changed between frames (patches, steps) and was not drawn yet:
         // the build re-declares a patched look, so its own comparison would not see that the screen still lacks it
-        let between = if self.damage != self.frame_damage { self.damage } else { None };
-        self.damage = if self.full_damage { Some(clip) } else { between };
+        let between = if self.damage != self.frame_damage { self.damage } else { DamageList::default() };
+        self.damage = if self.full_damage { DamageList::full(clip) } else { between };
         let scratch = std::mem::take(&mut self.spare);
         let mut paint = self.paint_begin(scratch, clip);
         self.painted = self.frame_number;
@@ -7888,7 +7911,6 @@ impl Ui {
     /// After a paint: finished transitions come to rest, and nodes the paint did not reach (in a kept
     /// view) are rewritten in place through the patch path, so a transition never rebuilds a view.
     fn step_tweens(&mut self) {
-        let damage = self.damage;
         let mut paint = None;
         let mut i = 0;
         while i < self.tweens.len() {
@@ -7930,10 +7952,6 @@ impl Ui {
             }
         }
         if let Some(paint) = paint { self.patch_layers = self.paint_end(paint); }
-        self.damage = match (damage, self.damage) {
-            (Some(a), b) => Some(union(b, a)),
-            (None, b) => b,
-        };
     }
 
     /// Give tween `i`'s keyframes back.
@@ -8860,16 +8878,33 @@ impl Ui {
     /// keeps both out of `end_frame` where the static build folds them in (abi_bench dynamic, every frame).
     #[inline(always)]
     fn collect_blurs(&mut self) {
-        self.blur_out.clear();
+        let mut count = 0;
+        let viewport = Rect::new(0.0, 0.0, self.view_w, self.view_h);
         for r in &self.views[1..] {
             if r.blur > 0.0 && r.valid && r.visited == self.painted {
                 if let Some(layer) = self.draw[..self.draw_len].iter().position(|l| l.key == r.layer) {
                     let rect = r.cover(r.screen);
                     let radii = self.slots[r.slot].node.look.radius;
-                    self.blur_out.push(BlurOut { layer, at_instance: r.run.0, rect, sigma: r.blur, saturation: r.saturation, radii, opacity: r.alpha });
+                    let blur = BlurOut { layer, at_instance: r.run.0, rect, sigma: r.blur, saturation: r.saturation, radii, opacity: r.alpha };
+                    if let Some(old) = self.blur_out.get_mut(count) {
+                        if *old != blur {
+                            self.damage.add(old.rect, viewport);
+                            self.damage.add(rect, viewport);
+                            *old = blur;
+                        }
+                    } else {
+                        self.damage.add(rect, viewport);
+                        self.blur_out.push(blur);
+                    }
+                    count += 1;
                 }
             }
         }
+        for old in &self.blur_out[count..] {
+            self.damage.add(old.rect, viewport);
+        }
+        self.blur_out.truncate(count);
+        expand_blur_damage(&mut self.damage, &self.blur_out, viewport);
     }
 
     /// Clip a view's output to `clip` (window points), besides its parents' clips; `None` lifts it.
@@ -9103,8 +9138,7 @@ impl Ui {
         if self.full_damage { return; }
         let v = &self.views[self.index_owner[i.view as usize] as usize];
         // Every instance is clipped to this window-space rectangle after its view transform.
-        if self.damage.is_some_and(|d| d.x <= v.outer.x && d.y <= v.outer.y
-            && d.x + d.w >= v.outer.x + v.outer.w && d.y + d.h >= v.outer.y + v.outer.h) { return; }
+        if self.damage.covers(v.outer) { return; }
         if let Some(r) = bounds(i) {
             let r = Rect::new(r.x + v.shift.0, r.y + v.shift.1, r.w, r.h);
             let r = v.cover(r).intersect(v.outer);
@@ -9113,8 +9147,10 @@ impl Ui {
     }
 
     fn add_damage(&mut self, r: Rect) {
-        if r.w > 0.0 && r.h > 0.0 {
-            self.damage = Some(union(self.damage, r));
+        let viewport = Rect::new(0.0, 0.0, self.view_w, self.view_h);
+        self.damage.add(r, viewport);
+        if !self.painting && !self.blur_out.is_empty() {
+            expand_blur_damage(&mut self.damage, &self.blur_out, viewport);
         }
     }
 

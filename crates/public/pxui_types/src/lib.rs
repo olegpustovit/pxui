@@ -7,6 +7,7 @@
 mod test_layout_rows;
 pub mod a11y;
 pub mod draw;
+pub mod damage;
 pub mod ffi;
 pub mod geom;
 pub mod layout;
@@ -782,7 +783,7 @@ pub enum Appearance {
 pub struct FrameOut {
     /// Size of this record in bytes.
     pub size: u32,
-    /// Region of the frame that changed.
+    /// Bounding box of the damage in logical window points. Read the detailed list from the Ui output.
     pub damage: [f32; 4],
     /// Nonzero when `damage` is present.
     pub has_damage: u8,
@@ -1107,7 +1108,7 @@ pub mod feature {
 }
 
 /// The ABI version this crate's records describe (`major << 16 | minor`); an app states it as `PxuiUiDesc::abi_built`.
-pub const ABI_BUILT: u32 = (2 << 16) | 4;
+pub const ABI_BUILT: u32 = (2 << 16) | 6;
 impl Default for PxuiUiDesc { fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, platform: 0, font_size: 0, abi_built: ABI_BUILT } } }
 
 #[cfg(test)]

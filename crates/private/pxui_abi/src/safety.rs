@@ -22,6 +22,26 @@ fn in_frame(ui: *mut PxuiUi, f: &mut dyn FnMut(*mut PxuiUi) -> i32) -> i32 {
 }
 
 #[test]
+fn damage_list_and_legacy_bounding_box_agree() {
+    use pxui_types::ffi::PxuiDamageList;
+    let ui = create();
+    let mut legacy = FrameOut::default();
+    let mut damage = PxuiDamageList { count: 77, ..PxuiDamageList::default() };
+    assert_eq!(unsafe { pxui_ui_damage_list(core::ptr::null_mut(), &mut damage) }, PXUI_ERR_ARGUMENT);
+    assert_eq!(damage.count, 77);
+    assert_eq!(unsafe { pxui_ui_damage_list(ui, core::ptr::null_mut()) }, PXUI_ERR_ARGUMENT);
+    assert_eq!(unsafe { pxui_frame(ui, &frame_in(), None, core::ptr::null_mut(), &mut legacy) }, 0);
+    assert_eq!(unsafe { pxui_ui_damage_list(ui, &mut damage) }, 0);
+    assert_eq!((damage.count, damage.full, damage.reserved), (1, 1, [0; 6]));
+    assert_eq!((legacy.has_damage, legacy.damage), (1, damage.rects[0]));
+    assert_eq!(unsafe { (*pxui_ui_output(ui)).damage_list }, damage);
+    assert_eq!(unsafe { pxui_ui_layer_drawn(ui, 0) }, 0);
+    assert_eq!(unsafe { pxui_ui_damage_list(ui, &mut damage) }, 0);
+    assert_eq!(damage, PxuiDamageList::default());
+    assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
+}
+
+#[test]
 fn diagnostics_respect_callback_renderer_and_poison_ownership_without_writing_outputs() {
     use pxui_types::ffi::PxuiDiagnostics;
     let ui = create();

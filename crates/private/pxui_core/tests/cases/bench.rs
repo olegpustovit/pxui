@@ -256,7 +256,7 @@ fn covered_glyph_damage_preserves_instances_and_uploads() {
         if tick >= 4 {
             assert_eq!(mem_sys::local_alloc_count(), 0);
             assert_eq!(ui.output().draw[0].instances, expected[variant]);
-            assert_eq!(ui.output().damage, Some(Rect::new(0.0, 0.0, 1000.0, 1400.0)));
+            assert_eq!(ui.output().damage.bounds(), Some(Rect::new(0.0, 0.0, 1000.0, 1400.0)));
             let layer = &ui.output().draw[0];
             assert_eq!(layer.dirty.as_slice(), &[(0, layer.instances.len() as u32)]);
             if let Some(phases) = ui.phase_cpu_times() { paint_ns += phases[4]; }
