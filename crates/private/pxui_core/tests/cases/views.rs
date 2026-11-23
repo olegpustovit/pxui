@@ -1455,6 +1455,7 @@ pub const CASES: &[(&str, fn())] = &[
     ("window_pxui_view_entrance_channels", window_pxui_view_entrance_channels),
     ("window_pxui_idle_loops_step_slower", window_pxui_idle_loops_step_slower),
     ("window_pxui_ambient_loops_share_ticks", window_pxui_ambient_loops_share_ticks),
+    ("window_pxui_ambient_ticks_keep_phase_across_builds", window_pxui_ambient_ticks_keep_phase_across_builds),
     ("window_pxui_offscreen_transition_rests_without_frames", window_pxui_offscreen_transition_rests_without_frames),
     ("window_pxui_step_advances_transitions_without_a_build", window_pxui_step_advances_transitions_without_a_build),
     ("window_pxui_more_kept_views_reuse_compaction_scratch", window_pxui_more_kept_views_reuse_compaction_scratch),
@@ -1648,6 +1649,48 @@ pub fn window_pxui_ambient_loops_share_ticks() {
     assert!(ui.step(tick));
     assert_eq!(ui.output().views.iter().zip(&initial).filter(|(a, b)| a.1.opacity != b.1.opacity).count(), 2);
     assert_eq!(ui.repaint_at(), Some(tick + 1.0 / 30.0));
+    ui.destroy();
+}
+
+/// An ambient clock keeps its phase through late callbacks and unrelated playback builds.
+pub fn window_pxui_ambient_ticks_keep_phase_across_builds() {
+    use pxui_types::ui::Rate;
+    let mut ui = new_ui(None);
+    let view = Cell::new(None);
+    let mut build = |ui: &mut Ui| {
+        view.set(Some(ui.view("loop", 1, Size::Px(100.0), Size::Px(80.0), &mut |ui| {
+            chip(ui, "child", RED, Flags::NONE);
+        })));
+    };
+    ui.frame(&at(0.0, vec![]), &mut build);
+    let curve = Curve::Bezier { duration: 12.0, points: [0.0, 0.0, 1.0, 1.0] };
+    let keys = [Keyframe::opacity(0.0, 0.4).curve(curve), Keyframe::opacity(12.0, 1.0).curve(curve)];
+    let ambient = Keyframes::DEFAULT.repeat(Repeat::Forever).rate(Rate::Ambient(20));
+    assert!(ui.animate_keys(&view.get().unwrap(), &keys, &ambient));
+    ui.frame(&at(0.0, vec![]), &mut build);
+    let mut opacity = ui.output().views[0].1.opacity;
+    let mut samples = 0;
+    for callback in 1..=600 {
+        let now = f64::from(callback) / 60.0 + f64::from(callback % 7) * 0.0002;
+        let deadline = ui.repaint_at().unwrap();
+        let due = now >= deadline;
+        let progress = callback % 15 == 2 + ((callback - 1) / 60) % 2;
+        if progress {
+            ui.frame(&at(now, vec![]), &mut build);
+        } else if due {
+            assert!(ui.step(now));
+        }
+        let next_opacity = ui.output().views[0].1.opacity;
+        assert_eq!(next_opacity != opacity, due, "ambient sample at callback {callback}");
+        opacity = next_opacity;
+        samples += usize::from(due);
+        let expected = if due { deadline + 0.05 } else { deadline };
+        assert!((ui.repaint_at().unwrap() - expected).abs() < 1e-9, "callback {callback} moved the cadence");
+        if callback % 60 == 0 {
+            assert!((19..=21).contains(&samples), "got {samples} samples in one second");
+            samples = 0;
+        }
+    }
     ui.destroy();
 }
 

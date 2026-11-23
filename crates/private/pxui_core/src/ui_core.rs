@@ -1487,9 +1487,11 @@ pub struct Ui {
     frame_requested: bool,
     /// Frame time of the last interaction that affected a control or its input state.
     input_at: f64,
-    /// Sample time shared by ambient animations and their next idle tick.
+    /// Sample time and phase shared by the visible ambient animations.
     ambient_at: f64,
+    ambient_epoch: f64,
     ambient_wake: f64,
+    ambient_hz: u8,
     repaint_hz: u8,
     /// Inside `step`: no node was painted this frame, so every running transition patches its node.
     stepping: bool,
@@ -1786,7 +1788,9 @@ impl Ui {
             trace_frame_reasons: AtomicBool::new(std::env::var_os("PXUI_FRAME_REASONS").is_some_and(|value| value == "1")),
             frame_reasons: PxuiFrameReasons::default(),
             ambient_at: f64::NEG_INFINITY,
+            ambient_epoch: f64::NEG_INFINITY,
             ambient_wake: f64::INFINITY,
+            ambient_hz: 0,
             repaint_hz: 0,
             stepping: false,
             frame_damage: DamageList::default(),
@@ -3800,8 +3804,16 @@ impl Ui {
     }
 
     fn advance_ambient(&mut self, now: f64) {
-        if !self.ambient_wake.is_finite() || now >= self.ambient_wake || now - self.input_at < LOOP_IDLE {
+        if !self.ambient_wake.is_finite() || self.now - self.input_at < LOOP_IDLE || now < self.now {
             self.ambient_at = now;
+            self.ambient_epoch = now;
+        } else if now >= self.ambient_wake {
+            // Drop missed samples but keep their phase across late callbacks and builds.
+            let hz = f64::from(self.ambient_hz);
+            let tick = ((now - self.ambient_epoch) * hz).ceil();
+            let at = self.ambient_epoch + tick / hz;
+            let sample = if at <= now { at } else { self.ambient_epoch + (tick - 1.0) / hz };
+            self.ambient_at = sample.max(self.ambient_wake).min(now);
         }
     }
 
@@ -3844,10 +3856,16 @@ impl Ui {
                 Rate::Ambient(rate) => hz = hz.max(rate),
             }
         }
+        if hz != self.ambient_hz {
+            self.ambient_epoch = self.ambient_at;
+            self.ambient_hz = hz;
+        }
         self.ambient_wake = if hz == 0 {
             f64::INFINITY
         } else {
-            self.ambient_at + 1.0 / f64::from(hz)
+            let hz = f64::from(hz);
+            let tick = ((self.ambient_at - self.ambient_epoch) * hz).round();
+            self.ambient_epoch + (tick + 1.0) / hz
         };
         let hold_display = hz != 0 && now - self.input_at < LOOP_IDLE;
         self.repaint_hz = if display || hold_display { 0 } else { hz };

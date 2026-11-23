@@ -1117,6 +1117,7 @@ impl Keyframes {
     /// ```
     pub const fn offset(self, seconds: f32) -> Keyframes { Keyframes { offset: seconds, ..self } }
     /// Sets the run's repaint cadence. Ambient rates share a tick at the fastest visible cadence.
+    /// While idle, ambient samples keep their phase across builds and skip missed ticks.
     /// During interaction, ambient runs can update at the display rate.
     /// Allocates: never.
     /// Panics: never.
