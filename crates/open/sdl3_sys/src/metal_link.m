@@ -20,6 +20,8 @@
     link = [[CAMetalDisplayLink alloc] initWithMetalLayer:target];
     if (!link) return nil;
     layer = target;
+    // Ownership lasts through pauses and callbacks without a drawable loan.
+    objc_setAssociatedObject(layer, sel_registerName("pxuiDisplayLinkOwner"), @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     frame = [callback copy];
     link.delegate = self;
     link.paused = YES;
@@ -45,7 +47,9 @@
 
 - (void)invalidate {
     [self releaseDrawable];
+    if (!link) return;
     [link invalidate];
+    objc_setAssociatedObject(layer, sel_registerName("pxuiDisplayLinkOwner"), nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     link = nil;
 }
 

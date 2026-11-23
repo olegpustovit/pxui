@@ -9,6 +9,7 @@ harness = false
 
 [features]
 static = ["pxui/static"]
+test-util = ["metal_sys/test-util"]
 
 [dependencies]
 mem_sys = { path = "../../open/mem_sys" }

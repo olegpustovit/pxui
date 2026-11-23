@@ -6,6 +6,12 @@ mod touch;
 mod text;
 
 #[cfg(target_os = "ios")]
+use pxui_host::Graphics;
+#[cfg(target_os = "ios")]
+#[path = "../../t/link_promotion.rs"]
+mod link_promotion;
+
+#[cfg(target_os = "ios")]
 mod ios {
     use pxui_sdl::ios::{Schedule, Signal};
     use std::sync::{
@@ -542,7 +548,12 @@ mod ios {
 
 #[cfg(target_os = "ios")]
 fn main() {
-    if let Err(error) = ios::run() {
+    let result = if std::env::var_os("PXUI_IOS_PROMOTION_CHECK").is_some() {
+        link_promotion::run()
+    } else {
+        ios::run()
+    };
+    if let Err(error) = result {
         eprintln!("PXUI_IOS_SPIKE_FAILED {error}");
         std::process::exit(1);
     }

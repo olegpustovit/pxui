@@ -8,6 +8,17 @@ mod harness;
 mod render_edits;
 
 #[cfg(target_os = "macos")]
+use crate::Graphics;
+#[cfg(target_os = "macos")]
+#[path = "../../../../tools/t/link_promotion.rs"]
+mod link_promotion;
+
+#[cfg(target_os = "macos")]
+fn window_display_link_presents_promoted_layers() {
+    link_promotion::run().unwrap();
+}
+
+#[cfg(target_os = "macos")]
 fn partial_equals_full() {
     use crate::{Graphics, Window};
     use render_edits::{HEIGHT, STAGES, diff, edit, width};
@@ -714,6 +725,7 @@ pub(crate) fn main() {
         ("window_framework_host_constructor_refusals_release_devices_and_queues",framework_host_constructor_refusals_release_devices_and_queues),
         ("window_framework_host_damage_redraws_only_the_change_and_keeps_the_rest",framework_host_damage_redraws_only_the_change_and_keeps_the_rest),
         ("window_partial_equals_full",partial_equals_full),
+        ("window_display_link_presents_promoted_layers",window_display_link_presents_promoted_layers),
         ("window_occluded_window_skips_gpu_and_redraws_on_exposure",occluded_window_skips_gpu_and_redraws_on_exposure),
         ("explicit_promotion_rejects_overlapping_fills",explicit_promotion_rejects_overlapping_fills),
         ("window_vector_parity_1x",vector_parity_1x),

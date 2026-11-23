@@ -370,6 +370,7 @@ impl Graphics {
 
     /// Draws one frame like `draw` and returns what it presented: drawable-pixel width, height and
     /// RGBA rows, top row first, in the drawable's own color values (no display color matching).
+    /// A display-linked surface captures the same canvas without presenting it.
     /// For development captures such as reference goldens; needs no screen-recording rights.
     ///
     /// Errors: `Error::Host` when no frame could be drawn (zero extent, hidden or inactive surface)
@@ -395,16 +396,13 @@ impl Graphics {
         }
         let drawn = drawn?;
         stopped.map_err(|_| Error::Host("could not stop frame capture"))?;
-        if !drawn {
-            return Err(Error::Host("no frame was drawn to capture"));
-        }
         let (width, height, mut pixels) = frames
             .read_capture()
             .map_err(|_| {
                 self.blur_extent = (0, 0);
                 Error::Host("could not read the frame capture")
             })?
-            .ok_or(Error::Host("no frame was captured"))?;
+            .ok_or(Error::Host(if drawn { "no frame was captured" } else { "no frame was drawn to capture" }))?;
         for pixel in pixels.chunks_exact_mut(4) {
             pixel.swap(0, 2); // BGRA drawable to RGBA
         }
@@ -417,6 +415,12 @@ impl Graphics {
         { window.presentation().is_some_and(|generation| Some(generation) != self.presentation) }
         #[cfg(target_os = "ios")]
         { let _ = window; false }
+    }
+
+    #[cfg(any(test, feature = "test-util"))]
+    #[doc(hidden)]
+    pub fn test_link_state(&self) -> (bool, bool, Option<f32>) {
+        self.frames.as_ref().expect("Live frame context").test_link_state()
     }
 
     /// Whether encoded canvas content or held damage still needs to reach the surface.

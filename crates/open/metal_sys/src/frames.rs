@@ -185,7 +185,18 @@ impl Frames {
         }
     }
 
-    /// While on, each submitted frame is also copied for `read_capture` (drawables become blit-readable).
+    #[cfg(feature = "test-util")]
+    pub fn test_link_state(&self) -> (bool, bool, Option<f32>) {
+        unsafe extern "C" {
+            fn rays_metal_frames_test_link_state(raw: *mut c_void, loan: *mut bool, first_x: *mut f32) -> bool;
+        }
+        let mut loan = false;
+        let mut first_x = f32::NAN;
+        let owned = unsafe { rays_metal_frames_test_link_state(self.raw, &mut loan, &mut first_x) };
+        (owned, loan, first_x.is_finite().then_some(first_x))
+    }
+
+    /// While on, copy the presented drawable or the linked surface's canvas for `read_capture`.
     pub fn capture(&mut self, on: bool) -> Result<(), String> {
         match unsafe { rays_metal_frames_capture(self.raw, i32::from(on)) } {
             1 => Ok(()),

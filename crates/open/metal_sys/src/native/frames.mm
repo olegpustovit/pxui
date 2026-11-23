@@ -425,6 +425,10 @@ void rays_metal_frames_cancel(void *raw) {
     }
 }
 
+static bool displayLinkOwns(CAMetalLayer *layer) {
+    return objc_getAssociatedObject(layer, sel_registerName("pxuiDisplayLinkOwner")) != nil;
+}
+
 int rays_metal_frames_acquire(void *raw, uint64_t *wait_ns) {
     @autoreleasepool {
         PXUIMetalFrames *frames = static_cast<PXUIMetalFrames *>(raw);
@@ -436,16 +440,21 @@ int rays_metal_frames_acquire(void *raw, uint64_t *wait_ns) {
         if (!frames->commands || !frames->canvasValid) return -1;
         [frames->encoder endEncoding];
         frames->encoder = nil;
-        frames->transactionalDrawable = layers_changed(frames);
-        if (frames->transactionalDrawable) frames->layer.presentsWithTransaction = YES;
         const uint64_t started = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
-        // The display-link drawable predates capture and transaction mode changes.
-        // Acquire a fresh drawable under the new mode for either transition.
+        const bool linkOwned = displayLinkOwns(frames->layer);
+        // A linked capture reads the canvas and leaves the loan available for normal drawing.
+        if (linkOwned && frames->capture) {
+            *wait_ns = 0;
+            return 0;
+        }
         const void *key = (const void *)sel_registerName("pxuiDisplayLinkDrawable");
         id<CAMetalDrawable> drawable = objc_getAssociatedObject(frames->layer, key);
         if (drawable) objc_setAssociatedObject(frames->layer, key, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        if (frames->capture || frames->transactionalDrawable) drawable = nil;
-        if (!drawable) drawable = [frames->layer nextDrawable];
+        // A loan can present in the same transaction as the promoted layers. Without a
+        // loan, leave presentation to the next callback while the display link owns the layer.
+        frames->transactionalDrawable = (drawable || !linkOwned) && layers_changed(frames);
+        if (frames->transactionalDrawable) frames->layer.presentsWithTransaction = YES;
+        if (!drawable && !linkOwned) drawable = [frames->layer nextDrawable];
         *wait_ns = clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - started;
         id<MTLTexture> texture = drawable.texture;
         if (!frames->commands || texture.width != frames->width || texture.height != frames->height ||
@@ -455,6 +464,23 @@ int rays_metal_frames_acquire(void *raw, uint64_t *wait_ns) {
         frames->drawable = drawable;
         return 1;
     }
+}
+
+static bool captureTexture(PXUIMetalFrames *frames, id<MTLTexture> texture) {
+    const NSUInteger width = texture.width, height = texture.height, bytes = width * height * 4;
+    if (frames->captureBuffer.length < bytes)
+        frames->captureBuffer = [frames->device newBufferWithLength:bytes options:MTLResourceStorageModeShared];
+    if (!frames->captureBuffer) return false;
+    id<MTLBlitCommandEncoder> blit = [frames->commands blitCommandEncoder];
+    if (!blit) return false;
+    [blit copyFromTexture:texture sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0, 0, 0)
+               sourceSize:MTLSizeMake(width, height, 1) toBuffer:frames->captureBuffer
+        destinationOffset:0 destinationBytesPerRow:width * 4 destinationBytesPerImage:0];
+    [blit endEncoding];
+    frames->captured = frames->commands;
+    frames->captureWidth = (uint32_t)texture.width;
+    frames->captureHeight = (uint32_t)texture.height;
+    return true;
 }
 
 int rays_metal_frames_submit(void *raw) {
@@ -483,22 +509,10 @@ int rays_metal_frames_submit(void *raw) {
             [present drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
             [present endEncoding];
 
-            if (frames->capture) {
-                const NSUInteger width = texture.width, height = texture.height, bytes = width * height * 4;
-                if (frames->captureBuffer.length < bytes)
-                    frames->captureBuffer = [frames->device newBufferWithLength:bytes options:MTLResourceStorageModeShared];
-                if (!frames->captureBuffer) return -1;
-                id<MTLBlitCommandEncoder> blit = [frames->commands blitCommandEncoder];
-                if (!blit) return -1;
-                [blit copyFromTexture:texture sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0, 0, 0)
-                           sourceSize:MTLSizeMake(width, height, 1) toBuffer:frames->captureBuffer
-                    destinationOffset:0 destinationBytesPerRow:width * 4 destinationBytesPerImage:0];
-                [blit endEncoding];
-                frames->captured = frames->commands;
-                frames->captureWidth = (uint32_t)width;
-                frames->captureHeight = (uint32_t)height;
-            }
+            if (frames->capture && !captureTexture(frames, texture)) return -1;
             if (!updateLayers) [frames->commands presentDrawable:frames->drawable];
+        } else if (frames->capture && displayLinkOwns(frames->layer) && !captureTexture(frames, frames->canvas)) {
+            return -1;
         }
         if (updateLayers) {
             [CATransaction begin];
@@ -528,7 +542,8 @@ int rays_metal_frames_capture(void *raw, int on) {
     PXUIMetalFrames *frames = static_cast<PXUIMetalFrames *>(raw);
     if (![NSThread isMainThread] || frames->commands) return -1;
     frames->capture = on != 0;
-    frames->layer.framebufferOnly = !frames->capture;
+    if (frames->capture) frames->captured = nil;
+    if (!displayLinkOwns(frames->layer)) frames->layer.framebufferOnly = !frames->capture;
     return 1;
 }
 
@@ -584,6 +599,15 @@ void rays_metal_frames_destroy(void *raw) {
         delete frames;
     }
 }
+
+#ifdef PXUI_METAL_TEST_UTIL
+extern "C" bool rays_metal_frames_test_link_state(void *raw, bool *loan, float *firstX) {
+    const auto *frames = static_cast<PXUIMetalFrames *>(raw);
+    *loan = objc_getAssociatedObject(frames->layer, sel_registerName("pxuiDisplayLinkDrawable")) != nil;
+    *firstX = frames->overlayCount ? frames->overlay[0].shown.keys[0].rect[0] : NAN;
+    return displayLinkOwns(frames->layer);
+}
+#endif
 
 #if defined(PXUI_METAL_TEST_UTIL) && TARGET_OS_OSX
 extern "C" bool rays_metal_frames_test_read_canvas(void *raw, uint8_t *pixels, size_t len) {
