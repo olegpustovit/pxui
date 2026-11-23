@@ -198,8 +198,10 @@ fn main() {
     if target == "macos" || target == "ios" {
         println!("cargo:rerun-if-changed=src/preferences.m");
         println!("cargo:rerun-if-changed=src/preferences.h");
+        println!("cargo:rerun-if-changed=src/metal_link.h");
+        println!("cargo:rerun-if-changed=src/metal_link.m");
         let mut preferences = cc::Build::new();
-        preferences.file("src/preferences.m").flag("-fobjc-arc").flag("-fblocks")
+        preferences.files(["src/preferences.m", "src/metal_link.m"]).flag("-fobjc-arc").flag("-fblocks")
             .warnings(true).flag_if_supported("-Werror");
         if env::var_os("CARGO_FEATURE_TEST_UTIL").is_some() { preferences.define("PXUI_SDL3_TEST_UTIL", None); }
         apply_cflags(&mut preferences, &run_pkg_config("sdl3", "SDL3", "--cflags"));
@@ -229,11 +231,13 @@ fn main() {
     if target == "macos" {
         println!("cargo:rerun-if-changed=src/chrome.m");
         println!("cargo:rerun-if-changed=src/chrome.h");
+        println!("cargo:rerun-if-changed=src/pacing_mac.m");
         println!("cargo:rerun-if-changed=src/ax.m");
         println!("cargo:rerun-if-changed=src/ax.h");
         let mut chrome = cc::Build::new();
-        chrome.files(["src/chrome.m", "src/ax.m"]).flag("-fobjc-arc").warnings(true).flag_if_supported("-Werror");
+        chrome.files(["src/chrome.m", "src/ax.m", "src/pacing_mac.m"]).flag("-fobjc-arc").flag("-fblocks").warnings(true).flag_if_supported("-Werror");
         if env::var_os("CARGO_FEATURE_TEST_UTIL").is_some() { chrome.define("PXUI_SDL3_TEST_UTIL", None); }
+        apply_cflags(&mut chrome, &run_pkg_config("sdl3", "SDL3", "--cflags"));
         chrome.compile("pxui_sdl3_chrome");
         println!("cargo:rustc-link-lib=framework=AppKit");
         println!("cargo:rustc-link-lib=framework=QuartzCore");

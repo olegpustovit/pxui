@@ -141,7 +141,7 @@ Ui|rebuilt_views|Gallery,Rays|done
 Ui|rect|A4-required,Gallery,Rays|done
 Ui|remember|Rays|done
 Ui|repaint_after|Rays|done
-Ui|repaint_at|Gallery,Rays|done
+Ui|repaint_at|Gallery,Rays|done: PxuiOutput also carries the active ambient rate since ABI 2.9
 Ui|request_cursor|Rays|done
 Ui|request_frame|Gallery,Rays|done
 Ui|root_at|Rays|done

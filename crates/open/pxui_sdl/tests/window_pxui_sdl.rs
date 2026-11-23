@@ -334,7 +334,12 @@ fn app_loop_cleans_up_callbacks_before_the_window_on_success_and_errors() {
     impl Guard {
         fn signal(&mut self, window: &mut Window, signal: Signal, failure: u8) -> Result<Schedule, String> {
             self.stages.borrow_mut().push(signal);
-            if signal == Signal::Initialize { self.token = Some(window.token()?); }
+            if signal == Signal::Initialize {
+                let token = window.token()?;
+                #[cfg(target_os = "macos")]
+                sdl3_sys::pacing::test_order_front(&token, false);
+                self.token = Some(token);
+            }
             if (failure == 1 && signal == Signal::Initialize) || (failure == 2 && signal == Signal::Frame) {
                 return Err("injected callback failure".into());
             }

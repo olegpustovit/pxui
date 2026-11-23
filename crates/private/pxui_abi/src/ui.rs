@@ -191,7 +191,7 @@ pub(crate) fn build_output(shared: &mut Shared, engine: &Ui, nodes: bool) {
     let (background, has_background) = platform.background.map_or((pxui_types::geom::Rgba::default(), false), |c| (c, true));
     let (clipboard, has_clipboard) = platform.clipboard.as_ref().map_or((Str::default(), false), |s| (Str { ptr: s.as_ptr(), len: s.len() }, true));
     shared.output = Output {
-        size: core::mem::size_of::<Output>() as u32, reserved: 0, draw_revision: revision,
+        size: core::mem::size_of::<Output>() as u32, repaint_hz: engine.repaint_hz(), draw_revision: revision,
         repaint_at: engine.repaint_at().unwrap_or(f64::INFINITY), built_nodes: engine.built_nodes() as u64,
         rebuilt_views: engine.rebuilt_views() as u64, arranged_nodes: engine.arranged_nodes() as u64,
         platform: PlatformOut {

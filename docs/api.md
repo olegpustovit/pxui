@@ -4197,7 +4197,7 @@ pxui_types::ffi::Output::layers field Strided<PxuiLayerInfo> @U5.4
 pxui_types::ffi::Output::platform field PlatformOut @HEAD
 pxui_types::ffi::Output::rebuilt_views field u64 @HEAD
 pxui_types::ffi::Output::repaint_at field f64 @HEAD
-pxui_types::ffi::Output::reserved field u32 @HEAD
+pxui_types::ffi::Output::repaint_hz field u32 @R6.1
 pxui_types::ffi::Output::size field u32 @HEAD
 pxui_types::ffi::PlatformOut impl Clone @HEAD
 pxui_types::ffi::PlatformOut impl Copy @HEAD

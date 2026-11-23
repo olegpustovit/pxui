@@ -31,6 +31,8 @@ use std::time::Instant;
 pub use sdl3::chrome::{Chrome, Snapshot as ChromeSnapshot};
 #[cfg(target_os = "macos")]
 pub use sdl3::ax;
+#[cfg(all(target_os = "macos", feature = "test-util"))]
+pub use sdl3::pacing::test_order_front;
 
 pub mod translate;
 mod drops;
@@ -121,6 +123,12 @@ pub struct Window {
     /// SDL's id for the window: the key the process router delivers its events by
     id: u32,
     view: NativeView,
+    #[cfg(target_os = "macos")]
+    pacing: Option<sdl3::pacing::Pacing>,
+    #[cfg(target_os = "macos")]
+    offscreen: bool,
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    repaint_hz: u32,
     vsync: bool,
     cursors: Vec<(CursorShape, Cursor)>,
     cursor_shape: Option<CursorShape>,
@@ -132,6 +140,7 @@ pub struct Window {
     unit: f64,
     extent: Extent,
     started: Instant,
+    frame_time: f64,
     dead: bool,
     /// event-poll and extent re-read failures since `take_failure` (the next pump tries again), at most
     /// `FAILURE_CAP`; later ones are only counted in `failures_dropped`
@@ -261,6 +270,12 @@ impl Window {
                 handle,
                 id,
                 view,
+                #[cfg(target_os = "macos")]
+                pacing: sdl3::pacing::Pacing::open(&_token),
+                #[cfg(target_os = "macos")]
+                offscreen: hidden,
+                #[cfg(any(target_os = "macos", target_os = "ios"))]
+                repaint_hz: 0,
                 vsync,
                 cursors: Vec::new(),
                 cursor_shape: None,
@@ -271,6 +286,7 @@ impl Window {
                 unit,
                 extent,
                 started: Instant::now(),
+                frame_time: 0.0,
                 dead: false,
                 failures: Vec::new(),
                 failures_dropped: 0,
@@ -538,6 +554,11 @@ impl Window {
     pub fn show(&mut self) -> Result<(), Error> {
         self.live()?;
         reveal(&self.handle).map_err(fail)?;
+        #[cfg(target_os = "macos")]
+        {
+            self.offscreen = false;
+            if let Some(pacing) = &self.pacing { pacing.refresh_visibility(); }
+        }
         self.announce_change();
         self.sync()
     }
@@ -545,7 +566,10 @@ impl Window {
     /// Hides the window. A later call to `show` can return it to the display.
     pub fn hide(&mut self) -> Result<(), Error> {
         self.live()?;
-        self.handle.hide().map_err(fail)
+        self.handle.hide().map_err(fail)?;
+        #[cfg(target_os = "macos")]
+        if let Some(pacing) = &self.pacing { pacing.refresh_visibility(); }
+        Ok(())
     }
 
     /// Opens a native file dialog and returns at once with its id; the outcome is an
@@ -573,12 +597,40 @@ impl Window {
         Ok(self.dialog_selections.swap_remove(index).1)
     }
 
-    /// Shown and neither minimized nor covered. SDL announces the start of occlusion and not its
-    /// end, so a caller that saw the window hidden asks this once per frame to learn when it is back.
+    /// Shown and neither minimized nor covered.
     pub fn visible(&mut self) -> Result<bool, Error> {
         self.live()?;
+        #[cfg(target_os = "macos")]
+        if let Some(pacing) = &self.pacing {
+            return Ok(pacing.presentation().is_some());
+        }
         let state = self.handle.state().map_err(fail)?;
         Ok(!(state.hidden || state.minimized || state.occluded))
+    }
+
+    /// Visible surface generation changes when its window reappears or changes displays.
+    /// Explicit offscreen surfaces can render for capture and native checks.
+    #[cfg(target_os = "macos")]
+    pub fn presentation(&self) -> Option<u64> {
+        if self.offscreen { Some(0) } else { self.pacing.as_ref().map_or(Some(1), sdl3::pacing::Pacing::presentation) }
+    }
+
+    /// Monotonic time for the current frame's intended presentation, in seconds on the window clock.
+    pub fn frame_time(&self) -> f64 {
+        self.time().max(self.frame_time)
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    fn mark_frame_time(&mut self, lead: f64) {
+        self.frame_time = self.frame_time.max(self.time() + lead);
+    }
+
+    /// Sets the preferred ambient animation rate in Hz. Zero requests the display rate.
+    pub fn set_repaint_rate(&mut self, hz: u32) {
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        { self.repaint_hz = hz; }
+        #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+        let _ = hz;
     }
 
     pub fn destroy(&mut self) -> Result<(), Error> {
@@ -587,6 +639,8 @@ impl Window {
         }
         self.dead = true;
         router::unregister(self.id);
+        #[cfg(target_os = "macos")]
+        drop(self.pacing.take());
         self.dialog_selections.clear();
         let mut failure: Option<Error> = None;
         let mut record = |result: Result<(), sdl3::Error>| {
@@ -614,5 +668,7 @@ impl Drop for Window {
     /// A window dropped without `destroy` stops receiving events; its native handles release themselves.
     fn drop(&mut self) {
         router::unregister(self.id);
+        #[cfg(target_os = "macos")]
+        drop(self.pacing.take());
     }
 }
