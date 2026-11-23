@@ -357,9 +357,9 @@ fn texels(t: &mut Text, g: &Glyph) -> Vec<u8> {
 /// ever samples a rewritten texel, and churned text keeps finding room.
 #[test]
 fn atlas_eviction_never_rewrites_texels_in_use() {
-    // Two 88-row pages: about three frames' worth of the unhinted Apple-positioned masks every platform now draws (80 rows
-    // held three frames of the old hinted masks); the pressure stays (200+ evictions) and so does the miss bound.
-    let mut t = Text::new_sized(&[&pragma()], (128, 88), (16, 16));
+    // Two 92-row pages: about three frames' worth of the unhinted, font-smoothed (dilated) masks every platform now draws
+    // (80 rows held three frames of the old hinted masks); the pressure stays (200+ evictions) and so does the miss bound.
+    let mut t = Text::new_sized(&[&pragma()], (128, 92), (16, 16));
     let style = |size: f32| Style { size, ..Style::default() };
     // kept output: emitted once, then shown each frame without emitting until a retirement asks
     t.layout(1, "kept", &style(13.0), 0.0);

@@ -55,10 +55,10 @@ nothing may reach outside this repository (no `../../..` paths past the root).
   may reuse the slots when the subpixel bins stay fixed. Plain masks can emit directly from those
   slots with the same coordinates and atlas usage as a fresh walk. Mutable node access invalidates
   reused view and positioned-label node templates. One raster everywhere: cosmic-text (swash)
-  coverage, unhinted, with the Apple-style ppem-dependent horizontal phases and rounded baselines on
-  every platform, shared by glyph placement and cache replay. No platform rasteriser (CoreText) and no
-  emulated font smoothing: pxui is cross-platform and draws the same pixels everywhere. One set of
-  pixel fixtures for all platforms.
+  coverage, unhinted, with the Apple-style ppem-dependent horizontal phases, rounded baselines and
+  macOS-style font smoothing (`dilate`: CoreText's stem growth, 0.006 x ppem) on every platform, shared
+  by glyph placement and cache replay. No platform rasteriser (CoreText): pxui is cross-platform and
+  draws the same pixels everywhere. One set of pixel fixtures for all platforms.
   Positioned labels with a default pose and no transition use the same layout memo, culling and
   painted range as regular line-box labels. Theme swaps still run through the normal paint path.
   A focused search field shows its empty prompt until text or marked IME input arrives.

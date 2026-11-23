@@ -581,6 +581,8 @@ pub const CACHE_BYTES: usize = 4 << 20;
 struct Glyphs {
     fs: FontSystem,
     swash: SwashCache,
+    /// the dilated mask of the glyph being rasterised (reused, so only a larger glyph allocates)
+    scratch: Vec<u8>,
     atlases: [Atlas; 4],
     slots: HashMap<CacheKey, Slot, Fast>,
     dirty: Vec<(AtlasKind, u32, u32, u32, u32)>,
@@ -612,8 +614,13 @@ impl Glyphs {
             SwashContent::SubpixelMask => return Some(empty),
         };
         if img.data.len() != (w * h * bpp) as usize { return Some(empty); }
-        // cosmic-text's (swash) coverage on every platform: no native rasteriser, no emulated font smoothing
-        let (mut s, data, stride) = (Slot { kind, w, h, left, top, ..empty }, img.data.as_slice(), (w * bpp) as usize);
+        // cosmic-text's (swash) coverage on every platform, with macOS-style font smoothing (`dilate`) on outline masks
+        let (mut s, data, stride) = if kind == AtlasKind::Mask && w > 0 && h > 0 {
+            let (x0, y0, nw, nh) = dilate(&img.data, w, h, 0.006 * f32::from_bits(key.font_size_bits), &mut self.scratch);
+            (Slot { w: nw, h: nh, left: left - 1 + x0 as i32, top: top + 1 - y0 as i32, ..empty }, self.scratch.as_slice(), nw as usize)
+        } else {
+            (Slot { kind, w, h, left, top, ..empty }, img.data.as_slice(), (w * bpp) as usize)
+        };
         let (primary, w, h) = (s.kind, s.w, s.h);
         let bpp = self.atlases[idx(primary)].bpp;
         if w > 0 && h > 0 {
@@ -680,6 +687,44 @@ impl Glyphs {
     }
 }
 
+
+/// macOS-style font smoothing on every platform: CoreText's stem growth applied to cosmic-text's coverage, a round dilation by `d` pixels shifted up by
+/// `d` is `c + d (|grad c| + dc/dy)` at an edge (empty pixels fill only where the edge crosses in). `out` gets the mask grown by one pixel all round,
+/// then trimmed of empty rows and columns; returns the trim's offset into the grown mask and its size.
+fn dilate(src: &[u8], w: u32, h: u32, d: f32, out: &mut Vec<u8>) -> (u32, u32, u32, u32) {
+    let (w, h) = (w as i32, h as i32);
+    let at = |x: i32, y: i32| if x < 0 || y < 0 || x >= w || y >= h { 0.0 } else { src[(y * w + x) as usize] as f32 };
+    out.clear();
+    let (mut x0, mut y0, mut x1, mut y1) = (i32::MAX, i32::MAX, -1, -1);
+    for y in -1..=h {
+        for x in -1..=w {
+            let gx = (at(x + 1, y) - at(x - 1, y)) * 0.5;
+            let gy = (at(x, y + 1) - at(x, y - 1)) * 0.5;
+            let c = at(x, y);
+            // an empty pixel only fills where the grown edge crosses into it (the top edge grows 2d)
+            let grown = if c > 0.0 { c + d * (gx.hypot(gy) + gy) } else {
+                let side = at(x - 1, y).max(at(x + 1, y)) / 255.0 + d - 1.0;
+                255.0 * side.max(at(x, y + 1) / 255.0 + 2.0 * d - 1.0).max(0.0)
+            };
+            let v = grown.clamp(0.0, 255.0).round() as u8;
+            if v > 0 {
+                (x0, y0, x1, y1) = (x0.min(x + 1), y0.min(y + 1), x1.max(x + 1), y1.max(y + 1));
+            }
+            out.push(v);
+        }
+    }
+    if x1 < 0 {
+        out.clear();
+        return (0, 0, 0, 0);
+    }
+    let (pw, nw, nh) = (w + 2, x1 - x0 + 1, y1 - y0 + 1);
+    for r in 0..nh {
+        let from = ((y0 + r) * pw + x0) as usize;
+        out.copy_within(from..from + nw as usize, (r * nw) as usize);
+    }
+    out.truncate((nw * nh) as usize);
+    (x0 as u32, y0 as u32, nw as u32, nh as u32)
+}
 
 /// CoreText uses fewer horizontal phases as the em grows.
 #[inline]
@@ -844,6 +889,7 @@ impl Text {
             g: Glyphs {
                 fs: FontSystem::new_with_locale_and_db(locale.into(), fontdb::Database::new()),
                 swash: SwashCache::new(),
+                scratch: Vec::with_capacity(32 << 10),
                 atlases: [Atlas::new(mask, 1), Atlas::new(color, 4),Atlas::new(mask,1),Atlas::new(color,4)],
                 slots: HashMap::default(),
                 dirty: Vec::new(),
