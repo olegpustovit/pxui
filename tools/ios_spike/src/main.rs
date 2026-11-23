@@ -426,7 +426,8 @@ mod ios {
             if let Some(touch) = self.touch.as_mut() { touch.check(&self.ui, self.frames)?; }
             self.platform.apply(window, &self.ui).map_err(|error| error.to_string())?;
             let output = mem_sys::local_alloc_count();
-            if !self.graphics.draw(window, &self.ui, None)
+            // The probe checks a fixed number of GPU frames, including settled gallery output.
+            if !self.graphics.draw_forced(window, &self.ui, None)
                 .map_err(|error| error.to_string())?
             {
                 return Ok(Schedule::NextFrame);
