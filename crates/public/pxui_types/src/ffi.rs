@@ -189,7 +189,7 @@ pub struct PxuiLayerInfo {
     pub anchor: crate::geom::Rect,
 }
 
-/// Rectangle that needs redrawing after the frame.
+/// Bounding rectangle that needs redrawing after the frame.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Damage {
@@ -233,6 +233,20 @@ pub struct PxuiFrameReasons {
     pub transition_curve: PxuiCurveDesc,
     /// Reserved for the ABI.
     pub reserved: u32,
+}
+
+/// Up to eight damaged rectangles in window points, each as `[x, y, width, height]`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct PxuiDamageList {
+    /// Number of valid entries in `rects`.
+    pub count: u8,
+    /// Nonzero when the whole viewport needs redrawing.
+    pub full: u8,
+    /// Reserved for the ABI, written as zero.
+    pub reserved: [u8; 6],
+    /// Damaged rectangles. A full list reports the viewport.
+    pub rects: [[f32; 4]; 8],
 }
 
 /// Tagged value exposed to assistive technology.
@@ -386,18 +400,20 @@ pub struct Output {
     pub arranged_nodes: u64,
     /// Requests to apply to the native window, input method and clipboard.
     pub platform: PlatformOut,
-    /// Region of the frame that changed.
+    /// Bounding box of the regions of the frame that changed.
     pub damage: Damage,
     /// Accessibility state bits declared by the widget.
     pub a11y: A11yTree,
     /// the last frame's layers in draw order, borrowed until the next frame
     pub layers: Strided<PxuiLayerInfo>,
+    /// Damage in logical window points (ABI 2.6).
+    pub damage_list: PxuiDamageList,
 }
 impl Default for Output {
     fn default() -> Self {
         Self { size: core::mem::size_of::<Self>() as u32, reserved: 0, draw_revision: 0, repaint_at: f64::INFINITY, built_nodes: 0, rebuilt_views: 0, arranged_nodes: 0,
             platform: PlatformOut { size: core::mem::size_of::<PlatformOut>() as u32, ..PlatformOut::default() }, damage: Damage::default(),
-            a11y: A11yTree::default(), layers: Strided::default() }
+            a11y: A11yTree::default(), layers: Strided::default(), damage_list: PxuiDamageList::default() }
     }
 }
 
@@ -3237,12 +3253,13 @@ pub(crate) mod layout {
         check("Strided", size_of::<Strided<u32>>(), align_of::<Strided<u32>>(), &[("ptr", core::mem::offset_of!(Strided<u32>, ptr)), ("len", core::mem::offset_of!(Strided<u32>, len)), ("stride", core::mem::offset_of!(Strided<u32>, stride))]);
         check("Input", size_of::<Input>(), align_of::<Input>(), &[("size", core::mem::offset_of!(Input, size)), ("time", core::mem::offset_of!(Input, time)), ("dt", core::mem::offset_of!(Input, dt)), ("frame", core::mem::offset_of!(Input, frame)), ("tick", core::mem::offset_of!(Input, tick)), ("logical_size", core::mem::offset_of!(Input, logical_size)), ("pointer", core::mem::offset_of!(Input, pointer)), ("keys", core::mem::offset_of!(Input, keys)), ("buttons", core::mem::offset_of!(Input, buttons)), ("events", core::mem::offset_of!(Input, events)), ("pixel_scale", core::mem::offset_of!(Input, pixel_scale)), ("mouse_delta", core::mem::offset_of!(Input, mouse_delta)), ("fps", core::mem::offset_of!(Input, fps))]);
         check("PlatformOut", size_of::<PlatformOut>(), align_of::<PlatformOut>(), &[("size", core::mem::offset_of!(PlatformOut, size)), ("cursor", core::mem::offset_of!(PlatformOut, cursor)), ("has_cursor", core::mem::offset_of!(PlatformOut, has_cursor)), ("has_ime", core::mem::offset_of!(PlatformOut, has_ime)), ("has_background", core::mem::offset_of!(PlatformOut, has_background)), ("has_clipboard", core::mem::offset_of!(PlatformOut, has_clipboard)), ("ime_rect", core::mem::offset_of!(PlatformOut, ime_rect)), ("ime_caret", core::mem::offset_of!(PlatformOut, ime_caret)), ("clipboard", core::mem::offset_of!(PlatformOut, clipboard)), ("background", core::mem::offset_of!(PlatformOut, background)), ("paste", core::mem::offset_of!(PlatformOut, paste)), ("reserved", core::mem::offset_of!(PlatformOut, reserved))]);
+        check("PxuiDamageList", size_of::<PxuiDamageList>(), align_of::<PxuiDamageList>(), &[("count", core::mem::offset_of!(PxuiDamageList, count)), ("full", core::mem::offset_of!(PxuiDamageList, full)), ("reserved", core::mem::offset_of!(PxuiDamageList, reserved)), ("rects", core::mem::offset_of!(PxuiDamageList, rects))]);
         check("Damage", size_of::<Damage>(), align_of::<Damage>(), &[("has_damage", core::mem::offset_of!(Damage, has_damage)), ("reserved", core::mem::offset_of!(Damage, reserved)), ("rect", core::mem::offset_of!(Damage, rect))]);
         check("A11yValue", size_of::<A11yValue>(), align_of::<A11yValue>(), &[("tag", core::mem::offset_of!(A11yValue, tag)), ("text_start", core::mem::offset_of!(A11yValue, text_start)), ("text_end", core::mem::offset_of!(A11yValue, text_end)), ("reserved", core::mem::offset_of!(A11yValue, reserved)), ("now", core::mem::offset_of!(A11yValue, now)), ("min", core::mem::offset_of!(A11yValue, min)), ("max", core::mem::offset_of!(A11yValue, max)), ("step", core::mem::offset_of!(A11yValue, step))]);
         check("A11yNode", size_of::<A11yNode>(), align_of::<A11yNode>(), &[("size", core::mem::offset_of!(A11yNode, size)), ("parent", core::mem::offset_of!(A11yNode, parent)), ("id", core::mem::offset_of!(A11yNode, id)), ("role", core::mem::offset_of!(A11yNode, role)), ("name_start", core::mem::offset_of!(A11yNode, name_start)), ("name_end", core::mem::offset_of!(A11yNode, name_end)), ("description_start", core::mem::offset_of!(A11yNode, description_start)), ("description_end", core::mem::offset_of!(A11yNode, description_end)), ("value", core::mem::offset_of!(A11yNode, value)), ("rect", core::mem::offset_of!(A11yNode, rect)), ("states", core::mem::offset_of!(A11yNode, states)), ("actions", core::mem::offset_of!(A11yNode, actions)), ("selection", core::mem::offset_of!(A11yNode, selection)), ("child_count", core::mem::offset_of!(A11yNode, child_count)), ("first_child", core::mem::offset_of!(A11yNode, first_child)), ("next_sibling", core::mem::offset_of!(A11yNode, next_sibling)), ("last_child", core::mem::offset_of!(A11yNode, last_child))]);
         check("A11yAction", size_of::<A11yAction>(), align_of::<A11yAction>(), &[("size", core::mem::offset_of!(A11yAction, size)), ("action_code", core::mem::offset_of!(A11yAction, action_code)), ("id", core::mem::offset_of!(A11yAction, id)), ("payload", core::mem::offset_of!(A11yAction, payload)), ("end", core::mem::offset_of!(A11yAction, end)), ("reserved", core::mem::offset_of!(A11yAction, reserved)), ("surface", core::mem::offset_of!(A11yAction, surface))]);
         check("A11yTree", size_of::<A11yTree>(), align_of::<A11yTree>(), &[("size", core::mem::offset_of!(A11yTree, size)), ("reserved", core::mem::offset_of!(A11yTree, reserved)), ("nodes", core::mem::offset_of!(A11yTree, nodes)), ("nodes.len", core::mem::offset_of!(A11yTree, nodes.len)), ("nodes.stride", core::mem::offset_of!(A11yTree, nodes.stride)), ("strings", core::mem::offset_of!(A11yTree, strings)), ("revision", core::mem::offset_of!(A11yTree, revision)), ("first_child", core::mem::offset_of!(A11yTree, first_child)), ("child_count", core::mem::offset_of!(A11yTree, child_count)), ("actions", core::mem::offset_of!(A11yTree, actions)), ("actions.len", core::mem::offset_of!(A11yTree, actions.len)), ("actions.stride", core::mem::offset_of!(A11yTree, actions.stride))]);
-        check("Output", size_of::<Output>(), align_of::<Output>(), &[("size", core::mem::offset_of!(Output, size)), ("reserved", core::mem::offset_of!(Output, reserved)), ("draw_revision", core::mem::offset_of!(Output, draw_revision)), ("repaint_at", core::mem::offset_of!(Output, repaint_at)), ("built_nodes", core::mem::offset_of!(Output, built_nodes)), ("rebuilt_views", core::mem::offset_of!(Output, rebuilt_views)), ("arranged_nodes", core::mem::offset_of!(Output, arranged_nodes)), ("platform", core::mem::offset_of!(Output, platform)), ("damage", core::mem::offset_of!(Output, damage)), ("a11y", core::mem::offset_of!(Output, a11y)), ("layers", core::mem::offset_of!(Output, layers))]);
+        check("Output", size_of::<Output>(), align_of::<Output>(), &[("size", core::mem::offset_of!(Output, size)), ("reserved", core::mem::offset_of!(Output, reserved)), ("draw_revision", core::mem::offset_of!(Output, draw_revision)), ("repaint_at", core::mem::offset_of!(Output, repaint_at)), ("built_nodes", core::mem::offset_of!(Output, built_nodes)), ("rebuilt_views", core::mem::offset_of!(Output, rebuilt_views)), ("arranged_nodes", core::mem::offset_of!(Output, arranged_nodes)), ("platform", core::mem::offset_of!(Output, platform)), ("damage", core::mem::offset_of!(Output, damage)), ("a11y", core::mem::offset_of!(Output, a11y)), ("layers", core::mem::offset_of!(Output, layers)), ("damage_list", core::mem::offset_of!(Output, damage_list))]);
         check("PxuiLayerInfo", size_of::<PxuiLayerInfo>(), align_of::<PxuiLayerInfo>(), &[("size", core::mem::offset_of!(PxuiLayerInfo, size)), ("id", core::mem::offset_of!(PxuiLayerInfo, id)), ("breaks", core::mem::offset_of!(PxuiLayerInfo, breaks)), ("role", core::mem::offset_of!(PxuiLayerInfo, role)), ("key", core::mem::offset_of!(PxuiLayerInfo, key)), ("instances", core::mem::offset_of!(PxuiLayerInfo, instances)), ("dirty", core::mem::offset_of!(PxuiLayerInfo, dirty)), ("anchor", core::mem::offset_of!(PxuiLayerInfo, anchor))]);
         check("PxuiDirty", size_of::<PxuiDirty>(), align_of::<PxuiDirty>(), &[("start", core::mem::offset_of!(PxuiDirty, start)), ("end", core::mem::offset_of!(PxuiDirty, end))]);
         check("PxuiMotion", size_of::<PxuiMotion>(), align_of::<PxuiMotion>(), &[("fast", core::mem::offset_of!(PxuiMotion, fast)), ("normal", core::mem::offset_of!(PxuiMotion, normal)), ("slow", core::mem::offset_of!(PxuiMotion, slow)), ("ease", core::mem::offset_of!(PxuiMotion, ease))]);

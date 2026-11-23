@@ -93,11 +93,7 @@ void *rays_metal_frames_create(void *layerPointer, void *devicePointer, void *qu
         frames->suspended = UIApplication.sharedApplication.applicationState != UIApplicationStateActive;
         frames->pauseObserver = [NSNotificationCenter.defaultCenter addObserverForName:UIApplicationWillResignActiveNotification object:nil queue:nil usingBlock:^(NSNotification *) {
             frames->suspended = true;
-            if (frames->encoder) [frames->encoder endEncoding];
-            frames->encoder = nil;
-            frames->commands = nil;
-            frames->drawable = nil;
-            frames->pass.colorAttachments[0].texture = nil;
+            rays_metal_frames_cancel(frames);
             if (!rays_metal_frames_wait(frames)) frames->failed = true;
             // An acquired but unsubmitted serial has no remaining GPU work after this drain.
             frames->completed = frames->serial;
@@ -122,9 +118,12 @@ int rays_metal_frames_begin(void *raw, uint32_t width, uint32_t height) {
         id<MTLCommandBuffer> previous = frames->pending[slot];
         if (previous) {
             [previous waitUntilCompleted];
-            if (previous.status == MTLCommandBufferStatusError) return -1;
             frames->completed = MAX(frames->completed, frames->serials[slot]);
             frames->pending[slot] = nil;
+            if (previous.status == MTLCommandBufferStatusError) {
+                frames->canvasValid = false;
+                return -1;
+            }
         }
         const CGSize size = CGSizeMake(width, height);
         if (!CGSizeEqualToSize(frames->layer.drawableSize, size)) frames->layer.drawableSize = size;
@@ -141,7 +140,7 @@ uint64_t rays_metal_frames_serial(void *raw) { return (static_cast<PXUIMetalFram
 uint64_t rays_metal_frames_completed(void *raw) { return (static_cast<PXUIMetalFrames *>(raw))->completed; }
 void *rays_metal_frames_commands(void *raw) { return (__bridge void *)(static_cast<PXUIMetalFrames *>(raw))->commands; }
 
-void *rays_metal_frames_pass(void *raw, double red, double green, double blue, uint32_t x, uint32_t y, uint32_t width, uint32_t height) {
+void *rays_metal_frames_pass(void *raw, double red, double green, double blue, const uint32_t (*rects)[4], uint32_t count, uint32_t *partial) {
     @autoreleasepool {
         PXUIMetalFrames *frames = static_cast<PXUIMetalFrames *>(raw);
         if (![NSThread isMainThread] || !frames->commands || frames->encoder) return NULL;
@@ -155,22 +154,21 @@ void *rays_metal_frames_pass(void *raw, double red, double green, double blue, u
             frames->canvasValid = false;
             if (!frames->canvas) return NULL;
         }
-        // a damage rectangle inside a canvas that holds the last frame redraws only there; anything else redraws it all
-        const bool partial = frames->canvasValid && width && height && (uint64_t)x + width <= target.width && (uint64_t)y + height <= target.height
-            && (width < target.width || height < target.height);
+        *partial = frames->canvasValid && count <= 8 ? count : 0;
+        for (uint32_t i = 0; i < *partial; ++i) {
+            const auto &r = rects[i];
+            if (!r[2] || !r[3] || (uint64_t)r[0] + r[2] > target.width || (uint64_t)r[1] + r[3] > target.height
+                || (r[2] == target.width && r[3] == target.height)) {
+                *partial = 0;
+            }
+        }
         MTLRenderPassColorAttachmentDescriptor *color = frames->pass.colorAttachments[0];
         color.texture = frames->canvas;
-        color.loadAction = partial ? MTLLoadActionLoad : MTLLoadActionClear;
+        color.loadAction = *partial ? MTLLoadActionLoad : MTLLoadActionClear;
         color.storeAction = MTLStoreActionStore;
         color.clearColor = MTLClearColorMake(red, green, blue, 1);
         frames->encoder = [frames->commands renderCommandEncoderWithDescriptor:frames->pass];
-        if (frames->encoder && partial) {
-            const float panel[4] = {(float)red, (float)green, (float)blue, 1};
-            [frames->encoder setScissorRect:(MTLScissorRect){x, y, width, height}];
-            [frames->encoder setRenderPipelineState:frames->fill];
-            [frames->encoder setFragmentBytes:panel length:sizeof panel atIndex:0];
-            [frames->encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
-        }
+        if (frames->encoder && *partial) rays_metal_frames_scissor(raw, rects[0]);
         frames->canvasValid = frames->encoder != nil;
         return (__bridge void *)frames->encoder;
     }
@@ -192,6 +190,28 @@ void *rays_metal_frames_resume_pass(void *raw) {
         frames->encoder = [frames->commands renderCommandEncoderWithDescriptor:frames->pass];
         return (__bridge void *)frames->encoder;
     }
+}
+
+void rays_metal_frames_scissor(void *raw, const uint32_t rect[4]) {
+    PXUIMetalFrames *frames = static_cast<PXUIMetalFrames *>(raw);
+    if (!frames->encoder || !rect[2] || !rect[3] ||
+        (uint64_t)rect[0] + rect[2] > frames->canvas.width || (uint64_t)rect[1] + rect[3] > frames->canvas.height) return;
+    const MTLClearColor color = frames->pass.colorAttachments[0].clearColor;
+    const float panel[4] = {(float)color.red, (float)color.green, (float)color.blue, 1};
+    [frames->encoder setScissorRect:(MTLScissorRect){rect[0], rect[1], rect[2], rect[3]}];
+    [frames->encoder setRenderPipelineState:frames->fill];
+    [frames->encoder setFragmentBytes:panel length:sizeof panel atIndex:0];
+    [frames->encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+}
+
+void rays_metal_frames_cancel(void *raw) {
+    PXUIMetalFrames *frames = static_cast<PXUIMetalFrames *>(raw);
+    [frames->encoder endEncoding];
+    frames->encoder = nil;
+    frames->commands = nil;
+    frames->drawable = nil;
+    frames->pass.colorAttachments[0].texture = nil;
+    frames->canvasValid = false;
 }
 
 int rays_metal_frames_submit(void *raw) {

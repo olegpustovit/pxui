@@ -16,7 +16,9 @@ unsafe extern "C" {
     fn rays_metal_frames_serial(host: *mut c_void) -> u64;
     fn rays_metal_frames_completed(host: *mut c_void) -> u64;
     fn rays_metal_frames_commands(host: *mut c_void) -> *mut c_void;
-    fn rays_metal_frames_pass(host: *mut c_void, red: f64, green: f64, blue: f64, x: u32, y: u32, width: u32, height: u32) -> *mut c_void;
+    fn rays_metal_frames_pass(host: *mut c_void, red: f64, green: f64, blue: f64, rects: *const [u32; 4], count: u32, partial: *mut u32) -> *mut c_void;
+    fn rays_metal_frames_scissor(host: *mut c_void, rect: *const [u32; 4]);
+    fn rays_metal_frames_cancel(host: *mut c_void);
     fn rays_metal_frames_end_pass(host: *mut c_void) -> *mut c_void;
     fn rays_metal_frames_resume_pass(host: *mut c_void) -> *mut c_void;
     fn rays_metal_frames_submit(host: *mut c_void) -> i32;
@@ -80,24 +82,24 @@ impl Frames {
     pub fn commands(&self) -> *mut c_void {
         unsafe { rays_metal_frames_commands(self.raw) }
     }
-    /// Opens the frame's pass over the retained canvas. `damage` (`[x, y, width, height]` drawable pixels) redraws only
-    /// that region: the pass keeps the last frame, its scissor is the damage and the damage is filled with `color`; the
-    /// caller draws everything that intersects it. `None`, a first frame or a resize clears and redraws the whole canvas.
-    pub fn pass(&mut self, color: [u8; 3], damage: Option<[u32; 4]>) -> Result<*mut c_void, String> {
-        let [x, y, width, height] = damage.unwrap_or_default();
+    /// Opens the retained canvas pass. Returns its encoder and the number of damage rects to draw.
+    /// Each rect is `[x, y, width, height]` in drawable pixels. The first is already filled and
+    /// scissored. An empty list or invalid canvas clears the whole target and returns zero rects.
+    pub fn pass(&mut self, color: [u8; 3], damage: &[[u32; 4]]) -> Result<(*mut c_void, usize), String> {
+        let mut partial = 0;
         let pass = unsafe {
             rays_metal_frames_pass(
                 self.raw,
                 color[0] as f64 / 255.0,
                 color[1] as f64 / 255.0,
                 color[2] as f64 / 255.0,
-                x, y, width, height,
+                damage.as_ptr(), damage.len().min(9) as u32, &mut partial,
             )
         };
         if pass.is_null() {
             Err("Could not open Metal render pass".into())
         } else {
-            Ok(pass)
+            Ok((pass, partial as usize))
         }
     }
     /// Ends the active render pass and borrows its canvas texture for the rest of the frame.
@@ -107,6 +109,15 @@ impl Frames {
     /// Starts another render pass on this frame's canvas, loading pixels from the last pass.
     pub fn resume_pass(&mut self) -> Option<core::ptr::NonNull<c_void>> {
         core::ptr::NonNull::new(unsafe { rays_metal_frames_resume_pass(self.raw) })
+}
+
+    /// Fills the next damage rect from `pass` and sets its scissor for another draw.
+    pub fn scissor(&mut self, rect: &[u32; 4]) {
+        unsafe { rays_metal_frames_scissor(self.raw, rect); }
+    }
+    /// Discards an unsubmitted frame and requires a full redraw on the next pass.
+    pub fn cancel(&mut self) {
+        unsafe { rays_metal_frames_cancel(self.raw); }
     }
     pub fn submit(&mut self) -> Result<bool, String> {
         match unsafe { rays_metal_frames_submit(self.raw) } {

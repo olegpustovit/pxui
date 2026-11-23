@@ -27,7 +27,9 @@ pub use pxui_types::{draw, geom};
 pub use pxui_types::a11y::Role;
 pub use pxui_types::geom::{Point, Rect, Rgba};
 pub use pxui_types::{Flags, Size};
-pub use pxui_types::ffi::{A11yAction, A11yNode, Input, Output, PlatformOut, PxuiFrameReasons};
+pub use pxui_types::ffi::{A11yAction, A11yNode, Input, Output, PlatformOut, PxuiDamageList, PxuiFrameReasons};
+#[doc(hidden)]
+pub use pxui_types::damage::DamageList;
 
 pub use pxui_types::theme;
 pub mod images;
@@ -166,6 +168,7 @@ mod sys {
         pub safe fn pxui_counter(which:u32)->u64;
         pub fn pxui_ui_create(desc:*const PxuiUiDesc,fonts:*const Str,count:usize,status:*mut i32) -> *mut PxuiUi;
         pub fn pxui_ui_output(ui:*mut PxuiUi)->*const pxui_types::ffi::Output;
+        pub fn pxui_ui_damage_list(ui:*mut PxuiUi,out:*mut pxui_types::ffi::PxuiDamageList)->i32;
         pub fn pxui_ui_theme(ui:*mut PxuiUi)->*const pxui_types::theme::ThemeSnapshot;
         pub fn pxui_ui_view_size(ui:*mut PxuiUi,out:*mut pxui_types::geom::Point)->i32;
         pub fn pxui_ui_layer_drawn(ui:*mut PxuiUi,layer:u64)->i32;
@@ -858,6 +861,23 @@ impl Ui {
         if output.is_null() { refused(self, pxui_types::PXUI_ERR_PANIC) }
         unsafe { output.read() }
     }
+    /// Reads the latest damage in logical window points.
+    ///
+    /// The returned copy includes undrawn patches and steps. A draw acknowledgment
+    /// clears the list, and a full redraw reports the viewport with `full` set.
+    /// Allocates: never.
+    /// Panics: when the library refuses the Ui.
+    ///
+    /// ```
+    /// let ui = pxui::doc::frames(1, &mut |_| {});
+    /// assert_eq!(ui.damage_list(), ui.output().damage_list);
+    /// ```
+    pub fn damage_list(&self) -> PxuiDamageList {
+        let mut damage = PxuiDamageList::default();
+        check(self, unsafe { sys::pxui_ui_damage_list(self.0.as_ptr(), &mut damage) });
+        damage
+    }
+
     /// Reads the host appearance from the last frame, including inside cached views.
     ///
     /// `Appearance::Unknown` is the default before the host reports a value.

@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 5
+minor 6
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_remove_surface int32_t pxui_a11y_remove_surface ( PxuiA11y * a11y , uint64_t surface ) ;
@@ -81,6 +81,7 @@ function pxui_ui_content_rect int32_t pxui_ui_content_rect ( PxuiUi * ui , PxuiR
 function pxui_ui_context_at int32_t pxui_ui_context_at ( PxuiUi * ui , const PxuiBox * box , uint8_t * present , PxuiPoint * out ) ;
 function pxui_ui_context_menu int32_t pxui_ui_context_menu ( PxuiUi * ui , float x , float y , PxuiStr label , PxuiMenuRowSpan rows , uint8_t has_width , float width , const PxuiMenuOptions * options , uint32_t * out_tag , int64_t * out_index ) ;
 function pxui_ui_create PxuiUi * pxui_ui_create ( const PxuiUiDesc * desc , const PxuiStr * fonts , size_t count , int32_t * status ) ;
+function pxui_ui_damage_list int32_t pxui_ui_damage_list ( PxuiUi * ui , PxuiDamageList * out ) ;
 function pxui_ui_density int64_t pxui_ui_density ( PxuiUi * ui ) ;
 function pxui_ui_destroy int32_t pxui_ui_destroy ( PxuiUi * ui ) ;
 function pxui_ui_dialog int32_t pxui_ui_dialog ( PxuiUi * ui , const PxuiDialogDesc * desc , PxuiBuild build , void * user , PxuiDialogResult * out ) ;
@@ -239,7 +240,7 @@ layout Image 40 8 0 8 16 24 28 32
 layout Input 168 8 0 8 16 24 32 40 56 72 88 104 128 144 160
 layout Instance 64 4 0 16 24 28 32 40 48 50 51 52 54 56
 layout Keyboard 24 4 8 4
-layout Output 272 8 0 4 8 16 24 32 40 48 136 160 248
+layout Output 408 8 0 4 8 16 24 32 40 48 136 160 248 272
 layout Pass 72 8 0 8 16 24 28 32 40 48 52 56 64
 layout PlatformOut 88 8 0 4 8 9 10 11 16 48 56 72 76 77
 layout Point 8 4 0 4
@@ -263,6 +264,7 @@ layout PxuiColumnWidthSpan 16 8 0 8
 layout PxuiCompletion 80 8 0 8 16 32 48 64
 layout PxuiCurve 140 4 0 4
 layout PxuiCurveDesc 164 4 0 4 8 12 28 32 36 100
+layout PxuiDamageList 136 4 0 1 2 8
 layout PxuiDescription 40 8 0 1 8 16 24
 layout PxuiDialogConfig 112 8 0 8 24 40 48 56 64 72 80 88 104
 layout PxuiDialogDesc 112 8 0 4 8 24 40 56 64 72 80 88 104 106

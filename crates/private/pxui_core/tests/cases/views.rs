@@ -36,7 +36,7 @@ pub fn window_pxui_view_rebuilds_one() {
     check(a_runs.get() == 1 && b_runs.get() == 1, "a clean view rebuilt");
     check(ui.built_nodes() == 3, &format!("a frame of two kept views declared {} nodes", ui.built_nodes()));
     check(ui.output().draw[0].instances == instances && ui.draw_revision() == revision, "kept views changed the output");
-    check(ui.output().damage.is_none(), "an idle frame has damage");
+    check(ui.output().damage.bounds().is_none(), "an idle frame has damage");
     rev_a.set(2);
     ui.frame(&at(0.2, vec![]), &mut build);
     check(a_runs.get() == 2 && b_runs.get() == 1, &format!("a revision bump ran builds a {} b {}", a_runs.get(), b_runs.get()));
@@ -148,7 +148,7 @@ pub fn window_pxui_view_offset() {
     let entry = ui.output().views.iter().find(|(_, e)| e.offset == [30.0, 10.0]);
     check(entry.is_some(), "no view entry carries the offset");
     check(ui.output().draw[0].instances.iter().any(|i| Some(i.view) == entry.map(|e| e.0)), "the view's instances do not name its entry");
-    check(ui.output().damage == Some(Rect::new(0.0, 0.0, 130.0, 60.0)), &format!("offset damage {:?}", ui.output().damage));
+    check(ui.output().damage.bounds() == Some(Rect::new(0.0, 0.0, 130.0, 60.0)), &format!("offset damage {:?}", ui.output().damage.bounds()));
     check(ui.rect(&n) == Rect::new(30.0, 10.0, 40.0, 20.0), &format!("rect after an offset {:?}", ui.rect(&n)));
     ui.view_opacity(&v, 0.5);
     check(ui.output().views.iter().any(|(_, e)| e.opacity == 0.5) && ui.output().draw[0].instances == instances, "opacity");
@@ -242,25 +242,25 @@ pub fn window_pxui_view_damage() {
     };
     ui.frame(&at(0.0, vec![]), &mut build);
     ui.frame(&at(0.1, vec![]), &mut build);
-    check(ui.output().damage.is_none(), "an idle frame has damage");
+    check(ui.output().damage.bounds().is_none(), "an idle frame has damage");
     for i in 0..ui.output().draw.len() {
         ui.drawn(i);
     }
     (fill.set(Rgba::rgb(0, 160, 0)), rev.set(2));
     ui.frame(&at(0.2, vec![]), &mut build);
-    check(ui.output().damage == Some(Rect::new(0.0, 20.0, 40.0, 20.0)), &format!("one node's damage {:?}", ui.output().damage));
+    check(ui.output().damage.bounds() == Some(Rect::new(0.0, 20.0, 40.0, 20.0)), &format!("one node's damage {:?}", ui.output().damage.bounds()));
     check(ui.output().draw[0].dirty.len() == 1 && ui.output().draw[0].dirty[0].1 - ui.output().draw[0].dirty[0].0 == 1, &format!("dirty {:?}", ui.output().draw[0].dirty));
     let n = node.get().unwrap();
-    check(ui.patch_fill(&n, BLUE) && ui.output().damage == Some(Rect::new(0.0, 20.0, 40.0, 20.0)), "patch damage");
-    check(ui.patch_offset(&n, 5.0, 0.0) && ui.output().damage == Some(Rect::new(0.0, 20.0, 45.0, 20.0)), &format!("move damage {:?}", ui.output().damage));
+    check(ui.patch_fill(&n, BLUE) && ui.output().damage.bounds() == Some(Rect::new(0.0, 20.0, 40.0, 20.0)), "patch damage");
+    check(ui.patch_offset(&n, 5.0, 0.0) && ui.output().damage.bounds() == Some(Rect::new(0.0, 20.0, 45.0, 20.0)), &format!("move damage {:?}", ui.output().damage.bounds()));
     let mut shadow = Look::NONE.fill(BLUE).shadows([Shadow::NONE.color(Rgba::BLACK).blur(4.0).spread(2.0).offset(3.0, 1.0), Shadow::NONE]);
     ui.drawn(0);
     assert!(ui.patch_look(&n,&shadow));
-    assert_eq!(ui.output().damage,Some(Rect::new(0.0,12.0,56.0,37.0)));
+    assert_eq!(ui.output().damage.bounds(),Some(Rect::new(0.0,12.0,56.0,37.0)));
     ui.drawn(0);
     shadow.shadows[0].blur=8.0;
     assert!(ui.patch_look(&n,&shadow));
-    assert_eq!(ui.output().damage,Some(Rect::new(0.0,6.0,62.0,49.0)),"changed shadow parameters must damage the larger new cover");
+    assert_eq!(ui.output().damage.bounds(),Some(Rect::new(0.0,6.0,62.0,49.0)),"changed shadow parameters must damage the larger new cover");
     ui.destroy();
 }
 
@@ -280,12 +280,12 @@ fn window_pxui_full_damage_uploads_changed_instances() {
     ui.set_theme(theme);
     ui.frame(&at(1.0, vec![]), &mut build);
     let out = ui.output();
-    assert_eq!(out.damage, Some(Rect::new(0.0, 0.0, 320.0, 240.0)));
+    assert_eq!(out.damage.bounds(), Some(Rect::new(0.0, 0.0, 320.0, 240.0)));
     assert_eq!(out.draw[0].dirty, [(0, 3)]);
     assert!(out.draw[0].instances.iter().all(|i| i.color == [0, 0, 200, 255]));
     ui.drawn(0);
     ui.frame(&at(2.0, vec![]), &mut build);
-    assert!(ui.output().damage.is_none());
+    assert!(ui.output().damage.bounds().is_none());
     assert!(ui.output().draw[0].dirty.is_empty());
     ui.destroy();
 }
@@ -316,7 +316,7 @@ fn window_pxui_full_damage_uploads_fresh_and_relocated_kept_ranges() {
         ui.frame(&frame, &mut build);
         assert_eq!(ui.rebuilt_views(), 0, "the unchanged view stays built");
         let out = ui.output();
-        assert_eq!(out.damage, Some(Rect::new(0.0, 0.0, frame.input.size.0 as f32, 240.0)));
+        assert_eq!(out.damage.bounds(), Some(Rect::new(0.0, 0.0, frame.input.size.0 as f32, 240.0)));
         let layer = &out.draw[0];
         uploaded.resize(layer.instances.len(), pxui_types::draw::Instance::DEFAULT);
         for &(start, end) in &layer.dirty {
@@ -1355,7 +1355,7 @@ pub fn window_pxui_damage_containment_preserves_other_views() {
         let color = if tick % 2 == 0 { RED } else { BLUE };
         fill.set(color);
         ui.frame(&at(tick as f64 / 60.0, vec![]), &mut build);
-        if tick > 1 { assert_eq!(ui.output().damage, Some(Rect::new(10.0, 10.0, 160.0, 90.0))); }
+        if tick > 1 { assert_eq!(ui.output().damage.bounds(), Some(Rect::new(10.0, 10.0, 160.0, 90.0))); }
         let layer = &ui.output().draw[0];
         let mut changed = 0;
         for (index, instance) in layer.instances.iter().enumerate() {
@@ -1543,7 +1543,7 @@ pub fn window_pxui_step_advances_transitions_without_a_build() {
     assert!(ui.step(0.6),"only transitions are pending");
     assert_eq!(mem_sys::local_alloc_count(),0,"a warm step allocated");
     assert_eq!(builds.get(),built,"a step ran the builder");
-    assert!(ui.draw_revision()>revision && ui.output().damage.is_some(),"a step reports what changed");
+    assert!(ui.draw_revision()>revision && ui.output().damage.bounds().is_some(),"a step reports what changed");
     assert_eq!(ui.repaint_at(),Some(0.6),"the transitions still run");
     let stepped=(ui.output().draw[0].instances.clone(),ui.output().views.to_vec());
     assert!(!ui.step(0.5),"time runs forward only");

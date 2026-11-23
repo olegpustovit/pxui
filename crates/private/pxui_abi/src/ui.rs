@@ -10,7 +10,7 @@ use crate::{PXUI_ERR_ARGUMENT, PXUI_ERR_PANIC, PXUI_ERR_STATE, FrameIn, FrameOut
 use core::ffi::c_void;
 use input::{Event, Key, MouseButton, Platform, frame};
 use pxui_core::ui::Ui;
-use pxui_types::ffi::{A11yNode, A11yTree, Damage, Input, Output, PlatformOut, Slice, Strided};
+use pxui_types::ffi::{A11yNode, A11yTree, Damage, Input, Output, PlatformOut, PxuiDamageList, Slice, Strided};
 
 fn platform() -> Platform {
     #[cfg(any(target_os = "macos", target_os = "ios"))] { Platform::Apple }
@@ -199,12 +199,13 @@ pub(crate) fn build_output(shared: &mut Shared, engine: &Ui, nodes: bool) {
             has_background: has_background as u8, has_clipboard: has_clipboard as u8, ime_rect, ime_caret, clipboard, background,
             paste: platform.paste as u8, reserved: [0; 7],
         },
-        damage: output.damage.map_or_else(Damage::default, |r| Damage { has_damage: 1, reserved: [0; 3], rect: r }),
+        damage: output.damage.bounds().map_or_else(Damage::default, |r| Damage { has_damage: 1, reserved: [0; 3], rect: r }),
         a11y: A11yTree {
             nodes: Strided::of(&shared.nodes), strings: Str { ptr: tree.strings.as_ptr(), len: tree.strings.len() },
             revision: tree.revision, first_child: tree.first_child(u32::MAX), child_count: tree.child_count(u32::MAX), ..A11yTree::default()
         },
         layers: Strided::of(&shared.layers),
+        damage_list: damage_list(output.damage),
     };
 }
 
@@ -215,6 +216,31 @@ export!(bare pub unsafe fn pxui_ui_output(ui: *mut PxuiUi) -> *const Output {
     let shared = state.shared();
     if !shared.in_frame { let nodes = core::mem::take(&mut shared.frame_ended); build_output(shared, unsafe { &*state.engine }, nodes); }
     &shared.output
+});
+
+fn damage_list(damage: &pxui_types::damage::DamageList) -> PxuiDamageList {
+    let mut out = PxuiDamageList {
+        count: damage.rects().len() as u8,
+        full: damage.is_full() as u8,
+        ..PxuiDamageList::default()
+    };
+    for (dest, r) in out.rects.iter_mut().zip(damage.rects()) {
+        *dest = [r.x, r.y, r.w, r.h];
+    }
+    out
+}
+
+export!(pub unsafe fn pxui_ui_damage_list(ui: *mut PxuiUi, out: *mut PxuiDamageList) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if out.is_null() { return unsafe { fail(ui, "null damage list output") }; }
+    let shared = state.shared();
+    let list = if shared.in_frame {
+        shared.output.damage_list
+    } else {
+        damage_list(unsafe { &*state.engine }.output().damage)
+    };
+    unsafe { out.write(list); }
+    0
 });
 
 export!(pub unsafe fn pxui_ui_set_dir(ui: *mut PxuiUi, dir: u32) -> i32 {
@@ -475,7 +501,7 @@ unsafe fn run_frame(ui: *mut PxuiUi, frame: &frame::Frame, build: Inner, out: &m
         unsafe { (&mut *engine).abandon_frame(); (*shared).frame_ended = true; }
         std::panic::resume_unwind(panic)
     } };
-    let (damage, layers, layer_count) = (output.damage, output.draw.as_ptr(), output.draw.len());
+    let (damage, layers, layer_count) = (output.damage.bounds(), output.draw.as_ptr(), output.draw.len());
     let s = unsafe { &mut *shared };
     s.in_frame = false;
     crate::node::finish_frame(s, unsafe { &*engine });
