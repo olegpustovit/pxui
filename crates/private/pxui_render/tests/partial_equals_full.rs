@@ -218,17 +218,18 @@ pub(super) fn backdrop_reuse() {
     assert_eq!(seeded, 1);
     build(&mut ui, Rgba::BLACK, Rgba::WHITE, 0.1);
     assert_eq!(ui.damage_list().count, 1);
-    let clip = Rect { x: 208, y: 133, width: 16, height: 16 };
-    let (partial, reused) = draw_backdrop(&queue, &target, &mut renderer, 2, Some(clip), green);
-    assert_eq!(reused, 0, "the unchanged footprint must not split the render pass");
-    assert_ne!(partial, first, "the marker changed");
-    let (cached_full, still_reused) = draw_backdrop(&queue, &target, &mut renderer, 3, None, green);
-    assert_eq!(still_reused, 0, "the cached image can also repaint its whole footprint");
+    let reuse = std::env::var_os("PXUI_NO_BLUR_REUSE").as_deref() != Some(std::ffi::OsStr::new("1"));
+    let clip = reuse.then_some(Rect { x: 208, y: 133, width: 16, height: 16 });
+    let (updated, splits) = draw_backdrop(&queue, &target, &mut renderer, 2, clip, green);
+    assert_eq!(splits, usize::from(!reuse), "an unchanged footprint splits only with reuse disabled");
+    assert_ne!(updated, first, "the marker changed");
+    let (full_repaint, splits) = draw_backdrop(&queue, &target, &mut renderer, 3, None, green);
+    assert_eq!(splits, usize::from(!reuse), "repainting the whole footprint uses a completed result when enabled");
     renderer.resize(240, 160).unwrap();
     let (full, recomputed) = draw_backdrop(&queue, &target, &mut renderer, 4, None, green);
     assert_eq!(recomputed, 1);
-    diff(&partial, &full, 0, 2);
-    diff(&cached_full, &full, 0, 3);
+    diff(&updated, &full, 0, 2);
+    diff(&full_repaint, &full, 0, 3);
 
     build(&mut ui, Rgba::WHITE, Rgba::WHITE, 0.2);
     let (changed, damaged) = draw_backdrop(&queue, &target, &mut renderer, 5, None, green);
