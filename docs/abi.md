@@ -145,3 +145,4 @@ and name the replacement; nothing is removed from the manifest.
 | 2.5 | Added `pxui_ui_frame_reasons` for opt-in scheduling counters and the last one-shot transition. |
 | 2.6 | Added `pxui_ui_damage_list` and appended `PxuiDamageList` to `PxuiOutput`. The legacy damage fields report the bounding box. |
 | 2.7 | Added `pxui_ui_animate_keys_at_rate` for display and shared ambient keyframe cadences. |
+| 2.8 | Added `pxui_renderer_draw_damage` to cull retained geometry against a host scissor. |

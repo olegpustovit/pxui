@@ -52,7 +52,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built: the version the app was built against, PXUI_ABI_BUILT (major << 16 | minor); pxui_ui_create refuses 0, another major and a newer minor (PXUI_ERR_VERSION). */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((2u << 16) | 7u)
+#define PXUI_ABI_BUILT ((2u << 16) | 8u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 /* size-prefixed (16 bytes); pxui_ui_text_input_options needs the caller's size to cover it. */
@@ -976,6 +976,9 @@ int32_t pxui_renderer_resize(PxuiRenderer *renderer, uint32_t width, uint32_t he
 /* an extent above the device's maximum 2D texture dimension is PXUI_ERR_ARGUMENT, nothing allocated. pxui_renderer_create reads
    gpu and target only after their size covers the record (a shorter one is refused, NULL, with the reason in pxui_last_error). */
 int32_t pxui_renderer_draw(PxuiRenderer *renderer, const PxuiPass *pass);
+/* Same as pxui_renderer_draw with a nonempty scissor in target pixels. The caller must set this
+   exact scissor before drawing. PXUI may skip geometry outside it. */
+int32_t pxui_renderer_draw_damage(PxuiRenderer *renderer, const PxuiPass *pass, uint32_t x, uint32_t y, uint32_t width, uint32_t height);
 /* The draw calls the renderer has issued so far. */
 /* forget on every sampling renderer before destroying/reusing an app texture.
    completed is the host's actual completed serial on the prepare timeline and must not go back.

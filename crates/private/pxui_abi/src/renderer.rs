@@ -39,6 +39,7 @@ pub struct PxuiRenderer {
     prepared: Option<gpu_backend::Commands>,
     drawn: Option<(gpu_backend::Commands, gpu_backend::RenderEncoder)>,
     split_points: Vec<u32>,
+    no_cull: bool,
     breaks: Vec<Break>,
     blur_commands: Option<gpu_backend::Commands>,
 }
@@ -111,7 +112,7 @@ unsafe fn make(ui: &mut PxuiUi, gpu: pxui_types::Gpu, target: PxuiTargetDesc, mu
         Ok(p)=>p,
         Err(e)=>{ let _=gpu_backend::destroy_queue(&queue); let _=gpu_backend::destroy_device(&device); return Err(describe(e)); }
     };
-    Ok(PxuiRenderer { painter, queue, device, textures:std::collections::HashMap::new(), blur_sources:std::collections::HashMap::new(), engine:ui.engine, shared:ui.shared, format, samples:i64::from(target.samples), frame_serial:0, completed:0, atlas_initialized:[false;4], prepared:None, drawn:None, split_points:Vec::new(), breaks:Vec::new(), blur_commands:None })
+    Ok(PxuiRenderer { painter, queue, device, textures:std::collections::HashMap::new(), blur_sources:std::collections::HashMap::new(), engine:ui.engine, shared:ui.shared, format, samples:i64::from(target.samples), frame_serial:0, completed:0, atlas_initialized:[false;4], prepared:None, drawn:None, split_points:Vec::new(), breaks:Vec::new(), blur_commands:None, no_cull:std::env::var_os("PXUI_NO_CULL").as_deref()==Some(std::ffi::OsStr::new("1")) })
 }
 
 export!(bare pub unsafe fn pxui_renderer_create(ui:*mut PxuiUi, gpu:*const pxui_types::Gpu, target:*const PxuiTargetDesc, out:*mut *mut PxuiRenderer) -> i32 {
@@ -297,10 +298,22 @@ mod image_binding_tests {
 // Draws layers `pass.first_layer..` (`pass.layer_count` of them, 0 for all) of the last frame into the app's open pass. A layer
 // with a backdrop blur asks the app to end the pass (`pass.split`), records the blur and goes on in the pass the app reopens.
 export!(pub unsafe fn pxui_renderer_draw(renderer:*mut PxuiRenderer, pass:*const pxui_types::Pass) -> i32 {
+    unsafe { draw(renderer, pass, None) }
+});
+
+export!(pub unsafe fn pxui_renderer_draw_damage(renderer:*mut PxuiRenderer, pass:*const pxui_types::Pass, x:u32, y:u32, width:u32, height:u32) -> i32 {
+    unsafe { draw(renderer, pass, Some([x,y,width,height])) }
+});
+
+unsafe fn draw(renderer:*mut PxuiRenderer, pass:*const pxui_types::Pass, scissor:Option<[u32;4]>) -> i32 {
     if renderer.is_null() { return PXUI_ERR_ARGUMENT; }
     let renderer=unsafe { &mut *renderer };
     let Some(pass)=read_desc!(pass, pxui_types::Pass) else { return renderer.fail(PXUI_ERR_ARGUMENT, "invalid pass descriptor") };
     if pass.width_px==0 || pass.height_px==0 || !pass.scale.is_finite() || pass.scale<=0.0 { return renderer.fail(PXUI_ERR_ARGUMENT, "invalid pass descriptor"); }
+    if let Some([x,y,w,h])=scissor
+        && (w==0 || h==0 || u64::from(x)+u64::from(w)>u64::from(pass.width_px) || u64::from(y)+u64::from(h)>u64::from(pass.height_px)) {
+        return renderer.fail(PXUI_ERR_ARGUMENT, "scissor must be nonempty and inside the target");
+    }
     if renderer.frame_serial==0 { return renderer.fail(PXUI_ERR_STATE, "draw needs a prepared frame"); }
     let size_px=[pass.width_px,pass.height_px];
     let commands_native=ogpu_core::backend::NativeCommands { size:core::mem::size_of::<ogpu_core::backend::NativeCommands>() as u32, vk_command_buffer:pass.vk_command_buffer, mtl_command_buffer:pass.mtl_command_buffer, frame_serial:renderer.frame_serial, inside_pass:1 };
@@ -318,6 +331,9 @@ export!(pub unsafe fn pxui_renderer_draw(renderer:*mut PxuiRenderer, pass:*const
     for (index,v) in ui.output().views {
         if let Err(e)=renderer.painter.set_view(*index,View { offset:v.offset,opacity:v.opacity,clip:v.clip,scale:v.scale,transform:v.transform,pivot:v.pivot }) { return renderer.fail_gpu(e); }
     }
+    // Backdrop capture reads outside the scissor and can split the pass.
+    let scissor=scissor.filter(|&[_,_,w,h]| !renderer.no_cull
+        && (w!=pass.width_px || h!=pass.height_px) && ui.output().blurs.is_empty());
     let layers=ui.output().draw.len();
     let first=(pass.first_layer as usize).min(layers);
     let end=if pass.layer_count==0 { layers } else { (first+pass.layer_count as usize).min(layers) };
@@ -379,7 +395,8 @@ export!(pub unsafe fn pxui_renderer_draw(renderer:*mut PxuiRenderer, pass:*const
         }
         let breaks=&renderer.breaks;
         let result=if renderer.split_points.is_empty() {
-            renderer.painter.draw_retained_split(&encoder,size_px,pass.scale,parts,breaks,&[],None,&mut |_,_| Ok(None))
+            let cull=scissor.map(|scissor| (scissor, &ui.output().draw[index..batch_end]));
+            renderer.painter.draw_retained_split(&encoder,size_px,pass.scale,parts,breaks,&[],cull,&mut |_,_| Ok(None))
         } else {
             let Some(split)=pass.split else { renderer.breaks.clear(); return renderer.fail(PXUI_ERR_STATE, "a layer with a backdrop blur needs the pass's split callback") };
             let (queue,device,format,samples,serial)=(&renderer.queue,&renderer.device,renderer.format,renderer.samples,renderer.frame_serial);
@@ -431,7 +448,7 @@ export!(pub unsafe fn pxui_renderer_draw(renderer:*mut PxuiRenderer, pass:*const
     gpu_backend::settle_commands(&commands);
     renderer.drawn=Some((commands,encoder));
     0
-});
+}
 
 export!(bare pub unsafe fn pxui_renderer_destroy(renderer:*mut PxuiRenderer) {
     if renderer.is_null() { return; }

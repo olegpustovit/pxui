@@ -790,6 +790,7 @@ pxui::Renderer struct @HEAD
 pxui::Renderer::atlas fn (&self, kind: AtlasKind) -> Result<Image, Error> @HEAD
 pxui::Renderer::draw fn (&mut self, pass: &Pass) -> Result<(), Error> @HEAD
 pxui::Renderer::draw_calls fn (&self) -> u64 @HEAD
+pxui::Renderer::draw_damage fn (&mut self, pass: &Pass, scissor: [u32; 4], split: &mut dyn FnMut(Recorder) -> Result<Pass, Error>) -> Result<(), Error> @R3.5
 pxui::Renderer::draw_layer fn (&mut self, pass: &Pass, layer: u32, split: &mut dyn FnMut(Recorder<'_>) -> Result<Pass, Error>) -> Result<(), Error> @HEAD
 pxui::Renderer::draw_with_split fn (&mut self, pass: &Pass, split: &mut dyn FnMut(Recorder) -> Result<Pass, Error>) -> Result<(), Error> @HEAD
 pxui::Renderer::forget_image fn (&mut self, image: &Image, completed: u64) -> Result<(), Error> @HEAD

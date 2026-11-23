@@ -196,6 +196,7 @@ mod sys {
         pub fn pxui_renderer_prepare(renderer:*mut PxuiRenderer,commands:*const pxui_types::Commands,frame:u64,completed:u64)->i32;
         pub fn pxui_renderer_resize(renderer:*mut PxuiRenderer,width:u32,height:u32)->i32;
         pub fn pxui_renderer_draw(renderer:*mut PxuiRenderer,pass:*const pxui_types::Pass)->i32;
+        pub fn pxui_renderer_draw_damage(renderer:*mut PxuiRenderer,pass:*const pxui_types::Pass,x:u32,y:u32,width:u32,height:u32)->i32;
         pub fn pxui_renderer_forget_image(renderer:*mut PxuiRenderer,image:*const pxui_types::Image,completed:u64)->i32;
         pub fn pxui_renderer_draw_calls(renderer:*mut PxuiRenderer)->u64;
         pub fn pxui_renderer_atlas(renderer:*mut PxuiRenderer,kind:u32,out:*mut pxui_types::Image)->i32;
@@ -422,9 +423,36 @@ impl Renderer {
     /// let _ = example;
     /// ```
     pub fn draw_with_split(&mut self, pass: &pxui_types::Pass, split: &mut dyn FnMut(Recorder) -> Result<pxui_types::Pass, Error>) -> Result<(), Error> {
+        self.draw_split(pass, None, split)
+    }
+
+    /// Records the prepared UI layers for the open pass's damage scissor.
+    ///
+    /// Set the pass scissor to the same nonempty `[x, y, width, height]` rectangle in target
+    /// pixels before calling. PXUI may skip geometry outside it. See [`Renderer::draw_with_split`]
+    /// for the backdrop contract. An empty or out-of-target rectangle returns InvalidInput.
+    /// Allocates: when render storage first grows or the host callback allocates.
+    /// Panics: if the host callback panics.
+    ///
+    /// ```
+    /// fn example(renderer: &mut pxui::Renderer, pass: &pxui::Pass) -> Result<(), pxui::Error> {
+    ///     renderer.draw_damage(pass, [0, 0, 32, 16], &mut |_| Err(pxui::Error::InvalidInput))
+    /// }
+    /// let _ = example;
+    /// ```
+    pub fn draw_damage(&mut self, pass: &pxui_types::Pass, scissor: [u32; 4], split: &mut dyn FnMut(Recorder) -> Result<pxui_types::Pass, Error>) -> Result<(), Error> {
+        self.draw_split(pass, Some(scissor), split)
+    }
+
+    fn draw_split(&mut self, pass: &pxui_types::Pass, scissor: Option<[u32; 4]>, split: &mut dyn FnMut(Recorder) -> Result<pxui_types::Pass, Error>) -> Result<(), Error> {
         let mut ctx = PassSplitContext { f: split, error: None };
         let pass = pxui_types::Pass { split: Some(split_pass), split_user: (&mut ctx as *mut PassSplitContext).cast(), ..*pass };
-        let rc = unsafe { sys::pxui_renderer_draw(self.raw.as_ptr(), &pass) };
+        let rc = unsafe {
+            match scissor {
+                Some([x,y,w,h]) => sys::pxui_renderer_draw_damage(self.raw.as_ptr(), &pass, x, y, w, h),
+                None => sys::pxui_renderer_draw(self.raw.as_ptr(), &pass),
+            }
+        };
         composite::resume_deferred();
         if rc == 0 { Ok(()) } else { Err(ctx.error.unwrap_or(Error::from_code(rc))) }
     }

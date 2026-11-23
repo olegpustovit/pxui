@@ -21,6 +21,7 @@ pub struct Graphics {
     /// draw adds it. Forced frames without a damage report redraw the whole viewport.
     held: Option<DamageList>,
     full_damage: bool,
+    no_cull: bool,
     present_debt: bool,
 }
 
@@ -54,6 +55,7 @@ impl Graphics {
             acquire_wall: std::time::Duration::ZERO,
             held: None,
             full_damage: std::env::var_os("PXUI_FULL_DAMAGE").as_deref() == Some(std::ffi::OsStr::new("1")),
+            no_cull: std::env::var_os("PXUI_NO_CULL").as_deref() == Some(std::ffi::OsStr::new("1")),
             present_debt: false,
         };
         let layer = window.token().map_err(|_| Error::Host("could not get surface token"))?;
@@ -115,6 +117,11 @@ impl Graphics {
     /// Enables full-viewport redraws, or restores damage-limited rendering.
     pub fn set_full_damage(&mut self, full: bool) {
         self.full_damage = full;
+    }
+
+    /// Draw all geometry under each scissor. `PXUI_NO_CULL=1` also disables culling.
+    pub fn set_no_cull(&mut self, no_cull: bool) {
+        self.no_cull = no_cull;
     }
 
     /// Renders pending damage into the surface. Returns false if nothing needed presenting or no drawable was available.
@@ -215,6 +222,9 @@ impl Graphics {
                         pixels[len] = damage_px([r.x, r.y, r.w, r.h], scale, size);
                         len += 1;
                     }
+                    if !self.no_cull && len > 1 {
+                        len = merge_pixel_damage(&mut pixels[..len], size);
+                    }
                 }
 
                 renderer.prepare(
@@ -240,13 +250,18 @@ impl Graphics {
                 };
                 // shortcut: use a full canvas for blur until partial draws can reconstruct its backdrop.
                 let mut redraw = false;
-                let result = renderer.draw_with_split(&pass, &mut |record| {
+                let mut split = |record: pxui::Recorder| {
                     if partial != 0 {
                         redraw = true;
                         return Err(Error::Host("backdrop blur needs a full canvas"));
                     }
                     split_backdrop(frames, pass, record)
-                });
+                };
+                let result = if partial != 0 && !self.no_cull {
+                    renderer.draw_damage(&pass, pixels[0], &mut split)
+                } else {
+                    renderer.draw_with_split(&pass, &mut split)
+                };
                 if redraw {
                     frames.end_pass().ok_or(Error::Host("could not end native render pass"))?;
                     pass.mtl_render_encoder = frames.pass([color.r, color.g, color.b], &[])
@@ -256,7 +271,11 @@ impl Graphics {
                     result?;
                     for rect in pixels.iter().take(partial).skip(1) {
                         frames.scissor(rect);
-                        renderer.draw(&pass)?;
+                        if self.no_cull {
+                            renderer.draw(&pass)?;
+                        } else {
+                            renderer.draw_damage(&pass, *rect, &mut |_| Err(Error::Host("backdrop blur needs a full canvas")))?;
+                        }
                     }
                 }
             }
@@ -413,10 +432,31 @@ fn damage_px([x, y, w, h]: [f32; 4], scale: f32, (width, height): (u32, u32)) ->
     [x0, y0, x1.saturating_sub(x0), y1.saturating_sub(y0)]
 }
 
+// Rounding and AA padding can join damage that was disjoint in points, saving a replay.
+fn merge_pixel_damage(pixels: &mut [[u32; 4]], (width, height): (u32, u32)) -> usize {
+    let mut damage = DamageList::default();
+    let viewport = Rect::new(0.0, 0.0, width as f32, height as f32);
+    for &[x, y, w, h] in pixels.iter() {
+        damage.add(Rect::new(x as f32, y as f32, w as f32, h as f32), viewport);
+    }
+    let rects = damage.rects();
+    if damage.is_full() || rects.is_empty() || rects.len() == pixels.len() {
+        return pixels.len();
+    }
+    for (pixel, rect) in pixels.iter_mut().zip(rects) {
+        *pixel = [rect.x, rect.y, rect.w, rect.h].map(|v| v as u32);
+    }
+    rects.len()
+}
+
 #[cfg(all(test, target_os = "macos"))]
 pub(crate) fn damage_rounds_out_pads_and_clamps_to_the_drawable() {
     // 10.25..24.25 points at 2x: 20.5..48.5 px, out to 20..49, padded to 19..50
     assert_eq!(damage_px([10.25, 5.0, 14.0, 3.0], 2.0, (100, 80)), [19, 9, 31, 8]);
     assert_eq!(damage_px([-5.0, 30.0, 100.0, 100.0], 2.0, (100, 80)), [0, 59, 100, 21]);
     assert_eq!(damage_px([200.0, 0.0, 5.0, 5.0], 2.0, (100, 80))[2], 0);
+
+    let mut pixels = [[9, 9, 4, 14], [13, 14, 4, 8], [17, 10, 4, 13], [60, 20, 4, 4]];
+    let len = merge_pixel_damage(&mut pixels, (100, 80));
+    assert_eq!(&pixels[..len], &[[9, 9, 12, 14], [60, 20, 4, 4]]);
 }
