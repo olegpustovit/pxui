@@ -5,7 +5,7 @@ mod string_pool {
     fn indexed_string_donors_match_full_search_across_clear_growth_swap_and_frame_changes() {
         let mut slots:Vec<[String;3]>=(0..64).map(|i| {
             std::array::from_fn(|field| {
-                let mut buffer=String::with_capacity([0,8,11,14,16,31,63,128][(i+field)%8]);
+                let mut buffer=String::with_capacity([0,8,11,14,16,31,63,128,300,520][(i+field)%10]);
                 if i%3==0 {buffer.push_str("live café");}
                 buffer
             })
@@ -22,12 +22,9 @@ mod string_pool {
             random=random.wrapping_mul(6364136223846793005).wrapping_add(1);
             let own=(random>>32) as usize%slots.len();
             let field=Field::ALL[step%3];
-            let text=["","x","café","small label","a moderately sized label","a much longer label that needs the retained large storage"][step%6];
-            if step%11==0 {
-                pool.begin_frame();assert!(!pool.active());
-                pool.used(field,own,slots[own][field as usize].capacity());
-                assert!(!pool.active(),"the stable-buffer path must not construct an index");
-            }
+            // the last one fits only the last capacity bucket (255 and past), which keeps several capacities
+            let long="a label long enough for the shared last capacity bucket ".repeat(5);
+            let text=["","x","café","small label","a moderately sized label","a much longer label that needs the retained large storage",&long[..270]][step%7];
             let cleared=(own+7)%slots.len();
             for field in Field::ALL {
                 slots[cleared][field as usize].clear();
@@ -41,16 +38,20 @@ mod string_pool {
             mem_sys::local_reset();
             if text.is_empty() {pool.empty(field,own,capacity);}
             else {
-                if let Some(index)=pool.rebuild(field) {
-                    index.extend(slots.iter().enumerate().filter_map(|(slot,value)| {
+                if pool.rebuild(field) {
+                    for (slot,value) in slots.iter().enumerate() {
                         let buffer=&value[field as usize];
-                        (buffer.is_empty() && buffer.capacity()!=0).then_some((buffer.capacity(),slot))
-                    }));
-                    index.sort_unstable();
+                        if buffer.is_empty() {pool.empty(field,slot,buffer.capacity());}
+                    }
                 }
-                let donor=pool.donor(field,own,capacity,text.len());
-                assert!(pool.rebuild(field).is_none(),"one donor query builds each field index for the frame");
-                assert_eq!(donor,expected,"step {step}, field {}",field as usize);
+                let current=&slots;
+                let empty_capacity=|slot:usize|{let buffer=&current[slot][field as usize];buffer.is_empty().then_some(buffer.capacity())};
+                let donor=pool.donor(field,own,capacity,text.len(),&empty_capacity);
+                assert!(!pool.rebuild(field),"the first donor query builds each field index once");
+                // the best fit by capacity: any slot of that capacity serves
+                let capacity_of=|slot:Option<usize>|slot.map(|slot|slots[slot][field as usize].capacity());
+                assert_eq!(capacity_of(donor),capacity_of(expected),"step {step}, field {}",field as usize);
+                assert!(donor.is_none_or(|d|d!=own && slots[d][field as usize].is_empty()));
                 if let Some(donor)=donor {
                     let buffer=std::mem::take(&mut slots[donor][field as usize]);
                     let mut old=std::mem::replace(&mut slots[own][field as usize],buffer);
@@ -64,15 +65,16 @@ mod string_pool {
             let buffer=&mut slots[own][field as usize];
             buffer.clear();buffer.push_str(text);
             for field in Field::ALL {
-                let index=&pool.indices[field as usize];
-                assert!(index.len()<=slots.len() && index.capacity()>=slots.len());
-                assert!(index.capacity()<=slots.capacity()*2,"metadata remains bounded by retained slot capacity");
-                if pool.active & (1 << field as usize)!=0 {
-                    for &(capacity,slot) in index {
-                        assert!(slots[slot][field as usize].is_empty());
-                        assert_eq!(slots[slot][field as usize].capacity(),capacity);
-                    }
-                    assert!(index.windows(2).all(|w|w[0]<w[1]),"each empty buffer has one sorted entry");
+                let f=&pool.fields[field as usize];
+                assert!(f.listed.len()>=slots.len() && f.listed.len()<=slots.capacity(),"links sized by retained slot capacity");
+                // every listed slot sits in its capacity's bucket, whose bit is set
+                for (slot,&listed) in f.listed.iter().enumerate() {
+                    if listed==0 {continue;}
+                    let b=listed.min(LAST);
+                    assert!(f.bits[b/64]&(1<<(b%64))!=0);
+                    let mut at=f.head[b];
+                    while at!=NONE && at as usize!=slot { at=f.next[at as usize]; }
+                    assert_eq!(at as usize,slot,"listed slot {slot} is in bucket {b}");
                 }
             }
         }

@@ -264,6 +264,70 @@ pub fn window_pxui_view_damage() {
     ui.destroy();
 }
 
+fn window_pxui_full_damage_uploads_changed_instances() {
+    let mut ui = new_ui(None);
+    let mut theme = Theme::default();
+    theme.tokens.reduced_motion = true;
+    let mut build = |ui: &mut Ui| {
+        for key in ["first", "second", "third"] {
+            chip(ui, key, ui.theme().tokens.panel, Flags::NONE);
+        }
+    };
+    ui.set_theme(theme);
+    ui.frame(&at(0.0, vec![]), &mut build);
+    ui.drawn(0);
+    theme.tokens.panel = BLUE;
+    ui.set_theme(theme);
+    ui.frame(&at(1.0, vec![]), &mut build);
+    let out = ui.output();
+    assert_eq!(out.damage, Some(Rect::new(0.0, 0.0, 320.0, 240.0)));
+    assert_eq!(out.draw[0].dirty, [(0, 3)]);
+    assert!(out.draw[0].instances.iter().all(|i| i.color == [0, 0, 200, 255]));
+    ui.drawn(0);
+    ui.frame(&at(2.0, vec![]), &mut build);
+    assert!(ui.output().damage.is_none());
+    assert!(ui.output().draw[0].dirty.is_empty());
+    ui.destroy();
+}
+
+fn window_pxui_full_damage_uploads_fresh_and_relocated_kept_ranges() {
+    let mut ui = new_ui(None);
+    let count = Cell::new(1);
+    let ink = Cell::new(RED);
+    let mut build = |ui: &mut Ui| {
+        for index in 0..count.get() {
+            ui.node((index as i64).into(), Node::DEFAULT
+                .w(Size::Px(10.0)).h(Size::Px(8.0)).at(index as f32 * 10.0, 0.0)
+                .look(Look::NONE.fill(ink.get())));
+        }
+        ui.view("kept", 0, Size::Px(100.0), Size::Px(50.0), &mut |ui| {
+            chip(ui, "kept-content", BLUE, Flags::NONE);
+            ui.retain_view_on_resize();
+        });
+    };
+    ui.frame(&at(0.0, vec![]), &mut build);
+    let mut uploaded = ui.output().draw[0].instances.clone();
+    for (step, fresh) in [1, 16].into_iter().enumerate() {
+        ui.drawn(0);
+        count.set(fresh);
+        ink.set(if step == 0 { BLUE } else { RED });
+        let mut frame = at(step as f64 + 1.0, vec![]);
+        frame.input.size.0 += step as i64 + 1;
+        ui.frame(&frame, &mut build);
+        assert_eq!(ui.rebuilt_views(), 0, "the unchanged view stays built");
+        let out = ui.output();
+        assert_eq!(out.damage, Some(Rect::new(0.0, 0.0, frame.input.size.0 as f32, 240.0)));
+        let layer = &out.draw[0];
+        uploaded.resize(layer.instances.len(), pxui_types::draw::Instance::DEFAULT);
+        for &(start, end) in &layer.dirty {
+            let range = start as usize..end as usize;
+            uploaded[range.clone()].copy_from_slice(&layer.instances[range]);
+        }
+        assert_eq!(uploaded, layer.instances);
+    }
+    ui.destroy();
+}
+
 /// A kit panel in a view: kept and rebuilt output are the same instances.
 pub fn window_pxui_view_kit_cached() {
     let runs = Cell::new(0);
@@ -406,6 +470,88 @@ pub fn window_pxui_view_verify_transition() {
     hot.set(false);
     let message = verify_failure(&mut ui, 1.5, &mut build);
     check(message.contains("\"fade\""), &format!("a stale state starting a fade was not named: {message:?}"));
+}
+
+/// Verify mode with a hover fade inside a clean view: the node, in a view rebuilt every frame (a reorderable list row's), reads its
+/// hover signal and declares the hovered look, so the pointer reaching it (moving on, or there as the view first shows) starts a
+/// fade while the enclosing page view is kept and checked. No frame is reported.
+pub fn window_pxui_view_verify_hover_fade() {
+    let frame = Cell::new(0u64);
+    let build = |ui: &mut Ui| {
+        frame.set(frame.get() + 1);
+        ui.view("page", 1, Size::Px(300.0), Size::Px(100.0), &mut |ui| {
+            chip(ui, "title", BLUE, Flags::NONE);
+            ui.view("rows", frame.get(), Size::Px(200.0), Size::Px(60.0), &mut |ui| {
+                let n = chip(ui, "row", RED, Flags::CLICKABLE);
+                let hovered = ui.signal(&n).hovered;
+                ui.set_look(&n, Look::NONE.fill(if hovered { BLUE } else { RED }), State::default().hovered(hovered));
+            });
+        });
+    };
+    for already in [false, true] {
+        let mut ui = new_ui(None);
+        let mut theme = Theme::default();
+        theme.tokens.motion.normal = 0.2;
+        ui.set_theme(theme);
+        ui.verify_views(true);
+        let mut build = build;
+        let over = vec![Event::PointerMoved((10.0, 30.0))];
+        let mut faded = false;
+        ui.frame(&at(0.0, if already { over.clone() } else { vec![] }), &mut build);
+        for k in 1..=12 {
+            let events = if k == 2 && !already { over.clone() } else { vec![] };
+            let t = 0.03 * k as f64;
+            // a reported fade panics in verify mode, failing the case
+            ui.frame(&at(t, events), &mut build);
+            faded |= ui.transitions() > 0;
+        }
+        check(faded, &format!("no hover fade ran (pointer there first: {already})"));
+    }
+}
+
+/// A view rebuilt while its child views are kept starts where its first content does: the room a compaction left ahead of it
+/// stays outside its run, whether fresh pieces end against the child or the view's first piece is empty. Taking it in made every
+/// compaction and rebuild grow the view's run (and the layer).
+pub fn window_pxui_rebuilt_view_keeps_compaction_room_outside_its_run() {
+    let frame = Cell::new(0u64);
+    let mut build = |ui: &mut Ui| {
+        let n = frame.get();
+        frame.set(n + 1);
+        // fresh content ahead of the views: growing past its room while the parent is kept compacts the layer (room goes ahead of
+        // the parent's run); the parent rebuilds five frames later, in place
+        for i in 0..(if (n / 10) % 2 == 0 { 1 } else { 41 }) {
+            chip(ui, &format!("lead{i}"), RED, Flags::NONE);
+        }
+        // a clipped view (its own entry in the view table), as a panel's part is
+        let parent = ui.view("parent", (n + 5) / 10, Size::Px(200.0), Size::Px(100.0), &mut |ui| {
+            chip(ui, "head", BLUE, Flags::NONE);
+            for k in 0..3 {
+                ui.view(&format!("child{k}"), 1, Size::Px(120.0), Size::Px(20.0), &mut |ui| {
+                    for i in 0..3 { chip(ui, &format!("c{i}"), RED, Flags::NONE); }
+                });
+                chip(ui, &format!("sep{k}"), BLUE, Flags::NONE);
+            }
+        });
+        ui.view_clip(&parent, Some(pxui_core::ui::Rect::new(0.0, 0.0, 400.0, 300.0)));
+        // a view that starts with a child view: its first piece is empty, at the start of the room before that child
+        ui.view("bare", (n + 5) / 10, Size::Px(200.0), Size::Px(40.0), &mut |ui| {
+            for k in 0..2 {
+                ui.view(&format!("key{k}"), 1, Size::Px(40.0), Size::Px(20.0), &mut |ui| { chip(ui, "glyph", RED, Flags::NONE); });
+            }
+        });
+    };
+    let mut ui = new_ui(None);
+    ui.verify_views(false);
+    let (mut largest, before) = (0, ui.layer_rewrites().1);
+    for t in 0..200 {
+        ui.frame(&at(t as f64 * 0.016, vec![]), &mut build);
+        largest = largest.max(ui.output().draw[0].instances.len());
+    }
+    // once compacted the room stays ahead of the views: no compaction per rebuild, and the layer keeps its size
+    let compactions = ui.layer_rewrites().1 - before;
+    check((1..=2).contains(&compactions), &format!("{compactions} compactions in 20 rebuilds"));
+    check(largest < 120, &format!("compaction room accumulated in a rebuilt view's run: {largest} instances"));
+    ui.destroy();
 }
 
 /// Verify mode across a layer change: a clean view that its parent moves into a raised layer and
@@ -1013,7 +1159,8 @@ pub fn window_pxui_view_fit() {
     check(rect(&ui, 0).h == 60.0 && rect(&ui, 1).y == 60.0 && rect(&ui, 2).y == 100.0, &format!("after growing {:?} {:?} {:?}", rect(&ui, 0), rect(&ui, 1), rect(&ui, 2)));
     check(ui.built_nodes() == 1 + 1 + 3 + 3, &format!("growing declared {} nodes", ui.built_nodes()));
     let written: usize = ui.output().draw.iter().flat_map(|l| l.dirty.iter()).map(|(a, b)| (b - a) as usize).sum();
-    check(written == 2, &format!("growing wrote {written} instances (a's two new rows)"));
+    // a's rows only (fresh pieces end against the kept run after them, so a's start moves with its growth): b and c are not rewritten
+    check(written <= 3, &format!("growing wrote {written} instances (a's three rows at most)"));
     check(ui.output().views.iter().any(|(_, e)| e.offset == [0.0, 40.0]), "the moved views ride no table offset");
     for i in 0..ui.output().draw.len() {
         ui.drawn(i);
@@ -1237,6 +1384,7 @@ pub fn window_pxui_streaming_rows_reuse_retained_gaps() {
         let mut compactions = 0;
         let mut paint_ns = 0;
         let mut largest = 0;
+        let mut previous = Vec::with_capacity(2 * (ROWS * TILES + 1 + (ROWS + 1) * 32));
         for tick in 0..130 {
             let first = tick * step;
             frame.input.t = tick as f64 / 60.0;
@@ -1280,6 +1428,16 @@ pub fn window_pxui_streaming_rows_reuse_retained_gaps() {
             assert_eq!(count, ROWS * TILES);
             assert_eq!(layer.instances.iter().filter(|i| i.color == [0, 0, 200, 255]).count(), 1);
             assert!(layer.dirty.iter().all(|&(a, b)| a < b && b as usize <= layer.instances.len()));
+            if ui.layer_rewrites().1 != before {
+                for (i, instance) in layer.instances.iter().enumerate() {
+                    if previous.get(i) != Some(instance) {
+                        assert!(layer.dirty.iter().any(|&(a, b)| (a as usize..b as usize).contains(&i)),
+                            "compaction missed an upload at instance {i} on tick {tick}");
+                    }
+                }
+            }
+            previous.clear();
+            previous.extend_from_slice(&layer.instances);
             assert_eq!(ui.rect(&ends[0].unwrap()), Rect::new(0.0, 0.0, 600.0, 20.0));
             assert_eq!(ui.rect(&ends[1].unwrap()), Rect::new(0.0, 380.0, 600.0, 20.0));
             ui.drawn(0);
@@ -1317,11 +1475,15 @@ pub const CASES: &[(&str, fn())] = &[
     ("window_pxui_view_table_2000", window_pxui_view_table_2000),
     ("window_pxui_view_resize_settles", window_pxui_view_resize_settles),
     ("window_pxui_view_kept_atlas_break", window_pxui_view_kept_atlas_break),
+    ("window_pxui_full_damage_uploads_changed_instances", window_pxui_full_damage_uploads_changed_instances),
+    ("window_pxui_full_damage_uploads_fresh_and_relocated_kept_ranges", window_pxui_full_damage_uploads_fresh_and_relocated_kept_ranges),
     ("window_pxui_view_damage", window_pxui_view_damage),
     ("window_pxui_view_kit_cached", window_pxui_view_kit_cached),
     ("window_pxui_list", window_pxui_list),
     ("window_pxui_view_verify", window_pxui_view_verify),
     ("window_pxui_view_verify_transition", window_pxui_view_verify_transition),
+    ("window_pxui_view_verify_hover_fade", window_pxui_view_verify_hover_fade),
+    ("window_pxui_rebuilt_view_keeps_compaction_room_outside_its_run", window_pxui_rebuilt_view_keeps_compaction_room_outside_its_run),
     ("window_pxui_view_verify_layer", window_pxui_view_verify_layer),
     ("window_pxui_view_costs", window_pxui_view_costs),
 ];

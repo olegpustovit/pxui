@@ -197,6 +197,8 @@ fragment float4 ui_fragment(VOut in [[stage_in]], texture2d<float> mask_tex [[te
   float2 pixel_dx = dfdx(p), pixel_dy = dfdy(p);
   float px = max(sqrt(0.5 * (dot(pixel_dx, pixel_dx) + dot(pixel_dy, pixel_dy))), 1e-4);
   float pxt = max(sqrt(0.5 * (dot(dfdx(in.v_tp), dfdx(in.v_tp)) + dot(dfdy(in.v_tp), dfdy(in.v_tp)))), 1e-4);
+  // texture coordinate steps per pixel, taken before any discard: a smooth image picks its mip level from them
+  float2 uv_dx = dfdx(in.v_pos.zw), uv_dy = dfdy(in.v_pos.zw);
   uint kind = in.v_kf.x, flags = in.v_kf.y & 255u, ramp = in.v_kf.y >> 8u;
   float clip_cov = cover(sd_rect(p, in.v_clip, float4(in.v_misc.y)), px) * cover(sd_rect(in.v_tp, in.v_vclip, float4(0.0)), pxt);
   if (clip_cov <= 0.0) discard_fragment();
@@ -222,7 +224,10 @@ fragment float4 ui_fragment(VOut in [[stage_in]], texture2d<float> mask_tex [[te
     col = float4(in.v_color.rgb, in.v_color.a * mask);
   } else if (kind == IMAGE) {
     // SMOOTH (bit 0): a scaled picture, filtered linearly; glyphs and atlas images stay nearest
-    col = in.v_color * ((flags & 2u) != 0u ? color2_tex.sample(samp,in.v_pos.zw,level(0.0)) : ((flags & 1u) != 0u ? color_tex.sample(smooth_samp, in.v_pos.zw, level(0.0)) : color_tex.sample(samp, in.v_pos.zw, level(0.0))));
+    // a minified smooth image samples its mip chain (a texture of one level stays at level 0)
+    float2 size = float2(color_tex.get_width(), color_tex.get_height()), tx = uv_dx * size, ty = uv_dy * size;
+    float lod = max(0.0, 0.5 * log2(max(max(dot(tx, tx), dot(ty, ty)), 1e-8)));
+    col = in.v_color * ((flags & 2u) != 0u ? color2_tex.sample(samp,in.v_pos.zw,level(0.0)) : ((flags & 1u) != 0u ? color_tex.sample(smooth_samp, in.v_pos.zw, level(lod)) : color_tex.sample(samp, in.v_pos.zw, level(0.0))));
     if (dot(in.v_radii, float4(1.0)) > 0.0) col.a *= cover(sd_rect(p, in.v_rect, in.v_radii), px);
   } else if (kind == TRIANGLE) {
     col = float4(in.v_color.rgb, in.v_color.a * cover(sd_triangle(p, in.v_rect.xy, in.v_rect.zw, in.v_p0.xy), px));

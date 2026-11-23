@@ -119,6 +119,9 @@ dependencies = [
 [[package]]
 name = "font_sys"
 version = "0.1.0"
+dependencies = [
+ "cc",
+]
 
 [[package]]
 name = "fontdb"

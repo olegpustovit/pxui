@@ -5,7 +5,7 @@
 use crate::Handle;
 use crate::composite::{defer_callback_panic, deferred};
 use crate::sys::PxuiPaint as RawPaint;
-use core::{ffi::c_void, marker::PhantomData, ptr::NonNull};
+use core::{cell::Cell, ffi::c_void, marker::PhantomData, ptr::NonNull};
 use std::alloc::Layout;
 use pxui_types::{node::Dir, draw::Instance, ffi::{PxuiLabelStyle, PxuiPaintInfo}, Label, geom::{Rect, Rgba}, shape::{clip_of, Shapes}, theme::Tokens, PxuiBox, Span, Str, TextMetrics};
 
@@ -31,6 +31,8 @@ pub struct Paint<'a> {
     _borrow: PhantomData<&'a mut RawPaint>,
     clip_radius: f32,
     rtl: bool,
+    ink: Cell<(u16, Rgba)>,
+    capture_palette: bool,
 }
 
 /// The span writer behind a `Paint`: the one implementor of `Shapes` in the wrapper, kept private so the painter's public surface is its
@@ -70,7 +72,8 @@ impl<'a> Paint<'a> {
     unsafe fn from_raw(raw: *mut RawPaint, info: &PxuiPaintInfo) -> Option<Self> {
         let raw = NonNull::new(raw)?;
         let w = Writer { raw, span: Span::EMPTY, open: false, clip: info.clip, theme: info.theme.into(), density: info.density };
-        Some(Paint { w, _borrow: PhantomData, clip_radius: info.clip_radius, rtl: info.rtl != 0 })
+        Some(Paint { w, _borrow: PhantomData, clip_radius: info.clip_radius, rtl: info.rtl != 0,
+            ink: Cell::new((u16::MAX, Rgba::CLEAR)), capture_palette: info.reserved[0] != 0 })
     }
 
     /// Commits the span, so the library's own instances (text, images) follow the shapes drawn before them.
@@ -120,7 +123,16 @@ impl<'a> Paint<'a> {
     /// }).unwrap();
     /// assert_eq!(seen.get(), ink);
     /// ```
-    #[inline] pub fn color(&self, token: pxui_types::theme::ColorToken) -> Rgba { unsafe { lib::pxui_paint_color(self.w.raw.as_ptr(), token.0) } }
+    #[inline]
+    pub fn color(&self, token: pxui_types::theme::ColorToken) -> Rgba {
+        let (last, ink) = self.ink.get();
+        if token.0 == last {
+            return ink;
+        }
+        let ink = unsafe { lib::pxui_paint_color(self.w.raw.as_ptr(), token.0) };
+        self.ink.set((token.0, ink));
+        ink
+    }
     /// The theme tokens this painter draws with: the `Ui`'s root theme when painting started.
     ///
     /// Allocates: never.
@@ -365,6 +377,7 @@ impl Paint<'_> {
     /// `color`, or the colour its token (`Rgba::token`) names in this painter's theme.
     #[inline]
     fn ink(&self, color: Rgba) -> Rgba {
+        if self.capture_palette { return color; }
         match color.as_token() {
             // the token's opacity (`Rgba::alpha`, final): its green byte
             Some(token) => { let e = self.color(token); Rgba { a: ((u32::from(e.a) * u32::from(color.g) + 127) / 255) as u8, ..e } }

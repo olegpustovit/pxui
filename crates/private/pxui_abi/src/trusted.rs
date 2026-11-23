@@ -606,7 +606,7 @@ pub unsafe fn icon_button_plain(ui: *mut PxuiUi, key: &str, glyph: &str, name: &
     let glyph = clip(glyph);
     let name = clip(name);
     if bad_key(key) { return unsafe { fail(ui, "invalid icon button text") }; }
-    let r = unsafe { engine(ui) }.icon_button_text(key, glyph, None, name, &pxui_core::ui::IconButton::DEFAULT, None);
+    let r = unsafe { engine(ui) }.icon_button_text(key, glyph, None, name, &pxui_core::ui::IconButton::DEFAULT, None, None);
     *out = r;
     0
 }
@@ -626,14 +626,13 @@ pub unsafe fn icon_button_with(ui: *mut PxuiUi, key: &str, glyph: &str, draw: px
     if !button_size(w) || !button_size(h) || !press_scale.is_finite() || press_scale <= 0.0 { return unsafe { fail(ui, "invalid icon button descriptor") }; }
     let draw = draw.map(|f| (crate::paint::icon_bridge as pxui_core::ui::IconDraw, [f as usize, user as usize, unsafe { (*ui).shared } as usize, word as usize]));
     if press.is_some_and(|p| !p[0].valid() || !p[1].valid()) { return unsafe { fail(ui, "invalid icon button press curve") }; }
-    let mut button = pxui_core::ui::IconButton { states: None, w, h, enabled, press_scale, press, selected };
-    if let Some(states) = states { button.states = Some(*states); }
+    let button = pxui_core::ui::IconButton { w, h, enabled, press_scale, press, selected };
     let e = unsafe { engine(ui) };
     let r = match signal {
-        None => e.icon_button_text(key, glyph, draw, name, &button, None),
+        None => e.icon_button_text(key, glyph, draw, name, &button, states, None),
         Some(signal) => {
             let mut read = pxui_core::ui::Signal::default();
-            let r = e.icon_button_text(key, glyph, draw, name, &button, Some(&mut read));
+            let r = e.icon_button_text(key, glyph, draw, name, &button, states, Some(&mut read));
             crate::interaction::write_borrowed_signal(unsafe { &*ui }, &read, unsafe { engine(ui) }.key_events_ref(&r.handle), signal);
             r
         }

@@ -33,6 +33,8 @@ pub struct ImageCache {
     bytes: usize,
     namespace: usize,
     seen: u64,
+    /// The mip levels under an upload, built here and reused (grown to the largest chain once).
+    mips: Vec<u8>,
 }
 impl Default for ImageCache {
     fn default() -> Self {
@@ -43,6 +45,37 @@ impl Default for ImageCache {
             bytes: 0,
             namespace: 0,
             seen: 0,
+            mips: Vec::new(),
+        }
+    }
+}
+
+/// How many mip levels a `width` by `height` image has, down to 1 by 1.
+fn mip_levels(width: u32, height: u32) -> u32 {
+    32 - width.max(height).leading_zeros()
+}
+
+/// Halves straight-alpha RGBA `source` (`width` by `height`) into `out`: each texel is its 2x2 block's alpha-weighted average (a
+/// side of 1 keeps its texel; an odd side's last texel repeats), so transparent texels lend no colour.
+fn halve(source: &[u8], (width, height): (u32, u32), out: &mut [u8]) {
+    let (w, h) = ((width / 2).max(1) as usize, (height / 2).max(1) as usize);
+    let (width, height) = (width as usize, height as usize);
+    for y in 0..h {
+        for x in 0..w {
+            let mut sum = [0u32; 4];
+            for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+                let i = ((2 * y + dy).min(height - 1) * width + (2 * x + dx).min(width - 1)) * 4;
+                let a = source[i + 3] as u32;
+                for c in 0..3 {
+                    sum[c] += source[i + c] as u32 * a;
+                }
+                sum[3] += a;
+            }
+            let o = (y * w + x) * 4;
+            for c in 0..3 {
+                out[o + c] = if sum[3] == 0 { 0 } else { ((sum[c] + sum[3] / 2) / sum[3]) as u8 };
+            }
+            out[o + 3] = ((sum[3] + 2) / 4) as u8;
         }
     }
 }
@@ -145,7 +178,10 @@ impl ImageCache {
             {
                 return Err(Error::InvalidInput);
             }
-            bytes = pixels.len();
+            // the smaller levels a third again over the base: a cover drawn small (a queue row) filters instead of aliasing
+            let levels = mip_levels(width, height);
+            let chain: usize = (1..levels).map(|level| ((width >> level).max(1) * (height >> level).max(1)) as usize * 4).sum();
+            bytes = pixels.len() + chain;
             while self.bytes + bytes > BYTE_LIMIT {
                 let oldest = self.descriptors.oldest_image().ok_or(Error::State)?;
                 self.evict(oldest)?;
@@ -157,7 +193,7 @@ impl ImageCache {
                     width: width as i64,
                     height: height as i64,
                     depth: 1,
-                    mip_levels: 1,
+                    mip_levels: levels as i64,
                     sample_count: 1,
                     format: TextureFormat::Rgba8Unorm,
                     usage: vec![
@@ -180,6 +216,22 @@ impl ImageCache {
                 width as i64 * 4,
                 pixels,
             )
+            .and_then(|_| {
+                if self.mips.len() < chain {
+                    self.mips.resize(chain, 0);
+                }
+                let (mut from, mut size, mut at) = (None, (width, height), 0);
+                for level in 1..levels {
+                    let next = ((size.0 / 2).max(1), (size.1 / 2).max(1));
+                    let len = (next.0 * next.1) as usize * 4;
+                    let (done, rest) = self.mips.split_at_mut(at);
+                    halve(from.map_or(pixels, |start: usize| &done[start..]), size, &mut rest[..len]);
+                    be::write_texture(&texture, Some(level as i64), Origin { x: 0, y: 0, z: 0 },
+                        Extent { width: next.0 as i64, height: next.1 as i64, depth: 1 }, next.0 as i64 * 4, &rest[..len])?;
+                    (from, size, at) = (Some(at), next, at + len);
+                }
+                Ok(())
+            })
             .and_then(|_| be::native_texture(&texture));
             let native = match prepared {
                 Ok(native) => native,
@@ -235,5 +287,22 @@ impl ImageCache {
         self.bytes = 0;
         self.descriptors.clear();
         Ok(())
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::{halve, mip_levels};
+
+    pub(crate) fn mip_chain_halves_by_alpha_weight_down_to_one_texel() {
+        assert_eq!((mip_levels(1, 1), mip_levels(8, 4), mip_levels(9, 1), mip_levels(1024, 3)), (1, 4, 4, 11));
+        // a red opaque texel beside a transparent green one averages to red at half alpha; an odd side repeats its last texel
+        let source = [255, 0, 0, 255, 0, 255, 0, 0, 0, 0, 255, 255];
+        let mut out = [0u8; 4];
+        halve(&source, (3, 1), &mut out);
+        assert_eq!(out, [255, 0, 0, 128]);
+        let mut grey = [0u8; 4];
+        halve(&[0, 0, 0, 255, 255, 255, 255, 255, 0, 0, 0, 255, 255, 255, 255, 255], (2, 2), &mut grey);
+        assert_eq!(grey, [128, 128, 128, 255]);
     }
 }

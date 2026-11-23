@@ -267,7 +267,7 @@ fn drop_over(ui: &mut Ui, r: &Rows, n: &Handle, i: usize, flags: u8) -> u8 {
 #[allow(clippy::too_many_arguments)]
 fn row_in(ui: &mut Ui, r: &mut Rows, flags: &mut [u8], anchor: &mut Option<usize>, i: usize, y: f32, n: Handle, drop: u8, content: &mut dyn FnMut(&mut Ui, usize, &ListCell)) {
     let enabled = flags[i] & DISABLED == 0;
-    let s = ui.signal_owned(&n);
+    let s = ui.signal(&n);
     if enabled {
         if s.clicked {
             let (shift, command) = ui.press_mods(&n);
@@ -357,8 +357,17 @@ fn lay_columns(columns: &[ColumnSpec], widths: &mut [PxuiColumnWidth], avail: f3
         fixed += points[i];
     }
     let rest = (avail - fixed).max(0.0);
+    let (mut share, mut boundary) = (0.0, 0.0);
     for (i, c) in columns.iter().enumerate() {
-        widths[i] = PxuiColumnWidth { id: c.id, w: if c.hidden() { 0.0 } else if c.share > 0.0 { (rest * c.share / shares).floor() } else { points[i] }, reserved: 0 };
+        let w = if c.share > 0.0 {
+            share += c.share;
+            // Round boundaries instead of widths so the shares consume the entire remainder.
+            let next = if share == shares { rest } else { (rest * (share / shares)).round().min(rest) };
+            let w = next - boundary;
+            boundary = next;
+            w
+        } else { points[i] };
+        widths[i] = PxuiColumnWidth { id: c.id, w, reserved: 0 };
     }
 }
 

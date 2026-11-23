@@ -1041,6 +1041,30 @@ pub fn window_pxui_full_width_retained_state() {
     ui.destroy();
 }
 
+/// A sheet built over another open modal (the later one is on top) takes its clicks: the modal under it keeps them for it.
+fn window_stacked_modal_takes_its_clicks() {
+    let mut ui = new_ui(Some(11));
+    let key = Cell::new(None);
+    let clicked = Cell::new(false);
+    let mut build = |ui: &mut Ui| {
+        ui.modal_root("under", &pxui_core::ui::Overlay::DEFAULT.w_px(360.0).name("under"), &mut |ui| {
+            ui.node("fill".into(), Node::DEFAULT.w(Size::Grow).h(Size::Px(300.0)));
+        });
+        ui.modal_root("over", &pxui_core::ui::Overlay::DEFAULT.w_px(200.0).name("over"), &mut |ui| {
+            let button = ui.node("button".into(), Node::DEFAULT.w(Size::Grow).h(Size::Px(40.0)).flags(Flags::CLICKABLE));
+            key.set(Some(button));
+            clicked.set(ui.signal(&button).clicked);
+        });
+    };
+    for time in [0.0, 0.01, 0.02] { ui.frame(&frame_at(vec![], 1.0, time, vec![]), &mut build); }
+    let r = ui.rect(&key.get().unwrap());
+    let at = ((r.x + r.w / 2.0) as i64, (r.y + r.h / 2.0) as i64);
+    ui.frame(&frame_at(vec![], 1.0, 0.03, vec![move_to(at), press(at)]), &mut build);
+    ui.frame(&frame_at(vec![], 1.0, 0.04, vec![release(at)]), &mut build);
+    assert!(clicked.get(), "the top sheet's button is clicked");
+    ui.destroy();
+}
+
 fn window_modal_input_and_fitted_labels_reuse_warm_storage() {
     let mut ui = new_ui(Some(11));
     let inside = Cell::new(None);
@@ -1141,10 +1165,44 @@ fn window_focused_key_reuses_a_warmed_key_list() {
     ui.destroy();
 }
 
+fn removing_colliding_slots_preserves_live_handles_without_warm_allocations() {
+    let mut ui = field_ui();
+    let input = frame_at(vec![], 1.0, 0.0, vec![]);
+    let node = Node::DEFAULT.w(Size::Px(30.0)).h(Size::Px(20.0));
+    // The initial slot table has 256 entries. These keys collide across its end and around key 256.
+    let mut kept = None;
+    ui.frame(&input, &mut |ui| {
+        ui.node_keyed(255, node);
+        ui.node_keyed(256, node);
+        kept = Some(ui.node_keyed(511, node));
+        ui.node_keyed(767, node);
+    });
+    let kept = kept.unwrap();
+    for frame in 0..32 {
+        let key = 1023 + 256 * frame;
+        mem_sys::local_reset();
+        ui.frame(&input, &mut |ui| {
+            ui.node_keyed(256, node);
+            let live = ui.node_keyed(511, node);
+            assert_eq!((live.box_slot, live.generation), (kept.box_slot, kept.generation));
+            ui.node_keyed(key, node);
+        });
+        if frame > 1 {
+            assert_eq!(mem_sys::local_alloc_count(), 0);
+        }
+        assert!(ui.box_of_key(255).is_none());
+        assert!(ui.box_of_key(key - 256).is_none());
+        assert!(ui.box_of_key(key).is_some());
+    }
+    ui.destroy();
+}
+
 pub const CASES: &[(&str, fn())] = &[
+    ("removing_colliding_slots_preserves_live_handles_without_warm_allocations", removing_colliding_slots_preserves_live_handles_without_warm_allocations),
     ("window_focused_key_reuses_a_warmed_key_list", window_focused_key_reuses_a_warmed_key_list),
     ("window_fitted_paint_matches_legacy_ellipsis_and_ascii_caps", window_fitted_paint_matches_legacy_ellipsis_and_ascii_caps),
     ("window_modal_input_and_fitted_labels_reuse_warm_storage", window_modal_input_and_fitted_labels_reuse_warm_storage),
+    ("window_stacked_modal_takes_its_clicks", window_stacked_modal_takes_its_clicks),
     ("window_pxui_full_width_retained_state", window_pxui_full_width_retained_state),
     ("window_pxui_scale_1x", window_pxui_scale_1x),
     ("window_pxui_scale_2x", window_pxui_scale_2x),

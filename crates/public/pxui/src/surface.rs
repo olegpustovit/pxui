@@ -3365,6 +3365,259 @@ fn colour_tokens_follow_a_light_dark_theme_swap_without_app_rebuild_or_warm_allo
     assert_eq!(ui.color(ColorToken(65)), Rgba::default(), "past the table and the accent reads transparent");
 }
 
+#[test]
+fn instant_theme_install_preserves_widget_motion_and_paints_the_new_look_immediately() {
+    use crate::{Node, Rgba, ThemeHandle, theme::{ColorToken, Look, Tokens}};
+    const INK: ColorToken = ColorToken(0);
+    let mut tokens = Tokens::default();
+    tokens.motion.normal = 0.2;
+    tokens.motion.fast = 0.14;
+    let mut light = ThemeHandle::from_tokens(tokens);
+    light.set_color(INK, Rgba::rgb(240, 240, 240));
+    tokens.dark = true;
+    let mut dark = ThemeHandle::from_tokens(tokens);
+    dark.set_color(INK, Rgba::rgb(16, 16, 16));
+    dark.animate_swap(false);
+
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+    ui.set_theme(&light).unwrap();
+    let mut build = |ui: &mut Ui| {
+        ui.view_of("tile", &0, |ui| {
+            ui.node("fill", Node::column().w_px(30.0).h_px(30.0).look(Look::NONE.fill(Rgba::token(INK))));
+        });
+    };
+    ui.frame(&input(), &mut build).unwrap();
+    let rgb = |ui: &Ui| ui.layers().flat_map(|layer| layer.instances.iter())
+        .find(|instance| instance.rect == [0.0, 0.0, 30.0, 30.0]).unwrap().color;
+    assert_eq!(rgb(&ui), [240, 240, 240, 255]);
+    ui.set_theme(&dark).unwrap();
+    ui.frame(&input(), &mut build).unwrap();
+    assert_eq!(rgb(&ui), [16, 16, 16, 255]);
+    assert_eq!(ui.tokens().motion, tokens.motion);
+}
+
+#[test]
+fn positioned_label_matches_the_node_line_box_and_reports_invalid_geometry() {
+    use crate::{Label, Node, Rect, Rgba, Role, ThemeHandle, theme::{ColorToken, Look}};
+    const INK: ColorToken = ColorToken(0);
+    let mut theme = ThemeHandle::default();
+    theme.set_color(INK, Rgba::rgb(17, 59, 137));
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+    ui.set_theme(&theme).unwrap();
+    ui.set_a11y(true);
+    let rect = Rect::new(7.0, 15.0, 70.0, 38.0);
+    let text = "An accessible title";
+    let style = Label::BODY.size(15.0).line_height(19.0).wrap_spaces().color(INK);
+    for scale in [1.0, 2.0] {
+        let mut instances = Vec::new();
+        for positioned in [false, true] {
+            ui.frame(&input().scale(scale), &mut |ui| {
+                if positioned {
+                    let invalid = Rect { w: -1.0, ..rect };
+                    assert_eq!(ui.label_at("invalid".into(), invalid, text, style).unwrap_err(), crate::Error::InvalidInput);
+                    assert!(ui.box_of_key("invalid").is_none());
+                    ui.label_at("title".into(), rect, text, style).unwrap();
+                } else {
+                    let box_ = ui.node("title", Node::column().w_px(rect.w).h_px(rect.h).at(rect.x, rect.y)
+                        .role(Role::Label).look(Look::NONE.text(Rgba::token(INK))));
+                    ui.text_line_box(&box_, text, style, &[]).unwrap();
+                }
+            }).unwrap();
+            assert_eq!(crate::testing::find(&ui, Role::Label, text), Some(rect));
+            let actual = ui.layer(0).unwrap().instances;
+            assert!(!actual.is_empty());
+            if positioned { assert_eq!(actual, instances); } else { instances.extend_from_slice(actual); }
+        }
+    }
+}
+
+#[test]
+fn positioned_label_redeclaration_clears_a_previous_layout_override() {
+    use crate::{Label, Node, Rect, Role};
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+    ui.set_a11y(true);
+    let rect = Rect::new(7.0, 15.0, 70.0, 38.0);
+    let moved = Rect::new(17.0, 5.0, 90.0, 32.0);
+    for frame in 0..4 {
+        ui.frame(&input(), &mut |ui| {
+            let label = ui.label_at("title".into(), rect, "Track", Label::BODY.line_height(19.0)).unwrap();
+            if frame == 2 {
+                ui.set_node_layout(&label, &Node::column().w_px(moved.w).h_px(moved.h).at(moved.x, moved.y));
+            }
+        }).unwrap();
+        assert_eq!(crate::testing::find(&ui, Role::Label, "Track"), Some(if frame == 2 { moved } else { rect }));
+    }
+}
+
+#[test]
+fn instant_palette_reuse_matches_fresh_positioned_labels_and_rebuilds_canvases() {
+    use crate::{Appearance, Fill, Label, Rect, Rgba, ThemeHandle, theme::ColorToken};
+    use std::cell::Cell;
+
+    let split_ink = |dark: bool| {
+        let mut theme = ThemeHandle::parse(if dark { "tokens.dark = true\nlabel.text = #54ff0200" } else { "label.text = #54ff0200" }).unwrap();
+        theme.animate_swap(false);
+        theme.set_color(ColorToken(0), if dark { Rgba::rgb(60, 30, 90) } else { Rgba::rgb(10, 20, 30) });
+        theme.set_color(ColorToken(1), if dark { Rgba::rgb(90, 30, 60) } else { Rgba::rgb(10, 20, 30) });
+        theme.set_color(ColorToken(2), if dark { Rgba::rgb(52, 62, 72) } else { Rgba::rgb(22, 32, 42) });
+        theme
+    };
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+    ui.verify_views(false);
+    let light = split_ink(false);
+    let dark = split_ink(true);
+    let label_builds = Cell::new(0);
+    let canvas_builds = Cell::new(0);
+    let mut build = |ui: &mut Ui| {
+        ui.view_of("placed", &0, |ui| {
+            label_builds.set(label_builds.get() + 1);
+            for (index, text) in ["Snow", "River", "Hill"].into_iter().enumerate() {
+                let style = Label::BODY.line_height(20.0);
+                let style = if index < 2 { style.color(ColorToken(index as u16)) } else { style };
+                ui.label_at((index as i64).into(), Rect::new(4.0, index as f32 * 20.0, 100.0, 20.0), text, style).unwrap();
+            }
+            ui.retain_palette_labels();
+        });
+        ui.view_of("canvas", &0, |ui| {
+            canvas_builds.set(canvas_builds.get() + 1);
+            let label = ui.label_at("placed".into(), Rect::new(140.0, 0.0, 40.0, 20.0), "View", Label::BODY.line_height(20.0)).unwrap();
+            ui.canvas(&label, |paint, rect| paint.fill(rect, Fill::new(Rgba::token(ColorToken(0)))));
+            ui.retain_palette_labels();
+        });
+    };
+    let snapshot = |ui: &Ui| ui.layer(0).unwrap().instances.iter().filter(|instance| **instance != crate::draw::Instance::DEFAULT).copied().collect::<Vec<_>>();
+    ui.set_theme(&light).unwrap();
+    ui.frame(&input().appearance(Appearance::Light), &mut build).unwrap();
+    let old = snapshot(&ui);
+    let counts = (label_builds.get(), canvas_builds.get());
+    ui.set_theme(&dark).unwrap();
+    assert_eq!(snapshot(&ui), old, "changing the theme does not change an already published frame");
+    ui.frame(&input().appearance(Appearance::Dark), &mut build).unwrap();
+    assert_eq!((label_builds.get(), canvas_builds.get()), (counts.0, counts.1 + 1));
+    let retained = snapshot(&ui);
+    assert_ne!(old, retained);
+    ui.verify_views(true);
+    ui.frame(&input().appearance(Appearance::Dark), &mut build).unwrap();
+    assert_eq!(snapshot(&ui), retained);
+
+    ui.verify_views(false);
+    let mut moved = split_ink(false);
+    moved.density(2.0);
+    let before = label_builds.get();
+    ui.set_theme(&moved).unwrap();
+    ui.frame(&input(), &mut build).unwrap();
+    assert!(label_builds.get() > before, "a theme with different metrics rebuilds the view");
+}
+
+#[test]
+fn instant_palette_replays_token_shapes_and_labels_in_both_directions() {
+    use crate::{Appearance, Fill, Label, Node, Rect, Rgba, Stroke, ThemeHandle, theme::ColorToken};
+    use std::cell::Cell;
+
+    const FILL: ColorToken = ColorToken(0);
+    const STROKE: ColorToken = ColorToken(1);
+    let theme = |dark: bool| {
+        let mut theme = ThemeHandle::parse(if dark { "tokens.dark = true" } else { "" }).unwrap();
+        theme.animate_swap(false);
+        theme.set_color(FILL, if dark { Rgba::rgb(70, 30, 15) } else { Rgba::rgb(20, 20, 20) });
+        theme.set_color(STROKE, if dark { Rgba::rgb(15, 70, 30) } else { Rgba::rgb(20, 20, 20) });
+        theme
+    };
+    let (light, dark) = (theme(false), theme(true));
+    let builds = Cell::new(0);
+    let build = |ui: &mut Ui, retain: bool| {
+        ui.view_of("palette", &0, |ui| {
+            if retain {
+                ui.retain_palette_paint();
+                builds.set(builds.get() + 1);
+            }
+            let surface = ui.node("rule", Node::column().w_px(180.0).h_px(60.0));
+            ui.canvas(&surface, |paint, _| {
+                paint.fill(Rect::new(1.25, 3.0, 40.0, 4.0), Fill::new(Rgba::token(STROKE)).fractional());
+            });
+            ui.within(&surface, &mut |ui| {
+                let label = Label::BODY.line_height(18.0).color(FILL);
+                ui.label_at("name".into(), Rect::new(2.0, 8.0, 70.0, 18.0), "Track", label).unwrap();
+                ui.view_of("nested", &0, |ui| {
+                    if retain { ui.retain_palette_paint(); }
+                    let dot = ui.node("dot", Node::column().w_px(50.0).h_px(30.0));
+                    ui.canvas(&dot, |paint, rect| {
+                        paint.circle((rect.x + 17.0, rect.y + 16.0), 4.0,
+                            Some(Fill::new(Rgba::token(FILL).alpha(153))),
+                            Some(Stroke::new(Rgba::token(STROKE)).width(1.25)));
+                    });
+                });
+            });
+        });
+    };
+    let snapshot = |ui: &Ui| ui.layer(0).map_or_else(Vec::new, |layer|
+        layer.instances.iter().filter(|i| **i != crate::draw::Instance::DEFAULT).copied().collect::<Vec<_>>());
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+    let mut fresh = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+    fresh.verify_views(true);
+    let mut previous = Vec::new();
+    let mut first_light = Vec::new();
+    for (theme, appearance) in [(&light, Appearance::Light), (&dark, Appearance::Dark), (&light, Appearance::Light)] {
+        ui.verify_views(false);
+        ui.set_theme(theme).unwrap();
+        assert_eq!(snapshot(&ui), previous, "a swap cannot mutate published output before a frame");
+        let before = builds.get();
+        ui.frame(&input().appearance(appearance), &mut |ui| build(ui, true)).unwrap();
+        let retained = snapshot(&ui);
+        assert!(!retained.is_empty());
+        if !previous.is_empty() {
+            assert_ne!(retained, previous);
+            assert_eq!(builds.get(), before, "canvas colors replay without building the view");
+        }
+        ui.verify_views(true);
+        ui.frame(&input().appearance(appearance), &mut |ui| build(ui, true)).unwrap();
+        assert_eq!(snapshot(&ui), retained, "retained paint matches a fresh verified build");
+
+        fresh.set_theme(theme).unwrap();
+        fresh.frame(&input().appearance(appearance), &mut |ui| build(ui, false)).unwrap();
+        assert_eq!(snapshot(&fresh), retained, "symbolic and concrete painters produce the same output");
+        if appearance == Appearance::Light {
+            if first_light.is_empty() { first_light.clone_from(&retained); }
+            else { assert_eq!(retained, first_light); }
+        }
+        previous = retained;
+    }
+}
+
+#[test]
+fn viewport_independent_view_keeps_its_local_layout_only_at_the_same_size_and_density() {
+    use crate::{Label, Node, Rect, Role};
+    use std::cell::Cell;
+
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+    ui.verify_views(false);
+    ui.set_a11y(true);
+    let builds = Cell::new(0);
+    let actual_width = Cell::new(100.0);
+    let mut build = |ui: &mut Ui| {
+        let x = ui.view_size().width - actual_width.get();
+        let node = Node::column().w_px(actual_width.get()).h_px(50.0).at(x, 10.0);
+        ui.column(node, |ui| {
+            ui.view_of("transport", &0, |ui| {
+                builds.set(builds.get() + 1);
+                let _ = ui.label_at("title".into(), Rect::new(4.0, 6.0, 80.0, 20.0), "Playback", Label::BODY.line_height(20.0)).unwrap();
+                ui.retain_view_on_resize();
+            });
+        });
+    };
+    ui.frame(&FrameIn::new(320.0, 240.0), &mut build).unwrap();
+    let first = builds.get();
+    ui.frame(&FrameIn::new(400.0, 280.0), &mut build).unwrap();
+    assert_eq!(builds.get(), first);
+    assert_eq!(crate::testing::find(&ui, Role::Label, "Playback"), Some(Rect::new(304.0, 16.0, 80.0, 20.0)));
+    actual_width.set(120.0);
+    ui.frame(&FrameIn::new(420.0, 300.0), &mut build).unwrap();
+    assert!(builds.get() > first, "a change to the view's own size rebuilds");
+    let before = builds.get();
+    ui.frame(&FrameIn::new(420.0, 300.0).scale(2.0), &mut build).unwrap();
+    assert!(builds.get() > before, "a density change rebuilds");
+}
+
 /// A handle's theme record (`PxuiUi.theme`, read by `Ui::theme` after the handle's first read) is the theme in effect for it: each
 /// `themed` scope's handle sees its own, the outer handle reads its own again after scopes nested deeper than any before (the engine's
 /// stack grew under it), and the owner's follows a theme swap between frames.

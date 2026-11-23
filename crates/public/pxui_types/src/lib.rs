@@ -580,8 +580,10 @@ pub struct Environment {
     pub keyboard_curve: u32,
     /// 0 or 1; set after native did-show, cleared after native did-hide.
     pub keyboard_visible: u32,
-    /// Reserved for the ABI. Write zero on input.
-    pub reserved: u32,
+    /// The system's scroller style: 0 (legacy: a scrolling node keeps a gutter and its thumb shows at rest) or
+    /// `Environment::OVERLAY_SCROLLERS` (Apple's overlay scrollers: no gutter; the thumb shows while the offset moves and for
+    /// `Environment::SCROLLER_HOLD` seconds after).
+    pub scrollers: u32,
     /// Insets in top, right, bottom, left order; backgrounds may draw behind them.
     pub safe_area: [f32; 4],
     /// Keyboard's animation target and starting frame, including offscreen hide targets.
@@ -606,8 +608,29 @@ impl Environment {
     /// const ENV: pxui_types::Environment = pxui_types::Environment::new([24.0, 0.0, 0.0, 0.0]);
     /// ```
     pub const fn new(safe_area: [f32; 4]) -> Environment {
-        Environment { size: core::mem::size_of::<Environment>() as u32, keyboard_curve: 0, keyboard_visible: 0, reserved: 0, safe_area,
+        Environment { size: core::mem::size_of::<Environment>() as u32, keyboard_curve: 0, keyboard_visible: 0, scrollers: 0, safe_area,
             keyboard_frame: [0.0; 4], keyboard_from: [0.0; 4], keyboard_started: 0.0, keyboard_duration: 0.0 }
+    }
+
+    /// `scrollers` for Apple's overlay scroller style.
+    pub const OVERLAY_SCROLLERS: u32 = 1;
+    /// How long an overlay scroller's thumb stays after its view stops scrolling, in seconds (the system's ~1 s).
+    pub const SCROLLER_HOLD: f64 = 1.0;
+
+    /// Sets the system's scroller style: `true` for overlay scrollers (`OVERLAY_SCROLLERS`), `false` for the legacy gutter and
+    /// resting thumb.
+    ///
+    /// A host reads it from the platform's preference (macOS `NSScroller.preferredScrollerStyle`; overlay on iOS).
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let env = pxui_types::Environment::new([0.0; 4]).overlay_scrollers(true);
+    /// assert_eq!(env.scrollers, pxui_types::Environment::OVERLAY_SCROLLERS);
+    /// ```
+    pub const fn overlay_scrollers(mut self, on: bool) -> Environment {
+        self.scrollers = if on { Self::OVERLAY_SCROLLERS } else { 0 };
+        self
     }
 
     /// Adds the keyboard's animation: its target and starting frames, start time (`FrameIn::time`'s clock), duration, UIKit curve and
@@ -1084,7 +1107,7 @@ pub mod feature {
 }
 
 /// The ABI version this crate's records describe (`major << 16 | minor`); an app states it as `PxuiUiDesc::abi_built`.
-pub const ABI_BUILT: u32 = 2 << 16;
+pub const ABI_BUILT: u32 = (2 << 16) | 3;
 impl Default for PxuiUiDesc { fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, platform: 0, font_size: 0, abi_built: ABI_BUILT } } }
 
 #[cfg(test)]

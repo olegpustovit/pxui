@@ -804,7 +804,8 @@ impl Ui {
         // own: it shares the modal's events, and only the modal one is dismissed, by a press outside
         // it and every `keep` rectangle.
         self.set_modal_in_frame(true);
-        if !opts.attached {
+        // a popup under the one input was routed to (a sheet stacked over it) leaves that sheet its signals
+        if !opts.attached && !self.under_routed_modal(key) {
             self.retain_popup_state(key, related);
         }
         let slot = self.slot_for(key);
@@ -902,6 +903,16 @@ impl Ui {
     pub fn label(&mut self, text: &str, style: Label) {
         let style = *style.fields();
         assert!(self.label_styled(text, &style, false).is_some(), "Ui.label: invalid style {style:?}");
+    }
+
+    /// A keyed label in an explicit rectangle, using rounded line-box baselines.
+    pub fn label_at(&mut self, key: &str, rect: Rect, text: &str, label: &LabelFields) -> Option<Handle> {
+        let ink = label.color.map(|token| self.color(token.0));
+        let LabelText { style, color, .. } = resolve_label(label, &self.theme().label.idle, self.font_size(), self.row_height(), ink)?;
+        if style.line_height <= 0.0 || !style.tracking.is_finite() || self.text_mut().font_metrics(style.font).is_none() {
+            return None;
+        }
+        Some(self.positioned_label(key, rect, color, label.color, text, &style))
     }
 
     /// The text style `label` shapes with, resolved against this `Ui`'s theme label as `label` resolves it (unset fields are the

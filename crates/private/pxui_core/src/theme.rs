@@ -36,6 +36,17 @@ macro_rules! widgets {
         }
         const WIDGETS: &[&str] = &[$(stringify!($name)),*];
         impl Theme {
+            pub(crate) fn same_geometry(&self, other: &Self) -> bool {
+                let previous = &self.tokens;
+                let mut next = other.tokens;
+                (next.panel, next.foreground, next.control, next.input, next.track, next.accent, next.invalid, next.ink_ground, next.dark) =
+                    (previous.panel, previous.foreground, previous.control, previous.input, previous.track, previous.accent, previous.invalid, previous.ink_ground, previous.dark);
+                next == *previous && self.body == other.body && self.row_h == other.row_h && self.control_h == other.control_h
+                    && self.scrollbar_w == other.scrollbar_w && self.scrollbar_gap == other.scrollbar_gap
+                    && self.ring.width == other.ring.width && self.ring.sides == other.ring.sides
+                    $(&& same_state_geometry(&self.$name, &other.$name))*
+            }
+
             /// Calls `f` with each part's `States`, in declaration order.
             pub(crate) fn each_states(&self, f: &mut dyn FnMut(&States)) { $(f(&self.$name);)* }
             /// Calls `f` with each part's `States` to change, in declaration order.
@@ -51,6 +62,18 @@ macro_rules! widgets {
 }
 
 pxui_types::theme_widgets!(widgets);
+
+fn same_state_geometry(old: &States, new: &States) -> bool {
+    [&old.idle, &old.hover, &old.pressed, &old.focus, &old.disabled, &old.checked].into_iter()
+        .zip([&new.idle, &new.hover, &new.pressed, &new.focus, &new.disabled, &new.checked]).all(|(a, b)| {
+            a.gradient.is_some() == b.gradient.is_some() && a.angle == b.angle && a.border_w == b.border_w
+                && a.sides == b.sides && a.radius == b.radius && a.font == b.font && a.opacity == b.opacity
+                && a.ring.width == b.ring.width && a.ring.sides == b.ring.sides && a.dashed == b.dashed
+                && a.shadows.iter().zip(&b.shadows).all(|(a, b)| {
+                    a.offset == b.offset && a.blur == b.blur && a.spread == b.spread && a.inner == b.inner
+                })
+        })
+}
 
 impl Default for Theme {
     fn default() -> Theme {

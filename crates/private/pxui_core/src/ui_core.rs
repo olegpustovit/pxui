@@ -94,83 +94,70 @@ enum Origin {
 
 // ------------------------------------------------------ retained cache
 
-/// Open addressing over int keys; 0 and 1 are the empty and tombstone marks. A rehash that clears
-/// tombstones at the same capacity goes through the kept spare arrays: keys that come and go (a
-/// scrolled virtual list) allocate nothing.
+/// Open addressing over integer keys. Deletion closes its probe cluster so that a scrolled list
+/// can replace every row without accumulating tombstones and rehashing the table.
 struct SlotTable {
-    keys: Vec<i64>,
-    slots: Vec<usize>,
-    spare_keys: Vec<i64>,
-    spare_slots: Vec<usize>,
-    filled: usize,
+    /// (key, slot) side by side: a lookup touches one cache line. Key 0 is empty.
+    entries: Vec<(i64, usize)>,
     live: usize,
 }
 
 impl SlotTable {
     fn create() -> SlotTable {
-        SlotTable { keys: vec![0; 256], slots: vec![0; 256], spare_keys: vec![0; 256], spare_slots: vec![0; 256], filled: 0, live: 0 }
+        SlotTable { entries: vec![(0, 0); 256], live: 0 }
     }
 
     fn index(&self, key: i64) -> usize {
-        let mask = self.keys.len() - 1;
+        let mask = self.entries.len() - 1;
         let mut position = (key as usize) & mask;
-        let mut vacant = None;
         loop {
-            let found = self.keys[position];
-            if found == key {
+            let found = self.entries[position].0;
+            if found == key || found == 0 {
                 return position;
             }
-            if found == 0 { return vacant.unwrap_or(position); }
-            if found == 1 && vacant.is_none() { vacant = Some(position); }
             position = (position + 1) & mask;
         }
     }
 
     fn find(&self, key: i64) -> Option<usize> {
         if key == 0 || key == 1 { return None; }
-        let position = self.index(key);
-        if self.keys[position] == key { Some(self.slots[position]) } else { None }
+        let (found, slot) = self.entries[self.index(key)];
+        (found == key).then_some(slot)
     }
 
     fn add(&mut self, key: i64, slot: usize) {
-        if 10 * (self.filled + 1) > 7 * self.keys.len() {
-            let keys = std::mem::take(&mut self.keys);
-            let slots = std::mem::take(&mut self.slots);
-            let capacity = if 10 * (self.live + 1) > 7 * keys.len() { 2 * keys.len() } else { keys.len() };
-            (self.keys, self.slots) = (std::mem::take(&mut self.spare_keys), std::mem::take(&mut self.spare_slots));
-            self.keys.clear();
-            self.keys.resize(capacity, 0);
-            self.slots.clear();
-            self.slots.resize(capacity, 0);
-            self.filled = 0;
-            self.live = 0;
-            for (position, k) in keys.iter().enumerate() {
-                if *k != 0 && *k != 1 {
-                    self.add(*k, slots[position]);
+        if 2 * (self.live + 1) > self.entries.len() {
+            let capacity = 2 * self.entries.len();
+            let entries = std::mem::replace(&mut self.entries, vec![(0, 0); capacity]);
+            for &(k, s) in &entries {
+                if k != 0 {
+                    let position = self.index(k);
+                    self.entries[position] = (k, s);
                 }
-            }
-            // a grown table's spares grow with it, so its next rehash allocates nothing either
-            if capacity == keys.len() {
-                (self.spare_keys, self.spare_slots) = (keys, slots);
-            } else {
-                (self.spare_keys, self.spare_slots) = (vec![0; capacity], vec![0; capacity]);
             }
         }
         let position = self.index(key);
-        if self.keys[position] != key {
-            self.filled += usize::from(self.keys[position] == 0);
-            self.live += 1;
-        }
-        self.keys[position] = key;
-        self.slots[position] = slot;
+        debug_assert_eq!(self.entries[position].0, 0, "only new slots are inserted");
+        self.entries[position] = (key, slot);
+        self.live += 1;
     }
 
     fn remove(&mut self, key: i64) {
-        let position = self.index(key);
-        if self.keys[position] == key {
-            self.keys[position] = 1;
-            self.live -= 1;
+        let mut hole = self.index(key);
+        if self.entries[hole].0 != key { return; }
+        let mask = self.entries.len() - 1;
+        let mut next = (hole + 1) & mask;
+        while self.entries[next].0 != 0 {
+            let home = self.entries[next].0 as usize & mask;
+            let distance = |at: usize| at.wrapping_sub(home) & mask;
+            if distance(hole) < distance(next) {
+                self.entries[hole] = self.entries[next];
+                hole = next;
+            }
+            next = (next + 1) & mask;
         }
+        self.entries[hole] = (0, 0);
+        self.live -= 1;
     }
 }
 
@@ -396,6 +383,10 @@ struct ViewRec {
     /// its last build put boxes at the root, asked for a frame or ran a hover delay: rebuild it
     escapes: bool,
     patched: bool,
+    palette_labels: bool,
+    palette_paint: bool,
+    palette_shape_count: u8,
+    viewport_independent: bool,
     /// a clean view rebuilt by `verify_views`: its output must equal the kept one
     verify: bool,
     /// Rebuild descendants together when this view's available size changes.
@@ -484,6 +475,10 @@ impl ViewRec {
             dirty: false,
             escapes: false,
             patched: false,
+            palette_labels: false,
+            palette_paint: false,
+            palette_shape_count: 0,
+            viewport_independent: false,
             verify: false,
             reflow: false,
             valid: false,
@@ -619,6 +614,18 @@ impl ViewRec {
     }
 }
 
+/// Color sources in a kept canvas. Indices are relative to the view's run after placement.
+#[derive(Clone, Copy, Default)]
+struct PaletteShape {
+    at: u32,
+    end: u32,
+    fill: Rgba,
+    stroke: Rgba,
+}
+
+// Large canvases rebuild. Small views can recycle between kinds without growing storage in a warm frame.
+const PALETTE_SHAPES: usize = 16;
+
 /// A run of a layer: fresh instances `a..b` of the frame's scratch layer, or a kept view's run;
 /// `at` is where it lands in the retained layer.
 #[derive(Clone, Copy)]
@@ -680,6 +687,44 @@ impl NodeText {
 /// The bit of `theme_id` set inside a `disabled` scope (the low byte numbers `themed` overrides).
 const DISABLED_ID: u32 = 0x100;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum NodeTemplate {
+    Custom,
+    View,
+    PositionedLabel,
+}
+
+/// A template stays reusable until an author or the engine mutates any of its node fields.
+struct SlotNode {
+    value: Node,
+    template: NodeTemplate,
+}
+
+impl SlotNode {
+    fn prepare(&mut self, template: NodeTemplate) -> &mut Node {
+        if self.template != template {
+            self.value = Node::DEFAULT;
+            if template == NodeTemplate::PositionedLabel {
+                self.value.role = Role::Label;
+            }
+            self.template = template;
+        }
+        &mut self.value
+    }
+}
+
+impl std::ops::Deref for SlotNode {
+    type Target = Node;
+    fn deref(&self) -> &Node { &self.value }
+}
+
+impl std::ops::DerefMut for SlotNode {
+    fn deref_mut(&mut self) -> &mut Node {
+        self.template = NodeTemplate::Custom;
+        &mut self.value
+    }
+}
+
 struct Slot {
     key: i64,
     new_identity: bool,
@@ -688,11 +733,13 @@ struct Slot {
     touched: i64,
     /// the frame and the key of the last duplicate of this key declared in it (`unique_key`)
     dup: (i64, i64),
-    node: Node,
+    node: SlotNode,
     text: String,
     /// Last layout key and text fingerprint survive builds and virtual-slot recycling.
     text_layout: std::cell::Cell<Option<(u64, u64)>>,
     rich: Option<NodeText>,
+    label_color: Option<pxui_types::theme::ColorToken>,
+    label_root_ink: bool,
     /// where the node's look was painted: the layer's key, the instance range, the clip, and the
     /// frame
     range_layer: i64,
@@ -753,10 +800,12 @@ impl Slot {
             generation: 0,
             touched: -1,
             dup: (-1, 0),
-            node: Node::DEFAULT,
+            node: SlotNode { value: Node::DEFAULT, template: NodeTemplate::Custom },
             text: String::new(),
             text_layout: std::cell::Cell::new(None),
             rich:None,
+            label_color: None,
+            label_root_ink: false,
             range_layer: 0,
             range: (0, 0),
             room: 0,
@@ -1056,6 +1105,7 @@ pub struct Ui {
     /// the root theme as `set_theme` was given it, kept only when its looks name colour tokens (`theme` holds them resolved), so a
     /// colour table change resolves it again
     theme_raw: Option<Box<Theme>>,
+    repaint_palette: Option<(u64, u64)>,
     theme_id: u32,
     /// this `Ui`'s number among the process's, for `theme_key`: from one process-wide counter, per process by design (an atomic `u64`
     /// taken once per `Ui`, so thread-safe and never wrapping; it holds no other state)
@@ -1098,6 +1148,12 @@ pub struct Ui {
     moving: Vec<usize>,
     gone: Vec<usize>,
     scroll_y: Vec<f32>,
+    /// per slot and axis (down, sideways), for overlay scrollers (`Environment::scrollers`): the offset its thumb last saw (NaN
+    /// before its first paint) and when it last moved
+    thumbs: Vec<[(f32, f64); 2]>,
+    /// overlay thumbs painted, by slot, and the time each hides: the view showing one repaints then; and the painter's scratch
+    thumb_hides: Vec<(usize, f64)>,
+    thumb_shown: Vec<(usize, f64)>,
     // per-frame boxes
     count: usize,
     boxes: Vec<BoxRec>,
@@ -1171,6 +1227,7 @@ pub struct Ui {
     /// the frame a theme swap transitions in (`set_theme`)
     swap_frame: i64,
     frame_number: i64,
+    first_build: i64,
     /// the last frame that made any node a drop zone (`drop_target_ref` while a payload is carried): the hit pass reads a node's
     /// slot for its zone only in such a frame
     drop_zones: i64,
@@ -1261,8 +1318,12 @@ pub struct Ui {
     modal_extra: Vec<i64>,
     dismissed_popups: Vec<i64>,
     modal_in_frame: bool,
+    /// The modal this frame's input was routed to (the last frame's top one): a popup under it keeps its signals.
+    routed_modal: Option<i64>,
     view_w: f32,
     view_h: f32,
+    height_changed: bool,
+    full_damage: bool,
     modal_heights: HashMap<i64, (f32, i64)>,
     signals: HashMap<i64, Accumulator>,
     spare_signals: Vec<Accumulator>,
@@ -1290,6 +1351,7 @@ pub struct Ui {
     press_chain: Vec<i64>,
     /// views by id (0: the root); free ids and painter table indices; the table index's view
     views: Vec<ViewRec>,
+    palette_shapes: Vec<[PaletteShape; PALETTE_SHAPES]>,
     free_views: Vec<u32>,
     free_indices: Vec<u16>,
     index_owner: Vec<u32>,
@@ -1381,6 +1443,11 @@ fn rgba(c: Rgba) -> [u8; 4] {
     [c.r, c.g, c.b, c.a]
 }
 
+fn palette_color(colors: &Palette, accent: Rgba, ink: Rgba) -> Rgba {
+    let Some(token) = ink.as_token() else { return ink; };
+    token_ink(ink, token_entry(colors, accent, token.0))
+}
+
 impl Ui {
     /// `platform` is the host's modifier conventions: the text keys and every Command check follow
     /// it. `text` holds the fonts the host loaded: font 0 is the kit face (`pxui_text::PRAGMASEVKA`
@@ -1409,6 +1476,7 @@ impl Ui {
             theme_depth: 0,
             theme_ids: Vec::new(),
             theme_raw: None,
+            repaint_palette: None,
             theme_id: 0,
             serial: { static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1); NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) },
             tweens: Vec::new(),
@@ -1437,6 +1505,9 @@ impl Ui {
             moving: Vec::new(),
             gone: Vec::new(),
             scroll_y: Vec::new(),
+            thumbs: Vec::new(),
+            thumb_hides: Vec::with_capacity(8),
+            thumb_shown: Vec::with_capacity(8),
             count: 0,
             boxes: Vec::new(),
             l_x: Vec::new(),
@@ -1485,6 +1556,7 @@ impl Ui {
             out_of_view: false,
             swap_frame: -1,
             frame_number: 0,
+            first_build: 1,
             drop_zones: -1,
             density: 1,
             kit_row_height: 24,
@@ -1556,8 +1628,11 @@ impl Ui {
             modal_extra: Vec::new(),
             dismissed_popups: Vec::new(),
             modal_in_frame: false,
+            routed_modal: None,
             view_w: 0.0,
             view_h: 0.0,
+            height_changed: false,
+            full_damage: false,
             modal_heights: HashMap::new(),
             signals: HashMap::new(),
             spare_signals: Vec::new(),
@@ -1577,6 +1652,7 @@ impl Ui {
             repatch: Vec::new(),
             press_chain: Vec::new(),
             views: vec![ViewRec::new()],
+            palette_shapes: vec![[PaletteShape::default(); PALETTE_SHAPES]],
             free_views: Vec::new(),
             free_indices: Vec::new(),
             index_owner: vec![0],
@@ -1673,27 +1749,132 @@ impl Ui {
     /// Install a theme whose named colours were checked during parsing.
     #[doc(hidden)]
     pub fn set_theme_with_token_colors(&mut self, theme: &Theme, names_tokens: bool) {
-        self.set_theme_with_palette(theme, names_tokens, None);
+        self.set_theme_with_palette(theme, names_tokens, None, true);
     }
 
     #[doc(hidden)]
-    pub fn set_theme_with_palette(&mut self, theme: &Theme, names_tokens: bool, palette: Option<&Palette>) {
+    pub fn set_theme_with_palette(&mut self, theme: &Theme, names_tokens: bool, palette: Option<&Palette>, animate_swap: bool) {
         debug_assert_eq!(names_tokens, theme.names_color_tokens());
+        let epoch = self.epoch;
+        let can_reuse = !animate_swap && !self.building
+            && (!self.system_reduced_motion || theme.tokens.reduced_motion)
+            && self.views[1..].iter().any(|view| view.palette_labels || view.palette_paint)
+            && self.theme.same_geometry(theme);
         if self.theme_colors.as_ref() != palette {
             self.theme_colors = palette.copied();
             self.epoch += 1;
+            self.full_damage = true;
         }
         self.theme_reduced_motion = theme.tokens.reduced_motion;
         if names_tokens || (self.system_reduced_motion && !theme.tokens.reduced_motion) {
-            self.install_theme_with_overrides(theme, names_tokens);
+            self.install_theme_with_overrides(theme, names_tokens, animate_swap);
         } else {
             self.theme_raw = None;
-            self.install_theme(theme);
+            self.install_theme(theme, animate_swap);
+        }
+        if self.epoch != epoch {
+            let source = self.repaint_palette.filter(|&(_, target)| target == epoch).map_or(epoch, |(source, _)| source);
+            self.repaint_palette = can_reuse.then_some((source, self.epoch));
         }
     }
 
+    /// Re-resolve eligible output before any view can keep it. A parent cannot keep a stale child.
+    fn recolor_views(&mut self, epoch: u64) {
+        for v in 1..self.views.len() {
+            let r = &self.views[v];
+            if r.slot == NONE || !(r.palette_labels || r.palette_paint) || r.epoch != epoch || r.theme != 0 || r.dirty || r.reflow {
+                continue;
+            }
+            let reusable = !r.patched && (!r.valid || (self.shown(v as u32) && r.nodes.iter().all(|&slot| {
+                let s = &self.slots[slot];
+                let n = &s.node;
+                if s.key == self.focus || self.tween_of(slot).is_some() { return false; }
+                if n.template == NodeTemplate::PositionedLabel {
+                    return s.label_root_ink && s.rich.as_ref().is_some_and(|rich| rich.spans.len == 0)
+                        && s.pose.2 == 1.0 && s.painted == r.built && s.range_layer == r.layer
+                        && s.range.0 >= r.run.0 && s.range.1 <= r.run.1;
+                }
+                let ink = &n.look;
+                r.palette_paint && s.text.is_empty() && s.rich.is_none() && n.bar.is_none()
+                    && matches!(n.mark, Mark::None) && !n.flags.any(Flags::KEEP_ROOM)
+                    && (ink.fill.a | ink.border.a | ink.text.a) == 0 && ink.gradient.is_none()
+                    && ink.shadows.iter().all(|shadow| shadow.color.a == 0)
+                    && ink.ring.color.a == 0
+            })));
+            if !reusable {
+                self.views[v].palette_labels = false;
+                self.views[v].palette_paint = false;
+            }
+        }
+        for v in 1..self.views.len() {
+            let r = &self.views[v];
+            if r.slot == NONE || ((r.palette_labels || r.palette_paint) && r.epoch == epoch && r.theme == 0 && !r.dirty && !r.reflow) {
+                continue;
+            }
+            let mut parent = r.parent as usize;
+            while parent != 0 && self.views[parent].palette_paint {
+                self.views[parent].palette_paint = false;
+                parent = self.views[parent].parent as usize;
+            }
+        }
+        let colors = *self.palette();
+        let accent = self.theme.tokens.accent;
+        let label_ink = self.theme.label.idle.text;
+        let resolve = |ink: Rgba| palette_color(&colors, accent, ink);
+        let mut changed = false;
+        for index in 1..self.views.len() {
+            let view = &self.views[index];
+            if view.slot == NONE || !(view.palette_labels || view.palette_paint) || view.epoch != epoch || view.theme != 0 || view.dirty || view.reflow {
+                continue;
+            }
+            if !view.valid {
+                // A view without a run can only be kept while outside the viewport.
+                self.views[index].epoch = self.epoch;
+                continue;
+            }
+            let Some(layer) = self.draw[..self.draw_len].iter().position(|layer| layer.key == view.layer) else { continue };
+            if self.draw[layer].instances.get(view.run.0 as usize..view.run.1 as usize).is_none() { continue; }
+            let layer = &mut self.draw[layer];
+            let mut dirty = false;
+            for &slot in &view.nodes {
+                let s = &mut self.slots[slot];
+                if s.node.template != NodeTemplate::PositionedLabel { continue; }
+                let ink = resolve(s.label_color.map_or(label_ink, Rgba::token));
+                if ink == s.node.look.text { continue; }
+                s.node.value.look.text = ink;
+                s.seen.text = ink;
+                let (start, end) = s.range;
+                for instance in &mut layer.instances[start as usize..end as usize] {
+                    match instance.kind {
+                        crate::draw::kind::MASK => instance.color = rgba(ink),
+                        crate::draw::kind::IMAGE => instance.color[3] = ink.a,
+                        _ => {}
+                    }
+                }
+                dirty |= start < end;
+            }
+            for shape in &self.palette_shapes[index][..view.palette_shape_count as usize] {
+                let start = (view.run.0 + shape.at) as usize;
+                let end = (view.run.0 + shape.end) as usize;
+                let fill = shape.fill.as_token().map(|_| rgba(resolve(shape.fill)));
+                let stroke = shape.stroke.as_token().map(|_| rgba(resolve(shape.stroke)));
+                for instance in &mut layer.instances[start..end] {
+                    if let Some(color) = fill { instance.color = color; }
+                    if let Some(color) = stroke { instance.color2 = color; }
+                }
+                dirty = true;
+            }
+            if dirty {
+                add_range(&mut layer.dirty, view.run.0, view.run.1);
+                changed = true;
+            }
+            self.views[index].epoch = self.epoch;
+        }
+        if changed { self.draw_revision += 1; }
+    }
+
     #[inline(never)]
-    fn install_theme_with_overrides(&mut self, theme: &Theme, names_tokens: bool) {
+    fn install_theme_with_overrides(&mut self, theme: &Theme, names_tokens: bool, animate_swap: bool) {
         let mut theme = *theme;
         self.theme_raw = (names_tokens && self.theme_colors.is_none()).then(|| Box::new(theme));
         if names_tokens {
@@ -1701,15 +1882,17 @@ impl Ui {
             resolve_theme(&mut theme, palette);
         }
         theme.tokens.reduced_motion |= self.system_reduced_motion;
-        self.install_theme(&theme);
+        self.install_theme(&theme, animate_swap);
     }
 
-    fn install_theme(&mut self, theme: &Theme) {
+    fn install_theme(&mut self, theme: &Theme, animate_swap: bool) {
         if *theme != self.theme {
             self.epoch += 1;
+            self.full_damage = true;
             if theme.tokens.reduced_motion && !self.theme.tokens.reduced_motion { self.snap_motion(); }
             // Paint already saved the declared look unless the node changed again or motion was off.
-            if theme.tokens.moves() {
+            self.swap_frame = -1;
+            if animate_swap && theme.tokens.moves() && theme.tokens.motion.normal > 0.0 {
                 self.swap_frame = self.frame_number + if self.building { 0 } else { 1 };
                 for s in &mut self.slots {
                     if s.key != 0 && (s.touched > s.painted || s.look_needs_snapshot) {
@@ -1724,7 +1907,20 @@ impl Ui {
 
     /// Host facts stay separate from authored themes; turning the OS preference off restores them.
     pub fn set_system_preferences(&mut self,appearance:u32,reduced_motion:bool) {
-        if (appearance,reduced_motion)!=(self.system_appearance,self.system_reduced_motion) { self.epoch+=1; }
+        if (appearance, reduced_motion) != (self.system_appearance, self.system_reduced_motion) {
+            let previous = self.epoch;
+            self.epoch += 1;
+            if reduced_motion == self.system_reduced_motion {
+                if let Some((_, target)) = self.repaint_palette.as_mut() && *target == previous {
+                    *target = self.epoch;
+                }
+                for view in &mut self.views[1..] {
+                    if (view.palette_labels || view.palette_paint) && view.epoch == previous {
+                        view.epoch = self.epoch;
+                    }
+                }
+            }
+        }
         if reduced_motion && !self.system_reduced_motion { self.snap_motion(); }
         (self.system_appearance,self.system_reduced_motion)=(appearance,reduced_motion);
         self.theme.tokens.reduced_motion=self.theme_reduced_motion||reduced_motion;
@@ -1845,6 +2041,7 @@ impl Ui {
             reduced.tokens.reduced_motion=true;
             &reduced
         } else { theme };
+        self.views[self.view_cur as usize].palette_paint = false;
         let palette = palette.or_else(|| self.theme_palette()).copied();
         let saved = self.theme_id;
         // ids by search over the distinct themes and palettes seen, at most 32 (specification/pxui.md, designed limits)
@@ -1955,7 +2152,7 @@ impl Ui {
 
     /// The views whose label (`Ui::view`'s) starts with `prefix` the last frame built rather than kept.
     pub fn rebuilt_named(&self, prefix: &str) -> usize {
-        self.views.iter().skip(1).filter(|r| r.built == self.frame_number && r.name.starts_with(prefix)).count()
+        self.views.iter().skip(1).filter(|r| r.built >= self.first_build && r.name.starts_with(prefix)).count()
     }
 
     /// The view being built is clean and runs again only to be checked (`verify_views`): a build
@@ -1997,17 +2194,17 @@ impl Ui {
         let new_identity = self.slots[slot].new_identity;
         let current = field.get(&self.slots[slot]);
         if capacity >= len && (!new_identity || !current.is_empty() || capacity == len) {
-            self.empty_strings.used(field,slot,capacity);
             return;
         }
-        if let Some(index)=self.empty_strings.rebuild(field) {
-            index.extend(self.slots.iter().enumerate().filter_map(|(slot,value)| {
-                let buffer=field.get(value);
-                (buffer.is_empty() && buffer.capacity()!=0).then_some((buffer.capacity(),slot))
-            }));
-            index.sort_unstable();
+        if self.empty_strings.rebuild(field) {
+            for (slot, value) in self.slots.iter().enumerate() {
+                let buffer = field.get(value);
+                if buffer.is_empty() { self.empty_strings.empty(field, slot, buffer.capacity()); }
+            }
         }
-        if let Some(donor) = self.empty_strings.donor(field,slot,capacity,len) {
+        let slots = &self.slots;
+        let empty_capacity = |slot: usize| { let buffer = field.get(&slots[slot]); buffer.is_empty().then_some(buffer.capacity()) };
+        if let Some(donor) = self.empty_strings.donor(field,slot,capacity,len,&empty_capacity) {
             let buffer = std::mem::take(field.get_mut(&mut self.slots[donor]));
             let mut old = std::mem::replace(field.get_mut(&mut self.slots[slot]), buffer);
             old.clear();
@@ -2473,6 +2670,7 @@ impl Ui {
                 self.slots.push(Slot::fresh());
                 self.empty_strings.reserve(self.slots.capacity());
                 self.scroll_y.push(0.0);
+                self.thumbs.push([(f32::NAN, f64::NEG_INFINITY); 2]);
                 self.scroll_xs.push(0.0);
                 self.glides[0].push(Glide::REST);
                 self.glides[1].push(Glide::REST);
@@ -2485,6 +2683,7 @@ impl Ui {
         let s = &mut self.slots[slot];
         // Virtual rows reuse text and accessibility storage after their old identity is retired.
         let generation = s.generation;
+        let text_layout = s.text_layout.get();
         let mut text = std::mem::take(&mut s.text);
         let mut a11y_name = std::mem::take(&mut s.a11y_name);
         let mut a11y_value = std::mem::take(&mut s.a11y_value);
@@ -2493,12 +2692,14 @@ impl Ui {
         a11y_value.clear();
         *s = Slot::fresh();
         s.generation = generation;
+        s.text_layout.set(text_layout);
         s.text = text;
         s.a11y_name = a11y_name;
         s.a11y_value = a11y_value;
         s.key = key;
         s.touched = self.frame_number;
         self.scroll_y[slot] = 0.0;
+        self.thumbs[slot] = [(f32::NAN, f64::NEG_INFINITY); 2];
         self.scroll_xs[slot] = 0.0;
         (self.glides[0][slot], self.glides[1][slot]) = (Glide::REST, Glide::REST);
         self.gestures[slot] = gesture::GSlot::REST;
@@ -2540,9 +2741,9 @@ impl Ui {
         // does not grow the list
         let room = self.views.iter().filter(|r| r.built == self.frame_number).map(|r| r.nodes.len().max(r.prev.len())).sum::<usize>();
         gone.reserve(room.saturating_sub(gone.len()));
-        for v in 0..self.views.len() {
-            if self.views[v].built == self.frame_number {
-                gone.extend_from_slice(&self.views[v].prev);
+        for view in &self.views {
+            if view.built == self.frame_number && view.prev != view.nodes {
+                gone.extend_from_slice(&view.prev);
             }
         }
         while let Some(slot) = gone.pop() {
@@ -2882,6 +3083,7 @@ impl Ui {
         let mut released_carry = false;
         self.passed_undo = None;
         self.modal_in_frame = self.modal_key.is_some();
+        self.routed_modal = self.modal_key;
         let mut modifiers = std::mem::take(&mut self.route_keys);
         input::keys_before_into(&self.previous_keys, &frame.input.keys, &frame.input.events, &mut modifiers);
         self.frame_modifiers = modifiers.iter().fold(0, |mask, &key| mask | modifier_bit(key));
@@ -3705,23 +3907,60 @@ impl Ui {
     /// Declare build box `index`: its node record takes `node`, and its text, hit shape and canvases
     /// start empty. A patch made since the node's last build ends here.
     fn set_box(&mut self, index: usize, node: &Node) {
+        let slot = self.reset_box(index);
+        let s = &mut self.slots[slot];
+        *s.node = *node;
+        self.clear_box_text(slot);
+        if let Some(look) = self.resolve_look(&node.look) { self.slots[slot].node.look = look; }
+    }
+
+    fn reset_box(&mut self, index: usize) -> usize {
         let b = &mut self.boxes[index];
-        let slot=b.slot;
         b.hit = None;
         b.hit_rect = None;
         b.shape = HitShape::Own;
         b.paint = arena::EMPTY;
         b.over = arena::EMPTY;
         let s = &mut self.slots[b.slot];
-        s.node = *node;
-        s.text.clear();
         s.a11y_name.clear();
         s.a11y_value.clear();
         s.a11y_selection = (0, 0);
         s.a11y_number = None;
-        if let Some(look) = self.resolve_look(&node.look) { self.slots[slot].node.look = look; }
+        b.slot
+    }
+
+    fn clear_box_text(&mut self, slot: usize) {
+        self.slots[slot].text.clear();
         self.clear_rich(slot);
         self.cleared_strings(slot);
+    }
+
+    fn template_box(&mut self, key: &str) -> Handle {
+        self.require_building();
+        let (key, found) = self.unique_key(key_of(self.current_seed(), key));
+        let index = self.append_box(key, found, self.current_parent());
+        let slot = self.reset_box(index);
+        UiBox { index, box_key: key, box_slot: slot, generation: self.slots[slot].generation, ui: self.ui_serial }
+    }
+
+    pub(crate) fn positioned_label(&mut self, key: &str, rect: Rect, color: Rgba, token: Option<pxui_types::theme::ColorToken>, text: &str, style: &Style) -> Handle {
+        let b = self.template_box(key);
+        let slot = b.box_slot;
+        self.slots[slot].label_color = token;
+        self.slots[slot].label_root_ink = self.theme_id == 0;
+        let color = self.resolve_color(color);
+        let n = self.slots[slot].node.prepare(NodeTemplate::PositionedLabel);
+        (n.w, n.h, n.at, n.look.text) = (Size::Px(rect.w), Size::Px(rect.h), Some((rect.x, rect.y)).into(), color);
+        if self.empty_strings.active() {
+            for field in [StringField::Name, StringField::Value] {
+                let capacity = field.get(&self.slots[slot]).capacity();
+                if capacity != 0 { self.empty_strings.empty(field, slot, capacity); }
+            }
+        }
+        self.write_text(slot, text);
+        self.clear_rich(slot);
+        self.slots[slot].rich = Some(NodeText { style: *style, spans: SpanRange::default(), line_box: true });
+        b
     }
 
     /// The layout inputs and look of build box `index`.
@@ -3931,10 +4170,14 @@ impl Ui {
     fn write_styled_text(&mut self, b: &Handle, text: &str, style: &Style, spans: &[TextSpan], line_box: bool) -> bool {
         if !self.live(b) || !pxui_text::valid_spans(text,spans) { return false; }
         let slot = b.box_slot;
+        self.store_styled_text(slot, text, style, spans, line_box);
+        true
+    }
+
+    fn store_styled_text(&mut self, slot: usize, text: &str, style: &Style, spans: &[TextSpan], line_box: bool) {
         self.write_text(slot, text);
         let spans = self.store_spans(slot, spans);
         self.slots[slot].rich = Some(NodeText { style: *style, spans, line_box });
-        true
     }
 
     /// Puts `spans` in the arena as `slot`'s: over its old range when the count is the same, else at the end (the old range is dead
@@ -4435,12 +4678,14 @@ impl Ui {
     /// painting ends.
     pub fn canvas<F: Fn(&mut Paint, Rect) + 'static>(&mut self, b: &UiBox, f: F) {
         assert!(b.index < self.count && self.boxes[b.index].slot == b.box_slot, "Ui.canvas: the node was not built this frame");
+        self.views[self.slots[b.box_slot].owner as usize].palette_labels = false;
         self.arena.add(&mut self.boxes[b.index].paint, f);
     }
 
     /// A canvas that draws after the node's children, outside its content clip.
     pub fn canvas_over<F: Fn(&mut Paint, Rect) + 'static>(&mut self, b: &UiBox, f: F) {
         assert!(b.index < self.count && self.boxes[b.index].slot == b.box_slot, "Ui.canvas_over: the node was not built this frame");
+        self.views[self.slots[b.box_slot].owner as usize].palette_labels = false;
         self.arena.add(&mut self.boxes[b.index].over, f);
     }
 
@@ -4542,9 +4787,18 @@ impl Ui {
                 self.order_stack(index);
             }
             let n = &self.slots[self.boxes[index].slot].node;
+            if self.boxes[index].first == NONE && self.boxes[index].view == NO_VIEW && n.grid.is_none()
+                && let (Size::Px(w), Size::Px(h)) = (n.w, n.h)
+            {
+                self.l_content[index] = (0.0 + n.padding.t) + n.padding.b;
+                self.l_content_w[index] = (0.0 + n.padding.l) + n.padding.r;
+                self.l_w[index] = clamp(w, n.min_w, n.max_w);
+                self.l_h[index] = clamp(h, n.min_h, n.max_h);
+                continue;
+            }
             let (content_w, content_h) = match n.grid.get() {
                 Some(grid) => {
-                    let (cols, nc, rows) = self.grid_tracks(index, n, &grid, None);
+                    let (cols, nc, rows) = self.grid_tracks(index, (n.gap, n.row_gap), &grid, None);
                     let extent = (span(&cols[..nc], n.gap), span(&rows, n.row_gap));
                     self.grid_rows.set(rows);
                     extent
@@ -4733,7 +4987,7 @@ impl Ui {
     /// then what spanning children lack (`spread`; a fractional track measures as content, `room`
     /// None, but takes no span's share); with `room` (inner w, h) the
     /// fractional tracks share what the others leave.
-    fn grid_tracks(&self, index: usize, n: &Node, g: &Grid, room: Option<(f32, f32)>) -> ([f32; MAX_TRACKS], usize, Vec<f32>) {
+    fn grid_tracks(&self, index: usize, (gap, row_gap): (f32, f32), g: &Grid, room: Option<(f32, f32)>) -> ([f32; MAX_TRACKS], usize, Vec<f32>) {
         let nc = g.cols().len().clamp(1, MAX_TRACKS);
         // rows: as many as the children reach, in a scratch the caller hands back (`grid_rows`)
         let mut rowc = self.grid_rows.take();
@@ -4765,10 +5019,10 @@ impl Ui {
                 let cn = self.nd(child);
                 let (c, r, cs, rs) = next_cell(cn.cell, &mut cursor, nc);
                 if cs > 1 {
-                    spread(g.cols(), &mut colc[..nc], c, cs, self.l_w[child] + cn.margin.l + cn.margin.r, n.gap);
+                    spread(g.cols(), &mut colc[..nc], c, cs, self.l_w[child] + cn.margin.l + cn.margin.r, gap);
                 }
                 if rs > 1 {
-                    spread(g.rows(), &mut rowc, r, rs, self.l_h[child] + cn.margin.t + cn.margin.b, n.row_gap);
+                    spread(g.rows(), &mut rowc, r, rs, self.l_h[child] + cn.margin.t + cn.margin.b, row_gap);
                 }
                 child = self.next_flow(self.boxes[child].next);
             }
@@ -4793,8 +5047,8 @@ impl Ui {
                 }
             }
         };
-        size(g.cols(), &mut colc[..nc], room.map(|r| r.0), n.gap);
-        size(g.rows(), &mut rowc, room.map(|r| r.1), n.row_gap);
+        size(g.cols(), &mut colc[..nc], room.map(|r| r.0), gap);
+        size(g.rows(), &mut rowc, room.map(|r| r.1), row_gap);
         (colc, nc, rowc)
     }
 
@@ -4999,46 +5253,53 @@ impl Ui {
             if self.boxes[index].first == NONE && !self.nd(index).flags.any(Flags::SCROLL | Flags::SCROLL_X) {
                 continue;
             }
-            let n = *self.nd(index);
-            let pad = n.padding;
-            let scrolls = n.flags.any(Flags::SCROLL);
+            let node = self.nd(index);
+            let (pad, flags, grid) = (node.padding, node.flags, node.grid.get());
+            let n = FlowLayout { axis: node.axis, justify: node.justify, align: node.align,
+                wrap: node.wrap, gap: node.gap, row_gap: node.row_gap };
+            let scrolls = flags.any(Flags::SCROLL);
             let max_scroll = 0.0f32.max(self.l_content[index] - self.l_h[index]);
-            let gutter = if scrolls && max_scroll > 0.0 && !n.flags.any(Flags::OVER_THUMB) { 10.0 } else { 0.0 };
+            // overlay scrollers (the system's style) float their thumb over the content: no gutter
+            let overlay = self.environment.scrollers == pxui_types::Environment::OVERLAY_SCROLLERS;
+            let gutter = if scrolls && max_scroll > 0.0 && !flags.any(Flags::OVER_THUMB) && !overlay { 10.0 } else { 0.0 };
             let slot = self.boxes[index].slot;
             if scrolls {
                 self.apply_scroll(false, time, index);
                 self.scroll_y[slot] = 0.0f32.max(max_scroll.min(self.scroll_y[slot]));
             }
-            if n.flags.any(Flags::SCROLL_X) {
+            if flags.any(Flags::SCROLL_X) {
                 self.apply_scroll_x(false, time, index);
                 let max_x = 0.0f32.max(self.l_content_w[index] - self.l_w[index]);
                 self.scroll_xs[slot] = 0.0f32.max(max_x.min(self.scroll_xs[slot]));
             }
             let inner_w = self.l_w[index] - pad.l - pad.r - gutter;
             let inner_h = self.l_h[index] - pad.t - pad.b;
-            let relative = |kind: &Size, inner: f32, current: f32| match kind {
-                Size::Pct(fraction) => inner * fraction,
-                Size::Rel(f) => f(inner),
-                _ => current,
+            let relative = |kind: Size, inner: f32| match kind {
+                Size::Pct(fraction) => Some(inner * fraction),
+                Size::Rel(f) => Some(f(inner)),
+                _ => None,
             };
             let mut next = self.boxes[index].first;
             while next != NONE {
-                let c = self.nd(next);
-                let w = clamp(relative(&c.w, inner_w, self.l_w[next]), c.min_w, c.max_w);
-                let h = clamp(relative(&c.h, inner_h, self.l_h[next]), c.min_h, c.max_h);
-                (self.l_w[next], self.l_h[next]) = (w, h);
+                let child = &self.slots[self.boxes[next].slot].node;
+                if child.template != NodeTemplate::PositionedLabel {
+                    let w = relative(child.w, inner_w).map(|w| clamp(w, child.min_w, child.max_w));
+                    let h = relative(child.h, inner_h).map(|h| clamp(h, child.min_h, child.max_h));
+                    if let Some(w) = w { self.l_w[next] = w; }
+                    if let Some(h) = h { self.l_h[next] = h; }
+                }
                 next = self.boxes[next].next;
             }
             let (bake_x, bake_y) = self.baked(index);
             let (origin_x, origin_y) = (self.l_x[index] + bake_x, self.l_y[index] + bake_y);
             let inner_at = (origin_x + pad.l, origin_y + pad.t);
-            match (n.grid.get(), n.axis) {
+            match (grid, n.axis) {
                 (Some(grid), _) => self.arrange_grid(index, &n, &grid, (inner_w, inner_h), inner_at),
                 (None, Axis::Stack) => self.arrange_stack(index, &n, (inner_w, inner_h), inner_at),
                 (None, _) => self.arrange_flow(index, &n, (inner_w, inner_h), inner_at),
             }
             let scroll_y = if scrolls { self.scroll_y[slot] + self.glides[0][slot].visual as f32 } else { 0.0 };
-            let scroll_x = if n.flags.any(Flags::SCROLL_X) { self.scroll_xs[slot] + self.glides[1][slot].visual as f32 } else { 0.0 };
+            let scroll_x = if flags.any(Flags::SCROLL_X) { self.scroll_xs[slot] + self.glides[1][slot].visual as f32 } else { 0.0 };
             let rtl = self.dir == Direction::Rtl;
             let (root_w, root_h) = (self.l_w[0], self.l_h[0]);
             let last = self.boxes[index].last;
@@ -5046,7 +5307,14 @@ impl Ui {
             next = self.boxes[index].first;
             while next != NONE {
                 let child = next;
-                let c = self.nd(child);
+                let c = &self.slots[self.boxes[child].slot].node;
+                if c.template == NodeTemplate::PositionedLabel {
+                    let (at_x, at_y) = c.at.get().unwrap_or_default();
+                    self.l_x[child] = origin_x + at_x;
+                    self.l_y[child] = origin_y + at_y;
+                    next = self.boxes[child].next;
+                    continue;
+                }
                 let c = Placed { flags: c.flags, margin_t: c.margin.t, anchor: c.anchor.get(), w_grow: c.w.is_grow(), h_grow: c.h.is_grow(), at: c.at.get() };
                 if self.flow(child) {
                     self.l_y[child] -= scroll_y;
@@ -5174,12 +5442,31 @@ impl Ui {
 
     /// A row or column: lines (one unless it wraps), each sharing its room by grow and shrink
     /// weights, placed along by `justify` and across by `align`.
-    fn arrange_flow(&mut self, index: usize, n: &Node, inner: (f32, f32), at: (f32, f32)) {
+    fn arrange_flow(&mut self, index: usize, n: &FlowLayout, inner: (f32, f32), at: (f32, f32)) {
         let row = n.axis == Axis::Row;
         let (main_room, cross_room) = if row { inner } else { (inner.1, inner.0) };
         let main_margins = |m: Edges| if row { (m.l, m.r) } else { (m.t, m.b) };
         let cross_margins = |m: Edges| if row { (m.t, m.b) } else { (m.l, m.r) };
         let mut start = self.next_flow(self.boxes[index].first);
+        // One ordinary child needs neither a weight pass nor a baseline pass.
+        if !n.wrap && n.justify == Justify::Start && start != NONE
+            && self.next_flow(self.boxes[start].next) == NONE
+        {
+            let c = self.nd(start);
+            let (main, cross) = if row { (c.w, c.h) } else { (c.h, c.w) };
+            let align = c.align_self.get().unwrap_or(n.align);
+            if matches!(align, Align::Start | Align::Stretch) && !c.wrap && c.aspect == 0.0
+                && c.shrink == 0.0 && (!main.is_grow() || c.grow == 1.0)
+            {
+                let (m, (ms, me), (cs, ce)) = (c.margin, main_margins(c.margin), cross_margins(c.margin));
+                if main.is_grow() { self.set_main(row, start, (main_room - (ms + me)).max(0.0)); }
+                if cross.is_grow() || (align == Align::Stretch && matches!(cross, Size::Fit)) {
+                    self.set_cross(row, start, cross_room - cs - ce);
+                }
+                (self.l_x[start], self.l_y[start]) = (at.0 + m.l, at.1 + m.t);
+                return;
+            }
+        }
         let mut cross_at = 0.0;
         while start != NONE {
             // the line: its children, their bases and the room they take
@@ -5394,7 +5681,7 @@ impl Ui {
 
     /// A stack: every flow child at the inner origin, `Grow` sizes filling it, placed across by
     /// `justify` and down by `align`.
-    fn arrange_stack(&mut self, index: usize, n: &Node, inner: (f32, f32), at: (f32, f32)) {
+    fn arrange_stack(&mut self, index: usize, n: &FlowLayout, inner: (f32, f32), at: (f32, f32)) {
         let mut c = self.next_flow(self.boxes[index].first);
         while c != NONE {
             let (w_grow,h_grow,h_fit,aspect,wrap,m,align) = {
@@ -5432,8 +5719,8 @@ impl Ui {
 
     /// A grid: tracks sized by `grid_tracks`, each child in its cell (a `Grow` size fills the cell;
     /// `align` places it down).
-    fn arrange_grid(&mut self, index: usize, n: &Node, g: &Grid, inner: (f32, f32), at: (f32, f32)) {
-        let (cols, nc, mut rows) = self.grid_tracks(index, n, g, Some(inner));
+    fn arrange_grid(&mut self, index: usize, n: &FlowLayout, g: &Grid, inner: (f32, f32), at: (f32, f32)) {
+        let (cols, nc, mut rows) = self.grid_tracks(index, (n.gap, n.row_gap), g, Some(inner));
         let mut col_x = [0.0f32; MAX_TRACKS + 1];
         for i in 0..nc {
             col_x[i + 1] = col_x[i] + cols[i] + n.gap;
@@ -5508,7 +5795,17 @@ fn keep_frame(kept: &mut Option<rframe::Frame>, f: &rframe::Frame) {
     (k.pixel_scale, k.fps, k.mouse_delta) = (*pixel_scale, *fps, *mouse_delta);
 }
 
-/// What `arrange` reads of a child while placing it (not the whole node).
+/// The container properties used to place its children.
+struct FlowLayout {
+    axis: Axis,
+    justify: Justify,
+    align: Align,
+    wrap: bool,
+    gap: f32,
+    row_gap: f32,
+}
+
+/// The child properties needed to place a box.
 struct Placed {
     flags: Flags,
     margin_t: f32,
@@ -5615,6 +5912,8 @@ pub struct Paint {
     pub clip_rect: Rect,
     /// the corner radius of `clip_rect` (a rounded `CLIP` node's children)
     pub clip_radius: f32,
+    /// The callback uses symbolic shape colors so the view can be recolored after its build.
+    pub capture_palette: bool,
     pub theme: Tokens,
     pub font_size: i64,
     pub row_height: i64,
@@ -5645,6 +5944,12 @@ pub struct Paint {
     pub scroll_x: Vec<f32>,
     /// right to left: node text sits its start inset from the right, scroll thumbs mirror
     pub rtl: bool,
+    /// overlay scrollers: a thumb shows only while its offset moves and `Environment::SCROLLER_HOLD` after (`Ui::thumbs`, lent);
+    /// the frame's time, and the thumbs painted with the time each hides
+    overlay: bool,
+    now: f64,
+    thumbs: Vec<[(f32, f64); 2]>,
+    shown: Vec<(usize, f64)>,
     /// the node being painted is in a list row past the viewport and out of view: text the cache has not seen goes to the
     /// prepare queue (`Text::defer`) and draws nothing
     ahead: bool,
@@ -5934,7 +6239,31 @@ impl Paint {
     }
 
     /// A scroll node's thumb (`Node::bar`) for box `index` at `r`, where its content and scroll put it.
+    /// Whether an overlay thumb on `axis` (0 down, 1 sideways) shows at `offset` (it moved within `SCROLLER_HOLD`), noting the move
+    /// and the time it hides.
+    fn thumb_shows(&mut self, slot: usize, axis: usize, offset: f32) -> bool {
+        if !self.overlay {
+            return true;
+        }
+        let seen = &mut self.thumbs[slot][axis];
+        // the offset a node is first painted at (a list restored mid-way, a swipe row at rest) is not a scroll
+        if seen.0.is_nan() {
+            seen.0 = offset;
+        } else if (offset - seen.0).abs() > 0.01 {
+            *seen = (offset, self.now);
+        }
+        let hide = seen.1 + pxui_types::Environment::SCROLLER_HOLD;
+        if self.now >= hide {
+            return false;
+        }
+        self.shown.push((slot, hide));
+        true
+    }
+
     fn bar(&mut self, r: Rect, index: usize, slot: usize, bar: &Bar) {
+        if !self.thumb_shows(slot, 0, self.scroll_y[slot]) {
+            return;
+        }
         let content = self.l_content[index];
         let (w, gap) = (bar.width, bar.gap);
         let thumb = if bar.whole {
@@ -5968,6 +6297,9 @@ impl Paint {
 
     /// A `SCROLL_X` node's thumb along its bottom edge, as `bar` along the right.
     fn bar_x(&mut self, r: Rect, index: usize, slot: usize, bar: &Bar) {
+        if !self.thumb_shows(slot, 1, self.scroll_x[slot]) {
+            return;
+        }
         let content = self.l_content_w[index];
         if content <= r.w {
             return;
@@ -6068,11 +6400,10 @@ impl Paint {
     /// the font's ascent for text placed by its em box (`text_em`, node text), `Metrics::baseline` for text placed by its layout top.
     fn text_laid(&mut self, at: (f32, f32), below: f32, style: &Style, color: Option<Rgba>, key: u64, m: Metrics, opacity:f32, decorated:bool) -> Metrics {
         let d = self.density as f32;
-        // Binary densities have an exact reciprocal.
-        let inverse = (self.density as u64).is_power_of_two().then(|| d.recip());
         let snap = |v: f32| (v * d).round() / d;
         let baseline = snap(at.1 + below);
-        let origin = (snap(at.0), baseline - self.text.glyph_baseline(key));
+        let left = snap(at.0);
+        let origin = (left, if decorated { baseline - self.text.glyph_baseline(key) } else { 0.0 });
         let (clip, view) = (clip_of(self.clip_rect), self.view);
         let Paint { text: t, layers, layer, glyph_light_memo, .. } = self;
         let layer = &mut layers[*layer];
@@ -6094,27 +6425,8 @@ impl Paint {
             };
             (crate::draw::flags::mask::LIGHT, extra)
         } else { (0, [0; 2]) };
-        let output = &mut *layer;
-        t.glyphs(key, origin, d, &mut move |g| {
-            let color=g.color.map_or(color,fade);
-            let pixels = [g.rect.x, g.rect.y, g.rect.x + g.rect.w, g.rect.y + g.rect.h];
-            let r = match inverse {
-                Some(inv) => pixels.map(|p| p * inv),
-                None => pixels.map(|p| p / d),
-            };
-            let uv = [g.uv.x, g.uv.y, g.uv.x + g.uv.w, g.uv.y + g.uv.h];
-            let (kind, color, flags, extra) = if g.atlas.is_mask() {
-                (crate::draw::kind::MASK, color, mask_flags, light)
-            } else {
-                // image instances after an image's break sample that image: break back to the atlas
-                if output.breaks.last().is_some_and(|b| b.image != crate::draw::ATLAS) {
-                    output.breaks.push(Break { at_instance: output.instances.len() as u32, image: crate::draw::ATLAS });
-                }
-                (crate::draw::kind::IMAGE, [255, 255, 255, color[3]], 0, [0; 2])
-            };
-            let flags=flags|if matches!(g.atlas,pxui_text::AtlasKind::Mask2|pxui_text::AtlasKind::Color2) { crate::draw::flags::mask::GLYPH_PAGE_2 } else { 0 };
-            output.instances.push(Instance { clip, view, kind, flags, extra, ..Instance::mask(r,uv,color) });
-        });
+        let glyph_paint = pxui_text::GlyphPaint { clip, view, color, opacity, mask_flags, light };
+        t.draw_at_baseline(key, (left, baseline), self.density, glyph_paint, &mut layer.instances, &mut layer.breaks);
         if decorated { t.decorations(key,true,&mut |deco|decoration(deco,layer)); }
         m
     }
@@ -6276,10 +6588,47 @@ impl Ui {
         self.hit_count = position + 1;
     }
 
-    fn run_painters(&self, first: u32, index: usize, clip_rect: Rect, paint: &mut Paint) {
-        if first != arena::END {
-            paint.clip_rect = clip_rect;
-            self.arena.run(first, paint, self.screen(index));
+    fn run_painters(&mut self, first: u32, slot: usize, rect: Rect, clip_rect: Rect, paint: &mut Paint) {
+        if first == arena::END { return; }
+        paint.clip_rect = clip_rect;
+        let view = self.slots[slot].owner as usize;
+        let capture = self.views[view].palette_paint;
+        paint.capture_palette = capture;
+        let start = paint.layers[paint.layer].instances.len();
+        self.arena.run(first, paint, rect);
+        paint.capture_palette = false;
+        if !capture { return; }
+        self.record_palette_shapes(paint, view, start);
+    }
+
+    #[cold]
+    fn record_palette_shapes(&mut self, paint: &mut Paint, view: usize, start: usize) {
+        let instances = &mut paint.layers[paint.layer].instances;
+        for (at, instance) in instances.iter_mut().enumerate().skip(start) {
+            let [r, g, b, a] = instance.color;
+            let fill = Rgba { r, g, b, a };
+            let [r, g, b, a] = instance.color2;
+            let stroke = Rgba { r, g, b, a };
+            if fill.as_token().is_some() || stroke.as_token().is_some() {
+                instance.color = rgba(palette_color(&paint.colors, paint.theme.accent, fill));
+                instance.color2 = rgba(palette_color(&paint.colors, paint.theme.accent, stroke));
+                let v = &mut self.views[view];
+                if !v.palette_paint { continue; }
+                let at = at as u32;
+                let count = v.palette_shape_count as usize;
+                let shapes = &mut self.palette_shapes[view];
+                if let Some(previous) = shapes[..count].last_mut()
+                    && previous.end == at && at > start as u32 && previous.fill == fill && previous.stroke == stroke
+                {
+                    previous.end += 1;
+                } else if count < PALETTE_SHAPES {
+                    shapes[count] = PaletteShape { at, end: at + 1, fill, stroke };
+                    v.palette_shape_count += 1;
+                } else {
+                    v.palette_paint = false;
+                    v.palette_shape_count = 0;
+                }
+            }
         }
     }
 
@@ -6290,44 +6639,33 @@ impl Ui {
     }
 
     /// Paint the node's look and text, recording the instance range a patch rewrites.
-    fn paint_node(&mut self, paint: &mut Paint, index: usize, clip_rect: Rect) {
+    #[inline(never)]
+    fn paint_node(&mut self, paint: &mut Paint, index: usize, r: Rect, clip_rect: Rect) {
         paint.clip_rect = clip_rect;
         let slot = self.boxes[index].slot;
         let start = paint.layers[paint.layer].instances.len() as u32;
-        // a theme swap moves every node shown before it from the look it showed
         let s = &self.slots[slot];
-        let swap = self.swap_frame == self.frame_number && s.painted >= 0 && s.seen != s.node.look;
-        let swap = swap.then(|| Curve::Bezier { duration: self.theme.tokens.motion.normal, points: self.theme.tokens.motion.ease });
-        // a node's transition (its own, or the theme's pick), out of line: most nodes carry none
-        let ran = core::mem::take(&mut self.slots[slot].node.transition).get().is_some_and(|t| self.node_transition(slot, t));
-        if let Some(curve) = swap.filter(|_| !ran && !self.system_reduced_motion) {
-            self.tween_look(slot, curve);
-        }
-        // a declaration wins over an animated look
-        if let Some(t) = self.tween_of(slot) {
-            let look = self.slots[slot].node.look;
-            self.tweens[t].to.look = look;
-        }
-        let animated = self.tween_of(slot).map(|_| self.pose_at(slot, self.verify_time(slot)));
-        let focused = self.marks_focus(slot);
-        let r = self.screen(index);
-        let s = &self.slots[slot];
-        let (look, dx, dy, opacity, steady) = match &animated {
-            Some((p, steady)) => (&p.look, p.dx, p.dy, p.opacity, *steady),
-            None => (&s.node.look, s.pose.0, s.pose.1, s.pose.2, None),
-        };
-        let (dx, dy, opacity) = if s.view != NO_VIEW && self.views[s.view as usize].index != 0 {
-            (0.0, 0.0, 1.0)
-        } else { (dx, dy, opacity) };
-        let faded;
-        let look = if opacity == 1.0 { look } else {
-            faded = Look { opacity: look.opacity * opacity, ..*look };
-            &faded
-        };
         // an ahead row's node out of view (a view row paints wherever it is) leaves unseen text to the prepare queue
         paint.ahead = self.boxes[index].ahead && { let seen = r.intersect(clip_rect); seen.w <= 0.0 || seen.h <= 0.0 };
         let deferred = paint.ahead.then(|| paint.text.queue_counts().0);
-        paint.look(Rect::new(r.x + dx, r.y + dy, r.w, r.h), &s.node, look, &s.text, s.rich.as_ref(), &self.span_arena, &s.text_layout, focused, steady);
+        if s.node.template == NodeTemplate::PositionedLabel
+            && s.tween == NO_TWEEN && s.pose == (0.0, 0.0, 1.0)
+            && self.swap_frame != self.frame_number
+            && let Some(rich) = s.rich.as_ref().filter(|rich| rich.line_box && rich.spans.len == 0)
+        {
+            let style = rich.style(&s.node, paint.rtl);
+            if let Some((key, metrics)) = lay_out_node(
+                &mut paint.text, &s.text_layout, Flags::FIT_TEXT_PIXEL, &style, r.w, &s.text, &[], paint.ahead,
+            ) {
+                let below = paint.text.ascent(style.font) * style.size;
+                let top = rich.line_box_baseline(r.y, r.h, metrics) - below;
+                paint.text_laid((r.x, top), below, &style, Some(s.node.look.text), key, metrics, 1.0, false);
+            }
+        } else if s.node.template != NodeTemplate::View || s.tween != NO_TWEEN
+            || self.swap_frame == self.frame_number || !s.text.is_empty() || s.rich.is_some()
+        {
+            self.paint_node_look(paint, slot, r);
+        }
         // its kept output would lack that text: the view builds again
         if deferred.is_some_and(|before| paint.text.queue_counts().0 != before) { self.mark_view(self.slots[slot].owner); }
         paint.ahead = false;
@@ -6344,6 +6682,47 @@ impl Ui {
         s.clip_radius = paint.clip_radius;
         s.painted = self.frame_number;
         self.painted_nodes.push((slot, paint.layer));
+    }
+
+    #[inline(never)]
+    fn paint_node_look(&mut self, paint: &mut Paint, slot: usize, r: Rect) {
+        // a theme swap moves every node shown before it from the look it showed
+        let s = &self.slots[slot];
+        let swap = self.swap_frame == self.frame_number && s.painted >= 0 && s.seen != s.node.look;
+        let swap = swap.then(|| Curve::Bezier { duration: self.theme.tokens.motion.normal, points: self.theme.tokens.motion.ease });
+        // a node's transition (its own, or the theme's pick), out of line: most nodes carry none
+        let ran = self.slots[slot].node.transition.is_some() && self.declared_transition(slot);
+        if let Some(curve) = swap.filter(|_| !ran && !self.system_reduced_motion) {
+            self.tween_look(slot, curve);
+        }
+        // A declaration wins over an animated look.
+        let animated = self.tween_of(slot).map(|t| {
+            self.tweens[t].to.look = self.slots[slot].node.look;
+            self.pose_at(slot, self.verify_time(slot))
+        });
+        let focused = self.marks_focus(slot);
+        let s = &self.slots[slot];
+        let (look, dx, dy, opacity, steady) = match &animated {
+            Some((p, steady)) => (&p.look, p.dx, p.dy, p.opacity, *steady),
+            None => (&s.node.look, s.pose.0, s.pose.1, s.pose.2, None),
+        };
+        let (dx, dy, opacity) = if s.view != NO_VIEW && self.views[s.view as usize].index != 0 {
+            (0.0, 0.0, 1.0)
+        } else { (dx, dy, opacity) };
+        let faded;
+        let look = if opacity == 1.0 { look } else {
+            faded = Look { opacity: look.opacity * opacity, ..*look };
+            &faded
+        };
+        if s.node.template != NodeTemplate::View || animated.is_some() || !s.text.is_empty() || s.rich.is_some() {
+            paint.look(Rect::new(r.x + dx, r.y + dy, r.w, r.h), &s.node, look, &s.text, s.rich.as_ref(), &self.span_arena, &s.text_layout, focused, steady);
+        }
+    }
+
+    #[inline(never)]
+    fn declared_transition(&mut self, slot: usize) -> bool {
+        let transition = core::mem::take(&mut self.slots[slot].node.transition);
+        transition.get().is_some_and(|t| self.node_transition(slot, t))
     }
 
     /// Runs a node's transition (its own, or the theme's pick) when its state changed since it was last painted and motion is not
@@ -6396,7 +6775,27 @@ impl Ui {
             s.rw = w;
             s.rh = h;
         }
-        let shape = self.boxes[index].shape;
+        let b = &self.boxes[index];
+        let flags = self.slots[slot].node.flags;
+        let drop_hit = self.drop_zones == self.frame_number && self.slots[slot].drop_zone == self.frame_number;
+        let interactive = flags.any(HIT_FLAGS) || self.gestures[slot].kinds != 0 || drop_hit;
+        let focus_ring = self.keyboard_focus && self.focus == b.key && !flags.any(Flags::FOCUS_MARK);
+        if b.first == NONE && b.view == NO_VIEW && !interactive && !focus_ring
+            && b.hit_rect.is_none() && b.hit.is_none() && matches!(b.shape, HitShape::Own)
+            && b.paint == arena::EMPTY && b.over == arena::EMPTY && self.slots[slot].node.bar.is_none()
+        {
+            let clipped = screen_rect.intersect(clip_rect);
+            if clipped.w > 0.0 && clipped.h > 0.0 {
+                self.paint_node(paint, index, screen_rect, clip_rect);
+            } else if (w > 0.0 && h > 0.0) || flags.any(Flags::CLIP) {
+                self.slots[slot].clip = clip_rect;
+                if self.boxes[index].ahead {
+                    self.defer_culled(paint, index);
+                }
+            }
+            return;
+        }
+        let shape = b.shape;
         let hit = self.boxes[index].hit_rect.unwrap_or_else(|| match (&self.boxes[index].hit, shape) {
             (Some(f), _) => f(screen_rect),
             (None, HitShape::Part(p)) => Rect::new(x + p.x, y + p.y, p.w, p.h),
@@ -6416,9 +6815,8 @@ impl Ui {
         // its row's view is culled as any row (past the viewport its text goes to the prepare queue, its view keeps its build)
         let view = self.boxes[index].view;
         let visible = visible || (view != NO_VIEW && w > 0.0 && h > 0.0 && self.slots[slot].row_of.0 == 0);
-        let flags = self.nd(index).flags;
         // a gesture node is findable by touch arbitration without being interactive itself
-        let has_hit = (flags.any(HIT_FLAGS) || self.gestures[slot].kinds != 0 || (self.drop_zones == self.frame_number && self.slots[slot].drop_zone == self.frame_number)) && hw > 0.0 && hh > 0.0;
+        let has_hit = interactive && hw > 0.0 && hh > 0.0;
         if has_hit {
             self.record_hit(index, parent_hit, clipped_hit);
         }
@@ -6427,8 +6825,8 @@ impl Ui {
         let shown = visible;
         if shown || ((w <= 0.0 || h <= 0.0) && !flags.any(Flags::CLIP)) {
             if shown {
-                self.paint_node(paint, index, clip_rect);
-                self.run_painters(self.boxes[index].paint.0, index, clip_rect, paint);
+                self.paint_node(paint, index, screen_rect, clip_rect);
+                self.run_painters(self.boxes[index].paint.0, slot, screen_rect, clip_rect, paint);
             }
             let child_clip = if flags.any(Flags::CLIP) {
                 let p = self.nd(index).padding;
@@ -6448,7 +6846,7 @@ impl Ui {
                 paint.clip_radius = if flags.any(Flags::ROUND_CLIP) { r[0].max(r[1]).max(r[2]).max(r[3]) } else { 0.0 };
             }
             if view != NO_VIEW {
-                self.visit_view(paint, index, view, child_clip, parent_hit);
+                self.visit_view(paint, index, view, screen_rect, child_clip, parent_hit);
             } else {
                 let mut child = self.boxes[index].first;
                 if child != NONE && self.slots[slot].holds_rows {
@@ -6468,7 +6866,7 @@ impl Ui {
             }
             paint.clip_radius = outer_radius;
             if shown {
-                self.run_painters(self.boxes[index].over.0, index, clip_rect, paint);
+                self.run_painters(self.boxes[index].over.0, slot, screen_rect, clip_rect, paint);
                 if let Some(bar) = self.nd(index).bar.get() {
                     paint.clip_rect = clip_rect;
                     if flags.any(Flags::SCROLL) || !flags.any(Flags::SCROLL_X) {
@@ -6479,7 +6877,7 @@ impl Ui {
                     }
                 }
             }
-            if shown && self.keyboard_focus && self.focus == self.boxes[index].key && !flags.any(Flags::FOCUS_MARK) {
+            if shown && focus_ring {
                 // a node that marks its own focus draws its look's ring; any other gets the theme's
                 paint.clip_rect = clip_rect;
                 let ring = self.theme.ring;
@@ -6555,8 +6953,8 @@ impl Ui {
         self.hit_count = 0;
         self.chain_key = 0;
         self.paint_xf = 0;
-        self.damage = None;
         let clip = Rect::new(0.0, 0.0, frame.input.size.0 as f32, frame.input.size.1 as f32);
+        self.damage = self.full_damage.then_some(clip);
         let scratch = std::mem::take(&mut self.spare);
         let mut paint = self.paint_begin(scratch, clip);
         self.painted = self.frame_number;
@@ -6590,6 +6988,7 @@ impl Ui {
             view: 0,
             clip_rect: clip,
             clip_radius: 0.0,
+            capture_palette: false,
             theme: self.theme.tokens,
             font_size: self.font_size,
             row_height: self.kit_row_height,
@@ -6609,6 +7008,10 @@ impl Ui {
             l_content_w: std::mem::take(&mut self.l_content_w),
             scroll_x: std::mem::take(&mut self.scroll_xs),
             rtl: self.dir == Direction::Rtl,
+            overlay: self.environment.scrollers == pxui_types::Environment::OVERLAY_SCROLLERS,
+            now: self.now,
+            thumbs: std::mem::take(&mut self.thumbs),
+            shown: std::mem::take(&mut self.thumb_shown),
             ahead: false,
         };
         paint.next_layer(0, LayerRole::Base, Rect::default());
@@ -6616,7 +7019,18 @@ impl Ui {
     }
 
     fn paint_end(&mut self, paint: Paint) -> Vec<Layer> {
-        let Paint { layers, text, label, edit_text, composition, l_content, scroll_y, l_content_w, scroll_x, .. } = paint;
+        let Paint { layers, text, label, edit_text, composition, l_content, scroll_y, l_content_w, scroll_x, thumbs, mut shown, .. } = paint;
+        self.thumbs = thumbs;
+        // a shown overlay thumb's view repaints when it hides (`hide_thumbs`), the frame waking then
+        for &(slot, hide) in &shown {
+            match self.thumb_hides.iter_mut().find(|entry| entry.0 == slot) {
+                Some(entry) => entry.1 = hide,
+                None => self.thumb_hides.push((slot, hide)),
+            }
+            self.wake = self.wake.min(hide);
+        }
+        shown.clear();
+        self.thumb_shown = shown;
         self.text = Some(text);
         self.label = label;
         self.edit_work = edit_text;
@@ -6909,6 +7323,7 @@ impl Ui {
     /// click or key is seen twice), at most twice, so no stale frame is shown.
     pub fn frame(&mut self, frame: &rframe::Frame, f: &mut dyn FnMut(&mut Ui)) -> FrameOut<'_> {
         self.cpu_phases = self.cpu_clock.map(|_| [0; PHASES]);
+        self.first_build = self.frame_number + 1;
         self.begin_frame(frame);
         f(self);
         self.end_frame(frame);
@@ -6934,6 +7349,7 @@ impl Ui {
             self.quiet = Some(quiet);
         }
         self.settle = false;
+        self.full_damage = false;
         self.output()
     }
 
@@ -6941,6 +7357,7 @@ impl Ui {
     /// built again, as one the panic stopped part way has nodes that are not its own.
     pub fn abandon_frame(&mut self) {
         self.building = false;
+        self.clear_frame_callbacks();
         self.settle = false;
         self.view_cur = 0;
         self.theme_depth = 0;
@@ -6964,14 +7381,26 @@ impl Ui {
         // text the prepare queue delivered since the last frame: this frame draws it
         if let Some(text) = &mut self.text { text.install_queued(); }
         if self.cpu_at.is_none() { self.cpu_phases = None; }
-        self.empty_strings.begin_frame();
         let (scale_x, scale_y) = frame.pixel_scale;
         let density = 1.max(scale_x.max(scale_y).round() as i64);
         let size = (frame.input.size.0 as f32, frame.input.size.1 as f32);
+        self.height_changed = size.1 != self.view_h;
         if density != self.density || size != (self.view_w, self.view_h) {
+            let previous = self.epoch;
             self.epoch += 1;
+            self.full_damage = true;
+            if density == self.density {
+                for view in &mut self.views[1..] {
+                    if view.viewport_independent && view.epoch == previous {
+                        view.epoch = self.epoch;
+                    }
+                }
+            }
         }
         self.density = density;
+        if let Some((source, target)) = self.repaint_palette.take() && target == self.epoch {
+            self.recolor_views(source);
+        }
         // outside a panel the kit row is the theme's row (a panel sets its own while it builds)
         self.row_points = self.theme.row_h * self.theme.tokens.density;
         self.kit_row_height = self.row_points.round() as i64;
@@ -6993,6 +7422,19 @@ impl Ui {
         self.dismissed_popups.clear();
         self.apply_a11y();
         self.mark_input();
+        // overlay thumbs whose hold is over: their views repaint without them
+        let mut i = 0;
+        while i < self.thumb_hides.len() {
+            let (slot, hide) = self.thumb_hides[i];
+            if hide <= frame.input.t {
+                self.thumb_hides.swap_remove(i);
+                if let Some(owner) = self.slots.get(slot).map(|s| s.owner) {
+                    self.mark_view(owner);
+                }
+            } else {
+                i += 1;
+            }
+        }
         // views whose `repaint_after` is due rebuild now (the root rebuilds anyway)
         if self.wake <= frame.input.t {
             self.wake = f64::INFINITY;
@@ -7006,8 +7448,6 @@ impl Ui {
         self.views[0].built = self.frame_number;
         self.modal_key = None;
         self.modal_extra.clear();
-        // Also release callbacks left by a build that raised before publishing.
-        self.clear_frame_callbacks();
         self.count = 0;
         self.rebuilt = 0;
         self.closed_section = NONE;
@@ -7309,18 +7749,7 @@ impl Ui {
             None => (self.rest(slot), None),
             Some(i) => {
                 let t = &self.tweens[i];
-                let elapsed = at - t.start;
-                let (from, to, p) = match self.keyframes.get(t.keys as usize) {
-                    None => (&t.from, &t.to, self.curve_at(&t.curve, elapsed as f32)),
-                    Some(k) => {
-                        let elapsed = k.time(elapsed);
-                        // the segment the run is in: from the stop before (the start for the first)
-                        let j = k.t[..k.n].iter().position(|&end| elapsed < end).unwrap_or(k.n - 1);
-                        let (from, t0) = if j == 0 { (&t.from, 0.0) } else { (&k.pose[j - 1], k.t[j - 1]) };
-                        let curve = k.curve[j].with_duration(k.t[j] - t0);
-                        (from, &k.pose[j], self.curve_at(&curve, elapsed - t0))
-                    }
-                };
+                let (from, to, p) = self.tween_segment(i, at);
                 let f = |a: f32, b: f32| a + (b - a) * p;
                 let pose = Pose { look: from.look.lerp(&to.look, p), dx: f(from.dx, to.dx), dy: f(from.dy, to.dy), opacity: f(from.opacity, to.opacity), scale: [f(from.scale[0], to.scale[0]), f(from.scale[1], to.scale[1])], anchor: to.anchor };
                 // Invisible endpoint shadows stay invisible; keyframes retain room for every stop.
@@ -7328,6 +7757,22 @@ impl Ui {
                 let body = |look: &Look| look.fill != Rgba::CLEAR || look.gradient.is_some() || look.border != Rgba::CLEAR || look.ring.color != Rgba::CLEAR || look.shadows.iter().any(|s| s.color.a > 0);
                 let steady = !t.view_only && (t.keys != NO_KEYS || body(&t.from.look) || body(&t.to.look));
                 (pose, steady.then_some(shadows))
+            }
+        }
+    }
+
+    /// A view's transform uses the same segment as its painted look.
+    fn tween_segment(&self, i: usize, at: f64) -> (&Pose, &Pose, f32) {
+        let t = &self.tweens[i];
+        let elapsed = at - t.start;
+        match self.keyframes.get(t.keys as usize) {
+            None => (&t.from, &t.to, self.curve_at(&t.curve, elapsed as f32)),
+            Some(k) => {
+                let elapsed = k.time(elapsed);
+                let j = k.t[..k.n].iter().position(|&end| elapsed < end).unwrap_or(k.n - 1);
+                let (from, t0) = if j == 0 { (&t.from, 0.0) } else { (&k.pose[j - 1], k.t[j - 1]) };
+                let curve = k.curve[j].with_duration(k.t[j] - t0);
+                (from, &k.pose[j], self.curve_at(&curve, elapsed - t0))
             }
         }
     }
@@ -7681,8 +8126,32 @@ impl Ui {
         self.view_entry(key, *revision, w, h, true, f)
     }
 
+    /// The current view's positioned labels declare constant content and use palette tokens for color.
+    pub fn retain_palette_labels(&mut self) {
+        if self.building && self.view_cur != 0 {
+            self.views[self.view_cur as usize].palette_labels = true;
+        }
+    }
+
+    /// The current view's paint uses explicit color sources and palette-independent geometry.
+    pub fn retain_palette_paint(&mut self) {
+        if self.building && self.view_cur != 0 && self.theme_id == 0 {
+            self.views[self.view_cur as usize].palette_paint = true;
+        }
+    }
+
+    /// The current view's build only uses its local extent and its revision.
+    pub fn retain_view_on_resize(&mut self) {
+        if self.building && self.view_cur != 0 {
+            self.views[self.view_cur as usize].viewport_independent = true;
+        }
+    }
+
     pub(crate) fn view_entry(&mut self, label: &str, revision: u64, w: Size, h: Size, entry: bool, f: &mut dyn FnMut(&mut Ui)) -> Handle {
-        let b = self.node_ref(label, &Node { w, h, ..Node::DEFAULT });
+        let b = self.template_box(label);
+        let n = self.slots[b.box_slot].node.prepare(NodeTemplate::View);
+        (n.w, n.h) = (w, h);
+        self.clear_box_text(b.box_slot);
         self.view_in(b, label, revision, entry, false, f)
     }
 
@@ -7706,6 +8175,7 @@ impl Ui {
                     // Recycled records change labels as adaptive subtrees enter and leave.
                     // room for a list row's nodes: a recycled record seldom grows when a view of another size takes it
                     self.views.push(ViewRec { name: String::with_capacity(label.len().max(32)), nodes: Vec::with_capacity(VIEW_NODES), prev: Vec::with_capacity(VIEW_NODES), hits: Vec::with_capacity(VIEW_NODES / 4), ..ViewRec::new() });
+                    self.palette_shapes.push([PaletteShape::default(); PALETTE_SHAPES]);
                     self.views.len() as u32 - 1
                 });
                 // a table index of its own (unless flat): a freed one, else the next (the painter's
@@ -7751,6 +8221,10 @@ impl Ui {
         }
         r.verify = clean;
         r.escapes = false;
+        r.palette_labels = false;
+        r.palette_paint = false;
+        r.palette_shape_count = 0;
+        r.viewport_independent = false;
         self.rebuilt += 1;
         r.wake = f64::INFINITY;
         std::mem::swap(&mut r.nodes, &mut r.prev);
@@ -7769,6 +8243,11 @@ impl Ui {
         (r.revision, r.epoch, r.theme, r.built) = (revision, self.epoch, self.theme_id, self.frame_number);
         // a verifying run keeps what was patched since the kept build (it is not checked against it)
         r.patched &= r.verify;
+        if r.palette_labels {
+            r.palette_labels = r.nodes.iter().all(|&s| {
+                self.slots[s].node.template == NodeTemplate::PositionedLabel && self.slots[s].label_root_ink
+            }) && self.boxes[b.index + 1..self.count].iter().all(|b| b.paint == arena::EMPTY && b.over == arena::EMPTY && b.view == NO_VIEW);
+        }
         r.dirty = r.escapes;
         r.reflow = false;
         // the next build fills `prev`: room now, so a view's second build does not grow it
@@ -7839,6 +8318,49 @@ impl Ui {
         self.section_rows_fixed(label,section,row_key,trailer,&mut |ui,index| f(ui,index,y(index)))
     }
 
+    /// On open and window resize, start with the declared room of a resting list in a fixed-height pane.
+    /// Layout still checks the guess: a column may gain more children after the list's callback returns.
+    fn section_height(&self, body: &Handle) -> f32 {
+        let slot = body.box_slot;
+        let seen = &self.slots[slot];
+        let fallback = if seen.rh > 0.0 || seen.rw > 0.0 { seen.rh } else { self.view_h };
+        if !(self.height_changed || seen.new_identity)
+            || self.scroll_y[slot] != 0.0 || self.glides[0][slot].visual != 0.0 || self.glides[0][slot].moving()
+            || self.signals.get(&seen.key).is_some_and(|s| s.scroll_wheel != 0.0 || s.scroll_drag != 0.0 || s.scroll_touch || s.scroll_lift)
+            || self.payload.is_some()
+        {
+            return fallback;
+        }
+        let mut index = body.index;
+        let mut inset = 0.0;
+        while index != 0 {
+            let node = self.nd(index);
+            if let Size::Px(h) = node.h {
+                return (clamp(h, node.min_h, node.max_h) - inset).max(0.0);
+            }
+            let parent = self.boxes[index].parent;
+            let pane = self.nd(parent);
+            if !node.h.is_grow() || node.grow <= 0.0 || !self.flow(index)
+                || node.min_h != 0.0 || node.max_h != f32::INFINITY
+                || pane.wrap || pane.grid.is_some() || pane.flags.any(Flags::SCROLL)
+            {
+                break;
+            }
+            if pane.axis == Axis::Column {
+                let mut sibling = self.next_flow(self.boxes[parent].first);
+                while sibling != index {
+                    let other = self.nd(sibling);
+                    let Size::Px(height) = other.h else { return fallback; };
+                    inset += clamp(height, other.min_h, other.max_h) + other.margin.t + other.margin.b + pane.gap;
+                    sibling = self.next_flow(self.boxes[sibling].next);
+                }
+            }
+            inset += node.margin.t + node.margin.b + pane.padding.t + pane.padding.b;
+            index = parent;
+        }
+        fallback
+    }
+
     fn section_rows_fixed(&mut self,label:&str,section:&pxui_types::ui::SectionList,row_key:Option<&dyn Fn(usize)->i64>,trailer:bool,f:&mut dyn FnMut(&mut Ui,usize))->Handle {
         let padding = self.list_padding(key_of(self.current_seed(), label));
         let rows_h=section.count as f32*section.row_height;
@@ -7848,9 +8370,7 @@ impl Ui {
             && [section.leading_height,section.header_height,section.trailing_height].iter().all(|v|v.is_finite() && *v>=0.0),"Ui.section_list: invalid section geometry");
         let flags=Flags::SCROLL|Flags::CLIP|if section.overlay_scrollbar {Flags::OVER_THUMB} else {Flags::NONE};
         let body=self.node_ref(label, &Node {flags,w:Size::Grow,h:Size::Grow,scroll_step:section.row_height,role:Role::List,..Node::DEFAULT});
-        let seen=self.slots[body.box_slot].rh;
-        // a list never laid out guesses the window's height; one laid out to no height stays so (no rebuild every frame)
-        let height=if seen>0.0 || self.slots[body.box_slot].rw>0.0 {seen} else {self.view_h};
+        let height = self.section_height(&body);
         // rows that all fit at rest keep fitting while the room still holds them (the grid's exemption, one column wide)
         let grid=(height-padding.t-padding.b>=total).then_some(GridFit{extent:total,across:f32::INFINITY,per:1,padding,sideways:false});
         self.record_size(ExpectedSize{slot:body.box_slot,w:f32::NAN,h:height,grid});
@@ -7991,9 +8511,7 @@ impl Ui {
             && [section.leading_height,section.header_height,section.trailing_height].iter().all(|v|v.is_finite() && *v>=0.0),"Ui.section_list: invalid section geometry");
         let flags=Flags::SCROLL|Flags::CLIP|if section.overlay_scrollbar {Flags::OVER_THUMB} else {Flags::NONE};
         let body=self.node_ref(label, &Node {flags,w:Size::Grow,h:Size::Grow,scroll_step:section.row_height,role:Role::List,..Node::DEFAULT});
-        let seen=self.slots[body.box_slot].rh;
-        // a list never laid out guesses the window's height; one laid out to no height stays so (no rebuild every frame)
-        let height=if seen>0.0 || self.slots[body.box_slot].rw>0.0 {seen} else {self.view_h};
+        let height = self.section_height(&body);
         self.expect(body.box_slot,f32::NAN,height);
         self.set_l_h(&body,height);
         self.set_l_content(&body,total+padding.t+padding.b);
@@ -8435,8 +8953,15 @@ impl Ui {
         let c = self.views[v as usize].box_clip;
         let box_clip = p.cover(Rect::new(c.x + pshift.0, c.y + pshift.1, c.w, c.h));
         let slot = self.views[v as usize].slot;
-        let pose = self.pose(slot).0;
-        let scale = [pose.scale[0], pose.scale[1], pose.anchor[0], pose.anchor[1]];
+        let (dx, dy, opacity, scale) = if let Some(i) = self.tween_of(slot) {
+            let (from, to, p) = self.tween_segment(i, self.now);
+            let tween = |a, b| a + (b - a) * p;
+            (tween(from.dx, to.dx), tween(from.dy, to.dy), tween(from.opacity, to.opacity),
+                [tween(from.scale[0], to.scale[0]), tween(from.scale[1], to.scale[1]), to.anchor[0], to.anchor[1]])
+        } else {
+            let (dx, dy, opacity) = self.slots[slot].pose;
+            (dx, dy, opacity, self.views[v as usize].scale_pose)
+        };
         let r = &mut self.views[v as usize];
         r.stamp = stamp;
         if r.index == 0 {
@@ -8444,8 +8969,8 @@ impl Ui {
             // its instances ride its parent's entry: the parent's own transform is not around it
             (r.pa, r.pb) = (IDENTITY_2X2, [0.0; 2]);
         } else {
-            r.shift = (pshift.0 + r.offset.0 + r.delta.0 + pose.dx, pshift.1 + r.offset.1 + r.delta.1 + pose.dy);
-            r.alpha = palpha * r.opacity * pose.opacity;
+            r.shift = (pshift.0 + r.offset.0 + r.delta.0 + dx, pshift.1 + r.offset.1 + r.delta.1 + dy);
+            r.alpha = palpha * r.opacity * opacity;
             (r.pa, r.pb) = (pa, pb);
             if scale[0] != 1.0 || scale[1] != 1.0 {
                 let anchor = r.own_entry().map((r.built_rect.x + r.shift.0 + r.built_rect.w * scale[2], r.built_rect.y + r.shift.1 + r.built_rect.h * scale[3]));
@@ -8472,21 +8997,23 @@ impl Ui {
                 continue;
             }
             let shown = self.shown(v);
-            let (old_entry, old_cover) = (self.views[v as usize].entry(), self.views[v as usize].cover(self.views[v as usize].screen));
+            let r = &self.views[v as usize];
+            let old_entry = r.entry();
+            let old_cover = (shown && !self.full_damage).then(|| r.cover(r.screen));
             // Culled views still place rect/accessibility queries, without retaining draw runs.
             self.compose(v);
             let r = &self.views[v as usize];
-            if r.entry() != old_entry {
-                let cover = r.cover(r.screen);
-                self.invalidate_a11y_view(v);
-                if shown {
+            let (index, entry) = (r.index, r.entry());
+            if entry != old_entry {
+                if let Some(old_cover) = old_cover {
+                    let cover = if r.flat { r.screen } else { r.cover(r.screen) };
                     self.add_damage(old_cover);
                     self.add_damage(cover);
                 }
+                self.invalidate_a11y_view(v);
             }
             if shown {
-                let r = &self.views[v as usize];
-                out.push((r.index, r.entry()));
+                out.push((index, entry));
             }
         }
         let changed = out != self.view_out;
@@ -8499,6 +9026,7 @@ impl Ui {
 
     /// Colour/UV changes cover the same geometry: add those bounds only once.
     fn damage_change(&mut self, old: &Instance, new: &Instance) {
+        if self.full_damage { return; }
         self.damage_instance(old);
         if old.rect != new.rect || old.clip != new.clip || old.kind != new.kind || old.view != new.view
             || old.width != new.width || old.extra != new.extra {
@@ -8508,6 +9036,7 @@ impl Ui {
 
     /// Add an instance's cover to the damage, moved and clipped as its view shows it.
     fn damage_instance(&mut self, i: &Instance) {
+        if self.full_damage { return; }
         let v = &self.views[self.index_owner[i.view as usize] as usize];
         // Every instance is clipped to this window-space rectangle after its view transform.
         if self.damage.is_some_and(|d| d.x <= v.outer.x && d.y <= v.outer.y
@@ -8527,8 +9056,7 @@ impl Ui {
 
     /// Paint a view box's children: a kept view adds its run and its hit areas, a fresh one paints
     /// inside its own clip (its outer clip is its table entry's) and records both.
-    fn visit_view(&mut self, paint: &mut Paint, index: usize, v: u32, clip: Rect, parent_hit: i64) {
-        let rect = self.screen(index);
+    fn visit_view(&mut self, paint: &mut Paint, index: usize, v: u32, rect: Rect, clip: Rect, parent_hit: i64) {
         let layer = paint.layers[paint.layer].key;
         let painted = self.painted;
         let r = &mut self.views[v as usize];
@@ -8641,6 +9169,10 @@ impl Ui {
                 continue;
             }
             if self.views.iter().enumerate().any(|(k, q)| q.patched && within(k, v)) {
+                continue;
+            }
+            // a view inside it fading a node (a list row's hover wash) moves its output between builds, as a patch does
+            if self.tweens.iter().any(|t| { let k = self.slots[t.slot].owner as usize; k != v && within(k, v) }) {
                 continue;
             }
             let Some(old) = self.draw[..self.draw_len].iter().find(|l| l.key == r.layer) else { continue };
@@ -8764,11 +9296,28 @@ impl Ui {
             self.moves.reserve(self.views.len().saturating_sub(self.moves.len()));
             d.dirty.reserve(s.pieces.len().saturating_sub(d.dirty.len()));
         }
-        // the room each fresh piece has: up to the next non-empty kept run
+        if self.full_damage && kept == 0 && s.pieces.iter().all(|p| p.view == NO_VIEW) {
+            for p in &mut s.pieces {
+                p.at = p.a;
+            }
+            changed = d.instances != s.instances;
+            if changed {
+                d.instances.clear();
+                d.instances.extend_from_slice(&s.instances);
+                d.dirty.clear();
+                add_range(&mut d.dirty, 0, n);
+            }
+            changed |= self.rebuild_breaks(s, &mut d);
+            self.draw[at] = d;
+            return changed;
+        }
+        // where each fresh piece must end: the fresh pieces before a non-empty kept run end against it, so the room a compaction
+        // left before a run stays ahead of them (a rebuilt view starting there does not take that room into its run)
         let mut limit = u32::MAX;
         for p in s.pieces.iter_mut().rev() {
             if p.view == NO_VIEW {
                 p.at = limit;
+                if limit != u32::MAX { limit = limit.saturating_sub(p.b - p.a); }
             } else {
                 let (a, b) = self.views[p.view as usize].run;
                 if a < b {
@@ -8777,59 +9326,76 @@ impl Ui {
             }
         }
         let mut w = 0u32;
-        // Fresh pieces can overwrite old storage; bound their actual write ends instead of adding both.
+        // Decide whether all pieces fit before touching the old layer. Compaction needs the
+        // original instances for damage, and a late failure would copy the fresh prefix twice.
         let mut fits = old_len <= budget;
-        for k in 0..s.pieces.len() {
+        for p in &mut s.pieces {
             if !fits { break; }
-            let p = s.pieces[k];
             if p.view == NO_VIEW {
                 let len = p.b - p.a;
-                let end = w as usize + len as usize;
-                if end > p.at as usize || end > budget {
-                    fits = false;
-                    break;
-                }
-                s.pieces[k].at = w;
-                if end > d.instances.len() {
-                    d.instances.resize(end, EMPTY);
-                }
-                for x in 0..len as usize {
-                    let (i, new) = (w as usize + x, &s.instances[p.a as usize + x]);
-                    if i >= old_len || d.instances[i] != *new {
-                        if i < old_len { self.damage_change(&d.instances[i], new); }
-                        else { self.damage_instance(new); }
-                        d.instances[i] = *new;
-                        add_range(&mut d.dirty, i as u32, i as u32 + 1);
-                        changed = true;
-                    }
-                }
-                w += len;
+                let at = if p.at == u32::MAX { w } else { p.at.saturating_sub(len).max(w) };
+                let end = at as usize + len as usize;
+                fits = end <= p.at as usize && end <= budget;
+                p.at = at;
+                w = end as u32;
             } else {
                 let (a, b) = self.views[p.view as usize].run;
-                s.pieces[k].at = a;
                 if a == b {
-                    s.pieces[k].at = w;
-                    continue;
+                    p.at = w;
+                } else {
+                    fits = a >= w;
+                    p.at = a;
+                    w = b;
                 }
-                if a < w {
-                    fits = false;
-                    break;
-                }
-                for i in w as usize..a as usize {
-                    if d.instances[i] != EMPTY {
-                        self.damage_instance(&d.instances[i]);
-                        d.instances[i] = EMPTY;
-                        add_range(&mut d.dirty, i as u32, i as u32 + 1);
-                        changed = true;
-                    }
-                }
-                w = b;
             }
         }
         if fits {
-            for i in w as usize..d.instances.len() {
-                self.damage_instance(&d.instances[i]);
-                changed = true;
+            w = 0;
+            for p in &s.pieces {
+                let at = p.at;
+                if p.view == NO_VIEW {
+                    let len = p.b - p.a;
+                    let end = (at + len) as usize;
+                    if end > d.instances.len() {
+                        d.instances.resize(end, EMPTY);
+                    }
+                    changed |= self.clear_piece_gap(&mut d, w, at);
+                    if self.full_damage {
+                        let fresh = &s.instances[p.a as usize..p.b as usize];
+                        let current = &mut d.instances[at as usize..end];
+                        if end > old_len || current != fresh {
+                            current.copy_from_slice(fresh);
+                            add_range(&mut d.dirty, at, end as u32);
+                            changed = true;
+                        }
+                    } else {
+                        for (x, new) in s.instances[p.a as usize..p.b as usize].iter().enumerate() {
+                            let i = at as usize + x;
+                            if i >= old_len || d.instances[i] != *new {
+                                if i < old_len { self.damage_change(&d.instances[i], new); }
+                                else { self.damage_instance(new); }
+                                d.instances[i] = *new;
+                                add_range(&mut d.dirty, i as u32, i as u32 + 1);
+                                changed = true;
+                            }
+                        }
+                    }
+                    w = end as u32;
+                } else {
+                    let (a, b) = self.views[p.view as usize].run;
+                    if a != b {
+                        changed |= self.clear_piece_gap(&mut d, w, a);
+                        w = b;
+                    }
+                }
+            }
+            if self.full_damage {
+                changed |= d.instances.len() > w as usize;
+            } else {
+                for i in w as usize..d.instances.len() {
+                    self.damage_instance(&d.instances[i]);
+                    changed = true;
+                }
             }
             d.instances.truncate(w as usize);
             // a range the host never drew may reach past the shorter layer: the painter refuses it
@@ -8840,6 +9406,27 @@ impl Ui {
         }
         changed |= self.rebuild_breaks(s, &mut d);
         self.draw[at] = d;
+        changed
+    }
+
+    fn clear_piece_gap(&mut self, layer: &mut Layer, start: u32, end: u32) -> bool {
+        let gap = &mut layer.instances[start as usize..end as usize];
+        if self.full_damage {
+            if gap.iter().all(|i| *i == EMPTY) { return false; }
+            gap.fill(EMPTY);
+            add_range(&mut layer.dirty, start, end);
+            return true;
+        }
+        let mut changed = false;
+        for (offset, instance) in gap.iter_mut().enumerate() {
+            if *instance != EMPTY {
+                self.damage_instance(instance);
+                *instance = EMPTY;
+                let i = start + offset as u32;
+                add_range(&mut layer.dirty, i, i + 1);
+                changed = true;
+            }
+        }
         changed
     }
 
@@ -8872,17 +9459,27 @@ impl Ui {
         }
         self.moves.sort_unstable_by_key(|m| m.0);
         self.move_runs(d.key);
-        for i in 0..out.len().max(old_len) {
-            let (old, new) = (d.instances.get(i), out.get(i));
-            if old != new {
-                match (old, new) {
-                    (Some(old), Some(new)) => self.damage_change(old, new),
-                    (Some(old), None) => self.damage_instance(old),
-                    (None, Some(new)) => self.damage_instance(new),
-                    (None, None) => {}
+        if self.full_damage {
+            // Placement may have moved any kept run. One upload covers the new layer.
+            d.dirty.clear();
+            add_range(&mut d.dirty, 0, out.len() as u32);
+        } else {
+            let mut dirty_start = None;
+            for i in 0..out.len().max(old_len) {
+                let (old, new) = (d.instances.get(i), out.get(i));
+                if old != new {
+                    match (old, new) {
+                        (Some(old), Some(new)) => self.damage_change(old, new),
+                        (Some(old), None) => self.damage_instance(old),
+                        (None, Some(new)) => self.damage_instance(new),
+                        (None, None) => {}
+                    }
+                    if new.is_some() { dirty_start.get_or_insert(i as u32); }
+                } else if let Some(start) = dirty_start.take() {
+                    add_range(&mut d.dirty, start, i as u32);
                 }
-                if new.is_some() { add_range(&mut d.dirty, i as u32, i as u32 + 1); }
             }
+            if let Some(start) = dirty_start { add_range(&mut d.dirty, start, out.len() as u32); }
         }
         std::mem::swap(&mut d.instances, &mut out);
         self.compact = out;
@@ -9003,14 +9600,15 @@ impl Ui {
             if r.visited == painted && r.built == painted {
                 let (li, first, end) = r.pieces;
                 let pieces = &scratch[li].pieces;
-                let start = pieces[first].at;
-                let last = pieces[end - 1];
-                let stop = match last.view {
-                    NO_VIEW => last.at + (last.b - last.a),
-                    k => {
-                        let (a, b) = self.views[k as usize].run;
-                        if a < b { b } else { last.at }
-                    }
+                // the run spans its non-empty pieces: an empty one may sit anywhere in the room before a kept child, and taking
+                // it in would carry that compaction room inside the run (each compaction and rebuild then grew the layer)
+                let span = |p: &Piece| match p.view {
+                    NO_VIEW => (p.b > p.a).then_some((p.at, p.at + (p.b - p.a))),
+                    k => { let (a, b) = self.views[k as usize].run; (a < b).then_some((a, b)) }
+                };
+                let (start, stop) = match (pieces[first..end].iter().find_map(span), pieces[first..end].iter().rev().find_map(span)) {
+                    (Some((start, _)), Some((_, stop))) => (start, stop),
+                    _ => (pieces[first].at, pieces[first].at),
                 };
                 let key = scratch[li].key;
                 let d = &self.draw[li];
@@ -9027,6 +9625,14 @@ impl Ui {
                 let r = &mut self.views[v];
                 // the layer moves with the run: until now `verify_runs` reads the kept run where it was
                 (r.layer, r.run, r.valid, r.tex0, r.breaks) = (key, (start, stop), true, tex0, breaks);
+                let mut piece = first;
+                for shape in &mut self.palette_shapes[v][..r.palette_shape_count as usize] {
+                    while piece + 1 < end && pieces[piece].b <= shape.at { piece += 1; }
+                    let p = pieces[piece];
+                    debug_assert!(p.view == NO_VIEW && (p.a..p.b).contains(&shape.at) && shape.end <= p.b);
+                    shape.at = p.at + shape.at - p.a - start;
+                    shape.end = p.at + shape.end - p.a - start;
+                }
                 r.kept_paint = (painted, self.now);
             } else if !self.shown(v as u32) {
                 self.views[v].valid = false;
@@ -9079,6 +9685,12 @@ impl Ui {
 
     pub(crate) fn set_modal_in_frame(&mut self, value: bool) {
         self.modal_in_frame = value;
+    }
+
+    /// Whether the popup `key`, open last frame (it has a slot), lies under the modal this frame's input went to: a sheet over it took
+    /// the input, so its signals stay for that sheet.
+    pub(crate) fn under_routed_modal(&self, key: i64) -> bool {
+        self.routed_modal.is_some_and(|top| top != key) && self.slot_for(key).is_some()
     }
 
     pub(crate) fn set_modal_key(&mut self, key: Option<i64>) {

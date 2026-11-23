@@ -6,7 +6,7 @@
 //! (`Ui::resolve`); a worker's `Text` takes the resolved `TextStyle` that call returns, so worker-prepared text matches what the `Ui`
 //! draws. `Wrap`, `Ellipsis` and `TextAlign` name the numbers the resolved record carries.
 use crate::sys::{PxuiPreparedText, PxuiShaper, PxuiTextWorker};
-use crate::{as_str, as_text, Error, Ui};
+use crate::{as_str, as_text, Error, Handle, Ui};
 use core::ptr::NonNull;
 use pxui_types::{ffi::{PxuiLabelStyle, PxuiTextStyle}, Label, Str, TextGlyph, TextMetrics, TextSpan, TextSpans};
 
@@ -24,6 +24,7 @@ library!(lib {
     fn pxui_shaper_system_fonts(shaper:*mut PxuiShaper)->i32;
     fn pxui_text_system_fonts(ui:*mut PxuiUi)->i32;
     fn pxui_shaper_measure(shaper:*mut PxuiShaper,key:u64,value:Str,style:*const PxuiTextStyle,max_width:f32,spans:*const TextSpans,out:*mut TextMetrics)->i32;
+    fn pxui_ui_label_at(ui: *mut PxuiUi, key: pxui_types::Str, rect: pxui_types::geom::Rect, text: pxui_types::Str, style: *const pxui_types::ffi::PxuiLabelStyle, out: *mut pxui_types::PxuiBox) -> i32;
     fn pxui_ui_label(ui:*mut PxuiUi,text:Str,style:*const pxui_types::ffi::PxuiLabelStyle,label_box:*const pxui_types::ffi::PxuiLabelBox,out:*mut crate::PxuiBox)->i32;
     fn pxui_ui_resolve_label(ui:*mut PxuiUi,style:*const pxui_types::ffi::PxuiLabelStyle,out:*mut PxuiTextStyle)->i32;
     fn pxui_ui_label_measure(ui:*mut PxuiUi,value:Str,style:*const PxuiLabelStyle,max_width:f32,spans:*const TextSpans,out:*mut TextMetrics)->i32;
@@ -384,6 +385,32 @@ impl Ui {
         };
         if rc==0 { Ok(()) } else { Err(Error::from_code(rc)) }
     }
+    /// Places a keyed label in a rectangle relative to its parent, in logical points.
+    ///
+    /// Sets the size from `rect` and uses a plain text line box with the style's typography and
+    /// color. The accessible name is the text, clipped at a UTF-8 boundary if it passes 64 KiB.
+    /// Build inside a frame. Invalid geometry, an unloaded font or a nonpositive line height
+    /// return `Error::InvalidInput`.
+    /// Allocates: never when warm.
+    /// Identity: the key resolves under the parent, like `Ui::node`.
+    /// Panics: for a reserved prefix in an authored key.
+    ///
+    /// ```
+    /// use pxui::{Label, Rect};
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     ui.label_at("title".into(), Rect::new(2.0, 4.0, 80.0, 18.0), "Songs", Label::BODY.line_height(18.0)).unwrap();
+    /// });
+    /// ```
+    #[track_caller]
+    pub fn label_at(&mut self, key: crate::Key, rect: pxui_types::geom::Rect, text: &str, style: Label) -> Result<Handle, crate::Error> {
+        if let crate::Key::Label(label) = key { crate::authored(label); }
+        let mut label = [0; 17];
+        let mut out = Handle::default();
+        let rc = unsafe { lib::pxui_ui_label_at(self.0.as_ptr(), crate::as_str(key.label(&mut label)), rect, crate::as_text(text), &pxui_types::ffi::PxuiLabelStyle::from(&style), &mut out) };
+        crate::status(rc)?;
+        Ok(out)
+    }
+
     /// CSS line boxes with primary-font baseline rounding for a frame's node text in `style` (resolved as `resolve`); requires a
     /// positive line height.
     ///

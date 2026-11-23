@@ -309,6 +309,21 @@ fn native_startup_requires_initial_domain() {
     assert_eq!(error.operation(), "SDL3.Init.configure_native_process");
 }
 
+#[cfg(target_os = "macos")]
+fn app_loop_opens_a_point_sized_drawable_when_requested() {
+    use pxui_sdl::app::{Schedule, Signal, run_with_density};
+    run_with_density("point-sized drawable", 320, 240, false, Box::new(|window, signal| {
+        if signal == Signal::Initialize {
+            let extent = window.extent();
+            assert_eq!(extent.logical, (320, 240));
+            assert_eq!(extent.drawable, extent.logical);
+            assert_eq!(window.scale(), 1.0);
+            return Ok(Schedule::NextFrame);
+        }
+        Ok(Schedule::Exit)
+    })).unwrap();
+}
+
 fn app_loop_cleans_up_callbacks_before_the_window_on_success_and_errors() {
     use pxui_sdl::app::{Schedule, Signal};
     use std::{cell::RefCell, rc::Rc};
@@ -400,6 +415,8 @@ fn main() {
         ("native_stack_overflow_exits", native_stack_overflow_exits),
         ("native_abort_exits", native_abort_exits),
         ("native_startup_requires_initial_domain", native_startup_requires_initial_domain),
+        #[cfg(target_os = "macos")]
+        ("app_loop_opens_a_point_sized_drawable_when_requested", app_loop_opens_a_point_sized_drawable_when_requested),
         ("app_loop_cleans_up_callbacks_before_the_window_on_success_and_errors", app_loop_cleans_up_callbacks_before_the_window_on_success_and_errors),
     ]);
 }

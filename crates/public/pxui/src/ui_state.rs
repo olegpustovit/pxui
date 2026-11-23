@@ -512,7 +512,8 @@ impl Ui {
     }
     /// How many views whose label starts with `prefix` the last frame built instead of keeping (their revision changed, or they were new).
     ///
-    /// An empty `prefix` counts every view. Read after the frame, never inside a view's own build.
+    /// An empty `prefix` counts every view. A retained view built during any settling pass counts once.
+    /// Read after the frame, never inside a view's own build.
     /// Allocates: never.
     /// Panics: when the library refuses the call (a null `Ui` or a `prefix` over the text limit).
     ///

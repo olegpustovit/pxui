@@ -49,6 +49,28 @@ nothing may reach outside this repository (no `../../..` paths past the root).
   without SCROLL/SCROLL_X. Empty scrolling grids still clamp both offsets. Layout child loops copy
   only the fields they use, not the full 600-byte Node with its visual/motion payload. Preserve
   leaf/parent transitions, native pixels, warm allocations and the unchanged layout-scaling ratio.
+- Fixed-size text leaves follow their declared geometry. Positioning a line-box label may reuse
+  text at the same key, while every frame still resets its old spans, hit shape and accessibility
+  overrides. Cached glyph slots require the same scale and live atlas shelves. Integral origin shifts
+  may reuse the slots when the subpixel bins stay fixed. Plain masks can emit directly from those
+  slots with the same coordinates and atlas usage as a fresh walk. Mutable node access invalidates
+  reused view and positioned-label node templates. The Apple raster's ppem-dependent horizontal
+  phase rule is shared by glyph placement and cache replay.
+  On Apple, atlas misses use CoreText grayscale coverage for supported outline faces. Keep the
+  shaped face id, physical size, weight and baseline-relative bearings. Native font sources share
+  the shaping bytes. Bound face, size and bitmap storage, and keep native work off atlas hits.
+  Colour glyphs and unsupported native masks use Swash.
+  The Apple kit pixel fixtures use the `_coretext` suffix. Keep the portable Swash fixtures for
+  the same 1×/2× scenes on other platforms.
+  Positioned labels with a default pose and no transition use the same layout memo, culling and
+  painted range as regular line-box labels. Theme swaps still run through the normal paint path.
+  A focused search field shows its empty prompt until text or marked IME input arrives.
+  Instant palette changes may keep explicitly opted-in, root-themed views containing only positioned
+  label output. Keep each label's ink source, and recolor the retained glyph ranges when the new frame
+  begins. The separate shape opt-in records symbolic fill and stroke ranges relative to the owner's
+  retained run. A palette swap keeps the run only if its own declarations and all nested views can
+  update in place. Patched, scoped, and unsupported views rebuild. A viewport-independent view may be reused on window-size changes;
+  own-size changes still settle its layout and a density change always invalidates it.
 - `pxui`, `pxui_text` and `pxui_render` contain no SDL and no window code, and `pxui` knows nothing
   about the GPU. Input is data in (`input::Event`, a logical size, a scale factor, a time); output is
   data out (a draw list plus cursor, IME, clipboard and repaint request). A target is a render pass
@@ -165,20 +187,29 @@ not allocate while reading output. Preserve the regression that acknowledges a d
 unchanged frame, then requests sixteen disjoint updates without new draw storage. `layout_scaling`
 is a timing case: the test runner puts it in the existing serial group, retaining its 1.5x bound.
 
+Retained layer placement puts the fresh pieces before a kept run against that run (end aligned), and a rebuilt view's run
+spans only its non-empty pieces, so the room a compaction left ahead of a run stays outside a view rebuilt there. Placing them at the write cursor moved that room inside the rebuilt
+view's run, where each compaction and rebuild grew it and the layer, until the renderer reallocated in a warm frame. Keep
+`window_pxui_rebuilt_view_keeps_compaction_room_outside_its_run` (it pins the alignment; LocalWave's playing-indicator
+workload pins the run span) and the renderer's 2x retained headroom. Upward-scrolling lists still compact on most frames (rows
+enter ahead of the first kept row, past its slack): a separate, recorded cost.
+
 Dismissed popup roots and attached roots are ignored while routing the next frame's old hit tree,
 then cleared before rebuilding. Preserve the overlapping next-press and warm-allocation regression;
 clearing modal ownership alone leaves the previous popup's clickable nodes in that tree.
 
-SlotTable reuses tombstones and grows only when the live count requires it; tombstone churn must
-rehash through retained spare arrays without increasing capacity. Recycled empty text/name/value
+SlotTable keeps (key, slot) pairs side by side and grows past half full. Deletion shifts entries
+whose probe path crossed the hole, including at wraparound, so recycling leaves no tombstones.
+Recycled empty text/name/value
 buffers choose the smallest suitable donor, preserving larger buffers for longer labels. Existing
 node identities keep the fast capacity check, even though set_box clears their strings. Preserve the registered 100-frame identity/text
 churn case and LocalWave's alternating cache-limit/menu regression; do not extend their warm-up.
-Empty-string donors use retained sorted capacity/slot indices, built lazily once per field per
-frame. Node clears, retirement, empty writes and buffer transfers keep active indices current;
-nonempty writes remove their entry. Reserve metadata with slot capacity so the first warm query
-does not allocate. Keep the differential full-search check, live-content preservation, bounded
-metadata and dynamic/static scrolling/allocation tests. Stable nodes keep their capacity fast path.
+Empty-string donors use per-field capacity buckets (intrusive doubly linked lists through per-slot links and a bit
+per non-empty bucket), built on a field's first donor query and kept current after: node clears, retirement, empty
+writes and buffer transfers add entries in O(1); nonempty writes leave theirs, and the donor query drops stale entries
+it meets. No per-frame rebuild, sort or Vec shifting (each made full rebuilds pay per retained slot). Reserve the
+links with slot capacity so the first warm query does not allocate. Keep the differential full-search check (best fit
+by capacity), live-content preservation, bounded metadata and dynamic/static scrolling/allocation tests. Stable nodes keep their capacity fast path.
 
 SDL dialog callbacks release-publish their copied outcome before calling the existing host wake.
 Chosen, cancelled and failed dialogs must wake an idle event loop; do not add periodic polling.
@@ -269,8 +300,9 @@ of iOS background execution time or qualification of actual background audio on 
 
 pxui_sdl::app::run shares the callback contract across desktop and iOS. Finish, captured resources
 and the window must clean up in that order on success, initialization errors, frame errors and
-invalid deadlines. Window::preferences owns cached Apple appearance/reduced motion: AppKit KVO
-and workspace notifications, UIKit trait registration and accessibility notifications. Native
+invalid deadlines. Point-sized captures opt out of high density at window creation so the UI
+density and Metal drawable agree. Window::preferences owns cached Apple appearance/reduced
+motion: AppKit KVO and workspace notifications, UIKit trait registration and accessibility notifications. Native
 subscriptions belong to sdl3_sys; apps only read copied snapshots. Preserve main-thread refusal,
 native notifications, duplicate suppression, teardown and zero-warm-read checks.
 iOS worker wakes signal the retained CFRunLoop source directly, never queue SDL user events.
@@ -292,3 +324,15 @@ crate-private/test-only in pxui_host; its internal main-thread harness retains f
 pixel/replay, warm draw and GPU-completion assertions. Prefix native cases with window_ so cargo t
 serializes them even in a library test target. Public `hash_of(&value)` (fixed-seed FNV-1a 64, the one public hash) owns transient revision hashing while
 callers supply facts; it borrows the input, allocates nothing and gives the same value on every run and platform.
+
+A resting section list can start with the declared height of an enclosing fixed-height pane on
+first layout or window resize. Check that height after arrange and settle on a mismatch, including
+siblings declared after the list. Preserve scroll motion, visible row text, and the fixed-pane
+resize and keyboard-bound regressions.
+
+Table shares fill the room left after point columns and visible separators. Round cumulative
+boundaries so individual width rounding cannot leave a gap after the last visible column.
+
+A theme or viewport change damages the whole viewport through all settling passes. These frames can
+upload changed fresh draw pieces in bulk, or the whole compacted layer when kept runs move. Preserve
+texture breaks, patch ranges and precise damage on ordinary frames.

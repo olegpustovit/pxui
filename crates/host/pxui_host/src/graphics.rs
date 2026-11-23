@@ -183,6 +183,34 @@ impl Graphics {
         Ok(true)
     }
 
+    /// Draws one frame like `draw` and returns what it presented: drawable-pixel width, height and
+    /// RGBA rows, top row first, in the drawable's own color values (no display color matching).
+    /// For development captures such as reference goldens; needs no screen-recording rights.
+    ///
+    /// Errors: `Error::Host` when no frame could be drawn (zero extent, hidden or inactive surface)
+    /// or the GPU copy failed; renderer errors keep their library category.
+    /// Allocates: the returned pixels and, on first use or growth, a retained shared GPU buffer.
+    pub fn screenshot(&mut self, window: &mut Window, ui: &Ui) -> Result<(u32, u32, Vec<u8>), Error> {
+        let frames = self.frames.as_mut().expect("Live frame context");
+        frames.capture(true).map_err(|_| Error::Host("could not start frame capture"))?;
+        let drawn = self.draw(window, ui, None);
+        let frames = self.frames.as_mut().expect("Live frame context");
+        let stopped = frames.capture(false);
+        let drawn = drawn?;
+        stopped.map_err(|_| Error::Host("could not stop frame capture"))?;
+        if !drawn {
+            return Err(Error::Host("no frame was drawn to capture"));
+        }
+        let (width, height, mut pixels) = frames
+            .read_capture()
+            .map_err(|_| Error::Host("could not read the frame capture"))?
+            .ok_or(Error::Host("no frame was captured"))?;
+        for pixel in pixels.chunks_exact_mut(4) {
+            pixel.swap(0, 2); // BGRA drawable to RGBA
+        }
+        Ok((width, height, pixels))
+    }
+
     /// Wall time the last `draw` spent acquiring its drawable and frame slot: display pacing,
     /// not frame work, so callers can subtract it from a whole-frame wall span.
     pub fn acquire_wall(&self) -> std::time::Duration {

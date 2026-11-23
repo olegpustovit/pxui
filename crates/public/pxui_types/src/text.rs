@@ -345,6 +345,18 @@ impl Label {
     /// ```
     #[inline]
     pub const fn ellipsis_head(mut self) -> Label { self.0.ellipsis = Ellipsis::Head; self }
+    /// This style cutting text at its width with no ellipsis (`Ellipsis::None`): a single line too long simply ends at the cut
+    /// (SwiftUI's fixed-size text in a clipped frame).
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{ffi::PxuiLabelStyle, text::Ellipsis, Label};
+    /// assert_eq!(PxuiLabelStyle::from(&Label::BODY.ellipsis().ellipsis_none()).ellipsis, Ellipsis::None as u8);
+    /// ```
+    #[inline]
+    pub const fn ellipsis_none(mut self) -> Label { self.0.ellipsis = Ellipsis::None; self }
     /// This style placing its lines at `align` inside its width: `TextAlign::Start` (the default), `Center` or `End`.
     ///
     /// Allocates: never.

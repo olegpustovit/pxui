@@ -523,7 +523,7 @@ fn round_icon(ui: &mut Ui, c: &IconButtonConfig, states: &States, _label: &str, 
 
 pub fn icon_button_round_body() {
     let hits = |ui: &mut Ui, v: &Cell<i64>| {
-        if ui.icon_button("Add", Icon::Glyph('+'), "Add", &IconButton::DEFAULT).clicked {
+        if ui.icon_button("Add", Icon::Glyph('+'), "Add", &IconButton::DEFAULT, None).clicked {
             v.set(v.get() + 1);
         }
     };
@@ -553,7 +553,7 @@ pub fn icon_button_uses_a_registered_body() {
     let press = PRESS;
     let opts = IconButton { w: Size::Px(36.0), h: Size::Px(36.0), press_scale: 0.96, enabled: false, press: Some(&PRESS), ..IconButton::DEFAULT };
     for k in 0..2 {
-        ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| { ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { ui.icon_button("Go", Icon::Glyph('+'), "Go", &opts); }); });
+        ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| { ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { ui.icon_button("Go", Icon::Glyph('+'), "Go", &opts, None); }); });
     }
     check(ICON_SEEN.with(|s| s.get()) == (36.0, 36.0, 0.96, 1), &format!("the body's config is {:?}", ICON_SEEN.with(|s| s.get())));
     check(ICON_CURVES.with(|s| s.get()) == Some(press), "the body is given the press curves");
@@ -572,8 +572,8 @@ pub fn icon_button_is_the_transport_key() {
         let mut ui = new_ui(None);
         ui.set_a11y(true);
         let (clicks, mut t) = (Cell::new(0), 0.0);
-        let opts = IconButton { states: Some(states), w: Size::Px(36.0), h: Size::Px(36.0), press_scale: 0.96, enabled, ..IconButton::DEFAULT };
-        let mut build = |ui: &mut Ui| { ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { if ui.icon_button("play", Icon::Glyph('+'), "Play", &opts).clicked { clicks.set(clicks.get() + 1); } }); };
+        let opts = IconButton { w: Size::Px(36.0), h: Size::Px(36.0), press_scale: 0.96, enabled, ..IconButton::DEFAULT };
+        let mut build = |ui: &mut Ui| { ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { if ui.icon_button("play", Icon::Glyph('+'), "Play", &opts, Some(&states)).clicked { clicks.set(clicks.get() + 1); } }); };
         let mut step = |ui: &mut Ui, e: Vec<Event>| { t += 0.01; ui.frame(&frame(t, e), &mut build); };
         for _ in 0..3 { step(&mut ui, vec![]); }
         let n = tree_node(&ui, Role::Button, "Play");
@@ -613,7 +613,7 @@ pub fn icon_button_press_runs_the_callers_curves() {
     let mut t = 0.0;
     let opts = IconButton { w: Size::Px(36.0), h: Size::Px(36.0), press_scale: 0.96,
         press: Some(&[Curve::Bezier { duration: 0.0, points: [0.0, 0.0, 1.0, 1.0] }, Curve::Steps { duration: 0.2, count: 1 }]), ..IconButton::DEFAULT };
-    let mut build = |ui: &mut Ui| { ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { ui.icon_button("play", Icon::Glyph('+'), "Play", &opts); }); };
+    let mut build = |ui: &mut Ui| { ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { ui.icon_button("play", Icon::Glyph('+'), "Play", &opts, None); }); };
     let mut step = |ui: &mut Ui, e: Vec<Event>| { t += 0.01; ui.frame(&frame(t, e), &mut build); };
     for _ in 0..3 { step(&mut ui, vec![]); }
     let node = key_of(key_of(0x2c1b3c6d, "panel"), "play");
@@ -653,7 +653,7 @@ pub fn icon_button_draws_the_apps_icon_like_the_transport_key() {
     use pxui_core::geom::Rgba;
     let fill = |r: u8| Look::NONE.fill(Rgba::rgb(r, 0, 0)).text(Rgba::rgb(r, 9, 9));
     let states = States::of(fill(10)).hover(fill(20)).pressed(fill(30)).focus(fill(40)).disabled(fill(50)).checked(fill(60));
-    let button = IconButton { states: Some(states), w: Size::Px(36.0), h: Size::Px(36.0), press_scale: 0.96, ..IconButton::DEFAULT };
+    let button = IconButton { w: Size::Px(36.0), h: Size::Px(36.0), press_scale: 0.96, ..IconButton::DEFAULT };
     let run = |hand: bool| {
         let mut ui = new_ui(None);
         ui.set_a11y(true);
@@ -673,7 +673,7 @@ pub fn icon_button_draws_the_apps_icon_like_the_transport_key() {
                     });
                 });
             } else {
-                ui.icon_button("play", Icon::Draw(play_icon, [0; 4]), "Play", &button);
+                ui.icon_button("play", Icon::Draw(play_icon, [0; 4]), "Play", &button, Some(&states));
             }
         }); };
         let mut step = |ui: &mut Ui, e: Vec<Event>| { t += 0.01; ui.frame(&frame(t, e), &mut build); };
@@ -700,8 +700,8 @@ pub fn icon_button_draws_the_apps_icon_like_the_transport_key() {
     check((ours.3 .1 - 0.96).abs() < 0.01, &format!("the press spring scales the view the drawing is in: {}", ours.3 .1));
     // the drawing is told the 20-point square and the ink of the state
     let mut ui = new_ui(None);
-    let b = IconButton { states: Some(states), press_scale: 1.0, ..IconButton::DEFAULT };
-    for k in 0..3 { ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| { ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { ui.icon_button("play", Icon::Draw(recorded_play, [0; 4]), "Play", &b); }); }); }
+    let b = IconButton { press_scale: 1.0, ..IconButton::DEFAULT };
+    for k in 0..3 { ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| { ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { ui.icon_button("play", Icon::Draw(recorded_play, [0; 4]), "Play", &b, Some(&states)); }); }); }
     check(PLAYED.with(|p| p.get()) == (PLAYED.with(|p| p.get()).0, 20.0, 20.0, 10) && PLAYED.with(|p| p.get()).0 > 0, &format!("the drawing's square and ink: {:?}", PLAYED.with(|p| p.get())));
     ui.destroy();
 }
@@ -720,8 +720,8 @@ pub fn icon_button_body_receives_the_drawing() {
     let mut ui = new_ui(None);
     pick(&mut ui, &|t, id| t.body.icon_button = id, &|ui| ui.register_icon_button_body("art", art_icon));
     PLAYED.with(|p| p.set((0, 0.0, 0.0, 0)));
-    let b = IconButton { states: Some(States::of(Look::NONE.text(pxui_core::geom::Rgba::rgb(77, 0, 0)))), ..IconButton::DEFAULT };
-    for k in 0..3 { ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| { ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { ui.icon_button("Go", Icon::Draw(recorded_play, [0; 4]), "Go", &b); }); }); }
+    let states = States::of(Look::NONE.text(pxui_core::geom::Rgba::rgb(77, 0, 0)));
+    for k in 0..3 { ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| { ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { ui.icon_button("Go", Icon::Draw(recorded_play, [0; 4]), "Go", &IconButton::DEFAULT, Some(&states)); }); }); }
     check(ICON_ART.with(|a| a.get()) == (true, 77), &format!("the body's config: {:?}", ICON_ART.with(|a| a.get())));
     check(PLAYED.with(|p| p.get()).0 > 0, "the body's own node was not drawn on");
     ui.destroy();
@@ -1636,6 +1636,26 @@ pub fn table_head_flat_body() {
     check(got == (2, 2), &format!("table_head: the clicks gave {got:?}"));
 }
 
+pub fn shared_table_columns_fill_the_remaining_width() {
+    use pxui_core::ui_lists::ColumnSpec;
+    let columns = [
+        ColumnSpec { id: 0, share: 1.0, ..ColumnSpec::default() },
+        ColumnSpec { id: 1, w: 18.5, ..ColumnSpec::default() },
+        ColumnSpec { id: 2, share: 3.0, ..ColumnSpec::default() },
+        ColumnSpec { id: 3, ..ColumnSpec::default() },
+        ColumnSpec { id: 4, share: 2.0, ..ColumnSpec::default() },
+    ];
+    let mut ui = new_ui(None);
+    let mut widths = [pxui_types::ffi::PxuiColumnWidth::default(); 5];
+    ui.frame(&frame(0.0, vec![]), &mut |ui| {
+        let pane = ui.node("pane".into(), Node::column().w_px(105.25).h_px(48.0));
+        let save = ui.enter(&pane);
+        ui.table_head("Table", &columns, &["A", "B", "C", "D", "E"], &mut widths, &mut None, 24.0);
+        ui.leave(save);
+    });
+    assert_eq!(widths.map(|column| column.w), [14.0, 18.5, 41.0, 0.0, 27.75]);
+}
+
 /// The caller's own cells: a label and a button in a row of a table, and that the button works.
 pub fn table_with_widget_cell() {
     let mut runs = Vec::new();
@@ -2005,6 +2025,7 @@ pub const CASES: &[(&str, fn())] = &[
     ("tree_boxed_body", tree_boxed_body),
     ("table_row_ruled_body", table_row_ruled_body),
     ("table_head_flat_body", table_head_flat_body),
+    ("shared_table_columns_fill_the_remaining_width", shared_table_columns_fill_the_remaining_width),
     ("table_with_widget_cell", table_with_widget_cell),
     ("picker_label_body", picker_label_body),
     ("kept_view_runs_no_item_body", kept_view_runs_no_item_body),

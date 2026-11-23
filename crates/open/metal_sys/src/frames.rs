@@ -18,6 +18,14 @@ unsafe extern "C" {
     fn rays_metal_frames_commands(host: *mut c_void) -> *mut c_void;
     fn rays_metal_frames_pass(host: *mut c_void, red: f64, green: f64, blue: f64) -> *mut c_void;
     fn rays_metal_frames_submit(host: *mut c_void) -> i32;
+    fn rays_metal_frames_capture(host: *mut c_void, on: i32) -> i32;
+    fn rays_metal_frames_read(
+        host: *mut c_void,
+        out: *mut u8,
+        length: usize,
+        width: *mut u32,
+        height: *mut u32,
+    ) -> i32;
     fn rays_metal_frames_wait(host: *mut c_void) -> i32;
     fn rays_metal_frames_destroy(host: *mut c_void);
 }
@@ -90,6 +98,27 @@ impl Frames {
             1 => Ok(true),
             0 => Ok(false),
             _ => Err("Could not submit Metal frame".into()),
+        }
+    }
+    /// While on, each submitted frame is also copied for `read_capture` (drawables become blit-readable).
+    pub fn capture(&mut self, on: bool) -> Result<(), String> {
+        match unsafe { rays_metal_frames_capture(self.raw, i32::from(on)) } {
+            1 => Ok(()),
+            _ => Err("Could not change Metal frame capture between frames".into()),
+        }
+    }
+    /// Waits for the last captured frame and returns its BGRA rows, or `None` when none was captured.
+    pub fn read_capture(&mut self) -> Result<Option<(u32, u32, Vec<u8>)>, String> {
+        let (mut width, mut height) = (0u32, 0u32);
+        match unsafe { rays_metal_frames_read(self.raw, std::ptr::null_mut(), 0, &mut width, &mut height) } {
+            0 => return Ok(None),
+            1 => {}
+            _ => return Err("Could not read the Metal frame capture".into()),
+        }
+        let mut pixels = vec![0u8; width as usize * height as usize * 4];
+        match unsafe { rays_metal_frames_read(self.raw, pixels.as_mut_ptr(), pixels.len(), &mut width, &mut height) } {
+            1 => Ok(Some((width, height, pixels))),
+            _ => Err("Metal frame capture failed on the GPU".into()),
         }
     }
     pub fn wait(&mut self) -> Result<(), String> {

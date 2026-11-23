@@ -1,7 +1,7 @@
 #include <TargetConditionals.h>
 #include <SDL3/SDL.h>
 #include "preferences.h"
-_Static_assert(sizeof(PXUIPreferencesState) == 8, "system preference layout");
+_Static_assert(sizeof(PXUIPreferencesState) == 12, "system preference layout");
 #if TARGET_OS_IOS
 #import <UIKit/UIKit.h>
 
@@ -23,8 +23,9 @@ _Static_assert(sizeof(PXUIPreferencesState) == 8, "system preference layout");
         return;
     }
     UIUserInterfaceStyle style = window.traitCollection.userInterfaceStyle;
-    PXUIPreferencesState next = {style == UIUserInterfaceStyleDark ? 2u : style == UIUserInterfaceStyleLight ? 1u : 0u, UIAccessibilityIsReduceMotionEnabled() ? 1u : 0u};
-    if (next.appearance != state.appearance || next.reduced_motion != state.reduced_motion) {
+    // UIKit's scroll indicators are always overlay
+    PXUIPreferencesState next = {style == UIUserInterfaceStyleDark ? 2u : style == UIUserInterfaceStyleLight ? 1u : 0u, UIAccessibilityIsReduceMotionEnabled() ? 1u : 0u, 1u};
+    if (next.appearance != state.appearance || next.reduced_motion != state.reduced_motion || next.overlay_scrollers != state.overlay_scrollers) {
         state = next;
         if (wake) wake();
     }
@@ -68,6 +69,7 @@ static char PXUIAppearanceContext;
     NSApplication *application;
     NSWorkspace *workspace;
     id displayObserver;
+    id scrollerObserver;
 }
 - (instancetype)initWithApplication:(NSApplication *)app workspace:(NSWorkspace *)space wake:(void (*)(void))callback;
 - (void)refresh;
@@ -87,6 +89,11 @@ static char PXUIAppearanceContext;
             (void)note;
             [owner refresh];
         }];
+        // System Settings > Appearance > Show scroll bars (and plugging in a mouse) change the scroller style
+        scrollerObserver = [NSNotificationCenter.defaultCenter addObserverForName:NSPreferredScrollerStyleDidChangeNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
+            (void)note;
+            [owner refresh];
+        }];
     }
     return self;
 }
@@ -97,8 +104,9 @@ static char PXUIAppearanceContext;
         return;
     }
     NSString *match = [application.effectiveAppearance bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]];
-    PXUIPreferencesState next = { [match isEqual:NSAppearanceNameDarkAqua] ? 2u : [match isEqual:NSAppearanceNameAqua] ? 1u : 0u, workspace.accessibilityDisplayShouldReduceMotion ? 1u : 0u };
-    if (next.appearance != state.appearance || next.reduced_motion != state.reduced_motion) {
+    PXUIPreferencesState next = { [match isEqual:NSAppearanceNameDarkAqua] ? 2u : [match isEqual:NSAppearanceNameAqua] ? 1u : 0u, workspace.accessibilityDisplayShouldReduceMotion ? 1u : 0u,
+        NSScroller.preferredScrollerStyle == NSScrollerStyleOverlay ? 1u : 0u };
+    if (next.appearance != state.appearance || next.reduced_motion != state.reduced_motion || next.overlay_scrollers != state.overlay_scrollers) {
         state = next;
         if (wake) wake();
     }
@@ -110,6 +118,7 @@ static char PXUIAppearanceContext;
 - (void)dealloc {
     [application removeObserver:self forKeyPath:@"effectiveAppearance" context:&PXUIAppearanceContext];
     [workspace.notificationCenter removeObserver:displayObserver];
+    [NSNotificationCenter.defaultCenter removeObserver:scrollerObserver];
 }
 @end
 

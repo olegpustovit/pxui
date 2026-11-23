@@ -19,6 +19,10 @@ The target public surface. **Rule:** a call not marked with a step keeps its HEA
 - Sizes `f32`, positions `Point`. `Result<_, Error>` for fallible-by-data calls, `Option` for "absent", panics only for documented caller bugs.
 - Build-time setters (`text`, `style`, `set_view`) set state during the build; the `patch_*` family (`patch_text`, `patch_look`, `patch_rect`, `patch_mark`, `patch_field`) updates retained nodes without a rebuild. Both families are documented as such.
 
+The open-tier `pxui_sdl::app::run_with_density(title, width, height, high_density, callback)`
+uses the same callback lifecycle as `app::run`. On Apple platforms, `false` requests a drawable
+at the window's logical size for native 1× captures. `app::run` requests display density.
+
 | Job | Signature (target) | Body kind | Step |
 |---|---|---|---|
 | Containers | `row/column/stack<F>(node: Node, f: F) -> Handle` (keyless, D25.1); `id<K, F>(key, f)` scopes descendant identities without adding a node; the instance getter `id() -> usize` is renamed `instance_id() -> usize` (D26) so `id` names one thing; `node<K>(key: K, node: Node) -> Handle` (HEAD takes `Key`; becomes key-first generic like every other call, codemod drops `.into()`); `within(&Handle, &mut dyn FnMut(&mut Ui))` | — | keyless + `id` U1b.6; `node` U1b.2; `enter/leave` → crate-private U1a.3 |
@@ -62,10 +66,13 @@ The target public surface. **Rule:** a call not marked with a step keeps its HEA
 | Getters | `keyboard()`, `environment()`, `text_traits()` (was `text_input_options`), `ime() -> Option<Ime>`, `platform()`, `now()`, `frame_index()`, `system_appearance() -> Appearance` | — | U1a.4 (appearance), U1b.2 |
 | Signals | `signal`, `signal_keys` → `Signal`: documented as the body/custom-control layer | — | HEAD |
 | Hover / press queries | `hovered(&Handle, within: bool) -> bool` replaces the `hovered_exactly`/`hovered_within` twin; `press_keys`, `last_press_within(&[Event], &[Key]) -> Option<Key>`, `context_at(&Handle) -> Option<Point>`, free `context_clicked` | — | U1b.2 |
-| Kept as HEAD (listed so the two-way check passes) | Build/retained: `set_at`, `to_front`, `node_layout`/`set_node_layout`, `node_mut` (made non-generic U1c.1), `cached_label`, `busy_step`, `set_dir`, `rtl`, `view_size() -> ViewSize` (width and height in logical points, U1b.3). Input/text: `captured`, `reordering` (a list row lifted by its handle, U2b.4.12), `clipboard_request`, `paste_requested`, `passed_undo`, `text_input_focused` (U2b.4.18: a text editor holds the focus, not any focus), `text_undo_bytes`, `unfocus`, `remember<K>(key, ..)` (key-first with `load_text_edit`, U1b.2), `event_text`, `dismiss_popup`. Frame/diagnostics: `request_frame`, `request_cursor`, `arranged_nodes`, `built_nodes`, `rebuilt_views`, `rebuilt_named`, `draw_calls`, `draw_revision`, `text_layout_count`, `verifying`, `abi_version`. A11y: `set_a11y`, `inject_a11y`. | — | HEAD unless noted |
+| Kept as HEAD (listed so the two-way check passes) | Build/retained: `set_at`, `to_front`, `node_layout`/`set_node_layout`, `node_mut` (made non-generic U1c.1), `cached_label`, `busy_step`, `set_dir`, `rtl`, `view_size() -> ViewSize` (width and height in logical points, U1b.3). Input/text: `captured`, `reordering` (a list row lifted by its handle, U2b.4.12), `clipboard_request`, `paste_requested`, `passed_undo`, `text_input_focused` (U2b.4.18: a text editor holds the focus, not any focus), `text_undo_bytes`, `unfocus`, `remember<K>(key, ..)` (key-first with `load_text_edit`, U1b.2), `event_text`, `dismiss_popup`. Frame/diagnostics: `request_frame`, `request_cursor`, `arranged_nodes`, `built_nodes`, `rebuilt_views`, `rebuilt_named` (counts retained views rebuilt on any settling pass), `draw_calls`, `draw_revision`, `text_layout_count`, `verifying`, `abi_version`. A11y: `set_a11y`, `inject_a11y`. | — | HEAD unless noted |
 | Testing | `testing::{frame, click, click_node, key, find}` | — | U1a.4 |
 | Extension set (no stability) | `pxui::ext::{inspector_*, footer, line_field, value_field, grip, field_drag, inspector_width, inspector_label_x}`: free functions taking the `Ui` first (`pxui::ext::inspector_toggle(ui, key, label, on)`); the inspector toggle and button are the toggle and button bodies' | through bodies | U1c.3 |
 | 2.0 additions | Error/diagnostics export and font list at create (C, U5.9); `pxui_supports` baseline (U5.8); surface registration (U5.2); `A11yBridge::update(surface, tree)` and `remove_surface(surface)`, with each returned `A11yAction.surface` naming its destination (owner-approved U5.9 review fix, 21 Nov); injection refuses another surface before applying any action | — | U5 |
+| 2.1 additions | `Ui::label_at(Key, Rect, &str, Label) -> Result<Handle, Error>` places a plain text line box under an authored key. `ThemeHandle::animate_swap(bool)` controls appearance transitions when the theme is installed. | — | 2.1 |
+| 2.3 addition | `Ui::retain_palette_paint()` opts in existing views with palette-independent geometry and symbolic canvas shape colors. | — | 2.3 |
+| 2.2 additions | `Ui::retain_palette_labels()` opts a positioned-label view into reuse on instant palette changes. `Ui::retain_view_on_resize()` opts a viewport-independent view into reuse while its local size and device scale hold. | — | 2.2 |
 
 ## 2. Machine list
 
@@ -129,6 +136,7 @@ Proposed at the U2b shape stop (2026-11-18); see LocalWave `scratch/u2b-shape-re
 - `TableResponse` moves to `pxui` (it holds `HeadResponse`): `{ rows: ListResponse, head: HeadResponse }`; `pxui_types::ui::TableResponse` and `TableView` (with its fixed text table) are deleted with the old engine route.
 - `HeadResponse` reports `sorted` (a click changed `TableState::sort`; read the sort there, `None` being the original order) apart from `resized` (a grip drag changed a width). `TableState::widths` holds every column's `(id, laid-out width)` in slice order, so rows built elsewhere share them; widths and `sort` are keyed by column id (`Column::id`, the index without one: `Option<i64>`, no sentinel), so a dragged width or a sort follows its column.
 - `Column::w_px(f32)` is added beside `share`, with `Column::grip(bool)` (default true): with a grip `w_px` is the starting width, without one it is the width every frame (app-computed responsive widths). Columns stay in the slice every frame (indices are the cell callback's columns); `w_px(0.0)` hides one.
+- Shared columns round their cumulative boundaries and assign the full remaining width after point columns and visible separators.
 - No dropping look on `States` (review: a seventh look would need a second C record beside `PxuiStates`, a twin). `States` and `PxuiStates` stay the six looks and `State` gains no bit (it is embedded in `PxuiNode`). A list row's drop look is the list style's (`SelectionList::drop_look`, carried in the list's own C record); the row body is told through the library-written row config (`PxuiRowConfig` grows by `drop: u8` — 0 none, 1 insertion line before, 2 after, 3 a payload over the row) and draws the insertion line. A plain drop-target node gets its look from the app picking one of two theme `States` consts while its `drop_target` reports a hover (`ui.style(&target, if hover { &UP_NEXT_DROP } else { &UP_NEXT }, ..)`, consts from builders).
 - `ListResponse::moved` is `(from, to)` with `to` the final index (remove at `from`, insert at `to`); `selected` is set by every widget write to the selection (navigation lists act on it; multi lists invalidate caches on it). `Part::HANDLE` takes the touch on press (as `GestureOpts::touch_drag`), so a handle drag never scrolls the list.
 - `SectionPart::Trailing` (gap from the site map, sidebar "+ New list"): the `trail` height is built by the callback after the last row, never a row (not selected, counted or keyed); a callback that ignores it leaves blank space as before.
@@ -1119,6 +1127,7 @@ pxui::TextWorker::new fn () -> Result<TextWorker, Error> @HEAD
 pxui::ThemeHandle impl Default @U1a.2
 pxui::ThemeHandle impl Drop @U1a.2
 pxui::ThemeHandle struct (_) @U1a.2
+pxui::ThemeHandle::animate_swap fn (&mut self, on: bool) @HEAD
 pxui::ThemeHandle::density fn (&mut self, density: f32) @U1a.2
 pxui::ThemeHandle::from_tokens fn (tokens: Tokens) -> ThemeHandle @U1a.2
 pxui::ThemeHandle::parse fn (source: &str) -> Result<ThemeHandle, Error> @U1a.2
@@ -1276,6 +1285,7 @@ pxui::Ui::key_down fn (&self, key: KeyCode) -> bool @U1a.4
 pxui::Ui::key_pressed fn (&self, key: KeyCode, mods: Mods) -> bool @U1a.4
 pxui::Ui::keyboard fn (&self) -> Keyboard @HEAD
 pxui::Ui::label fn (&mut self, text: &str, style: Label) -> Handle @HEAD
+pxui::Ui::label_at fn (&mut self, key: Key, rect: Rect, text: &str, style: Label) -> Result<Handle, Error> @HEAD
 pxui::Ui::label_digits fn (&mut self, args: Arguments<'_>, style: Label) -> Handle @HEAD
 pxui::Ui::label_fmt fn (&mut self, args: Arguments<'_>, style: Label) -> Handle @HEAD
 pxui::Ui::last_error fn (&self) -> &str @HEAD
@@ -1385,6 +1395,9 @@ pxui::Ui::repaint_at fn (&self) -> Option<f64> @HEAD
 pxui::Ui::request_cursor fn (&mut self, shape: Cursor) @HEAD
 pxui::Ui::request_frame fn (&mut self) @HEAD
 pxui::Ui::resolve fn (&self, style: &Label) -> TextStyle @HEAD
+pxui::Ui::retain_palette_labels fn (&mut self) @HEAD
+pxui::Ui::retain_palette_paint fn (&mut self) @HEAD
+pxui::Ui::retain_view_on_resize fn (&mut self) @HEAD
 pxui::Ui::reveal fn (&mut self, list: &Handle, index: usize) @HEAD
 -pxui::Ui::root_at fn (&self, point: (f32, f32), roots: &[i64]) -> Option<i64> @U1b.2
 pxui::Ui::root_at fn (&self, point: Point, roots: &[Key]) -> Option<Key> @U1b.2
@@ -2308,6 +2321,7 @@ pxui::ui::Ui::key_down fn (&self, key: KeyCode) -> bool @U1a.4
 pxui::ui::Ui::key_pressed fn (&self, key: KeyCode, mods: Mods) -> bool @U1a.4
 pxui::ui::Ui::keyboard fn (&self) -> Keyboard @HEAD
 pxui::ui::Ui::label fn (&mut self, text: &str, style: Label) -> Handle @HEAD
+pxui::ui::Ui::label_at fn (&mut self, key: Key, rect: Rect, text: &str, style: Label) -> Result<Handle, Error> @HEAD
 pxui::ui::Ui::label_digits fn (&mut self, args: Arguments<'_>, style: Label) -> Handle @HEAD
 pxui::ui::Ui::label_fmt fn (&mut self, args: Arguments<'_>, style: Label) -> Handle @HEAD
 pxui::ui::Ui::last_error fn (&self) -> &str @HEAD
@@ -2417,6 +2431,9 @@ pxui::ui::Ui::repaint_at fn (&self) -> Option<f64> @HEAD
 pxui::ui::Ui::request_cursor fn (&mut self, shape: Cursor) @HEAD
 pxui::ui::Ui::request_frame fn (&mut self) @HEAD
 pxui::ui::Ui::resolve fn (&self, style: &Label) -> TextStyle @HEAD
+pxui::ui::Ui::retain_palette_labels fn (&mut self) @HEAD
+pxui::ui::Ui::retain_palette_paint fn (&mut self) @HEAD
+pxui::ui::Ui::retain_view_on_resize fn (&mut self) @HEAD
 pxui::ui::Ui::reveal fn (&mut self, list: &Handle, index: usize) @HEAD
 -pxui::ui::Ui::root_at fn (&self, point: (f32, f32), roots: &[i64]) -> Option<i64> @U1b.2
 pxui::ui::Ui::root_at fn (&self, point: Point, roots: &[Key]) -> Option<Key> @U1b.2
@@ -3143,7 +3160,10 @@ pxui_types::Environment::keyboard_from field [f32; 4] @HEAD
 pxui_types::Environment::keyboard_started field f64 @HEAD
 pxui_types::Environment::keyboard_visible field u32 @HEAD
 pxui_types::Environment::new fn const (safe_area: [f32; 4]) -> Environment @U1b.5
-pxui_types::Environment::reserved field u32 @U5.4
+pxui_types::Environment::overlay_scrollers fn const (self, on: bool) -> Environment @V1
+pxui_types::Environment::OVERLAY_SCROLLERS const u32 @V1
+pxui_types::Environment::SCROLLER_HOLD const f64 @V1
+pxui_types::Environment::scrollers field u32 @V1
 pxui_types::Environment::safe_area field [f32; 4] @HEAD
 pxui_types::Environment::size field u32 @U5.4
 pxui_types::Event impl Clone @HEAD
@@ -3352,6 +3372,7 @@ pxui_types::Label::color fn const (self, token: ColorToken) -> Label @HEAD
 pxui_types::Label::ellipsis fn const (self) -> Label @HEAD
 pxui_types::Label::ellipsis_head fn const (self) -> Label @HEAD
 pxui_types::Label::ellipsis_middle fn const (self) -> Label @HEAD
+pxui_types::Label::ellipsis_none fn const (self) -> Label @V1
 pxui_types::Label::font fn const (self, family: u16) -> Label @HEAD
 pxui_types::Label::grow fn const (self) -> Label @HEAD
 pxui_types::Label::h_px fn const (self, points: f32) -> Label @HEAD
@@ -6395,6 +6416,7 @@ pxui_types::text::Label::color fn const (self, token: ColorToken) -> Label @HEAD
 pxui_types::text::Label::ellipsis fn const (self) -> Label @HEAD
 pxui_types::text::Label::ellipsis_head fn const (self) -> Label @HEAD
 pxui_types::text::Label::ellipsis_middle fn const (self) -> Label @HEAD
+pxui_types::text::Label::ellipsis_none fn const (self) -> Label @V1
 pxui_types::text::Label::font fn const (self, family: u16) -> Label @HEAD
 pxui_types::text::Label::grow fn const (self) -> Label @HEAD
 pxui_types::text::Label::h_px fn const (self, points: f32) -> Label @HEAD

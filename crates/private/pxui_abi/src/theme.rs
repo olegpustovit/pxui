@@ -26,6 +26,7 @@ pub struct PxuiTheme {
     error: String,
     names_tokens: bool,
     strict_bodies: bool,
+    animate_swap: bool,
     palette: Option<[Rgba; ColorToken::LIMIT]>,
     pub(crate) poisoned: bool,
 }
@@ -41,7 +42,7 @@ export!(pub unsafe fn pxui_ui_use_theme(ui:*mut PxuiUi,theme:*const PxuiTheme)->
         Err((kind, name)) => return unsafe { fail(ui, &format!("no {kind} body is registered as `{name}`")) },
     };
     if bodies == theme.theme.body {
-        engine.set_theme_with_palette(&theme.theme, theme.names_tokens, theme.palette.as_ref());
+        engine.set_theme_with_palette(&theme.theme, theme.names_tokens, theme.palette.as_ref(), theme.animate_swap);
     } else {
         use_remapped_theme(engine, theme, bodies);
     }
@@ -51,7 +52,7 @@ export!(pub unsafe fn pxui_ui_use_theme(ui:*mut PxuiUi,theme:*const PxuiTheme)->
 /// Materialise a theme only when the destination UI uses other body IDs.
 #[inline(never)]
 fn use_remapped_theme(engine: &mut Ui, theme: &PxuiTheme, bodies: Bodies) {
-    engine.set_theme_with_palette(&Theme { body: bodies, ..theme.theme }, theme.names_tokens, theme.palette.as_ref());
+    engine.set_theme_with_palette(&Theme { body: bodies, ..theme.theme }, theme.names_tokens, theme.palette.as_ref(), theme.animate_swap);
 }
 
 // Colour token `token` for the theme in effect (a `themed` scope's inside one); transparent past the table or on a dead handle.
@@ -118,7 +119,7 @@ export!(bare pub unsafe fn pxui_theme_create(tokens: *const ThemeTokens) -> *mut
     };
     Box::into_raw(Box::new(PxuiTheme {
         names_tokens: theme.names_color_tokens(), theme, names: Vec::new(), error: String::new(),
-        strict_bodies: false, palette: None, poisoned: false,
+        strict_bodies: false, animate_swap: true, palette: None, poisoned: false,
     }))
 });
 
@@ -155,6 +156,13 @@ export!(object pub unsafe fn pxui_theme_set_color(theme: *mut PxuiTheme, token: 
     if token as usize >= ColorToken::LIMIT { return PXUI_ERR_ARGUMENT; }
     let palette = theme.palette.get_or_insert([Rgba::default(); ColorToken::LIMIT]);
     palette[token as usize] = if color.as_token().is_none() { color } else { Rgba::default() };
+    0
+});
+
+export!(object pub unsafe fn pxui_theme_animate_swap(theme: *mut PxuiTheme, on: u8) -> i32 {
+    let Some(theme) = (unsafe { theme.as_mut() }) else { return PXUI_ERR_ARGUMENT; };
+    if on > 1 { return PXUI_ERR_ARGUMENT; }
+    theme.animate_swap = on != 0;
     0
 });
 

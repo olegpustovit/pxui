@@ -55,6 +55,27 @@ export!(trusted pub unsafe fn pxui_ui_scroll_view(ui: *mut PxuiUi, keyed: *const
     unsafe { crate::trusted::scroll_view(ui, key, name, node, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, callback, user), &mut *out) }
 });
 
+// ABI 2.2: opt the current positioned-label view into palette reuse.
+export!(build pub unsafe fn pxui_ui_retain_palette_labels(ui: *mut PxuiUi) -> i32 {
+    let Some(engine) = (unsafe { crate::state::engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    engine.retain_palette_labels();
+    0
+});
+
+// ABI 2.3: opt the current view into palette replay for positioned labels and token shapes.
+export!(build pub unsafe fn pxui_ui_retain_palette_paint(ui: *mut PxuiUi) -> i32 {
+    let Some(engine) = (unsafe { crate::state::engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    engine.retain_palette_paint();
+    0
+});
+
+// ABI 2.2: opt the current view into reuse across changes to the window's size.
+export!(build pub unsafe fn pxui_ui_retain_view_on_resize(ui: *mut PxuiUi) -> i32 {
+    let Some(engine) = (unsafe { crate::state::engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    engine.retain_view_on_resize();
+    0
+});
+
 // ABI 1.72: the authoring view keyed by `keyed.key` (a view has no name: a non-empty `keyed.name` is refused). It fills its parent,
 // or takes its content's size on the main axis of a row or column that is `Fit` there; `revision` is the hash of the inputs.
 export!(trusted pub unsafe fn pxui_ui_view(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, revision: u64, callback: Build, user: *mut c_void, out: *mut PxuiBox) -> i32 {

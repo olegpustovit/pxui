@@ -135,7 +135,7 @@ pub fn body(ui: &mut Ui, s: &mut S) {
             s.drop = ui.pick_dropdown("Pick", "Pick", NAMES.len(), &|i| pxui_core::ui::Segment::new(NAMES[i]), Some(s.drop), 0).1.unwrap_or(0);
             let holder = ui.node("add-row".into(), Node::DEFAULT.h(Size::Px(24.0)).axis(Axis::Row).padding(Edges::ZERO.l(12.0).t(2.0)));
             ui.within(&holder, &mut |ui| {
-                if ui.icon_button("Add", Icon::Glyph('+'), "Add", &IconButton::DEFAULT).clicked {
+                if ui.icon_button("Add", Icon::Glyph('+'), "Add", &IconButton::DEFAULT, None).clicked {
                     s.icon += 1;
                 }
             });
@@ -749,6 +749,24 @@ fn widgets_toast_and_search() {
     ui.destroy();
 }
 
+fn search_prompt_shows_on_focus_until_composition_starts() {
+    let mut ui = new_ui(Some(11));
+    let mut build = |ui: &mut Ui| {
+        ui.search_field("Search", "", "", "Type here", pxui_types::TextTraits::SEARCH);
+        ui.focus_box(&ui.input_box().unwrap());
+    };
+    ui.frame(&at(0.0, vec![]), &mut build);
+    let glyphs = |ui: &Ui| ui.output().draw.iter().flat_map(|layer| layer.instances.iter())
+        .filter(|instance| instance.kind == pxui_core::draw::kind::MASK).count();
+    let prompt = glyphs(&ui);
+    assert!(prompt > 1);
+    ui.frame(&at(0.1, vec![]), &mut build);
+    assert_eq!(glyphs(&ui), prompt, "focus preserves the empty search prompt");
+    ui.frame(&at(0.2, vec![Event::TextEditing { text: "é".into(), start: 0, length: 1 }]), &mut build);
+    assert_eq!(glyphs(&ui), 1, "marked input replaces the search prompt");
+    ui.destroy();
+}
+
 /// A toast goes by itself: the UI asks for the frame at its expiry and reports it then.
 fn widgets_toast_expires() {
     let mut s = S::new();
@@ -906,6 +924,7 @@ pub const CASES: &[(&str, fn())] = &[
     ("widgets_dialog", widgets_dialog),
     ("widgets_dialog_danger", widgets_dialog_danger),
     ("widgets_toast_and_search", widgets_toast_and_search),
+    ("search_prompt_shows_on_focus_until_composition_starts", search_prompt_shows_on_focus_until_composition_starts),
     ("widgets_toast_expires", widgets_toast_expires),
     ("widgets_focus_idle_and_click", widgets_focus_idle_and_click),
     ("widgets_image", widgets_image),

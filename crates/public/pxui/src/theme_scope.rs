@@ -10,6 +10,7 @@ library!(lib {
     fn pxui_theme_destroy(theme: *mut PxuiTheme);
     fn pxui_theme_parse(theme: *mut PxuiTheme, source: Str) -> i32;
     fn pxui_theme_set_color(theme: *mut PxuiTheme, token: u16, color: Rgba) -> i32;
+    fn pxui_theme_animate_swap(theme: *mut PxuiTheme, on: u8) -> i32;
     fn pxui_theme_density(theme: *mut PxuiTheme, density: f32) -> i32;
     fn pxui_theme_reduced_motion(theme: *mut PxuiTheme, on: u8) -> i32;
     fn pxui_ui_themed(ui: *mut PxuiUi, theme: *const PxuiTheme, build: pxui_types::ffi::UiBuild, user: *mut c_void) -> i32;
@@ -75,6 +76,24 @@ impl ThemeHandle {
         assert_eq!(rc, 0, "pxui: invalid theme color token");
     }
 
+    /// Controls whether installing the theme starts an appearance transition.
+    ///
+    /// The default is animated. Setting this to false preserves the theme's
+    /// interaction durations for presses, focus and hover.
+    /// Allocates: never.
+    /// Panics: if the library refuses the theme handle.
+    ///
+    /// ```
+    /// let mut theme = pxui::ThemeHandle::default();
+    /// theme.animate_swap(false);
+    /// pxui::doc::frames(1, &mut |_| {}).set_theme(&theme).unwrap();
+    /// ```
+    #[track_caller]
+    pub fn animate_swap(&mut self, on: bool) {
+        let rc = unsafe { lib::pxui_theme_animate_swap(self.0.as_ptr(), on as u8) };
+        assert_eq!(rc, 0, "pxui: invalid theme handle");
+    }
+
     /// Sets the kit's density multiplier while preserving the theme's authored looks.
     ///
     /// Allocates: never.
@@ -123,6 +142,7 @@ impl Ui {
     /// Body names resolve in this Ui before installation. An absent name returns
     /// `Error::InvalidInput` with the detail in `Ui::last_error`. A changed theme
     /// invalidates retained views. The Ui owns it, and the host can require reduced motion.
+    /// `ThemeHandle::animate_swap` controls the appearance transition.
     /// Calling during a frame returns `Error::State`.
     /// Allocates: never when selecting a prepared theme with its own palette.
     /// Panics: never.

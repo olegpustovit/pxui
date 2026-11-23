@@ -59,6 +59,19 @@ pub fn layout_grow_shrink() {
     eq(r[2], 72.0, 0.0, 28.0, 10.0, "shrink 3 of 40");
 }
 
+fn layout_one_flow_child_matches_the_general_path() {
+    let margin = Edges::new(3.0, 5.0, 7.0, 11.0);
+    let overlay = px(15.0, 25.0).at(12.0, 19.0);
+    for axis in [Axis::Row, Axis::Column] {
+        let parent = ROW.axis(axis).pad(2.0).align(Align::Stretch);
+        let child = Node::DEFAULT.w(Size::Grow).h(Size::Fit).max_w(40.0).margin(margin);
+        let ordinary = once(parent, &[overlay, child]);
+        assert_eq!(ordinary, once(parent, &[overlay, child.shrink(1.0)]));
+        eq(ordinary[1], 12.0, 19.0, 15.0, 25.0, "positioned sibling");
+        eq(ordinary[2], 5.0, 7.0, 40.0, if axis == Axis::Row { 20.0 } else { 0.0 }, "one flow child");
+    }
+}
+
 pub fn layout_min_max_aspect() {
     let grow = Node::DEFAULT.w(Size::Grow).h(Size::Px(10.0));
     let r = once(ROW, &[grow.max_w(50.0), grow, px(10.0, 10.0).min_w(30.0)]);
@@ -349,6 +362,39 @@ pub fn layout_scroll_sticky() {
     ui.destroy();
 }
 
+/// Overlay scrollers (`Environment::scrollers`, Apple's style): a scrolling box keeps no gutter, its thumb shows only once the offset
+/// moves and for `SCROLLER_HOLD` after (the frame waking to hide it), then nothing more is drawn or asked for; legacy keeps both.
+pub fn layout_overlay_scrollers_hide_at_rest() {
+    const THUMB: Rgba = Rgba::rgb(250, 10, 20);
+    let thumb = |ui: &Ui| ui.output().draw.iter().flat_map(|layer| layer.instances.iter()).any(|i| i.color == [250, 10, 20, 255]);
+    for overlay in [false, true] {
+        let mut ui = new_ui(None);
+        ui.set_environment(pxui_types::Environment::new([0.0; 4]).overlay_scrollers(overlay));
+        let mut build = |ui: &mut Ui| {
+            // both axes, as a scroll view: each thumb keeps its own offset (a shared one saw the other's as a move every paint)
+            let p = ui.node("p".into(), px(100.0, 100.0).flags(Flags::SCROLL | Flags::SCROLL_X | Flags::CLIP).scroll_step(10.0).bar(Bar::new(THUMB, 4.0)).at(0.0, 0.0));
+            let saved = ui.enter(&p);
+            let body = ui.node("body".into(), Node::DEFAULT.w(Size::Grow).h(Size::Px(300.0)));
+            ui.leave(saved);
+            vec![p, body]
+        };
+        let r = lay(&mut ui, 0.0, vec![Event::PointerMoved((50.0, 50.0))], &mut build);
+        eq(r[1], 0.0, 0.0, if overlay { 100.0 } else { 90.0 }, 300.0, "the content takes the gutter only for legacy scrollers");
+        check(thumb(&ui) != overlay, "a resting thumb shows only for legacy scrollers");
+        lay(&mut ui, 0.5, vec![Event::Scrolled((0.0, -3.0))], &mut build);
+        check(thumb(&ui), "a moving offset shows the thumb");
+        if overlay {
+            check(ui.repaint_at() == Some(1.5), &format!("the frame wakes to hide it: {:?}", ui.repaint_at()));
+            lay(&mut ui, 1.0, vec![], &mut build);
+            check(thumb(&ui), "the thumb holds");
+            lay(&mut ui, 1.5, vec![], &mut build);
+            check(!thumb(&ui), "the hold is over");
+            check(ui.repaint_at().is_none(), &format!("nothing more is asked for: {:?}", ui.repaint_at()));
+        }
+        ui.destroy();
+    }
+}
+
 /// Sideways scrolling stretches past an edge and springs back, and coasts and bounces off the far
 /// edge, as down does; right to left the fingers move the content as they move.
 pub fn layout_scroll_x_elastic() {
@@ -514,6 +560,41 @@ fn layout_section_list_keeps_fitting_rows_on_resize() {
     height.set(1000.0);
     lay(&mut ui, 0.4, vec![], &mut build);
     assert_eq!(builds.get() - before, 4);
+    ui.destroy();
+}
+
+fn layout_section_list_uses_declared_pane_on_window_resize() {
+    let mut ui = new_ui(None);
+    let mut run = |height, footer| {
+        let mut frame = at(height as f64, vec![]);
+        frame.input.size = (320, height);
+        let mut passes = 0;
+        let mut list = None;
+        let mut row = None;
+        ui.frame(&frame, &mut |ui| {
+            passes += 1;
+            let bounds = ui.node("bounds".into(), px(100.0, height as f32 - 40.0));
+            ui.within(&bounds, &mut |ui| {
+                ui.node("fixed-sibling".into(), px(100.0, 10.0));
+                let section = pxui_types::ui::SectionList::new(100).row_h(20.0);
+                list = Some(ui.section_list("rows", &section, None, false, &mut |ui, index, _| {
+                    if index == 8 {
+                        row = Some(ui.node("row-8".into(), px(10.0, 20.0)));
+                    }
+                }));
+                if footer {
+                    ui.node("footer".into(), px(100.0, 60.0));
+                }
+            });
+        });
+        (passes, ui.rect(&list.unwrap()).h, row.map(|row| ui.rect(&row).y))
+    };
+    assert_eq!(run(180, false).0, 1);
+    assert_eq!(run(240, false), (1, 190.0, Some(170.0)));
+    assert_eq!(run(200, false).0, 1);
+    // A sibling declared after the callback reduces the guessed room. The final layout still settles.
+    let (passes, height, _) = run(280, true);
+    assert_eq!((passes, height), (2, 170.0));
     ui.destroy();
 }
 
@@ -1079,6 +1160,7 @@ pub const CASES: &[(&str, fn())] = &[
     ("layout_list_measured", layout_list_measured),
     ("layout_grid_list_resize_settles", layout_grid_list_resize_settles),
     ("layout_grid_keeps_fitting_cells_on_resize", layout_grid_keeps_fitting_cells_on_resize),
+    ("layout_section_list_uses_declared_pane_on_window_resize", layout_section_list_uses_declared_pane_on_window_resize),
     ("layout_section_list_keeps_fitting_rows_on_resize", layout_section_list_keeps_fitting_rows_on_resize),
     ("layout_grid_many_rows", layout_grid_many_rows),
     ("layout_grow_many_frozen", layout_grow_many_frozen),
@@ -1087,6 +1169,7 @@ pub const CASES: &[(&str, fn())] = &[
     ("layout_kit_resize_same_frame", layout_kit_resize_same_frame),
     ("layout_warm_zero_alloc", layout_warm_zero_alloc),
     ("layout_grow_shrink", layout_grow_shrink),
+    ("layout_one_flow_child_matches_the_general_path", layout_one_flow_child_matches_the_general_path),
     ("layout_min_max_aspect", layout_min_max_aspect),
     ("layout_gap_padding_margin", layout_gap_padding_margin),
     ("layout_justify_align", layout_justify_align),
@@ -1100,6 +1183,7 @@ pub const CASES: &[(&str, fn())] = &[
     ("layout_stack_order", layout_stack_order),
     ("layout_anchored_flip", layout_anchored_flip),
     ("layout_scroll_sticky", layout_scroll_sticky),
+    ("layout_overlay_scrollers_hide_at_rest", layout_overlay_scrollers_hide_at_rest),
     ("layout_rtl", layout_rtl),
     ("layout_scroll_x_elastic", layout_scroll_x_elastic),
     ("layout_grid_list", layout_grid_list),

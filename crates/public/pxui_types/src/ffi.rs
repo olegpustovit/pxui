@@ -1465,7 +1465,8 @@ pub struct PxuiPaintInfo {
     pub size: u32,
     /// Whether layout follows right-to-left direction.
     pub rtl: u8,
-    /// Reserved for the ABI. Write zero on input.
+    /// Byte 0 is 1 during palette-aware shape painting. In that callback, shape color words may
+    /// contain `Rgba::token` encodings. The other bytes are reserved and zero.
     pub reserved: [u8; 3],
     /// Text size in logical points.
     pub font_size: i64,

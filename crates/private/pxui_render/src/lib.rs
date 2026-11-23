@@ -294,12 +294,13 @@ impl Painter {
     /// `color_size` RGBA8 atlas (both zeroed).
     pub fn new(device: &Device, format: ColorFormat, depth: DepthFormat, samples: i64, mask_size: (u32, u32), color_size: (u32, u32)) -> Result<Painter, Error> {
         let pipeline = pipeline(device, format, depth, samples, (MSL, VERT_SPV, FRAG_SPV), ["ui_vertex", "ui_fragment"], &UI_SLOTS, Blend::Alpha)?;
-        let filtered = |filter: SamplerFilter| backend::create_sampler(device, SamplerDescriptor {
+        // the smooth sampler filters between an image's mip levels (`ui.metal` picks the level); atlases have one level
+        let filtered = |filter: SamplerFilter, mip: MipFilter| backend::create_sampler(device, SamplerDescriptor {
             label: Some("pxui_render".into()), min_filter: filter, mag_filter: filter,
-            mip_filter: MipFilter::NoMip, address_u: AddressMode::ClampToEdge, address_v: AddressMode::ClampToEdge,
-            lod_min: 0.0, lod_max: 0.0, max_anisotropy: 1,
+            mip_filter: mip, address_u: AddressMode::ClampToEdge, address_v: AddressMode::ClampToEdge,
+            lod_min: 0.0, lod_max: if mip == MipFilter::NoMip { 0.0 } else { 16.0 }, max_anisotropy: 1,
         });
-        let (sampler, smooth) = (filtered(SamplerFilter::Nearest)?, filtered(SamplerFilter::Linear)?);
+        let (sampler, smooth) = (filtered(SamplerFilter::Nearest, MipFilter::NoMip)?, filtered(SamplerFilter::Linear, MipFilter::LinearMip)?);
         let mask = atlas(device, "pxui_render.mask", TextureFormat::R8Unorm, mask_size)?;
         let color = atlas(device, "pxui_render.color", TextureFormat::Rgba8Unorm, color_size)?;
         let region_size = 4096 * 64;
@@ -648,9 +649,10 @@ impl Painter {
             if changed { check(p.1, self.views_len)?; } else { for d in p.2 { check(&p.1[d.0 as usize..d.1 as usize], self.views_len)?; } }
         }
         if fresh && len > 0 {
-            // Headroom: hover, focus and selection add a few instances to a warm layer; growing a buffer
+            // Headroom: hover, focus and selection add a few instances to a warm layer, and a compaction pads every kept view run
+            // (pxui_core `SLACK`), so a scrolled layer of many row views settles well past its first length; growing a buffer
             // then would allocate in a warm frame.
-            let cap = (len + len / 2).max(256).max(self.layers[layer].as_ref().map_or(0, |s| s.cap * 2));
+            let cap = (2 * len).max(256).max(self.layers[layer].as_ref().map_or(0, |s| s.cap * 2));
             let stride = align(cap * 64);
             let descriptor = BufferDescriptor { label: Some("pxui_render.retained".into()), size: (stride * FRAMES) as i64, usage: vec![BufferUsage::Storage] };
             let buffer = backend::create_host_buffer(&self.device, descriptor)?;

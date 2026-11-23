@@ -1,12 +1,12 @@
 //! UIKit owns the run loop; the framework owns display pacing, idle deadlines and callback lifetime.
 use super::Window;
-pub use super::app::{Callback, Schedule, Signal};
+pub use super::app::{Callback, Schedule, Signal, run};
 
 /// Runs once on the initial thread. On quit, calls Finish and drops captured app resources before
 /// destroying the window. The native loop exits the process after cleanup; startup rejection returns Err.
 /// Control signals service inactive worker wakes/deadlines without a display-link frame. NextFrame
 /// defers drawing until foreground; WaitUntil can schedule another control callback while inactive.
-pub fn run(title: &str, width: i64, height: i64, callback: Box<Callback>) -> Result<(), String> {
+pub(super) fn run_with_density(title: &str, width: i64, height: i64, high_density: bool, callback: Box<Callback>) -> Result<(), String> {
     use sdl3::ios::Step;
     let mut window = None;
     let mut callback = Some(callback);
@@ -23,7 +23,7 @@ pub fn run(title: &str, width: i64, height: i64, callback: Box<Callback>) -> Res
                 sdl3::ios::Signal::Control => Signal::Control,
             };
             if signal == Signal::Initialize {
-                match Window::open(title, width, height) {
+                match Window::open_with(title, width, height, true, false, high_density) {
                     Ok(created) => window = Some(created),
                     Err(error) => {
                         failure = Some(error);

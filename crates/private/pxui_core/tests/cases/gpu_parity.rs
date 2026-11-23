@@ -38,7 +38,8 @@ fn render(density: i64, height: i64, build: &mut dyn FnMut(&mut Ui)) -> (Vec<u8>
 
 /// Compare `pixels` with the golden at `density`; a drift names the pixels that differ.
 fn check(name: &str, golden: &str, density: i64, height: i64, pixels: &[u8]) {
-    let path = golden_path(&golden.replace("_2x.png", &format!("_{density}x.png")));
+    let raster = if cfg!(target_vendor = "apple") { "_coretext" } else { "" };
+    let path = golden_path(&golden.replace("_2x.png", &format!("{raster}_{density}x.png")));
     let (w, h) = ((WIDTH * density) as u32, (height * density) as u32);
     if std::env::var("RAYS_UPDATE_FIXTURES").as_deref() == Ok("1") {
         std::fs::write(&path, png::encode(w, h, pixels)).expect("refresh parity golden");

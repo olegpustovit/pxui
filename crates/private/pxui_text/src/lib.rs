@@ -53,6 +53,7 @@
 //! Build cost (cosmic-text 0.19.0, M1, `nice -n 10` while the machine was in use): first cold debug
 //! build of the dependency closure 24.5 s wall (116 s CPU); 40 external crates + pxui_text.
 
+use pxui_types::draw::{self, Break, Instance};
 use cosmic_text::{
     Align as CAlign, Attrs, AttrsList, Buffer, CacheKey, CacheKeyFlags, Cursor, Ellipsize, EllipsizeHeightLimit, Family, FeatureTag, FontFeatures, FontSystem, Metrics as CMetrics, Shaping,
     Style as CStyle, SubpixelBin, SwashCache, SwashContent, Weight, Wrap as CWrap, fontdb,
@@ -65,6 +66,8 @@ use std::sync::Arc;
 mod system;
 mod prepared;
 mod queue;
+#[cfg(target_vendor = "apple")]
+mod apple;
 pub use prepared::Prepared;
 pub use queue::{Worker, INSTALLS_PER_FRAME, MAX_LANES, QUEUE_BYTES, QUEUE_ROWS};
 
@@ -149,9 +152,59 @@ pub struct Metrics {
 pub struct Glyph {
     pub rect: Rect,
     pub uv: Rect,
+    /// Atlas coordinates packed exactly as a draw instance samples them.
+    pub atlas_uv: [u32; 2],
     pub atlas: AtlasKind,
     /// An inline foreground override; None inherits the caller's colour.
     pub color: Option<[u8;4]>,
+}
+
+/// The shared draw attributes of one text layout's glyphs.
+#[derive(Clone, Copy)]
+pub struct GlyphPaint {
+    pub clip: [i16; 4],
+    pub view: u16,
+    pub color: [u8; 4],
+    pub opacity: f32,
+    pub mask_flags: u8,
+    pub light: [u32; 2],
+}
+
+impl GlyphPaint {
+    #[inline(always)]
+    fn push(&self, glyph: Glyph, scale: f32, inverse: Option<f32>, out: &mut Vec<Instance>, breaks: &mut Vec<Break>) {
+        let color = glyph.color.map_or(self.color, |mut color| {
+            if self.opacity < 1.0 { color[3] = (color[3] as f32 * self.opacity).round() as u8; }
+            color
+        });
+        let r = glyph.rect;
+        let pixels = [r.x, r.y, r.x + r.w, r.y + r.h];
+        let rect = if let Some(inv) = inverse { pixels.map(|p| p * inv) } else { pixels.map(|p| p / scale) };
+        let (kind, color, flags, extra) = if glyph.atlas.is_mask() {
+            (draw::kind::MASK, color, self.mask_flags, self.light)
+        } else {
+            if breaks.last().is_some_and(|b| b.image != draw::ATLAS) {
+                breaks.push(Break { at_instance: out.len() as u32, image: draw::ATLAS });
+            }
+            (draw::kind::IMAGE, [255, 255, 255, color[3]], 0, [0; 2])
+        };
+        let page = if matches!(glyph.atlas, AtlasKind::Mask2 | AtlasKind::Color2) { draw::flags::mask::GLYPH_PAGE_2 } else { 0 };
+        out.push(Instance { rect, color, aux: glyph.atlas_uv, clip: self.clip, view: self.view,
+            kind, flags: flags | page, extra, ..Instance::DEFAULT });
+    }
+}
+
+#[inline(always)]
+fn emit_glyph(
+    glyph: Glyph, scale: f32,
+    output: &mut Option<(GlyphPaint, Option<f32>, &mut Vec<Instance>, &mut Vec<Break>)>,
+    callback: &mut dyn FnMut(Glyph),
+) {
+    if let Some((paint, inverse, out, breaks)) = output {
+        paint.push(glyph, scale, *inverse, out, breaks);
+    } else {
+        callback(glyph);
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -239,7 +292,12 @@ fn emit_clipped(mut glyph:Glyph,clip:[f32;2],f:&mut dyn FnMut(Glyph)) {
     glyph.uv.w=(right-left)*advance;
     glyph.rect.x=left;
     glyph.rect.w=right-left;
+    glyph.atlas_uv = packed_uv(glyph.uv);
     f(glyph);
+}
+
+fn packed_uv(uv: Rect) -> [u32; 2] {
+    pxui_types::draw::Instance::mask([0.0; 4], [uv.x, uv.y, uv.x + uv.w, uv.y + uv.h], [0; 4]).aux
 }
 
 /// Content identity shared by UI drawing and keyless standalone/UI measurement.
@@ -335,6 +393,9 @@ pub const FRAMES_IN_FLIGHT: u32 = 3;
 /// A set of atlas shelves, one bit per shelf of all four pages (`shelf_bit`; shelves past 128 per page share
 /// bits, which only keeps more shelves).
 pub type Shelves = [u64; 8];
+
+// The color pages are indices 1 and 3 in each group of four shelf bits.
+const COLOR_SHELVES: u64 = 0xaaaa_aaaa_aaaa_aaaa;
 
 fn shelf_bit(kind: AtlasKind, shelf: u16) -> (usize, u64) {
     let bit = (shelf as usize * 4 + idx(kind)) % 512;
@@ -506,8 +567,10 @@ struct CachedGlyph {
     x: f32,
     y: f32,
     line_y: f32,
+    physical: (i32, i32),
     slot: Slot,
     uv: Rect,
+    atlas_uv: [u32; 2],
     color: Option<[u8;4]>,
     clip: [f32;2],
 }
@@ -520,7 +583,9 @@ pub const CACHE_BYTES: usize = 4 << 20;
 struct Glyphs {
     fs: FontSystem,
     swash: SwashCache,
-    /// CoreText-matching raster (Apple): unhinted, ppem-quantised origins, dilated masks
+    #[cfg(target_vendor = "apple")]
+    native: apple::Masks,
+    /// Apple text positioning and masks. Unsupported native faces retain the Swash approximation.
     apple: bool,
     /// the dilated mask of the glyph being rasterised (reused, so only a larger glyph allocates)
     scratch: Vec<u8>,
@@ -546,26 +611,38 @@ impl Glyphs {
             return Some(*s);
         }
         let empty = Slot { kind: AtlasKind::Mask, shelf: 0, generation: 0, x: 0, y: 0, w: 0, h: 0, left: 0, top: 0 };
-        let Some(img) = self.swash.get_image_uncached(&mut self.fs, key) else { return Some(empty) };
-        let (mut w, mut h) = (img.placement.width, img.placement.height);
-        let (mut left, mut top) = (img.placement.left, img.placement.top);
-        let mut dilated = false;
-        if self.apple && img.content == SwashContent::Mask && w > 0 && h > 0 && img.data.len() == (w * h) as usize {
-            let (x0, y0, nw, nh) = dilate(&img.data, w, h, 0.006 * f32::from_bits(key.font_size_bits), &mut self.scratch);
-            (w, h, left, top, dilated) = (nw, nh, left - 1 + x0 as i32, top + 1 - y0 as i32, true);
-        }
-        let data: &[u8] = if dilated { &self.scratch } else { &img.data };
-        let primary = match img.content {
-            SwashContent::Mask => AtlasKind::Mask,
-            SwashContent::Color => AtlasKind::Color,
-            SwashContent::SubpixelMask => return Some(empty),
-        };
-        let bpp = self.atlases[idx(primary)].bpp;
-        let mut s = Slot { kind:primary, shelf: 0, generation: 0, x: 0, y: 0, w, h, left, top };
-        if w > 0 && h > 0 {
-            if data.len() != (w * h * bpp) as usize {
-                return Some(empty);
+        #[cfg(target_vendor = "apple")]
+        let native = self.apple.then(|| self.native.draw(&mut self.fs, key)).flatten().map(|(mask, pixels)| {
+            let slot = Slot { w: mask.width, h: mask.height, left: mask.left, top: mask.top, ..empty };
+            (slot, pixels, mask.stride)
+        });
+        #[cfg(not(target_vendor = "apple"))]
+        let native: Option<(Slot, &[u8], usize)> = None;
+        let img;
+        let (mut s, data, stride) = if let Some(native) = native {
+            native
+        } else {
+            let Some(image) = self.swash.get_image_uncached(&mut self.fs, key) else { return Some(empty) };
+            img = image;
+            let (w, h) = (img.placement.width, img.placement.height);
+            let (left, top) = (img.placement.left, img.placement.top);
+            let (kind, bpp) = match img.content {
+                SwashContent::Mask => (AtlasKind::Mask, 1),
+                SwashContent::Color => (AtlasKind::Color, 4),
+                SwashContent::SubpixelMask => return Some(empty),
+            };
+            if img.data.len() != (w * h * bpp) as usize { return Some(empty); }
+            if self.apple && kind == AtlasKind::Mask && w > 0 && h > 0 {
+                let (x0, y0, nw, nh) = dilate(&img.data, w, h, 0.006 * f32::from_bits(key.font_size_bits), &mut self.scratch);
+                (Slot { w: nw, h: nh, left: left - 1 + x0 as i32, top: top + 1 - y0 as i32, ..empty },
+                 self.scratch.as_slice(), nw as usize)
+            } else {
+                (Slot { kind, w, h, left, top, ..empty }, img.data.as_slice(), (w * bpp) as usize)
             }
+        };
+        let (primary, w, h) = (s.kind, s.w, s.h);
+        let bpp = self.atlases[idx(primary)].bpp;
+        if w > 0 && h > 0 {
             let second=if primary==AtlasKind::Mask { AtlasKind::Mask2 } else { AtlasKind::Color2 };
             let mut found=None;
             'search: for reuse in [Reuse::Fresh,Reuse::Free,Reuse::Retire] {
@@ -587,7 +664,7 @@ impl Glyphs {
             let a=&mut self.atlases[idx(kind)];
             s.kind=kind;
             for row in 0..h {
-                let src = (row * w * bpp) as usize;
+                let src = row as usize * stride;
                 let dst = (((y + row) * a.w + x) * bpp) as usize;
                 a.pixels()[dst..dst + (w * bpp) as usize].copy_from_slice(&data[src..src + (w * bpp) as usize]);
             }
@@ -611,9 +688,11 @@ impl Glyphs {
         self.atlases[idx(slot.kind)].shelves[slot.shelf as usize].used = self.frame;
         let (word, bit) = shelf_bit(slot.kind, slot.shelf);
         self.marks[word] |= bit;
+        let uv = self.uv(&slot);
         f(Glyph {
             rect: Rect { x: (x + slot.left) as f32, y: (y - slot.top) as f32, w: slot.w as f32, h: slot.h as f32 },
-            uv: self.uv(&slot),
+            uv,
+            atlas_uv: packed_uv(uv),
             atlas: slot.kind,
             color,
         });
@@ -651,10 +730,19 @@ fn subpixel_bin(pos: f32) -> (i32, SubpixelBin) {
     }
 }
 
+/// CoreText uses fewer horizontal phases as the em grows.
+#[inline]
+fn apple_x_bins(ppem: f32) -> i32 {
+    if ppem < 100.0 / 9.0 { 4 }
+    else if ppem < 100.0 / 6.0 { 3 }
+    else if ppem < 100.0 / 3.0 { 2 }
+    else { 1 }
+}
+
 /// Where CoreText puts a glyph origin: x floored to 1/4, 1/3, 1/2 or 1 pixel by ppem (a third is
 /// the nearest cosmic-text bin, a quarter or three quarters; their error is under 1/12 pixel).
 fn apple_x(ppem: f32, pos: f32) -> (i32, SubpixelBin) {
-    let n = if ppem < 12.0 { 4 } else if ppem < 16.0 { 3 } else if ppem < 30.0 { 2 } else { 1 };
+    let n = apple_x_bins(ppem);
     let m = (pos * n as f32).floor() as i32;
     // one division: the remainder from the quotient
     let q = m.div_euclid(n);
@@ -665,6 +753,19 @@ fn apple_x(ppem: f32, pos: f32) -> (i32, SubpixelBin) {
         _ => SubpixelBin::Three,
     };
     (q, bin)
+}
+
+/// Whether an integral device-pixel origin can translate the cached CoreText x bin.
+fn apple_x_translates(ppem: f32, x: f32) -> bool {
+    // Within ±8192 pixels the f32 rounding of position costs at most 1/512 of a quarter-pixel bin.
+    // A bin boundary itself is exact with a binary denominator and an integral origin.
+    let n = apple_x_bins(ppem);
+    if !(-4096.0..=4096.0).contains(&x) || n == 3 {
+        return false;
+    }
+    let bin = x * n as f32;
+    let gap = bin.ceil() - bin;
+    gap == 0.0 || gap >= 1.0 / 256.0
 }
 
 /// CoreText's stem growth, applied to a coverage mask: a round dilation by `d` pixels shifted up by
@@ -728,6 +829,8 @@ struct Entry {
     cached: bool,
     cacheable: bool,
     cached_scale: u32,
+    cached_origin: (u32, u32),
+    cached_translates_x: bool,
     cached_evictions: u64,
     /// the shelves the list's glyphs sit on
     shelves: Shelves,
@@ -755,7 +858,7 @@ impl Entry {
             buf: Buffer::new_empty(CMetrics::new(style.size, lh)),
             text: String::new(), style: *style, rich: Vec::new(), is_rich: false, width: 0, frame, list: 0, row: 0, view: 0,
             m: Metrics::default(), raw_baseline: 0.0, glyphs: Vec::new(), cached: false, cacheable: true,
-            cached_scale: 0, cached_evictions: 0, shelves: [0; 8],
+            cached_scale: 0, cached_origin: (0, 0), cached_translates_x: false, cached_evictions: 0, shelves: [0; 8],
         }
     }
 }
@@ -827,6 +930,8 @@ impl Text {
             g: Glyphs {
                 fs: FontSystem::new_with_locale_and_db(locale.into(), fontdb::Database::new()),
                 swash: SwashCache::new(),
+                #[cfg(target_vendor = "apple")]
+                native: apple::Masks::default(),
                 apple: false,
                 scratch: Vec::with_capacity(32 << 10),
                 atlases: [Atlas::new(mask, 1), Atlas::new(color, 4),Atlas::new(mask,1),Atlas::new(color,4)],
@@ -892,8 +997,9 @@ impl Text {
         true
     }
 
-    /// CoreText-matching glyph raster (the Apple default): unhinted outlines, origins floored by ppem,
-    /// rounded baselines and CoreText's stem growth. Drops every layout and glyph, so call it first.
+    /// CoreText glyph masks on Apple, with ppem-quantised x origins and rounded baselines.
+    /// Swash approximates this raster for unsupported faces and on other platforms.
+    /// Drops every layout and glyph, so call it first.
     pub fn set_apple_raster(&mut self, on: bool) {
         if self.g.apple == on { return; }
         self.g.apple = on;
@@ -1285,21 +1391,83 @@ impl Text {
     /// layout is re-shaped, the scale changes or the atlas evicted a shelf. Inside `paint_view` the
     /// layout belongs to that view.
     pub fn glyphs(&mut self, key: u64, origin: (f32, f32), scale: f32, f: &mut dyn FnMut(Glyph)) {
+        self.emit_glyphs(key, origin, scale, false, None, f);
+    }
+
+    /// Emit at an absolute first baseline, reusing the layout lookup to find its original baseline.
+    pub fn glyphs_at_baseline(&mut self, key: u64, at: (f32, f32), scale: f32, f: &mut dyn FnMut(Glyph)) {
+        self.emit_glyphs(key, at, scale, true, None, f);
+    }
+
+    /// Draw the layout at a snapped baseline without calling back for every unadorned cached glyph.
+    pub fn draw_at_baseline(&mut self, key: u64, at: (f32, f32), density: i64, paint: GlyphPaint, out: &mut Vec<Instance>, breaks: &mut Vec<Break>) {
+        let scale = density as f32;
+        let inverse = (density as u64).is_power_of_two().then(|| scale.recip());
+        self.emit_glyphs(key, at, scale, true, Some((paint, inverse, out, breaks)), &mut |_| {});
+    }
+
+    fn emit_glyphs(
+        &mut self, key: u64, mut origin: (f32, f32), scale: f32, baseline: bool,
+        mut draw: Option<(GlyphPaint, Option<f32>, &mut Vec<Instance>, &mut Vec<Break>)>,
+        f: &mut dyn FnMut(Glyph),
+    ) {
         let Text { g, entries, walks, cache_on, cache_bytes, owner, .. } = self;
         let Some(e) = entries.get_mut(&key) else { return };
+        if baseline { origin.1 -= e.raw_baseline; }
         if *owner != 0 { e.view = *owner; }
         if e.cached && e.cached_scale == scale.to_bits() && e.cached_evictions == g.evictions {
             for k in 0..8 {
                 g.marks[k] |= e.shelves[k];
             }
             let (ox, start) = (origin.0 * scale, g.evictions);
+            let old_x = f32::from_bits(e.cached_origin.0) * scale;
+            let pixel_origin = |x: f32| x.abs() <= 4096.0 && x == x.trunc();
+            let shift_x = if origin.0.to_bits() == e.cached_origin.0 {
+                Some(0)
+            } else if e.cached_translates_x && pixel_origin(old_x) && pixel_origin(ox) {
+                Some(ox as i32 - old_x as i32)
+            } else {
+                None
+            };
+            let same_y = origin.1.to_bits() == e.cached_origin.1;
+            if let (Some(dx), Some((paint, Some(inverse), out, _))) = (shift_x, draw.as_mut())
+                && !e.is_rich && e.shelves.iter().all(|word| word & COLOR_SHELVES == 0)
+            {
+                // An integral x shift keeps the bins and never has to look a slot up again.
+                let template = Instance { color: paint.color, clip: paint.clip, view: paint.view,
+                    kind: draw::kind::MASK, flags: paint.mask_flags, extra: paint.light, ..Instance::DEFAULT };
+                let mut last_shelf = None;
+                for c in &e.glyphs {
+                    let s = &c.slot;
+                    if s.w == 0 || s.h == 0 { continue; }
+                    let shelf = (s.kind, s.shelf);
+                    if last_shelf != Some(shelf) {
+                        g.atlases[idx(s.kind)].shelves[s.shelf as usize].used = g.frame;
+                        last_shelf = Some(shelf);
+                    }
+                    let x = (c.physical.0 + dx + s.left) as f32;
+                    let y = if same_y { c.physical.1 } else {
+                        let py = c.y.mul_add(scale, (origin.1 + c.line_y) * scale);
+                        (if g.apple { py.round() } else { py.trunc() }) as i32
+                    };
+                    let y = (y - s.top) as f32;
+                    let rect = [x, y, x + s.w as f32, y + s.h as f32].map(|p| p * *inverse);
+                    let page = if s.kind == AtlasKind::Mask2 { draw::flags::mask::GLYPH_PAGE_2 } else { 0 };
+                    out.push(Instance { rect, aux: c.atlas_uv, flags: template.flags | page, ..template });
+                }
+                return;
+            }
             let mut last_shelf = None;
             for c in &e.glyphs {
-                let px = c.x.mul_add(scale, ox);
-                let (x, bin) = if g.apple { apple_x(f32::from_bits(c.key.font_size_bits), px) } else { subpixel_bin(px) };
-                // y is whole: its bin is zero and its pixel the truncation (Apple: the rounding)
-                let py = c.y.mul_add(scale, (origin.1 + c.line_y) * scale);
-                let y = if g.apple { py.round() } else { py.trunc() } as i32;
+                let (x, bin) = if let Some(dx) = shift_x { (c.physical.0 + dx, c.key.x_bin) } else {
+                    let px = c.x.mul_add(scale, ox);
+                    if g.apple { apple_x(f32::from_bits(c.key.font_size_bits), px) } else { subpixel_bin(px) }
+                };
+                let y = if same_y { c.physical.1 } else {
+                    // y has no subpixel bin.
+                    let py = c.y.mul_add(scale, (origin.1 + c.line_y) * scale);
+                    (if g.apple { py.round() } else { py.trunc() }) as i32
+                };
                 if bin == c.key.x_bin && g.evictions == start {
                     if c.slot.w > 0 && c.slot.h > 0 {
                         let s = &c.slot;
@@ -1308,12 +1476,20 @@ impl Text {
                             g.atlases[idx(s.kind)].shelves[s.shelf as usize].used = g.frame;
                             last_shelf = Some(shelf);
                         }
-                        let glyph=Glyph { rect: Rect { x: (x + s.left) as f32, y: (y - s.top) as f32, w: s.w as f32, h: s.h as f32 }, uv: c.uv, atlas: s.kind, color:c.color };
-                        if c.clip==UNCLIPPED { f(glyph); } else { emit_clipped(glyph,c.clip.map(|v|v.mul_add(scale,ox)),f); }
+                        let glyph=Glyph { rect: Rect { x: (x + s.left) as f32, y: (y - s.top) as f32, w: s.w as f32, h: s.h as f32 }, uv: c.uv, atlas_uv: c.atlas_uv, atlas: s.kind, color:c.color };
+                        if c.clip == UNCLIPPED {
+                            emit_glyph(glyph, scale, &mut draw, f);
+                        } else {
+                            emit_clipped(glyph, c.clip.map(|v| v.mul_add(scale, ox)), &mut |glyph| {
+                                emit_glyph(glyph, scale, &mut draw, f);
+                            });
+                        }
                     }
                 } else if let Some(slot) = g.slot(CacheKey { x_bin: bin, ..c.key }) {
                     // a bin the list does not hold, or a slot an eviction during this call may have moved
-                    g.emit(slot, x, y, c.color, &mut |glyph|emit_clipped(glyph,c.clip.map(|v|v.mul_add(scale,ox)),f));
+                    g.emit(slot, x, y, c.color, &mut |glyph|emit_clipped(glyph,c.clip.map(|v|v.mul_add(scale,ox)), &mut |glyph| {
+                        emit_glyph(glyph, scale, &mut draw, f);
+                    }));
                 }
             }
             return;
@@ -1325,6 +1501,7 @@ impl Text {
         e.glyphs.clear();
         e.shelves = [0; 8];
         e.cached = keep;
+        let mut translates_x = g.apple && (1.0..=16.0).contains(&scale) && scale.to_bits() & 0x007f_ffff == 0;
         let spans=&e.rich[..];
         let (mut line,mut base)=(0,0);
         for run in e.buf.layout_runs() {
@@ -1341,15 +1518,21 @@ impl Text {
                 glyph_parts(&run,lg,base,spans,&mut |clip,color| {
                     if keep {
                         let (x,y)=(lg.x+lg.font_size*lg.x_offset,lg.y-lg.font_size*lg.y_offset);
-                        e.glyphs.push(CachedGlyph { key:p.cache_key,x,y,line_y:run.line_y,slot,uv:g.uv(&slot),color,clip });
+                        translates_x = translates_x && apple_x_translates(f32::from_bits(p.cache_key.font_size_bits), x * scale);
+                        let uv = g.uv(&slot);
+                        e.glyphs.push(CachedGlyph { key:p.cache_key,x,y,line_y:run.line_y,physical:(p.x,p.y),slot,uv,atlas_uv:packed_uv(uv),color,clip });
                         if slot.w>0 && slot.h>0 { let (word,bit)=shelf_bit(slot.kind,slot.shelf); e.shelves[word]|=bit; }
                     }
-                    g.emit(slot,p.x,p.y,color,&mut |glyph|emit_clipped(glyph,clip.map(|v|v.mul_add(scale,origin.0*scale)),f));
+                    g.emit(slot,p.x,p.y,color,&mut |glyph|emit_clipped(glyph,clip.map(|v|v.mul_add(scale,origin.0*scale)), &mut |glyph| {
+                        emit_glyph(glyph, scale, &mut draw, f);
+                    }));
                 });
             }
         }
         *cache_bytes += e.glyphs.capacity() * size_of::<CachedGlyph>();
         (e.cached_scale, e.cached_evictions) = (scale.to_bits(), start);
+        e.cached_origin = (origin.0.to_bits(), origin.1.to_bits());
+        e.cached_translates_x = translates_x;
     }
 
     /// Walks through cosmic-text's runs so far (a warm frame of unchanged text adds none).
@@ -1744,7 +1927,7 @@ mod layout_cache_tests {
 
     #[test]
     fn apple_x_floors_to_its_ppems_fraction_on_both_sides_of_zero() {
-        for (ppem, n) in [(11.0, 4), (13.0, 3), (20.0, 2), (40.0, 1)] {
+        for (ppem, n) in [(11.0, 4), (11.25, 3), (13.0, 3), (16.5, 3), (16.75, 2), (20.0, 2), (30.0, 2), (33.0, 2), (33.5, 1), (40.0, 1)] {
             for k in -40..40 {
                 let pos = k as f32 * 0.1;
                 let m = (pos * n as f32).floor() as i32;

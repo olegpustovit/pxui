@@ -3,6 +3,7 @@
 #import <QuartzCore/CAMetalLayer.h>
 #include "frames.h"
 #include <new>
+#include <string.h>
 #include <TargetConditionals.h>
 #if TARGET_OS_IOS
 #import <UIKit/UIKit.h>
@@ -21,6 +22,12 @@ struct PXUIMetalFrames {
     id<CAMetalDrawable> drawable;
     id<MTLCommandBuffer> commands;
     id<MTLRenderCommandEncoder> encoder;
+    // One-shot readback (`rays_metal_frames_capture`): the next submit also copies its drawable here.
+    bool capture;
+    id<MTLBuffer> captureBuffer;
+    id<MTLCommandBuffer> captured;
+    uint32_t captureWidth;
+    uint32_t captureHeight;
 #if TARGET_OS_IOS
     id pauseObserver;
     id resumeObserver;
@@ -133,6 +140,21 @@ int rays_metal_frames_submit(void *raw) {
         if (!frames->commands || !frames->encoder) return -1;
         [frames->encoder endEncoding];
         frames->encoder = nil;
+        if (frames->capture) {
+            id<MTLTexture> texture = frames->drawable.texture;
+            const NSUInteger width = texture.width, height = texture.height, bytes = width * height * 4;
+            if (!frames->captureBuffer || frames->captureBuffer.length < bytes)
+                frames->captureBuffer = [frames->device newBufferWithLength:bytes options:MTLResourceStorageModeShared];
+            id<MTLBlitCommandEncoder> blit = [frames->commands blitCommandEncoder];
+            if (!frames->captureBuffer || !blit) return -1;
+            [blit copyFromTexture:texture sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0, 0, 0)
+                       sourceSize:MTLSizeMake(width, height, 1) toBuffer:frames->captureBuffer destinationOffset:0
+            destinationBytesPerRow:width * 4 destinationBytesPerImage:bytes];
+            [blit endEncoding];
+            frames->captured = frames->commands;
+            frames->captureWidth = (uint32_t)width;
+            frames->captureHeight = (uint32_t)height;
+        }
         [frames->commands presentDrawable:frames->drawable];
         [frames->commands commit];
         const NSUInteger slot = (frames->serial - 1) % 3;
@@ -141,6 +163,34 @@ int rays_metal_frames_submit(void *raw) {
         frames->commands = nil;
         frames->drawable = nil;
         frames->pass.colorAttachments[0].texture = nil;
+        return 1;
+    }
+}
+
+int rays_metal_frames_capture(void *raw, int on) {
+    PXUIMetalFrames *frames = static_cast<PXUIMetalFrames *>(raw);
+    if (![NSThread isMainThread] || frames->commands) return -1;
+    // Drawables acquired after this point are blit-readable only while capturing.
+    frames->layer.framebufferOnly = on ? NO : YES;
+    frames->capture = on != 0;
+    return 1;
+}
+
+int rays_metal_frames_read(void *raw, uint8_t *out, size_t length, uint32_t *width, uint32_t *height) {
+    @autoreleasepool {
+        PXUIMetalFrames *frames = static_cast<PXUIMetalFrames *>(raw);
+        if (![NSThread isMainThread]) return -1;
+        if (!frames->captured) return 0;
+        *width = frames->captureWidth;
+        *height = frames->captureHeight;
+        const size_t bytes = (size_t)frames->captureWidth * frames->captureHeight * 4;
+        if (!out) return 1;
+        if (length != bytes) return -1;
+        [frames->captured waitUntilCompleted];
+        const bool failed = frames->captured.status == MTLCommandBufferStatusError;
+        frames->captured = nil;
+        if (failed) return -1;
+        memcpy(out, frames->captureBuffer.contents, bytes);
         return 1;
     }
 }

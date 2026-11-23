@@ -53,7 +53,8 @@ fn framework_host_uploads_exact_rgba_reuses_warm_frames_and_fences_texture_relea
         let texture = graphics.image_texture(id).unwrap();
         assert_eq!(ogpu_core::backend::read_texture(texture,8*4).unwrap(),expected);
     }
-    assert_eq!(graphics.resident_image_bytes(),8*pixels.len());
+    // each 8x4 image carries its 4x2, 2x1 and 1x1 mip levels
+    assert_eq!(graphics.resident_image_bytes(),8*(pixels.len()+(4*2+2+1)*4));
     for frame in 0..32 {
         mem_sys::local_reset();
         assert!(
@@ -108,6 +109,42 @@ fn framework_host_uploads_exact_rgba_reuses_warm_frames_and_fences_texture_relea
         ogpu_core::backend::texture_destroyed(&texture),
         "the host releases textures only after GPU completion"
     );
+    graphics.close().unwrap();
+    window.destroy().unwrap();
+}
+
+#[cfg(target_os = "macos")]
+fn framework_host_screenshot_returns_presented_rgba_and_keeps_warm_draws_allocation_free() {
+    use pxui::ui::{Node, Size};
+    use pxui::{Fill, FrameIn, Rgba, Ui};
+    use crate::{Graphics, Window};
+    mem_sys::set_peer(pxui::library_counter);
+    let mut window = Window::open_with("PXUI screenshot", 320, 240, false, true, true).unwrap();
+    let mut ui = Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
+    let mut graphics = Graphics::open(&mut window, &ui).unwrap();
+    let scale = window.scale();
+    let build = |ui: &mut Ui, time: f64| {
+        ui.frame(&FrameIn::new(320.0, 240.0).scale(scale as f32).time(time), &mut |ui| {
+            let node = ui.node("swatch", Node::DEFAULT.w(Size::Px(40.0)).h(Size::Px(20.0)));
+            ui.canvas(&node, |paint, r| paint.fill(r, Fill::new(Rgba::rgb(255, 0, 0))));
+        }).unwrap();
+    };
+    build(&mut ui, 0.0);
+    let (width, height, pixels) = graphics.screenshot(&mut window, &ui).unwrap();
+    assert_eq!((width, height), ((320.0 * scale) as u32, (240.0 * scale) as u32));
+    assert_eq!(pixels.len(), width as usize * height as usize * 4);
+    let at = |x: f64, y: f64| { let i = ((y * scale) as usize * width as usize + (x * scale) as usize) * 4; [pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3]] };
+    assert_eq!(at(10.0, 10.0), [255, 0, 0, 255], "the swatch reads back as RGBA");
+    let panel = ui.theme().tokens.panel;
+    assert_eq!(at(200.0, 200.0), [panel.r, panel.g, panel.b, 255], "the cleared panel outside it");
+    for frame in 0..16 {
+        mem_sys::local_reset();
+        build(&mut ui, 1.0 + frame as f64 / 60.0);
+        assert!(graphics.draw(&mut window, &ui, None).unwrap());
+        if frame >= 4 {
+            assert_eq!(mem_sys::local_alloc_count(), 0, "draws after a screenshot stay allocation-free");
+        }
+    }
     graphics.close().unwrap();
     window.destroy().unwrap();
 }
@@ -296,10 +333,12 @@ fn voiceover_bridge_maps_nodes_round_trips_actions_and_stays_quiet_when_unchange
 pub(crate) fn main() {
     harness::run(&[
         ("encoded_input_owns_text_and_reuses_dialog_and_numeric_storage",crate::events::tests::encoded_input_owns_text_and_reuses_dialog_and_numeric_storage),
+        ("mip_chain_halves_by_alpha_weight_down_to_one_texel",crate::images::tests::mip_chain_halves_by_alpha_weight_down_to_one_texel),
         ("first_resume_batch_reuses_the_cold_event_reserve",crate::events::tests::first_resume_batch_reuses_the_cold_event_reserve),
         ("touch_payload_growth_owns_full_identities_and_reuses_warm_storage",crate::events::tests::touch_payload_growth_owns_full_identities_and_reuses_warm_storage),
         ("window_framework_platform_applies_focused_ime_reuses_warm_frames_and_rejects_dead_windows",framework_platform_applies_focused_ime_reuses_warm_frames_and_rejects_dead_windows),
         ("window_framework_host_uploads_exact_rgba_reuses_warm_frames_and_fences_texture_release",framework_host_uploads_exact_rgba_reuses_warm_frames_and_fences_texture_release),
+        ("window_framework_host_screenshot_returns_presented_rgba_and_keeps_warm_draws_allocation_free",framework_host_screenshot_returns_presented_rgba_and_keeps_warm_draws_allocation_free),
         ("window_framework_window_chrome_preserves_resize_zoom_and_rejects_dead_layers_and_invalid_minimums",framework_window_chrome_preserves_resize_zoom_and_rejects_dead_layers_and_invalid_minimums),
         ("window_voiceover_bridge_maps_nodes_round_trips_actions_and_stays_quiet_when_unchanged",voiceover_bridge_maps_nodes_round_trips_actions_and_stays_quiet_when_unchanged),
         ("window_framework_host_constructor_refusals_release_devices_and_queues",framework_host_constructor_refusals_release_devices_and_queues),

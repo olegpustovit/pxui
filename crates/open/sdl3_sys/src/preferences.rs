@@ -11,6 +11,8 @@ pub struct Snapshot {
     /// 0 unknown, 1 light, 2 dark, matching the frame input and persisted appearance codes.
     pub appearance: u32,
     pub reduced_motion: u32,
+    /// 1 when the system's scrollers are overlay (iOS always; macOS by its "Show scroll bars" setting and pointing device).
+    pub overlay_scrollers: u32,
 }
 
 pub struct Preferences {

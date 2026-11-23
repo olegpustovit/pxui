@@ -115,7 +115,7 @@ export!(pub unsafe fn pxui_paint_color(p: *mut PxuiPaint, token: u16) -> Rgba {
 // What a paint callback reads once, handed to it with the callback: sizes, clip and theme tokens.
 fn info_of(paint: &EnginePaint) -> PxuiPaintInfo {
     PxuiPaintInfo {
-        size: core::mem::size_of::<PxuiPaintInfo>() as u32, rtl: paint.rtl as u8, reserved: [0; 3], font_size: paint.font_size,
+        size: core::mem::size_of::<PxuiPaintInfo>() as u32, rtl: paint.rtl as u8, reserved: [paint.capture_palette as u8, 0, 0], font_size: paint.font_size,
         row_height: paint.row_height, density: paint.density,
         clip: Rect { x: paint.clip_rect.x, y: paint.clip_rect.y, w: paint.clip_rect.w, h: paint.clip_rect.h }, clip_radius: paint.clip_radius,
         theme: paint.theme.into(),

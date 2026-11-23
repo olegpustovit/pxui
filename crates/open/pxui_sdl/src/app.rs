@@ -22,13 +22,19 @@ pub type Callback = dyn FnMut(&mut Window, Signal) -> Result<Schedule, String>;
 /// Finish and captured resource destruction precede window destruction, including callback errors.
 /// On iOS UIKit owns execution; native shutdown exits the process after cleanup.
 pub fn run(title: &str, width: i64, height: i64, callback: Box<Callback>) -> Result<(), String> {
+    run_with_density(title, width, height, true, callback)
+}
+
+/// Runs an application with the drawable density choice from [`Window::open_with`].
+/// Pass false for point-sized captures on Apple displays.
+pub fn run_with_density(title: &str, width: i64, height: i64, high_density: bool, callback: Box<Callback>) -> Result<(), String> {
     #[cfg(target_os = "ios")]
     {
-        super::ios::run(title, width, height, callback)
+        super::ios::run_with_density(title, width, height, high_density, callback)
     }
     #[cfg(not(target_os = "ios"))]
     {
-        let mut window = Window::open(title, width, height)?;
+        let mut window = Window::open_with(title, width, height, true, false, high_density)?;
         let mut callback = callback;
         let result = (|| {
             let initial = callback(&mut window, Signal::Initialize)?;

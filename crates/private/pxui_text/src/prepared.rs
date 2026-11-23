@@ -38,6 +38,8 @@ impl Text {
         worker.font_metrics.clone_from(&self.font_metrics);
         worker.system = self.system.clone();
         worker.font_generation = self.font_generation.clone();
+        // shaping keys glyphs by the raster (unhinted on Apple): a worker layout must match the receiver's
+        worker.g.apple = self.g.apple;
         worker
     }
 
@@ -399,6 +401,17 @@ mod tests {
         assert!(ui.entries.values().any(|entry| !entry.cacheable));
         assert!(records.iter().any(|record| record.spare.capacity() > 0));
         std::thread::spawn(move || drop(records)).join().unwrap();
+    }
+
+    #[test]
+    fn prepared_layouts_shape_with_the_receivers_apple_raster() {
+        let mut ui = Text::new(&[PRAGMASEVKA]);
+        ui.set_apple_raster(true);
+        let mut worker = ui.preparer();
+        let record = worker.prepare("2:36", &Style::default(), 64.0, &[]).unwrap();
+        let flags: Vec<_> = record.entry.buf.layout_runs().flat_map(|run| run.glyphs.iter().map(|g| g.cache_key_flags)).collect();
+        assert!(!flags.is_empty());
+        assert!(flags.iter().all(|f| *f == cosmic_text::CacheKeyFlags::DISABLE_HINTING), "{flags:?}");
     }
 
     #[test]

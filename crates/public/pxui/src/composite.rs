@@ -126,6 +126,84 @@ impl Ui {
         out
     }
 
+    /// Keeps the current view's positioned labels when an instant root theme changes only colors.
+    ///
+    /// Call at the end of a `view_of` containing only `label_at` calls. Their text, placement and
+    /// styles must be independent of theme colors and system appearance. Set each label's ink by
+    /// token, or use the theme's label ink. Views with canvases or scoped themes rebuild normally.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     ui.view_of("copy", &0, |ui| {
+    ///         ui.label_at("title".into(), pxui::Rect::new(0.0, 0.0, 80.0, 20.0), "Albums", pxui::Label::BODY.line_height(20.0)).unwrap();
+    ///         ui.retain_palette_labels();
+    ///     });
+    /// });
+    /// ```
+    #[inline]
+    pub fn retain_palette_labels(&mut self) {
+        #[cfg(feature = "static")]
+        let _ = unsafe { pxui_abi_link::pxui_ui_retain_palette_labels(self.0.as_ptr()) };
+        #[cfg(not(feature = "static"))]
+        let _ = unsafe { keyed_sys::pxui_ui_retain_palette_labels(self.0.as_ptr()) };
+    }
+
+    /// Lets the current view recolor positioned labels and canvas shapes on an instant palette swap.
+    ///
+    /// Call at the start of a root-themed view. Keep layout, node looks and interaction independent of
+    /// palette values. Pass `Rgba::token` into shape fills or strokes, including in custom icon art.
+    /// Canvas output must use these shapes and may not read concrete theme colors. Nested views need
+    /// the same contract. Views with unsupported node looks or active node tweens rebuild.
+    /// Views with more than 16 canvas color ranges rebuild.
+    /// Allocates: never once the retained view storage is warm.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::{Fill, Node, Rgba, theme::ColorToken};
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     ui.view_of("badge", &0, |ui| {
+    ///         ui.retain_palette_paint();
+    ///         let badge = ui.node("plate", Node::column().w_px(50.0).h_px(20.0));
+    ///         ui.canvas(&badge, |paint, rect| paint.fill(rect, Fill::new(Rgba::token(ColorToken::ACCENT))));
+    ///     });
+    /// });
+    /// ```
+    #[inline]
+    pub fn retain_palette_paint(&mut self) {
+        #[cfg(feature = "static")]
+        let _ = unsafe { pxui_abi_link::pxui_ui_retain_palette_paint(self.0.as_ptr()) };
+        #[cfg(not(feature = "static"))]
+        let _ = unsafe { keyed_sys::pxui_ui_retain_palette_paint(self.0.as_ptr()) };
+    }
+
+    /// Lets the current view keep its build when the window resizes and the view's layout fits.
+    ///
+    /// Use inside a `view_of` whose build depends on the window size only through its local
+    /// bounds or explicit revision. A change to the view's own bounds still triggers layout and
+    /// a size change rebuilds its contents. Device density changes always invalidate the view.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     ui.column(pxui::Node::column().w_px(120.0).h_px(40.0), |ui| {
+    ///         ui.view_of("transport", &0, |ui| {
+    ///             ui.label("Playback", pxui::Label::BODY);
+    ///             ui.retain_view_on_resize();
+    ///         });
+    ///     });
+    /// });
+    /// ```
+    #[inline]
+    pub fn retain_view_on_resize(&mut self) {
+        #[cfg(feature = "static")]
+        let _ = unsafe { pxui_abi_link::pxui_ui_retain_view_on_resize(self.0.as_ptr()) };
+        #[cfg(not(feature = "static"))]
+        let _ = unsafe { keyed_sys::pxui_ui_retain_view_on_resize(self.0.as_ptr()) };
+    }
+
     /// The one body of `view_of`: the view keyed by `key` under the parent, sized by its parent, kept while `revision` is unchanged.
     #[track_caller]
     #[inline]
@@ -170,6 +248,9 @@ mod keyed_sys {
     unsafe extern "C" {
         pub(super) fn pxui_ui_modal(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, sheet: *const pxui_types::ffi::PxuiSheetDesc, build: UiBuild, user: *mut c_void, out: *mut u8, root: *mut PxuiBox) -> i32;
         pub(super) fn pxui_ui_panel(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, panel: *const PxuiPanel, build: UiBuild, user: *mut c_void, root: *mut PxuiBox) -> i32;
+        pub(super) fn pxui_ui_retain_palette_labels(ui: *mut PxuiUi) -> i32;
+        pub(super) fn pxui_ui_retain_palette_paint(ui: *mut PxuiUi) -> i32;
+        pub(super) fn pxui_ui_retain_view_on_resize(ui: *mut PxuiUi) -> i32;
         pub(super) fn pxui_ui_view(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, revision: u64, build: UiBuild, user: *mut c_void, out: *mut PxuiBox) -> i32;
         pub(super) fn pxui_ui_scroll_view(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, node: *const pxui_types::Node, build: UiBuild, user: *mut c_void, out: *mut PxuiBox) -> i32;
         pub(super) fn pxui_ui_anchored(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, anchor: *const PxuiAnchorDesc, width: PxuiSizeDesc, height: PxuiSizeDesc, build: UiBuild, user: *mut c_void, out: *mut PxuiBox) -> i32;

@@ -1272,18 +1272,19 @@ impl Ui {
     }
 
     /// An icon button as the wrapper declares it: `key` is hashed under the parent's seed, `icon` is what the body draws (a glyph, or
-    /// the app's own drawing in the look's text ink), `name` the accessible name and `icon_button` the variation (see `IconButton`).
-    pub fn icon_button(&mut self, key: &str, icon: Icon, name: &str, button: &IconButton) -> Response {
+    /// the app's own drawing in the look's text ink), `name` the accessible name and `button` its geometry and behavior.
+    /// A caller's `states` are borrowed for the call, or `None` selects the theme's icon-button look.
+    pub fn icon_button(&mut self, key: &str, icon: Icon, name: &str, button: &IconButton, states: Option<&States>) -> Response {
         let mut glyph = [0u8; 4];
         match icon {
-            Icon::Glyph(ch) => self.icon_button_text(key, ch.encode_utf8(&mut glyph), None, name, button, None),
-            Icon::Draw(f, data) => self.icon_button_text(key, "", Some((f, data)), name, button, None),
+            Icon::Glyph(ch) => self.icon_button_text(key, ch.encode_utf8(&mut glyph), None, name, button, states, None),
+            Icon::Draw(f, data) => self.icon_button_text(key, "", Some((f, data)), name, button, states, None),
         }
     }
 
     /// `icon_button` with the glyph as any string (the C ABI's) beside an optional drawing, which wins; `signal`, when given, receives
     /// the box's signal as it was read for it, without its key events (`key_events_ref`): the C ABI's signal without a second read.
-    pub fn icon_button_text(&mut self, key: &str, glyph: &str, draw: Option<(IconDraw, [usize; 4])>, name: &str, button: &IconButton, signal: Option<&mut Signal>) -> Response {
+    pub fn icon_button_text(&mut self, key: &str, glyph: &str, draw: Option<(IconDraw, [usize; 4])>, name: &str, button: &IconButton, states: Option<&States>, signal: Option<&mut Signal>) -> Response {
         let enabled = button.enabled && !self.scope_disabled();
         let flags = if enabled { STOP_FLAGS } else { Flags::BLOCKING | Flags::TAB_ONLY };
         let b = self.node_ref(key, &Node { flags, role: Role::Button, ..Node::DEFAULT });
@@ -1293,10 +1294,19 @@ impl Ui {
         let focused = self.focused(&b);
         let state = State { hovered: s.hovered, pressed: s.held, focused, disabled: !enabled, checked: button.selected == Some(true) };
         self.a11y_name(&b, shown(name));
-        let states = match button.states { Some(states) => states, None => self.theme().icon_button };
-        let ink = self.resolve_color(states.pick(state).text);
+        let look = *states.unwrap_or(&self.theme().icon_button).pick(state);
+        let ink = self.resolve_color(look.text);
         let config = IconButtonConfig { state, node: b, w: button.w, h: button.h, press_scale: button.press_scale, ink, draw, press: button.press };
-        in_body!(flat; self, b.box_key, b, icon_button, default_icon_button(&config, &states, name, glyph));
+        if self.theme().body.icon_button == BodyId::DEFAULT {
+            icon_button_look(self, &config, look, glyph);
+        } else {
+            let fallback;
+            let states = if let Some(states) = states { states } else {
+                fallback = self.theme().icon_button;
+                &fallback
+            };
+            in_body!(flat; self, b.box_key, b, icon_button, default_icon_button(&config, states, name, glyph));
+        }
         self.node_new(&b).state.disabled = !enabled;
         if let Some(on) = button.selected { self.set_role(&b, Role::Button, st::CHECKABLE | if on { st::CHECKED } else { 0 }); }
         let response = Response::of(&s, focused, b);
@@ -1440,6 +1450,9 @@ fn search_field_body(this: &mut Ui, label: &str, icon: &str, value: &str, placeh
         }
         match edit {
             Some(edit) if ui.focused(&field) => {
+                if edit.text.is_empty() && ui.composition().is_empty() && !placeholder.is_empty() {
+                    ui.text(&field, placeholder);
+                }
                 let font_size = size.unwrap_or(ui.font_px());
                 let marks = Some((look.selection, look.caret));
                 let (caret, anchor) = (edit.caret, edit.anchor);
@@ -1531,8 +1544,6 @@ pub enum Icon {
 
 /// How `icon_button` varies the kit's icon button; `DEFAULT` is the plain one.
 pub struct IconButton {
-    /// The look per state; `None` is the theme's `icon_button`.
-    pub states: Option<States>,
     /// Width and height in points (`Px`) or filling the line (`Grow`); `Fit` is the kit's control square.
     pub w: Size,
     pub h: Size,
@@ -1549,7 +1560,7 @@ pub struct IconButton {
 }
 
 impl IconButton {
-    pub const DEFAULT: IconButton = IconButton { states: None, w: Size::Fit, h: Size::Fit, enabled: true, press_scale: 1.0, press: None, selected: None };
+    pub const DEFAULT: Self = IconButton { w: Size::Fit, h: Size::Fit, enabled: true, press_scale: 1.0, press: None, selected: None };
 }
 
 impl Ui {
@@ -1574,12 +1585,15 @@ pub const PRESS_OUT: Curve = Curve::Spring { omega: 20.0 };
 /// The built-in icon button: a square (the kit's 20 points, or the caller's size), the glyph centred. With a press scale below or above
 /// 1 the plate and glyph sit in a view that springs to that scale while the button is held and back on release.
 pub fn default_icon_button(this: &mut Ui, c: &IconButtonConfig, states: &States, _label: &str, icon: &str) {
+    icon_button_look(this, c, *states.pick(c.state), icon);
+}
+
+fn icon_button_look(this: &mut Ui, c: &IconButtonConfig, look: Look, icon: &str) {
     let ch = this.control_h();
-    let tw = this.text_width(None, icon);
+    let tw = if icon.is_empty() { 0.0 } else { this.text_width(None, icon) };
     let size = |s: Size| match s { Size::Fit => Size::Px(ch), s => s };
     let n = this.node_new(&c.node);
     (n.w, n.h) = (size(c.w), size(c.h));
-    let look = *states.pick(c.state);
     let width = match c.w { Size::Px(w) => w, _ => ch };
     let inset = Edges { l: ((width - tw) / 2.0).floor(), ..Edges::ZERO };
     if c.press_scale == 1.0 {

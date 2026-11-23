@@ -420,6 +420,7 @@ fn valid_environment(value:&pxui_types::Environment)->bool {
         && rect(&value.keyboard_frame) && rect(&value.keyboard_from)
         && value.keyboard_started.is_finite() && value.keyboard_duration.is_finite() && value.keyboard_duration>=0.0
         && (value.keyboard_started+value.keyboard_duration).is_finite() && value.keyboard_visible<=1
+        && value.scrollers<=pxui_types::Environment::OVERLAY_SCROLLERS
 }
 
 /// A changed host environment, given to the engine out of line: a frame that repeats it (the most) keeps none of it in registers.
@@ -628,6 +629,22 @@ export!(trusted pub unsafe fn pxui_ui_panel(ui: *mut PxuiUi, keyed: *const pxui_
     unsafe { self::panel(ui, key, name, panel, build, user, &mut *root) }
 });
 
+
+export!(build pub unsafe fn pxui_ui_label_at(ui: *mut PxuiUi, key: Str, rect: pxui_types::geom::Rect, text: Str, style: *const pxui_types::ffi::PxuiLabelStyle, out: *mut PxuiBox) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if !state.shared().in_frame || out.is_null() { return unsafe { fail(ui, "placed label needs a frame and output") }; }
+    let (Some(key), Some(text), Some((style, _))) = (unsafe { crate::state::checked_key(key) }, unsafe { checked(text) }, label_style(style)) else {
+        return unsafe { fail(ui, "invalid placed label key, text or style") };
+    };
+    if ![rect.x, rect.y, rect.w, rect.h].iter().all(|v| v.is_finite()) || rect.w < 0.0 || rect.h < 0.0 {
+        return unsafe { fail(ui, "invalid placed label rectangle") };
+    }
+    let Some(label) = (unsafe { &mut *state.engine }).label_at(key, rect, text, &style) else {
+        return unsafe { fail(ui, "placed label needs a loaded font and a positive line height") };
+    };
+    unsafe { *out = crate::state::to_abi_box(label); }
+    0
+});
 
 // ABI 1.54: a label of `text` in `style` with the label's box (`label_box`, null for none), writing the label's node to `out`; a null
 // `style` is the theme's label.

@@ -14,7 +14,7 @@ end, and an enum or flag value is never reused. `abi-snapshot` records the manif
 
 **Version.** `pxui_abi_version()` returns `major << 16 | minor` (`ABI_VERSION` in `pxui_abi`, the `minor N` line of `abi/pxui.v1.txt`,
 `pxui_types::ABI_BUILT` and `PXUI_ABI_BUILT` in `pxui.h`, kept equal by tests). The shared library is `libpxui.2` (`libpxui.2.dylib`,
-install name `@rpath/libpxui.2.dylib`, compatibility and current version 2.0.0; ELF soname `libpxui.so.2`). Minor grows by one for each
+install name `@rpath/libpxui.2.dylib`, compatibility version 2.0.0 and current version 2.3.0; ELF soname `libpxui.so.2`). Minor grows by one for each
 additive change.
 
 **Promise.** An app built against 2.N runs unchanged against any later 2.M library (M >= N): every export with its signature, every
@@ -138,3 +138,6 @@ and name the replacement; nothing is removed from the manifest.
 | Version | Change |
 | --- | --- |
 | 2.0 | The clean cut. Dropped the 1.x twins and legacy forms (the text-callback list, tree and table forms, the label-keyed widget exports, the integer-size paint text calls, `pxui_ui_variant`, `pxui_theme_load`, `pxui_verify_new_views`, `pxui_ui_frame`); one plain name per job (`pxui_ui_create` with the font list and a status, `pxui_ui_label`, `pxui_ui_button`, `pxui_ui_animate_keys`, `pxui_ui_text`, `pxui_shaper_measure`, the `pxui_ui_*` prefix for `within`, `part`, `part_box`, `slot`, `scope`); size-prefixed records with one size each and strided `{ptr, len, stride}` spans; sized per-surface events and frames; the variant a field of each widget record; one record per menu row (`PxuiMenuRow`, `PxuiMenuOptions`); the DX1.12G body names; features reset to four ids; `pxui_ui_diagnostics` and `pxui_counter` in the extension set with the Rays vocabulary; `PxuiUi.theme` frozen as the one read-only head field (owner, 21 Nov 2026); `PXUI_ERR_VERSION`; `libpxui.2`. |
+| 2.1 | Added `pxui_theme_animate_swap` for instant appearance changes and `pxui_ui_label_at` for keyed, positioned line-box labels. |
+| 2.2 | Added `pxui_ui_retain_palette_labels` for instant palette changes in positioned-label views and `pxui_ui_retain_view_on_resize` for viewport-independent views. |
+| 2.3 | Added `pxui_ui_retain_palette_paint` for palette-independent canvas and positioned-label views. `PxuiPaintInfo.reserved[0]` signals symbolic shape colors in that callback. |

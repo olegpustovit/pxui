@@ -305,6 +305,29 @@ fn glyph_lists_replay_a_walk_at_any_origin() {
 }
 
 #[test]
+fn baseline_emission_matches_a_walk_at_repeated_and_shifted_origins() {
+    let value = "Cached letters wrap at fractional origins";
+    let style = Style { wrap: Wrap::Word, size: 13.0, line_height: 17.0, ..Style::default() };
+    let mut cached = Text::new(&[&pragma()]);
+    let mut walked = Text::new(&[&pragma()]);
+    walked.set_glyph_cache(false);
+    for text in [&mut cached, &mut walked] {
+        text.layout(1, value, &style, 90.0);
+    }
+    for scale in [1.0, 2.0, 1.5] {
+        for (x, y) in [(17.0, 3.5), (17.0, 3.5), (17.0, 7.25), (-3.6, 3.5), (6.25, -4.75)] {
+            let mut actual = Vec::new();
+            let mut expected = Vec::new();
+            cached.glyphs_at_baseline(1, (x, y), scale, &mut |glyph| actual.push(glyph));
+            let raw = walked.glyph_baseline(1);
+            walked.glyphs(1, (x, y - raw), scale, &mut |glyph| expected.push(glyph));
+            assert!(!actual.is_empty());
+            assert_eq!(actual, expected);
+        }
+    }
+}
+
+#[test]
 fn monospace_advances_tracking_and_ascent() {
     let mut t = Text::new(&[pxui_text::PRAGMASEVKA]);
     let st = Style { size: 13.0, ..Style::default() };
@@ -663,19 +686,79 @@ fn apple_glyphs(apple: bool, origin: (f32, f32), size: f32, walk: bool) -> (Vec<
 }
 
 #[test]
-fn apple_raster_is_dilated_quantised_and_replays_like_a_walk() {
-    // 13 pt at 2x is 26 ppem: halves of a pixel in x, whole pixels in y, masks one texel larger a side
+fn apple_raster_is_quantised_and_replays_like_a_walk() {
+    // 13 pt at 2x is 26 ppem: halves of a pixel in x and whole pixels in y.
     let (apple, apple_px) = apple_glyphs(true, (0.3, 0.2), 13.0, false);
     let (other, other_px) = apple_glyphs(false, (0.3, 0.2), 13.0, false);
     assert_eq!(apple.len(), other.len());
     assert_ne!(apple_px, other_px, "Apple masks differ from the cosmic-text ones");
-    assert!(apple.iter().zip(&other).any(|(a, o)| a.rect.w > o.rect.w), "dilation pads the masks");
+    #[cfg(not(target_vendor = "apple"))]
+    assert!(apple.iter().zip(&other).any(|(a, o)| a.rect.w > o.rect.w), "Swash's Apple approximation dilates masks");
     assert!(apple.iter().all(|g| g.rect.y.fract() == 0.0 && g.rect.x.fract() == 0.0));
     let (walked, _) = apple_glyphs(true, (0.3, 0.2), 13.0, true);
     assert_eq!(apple, walked, "replay and walk agree");
     // other platforms keep the same pixels as before: unhinted-off, quarter bins, truncated y
     let (a, _) = apple_glyphs(false, (0.0, 0.0), 13.0, false);
     assert!(a.iter().all(|g| g.rect.w > 0.0));
+}
+
+#[test]
+fn apple_mask_at_30_ppem_has_two_horizontal_phases() {
+    let mut text = Text::new(&[&pragma()]);
+    text.set_apple_raster(true);
+    text.layout(1, "H", &Style { size: 15.0, ..Style::default() }, 0.0);
+    let mut mask = |x| {
+        let mut glyph = None;
+        text.glyphs_at_baseline(1, (x, 32.0), 2.0, &mut |quad| glyph = Some(quad));
+        texels(&mut text, &glyph.expect("visible glyph"))
+    };
+    let left = mask(8.0);
+    let middle = mask(8.25);
+    assert_eq!(left, mask(8.5), "a whole pixel repeats the glyph mask");
+    assert_ne!(left, middle, "30 ppem retains the half-pixel mask");
+    assert_eq!(middle, mask(8.25), "the cached glyph keeps that phase");
+}
+
+#[test]
+fn apple_integral_origins_draw_the_same_quads_as_a_walk() {
+    use pxui_text::GlyphPaint;
+    use pxui_types::draw::{Instance, flags};
+    let mut cached = Text::new(&[&pragma()]);
+    let mut walked = Text::new(&[&pragma()]);
+    walked.set_glyph_cache(false);
+    let draw = GlyphPaint { clip: [0, 1, 40, 60], view: 7, color: [1, 2, 3, 99], opacity: 1.0,
+        mask_flags: flags::mask::LIGHT, light: Instance::light_extra(26.0, 2.0) };
+    for text in [&mut cached, &mut walked] {
+        text.set_apple_raster(true);
+        text.layout(1, "Hamburg ilfo", &Style { size: 13.0, ..Style::default() }, 0.0);
+    }
+    let mut actual = Vec::with_capacity(32);
+    let mut breaks = Vec::new();
+    let mut expected = Vec::with_capacity(32);
+    for density in [1, 2, 3] {
+        let scale = density as f32;
+        for (i, at) in [(0.0, 0.0), (0.0, 0.0), (55.0, 0.0), (55.5, 0.0), (-21.0, 4.0), (1919.0, -2.5), (7.375, 14.0)].into_iter().enumerate() {
+            actual.clear();
+            expected.clear();
+            let before = mem_sys::local_alloc_count();
+            cached.draw_at_baseline(1, at, density, draw, &mut actual, &mut breaks);
+            if i == 1 {
+                assert_eq!(mem_sys::local_alloc_count(), before);
+            }
+            assert!(breaks.is_empty());
+            walked.glyphs_at_baseline(1, at, scale, &mut |glyph| {
+                let r = glyph.rect;
+                let u = glyph.uv;
+                let mut instance = Instance::mask([r.x, r.y, r.x + r.w, r.y + r.h].map(|p| p / scale),
+                    [u.x, u.y, u.x + u.w, u.y + u.h], draw.color);
+                (instance.clip, instance.view, instance.flags, instance.extra) = (draw.clip, draw.view, draw.mask_flags, draw.light);
+                expected.push(instance);
+            });
+            assert!(!actual.is_empty());
+            assert_eq!(actual, expected);
+        }
+    }
+    assert_eq!(cached.glyph_walks(), 3);
 }
 
 #[test]

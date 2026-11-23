@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 0
+minor 3
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_remove_surface int32_t pxui_a11y_remove_surface ( PxuiA11y * a11y , uint64_t surface ) ;
@@ -48,6 +48,7 @@ function pxui_text_install int32_t pxui_text_install ( PxuiUi * ui , PxuiPrepare
 function pxui_text_system_fonts int32_t pxui_text_system_fonts ( PxuiUi * ui ) ;
 function pxui_text_worker_create PxuiTextWorker * pxui_text_worker_create ( void ) ;
 function pxui_text_worker_destroy void pxui_text_worker_destroy ( PxuiTextWorker * worker ) ;
+function pxui_theme_animate_swap int32_t pxui_theme_animate_swap ( PxuiTheme * theme , uint8_t on ) ;
 function pxui_theme_create PxuiTheme * pxui_theme_create ( const PxuiThemeTokens * tokens ) ;
 function pxui_theme_density int32_t pxui_theme_density ( PxuiTheme * theme , float density ) ;
 function pxui_theme_destroy void pxui_theme_destroy ( PxuiTheme * theme ) ;
@@ -112,6 +113,7 @@ function pxui_ui_key_pressed int32_t pxui_ui_key_pressed ( PxuiUi * ui , uint32_
 function pxui_ui_key_seed int32_t pxui_ui_key_seed ( PxuiUi * ui , int64_t * out ) ;
 function pxui_ui_keyboard int32_t pxui_ui_keyboard ( PxuiUi * ui , PxuiKeyboard * out ) ;
 function pxui_ui_label int32_t pxui_ui_label ( PxuiUi * ui , PxuiStr text , const PxuiLabelStyle * style , const PxuiLabelBox * label_box , PxuiBox * out ) ;
+function pxui_ui_label_at int32_t pxui_ui_label_at ( PxuiUi * ui , PxuiStr key , PxuiRect rect , PxuiStr text , const PxuiLabelStyle * style , PxuiBox * out ) ;
 function pxui_ui_label_measure int32_t pxui_ui_label_measure ( PxuiUi * ui , PxuiStr value , const PxuiLabelStyle * style , float max_width , const PxuiTextSpans * spans , PxuiTextMetrics * out ) ;
 function pxui_ui_label_prewarm int32_t pxui_ui_label_prewarm ( PxuiUi * ui , PxuiStr value , const PxuiLabelStyle * style , float max_width ) ;
 function pxui_ui_label_quads size_t pxui_ui_label_quads ( PxuiUi * ui , PxuiStr value , const PxuiLabelStyle * style , float max_width , float origin_x , float origin_y , float scale , PxuiTextGlyph * out , size_t capacity ) ;
@@ -149,6 +151,9 @@ function pxui_ui_repaint_after int32_t pxui_ui_repaint_after ( PxuiUi * ui , dou
 function pxui_ui_request_cursor int32_t pxui_ui_request_cursor ( PxuiUi * ui , uint32_t shape ) ;
 function pxui_ui_request_frame int32_t pxui_ui_request_frame ( PxuiUi * ui ) ;
 function pxui_ui_resolve_label int32_t pxui_ui_resolve_label ( PxuiUi * ui , const PxuiLabelStyle * style , PxuiTextStyle * out ) ;
+function pxui_ui_retain_palette_labels int32_t pxui_ui_retain_palette_labels ( PxuiUi * ui ) ;
+function pxui_ui_retain_palette_paint int32_t pxui_ui_retain_palette_paint ( PxuiUi * ui ) ;
+function pxui_ui_retain_view_on_resize int32_t pxui_ui_retain_view_on_resize ( PxuiUi * ui ) ;
 function pxui_ui_reveal int32_t pxui_ui_reveal ( PxuiUi * ui , const PxuiBox * list , size_t index ) ;
 function pxui_ui_root_at int32_t pxui_ui_root_at ( PxuiUi * ui , float x , float y , PxuiI64Span roots , uint8_t * present , int64_t * out ) ;
 function pxui_ui_row_points int32_t pxui_ui_row_points ( PxuiUi * ui , float * out ) ;

@@ -52,7 +52,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built: the version the app was built against, PXUI_ABI_BUILT (major << 16 | minor); pxui_ui_create refuses 0, another major and a newer minor (PXUI_ERR_VERSION). */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((2u << 16) | 0u)
+#define PXUI_ABI_BUILT ((2u << 16) | 3u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 /* size-prefixed (16 bytes); pxui_ui_text_input_options needs the caller's size to cover it. */
@@ -262,8 +262,10 @@ typedef struct { float rect[4],uv[4]; uint32_t atlas,reserved; } PxuiTextGlyph;
 #define PXUI_LIGHT 16u
 /* logical window points; insets are top/right/bottom/left, rectangles x/y/w/h. size-prefixed (80 bytes); the frame call refuses a record
    whose size is short and stores its own size. An out record (pxui_ui_environment) needs the caller's size to cover it (else PXUI_ERR_ARGUMENT). */
+/* scrollers: 0 legacy (gutter, resting thumb) or PXUI_OVERLAY_SCROLLERS (Apple overlay: no gutter, thumb only while scrolling). */
+#define PXUI_OVERLAY_SCROLLERS 1u
 typedef struct {
-    uint32_t size, keyboard_curve, keyboard_visible, reserved;
+    uint32_t size, keyboard_curve, keyboard_visible, scrollers;
     float safe_area[4], keyboard_frame[4], keyboard_from[4];
     double keyboard_started, keyboard_duration;
 } PxuiEnvironment;
@@ -391,6 +393,7 @@ typedef struct { uint32_t size; float fraction, velocity; } PxuiDismissIn;
 typedef struct { uint32_t size, flags; float offset; } PxuiDismissOut;
 typedef struct { uint16_t depth; uint8_t children; } PxuiTreeNode;
 typedef struct { uint32_t size; uint8_t has_stroke,has_max_height,dismiss_initial,attached; PxuiColor stroke; float max_height,x,y,width,height; PxuiStr label; } PxuiPopupDesc;
+/* Since 2.3, reserved[0] is 1 when shape instances may carry symbolic palette colors. */
 typedef struct { uint32_t size; uint8_t rtl,reserved[3]; int64_t font_size,row_height,density; PxuiRect clip; float clip_radius; PxuiThemeTokens theme; } PxuiPaintInfo;
 typedef void (*PxuiIconDraw)(void *user, PxuiPaint *paint, PxuiRect rect, PxuiColor ink, const PxuiPaintInfo *info); /* an icon drawing, called at paint time; info: valid during the call */
 /* a label's style. A field whose PXUI_LABEL_SET_* bit in `set` is clear is the theme's label style (font, size,
@@ -665,6 +668,8 @@ int32_t pxui_ui_scope(PxuiUi *ui, PxuiStr label, PxuiBuild build, void *user);
 /* a label of `text` in `style` with the label's box (null for none), writing the label's node to `out` (for a fill, an
    accessible state or text laid into it); a null style is the theme's label. A short box, unknown set bits, a non-finite height or an
    unknown role is refused. */
+/* A keyed label within the specified parent-relative rectangle, using rounded line-box baselines. */
+int32_t pxui_ui_label_at(PxuiUi *ui, PxuiStr key, PxuiRect rect, PxuiStr text, const PxuiLabelStyle *style, PxuiBox *out);
 int32_t pxui_ui_label(PxuiUi *ui, PxuiStr text, const PxuiLabelStyle *style, const PxuiLabelBox *label_box, PxuiBox *out);
 /* the PxuiTextStyle `style` shapes with, resolved against the Ui's theme label as pxui_ui_label resolves it (unset
    fields the theme label's, tracking in points); `digits` is ignored. Refused for a style pxui_ui_label would refuse. */
@@ -1126,6 +1131,12 @@ int32_t pxui_ui_panel(PxuiUi *ui, const PxuiKeyedDesc *keyed, const PxuiPanel *p
 int32_t pxui_ui_popup(PxuiUi *ui, const PxuiKeyedDesc *keyed, const PxuiPopupDesc *desc, PxuiBuild build, void *user, uint8_t *out, PxuiBox *root);
 int32_t pxui_ui_split(PxuiUi *ui, const PxuiSplitDesc *desc, PxuiResponse *out, uint8_t *has_ratio, float *ratio);
 int32_t pxui_ui_menu_bar(PxuiUi *ui, const PxuiMenuBarDesc *desc, PxuiMenuOut *out, uint8_t *dismissed);
+/* Opt the current view containing only palette-independent positioned labels into instant palette reuse. */
+int32_t pxui_ui_retain_palette_labels(PxuiUi *ui);
+/* ABI 2.3. Opt palette-independent canvas shapes into instant palette replay. */
+int32_t pxui_ui_retain_palette_paint(PxuiUi *ui);
+/* Opt the current viewport-independent view into reuse across changes to the window's size. */
+int32_t pxui_ui_retain_view_on_resize(PxuiUi *ui);
 /* the authoring view keyed by keyed->key (keyed->name must be empty). It fills its parent, or takes its content's size on the
    main axis of a row or column whose size there is fit; build runs only when revision (a hash of what it reads) changed. */
 int32_t pxui_ui_view(PxuiUi *ui, const PxuiKeyedDesc *keyed, uint64_t revision, PxuiBuild build, void *user, PxuiBox *out);
@@ -1141,6 +1152,8 @@ int32_t pxui_ui_themed(PxuiUi *ui, const PxuiTheme *theme, PxuiBuild build, void
 /* Detached source. Root installation checks all named bodies in the destination Ui. Scopes use the built-in body for missing names. */
 int32_t pxui_theme_parse(PxuiTheme *theme, PxuiStr source);
 int32_t pxui_theme_set_color(PxuiTheme *theme, uint16_t token, PxuiColor color);
+/* Controls the transition started by installing this theme (1 by default). */
+int32_t pxui_theme_animate_swap(PxuiTheme *theme, uint8_t on);
 int32_t pxui_theme_density(PxuiTheme *theme, float density);
 int32_t pxui_theme_reduced_motion(PxuiTheme *theme, uint8_t on);
 
