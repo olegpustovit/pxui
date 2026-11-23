@@ -1074,8 +1074,17 @@ pub struct PxuiTargetDesc {
     pub color_width: u32,
     /// Height of a colour atlas page in pixels.
     pub color_height: u32,
-    /// Reserved for the ABI. Write zero on input.
+    /// Target flags. Zero always recomputes the backdrop.
+    /// `BACKDROP_UI_DAMAGE` guarantees backdrop pixels change only through Ui damage.
+    /// Use one target and an ordered graphics queue per renderer, and let only this renderer
+    /// acknowledge the damage. Draw all UI layers in order. Notify the renderer with
+    /// `resize` after canvas replacement, canceled frames or GPU errors, even at the same
+    /// size. Report completed serials only for finished work. The hint is available since ABI 2.10.
     pub reserved_tail: u32,
+}
+impl PxuiTargetDesc {
+    /// Backdrop pixels are completely tracked by Ui damage. See `reserved_tail`.
+    pub const BACKDROP_UI_DAMAGE: u32 = 1;
 }
 impl Default for PxuiTargetDesc { fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, format: 0, samples: 1, reserved: [0; 3], mask_width: 0, mask_height: 0, color_width: 0, color_height: 0, reserved_tail: 0 } } }
 

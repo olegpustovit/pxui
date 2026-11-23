@@ -359,15 +359,22 @@ pub struct BlurOut {
     pub opacity: f32,
 }
 
-fn expand_blur_damage(damage: &mut DamageList, blurs: &[BlurOut], viewport: Rect) {
+impl BlurOut {
+    /// Source coverage of the three-sigma taps, rounded pixel bounds and downsample blocks.
+    pub fn footprint(self, scale: f32) -> Rect {
+        let pad = self.sigma * 3.0 + 8.0 / scale;
+        Rect::new(self.rect.x - pad, self.rect.y - pad, self.rect.w + 2.0 * pad, self.rect.h + 2.0 * pad)
+    }
+}
+
+pub fn expand_blur_damage(damage: &mut DamageList, blurs: &[BlurOut], viewport: Rect, scale: f32) {
     // A newly damaged blur may feed another one earlier in this list.
     while !damage.is_full() {
         let mut changed = false;
         for blur in blurs {
             let rect = blur.rect.intersect(viewport);
             if rect.w <= 0.0 || rect.h <= 0.0 || damage.covers(rect) { continue; }
-            let pad = blur.sigma * 2.0;
-            let footprint = Rect::new(blur.rect.x - pad, blur.rect.y - pad, blur.rect.w + 2.0 * pad, blur.rect.h + 2.0 * pad);
+            let footprint = blur.footprint(scale);
             if damage.rects().iter().any(|r| {
                 let overlap = r.intersect(footprint);
                 overlap.w > 0.0 && overlap.h > 0.0
@@ -9082,7 +9089,7 @@ impl Ui {
             self.damage.add(old.rect, viewport);
         }
         self.blur_out.truncate(count);
-        expand_blur_damage(&mut self.damage, &self.blur_out, viewport);
+        expand_blur_damage(&mut self.damage, &self.blur_out, viewport, self.density as f32);
     }
 
     /// Clip a view's output to `clip` (window points), besides its parents' clips; `None` lifts it.
@@ -9328,7 +9335,7 @@ impl Ui {
         let viewport = Rect::new(0.0, 0.0, self.view_w, self.view_h);
         self.damage.add(r, viewport);
         if !self.painting && !self.blur_out.is_empty() {
-            expand_blur_damage(&mut self.damage, &self.blur_out, viewport);
+            expand_blur_damage(&mut self.damage, &self.blur_out, viewport, self.density as f32);
         }
     }
 

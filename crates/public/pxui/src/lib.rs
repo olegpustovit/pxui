@@ -148,7 +148,7 @@ mod sys {
     use pxui_types::{FrameIn, FrameOut, Str};
     /// The handle's public head (`include/pxui.h`): the theme in effect for it, null until a theme read fills it.
     #[repr(C)] pub struct PxuiUi { pub theme: *const pxui_types::theme::ThemeSnapshot, _private: [u8; 0] }
-    pub use pxui_types::{PxuiBox, PxuiTargetDesc, PxuiUiDesc};
+    pub use pxui_types::{PxuiBox, PxuiUiDesc};
     /// Opaque ABI handle for a native renderer.
     #[repr(C)] pub struct PxuiRenderer { _private:[u8;0] }
     /// Opaque ABI handle for a loaded theme.
@@ -235,14 +235,28 @@ impl Renderer {
     /// let ui = pxui::doc::frames(1, &mut |_| {});
     /// assert!(matches!(pxui::Renderer::new(&ui, pxui::Gpu::default(), pxui::TargetDesc::default()), Err(pxui::Error::InvalidInput)));
     /// ```
-    pub fn new(ui: &Ui, mut gpu: Gpu, target: TargetDesc) -> Result<Self, Error> {
+    pub fn new(ui: &Ui, gpu: Gpu, target: TargetDesc) -> Result<Self, Error> {
+        let desc = PxuiTargetDesc { format: target.format, samples: target.samples, ..PxuiTargetDesc::default() };
+        Self::new_with_target_record(ui, gpu, desc)
+    }
+
+    /// Creates a renderer with the complete target descriptor and its optional host guarantees.
+    ///
+    /// Takes the GPU lease and has the same ownership and error rules as [`Renderer::new`].
+    /// Allocates: the renderer and its GPU resources on success.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let ui = pxui::doc::frames(1, &mut |_| {});
+    /// assert!(matches!(pxui::Renderer::new_with_target_record(&ui, pxui::Gpu::default(), pxui::PxuiTargetDesc::default()), Err(pxui::Error::InvalidInput)));
+    /// ```
+    pub fn new_with_target_record(ui: &Ui, mut gpu: Gpu, target: PxuiTargetDesc) -> Result<Self, Error> {
         // Rust supplied the full value. C cannot read the lease fields of a short descriptor.
         if gpu.size < core::mem::size_of::<Gpu>() as u32 {
             if let Some(release) = gpu.release_owner.take() { release(gpu.owner_token); }
         }
-        let desc=sys::PxuiTargetDesc { format:target.format,samples:target.samples,..sys::PxuiTargetDesc::default() };
         let mut raw = core::ptr::null_mut();
-        status(unsafe { renderer_lib::pxui_renderer_create(ui.0.as_ptr(), &gpu, &desc, &mut raw) })?;
+        status(unsafe { renderer_lib::pxui_renderer_create(ui.0.as_ptr(), &gpu, &target, &mut raw) })?;
         NonNull::new(raw).map(|raw| Self { raw }).ok_or(Error::Engine)
     }
     /// Prepares a new renderer frame before the host begins its draw pass.
@@ -261,6 +275,7 @@ impl Renderer {
         if rc==0 { Ok(()) } else { Err(Error::from_code(rc)) }
     }
     /// Prepare blur targets at startup/resize, before recording the next frame. Dimensions are drawable pixels.
+    /// Each accepted resize invalidates retained backdrop pixels, including a call with the same dimensions.
     ///
     /// Errors: InvalidInput for a zero dimension; State inside a frame or draw callback.
     /// Allocates: when the renderer needs new blur targets.

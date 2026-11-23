@@ -171,6 +171,7 @@ fn main() {
         ("cull_runs_select_in_paint_order", runs_select_in_paint_order_with_transforms_merging_and_layer_fallback),
         ("gpu_instance_bounds_contain_coverage", gpu_instance_bounds_contain_coverage),
         ("gpu_cull_preserves_texture_breaks", gpu_cull_preserves_texture_breaks),
+        ("gpu_backdrop_reuse_requires_damage_contract", partial_equals_full::backdrop_reuse),
         ("gpu_scene_golden_and_spot_checks", gpu_scene_golden_and_spot_checks),
         ("gpu_second_atlas_pages_sample_in_one_draw", gpu_second_atlas_pages_sample_in_one_draw),
         ("shared_second_atlas_activates_after_prepare_without_replacing_first_page", shared_second_atlas_activates_after_prepare_without_replacing_first_page),
@@ -1089,6 +1090,10 @@ fn shared_frame_ui(ui: &mut pxui::Ui, caption: &str) {
 
 /// A renderer adopting `device` through one native lease, as an app hands its GPU to libpxui.
 fn shared_renderer(device: &Device, ui: &pxui::Ui) -> pxui::Renderer {
+    shared_renderer_with_flags(device, ui, 0)
+}
+
+fn shared_renderer_with_flags(device: &Device, ui: &pxui::Ui, flags: u32) -> pxui::Renderer {
     let native = ok(be::native_leased(device));
     let gpu = pxui_types::Gpu { size: native.size, backend: native.backend, instance: native.instance,
         physical_device: native.physical_device, device: native.device, queue: native.queue,
@@ -1097,7 +1102,9 @@ fn shared_renderer(device: &Device, ui: &pxui::Ui) -> pxui::Renderer {
         mtl_device: native.mtl_device, wl_display: native.wl_display, wl_surface: native.wl_surface,
         metal_layer: native.metal_layer, hwnd: native.hwnd, owner_token: native.owner_token,
         release_owner: native.release_owner };
-    pxui::Renderer::new(ui, gpu, pxui::TargetDesc { format: 1, samples: 1 }).expect("adopt app GPU")
+    pxui::Renderer::new_with_target_record(ui, gpu, pxui::PxuiTargetDesc {
+        format: 1, reserved_tail: flags, ..pxui::PxuiTargetDesc::default()
+    }).expect("adopt app GPU")
 }
 
 fn public_commands(commands: &be::Commands) -> pxui_types::Commands {
