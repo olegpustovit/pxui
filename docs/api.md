@@ -66,7 +66,7 @@ at the window's logical size for native 1× captures. `app::run` requests displa
 | Getters | `keyboard()`, `environment()`, `text_traits()` (was `text_input_options`), `ime() -> Option<Ime>`, `platform()`, `now()`, `frame_index()`, `system_appearance() -> Appearance` | — | U1a.4 (appearance), U1b.2 |
 | Signals | `signal`, `signal_keys` → `Signal`: documented as the body/custom-control layer | — | HEAD |
 | Hover / press queries | `hovered(&Handle, within: bool) -> bool` replaces the `hovered_exactly`/`hovered_within` twin; `press_keys`, `last_press_within(&[Event], &[Key]) -> Option<Key>`, `context_at(&Handle) -> Option<Point>`, free `context_clicked` | — | U1b.2 |
-| Kept as HEAD (listed so the two-way check passes) | Build/retained: `set_at`, `to_front`, `node_layout`/`set_node_layout`, `node_mut` (made non-generic U1c.1), `cached_label`, `busy_step`, `set_dir`, `rtl`, `view_size() -> ViewSize` (width and height in logical points, U1b.3). Input/text: `captured`, `reordering` (a list row lifted by its handle, U2b.4.12), `clipboard_request`, `paste_requested`, `passed_undo`, `text_input_focused` (U2b.4.18: a text editor holds the focus, not any focus), `text_undo_bytes`, `unfocus`, `remember<K>(key, ..)` (key-first with `load_text_edit`, U1b.2), `event_text`, `dismiss_popup`. Frame/diagnostics: `damage_list` (window-point rectangles, ABI 2.6), `request_frame`, `step` (transitions without a build, ABI 2.4), `request_cursor`, `arranged_nodes`, `built_nodes`, `rebuilt_views`, `rebuilt_named` (counts retained views rebuilt on any settling pass), `draw_calls`, `draw_revision`, `text_layout_count`, `verifying`, `abi_version`. A11y: `set_a11y`, `inject_a11y`. | — | HEAD unless noted |
+| Kept as HEAD (listed so the two-way check passes) | Build/retained: `set_at`, `to_front`, `node_layout`/`set_node_layout`, `node_mut` (made non-generic U1c.1), `cached_label`, `busy_step`, `set_dir`, `rtl`, `view_size() -> ViewSize` (width and height in logical points, U1b.3). Input/text: `captured`, `reordering` (a list row lifted by its handle, U2b.4.12), `clipboard_request`, `paste_requested`, `passed_undo`, `text_input_focused` (U2b.4.18: a text editor holds the focus, not any focus), `text_undo_bytes`, `unfocus`, `remember<K>(key, ..)` (key-first with `load_text_edit`, U1b.2), `event_text`, `dismiss_popup`. Frame/diagnostics: `frame_reasons` (opt-in counters, ABI 2.5), `damage_list` (window-point rectangles, ABI 2.6), `request_frame`, `step` (transitions without a build, ABI 2.4), `request_cursor`, `arranged_nodes`, `built_nodes`, `rebuilt_views`, `rebuilt_named` (counts retained views rebuilt on any settling pass), `draw_calls`, `draw_revision`, `text_layout_count`, `verifying`, `abi_version`. A11y: `set_a11y`, `inject_a11y`. | — | HEAD unless noted |
 | Testing | `testing::{frame, click, click_node, key, find}` | — | U1a.4 |
 | Extension set (no stability) | `pxui::ext::{inspector_*, footer, line_field, value_field, grip, field_drag, inspector_width, inspector_label_x}`: free functions taking the `Ui` first (`pxui::ext::inspector_toggle(ui, key, label, on)`); the inspector toggle and button are the toggle and button bodies' | through bodies | U1c.3 |
 | 2.0 additions | Error/diagnostics export and font list at create (C, U5.9); `pxui_supports` baseline (U5.8); surface registration (U5.2); `A11yBridge::update(surface, tree)` and `remove_surface(surface)`, with each returned `A11yAction.surface` naming its destination (owner-approved U5.9 review fix, 21 Nov); injection refuses another surface before applying any action | — | U5 |
@@ -770,6 +770,7 @@ pxui::Progress impl Debug @U1b.5
 pxui::Progress struct @U1b.5
 pxui::Progress::DEFAULT const Progress @U1b.5
 pxui::Progress::variant fn const (self, variant: u16) -> Progress @U1b.5
+pxui::PxuiDamageList use pxui_types::ffi::PxuiDamageList @HEAD
 pxui::PxuiFrameReasons use pxui_types::ffi::PxuiFrameReasons @HEAD
 pxui::PxuiPanel use pxui_types::PxuiPanel @HEAD
 pxui::PxuiTargetDesc use pxui_types::PxuiTargetDesc @HEAD
@@ -781,6 +782,7 @@ pxui::Radio struct <'a> @U1b.1
 pxui::Radio::DEFAULT const Radio<'a> @U1b.1
 pxui::Radio::name fn const (self, name: &'a str) -> Radio<'a> @U1b.1
 pxui::Radio::variant fn const (self, variant: u16) -> Radio<'a> @U1b.1
+pxui::Rate use pxui_types::ui::Rate @HEAD
 pxui::Recorder type <'a>= &'a mut dyn FnMut(&Image) -> Result<(), Error> @HEAD
 pxui::Rect use pxui_types::geom::Rect @U1a.1
 pxui::Renderer impl Drop @HEAD
@@ -1224,6 +1226,7 @@ pxui::Ui::content_rect fn (&self) -> Rect @HEAD
 -pxui::Ui::context_at fn (&mut self, b: &Handle) -> Option<(f32, f32)> @U1b.2
 pxui::Ui::context_at fn (&mut self, b: &Handle) -> Option<Point> @U1b.2
 -pxui::Ui::create fn (platform: Platform, font_size: Option<i64>, fonts: &[&[u8]]) -> Self @U1a.3
+pxui::Ui::damage_list fn (&self) -> PxuiDamageList @HEAD
 pxui::Ui::density fn (&self) -> f32 @U1b.3
 -pxui::Ui::density fn (&self) -> i64 @U1b.3
 pxui::Ui::dialog fn <K: Into<Key>>(&mut self, key: K, title: &str, buttons: &[DialogButton<'_>], dialog: &Dialog, body: &mut dyn FnMut(&mut Ui)) -> Chosen @HEAD
@@ -2102,6 +2105,7 @@ pxui::ui::PickRows use pxui_types::ui::PickRows @U1a.1
 pxui::ui::PickerResponse use pxui_types::ui::PickerResponse @U1a.1
 pxui::ui::Presentation use pxui_types::ui::Presentation @U2a.4
 pxui::ui::ROOT_KEY use pxui_types::ui::ROOT_KEY @U1a.1
+pxui::ui::Rate use pxui_types::ui::Rate @HEAD
 pxui::ui::Repeat use pxui_types::ui::Repeat @U1a.1
 pxui::ui::Ring use pxui_types::theme::Ring @HEAD
 pxui::ui::Role use pxui_types::a11y::Role @HEAD
@@ -3966,6 +3970,20 @@ pxui_types::a11y::state::SELECTED const u32 @HEAD
 pxui_types::a11y::state::VERTICAL const u32 @HEAD
 pxui_types::a11y::state::VISIBLE const u32 @HEAD
 pxui_types::body_kinds macro @HEAD
+pxui_types::damage mod @HEAD
+pxui_types::damage::DamageList impl Clone @HEAD
+pxui_types::damage::DamageList impl Copy @HEAD
+pxui_types::damage::DamageList impl Debug @HEAD
+pxui_types::damage::DamageList impl Default @HEAD
+pxui_types::damage::DamageList impl PartialEq @HEAD
+pxui_types::damage::DamageList impl StructuralPartialEq @HEAD
+pxui_types::damage::DamageList struct @HEAD
+pxui_types::damage::DamageList::add fn (&mut self, rect: Rect, viewport: Rect) @HEAD
+pxui_types::damage::DamageList::bounds fn (&self) -> Option<Rect> @HEAD
+pxui_types::damage::DamageList::covers fn (&self, rect: Rect) -> bool @HEAD
+pxui_types::damage::DamageList::full fn (viewport: Rect) -> Self @HEAD
+pxui_types::damage::DamageList::is_full fn (&self) -> bool @HEAD
+pxui_types::damage::DamageList::rects fn (&self) -> &[Rect] @HEAD
 pxui_types::draw mod @HEAD
 pxui_types::draw::ATLAS const u32 @HEAD
 pxui_types::draw::Break impl Clone @HEAD
@@ -4170,6 +4188,7 @@ pxui_types::ffi::Output::a11y field A11yTree @HEAD
 pxui_types::ffi::Output::arranged_nodes field u64 @HEAD
 pxui_types::ffi::Output::built_nodes field u64 @HEAD
 pxui_types::ffi::Output::damage field Damage @HEAD
+pxui_types::ffi::Output::damage_list field PxuiDamageList @HEAD
 pxui_types::ffi::Output::draw_revision field u64 @HEAD
 pxui_types::ffi::Output::layers field Strided<PxuiLayerInfo> @U5.4
 pxui_types::ffi::Output::platform field PlatformOut @HEAD
@@ -4462,6 +4481,17 @@ pxui_types::ffi::PxuiCurveDesc::points field [f32; 4] @HEAD
 pxui_types::ffi::PxuiCurveDesc::positions field [f32; 16] @HEAD
 pxui_types::ffi::PxuiCurveDesc::size field u32 @U5.4
 pxui_types::ffi::PxuiCurveDesc::values field [f32; 16] @HEAD
+pxui_types::ffi::PxuiDamageList impl Clone @HEAD
+pxui_types::ffi::PxuiDamageList impl Copy @HEAD
+pxui_types::ffi::PxuiDamageList impl Debug @HEAD
+pxui_types::ffi::PxuiDamageList impl Default @HEAD
+pxui_types::ffi::PxuiDamageList impl PartialEq @HEAD
+pxui_types::ffi::PxuiDamageList impl StructuralPartialEq @HEAD
+pxui_types::ffi::PxuiDamageList struct @HEAD
+pxui_types::ffi::PxuiDamageList::count field u8 @HEAD
+pxui_types::ffi::PxuiDamageList::full field u8 @HEAD
+pxui_types::ffi::PxuiDamageList::rects field [[f32; 4]; 8] @HEAD
+pxui_types::ffi::PxuiDamageList::reserved field [u8; 6] @HEAD
 pxui_types::ffi::PxuiFrameReasons impl Clone @HEAD
 pxui_types::ffi::PxuiFrameReasons impl Copy @HEAD
 pxui_types::ffi::PxuiFrameReasons impl Debug @HEAD
@@ -7158,6 +7188,8 @@ pxui_types::ui::Keyframes::DEFAULT const Keyframes @HEAD
 pxui_types::ui::Keyframes::autoreverse fn const (self) -> Keyframes @HEAD
 pxui_types::ui::Keyframes::cycles fn const (&self) -> Repeat @HEAD
 pxui_types::ui::Keyframes::offset fn const (self, seconds: f32) -> Keyframes @HEAD
+pxui_types::ui::Keyframes::rate fn const (self, rate: Rate) -> Keyframes @HEAD
+pxui_types::ui::Keyframes::repaint_rate fn const (&self) -> Rate @HEAD
 pxui_types::ui::Keyframes::repeat fn const (self, repeat: Repeat) -> Keyframes @HEAD
 pxui_types::ui::Keyframes::reverses fn const (&self) -> bool @HEAD
 pxui_types::ui::Keyframes::start fn const (&self) -> f32 @HEAD
@@ -7365,6 +7397,15 @@ pxui_types::ui::Presentation::Centered variant @U2a.4
 pxui_types::ui::Presentation::Full variant @U2a.4
 pxui_types::ui::Presentation::Top variant @U2b.5
 pxui_types::ui::ROOT_KEY const i64 @HEAD
+pxui_types::ui::Rate enum @HEAD
+pxui_types::ui::Rate impl Clone @HEAD
+pxui_types::ui::Rate impl Copy @HEAD
+pxui_types::ui::Rate impl Debug @HEAD
+pxui_types::ui::Rate impl Eq @HEAD
+pxui_types::ui::Rate impl PartialEq @HEAD
+pxui_types::ui::Rate impl StructuralPartialEq @HEAD
+pxui_types::ui::Rate::Ambient variant (u8) @HEAD
+pxui_types::ui::Rate::Display variant @HEAD
 pxui_types::ui::Repeat enum @HEAD
 pxui_types::ui::Repeat impl Clone @HEAD
 pxui_types::ui::Repeat impl Copy @HEAD
