@@ -6,6 +6,7 @@
 #include <math.h>
 #include "bridge.h"
 #include "ios.h"
+#include "metal_link.h"
 #include "text_ios.h"
 
 enum { PENDING_PAUSE = 1, PENDING_RESUME = 2, PENDING_MEMORY = 4, PENDING_EXIT = 8 };
@@ -19,7 +20,10 @@ static void ios_source(void *context);
 @interface PXUIIOSLoop : NSObject {
     pxui_ios_callback callback;
     void *user;
-    CADisplayLink *link;
+    CADisplayLink *fallbackLink;
+    id metalLink;
+    unsigned rate;
+    float maximum;
     dispatch_source_t timer;
     CFRunLoopSourceRef source;
     atomic_bool finished, foreground, dirty;
@@ -79,9 +83,9 @@ static void ios_source(void *context);
     return self;
 }
 - (void)dealloc { if (source) CFRelease(source); }
-- (pxui_ios_step)invoke:(int)signal {
+- (pxui_ios_step)invoke:(int)signal lead:(double)lead {
     busy = YES;
-    pxui_ios_step step = callback(user, signal);
+    pxui_ios_step step = callback(user, signal, lead);
     busy = NO;
     return step;
 }
@@ -164,7 +168,7 @@ static void ios_source(void *context);
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(keyboard:) name:UIKeyboardWillChangeFrameNotification object:nil];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(keyboardVisibility:) name:UIKeyboardDidShowNotification object:nil];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(keyboardVisibility:) name:UIKeyboardDidHideNotification object:nil];
-    pxui_ios_step initial = [self invoke:PXUI_IOS_INIT];
+    pxui_ios_step initial = [self invoke:PXUI_IOS_INIT lead:0];
     if (initial.action == PXUI_IOS_FAIL || initial.action == PXUI_IOS_EXIT) {
         [self finish:initial.action == PXUI_IOS_FAIL]; return;
     }
@@ -187,18 +191,53 @@ static void ios_source(void *context);
     });
     dispatch_source_set_timer(timer, DISPATCH_TIME_FOREVER, DISPATCH_TIME_FOREVER, 0);
     dispatch_activate(timer);
-    link = [CADisplayLink displayLinkWithTarget:self selector:@selector(frame:)];
-    if (!link) { [self failure:"could not create the iOS display link"]; return; }
-    float maximum = (float)native.screen.maximumFramesPerSecond;
-    maximum = MAX(1, maximum);
-    link.preferredFrameRateRange = CAFrameRateRangeMake(MIN(60, maximum), maximum, maximum);
-    link.paused = YES;
-    [link addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
+    if (@available(iOS 17.0, *)) {
+        const char *timerPacing = getenv("PXUI_TIMER_PACING");
+        if (!timerPacing || strcmp(timerPacing, "1") != 0) {
+            metalLink = [[PXUISDLMetalLink alloc] initWithLayer:(__bridge CAMetalLayer *)initial.layer frame:^(double lead) { [weak tick:lead]; }];
+        }
+    }
+    if (!metalLink) {
+        fallbackLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(frame:)];
+        if (!fallbackLink) { [self failure:"could not create the iOS display link"]; return; }
+        fallbackLink.paused = YES;
+        [fallbackLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
+    }
+    [self setRate:0];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(resign:) name:UIApplicationWillResignActiveNotification object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(activate:) name:UIApplicationDidBecomeActiveNotification object:nil];
+    if (native.windowScene) {
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(resign:) name:UISceneWillDeactivateNotification object:native.windowScene];
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(activate:) name:UISceneDidActivateNotification object:native.windowScene];
+    }
     if (!SDL_AddEventWatch(ios_event_watch, NULL)) { [self failure:"could not register the iOS event watch"]; return; }
     watching = YES;
     SDL_SetiOSEventPump(false);
     atomic_store(&foreground, UIApplication.sharedApplication.applicationState == UIApplicationStateActive);
     [self wake];
+}
+- (void)setPaused:(BOOL)paused {
+    if (@available(iOS 17.0, *)) [(PXUISDLMetalLink *)metalLink setPaused:paused];
+    if (fallbackLink.paused != paused) fallbackLink.paused = paused;
+}
+- (void)setRate:(unsigned)hz {
+    float max = MAX(1, (float)hostWindow.screen.maximumFramesPerSecond);
+    if (rate == hz && maximum == max) return;
+    rate = hz;
+    maximum = max;
+    if (@available(iOS 17.0, *)) [(PXUISDLMetalLink *)metalLink setRate:hz maximum:max];
+    fallbackLink.preferredFrameRateRange = pxui_frame_rate(hz, max);
+}
+- (void)resign:(NSNotification *)notification {
+    (void)notification;
+    [self setPaused:YES];
+    if (atomic_exchange(&foreground, false)) atomic_fetch_or(&pending, PENDING_PAUSE);
+    [self requestWake];
+}
+- (void)activate:(NSNotification *)notification {
+    (void)notification;
+    if (!atomic_exchange(&foreground, true)) atomic_fetch_or(&pending, PENDING_RESUME);
+    [self requestWake];
 }
 - (void)post {
     pthread_mutex_lock(&loop_lock);
@@ -228,9 +267,11 @@ static void ios_source(void *context);
     unsigned signals = 0;
     switch (event->type) {
     case SDL_EVENT_WILL_ENTER_BACKGROUND:
-        atomic_store(&foreground, false); signals = PENDING_PAUSE; break;
+        if (atomic_exchange(&foreground, false)) signals = PENDING_PAUSE;
+        break;
     case SDL_EVENT_DID_ENTER_FOREGROUND:
-        atomic_store(&foreground, true); signals = PENDING_RESUME; break;
+        if (!atomic_exchange(&foreground, true)) signals = PENDING_RESUME;
+        break;
     case SDL_EVENT_DID_ENTER_BACKGROUND: case SDL_EVENT_WILL_ENTER_FOREGROUND:
         break;
     case SDL_EVENT_LOW_MEMORY: signals = PENDING_MEMORY; break;
@@ -247,11 +288,15 @@ static void ios_source(void *context);
     for (unsigned bit = PENDING_PAUSE; bit <= PENDING_MEMORY; bit <<= 1) {
         if (!(signals & bit)) continue;
         int signal = bit == PENDING_PAUSE ? PXUI_IOS_PAUSE : bit == PENDING_RESUME ? PXUI_IOS_RESUME : PXUI_IOS_MEMORY;
-        pxui_ios_step step = [self invoke:signal];
+        pxui_ios_step step = [self invoke:signal lead:0];
         if (step.action == PXUI_IOS_FAIL || step.action == PXUI_IOS_EXIT)
             [self finish:step.action == PXUI_IOS_FAIL];
     }
     if (signals & PENDING_EXIT) [self finish:0];
+}
+- (BOOL)canFrame {
+    UIWindowScene *scene = hostWindow.windowScene;
+    return atomic_load(&foreground) && (!scene || scene.activationState == UISceneActivationStateForegroundActive);
 }
 - (void)wake {
     if (atomic_load(&finished)) return;
@@ -263,42 +308,46 @@ static void ios_source(void *context);
     }
     [self drain];
     dispatch_source_set_timer(timer, DISPATCH_TIME_FOREVER, DISPATCH_TIME_FOREVER, 0);
-    if (!atomic_load(&foreground)) {
-        link.paused = YES;
+    if (![self canFrame]) {
+        [self setPaused:YES];
         atomic_store(&dirty, false);
-        pxui_ios_step step = [self invoke:PXUI_IOS_CONTROL];
+        pxui_ios_step step = [self invoke:PXUI_IOS_CONTROL lead:0];
         if (step.action == PXUI_IOS_FAIL || step.action == PXUI_IOS_EXIT) {
             [self finish:step.action == PXUI_IOS_FAIL]; return;
         }
         if (step.action == PXUI_IOS_WAIT) [self wait:step.delay];
         else if (step.action != PXUI_IOS_NEXT) [self failure:"unknown iOS control schedule"];
         // A requested frame remains deferred until foreground; control deadlines use only the timer.
-        if (atomic_load(&foreground)) link.paused = NO;
+        if ([self canFrame]) [self setPaused:NO];
         // A nested native run loop can consume a source while the Rust callback is busy.
         if (atomic_load(&dirty)) [self post];
         return;
     }
-    link.paused = NO;
+    [self setPaused:NO];
 }
 - (void)frame:(CADisplayLink *)sender {
     (void)sender;
+    [self tick:0];
+}
+- (void)tick:(double)lead {
     if (atomic_load(&finished) || busy) return;
     [self drain];
-    if (!atomic_load(&foreground)) { link.paused = YES; return; }
+    if (![self canFrame]) { [self setPaused:YES]; return; }
     atomic_store(&dirty, false);
-    pxui_ios_step step = [self invoke:PXUI_IOS_FRAME];
+    pxui_ios_step step = [self invoke:PXUI_IOS_FRAME lead:lead];
     [self drain];
     if (step.action == PXUI_IOS_FAIL || step.action == PXUI_IOS_EXIT) {
         [self finish:step.action == PXUI_IOS_FAIL]; return;
     }
-    if (!atomic_load(&foreground)) { link.paused = YES; return; }
+    if (![self canFrame]) { [self setPaused:YES]; return; }
     if (step.action != PXUI_IOS_NEXT && step.action != PXUI_IOS_WAIT) {
         [self failure:"unknown iOS frame schedule"]; return;
     }
+    [self setRate:step.hz];
     if (step.action == PXUI_IOS_NEXT || atomic_load(&dirty)) return;
     if (isnan(step.delay) || step.delay < 0) { [self failure:"invalid iOS repaint deadline"]; return; }
-    if (step.delay <= link.duration) return;
-    link.paused = YES;
+    if (step.delay <= lead + 1.0 / (rate ? pxui_frame_rate(rate, maximum).preferred : maximum) + 0.001) return;
+    [self setPaused:YES];
     [self wait:step.delay];
 }
 - (void)wait:(double)seconds {
@@ -310,14 +359,16 @@ static void ios_source(void *context);
 - (int)shutdown:(int)status {
     if (atomic_exchange(&finished, true)) return status;
     [NSNotificationCenter.defaultCenter removeObserver:self];
-    [link invalidate]; link = nil;
+    if (@available(iOS 17.0, *)) [(PXUISDLMetalLink *)metalLink invalidate];
+    metalLink = nil;
+    [fallbackLink invalidate]; fallbackLink = nil;
     if (timer) { dispatch_source_cancel(timer); timer = nil; }
     if (source) CFRunLoopSourceInvalidate(source);
     if (watching) { SDL_RemoveEventWatch(ios_event_watch, NULL); watching = NO; }
     keyboardGeometry.loop = nil;
     [NSLayoutConstraint deactivateConstraints:keyboardConstraints]; keyboardConstraints = nil;
     [keyboardGeometry removeFromSuperview]; keyboardGeometry = nil;
-    pxui_ios_step step = [self invoke:PXUI_IOS_FINISH];
+    pxui_ios_step step = [self invoke:PXUI_IOS_FINISH lead:0];
     if (step.action == PXUI_IOS_FAIL) status = 1;
     pthread_mutex_lock(&loop_lock); active_loop = nil; pthread_mutex_unlock(&loop_lock);
     return status;

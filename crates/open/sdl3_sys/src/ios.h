@@ -3,8 +3,8 @@
 
 enum { PXUI_IOS_INIT, PXUI_IOS_FRAME, PXUI_IOS_PAUSE, PXUI_IOS_RESUME, PXUI_IOS_MEMORY, PXUI_IOS_FINISH, PXUI_IOS_CONTROL };
 enum { PXUI_IOS_NEXT, PXUI_IOS_WAIT, PXUI_IOS_EXIT, PXUI_IOS_FAIL };
-typedef struct { uint32_t window; int32_t action; double delay; } pxui_ios_step;
-typedef pxui_ios_step (*pxui_ios_callback)(void *, int32_t);
+typedef struct { uint32_t window; int32_t action; double delay; void *layer; uint32_t hz; } pxui_ios_step;
+typedef pxui_ios_step (*pxui_ios_callback)(void *, int32_t, double);
 int32_t pxui_sdl3_run_ios(pxui_ios_callback callback, void *user);
 int32_t pxui_sdl3_ios_wake(void);
 
