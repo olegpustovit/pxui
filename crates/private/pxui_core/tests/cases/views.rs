@@ -1454,6 +1454,7 @@ pub const CASES: &[(&str, fn())] = &[
     ("window_pxui_damage_containment_preserves_other_views", window_pxui_damage_containment_preserves_other_views),
     ("window_pxui_view_entrance_channels", window_pxui_view_entrance_channels),
     ("window_pxui_idle_loops_step_slower", window_pxui_idle_loops_step_slower),
+    ("window_pxui_offscreen_transition_rests_without_frames", window_pxui_offscreen_transition_rests_without_frames),
     ("window_pxui_step_advances_transitions_without_a_build", window_pxui_step_advances_transitions_without_a_build),
     ("window_pxui_more_kept_views_reuse_compaction_scratch", window_pxui_more_kept_views_reuse_compaction_scratch),
     ("window_pxui_empty_buffers_preserve_names_and_values", window_pxui_empty_buffers_preserve_names_and_values),
@@ -1551,6 +1552,34 @@ pub fn window_pxui_step_advances_transitions_without_a_build() {
     assert_eq!((ui.output().draw[0].instances.clone(),ui.output().views.to_vec()),stepped,"a full frame at the same time shows the same");
     ui.request_frame();
     assert!(!ui.step(0.7),"a frame request needs a build");
+    ui.destroy();
+}
+
+/// A transition can finish while its row is scrolled out, with no display-rate requests.
+pub fn window_pxui_offscreen_transition_rests_without_frames() {
+    let mut ui = new_ui(None);
+    let (scroll, row) = (Cell::new(None), Cell::new(None));
+    let mut build = |ui: &mut Ui| {
+        let pane = ui.node("pane".into(), Node::column().w(Size::Px(100.0)).h(Size::Px(50.0)).flags(Flags::SCROLL));
+        scroll.set(Some(pane));
+        ui.within(&pane, &mut |ui| {
+            row.set(Some(ui.view("animated-row", 1, Size::Px(80.0), Size::Px(20.0), &mut |ui| {
+                chip(ui, "color", RED, Flags::NONE);
+            })));
+            ui.node("spacer".into(), Node::column().h(Size::Px(200.0)));
+        });
+    };
+    ui.frame(&at(0.0, vec![]), &mut build);
+    let curve = Curve::Bezier { duration: 1.0, points: [0.0, 0.0, 1.0, 1.0] };
+    assert!(ui.animate(&row.get().unwrap(), Target::Opacity(0.4), curve));
+    ui.set_scroll_offset(&scroll.get().unwrap(), 100.0);
+    ui.frame(&at(0.1, vec![]), &mut build);
+    assert_eq!(ui.transitions(), 1);
+    assert_eq!(ui.repaint_at(), None);
+    ui.set_scroll_offset(&scroll.get().unwrap(), 0.0);
+    ui.frame(&at(1.2, vec![]), &mut build);
+    assert_eq!(ui.transitions(), 0);
+    assert!(ui.output().views.iter().any(|(_, entry)| (entry.opacity - 0.4).abs() < 0.001));
     ui.destroy();
 }
 

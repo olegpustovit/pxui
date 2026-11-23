@@ -112,6 +112,7 @@ pub(crate) fn response(out: &PxuiResponse) -> Response {
 impl Ui {
     /// Moves the box `b` towards `target` along `curve`; true while it is still moving.
     /// Call it every build with the node's goal: a new goal starts a new segment from where the node is, an unchanged one keeps the running one. A stale handle returns false.
+    /// A hidden box keeps its timeline without requesting frames while clipped out.
     /// Allocates: never on a warm frame; the first animation of a node takes its animation record.
     /// Panics: when the library refuses the call (an invalid curve, a non-finite target, or a target the node cannot take).
     ///

@@ -3705,7 +3705,7 @@ impl Ui {
         }
         let mut looping = false;
         for t in &self.tweens {
-            if t.keys != NO_KEYS && !self.tween_visible(t) { continue; }
+            if !self.tween_visible(t) { continue; }
             // a transition or a counted run plays at the display rate
             if self.keyframes.get(t.keys as usize).is_none_or(|k| k.repeat != 0) { return Some(now); }
             looping = true;
@@ -7877,7 +7877,14 @@ impl Ui {
         let mut v = if slot.view == NO_VIEW { slot.owner } else { slot.view };
         if v == 0 { return true; }
         let view = &self.views[v as usize];
-        if !self.shown(v) || view.screen.w <= 0.0 || view.screen.h <= 0.0 { return false; }
+        if !self.shown(v) { return false; }
+        if view.screen.w <= 0.0 || view.screen.h <= 0.0 {
+            // A view can move into its clip on its own, even when its current pose is outside.
+            let moving = slot.view != NO_VIEW && tween.keys == NO_KEYS
+                && (tween.from.dx != tween.to.dx || tween.from.dy != tween.to.dy
+                    || tween.from.scale != tween.to.scale);
+            if !moving || view.outer.w <= 0.0 || view.outer.h <= 0.0 { return false; }
+        }
         while v != 0 {
             if self.views[v as usize].opacity == 0.0 { return false; }
             v = self.views[v as usize].parent;
