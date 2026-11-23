@@ -455,7 +455,13 @@ fn gpu_plain_keyframe_cached_owner_visibility() {
                 });
             });
             if tick >= 6 { assert_eq!(mem_sys::local_alloc_count(), 0, "warm loop visibility at {density}x, tick {tick}"); }
-            assert_eq!(ui.wants_frame(&[], tick as f64 / 60.0), opacity > 0.0 && offset > -20.0 && offset < 40.0, "cached child loop visibility at tick {tick}");
+            let scheduled = ui.repaint_at();
+            let visible = opacity > 0.0 && offset > -20.0 && offset < 40.0;
+            assert_eq!(scheduled.is_some(), visible, "cached child loop visibility at tick {tick}");
+            if let Some(deadline) = scheduled {
+                assert!(deadline <= frame.input.t + 1.0 / 30.0 + 1e-9, "a visible cached loop has a tick in the next 30 Hz interval");
+                assert!(ui.wants_frame(&[], deadline));
+            }
             let pixels = gpu::render_with(&mut painter, &mut ui, (WIDTH as u32, 80), density as u32, [228, 139, 161, 255]);
             for y in 0..80 * density as usize {
                 for x in 0..WIDTH as usize * density as usize {
