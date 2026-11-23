@@ -33,6 +33,8 @@ pub struct PxuiRenderer {
     /// the last frame passed to `prepare`, and the last `completed` the app reported
     frame_serial: u64,
     completed: u64,
+    /// The draw revision whose view table the painter has copied.
+    view_revision: Option<i64>,
     atlas_initialized: [bool;4],
     /// the app's command buffer and pass as adopted by the last prepare and draw, pointed at the next ones (`readopt_*`) so a
     /// settled frame allocates nothing; adopted anew when the driver cannot
@@ -112,7 +114,7 @@ unsafe fn make(ui: &mut PxuiUi, gpu: pxui_types::Gpu, target: PxuiTargetDesc, mu
         Ok(p)=>p,
         Err(e)=>{ let _=gpu_backend::destroy_queue(&queue); let _=gpu_backend::destroy_device(&device); return Err(describe(e)); }
     };
-    Ok(PxuiRenderer { painter, queue, device, textures:std::collections::HashMap::new(), blur_sources:std::collections::HashMap::new(), engine:ui.engine, shared:ui.shared, format, samples:i64::from(target.samples), frame_serial:0, completed:0, atlas_initialized:[false;4], prepared:None, drawn:None, split_points:Vec::new(), breaks:Vec::new(), blur_commands:None, no_cull:std::env::var_os("PXUI_NO_CULL").as_deref()==Some(std::ffi::OsStr::new("1")) })
+    Ok(PxuiRenderer { painter, queue, device, textures:std::collections::HashMap::new(), blur_sources:std::collections::HashMap::new(), engine:ui.engine, shared:ui.shared, format, samples:i64::from(target.samples), frame_serial:0, view_revision:None, completed:0, atlas_initialized:[false;4], prepared:None, drawn:None, split_points:Vec::new(), breaks:Vec::new(), blur_commands:None, no_cull:std::env::var_os("PXUI_NO_CULL").as_deref()==Some(std::ffi::OsStr::new("1")) })
 }
 
 export!(bare pub unsafe fn pxui_renderer_create(ui:*mut PxuiUi, gpu:*const pxui_types::Gpu, target:*const PxuiTargetDesc, out:*mut *mut PxuiRenderer) -> i32 {
@@ -328,8 +330,12 @@ unsafe fn draw(renderer:*mut PxuiRenderer, pass:*const pxui_types::Pass, scissor
     // the renderer holds the engine until it returns: a callback it runs (the pass's split) finds no usable or building `PxuiUi` handle
     let _current=crate::state::NoCurrent::set(renderer.shared);
     let ui=unsafe { &mut *renderer.engine };
-    for (index,v) in ui.output().views {
-        if let Err(e)=renderer.painter.set_view(*index,View { offset:v.offset,opacity:v.opacity,clip:v.clip,scale:v.scale,transform:v.transform,pivot:v.pivot }) { return renderer.fail_gpu(e); }
+    let revision=ui.draw_revision();
+    if renderer.view_revision!=Some(revision) {
+        for (index,v) in ui.output().views {
+            if let Err(e)=renderer.painter.set_view(*index,View { offset:v.offset,opacity:v.opacity,clip:v.clip,scale:v.scale,transform:v.transform,pivot:v.pivot }) { return renderer.fail_gpu(e); }
+        }
+        renderer.view_revision=Some(revision);
     }
     // Backdrop capture reads outside the scissor and can split the pass.
     let scissor=scissor.filter(|&[_,_,w,h]| !renderer.no_cull

@@ -176,6 +176,7 @@ fn main() {
         ("shared_second_atlas_activates_after_prepare_without_replacing_first_page", shared_second_atlas_activates_after_prepare_without_replacing_first_page),
         ("shared_system_preferences_change_native_pixels_without_warm_allocations", shared_system_preferences_change_native_pixels_without_warm_allocations),
         ("shared_public_view_controls_keep_native_draws_and_instances", shared_public_view_controls_keep_native_draws_and_instances),
+        ("shared_view_changes_between_scissored_draws", shared_view_changes_between_scissored_draws),
         ("shared_public_measured_rows_render_settled_clipped_heights", shared_public_measured_rows_render_settled_clipped_heights),
         ("gpu_one_draw_per_layer", gpu_one_draw_per_layer),
         ("gpu_warm_frame_allocates_nothing", gpu_warm_frame_allocates_nothing),
@@ -2069,6 +2070,55 @@ fn shared_public_view_controls_keep_native_draws_and_instances() {
     drop(renderer);
     ok(be::destroy_texture(&target));
     finish(device,queue);
+}
+
+fn shared_view_changes_between_scissored_draws() {
+    let Some(device) = open() else { return };
+    let queue = ok(be::create_queue(&device));
+    let target = target(&device);
+    let mut ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
+    let mut view = None;
+    ui.frame(&pxui::FrameIn::new(W as f32, H as f32).scale(SCALE as f32), &mut |ui| {
+        view = Some(ui.view_of("move", &1, |ui| {
+            ui.node("red", pxui::Node::DEFAULT.w_px(16.0).h_px(16.0).look(
+                pxui::theme::Look::NONE.fill(pxui::Rgba::rgb(RED[0], RED[1], RED[2])),
+            ));
+        }));
+    }).unwrap();
+    let view = view.unwrap();
+    let mut renderer = shared_renderer(&device, &ui);
+    let commands = ok(be::begin_commands(&queue));
+    let native_commands = public_commands(&commands);
+    renderer.prepare(&native_commands, 1, 0).unwrap();
+    let encoder = ok(be::render_encoder(&commands, &RenderTarget { colors: vec![ColorAttachment {
+        texture: target.clone(), resolve: None, load: Load::Clear, store: Store::Store,
+        clear: (0.0, 0.0, 0.0, 1.0),
+    }], depth: None }));
+    let native = ok(be::native_pass(&encoder));
+    let pass = pxui_types::Pass {
+        mtl_command_buffer: native_commands.mtl_command_buffer, mtl_render_encoder: native.mtl_render_encoder,
+        vk_command_buffer: native.vk_command_buffer, width_px: native.width_px, height_px: native.height_px,
+        scale: SCALE as f32, ..pxui_types::Pass::default()
+    };
+    for x in [0, 24, 48] {
+        if x == 48 { ui.set_view(&view, &pxui::ViewTransform::DEFAULT.offset(48.0, 0.0)); }
+        let [x, y, w, h] = [x, 0, 24, 24].map(|v| v * SCALE);
+        ok(be::set_scissor(&encoder, ogpu_core::render_pass::Rect {
+            x: i64::from(x), y: i64::from(y), width: i64::from(w), height: i64::from(h),
+        }));
+        renderer.draw_damage(&pass, [x, y, w, h], &mut |_| panic!("no blur")).unwrap();
+        ok(be::invalidate_state(&encoder));
+    }
+    ok(be::end_render(&encoder));
+    let receipt = ok(be::commit(&commands));
+    ok(be::complete_through(&queue, receipt.epoch));
+    let pixels = ok(be::read_texture(&target, i64::from(W * SCALE * 4)));
+    assert_eq!(at(&pixels, 4.0, 4.0), RED);
+    assert_eq!(at(&pixels, 28.0, 4.0), [0, 0, 0, 255]);
+    assert_eq!(at(&pixels, 52.0, 4.0), RED);
+    drop(renderer);
+    ok(be::destroy_texture(&target));
+    finish(device, queue);
 }
 
 fn shared_public_measured_rows_render_settled_clipped_heights() {

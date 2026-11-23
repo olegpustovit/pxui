@@ -722,7 +722,7 @@ impl Painter {
             false
         };
         let mut bound = None;
-        let mut bind_fixed = true;
+        let mut bound_header = None;
         let mut next = 0;
         for k in 0..=breaks.len() {
             let segment_from = if k == 0 { 0 } else { breaks[k - 1].at_instance as usize };
@@ -730,7 +730,7 @@ impl Painter {
             if k > 0 && splits.contains(&(segment_from as u32)) && segment_to != segment_from {
                 if let Some(next) = split(self, segment_from as u32)? { pass = next; }
                 bound = None;
-                bind_fixed = true;
+                bound_header = None;
             }
             if segment_from == segment_to { continue; }
             loop {
@@ -745,14 +745,18 @@ impl Painter {
                     (segment_from, segment_to)
                 };
                 // Bind 4-instance (256-byte) aligned and skip the remainder with the globals' first-instance field.
-                let start = self.header(size_px, scale, (from % 4) as u32)?;
-                // Pipeline, atlases and samplers stay fixed until a split callback can change state.
-                if bind_fixed {
-                    self.bind(&pass, start)?;
-                    bind_fixed = false;
-                } else {
-                    backend::set_stage_buffer(&pass, ShaderStage::Vertex, 1, Some(start as i64), &self.ring)?;
+                let first = from % 4;
+                let cached = self.headers[first] != usize::MAX;
+                let start = self.header(size_px, scale, first as u32)?;
+                // A new header can grow the ring and reuse an offset in the replacement buffer.
+                match bound_header {
+                    None => self.bind(&pass, start)?,
+                    Some(old) if !cached || old != start => {
+                        backend::set_stage_buffer(&pass, ShaderStage::Vertex, 1, Some(start as i64), &self.ring)?;
+                    }
+                    Some(_) => {}
                 }
+                bound_header = Some(start);
                 let texture = if k == 0 { None } else { breaks[k - 1].texture.as_ref() }.unwrap_or(&self.color);
                 if bound != Some(texture as *const Texture) {
                     backend::set_stage_texture(&pass, ShaderStage::Fragment, 3, texture)?;

@@ -11,11 +11,11 @@ fn intersects(a: [f32; 4], b: [f32; 4]) -> bool {
 /// Move the screen scissor into the view's AABB. Inverse mapping four corners also
 /// bounds rotations and shears, so local instance checks only need four comparisons.
 fn in_view(rect: [f32; 4], view: &View, pixel: f32) -> [f32; 4] {
-    let [a, b, c, d] = view.transform.map(|v| v * view.scale);
     let [ox, oy] = view.offset;
-    if a == 1.0 && b == 0.0 && c == 0.0 && d == 1.0 {
+    if view.scale == 1.0 && view.transform == View::IDENTITY.transform {
         return [rect[0] - ox - pixel, rect[1] - oy - pixel, rect[2] - ox + pixel, rect[3] - oy + pixel];
     }
+    let [a, b, c, d] = view.transform.map(|v| v * view.scale);
     let det = a * d - b * c;
     if det == 0.0 || !det.is_finite() {
         return [f32::NEG_INFINITY, f32::NEG_INFINITY, f32::INFINITY, f32::INFINITY];
@@ -43,6 +43,8 @@ pub fn ranges([x, y, w, h]: [u32; 4], layers: &[Layer], views: &[View], scale: f
     let rect = [x as f32, y as f32, x.saturating_add(w) as f32, y.saturating_add(h) as f32].map(|v| v * pixel);
     let padded = [rect[0] - pixel, rect[1] - pixel, rect[2] + pixel, rect[3] + pixel];
     let mut offset = 0;
+    let mut view_index = None;
+    let mut view_scissor = None;
     out.clear();
     for layer in layers {
         let len = layer.bounds.len() as u32;
@@ -50,9 +52,12 @@ pub fn ranges([x, y, w, h]: [u32; 4], layers: &[Layer], views: &[View], scale: f
         let mut selected = 0;
         // Keep this layer's ranges separate until its 50% fallback has been decided.
         for run in &layer.runs {
-            let view = &views[run.view as usize];
-            if !intersects(view.clip, padded) { continue; }
-            let local = in_view(rect, view, pixel);
+            if view_index != Some(run.view) {
+                let view = &views[run.view as usize];
+                view_index = Some(run.view);
+                view_scissor = intersects(view.clip, padded).then(|| in_view(rect, view, pixel));
+            }
+            let Some(local) = view_scissor else { continue; };
             if !intersects(run.bounds, local) { continue; }
             if run.to - run.from <= 64 {
                 push_layer(out, first, offset + run.from, offset + run.to);
