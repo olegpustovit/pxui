@@ -380,12 +380,16 @@ impl Window {
     /// Sleeps until an event arrives or `deadline` (seconds on the `time` clock) passes; `None` waits
     /// for an event. The events stay queued for the next `pump` (`pxui_wayland::Window::wait`).
     pub fn wait(&mut self, deadline: Option<f64>) {
+        self.wait_for_event(deadline);
+    }
+
+    fn wait_for_event(&mut self, deadline: Option<f64>) -> bool {
         // another window's pump may already have routed events here
         if router::pending(self.id) {
-            return;
+            return true;
         }
         let ms = deadline.map_or(i32::MAX, |at| ((at - self.time()).max(0.0) * 1000.0).ceil().min(f64::from(i32::MAX)) as i32);
-        let _ = sdl3::event::wait(ms);
+        sdl3::event::wait(ms).unwrap_or(false)
     }
 
     /// SDL's id for this window: the surface id its events are routed by, unique for the process's life.
