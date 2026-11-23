@@ -367,12 +367,7 @@ unsafe fn draw(renderer:*mut PxuiRenderer, pass:*const pxui_types::Pass, scissor
         }
         renderer.view_revision=Some(revision);
     }
-    let damage=if scissors.len()>1 {
-        match renderer.painter.damage_clip(scissors).and_then(|clip| { clip.set_scissor(&encoder)?; Ok(clip) }) {
-            Ok(clip)=>Some(clip),
-            Err(e)=>return renderer.fail_gpu(e),
-        }
-    } else { None };
+    let damage=(scissors.len()>1).then(|| pxui_render::DamageClip::new(scissors));
     let damage=damage.as_ref();
     // Backdrop capture reads outside the scissor and can split the pass.
     let cull=!renderer.no_cull && !scissors.is_empty()
@@ -506,7 +501,6 @@ unsafe fn draw(renderer:*mut PxuiRenderer, pass:*const pxui_types::Pass, scissor
                         let resumed=adopt_again(queue,Some(commands.clone()),commands_native)?;
                         let encoder=if gpu_backend::readopt_render_encoder(&resumed,&open,native_next)? { open } else { gpu_backend::adopt_render_encoder(&resumed,native_next,format,samples)? };
                         commands=resumed;
-                        if let Some(damage)=damage { damage.set_scissor(&encoder)?; }
                         if let Some(slot)=cache_slot {
                             renderer.blur_cache[slot]=Some(CachedBlur{view:*b,result:blurred.clone(),extent:size_px,scale,written:serial});
                         }

@@ -9,9 +9,6 @@ layout(set = 0, binding = 5) uniform texture2D atlas_tex;
 layout(set = 0, binding = 6) uniform sampler smooth_samp;
 layout(set = 0, binding = 7) uniform texture2D mask2_tex;
 layout(set = 0, binding = 8) uniform texture2D color2_tex;
-#ifdef DAMAGE_RECTS
-layout(set = 0, binding = 9, std430) readonly buffer DamageRects { vec4 count; vec4 rects[8]; } damage;
-#endif
 layout(location = 0) in vec4 v_pos;
 layout(location = 1) flat in vec4 v_rect;
 layout(location = 2) flat in vec4 v_radii;
@@ -155,14 +152,6 @@ void main() {
     uv_dx = dFdx(v_pos.zw);
     uv_dy = dFdy(v_pos.zw);
   }
-#ifdef DAMAGE_RECTS
-  bool damaged = false;
-  for (uint i = 0u; i < uint(damage.count.x) && !damaged; ++i) {
-    vec4 r = damage.rects[i];
-    damaged = all(greaterThanEqual(gl_FragCoord.xy, r.xy)) && all(lessThan(gl_FragCoord.xy, r.zw));
-  }
-  if (!damaged) discard;
-#endif
   if (clip_cov <= 0.0) discard;
   vec4 col;
   if (kind == MASK) {

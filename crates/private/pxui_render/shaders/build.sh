@@ -9,5 +9,3 @@ for name in ui blur; do
     spirv-val --target-env vulkan1.1 $name.$stage.spv
   done
 done
-glslangValidator -V --target-env vulkan1.1 -DDAMAGE_RECTS -o ui_damage.frag.spv ui.frag
-spirv-val --target-env vulkan1.1 ui_damage.frag.spv

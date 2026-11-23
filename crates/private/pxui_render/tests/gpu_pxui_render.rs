@@ -178,7 +178,7 @@ fn main() {
         ("shared_system_preferences_change_native_pixels_without_warm_allocations", shared_system_preferences_change_native_pixels_without_warm_allocations),
         ("shared_public_view_controls_keep_native_draws_and_instances", shared_public_view_controls_keep_native_draws_and_instances),
         ("shared_view_changes_between_scissored_draws", shared_view_changes_between_scissored_draws),
-        ("shared_damage_union_draws_once_and_preserves_gaps", shared_damage_union_draws_once_and_preserves_gaps),
+        ("shared_damage_scissors_preserve_overlap_and_gaps", shared_damage_scissors_preserve_overlap_and_gaps),
         ("shared_public_measured_rows_render_settled_clipped_heights", shared_public_measured_rows_render_settled_clipped_heights),
         ("gpu_one_draw_per_layer", gpu_one_draw_per_layer),
         ("gpu_warm_frame_allocates_nothing", gpu_warm_frame_allocates_nothing),
@@ -344,7 +344,26 @@ fn runs_select_in_paint_order_with_transforms_merging_and_layer_fallback() {
     pxui_render::cull::ranges(&[scissor], &layers, &clipped, 1.0, &mut out);
     assert_eq!(out, [(1, 18, 1), (34, 35, 1), (100, 101, 1)]);
     pxui_render::cull::ranges(&[scissor, scissor], &layers, &clipped, 1.0, &mut out);
-    assert_eq!(out, [(1, 18, 3), (34, 35, 3), (100, 101, 3)]);
+    assert_eq!(out, [(1, 2, 3), (17, 18, 3), (34, 35, 3), (100, 101, 3)]);
+
+    let mut split = Layer::default();
+    split.bounds.extend([[0.0, 0.0, 10.0, 10.0], [0.0, 0.0, 40.0, 10.0], [30.0, 0.0, 40.0, 10.0]]);
+    split.runs.push(CullRun { from: 0, to: 3, view: 0, bounds: [0.0, 0.0, 40.0, 10.0] });
+    pxui_render::cull::ranges(&[[0, 0, 12, 12], [28, 0, 14, 12]], &[split], &views, 1.0, &mut out);
+    assert_eq!(out, [(0, 1, 1), (1, 2, 3), (2, 3, 2)]);
+
+    let rects = [[2, 4, 7, 11], [4, 2, 12, 4], [3, 3, 8, 8], [6, 9, 8, 7],
+        [1, 5, 7, 8], [3, 8, 10, 4], [0, 0, 16, 16], [2, 3, 5, 6]];
+    let clips = pxui_render::DamageClip::new(&rects);
+    for y in 0..17 {
+        for x in 0..17 {
+            let covers = |&&[l, t, w, h]: &&[u32; 4]| (l..l + w).contains(&x) && (t..t + h).contains(&y);
+            let owner = rects.iter().position(|r| covers(&r));
+            for i in 0..rects.len() {
+                assert_eq!(clips.rect(i).iter().filter(covers).count(), usize::from(owner == Some(i)));
+            }
+        }
+    }
 }
 
 fn gpu_instance_bounds_contain_coverage() {
@@ -469,8 +488,7 @@ fn gpu_warm_frame_allocates_nothing() {
         mem_sys::local_reset();
         upload_atlases(&mut painter, &glyph, &checker);
         ok(painter.draw(&encoder, [W * SCALE, H * SCALE], SCALE as f32, &instances, &[]));
-        let damage = ok(painter.damage_clip(&scissors));
-        ok(damage.set_scissor(&encoder));
+        let damage = pxui_render::DamageClip::new(&scissors);
         ok(painter.draw_retained_split(&encoder, [W * SCALE, H * SCALE], SCALE as f32,
             &[(0, &instances, &[])], &[], &[], Some(input), Some(&damage), &mut |_, _| Ok(None)));
         if frame == 3 { allocations = mem_sys::local_alloc_count(); }
@@ -2134,7 +2152,7 @@ fn shared_view_changes_between_scissored_draws() {
     finish(device, queue);
 }
 
-fn shared_damage_union_draws_once_and_preserves_gaps() {
+fn shared_damage_scissors_preserve_overlap_and_gaps() {
     let Some(device) = open() else { return };
     let queue = ok(be::create_queue(&device));
     let target = target(&device);
@@ -2178,7 +2196,7 @@ fn shared_damage_union_draws_once_and_preserves_gaps() {
         mem_sys::local_reset();
         renderer.draw_damage_rects(&pass, &rects, &mut |_| panic!("no blur")).unwrap();
         if frame == 5 { assert_eq!(mem_sys::local_alloc_count(), 0); }
-        assert_eq!(renderer.draw_calls() - draws, 1);
+        assert_eq!(renderer.draw_calls() - draws, 3);
         ok(be::invalidate_state(&encoder));
         ok(be::end_render(&encoder));
         let receipt = ok(be::commit(&commands));
