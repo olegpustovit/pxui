@@ -12,6 +12,8 @@ use pxui_render::{flags, ramp, AtlasKind, Blurred, Break, Instance, Painter, Vie
 
 #[path = "../../../../tools/t/png.rs"]
 mod png;
+#[path = "partial_equals_full.rs"]
+mod partial_equals_full;
 
 const W: u32 = 128;
 const H: u32 = 96;
@@ -163,6 +165,8 @@ fn near(a: [u8; 4], b: [u8; 4], tolerance: i32) -> bool { a.iter().zip(b).all(|(
 /// `harness = false` and speaks just enough of libtest's protocol (`--list`, names to filter).
 fn main() {
     let cases: &[(&str, fn())] = &[
+        ("partial_equals_full_mock", partial_equals_full::mock),
+        ("gpu_partial_equals_full", partial_equals_full::native),
         ("gpu_scene_golden_and_spot_checks", gpu_scene_golden_and_spot_checks),
         ("gpu_second_atlas_pages_sample_in_one_draw", gpu_second_atlas_pages_sample_in_one_draw),
         ("shared_second_atlas_activates_after_prepare_without_replacing_first_page", shared_second_atlas_activates_after_prepare_without_replacing_first_page),

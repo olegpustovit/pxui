@@ -222,7 +222,9 @@ fn pending() -> [Vec<(u32, u32)>; FRAMES] {
     std::array::from_fn(|_| Vec::with_capacity(PENDING_RANGES + 1))
 }
 
-fn instance_bytes(instances: &[Instance]) -> &[u8] {
+/// Packed instance bytes written to the GPU upload ring.
+#[doc(hidden)]
+pub fn instance_bytes(instances: &[Instance]) -> &[u8] {
     // SAFETY: Instance is repr(C) plain data with no padding (64 bytes, asserted in pxui_core::draw).
     unsafe { std::slice::from_raw_parts(instances.as_ptr().cast::<u8>(), instances.len() * 64) }
 }

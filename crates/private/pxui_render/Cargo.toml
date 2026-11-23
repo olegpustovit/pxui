@@ -16,6 +16,7 @@ pxui_core = { path = "../pxui_core" }
 pxui_types = { path = "../../public/pxui_types" }
 
 [dev-dependencies]
+ogpu_mock = { path = "../../open/ogpu_mock" }
 mem_sys = { path = "../../open/mem_sys", features = ["counting"] }
 pxui = { path = "../../public/pxui", features = ["static"] }
 

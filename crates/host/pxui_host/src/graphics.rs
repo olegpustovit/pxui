@@ -213,6 +213,11 @@ impl Graphics {
         Ok(true)
     }
 
+    #[cfg(test)]
+    pub(crate) fn full_damage_for_test(&mut self) {
+        self.held = Some(None);
+    }
+
     /// Draws one frame like `draw` and returns what it presented: drawable-pixel width, height and
     /// RGBA rows, top row first, in the drawable's own color values (no display color matching).
     /// For development captures such as reference goldens; needs no screen-recording rights.

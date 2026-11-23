@@ -4,6 +4,44 @@
 mod harness;
 
 #[cfg(target_os = "macos")]
+#[path = "../../../../tools/t/render_edits.rs"]
+mod render_edits;
+
+#[cfg(target_os = "macos")]
+fn partial_equals_full() {
+    use crate::{Graphics, Window};
+    use render_edits::{HEIGHT, STAGES, diff, edit, width};
+
+    let mut window = Window::open_with("PXUI render oracle", i64::from(width(0)), i64::from(HEIGHT), false, true, false).unwrap();
+    let mut ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
+    let mut graphics = Graphics::open(&mut window, &ui).unwrap();
+    let theme = pxui::ThemeHandle::parse("tokens.panel = #284557").unwrap();
+    let mut previous = Vec::new();
+    let mut saw_partial = false;
+    for stage in 0..STAGES {
+        if stage > 0 && width(stage) != width(stage - 1) {
+            window.set_resizable(true).unwrap();
+            window.resize(i64::from(width(stage)), i64::from(HEIGHT)).unwrap();
+        }
+        edit(&mut ui, stage, window.scale() as f32, &theme);
+        let damage = ui.output().damage;
+        saw_partial |= damage.has_damage != 0 && damage.rect.w < width(stage) as f32 && damage.rect.h < HEIGHT as f32;
+        let capture = graphics.screenshot(&mut window, &ui);
+        assert!(capture.is_ok(), "{capture:?}: {}", ui.last_error());
+        let (w, h, partial) = capture.unwrap();
+        assert_eq!((w, h), (width(stage), HEIGHT));
+        graphics.full_damage_for_test();
+        let (_, _, full) = graphics.screenshot(&mut window, &ui).unwrap();
+        diff(&partial, &full, 0, stage);
+        assert!(partial != previous, "edit {stage} made no pixel change");
+        previous = partial;
+    }
+    assert!(saw_partial);
+    graphics.close().unwrap();
+    window.destroy().unwrap();
+}
+
+#[cfg(target_os = "macos")]
 fn release_keepalive() {}
 
 #[cfg(target_os = "macos")]
@@ -435,6 +473,7 @@ pub(crate) fn main() {
         ("window_voiceover_bridge_maps_nodes_round_trips_actions_and_stays_quiet_when_unchanged",voiceover_bridge_maps_nodes_round_trips_actions_and_stays_quiet_when_unchanged),
         ("window_framework_host_constructor_refusals_release_devices_and_queues",framework_host_constructor_refusals_release_devices_and_queues),
         ("window_framework_host_damage_redraws_only_the_change_and_keeps_the_rest",framework_host_damage_redraws_only_the_change_and_keeps_the_rest),
+        ("window_partial_equals_full",partial_equals_full),
         ("window_backdrop_blur_reads_the_canvas_and_preserves_undamaged_pixels",backdrop_blur_reads_the_canvas_and_preserves_undamaged_pixels),
         ("damage_rounds_out_pads_and_clamps_to_the_drawable",crate::graphics::damage_rounds_out_pads_and_clamps_to_the_drawable),
     ]);
