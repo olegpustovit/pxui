@@ -27,7 +27,7 @@ float light_extra(float3 srgb, float ppem) {
   float level = floor(4.0 * dot(lin, float3(0.2126, 0.7152, 0.0722)) + 0.5);
   return min(0.0025 * ppem * level, max(0.33 - 0.006 * ppem, 0.0));
 }
-constant uint INSTANCE_CLIP = 256u, VIEW_CLIP = 512u;
+constant uint INSTANCE_CLIP = 256u, VIEW_CLIP = 512u, OPAQUE_INTERIOR = 1024u;
 constant uint RECT = 0u, MASK = 1u, IMAGE = 2u, SHADOW = 3u, LINE = 4u, ARC = 5u, CURVE = 6u, GRID = 7u, BORDER = 8u, TRIANGLE = 9u;
 constant uint INNER = 4u, ROUND = 8u;
 constant float TAU = 6.2831853;
@@ -96,9 +96,28 @@ vertex VOut ui_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
   o.v_uvr = float4(uv0, uv1);
   o.v_misc = float4(width, half2x16(I.c.y).y, va.z, (kind == MASK && (flags & LIGHT) != 0u) ? light_extra(unpack_unorm4x8_to_float(I.a.z).rgb, p0.x) : 0.0);
   // Pack clip presence before adding the view offset to the instance's whole-i16-range sentinel.
-  bool legacy = g[0].w != 0.0;
+  bool legacy = g[0].w == 0.0;
   uint clips = (legacy || I.a.x != 0x80008000u || I.a.y != 0x7fff7fffu || (I.c.y & 0x7fff0000u) != 0u ? INSTANCE_CLIP : 0u)
              | (legacy || any(vclip != float4(-32768.0, -32768.0, 32767.0, 32767.0)) ? VIEW_CLIP : 0u);
+  if (g[0].w > 0.0 && kind == RECT && (flags & 3u) == 0u && I.a.z >> 24u == 255u &&
+      va.z == 1.0 && va.w == 1.0 && all(vm == float4(1.0, 0.0, 0.0, 1.0)) && all(piv == float2(0.0))) {
+    // The interior is inset beyond both the antialiased edge and any border.
+    float pixel = max(1.0 / g[0].w, 1e-4);
+    float4 radius = o.v_radii;
+    float inset = pixel + max(0.0, width) + max(0.0, max(max(radius.x, radius.y), max(radius.z, radius.w)));
+    float4 inside = r + float4(inset, inset, -inset, -inset);
+    if ((clips & INSTANCE_CLIP) != 0u) {
+      float edge = pixel + max(0.0, o.v_misc.y);
+      float4 clip = o.v_clip + float4(edge, edge, -edge, -edge);
+      inside = float4(max(inside.xy, clip.xy), min(inside.zw, clip.zw));
+    }
+    if ((clips & VIEW_CLIP) != 0u) {
+      float4 clip = vclip + float4(pixel, pixel, -pixel, -pixel);
+      inside = float4(max(inside.xy, clip.xy), min(inside.zw, clip.zw));
+    }
+    o.v_p0 = inside;
+    clips |= OPAQUE_INTERIOR;
+  }
   o.v_kf = uint2(kind | clips, kind == BORDER ? I.b.y : flags | (kind == RECT ? I.b.y << 8u : 0u));  // rect: gradient ramp row + 1 above the flags; border: the left colour
   return o;
 }
@@ -212,12 +231,15 @@ fragment float4 ui_fragment(VOut in [[stage_in]], texture2d<float> mask_tex [[te
     pixel_dy = dfdy(p);
     px = max(sqrt(0.5 * (dot(pixel_dx, pixel_dx) + dot(pixel_dy, pixel_dy))), 1e-4);
   }
+  if ((in.v_kf.x & OPAQUE_INTERIOR) != 0u && all(p >= in.v_p0.xy) && all(p <= in.v_p0.zw)) {
+    return in.v_color;
+  }
   float clip_cov = 1.0;
   if (instance_clip) {
     clip_cov = cover(sd_rect(p, in.v_clip, float4(in.v_misc.y)), px);
   }
   if (view_clip) {
-    float2 tx = dfdx(in.v_tp), ty = dfdy(in.v_tp);
+    float2 tx = ((in.v_kf.x & OPAQUE_INTERIOR) != 0u ? pixel_dx : dfdx(in.v_tp)), ty = ((in.v_kf.x & OPAQUE_INTERIOR) != 0u ? pixel_dy : dfdy(in.v_tp));
     float pxt = max(sqrt(0.5 * (dot(tx, tx) + dot(ty, ty))), 1e-4);
     clip_cov *= cover(sd_rect(in.v_tp, in.v_vclip, float4(0.0)), pxt);
   }

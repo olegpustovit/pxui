@@ -28,7 +28,7 @@ float light_extra(vec3 srgb, float ppem) {
   float level = floor(4.0 * dot(lin, vec3(0.2126, 0.7152, 0.0722)) + 0.5);
   return min(0.0025 * ppem * level, max(0.33 - 0.006 * ppem, 0.0));
 }
-const uint INSTANCE_CLIP = 256u, VIEW_CLIP = 512u;
+const uint INSTANCE_CLIP = 256u, VIEW_CLIP = 512u, OPAQUE_INTERIOR = 1024u;
 const uint RECT = 0u, MASK = 1u, IMAGE = 2u, SHADOW = 3u, LINE = 4u, ARC = 5u, CURVE = 6u, GRID = 7u, BORDER = 8u, TRIANGLE = 9u;
 const uint INNER = 4u;
 const vec2 CORNERS[6] = vec2[6](vec2(0, 0), vec2(1, 0), vec2(0, 1), vec2(0, 1), vec2(1, 0), vec2(1, 1));
@@ -94,8 +94,27 @@ void main() {
   v_uvr = vec4(uv0, uv1);
   v_misc = vec4(width, unpackHalf2x16(I.c.y).y, va.z, (kind == MASK && (flags & LIGHT) != 0u) ? light_extra(unpackUnorm4x8(I.a.z).rgb, p0.x) : 0.0);
   // Pack clip presence before adding the view offset to the instance's whole-i16-range sentinel.
-  bool legacy = g[0].w != 0.0;
+  bool legacy = g[0].w == 0.0;
   uint clips = (legacy || I.a.x != 0x80008000u || I.a.y != 0x7fff7fffu || (I.c.y & 0x7fff0000u) != 0u ? INSTANCE_CLIP : 0u)
              | (legacy || any(notEqual(vclip, vec4(-32768.0, -32768.0, 32767.0, 32767.0))) ? VIEW_CLIP : 0u);
+  if (g[0].w > 0.0 && kind == RECT && (flags & 3u) == 0u && I.a.z >> 24u == 255u &&
+      va.z == 1.0 && va.w == 1.0 && all(equal(vm, vec4(1.0, 0.0, 0.0, 1.0))) && all(equal(piv, vec2(0.0)))) {
+    // The interior is inset beyond both the antialiased edge and any border.
+    float pixel = max(1.0 / g[0].w, 1e-4);
+    vec4 radius = v_radii;
+    float inset = pixel + max(0.0, width) + max(0.0, max(max(radius.x, radius.y), max(radius.z, radius.w)));
+    vec4 inside = r + vec4(inset, inset, -inset, -inset);
+    if ((clips & INSTANCE_CLIP) != 0u) {
+      float edge = pixel + max(0.0, v_misc.y);
+      vec4 clip = v_clip + vec4(edge, edge, -edge, -edge);
+      inside = vec4(max(inside.xy, clip.xy), min(inside.zw, clip.zw));
+    }
+    if ((clips & VIEW_CLIP) != 0u) {
+      vec4 clip = vclip + vec4(pixel, pixel, -pixel, -pixel);
+      inside = vec4(max(inside.xy, clip.xy), min(inside.zw, clip.zw));
+    }
+    v_p0 = inside;
+    clips |= OPAQUE_INTERIOR;
+  }
   v_kf = uvec2(kind | clips, kind == BORDER ? I.b.y : flags | (kind == RECT ? I.b.y << 8u : 0u));  // rect: gradient ramp row + 1 above the flags; border: the left colour
 }

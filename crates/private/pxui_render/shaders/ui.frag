@@ -24,7 +24,7 @@ layout(location = 11) in vec2 v_tp;
 layout(location = 12) flat in vec4 v_uvr;
 layout(location = 0) out vec4 out_color;
 
-const uint INSTANCE_CLIP = 256u, VIEW_CLIP = 512u;
+const uint INSTANCE_CLIP = 256u, VIEW_CLIP = 512u, OPAQUE_INTERIOR = 1024u;
 const uint RECT = 0u, MASK = 1u, IMAGE = 2u, SHADOW = 3u, LINE = 4u, ARC = 5u, CURVE = 6u, GRID = 7u, BORDER = 8u, TRIANGLE = 9u;
 const uint INNER = 4u, ROUND = 8u;
 const float TAU = 6.2831853;
@@ -135,12 +135,15 @@ void main() {
     pixel_dy = dFdy(p);
     px = max(sqrt(0.5 * (dot(pixel_dx, pixel_dx) + dot(pixel_dy, pixel_dy))), 1e-4);
   }
+  if ((v_kf.x & OPAQUE_INTERIOR) != 0u && all(greaterThanEqual(p, v_p0.xy)) && all(lessThanEqual(p, v_p0.zw))) {
+    out_color = v_color; return;
+  }
   float clip_cov = 1.0;
   if (instance_clip) {
     clip_cov = cover(sd_rect(p, v_clip, vec4(v_misc.y)), px);
   }
   if (view_clip) {
-    vec2 tx = dFdx(v_tp), ty = dFdy(v_tp);
+    vec2 tx = ((v_kf.x & OPAQUE_INTERIOR) != 0u ? pixel_dx : dFdx(v_tp)), ty = ((v_kf.x & OPAQUE_INTERIOR) != 0u ? pixel_dy : dFdy(v_tp));
     float pxt = max(sqrt(0.5 * (dot(tx, tx) + dot(ty, ty))), 1e-4);
     clip_cov *= cover(sd_rect(v_tp, v_vclip, vec4(0.0)), pxt);
   }
