@@ -402,8 +402,25 @@ impl Renderer {
     /// let _ = example;
     /// ```
     pub fn draw_layer(&mut self, pass: &pxui_types::Pass, layer: u32, split: &mut dyn FnMut(Recorder) -> Result<pxui_types::Pass, Error>) -> Result<(), Error> {
+        self.draw_with_split(&pxui_types::Pass { first_layer: layer, layer_count: 1, ..*pass }, split)
+    }
+
+    /// Draws the layer range in `pass`, splitting around backdrop blurs.
+    ///
+    /// The callback ends the current pass, records blur using its color target, and reopens the pass
+    /// with the current pixels loaded. See [`Renderer::draw_layer`] for the split contract.
+    /// Allocates: when render storage first grows or the host callback allocates.
+    /// Panics: if the host callback panics.
+    ///
+    /// ```
+    /// fn example(renderer: &mut pxui::Renderer, pass: &pxui::Pass) -> Result<(), pxui::Error> {
+    ///     renderer.draw_with_split(pass, &mut |_| Err(pxui::Error::InvalidInput))
+    /// }
+    /// let _ = example;
+    /// ```
+    pub fn draw_with_split(&mut self, pass: &pxui_types::Pass, split: &mut dyn FnMut(Recorder) -> Result<pxui_types::Pass, Error>) -> Result<(), Error> {
         let mut ctx = PassSplitContext { f: split, error: None };
-        let pass = pxui_types::Pass { first_layer: layer, layer_count: 1, split: Some(split_pass), split_user: (&mut ctx as *mut PassSplitContext).cast(), ..*pass };
+        let pass = pxui_types::Pass { split: Some(split_pass), split_user: (&mut ctx as *mut PassSplitContext).cast(), ..*pass };
         let rc = unsafe { sys::pxui_renderer_draw(self.raw.as_ptr(), &pass) };
         composite::resume_deferred();
         if rc == 0 { Ok(()) } else { Err(ctx.error.unwrap_or(Error::from_code(rc))) }

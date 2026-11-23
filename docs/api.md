@@ -788,6 +788,7 @@ pxui::Renderer::atlas fn (&self, kind: AtlasKind) -> Result<Image, Error> @HEAD
 pxui::Renderer::draw fn (&mut self, pass: &Pass) -> Result<(), Error> @HEAD
 pxui::Renderer::draw_calls fn (&self) -> u64 @HEAD
 pxui::Renderer::draw_layer fn (&mut self, pass: &Pass, layer: u32, split: &mut dyn FnMut(Recorder<'_>) -> Result<Pass, Error>) -> Result<(), Error> @HEAD
+pxui::Renderer::draw_with_split fn (&mut self, pass: &Pass, split: &mut dyn FnMut(Recorder) -> Result<Pass, Error>) -> Result<(), Error> @HEAD
 pxui::Renderer::forget_image fn (&mut self, image: &Image, completed: u64) -> Result<(), Error> @HEAD
 pxui::Renderer::new fn (ui: &Ui, gpu: Gpu, target: TargetDesc) -> Result<Self, Error> @U1a.3
 pxui::Renderer::prepare fn (&mut self, commands: &Commands, frame: u64, completed: u64) -> Result<(), Error> @HEAD

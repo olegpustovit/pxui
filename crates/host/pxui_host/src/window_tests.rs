@@ -199,6 +199,49 @@ fn framework_host_damage_redraws_only_the_change_and_keeps_the_rest() {
 }
 
 #[cfg(target_os = "macos")]
+fn backdrop_blur_reads_the_canvas_and_preserves_undamaged_pixels() {
+    use crate::{Graphics, Window};
+    use pxui::ui::{Look, Node};
+    use pxui::{Fill, FrameIn, Rgba, Ui, ViewTransform};
+
+    let mut window = Window::open_with("PXUI backdrop blur", 320, 240, false, true, false).unwrap();
+    let mut ui = Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
+    let mut graphics = Graphics::open(&mut window, &ui).unwrap();
+    let view = std::cell::Cell::new(None);
+    let build = |ui: &mut Ui, time, left| {
+        ui.frame(&FrameIn::new(320.0, 240.0).time(time), &mut |ui| {
+            let backdrop = ui.node("edge", Node::DEFAULT.w_px(160.0).h_px(80.0));
+            ui.canvas(&backdrop, move |paint, rect| {
+                paint.fill(rect, Fill::new(Rgba::WHITE));
+                paint.fill(pxui::Rect::new(rect.x, rect.y, 80.0, rect.h), Fill::new(left));
+            });
+            let glass = ui.view_of("glass", &1, |ui| {
+                ui.node("pane", Node::DEFAULT.w_px(160.0).h_px(80.0)
+                    .look(Look::NONE.fill(Rgba::rgba(0, 0, 0, 1))));
+            });
+            view.set(Some(glass));
+        }).unwrap();
+    };
+    build(&mut ui, 0.0, Rgba::BLACK);
+    ui.set_view(&view.get().unwrap(), &ViewTransform::DEFAULT.offset(0.0, -80.0).blur(8.0));
+    build(&mut ui, 0.1, Rgba::BLACK);
+    let capture = graphics.screenshot(&mut window, &ui);
+    assert!(capture.is_ok(), "{capture:?}: {}", ui.last_error());
+    let pixels = capture.unwrap().2;
+    let red = |pixels: &[u8], x: usize| pixels[(40 * 320 + x) * 4];
+    assert!(red(&pixels, 76) > 40 && red(&pixels, 76) < 150, "the black side receives blurred white");
+    assert!(red(&pixels, 84) > 150 && red(&pixels, 84) < 230, "the white side receives blurred black");
+    build(&mut ui, 0.2, Rgba::rgb(160, 0, 0));
+    let updated = graphics.screenshot(&mut window, &ui).unwrap().2;
+    let mut fresh = Graphics::open(&mut window, &ui).unwrap();
+    assert!(fresh.screenshot(&mut window, &ui).unwrap().2 == updated);
+    assert_ne!(red(&pixels, 76), red(&updated, 76));
+    drop(fresh);
+    drop(graphics);
+    window.destroy().unwrap();
+}
+
+#[cfg(target_os = "macos")]
 fn framework_window_chrome_preserves_resize_zoom_and_rejects_dead_layers_and_invalid_minimums() {
     use crate::{Chrome, Window};
     let mut window = Window::open_with("PXUI window chrome", 800, 600, false, true, true).unwrap();
@@ -392,6 +435,7 @@ pub(crate) fn main() {
         ("window_voiceover_bridge_maps_nodes_round_trips_actions_and_stays_quiet_when_unchanged",voiceover_bridge_maps_nodes_round_trips_actions_and_stays_quiet_when_unchanged),
         ("window_framework_host_constructor_refusals_release_devices_and_queues",framework_host_constructor_refusals_release_devices_and_queues),
         ("window_framework_host_damage_redraws_only_the_change_and_keeps_the_rest",framework_host_damage_redraws_only_the_change_and_keeps_the_rest),
+        ("window_backdrop_blur_reads_the_canvas_and_preserves_undamaged_pixels",backdrop_blur_reads_the_canvas_and_preserves_undamaged_pixels),
         ("damage_rounds_out_pads_and_clamps_to_the_drawable",crate::graphics::damage_rounds_out_pads_and_clamps_to_the_drawable),
     ]);
 }

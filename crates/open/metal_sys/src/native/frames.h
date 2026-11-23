@@ -11,6 +11,8 @@ uint64_t rays_metal_frames_serial(void *host);
 uint64_t rays_metal_frames_completed(void *host);
 void *rays_metal_frames_commands(void *host);
 void *rays_metal_frames_pass(void *host, double red, double green, double blue, uint32_t x, uint32_t y, uint32_t width, uint32_t height);
+void *rays_metal_frames_end_pass(void *host);
+void *rays_metal_frames_resume_pass(void *host);
 int rays_metal_frames_submit(void *host);
 int rays_metal_frames_capture(void *host, int on);
 int rays_metal_frames_read(void *host, uint8_t *out, size_t length, uint32_t *width, uint32_t *height);

@@ -176,6 +176,24 @@ void *rays_metal_frames_pass(void *raw, double red, double green, double blue, u
     }
 }
 
+void *rays_metal_frames_end_pass(void *raw) {
+    PXUIMetalFrames *frames = static_cast<PXUIMetalFrames *>(raw);
+    if (![NSThread isMainThread] || !frames->encoder) return NULL;
+    [frames->encoder endEncoding];
+    frames->encoder = nil;
+    return (__bridge void *)frames->canvas;
+}
+
+void *rays_metal_frames_resume_pass(void *raw) {
+    @autoreleasepool {
+        PXUIMetalFrames *frames = static_cast<PXUIMetalFrames *>(raw);
+        if (![NSThread isMainThread] || !frames->commands || !frames->canvas || frames->encoder) return NULL;
+        frames->pass.colorAttachments[0].loadAction = MTLLoadActionLoad;
+        frames->encoder = [frames->commands renderCommandEncoderWithDescriptor:frames->pass];
+        return (__bridge void *)frames->encoder;
+    }
+}
+
 int rays_metal_frames_submit(void *raw) {
     @autoreleasepool {
         PXUIMetalFrames *frames = static_cast<PXUIMetalFrames *>(raw);

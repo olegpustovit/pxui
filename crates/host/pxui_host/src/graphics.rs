@@ -165,19 +165,37 @@ impl Graphics {
             )?;
         let prepared = count();
         let color = ui.theme().tokens.panel;
-        let damage = damage_px(self.held.take().flatten(), window.scale() as f32, size);
-        let encoder = frames.pass([color.r, color.g, color.b], damage)
+        let damage = damage_px(self.held.take().flatten(), window.scale() as f32, size)
+            .filter(|&rect| rect != [0, 0, size.0, size.1]);
+        let color = [color.r, color.g, color.b];
+        let encoder = frames.pass(color, damage)
             .map_err(|_| Error::Host("could not open native render pass"))?;
-        renderer
-            .draw(&Pass {
-                size: core::mem::size_of::<Pass>() as u32,
-                mtl_command_buffer: commands,
-                mtl_render_encoder: encoder,
-                width_px: extent.drawable.0 as u32,
-                height_px: extent.drawable.1 as u32,
-                scale: window.scale() as f32,
-                ..Pass::default()
-            })?;
+        let mut pass = Pass {
+            mtl_command_buffer: commands,
+            mtl_render_encoder: encoder,
+            width_px: size.0,
+            height_px: size.1,
+            scale: window.scale() as f32,
+            ..Pass::default()
+        };
+        // shortcut: a blurred backdrop falls back to full redraw until damage can reconstruct the
+        // whole sampling footprint from the layers before the blur.
+        let mut redraw = false;
+        let result = renderer.draw_with_split(&pass, &mut |record| {
+            if damage.is_some() {
+                redraw = true;
+                return Err(Error::Host("backdrop blur needs a full canvas"));
+            }
+            split_backdrop(frames, pass, record)
+        });
+        if redraw {
+            frames.end_pass().ok_or(Error::Host("could not end native render pass"))?;
+            pass.mtl_render_encoder = frames.pass(color, None)
+                .map_err(|_| Error::Host("could not open full native render pass"))?;
+            renderer.draw_with_split(&pass, &mut |record| split_backdrop(frames, pass, record))?;
+        } else {
+            result?;
+        }
         let drawn = count();
         if !frames.submit().map_err(|_| Error::Host("could not submit native frame"))? { return Ok(false); }
         self.images.submitted(frames.serial());
@@ -283,6 +301,17 @@ impl Drop for Graphics {
 }
 
 /// The smallest `[x, y, width, height]` covering both.
+fn split_backdrop(frames: &mut Frames, mut pass: Pass, record: pxui::Recorder<'_>) -> Result<Pass, Error> {
+    let canvas = frames.end_pass().ok_or(Error::Host("could not end native render pass"))?;
+    record(&pxui::Image {
+        mtl_texture: canvas.as_ptr(), width: pass.width_px, height: pass.height_px,
+        format: pxui::Image::FORMAT_BGRA8, ..pxui::Image::default()
+    })?;
+    pass.mtl_render_encoder = frames.resume_pass()
+        .ok_or(Error::Host("could not resume native render pass"))?.as_ptr();
+    Ok(pass)
+}
+
 fn union(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
     let (x, y) = (a[0].min(b[0]), a[1].min(b[1]));
     [x, y, (a[0] + a[2]).max(b[0] + b[2]) - x, (a[1] + a[3]).max(b[1] + b[3]) - y]

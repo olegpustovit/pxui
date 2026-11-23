@@ -17,6 +17,8 @@ unsafe extern "C" {
     fn rays_metal_frames_completed(host: *mut c_void) -> u64;
     fn rays_metal_frames_commands(host: *mut c_void) -> *mut c_void;
     fn rays_metal_frames_pass(host: *mut c_void, red: f64, green: f64, blue: f64, x: u32, y: u32, width: u32, height: u32) -> *mut c_void;
+    fn rays_metal_frames_end_pass(host: *mut c_void) -> *mut c_void;
+    fn rays_metal_frames_resume_pass(host: *mut c_void) -> *mut c_void;
     fn rays_metal_frames_submit(host: *mut c_void) -> i32;
     fn rays_metal_frames_capture(host: *mut c_void, on: i32) -> i32;
     fn rays_metal_frames_read(
@@ -97,6 +99,14 @@ impl Frames {
         } else {
             Ok(pass)
         }
+    }
+    /// Ends the active render pass and borrows its canvas texture for the rest of the frame.
+    pub fn end_pass(&mut self) -> Option<core::ptr::NonNull<c_void>> {
+        core::ptr::NonNull::new(unsafe { rays_metal_frames_end_pass(self.raw) })
+    }
+    /// Starts another render pass on this frame's canvas, loading pixels from the last pass.
+    pub fn resume_pass(&mut self) -> Option<core::ptr::NonNull<c_void>> {
+        core::ptr::NonNull::new(unsafe { rays_metal_frames_resume_pass(self.raw) })
     }
     pub fn submit(&mut self) -> Result<bool, String> {
         match unsafe { rays_metal_frames_submit(self.raw) } {
