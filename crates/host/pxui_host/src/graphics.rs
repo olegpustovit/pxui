@@ -22,6 +22,9 @@ pub struct Graphics {
     held: Option<DamageList>,
     full_damage: bool,
     present_debt: bool,
+    present_damage: [DamageList; 4],
+    #[cfg(test)]
+    partial_present: bool,
 }
 
 impl Graphics {
@@ -31,9 +34,24 @@ impl Graphics {
     }
     /// Creates a device, queue, frame context and renderer for this surface on the main thread.
     ///
+    /// Set `PXUI_VERIFY_PRESENT=N` to try damage-limited presentation and compare every Nth drawable.
+    /// Set `PXUI_FULL_PRESENT=1` to force full copies or `PXUI_FULL_PRESENT=0` to opt in without verification.
     /// A native startup failure returns `Error::Host` with the operation that failed.
     /// Renderer creation can return `Error::Gpu`.
     pub fn open(window: &mut Window, ui: &Ui) -> Result<Self, Error> {
+        let verify_present = std::env::var("PXUI_VERIFY_PRESENT")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(0);
+        let full_present = match std::env::var("PXUI_FULL_PRESENT").as_deref() {
+            Ok("1") => true,
+            Ok("0") => false,
+            _ => verify_present == 0,
+        };
+        Self::open_present(window, ui, full_present, verify_present)
+    }
+
+    pub(crate) fn open_present(window: &mut Window, ui: &Ui, full_present: bool, verify_present: u64) -> Result<Self, Error> {
         ogpu_core::impl_::select(ogpu_metal::impl_::implementation());
         let driver = ogpu_core::impl_::create_driver().map_err(|_| Error::Host("could not create graphics driver"))?;
         let device = be::create_device(driver).map_err(|_| Error::Host("could not create graphics device"))?;
@@ -55,9 +73,12 @@ impl Graphics {
             held: None,
             full_damage: std::env::var_os("PXUI_FULL_DAMAGE").as_deref() == Some(std::ffi::OsStr::new("1")),
             present_debt: false,
+            present_damage: [DamageList::default(); 4],
+            #[cfg(test)]
+            partial_present: false,
         };
         let layer = window.token().map_err(|_| Error::Host("could not get surface token"))?;
-        host.frames = Some(Frames::new(&host.device, layer).map_err(|_| Error::Host("could not open native frame context"))?);
+        host.frames = Some(Frames::new(&host.device, layer, full_present, verify_present).map_err(|_| Error::Host("could not open native frame context"))?);
         let native = be::native_leased(&host.device).map_err(|_| Error::Host("could not lease graphics device"))?;
         let renderer = Renderer::new(
             ui,
@@ -115,6 +136,26 @@ impl Graphics {
     /// Enables full-viewport redraws, or restores damage-limited rendering.
     pub fn set_full_damage(&mut self, full: bool) {
         self.full_damage = full;
+    }
+
+    /// Enables full drawable copies, or restores damage-limited presentation.
+    pub fn set_full_present(&mut self, full: bool) -> Result<(), Error> {
+        let frames = self.frames.as_mut().expect("Live frame context");
+        if frames.set_full_present(full) {
+            Ok(())
+        } else {
+            Err(Error::Host("could not change native presentation mode"))
+        }
+    }
+
+    /// Returns completed drawable comparisons and whether a mismatch disabled partial presentation.
+    pub fn present_verification(&self) -> (u64, bool) {
+        self.frames.as_ref().expect("Live frame context").present_verification()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn last_present_was_partial(&self) -> bool {
+        self.partial_present
     }
 
     /// Renders pending damage into the surface. Returns false if nothing needed presenting or no drawable was available.
@@ -203,6 +244,8 @@ impl Graphics {
         let acquired = count();
         let mut prepared = acquired;
         let mut render = || -> Result<_, Error> {
+            let pixel_viewport = Rect::new(0.0, 0.0, size.0 as f32, size.1 as f32);
+            let mut damage = DamageList::default();
             if let Some(held) = self.held {
                 let renderer = self.renderer.as_mut().expect("Live graphics renderer");
                 let commands = frames.commands();
@@ -259,10 +302,26 @@ impl Graphics {
                         renderer.draw(&pass)?;
                     }
                 }
+                if redraw || partial == 0 {
+                    damage = DamageList::full(pixel_viewport);
+                } else {
+                    for &[x, y, w, h] in &pixels[..partial] {
+                        damage.add(Rect::new(x as f32, y as f32, w as f32, h as f32), pixel_viewport);
+                    }
+                }
             }
             let drawn = count();
-            self.acquire_wall += frames.acquire().map_err(|_| Error::Host("could not acquire native drawable"))?;
-            let presented = frames.submit().map_err(|_| Error::Host("could not submit native frame"))?;
+            let (wait, slot) = frames.acquire().map_err(|_| Error::Host("could not acquire native drawable"))?;
+            self.acquire_wall += wait;
+            let copy = present_damage(&mut self.present_damage, slot, damage, pixel_viewport);
+            let mut rects = [[0; 4]; 8];
+            let regions = if copy.is_full() { &[] } else { copy.rects() };
+            for (out, rect) in rects.iter_mut().zip(regions) {
+                *out = [rect.x as u32, rect.y as u32, rect.w as u32, rect.h as u32];
+            }
+            #[cfg(test)]
+            { self.partial_present = !regions.is_empty(); }
+            let presented = frames.submit(&rects[..regions.len()]).map_err(|_| Error::Host("could not submit native frame"))?;
             Ok((drawn, presented))
         };
         let (drawn, presented) = match render() {
@@ -405,6 +464,25 @@ fn split_backdrop(frames: &mut Frames, mut pass: Pass, record: pxui::Recorder<'_
     Ok(pass)
 }
 
+/// Charges every drawable for canvas writes and clears only the chosen drawable's debt.
+fn present_damage(
+    history: &mut [DamageList; 4],
+    slot: Option<(usize, bool)>,
+    damage: DamageList,
+    viewport: Rect,
+) -> DamageList {
+    if slot.is_none_or(|(_, reset)| reset) || damage.is_full() {
+        *history = [DamageList::full(viewport); 4];
+    } else {
+        for age in &mut *history {
+            for &rect in damage.rects() {
+                age.add(rect, viewport);
+            }
+        }
+    }
+    slot.map_or(DamageList::full(viewport), |(index, _)| std::mem::take(&mut history[index]))
+}
+
 /// Rounds damage out to drawable pixels and pads one pixel for antialiasing.
 fn damage_px([x, y, w, h]: [f32; 4], scale: f32, (width, height): (u32, u32)) -> [u32; 4] {
     let edge = |v: f32, limit: u32| v.clamp(0.0, limit as f32) as u32;
@@ -419,4 +497,76 @@ pub(crate) fn damage_rounds_out_pads_and_clamps_to_the_drawable() {
     assert_eq!(damage_px([10.25, 5.0, 14.0, 3.0], 2.0, (100, 80)), [19, 9, 31, 8]);
     assert_eq!(damage_px([-5.0, 30.0, 100.0, 100.0], 2.0, (100, 80)), [0, 59, 100, 21]);
     assert_eq!(damage_px([200.0, 0.0, 5.0, 5.0], 2.0, (100, 80))[2], 0);
+}
+
+#[cfg(all(test, target_os = "macos"))]
+pub(crate) fn present_damage_tracks_three_rotating_drawables() {
+    let viewport = Rect::new(0.0, 0.0, 32.0, 1.0);
+    let mut history = [DamageList::default(); 4];
+    let mut canvas = [0; 32];
+    let mut drawables = [[255; 32]; 4];
+    let mut partial = 0;
+    for frame in 0..16 {
+        let x = (frame * 7) % canvas.len();
+        canvas[x] = 1 + frame;
+        let mut damage = DamageList::default();
+        damage.add(Rect::new(x as f32, 0.0, 1.0, 1.0), viewport);
+        let index = if frame == 12 { 3 } else { frame % 3 };
+        let reset = frame < 3 || frame == 12;
+        let copy = present_damage(&mut history, Some((index, reset)), damage, viewport);
+        if copy.is_full() {
+            drawables[index] = canvas;
+        } else {
+            partial += 1;
+            for rect in copy.rects() {
+                let range = rect.x as usize..(rect.x + rect.w) as usize;
+                drawables[index][range.clone()].copy_from_slice(&canvas[range]);
+            }
+        }
+        assert_eq!(drawables[index], canvas, "frame {frame}, drawable {index}");
+        if reset {
+            assert!(copy.is_full(), "unknown texture has a full copy");
+        }
+    }
+    assert!(partial >= 6, "rotation should settle into partial copies");
+
+    history = [DamageList::default(); 4];
+    let mut damage = DamageList::default();
+    damage.add(Rect::new(0.0, 0.0, 10.0, 1.0), viewport);
+    present_damage(&mut history, Some((1, false)), damage, viewport);
+    let mut damage = DamageList::default();
+    damage.add(Rect::new(10.0, 0.0, 10.0, 1.0), viewport);
+    assert!(present_damage(&mut history, Some((0, false)), damage, viewport).is_full());
+    assert!(present_damage(&mut history, None, DamageList::default(), viewport).is_full());
+    assert!(present_damage(&mut history, Some((1, false)), DamageList::default(), viewport).is_full());
+}
+
+#[cfg(all(test, target_os = "macos"))]
+pub(crate) fn present_mismatch_disables_partial_for_the_session() {
+    let mut window = Window::open_with("PXUI mismatched present", 96, 64, false, true, false).unwrap();
+    let ui = Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
+    let mut graphics = Graphics::open_present(&mut window, &ui, false, 1).unwrap();
+    let frames = graphics.frames.as_mut().unwrap();
+
+    for _ in 0..5 {
+        assert!(frames.begin(96, 64).unwrap());
+        frames.pass([0, 0, 0], &[]).unwrap();
+        frames.acquire().unwrap();
+        assert!(frames.submit(&[]).unwrap());
+    }
+    assert!(frames.begin(96, 64).unwrap());
+    frames.pass([255, 0, 0], &[]).unwrap();
+    let (_, slot) = frames.acquire().unwrap();
+    assert!(matches!(slot, Some((_, false))));
+    // Leave the rest of a known drawable stale to exercise the automatic fallback.
+    assert!(frames.submit(&[[0, 0, 1, 1]]).unwrap());
+    frames.wait().unwrap();
+    assert_eq!(frames.present_verification(), (6, true));
+
+    assert!(frames.begin(96, 64).unwrap());
+    frames.pass([255, 0, 0], &[]).unwrap();
+    assert!(frames.acquire().unwrap().1.is_none());
+    assert!(frames.submit(&[]).unwrap());
+    graphics.close().unwrap();
+    window.destroy().unwrap();
 }

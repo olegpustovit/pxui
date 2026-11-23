@@ -62,6 +62,7 @@ fn main() {
             println!("cargo:rustc-link-lib=framework={framework}");
         }
         if os == "ios" { println!("cargo:rustc-link-lib=framework=UIKit"); }
+        if os == "macos" { println!("cargo:rustc-link-lib=framework=AppKit"); }
         for flag in build_config::link_flags(&sanitizers) {
             println!("cargo:rustc-link-arg={flag}");
         }
