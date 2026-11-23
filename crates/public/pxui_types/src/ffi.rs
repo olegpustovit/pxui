@@ -201,6 +201,40 @@ pub struct Damage {
     pub rect: Rect,
 }
 
+/// Cumulative reasons observed by a UI with `PXUI_FRAME_REASONS=1`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PxuiFrameReasons {
+    /// Immediate repaints requested by the frame or animated keyboard.
+    pub requested: u64,
+    /// Immediate repaints for capture, scrolling or a settling gesture.
+    pub interaction: u64,
+    /// Immediate repaints requested by a one-shot transition.
+    pub transition: u64,
+    /// Immediate repaints requested by a finite keyframe run.
+    pub finite_keys: u64,
+    /// Immediate repaints requested by an ambient loop after input.
+    pub active_loop: u64,
+    /// Repaints scheduled at the ambient loop interval.
+    pub idle_loop: u64,
+    /// Successful animation steps.
+    pub stepped: u64,
+    /// Steps refused because the UI was not ready or time was invalid.
+    pub step_state: u64,
+    /// Steps refused because the UI needed to rebuild.
+    pub step_build: u64,
+    /// Steps refused because interactive motion needed a build.
+    pub step_interaction: u64,
+    /// Steps refused because a timer or hover delay was due.
+    pub step_deadline: u64,
+    /// Resolved node key for the most recently observed display-rate, non-ambient animation.
+    pub transition_key: i64,
+    /// Curve of that animation’s current segment. Kind zero means no sample has been recorded.
+    pub transition_curve: PxuiCurveDesc,
+    /// Reserved for the ABI.
+    pub reserved: u32,
+}
+
 /// Tagged value exposed to assistive technology.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
@@ -3221,6 +3255,22 @@ pub(crate) mod layout {
         check("PxuiLookDesc", size_of::<PxuiLookDesc>(), align_of::<PxuiLookDesc>(), &[("size", core::mem::offset_of!(PxuiLookDesc, size)), ("fill", core::mem::offset_of!(PxuiLookDesc, fill)), ("gradient", core::mem::offset_of!(PxuiLookDesc, gradient)), ("has_gradient", core::mem::offset_of!(PxuiLookDesc, has_gradient)), ("angle", core::mem::offset_of!(PxuiLookDesc, angle)), ("border", core::mem::offset_of!(PxuiLookDesc, border)), ("border_w", core::mem::offset_of!(PxuiLookDesc, border_w)), ("sides", core::mem::offset_of!(PxuiLookDesc, sides)), ("radius", core::mem::offset_of!(PxuiLookDesc, radius)), ("shadows", core::mem::offset_of!(PxuiLookDesc, shadows)), ("text", core::mem::offset_of!(PxuiLookDesc, text)), ("font", core::mem::offset_of!(PxuiLookDesc, font)), ("opacity", core::mem::offset_of!(PxuiLookDesc, opacity)), ("ring", core::mem::offset_of!(PxuiLookDesc, ring)), ("selection", core::mem::offset_of!(PxuiLookDesc, selection)), ("caret", core::mem::offset_of!(PxuiLookDesc, caret)), ("dashed", core::mem::offset_of!(PxuiLookDesc, dashed)), ("reserved_tail", core::mem::offset_of!(PxuiLookDesc, reserved_tail))]);
         check("PxuiMarkDesc", size_of::<PxuiMarkDesc>(), align_of::<PxuiMarkDesc>(), &[("kind", core::mem::offset_of!(PxuiMarkDesc, kind)), ("direction", core::mem::offset_of!(PxuiMarkDesc, direction)), ("width", core::mem::offset_of!(PxuiMarkDesc, width)), ("rising", core::mem::offset_of!(PxuiMarkDesc, rising)), ("reserved", core::mem::offset_of!(PxuiMarkDesc, reserved))]);
         check("PxuiStateDesc", size_of::<PxuiStateDesc>(), align_of::<PxuiStateDesc>(), &[("size", core::mem::offset_of!(PxuiStateDesc, size)), ("hovered", core::mem::offset_of!(PxuiStateDesc, hovered)), ("pressed", core::mem::offset_of!(PxuiStateDesc, pressed)), ("focused", core::mem::offset_of!(PxuiStateDesc, focused)), ("disabled", core::mem::offset_of!(PxuiStateDesc, disabled)), ("checked", core::mem::offset_of!(PxuiStateDesc, checked)), ("reserved", core::mem::offset_of!(PxuiStateDesc, reserved))]);
+        check("PxuiFrameReasons", size_of::<PxuiFrameReasons>(), align_of::<PxuiFrameReasons>(), &[
+            ("requested", core::mem::offset_of!(PxuiFrameReasons, requested)),
+            ("interaction", core::mem::offset_of!(PxuiFrameReasons, interaction)),
+            ("transition", core::mem::offset_of!(PxuiFrameReasons, transition)),
+            ("finite_keys", core::mem::offset_of!(PxuiFrameReasons, finite_keys)),
+            ("active_loop", core::mem::offset_of!(PxuiFrameReasons, active_loop)),
+            ("idle_loop", core::mem::offset_of!(PxuiFrameReasons, idle_loop)),
+            ("stepped", core::mem::offset_of!(PxuiFrameReasons, stepped)),
+            ("step_state", core::mem::offset_of!(PxuiFrameReasons, step_state)),
+            ("step_build", core::mem::offset_of!(PxuiFrameReasons, step_build)),
+            ("step_interaction", core::mem::offset_of!(PxuiFrameReasons, step_interaction)),
+            ("step_deadline", core::mem::offset_of!(PxuiFrameReasons, step_deadline)),
+            ("transition_key", core::mem::offset_of!(PxuiFrameReasons, transition_key)),
+            ("transition_curve", core::mem::offset_of!(PxuiFrameReasons, transition_curve)),
+            ("reserved", core::mem::offset_of!(PxuiFrameReasons, reserved)),
+        ]);
         check("PxuiCurveDesc", size_of::<PxuiCurveDesc>(), align_of::<PxuiCurveDesc>(), &[("size", core::mem::offset_of!(PxuiCurveDesc, size)), ("kind", core::mem::offset_of!(PxuiCurveDesc, kind)), ("duration", core::mem::offset_of!(PxuiCurveDesc, duration)), ("points", core::mem::offset_of!(PxuiCurveDesc, points)), ("omega", core::mem::offset_of!(PxuiCurveDesc, omega)), ("count", core::mem::offset_of!(PxuiCurveDesc, count)), ("positions", core::mem::offset_of!(PxuiCurveDesc, positions)), ("values", core::mem::offset_of!(PxuiCurveDesc, values))]);
         check("PxuiSignal", size_of::<PxuiSignal>(), align_of::<PxuiSignal>(), &[("size", core::mem::offset_of!(PxuiSignal, size)), ("flags", core::mem::offset_of!(PxuiSignal, flags)), ("has_subtree_press", core::mem::offset_of!(PxuiSignal, has_subtree_press)), ("button", core::mem::offset_of!(PxuiSignal, button)), ("has_a11y_value", core::mem::offset_of!(PxuiSignal, has_a11y_value)), ("has_a11y_select", core::mem::offset_of!(PxuiSignal, has_a11y_select)), ("reserved", core::mem::offset_of!(PxuiSignal, reserved)), ("subtree_press", core::mem::offset_of!(PxuiSignal, subtree_press)), ("clicks", core::mem::offset_of!(PxuiSignal, clicks)), ("drag", core::mem::offset_of!(PxuiSignal, drag)), ("pointer", core::mem::offset_of!(PxuiSignal, pointer)), ("press_point", core::mem::offset_of!(PxuiSignal, press_point)), ("release_point", core::mem::offset_of!(PxuiSignal, release_point)), ("scroll", core::mem::offset_of!(PxuiSignal, scroll)), ("pinch", core::mem::offset_of!(PxuiSignal, pinch)), ("a11y_value", core::mem::offset_of!(PxuiSignal, a11y_value)), ("a11y_select", core::mem::offset_of!(PxuiSignal, a11y_select)), ("keys", core::mem::offset_of!(PxuiSignal, keys))]);
         check("PxuiScrubOut", size_of::<PxuiScrubOut>(), align_of::<PxuiScrubOut>(), &[("size", core::mem::offset_of!(PxuiScrubOut, size)), ("flags", core::mem::offset_of!(PxuiScrubOut, flags)), ("node", core::mem::offset_of!(PxuiScrubOut, node)), ("preview", core::mem::offset_of!(PxuiScrubOut, preview)), ("commit", core::mem::offset_of!(PxuiScrubOut, commit))]);

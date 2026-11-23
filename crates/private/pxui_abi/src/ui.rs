@@ -276,6 +276,13 @@ export!(pub unsafe fn pxui_ui_step(ui: *mut PxuiUi, time: f64, out: *mut u8) -> 
     0
 });
 
+export!(pub unsafe fn pxui_ui_frame_reasons(ui: *mut PxuiUi, out: *mut pxui_types::ffi::PxuiFrameReasons) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if out.is_null() { return unsafe { fail(ui, "null frame reasons output") }; }
+    unsafe { *out = (&*state.engine).frame_reasons(); }
+    0
+});
+
 export!(pub unsafe fn pxui_ui_request_frame(ui: *mut PxuiUi) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     unsafe { (&mut *state.engine).request_frame(); }

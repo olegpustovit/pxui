@@ -1248,6 +1248,7 @@ pxui::Ui::font_size fn (&self) -> f32 @U1b.3
 -pxui::Ui::footer fn (&mut self, right: Option<&str>, hints: &[(&str, &str)]) @U1c.3
 pxui::Ui::frame fn (&mut self, input: &FrameIn<'_>, build: &mut dyn FnMut(&mut Ui)) -> Result<Frame<'_>, Error> @U1a.3
 pxui::Ui::frame_index fn (&self) -> u64 @HEAD
+pxui::Ui::frame_reasons fn (&self) -> PxuiFrameReasons @HEAD
 pxui::Ui::gesture fn (&mut self, node: &Handle, opts: &GestureOpts) -> GestureState @U1b.2
 -pxui::Ui::gesture fn (&mut self, node: &Handle, opts: GestureOpts) -> GestureState @U1b.2
 pxui::Ui::gesture_state fn (&mut self, node: &Handle) -> GestureState @HEAD
@@ -4459,6 +4460,25 @@ pxui_types::ffi::PxuiCurveDesc::points field [f32; 4] @HEAD
 pxui_types::ffi::PxuiCurveDesc::positions field [f32; 16] @HEAD
 pxui_types::ffi::PxuiCurveDesc::size field u32 @U5.4
 pxui_types::ffi::PxuiCurveDesc::values field [f32; 16] @HEAD
+pxui_types::ffi::PxuiFrameReasons impl Clone @HEAD
+pxui_types::ffi::PxuiFrameReasons impl Copy @HEAD
+pxui_types::ffi::PxuiFrameReasons impl Debug @HEAD
+pxui_types::ffi::PxuiFrameReasons impl Default @HEAD
+pxui_types::ffi::PxuiFrameReasons struct @HEAD
+pxui_types::ffi::PxuiFrameReasons::active_loop field u64 @HEAD
+pxui_types::ffi::PxuiFrameReasons::finite_keys field u64 @HEAD
+pxui_types::ffi::PxuiFrameReasons::idle_loop field u64 @HEAD
+pxui_types::ffi::PxuiFrameReasons::interaction field u64 @HEAD
+pxui_types::ffi::PxuiFrameReasons::requested field u64 @HEAD
+pxui_types::ffi::PxuiFrameReasons::reserved field u32 @HEAD
+pxui_types::ffi::PxuiFrameReasons::step_build field u64 @HEAD
+pxui_types::ffi::PxuiFrameReasons::step_deadline field u64 @HEAD
+pxui_types::ffi::PxuiFrameReasons::step_interaction field u64 @HEAD
+pxui_types::ffi::PxuiFrameReasons::step_state field u64 @HEAD
+pxui_types::ffi::PxuiFrameReasons::stepped field u64 @HEAD
+pxui_types::ffi::PxuiFrameReasons::transition field u64 @HEAD
+pxui_types::ffi::PxuiFrameReasons::transition_curve field PxuiCurveDesc @HEAD
+pxui_types::ffi::PxuiFrameReasons::transition_key field i64 @HEAD
 pxui_types::ffi::PxuiDamage type = Damage @HEAD
 pxui_types::ffi::PxuiDescription impl Clone @HEAD
 pxui_types::ffi::PxuiDescription impl Copy @HEAD

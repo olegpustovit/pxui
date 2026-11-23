@@ -27,7 +27,7 @@ pub use pxui_types::{draw, geom};
 pub use pxui_types::a11y::Role;
 pub use pxui_types::geom::{Point, Rect, Rgba};
 pub use pxui_types::{Flags, Size};
-pub use pxui_types::ffi::{A11yAction, A11yNode, Input, Output, PlatformOut};
+pub use pxui_types::ffi::{A11yAction, A11yNode, Input, Output, PlatformOut, PxuiFrameReasons};
 
 pub use pxui_types::theme;
 pub mod images;
@@ -176,6 +176,7 @@ mod sys {
         pub fn pxui_ui_patch_text(ui:*mut PxuiUi,box_:*const PxuiBox,value:Str,out:*mut u8)->i32;
         pub fn pxui_ui_busy_step(ui:*mut PxuiUi,box_:*const PxuiBox,now:f64,out:*mut u8)->i32;
         pub fn pxui_ui_request_frame(ui:*mut PxuiUi)->i32;
+        pub fn pxui_ui_frame_reasons(ui:*mut PxuiUi,out:*mut pxui_types::ffi::PxuiFrameReasons)->i32;
         pub fn pxui_ui_step(ui:*mut PxuiUi,time:f64,out:*mut u8)->i32;
         pub fn pxui_ui_rect(ui:*mut PxuiUi,box_:*const PxuiBox,out:*mut pxui_types::geom::Rect)->i32;
         pub fn pxui_ui_box_of_key(ui:*mut PxuiUi,key:i64,out:*mut PxuiBox)->u8;
@@ -1036,6 +1037,21 @@ impl Ui {
     /// assert!(ui.step(1.0) || ui.repaint_at().is_none());
     /// ```
     #[inline] #[track_caller] pub fn step(&mut self,time:f64)->bool{let mut out=0;let rc=unsafe{sys::pxui_ui_step(self.0.as_ptr(),time,&mut out)};live(self,rc)&&out!=0}
+    /// Reads cumulative frame scheduling diagnostics from this UI.
+    ///
+    /// Counters start at zero and only advance if `PXUI_FRAME_REASONS=1` was set at creation.
+    /// Allocates: never.
+    /// Panics: when the UI is poisoned.
+    ///
+    /// ```
+    /// let ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
+    /// assert_eq!(ui.frame_reasons().stepped, 0);
+    /// ```
+    pub fn frame_reasons(&self) -> PxuiFrameReasons {
+        let mut out = PxuiFrameReasons::default();
+        check(self, unsafe { sys::pxui_ui_frame_reasons(self.0.as_ptr(), &mut out) });
+        out
+    }
     /// Requests another frame from the host.
     ///
     /// Allocates: never.

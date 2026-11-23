@@ -87,6 +87,19 @@ fn a_builder_outside_a_frame_is_refused_without_poisoning_the_ui() {
     assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
 }
 
+#[test]
+fn frame_reasons_checks_output_and_copies_a_fresh_snapshot() {
+    let ui = create();
+    let mut out = pxui_types::ffi::PxuiFrameReasons { stepped: 17, ..Default::default() };
+    assert_eq!(unsafe { pxui_ui_frame_reasons(core::ptr::null_mut(), &mut out) }, PXUI_ERR_ARGUMENT);
+    assert_eq!(out.stepped, 17);
+    assert_eq!(unsafe { pxui_ui_frame_reasons(ui, core::ptr::null_mut()) }, PXUI_ERR_ARGUMENT);
+    assert_eq!(unsafe { pxui_ui_frame_reasons(ui, &mut out) }, 0);
+    assert_eq!(out.stepped, 0);
+    assert_eq!(out.transition_curve.kind, 0);
+    assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
+}
+
 /// The backstop for a library bug: a panic an export catches poisons its `Ui`, every later call fails with `PXUI_ERR_PANIC`, and the
 /// next frame reports it, skips itself and clears the flag. Another `Ui` is untouched.
 #[test]

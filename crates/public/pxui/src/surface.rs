@@ -4289,3 +4289,30 @@ fn a_nodes_own_transition_runs_under_a_still_theme_and_survives_style_and_layout
     drop(scope);
     assert!(mem_sys::take_reports().is_empty());
 }
+
+
+#[test]
+fn frame_reasons_reports_the_selected_finite_keyframe() {
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+    assert!(!ui.step(0.0));
+    let mut key = 0;
+    ui.frame(&FrameIn::new(60.0, 60.0), &mut |ui| {
+        let box_ = ui.node("animated", crate::Node::DEFAULT.w_px(20.0).h_px(20.0)
+            .look(crate::ui::Look::NONE.fill(crate::Rgba::WHITE)));
+        key = box_.box_key;
+        ui.animate_keys(&box_, &[
+            crate::ui::Keyframe::opacity(0.25, 0.5).curve(crate::ui::Curve::Steps { duration: 0.25, count: 2 }),
+        ], &crate::Keyframes::DEFAULT);
+    }).unwrap();
+    assert!(ui.step(0.01));
+    let reasons = ui.frame_reasons();
+    if std::env::var_os("PXUI_FRAME_REASONS").is_some_and(|v| v == "1") {
+        assert_eq!((reasons.step_state, reasons.stepped), (1, 1));
+        assert!(reasons.finite_keys > 0);
+        assert_eq!(reasons.transition_key, key);
+        assert_eq!(reasons.transition_curve.count, 2);
+        assert_eq!(reasons.transition_curve.duration, 0.25);
+    } else {
+        assert_eq!((reasons.step_state, reasons.stepped, reasons.finite_keys), (0, 0, 0));
+    }
+}

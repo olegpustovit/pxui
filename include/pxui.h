@@ -52,7 +52,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built: the version the app was built against, PXUI_ABI_BUILT (major << 16 | minor); pxui_ui_create refuses 0, another major and a newer minor (PXUI_ERR_VERSION). */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((2u << 16) | 4u)
+#define PXUI_ABI_BUILT ((2u << 16) | 5u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 /* size-prefixed (16 bytes); pxui_ui_text_input_options needs the caller's size to cover it. */
@@ -132,6 +132,13 @@ typedef struct { uint32_t size; uint8_t hovered,pressed,focused,disabled,checked
    Steps: count > 0. Duration is finite, nonnegative seconds; keyframes use their segment duration. Only active table entries are read. */
 /* size-prefixed (164 bytes). */
 typedef struct { uint32_t size, kind; float duration,points[4],omega; uint32_t count; float positions[16],values[16]; } PxuiCurveDesc;
+typedef struct {
+    uint64_t requested,interaction,transition,finite_keys,active_loop,idle_loop;
+    uint64_t stepped,step_state,step_build,step_interaction,step_deadline;
+    int64_t transition_key;
+    PxuiCurveDesc transition_curve;
+    uint32_t reserved;
+} PxuiFrameReasons;
 /* The engine's own value types, as they cross: a node, a look and the theme are these bytes (abi/layout.v1.txt pins them,
    the asserts below check the C side). An enum is a byte tag (an optional field: 0 none, 1 some) before its value, padded
    to the value's alignment; a flag byte is 0 or 1. The library checks a node's tags and flags where it lies and refuses a
@@ -651,6 +658,8 @@ int32_t pxui_ui_request_frame(PxuiUi *ui);
 /* 2.4: advances running transitions to `time` without a build (patching animated nodes in place); *out 0 when the next frame
    needs a build (input, a timer, a frame request, layout settling) and nothing changed. A host with nothing new calls it in place of a frame. */
 int32_t pxui_ui_step(PxuiUi *ui, double time, uint8_t *out);
+/* 2.5: copies cumulative scheduling counters, enabled at Ui creation by PXUI_FRAME_REASONS=1. */
+int32_t pxui_ui_frame_reasons(PxuiUi *ui, PxuiFrameReasons *out);
 int32_t pxui_ui_node(PxuiUi *ui, PxuiStr label, const PxuiNode *node, PxuiBox *out); /* node->size = sizeof(PxuiNode); copied in the call */
 /* a keyless layout container: the n-th of the current scope, keyed by the library in a positional namespace no label
    or id reaches (labels and images are keyed the same way, each kind counted apart). No caller text crosses. */
@@ -1348,6 +1357,7 @@ _Static_assert(sizeof(PxuiTabsConfig) == 128 && offsetof(PxuiTabsConfig, size) =
 _Static_assert(sizeof(PxuiSegmentedConfig) == 200 && offsetof(PxuiSegmentedConfig, size) == 0 && offsetof(PxuiSegmentedConfig, state) == 4 && offsetof(PxuiSegmentedConfig, index) == 16 && offsetof(PxuiSegmentedConfig, selected) == 24 && offsetof(PxuiSegmentedConfig, group) == 32 && offsetof(PxuiSegmentedConfig, node) == 40 && offsetof(PxuiSegmentedConfig, text) == 72 && offsetof(PxuiSegmentedConfig, states) == 88 && offsetof(PxuiSegmentedConfig, grow) == 96 && offsetof(PxuiSegmentedConfig, variant) == 98 && offsetof(PxuiSegmentedConfig, padding) == 100 && offsetof(PxuiSegmentedConfig, min_segment) == 104 && offsetof(PxuiSegmentedConfig, line) == 112 && offsetof(PxuiSegmentedConfig, strip) == 144 && offsetof(PxuiSegmentedConfig, has_selected) == 176 && offsetof(PxuiSegmentedConfig, reserved3) == 177 && offsetof(PxuiSegmentedConfig, stored) == 184 && offsetof(PxuiSegmentedConfig, has_stored) == 192 && offsetof(PxuiSegmentedConfig, reserved4) == 193, "PxuiSegmentedConfig layout");
 _Static_assert(sizeof(PxuiMenuRow) == 80 && offsetof(PxuiMenuRow, size) == 0 && offsetof(PxuiMenuRow, enabled) == 4 && offsetof(PxuiMenuRow, danger) == 5 && offsetof(PxuiMenuRow, checked) == 6 && offsetof(PxuiMenuRow, selected) == 7 && offsetof(PxuiMenuRow, has_swatch) == 8 && offsetof(PxuiMenuRow, has_id) == 9 && offsetof(PxuiMenuRow, reserved) == 10 && offsetof(PxuiMenuRow, swatch) == 12 && offsetof(PxuiMenuRow, id) == 16 && offsetof(PxuiMenuRow, text) == 24 && offsetof(PxuiMenuRow, shortcut) == 40 && offsetof(PxuiMenuRow, submenu) == 56, "PxuiMenuRow layout");
 _Static_assert(sizeof(PxuiMenuOptions) == 56 && offsetof(PxuiMenuOptions, size) == 0 && offsetof(PxuiMenuOptions, variant) == 4 && offsetof(PxuiMenuOptions, reserved) == 6 && offsetof(PxuiMenuOptions, row_h) == 8 && offsetof(PxuiMenuOptions, max_rows) == 12 && offsetof(PxuiMenuOptions, padding) == 16 && offsetof(PxuiMenuOptions, has_name) == 20 && offsetof(PxuiMenuOptions, focus_on_click) == 21 && offsetof(PxuiMenuOptions, reserved2) == 22 && offsetof(PxuiMenuOptions, name) == 32 && offsetof(PxuiMenuOptions, max_h) == 48 && offsetof(PxuiMenuOptions, reserved3) == 52, "PxuiMenuOptions layout");
+_Static_assert(sizeof(PxuiFrameReasons) == 264 && offsetof(PxuiFrameReasons, requested) == 0 && offsetof(PxuiFrameReasons, interaction) == 8 && offsetof(PxuiFrameReasons, transition) == 16 && offsetof(PxuiFrameReasons, finite_keys) == 24 && offsetof(PxuiFrameReasons, active_loop) == 32 && offsetof(PxuiFrameReasons, idle_loop) == 40 && offsetof(PxuiFrameReasons, stepped) == 48 && offsetof(PxuiFrameReasons, step_state) == 56 && offsetof(PxuiFrameReasons, step_build) == 64 && offsetof(PxuiFrameReasons, step_interaction) == 72 && offsetof(PxuiFrameReasons, step_deadline) == 80 && offsetof(PxuiFrameReasons, transition_key) == 88 && offsetof(PxuiFrameReasons, transition_curve) == 96 && offsetof(PxuiFrameReasons, reserved) == 260, "PxuiFrameReasons layout");
 _Static_assert(sizeof(PxuiDiagnostics) == 160 && offsetof(PxuiDiagnostics, size) == 0 && offsetof(PxuiDiagnostics, timing) == 4 && offsetof(PxuiDiagnostics, has_text_layouts) == 5 && offsetof(PxuiDiagnostics, has_cpu) == 6 && offsetof(PxuiDiagnostics, reserved) == 7 && offsetof(PxuiDiagnostics, rebuilt_prefix) == 8 && offsetof(PxuiDiagnostics, calls) == 24 && offsetof(PxuiDiagnostics, text_layouts) == 32 && offsetof(PxuiDiagnostics, rebuilt) == 40 && offsetof(PxuiDiagnostics, phase_nanos) == 48 && offsetof(PxuiDiagnostics, phase_cpu_nanos) == 104, "PxuiDiagnostics layout");
 _Static_assert(sizeof(PxuiFooterConfig) == 88 && offsetof(PxuiFooterConfig, size) == 0 && offsetof(PxuiFooterConfig, row) == 8 && offsetof(PxuiFooterConfig, has_right) == 40 && offsetof(PxuiFooterConfig, right) == 48 && offsetof(PxuiFooterConfig, hints) == 64 && offsetof(PxuiFooterConfig, variant) == 80, "PxuiFooterConfig layout");
 _Static_assert(sizeof(PxuiFooterDesc) == 40 && offsetof(PxuiFooterDesc, size) == 0 && offsetof(PxuiFooterDesc, has_right) == 4 && offsetof(PxuiFooterDesc, reserved) == 5 && offsetof(PxuiFooterDesc, right) == 8 && offsetof(PxuiFooterDesc, ptr) == 24, "PxuiFooterDesc layout");

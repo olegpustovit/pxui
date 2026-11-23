@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 4
+minor 5
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_remove_surface int32_t pxui_a11y_remove_surface ( PxuiA11y * a11y , uint64_t surface ) ;
@@ -97,6 +97,7 @@ function pxui_ui_focus_default int32_t pxui_ui_focus_default ( PxuiUi * ui , con
 function pxui_ui_focused int32_t pxui_ui_focused ( PxuiUi * ui , const PxuiBox * box , uint8_t * out ) ;
 function pxui_ui_font_points int32_t pxui_ui_font_points ( PxuiUi * ui , float * out ) ;
 function pxui_ui_frame_index uint64_t pxui_ui_frame_index ( PxuiUi * ui ) ;
+function pxui_ui_frame_reasons int32_t pxui_ui_frame_reasons ( PxuiUi * ui , PxuiFrameReasons * out ) ;
 function pxui_ui_gesture int32_t pxui_ui_gesture ( PxuiUi * ui , const PxuiBox * box , const PxuiGestureIn * in , uint32_t commands , PxuiGestureOut * out ) ;
 function pxui_ui_grid_list int32_t pxui_ui_grid_list ( PxuiUi * ui , const PxuiGridListDesc * desc , PxuiBox * out ) ;
 function pxui_ui_hover_delay int32_t pxui_ui_hover_delay ( PxuiUi * ui , PxuiStr key , uint8_t * out ) ;
@@ -273,6 +274,7 @@ layout PxuiDropdownConfig 88 8 0 4 16 24 32 64 80
 layout PxuiF32MutSpan 16 8 0 8
 layout PxuiFont 32 8 0 8 16 20 24
 layout PxuiFontDesc 24 8 0 2 8 16 20 21
+layout PxuiFrameReasons 264 8 0 8 16 24 32 40 48 56 64 72 80 88 96 260
 layout PxuiGestureIn 16 4 0 4 8 12
 layout PxuiGestureOut 20 4 0 4 8 12 16
 layout PxuiGrid 32 8

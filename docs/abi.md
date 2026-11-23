@@ -141,4 +141,5 @@ and name the replacement; nothing is removed from the manifest.
 | 2.1 | Added `pxui_theme_animate_swap` for instant appearance changes and `pxui_ui_label_at` for keyed, positioned line-box labels. |
 | 2.2 | Added `pxui_ui_retain_palette_labels` for instant palette changes in positioned-label views and `pxui_ui_retain_view_on_resize` for viewport-independent views. |
 | 2.3 | Added `pxui_ui_retain_palette_paint` for palette-independent canvas and positioned-label views. `PxuiPaintInfo.reserved[0]` signals symbolic shape colors in that callback. |
+| 2.5 | Added `pxui_ui_frame_reasons` for opt-in scheduling counters and the last one-shot transition. |
 | 2.4 | Added `pxui_ui_step`: advances running transitions without a build, so an animation frame patches only its nodes. |

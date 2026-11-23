@@ -39,6 +39,8 @@ use std::any::Any;
 use pxui_text::{Metrics, Style, Text, TextSpan};
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use pxui_types::ffi::PxuiFrameReasons;
 mod string_pool;
 mod touch;
 pub mod gesture;
@@ -1430,6 +1432,8 @@ pub struct Ui {
     pub(crate) tooltip_wait_key: String,
     pub(crate) tooltip_description: String,
     pub(crate) inspector_chip: String,
+    trace_frame_reasons: AtomicBool,
+    frame_reasons: PxuiFrameReasons,
     /// last, and `repr(C)` to keep it so: the 57 KB theme inline anywhere earlier puts every hot field past one aarch64
     /// load's reach (32 KB scaled, 4 KB for bytes), an address instruction per access (measured: see git log)
     theme: Theme,
@@ -1697,6 +1701,8 @@ impl Ui {
             painting: false,
             frame_requested: false,
             input_at: f64::NEG_INFINITY,
+            trace_frame_reasons: AtomicBool::new(std::env::var_os("PXUI_FRAME_REASONS").is_some_and(|value| value == "1")),
+            frame_reasons: PxuiFrameReasons::default(),
             stepping: false,
             frame_damage: None,
             rebuilt: 0,
@@ -3698,24 +3704,61 @@ impl Ui {
         }
     }
 
-    fn next_repaint(&self, now: f64) -> Option<f64> {
-        if self.frame_requested || self.keyboard.flags & pxui_types::Keyboard::ANIMATING != 0
-            || self.active.is_some() || !self.moving.is_empty() || !self.gsettle.is_empty() {
+    /// Cumulative scheduling diagnostics. Disabled counters stay at zero.
+    pub fn frame_reasons(&self) -> PxuiFrameReasons {
+        self.frame_reasons
+    }
+
+    fn next_repaint(&mut self, now: f64) -> Option<f64> {
+        let trace = self.trace_frame_reasons.load(Ordering::Relaxed);
+        if self.frame_requested || self.keyboard.flags & pxui_types::Keyboard::ANIMATING != 0 {
+            if trace { self.frame_reasons.requested += 1; }
+            return Some(now);
+        }
+        if self.active.is_some() || !self.moving.is_empty() || !self.gsettle.is_empty() {
+            if trace { self.frame_reasons.interaction += 1; }
             return Some(now);
         }
         let mut looping = false;
         for t in &self.tweens {
             if t.keys != NO_KEYS && !self.tween_visible(t) { continue; }
             // a transition or a counted run plays at the display rate
-            if self.keyframes.get(t.keys as usize).is_none_or(|k| k.repeat != 0) { return Some(now); }
+            match self.keyframes.get(t.keys as usize) {
+                None => {
+                    if trace {
+                        self.frame_reasons.transition += 1;
+                        self.frame_reasons.transition_key = self.slots[t.slot].key;
+                        self.frame_reasons.transition_curve = t.curve.into();
+                    }
+                    return Some(now);
+                }
+                Some(k) if k.repeat != 0 => {
+                    if trace {
+                        self.frame_reasons.finite_keys += 1;
+                        let elapsed = k.time(now - t.start);
+                        let segment = k.t[..k.n].iter().position(|&end| elapsed < end).unwrap_or(k.n - 1);
+                        let start = if segment == 0 { 0.0 } else { k.t[segment - 1] };
+                        self.frame_reasons.transition_key = self.slots[t.slot].key;
+                        self.frame_reasons.transition_curve = k.curve[segment].with_duration(k.t[segment] - start).into();
+                    }
+                    return Some(now);
+                }
+                Some(_) => {}
+            }
             looping = true;
         }
         // An endless loop (a playing indicator) is ambient: with input idle it steps at LOOP_STEP, not the display
         // rate; each step still costs a frame submit and present even when `step` patches it without a build.
         let looping = match looping {
             false => f64::INFINITY,
-            true if now - self.input_at < LOOP_IDLE => return Some(now),
-            true => now + LOOP_STEP,
+            true if now - self.input_at < LOOP_IDLE => {
+                if trace { self.frame_reasons.active_loop += 1; }
+                return Some(now);
+            }
+            true => {
+                if trace { self.frame_reasons.idle_loop += 1; }
+                now + LOOP_STEP
+            }
         };
         let wake = self.views.iter().skip(1).fold(self.wake.min(self.touches.wake).min(looping), |w, r| w.min(r.wake));
         let hover = match &self.hover_rest {
@@ -7351,17 +7394,31 @@ impl Ui {
     /// A host with no events and nothing new to show calls this in place of `frame` while
     /// `repaint_at` comes only from transitions; damage and `draw_revision` report what changed.
     pub fn step(&mut self, t: f64) -> bool {
-        if self.destroyed || self.building || self.painting || self.painted < 0 || !t.is_finite() || t < self.now
-            || self.settle || !self.repatch.is_empty() || self.frame_requested
-            || self.keyboard.flags & pxui_types::Keyboard::ANIMATING != 0 || self.active.is_some()
-            || !self.moving.is_empty() || !self.gsettle.is_empty() || self.views.iter().any(|v| v.dirty) {
+        let trace = self.trace_frame_reasons.load(Ordering::Relaxed);
+        if self.destroyed || self.building || self.painting || self.painted < 0 || !t.is_finite() || t < self.now {
+            if trace { self.frame_reasons.step_state += 1; }
+            return false;
+        }
+        if self.settle || !self.repatch.is_empty() || self.frame_requested {
+            if trace { self.frame_reasons.step_build += 1; }
+            return false;
+        }
+        if self.keyboard.flags & pxui_types::Keyboard::ANIMATING != 0 || self.active.is_some()
+            || !self.moving.is_empty() || !self.gsettle.is_empty() {
+            if trace { self.frame_reasons.step_interaction += 1; }
+            return false;
+        }
+        if self.views.iter().any(|v| v.dirty) {
+            if trace { self.frame_reasons.step_build += 1; }
             return false;
         }
         let wake = self.views.iter().skip(1).fold(self.wake.min(self.touches.wake), |w, r| w.min(r.wake));
         let hover = matches!(&self.hover_rest, Some((_, _, start, seen)) if *seen == self.frame_number && t >= start + HOVER_SECONDS);
         if wake <= t || hover {
+            if trace { self.frame_reasons.step_deadline += 1; }
             return false;
         }
+        if trace { self.frame_reasons.stepped += 1; }
         self.now = t;
         self.stepping = true;
         self.step_tweens();
