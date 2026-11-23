@@ -52,6 +52,7 @@ fn present_pixels_match_canvas_with_partial_copies_and_fallbacks() {
     let mut window = Window::open_with("PXUI present oracle", 320, 240, false, true, false).unwrap();
     let mut ui = Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
     let mut graphics = Graphics::open_present(&mut window, &ui, false, 1).unwrap();
+    graphics.set_full_damage(false);
     let build = |window: &Window, ui: &mut Ui, frame: usize| {
         let (w, h) = window.extent().logical;
         ui.frame(
@@ -364,6 +365,8 @@ fn framework_host_damage_redraws_only_the_change_and_keeps_the_rest() {
     build(&mut full_ui, 0.2, green, None);
     assert!(fresh.screenshot(&mut window, &full_ui).unwrap().2 == third, "a damage-limited frame differs from a full redraw");
     // Seeded translucent edits and removals on both sides exercise two scissors on one encoder.
+    let full_damage = std::env::var_os("PXUI_FULL_DAMAGE").is_some_and(|value| value == "1");
+    let no_cull = std::env::var_os("PXUI_NO_CULL").is_some_and(|value| value == "1");
     let mut seed = 13u32;
     for frame in 0..12 {
         seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
@@ -376,7 +379,8 @@ fn framework_host_damage_redraws_only_the_change_and_keeps_the_rest() {
         assert_eq!(ui.damage_list().count, 2);
         let calls = graphics.draw_calls();
         let partial = read(&mut graphics, &mut window, &ui);
-        assert_eq!(graphics.draw_calls() - calls, if right.is_some() { 2 } else { 1 });
+        let two_draws = !full_damage && (no_cull || right.is_some());
+        assert_eq!(graphics.draw_calls() - calls, 1 + u64::from(two_draws));
         assert_eq!(partial, fresh.screenshot(&mut window, &full_ui).unwrap().2, "seed {seed}");
     }
     // Build, query damage, encode two scissors and submit with both allocation counters on.
