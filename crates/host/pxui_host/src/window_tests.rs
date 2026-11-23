@@ -25,13 +25,15 @@ fn partial_equals_full() {
         }
         edit(&mut ui, stage, window.scale() as f32, &theme);
         let damage = ui.output().damage;
-        saw_partial |= damage.has_damage != 0 && damage.rect.w < width(stage) as f32 && damage.rect.h < HEIGHT as f32;
+        saw_partial |= ui.damage_list().full == 0 && damage.has_damage != 0
+            && damage.rect.w < width(stage) as f32 && damage.rect.h < HEIGHT as f32;
         let capture = graphics.capture_frame(&mut window, &ui, false);
         assert!(capture.is_ok(), "{capture:?}: {}", ui.last_error());
         let (w, h, partial) = capture.unwrap();
         assert_eq!((w, h), (width(stage), HEIGHT));
         let (_, _, full) = graphics.screenshot(&mut window, &ui).unwrap();
         diff(&partial, &full, 0, stage);
+        for index in 0..ui.layers().count() { ui.drawn(index); }
         assert!(partial != previous, "edit {stage} made no pixel change");
         previous = partial;
     }

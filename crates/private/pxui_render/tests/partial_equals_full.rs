@@ -110,8 +110,11 @@ pub(super) fn native() {
         }
         edit(&mut ui, stage, 1.0, &theme);
         let damage = ui.output().damage;
-        let clip =
-            (stage != 0 && !matches!(stage, 5 | 6 | 9) && damage.has_damage != 0).then(|| {
+        let clip = (stage != 0
+            && !matches!(stage, 5 | 6 | 9)
+            && ui.damage_list().full == 0
+            && damage.has_damage != 0)
+            .then(|| {
                 let r = damage.rect;
                 let left = ((r.x.floor() as i64) - 1).clamp(0, i64::from(width(stage)) - 1);
                 let top = ((r.y.floor() as i64) - 1).clamp(0, i64::from(HEIGHT) - 1);
@@ -136,6 +139,9 @@ pub(super) fn native() {
             if cfg!(target_os = "macos") { 0 } else { 2 },
             stage,
         );
+        for index in 0..ui.layers().count() {
+            ui.drawn(index);
+        }
     }
     assert!(saw_partial);
     drop(renderer);

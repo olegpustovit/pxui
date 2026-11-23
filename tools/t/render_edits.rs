@@ -66,11 +66,13 @@ pub fn edit(ui: &mut Ui, stage: usize, scale: f32, theme: &ThemeHandle) {
                 "samples",
                 Node::DEFAULT.w_px(350.0).h_px(410.0).at(9.0, 16.0),
             );
+            // Leave the seeded grid unchanged for the localized patch in stage two.
+            let tile_stage = if stage == 2 { 1 } else { stage };
             ui.canvas(&tiles, move |paint, rect| {
                 for seed in 0..count {
                     let n = mix(seed);
-                    let variant = if stage > 0 && seed % 3 == stage % 3 {
-                        1 + stage / 4
+                    let variant = if tile_stage > 0 && seed % 3 == tile_stage % 3 {
+                        1 + tile_stage / 4
                     } else {
                         0
                     };
