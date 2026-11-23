@@ -998,15 +998,18 @@ pub struct Layer {
     pub breaks: Vec<Break>,
     pub images: Vec<Image>,
     pub dirty: Vec<(u32, u32)>,
+    pub bounds: Vec<[f32; 4]>,
     pieces: Vec<Piece>,
     live: bool,
 }
 
 impl Layer {
     fn new(key: i64, id: u32) -> Layer {
-        Layer { key, id, role: LayerRole::Base, anchor: Rect::default(), instances: Vec::with_capacity(256), breaks: Vec::new(), images: Vec::new(), dirty: Vec::new(), pieces: Vec::new(), live: false }
+        Layer { key, id, role: LayerRole::Base, anchor: Rect::default(), instances: Vec::with_capacity(256), breaks: Vec::new(), images: Vec::new(), dirty: Vec::new(), bounds: Vec::new(), pieces: Vec::new(), live: false }
     }
 }
+
+pub const EMPTY_BOUNDS: [f32; 4] = [f32::INFINITY, f32::INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY];
 
 /// What a paint layer holds: the window's content, or a floating root the engine raised over it. Every popup, modal, tooltip and drag
 /// root is a layer of its own, so a host that can (a compositor) presents it in a child surface that may overflow the window; one
@@ -1401,6 +1404,7 @@ pub struct Ui {
     /// (slot, scratch layer) of every node the frame painted, and the compaction buffer
     painted_nodes: Vec<(usize, usize)>,
     compact: Vec<Instance>,
+    compact_bounds: Vec<[f32; 4]>,
     /// the kept runs a compaction moves (from, to, where to), applied together
     moves: Vec<(u32, u32, u32)>,
     temp_breaks: Vec<Break>,
@@ -1708,6 +1712,7 @@ impl Ui {
             view_prev: Vec::new(),
             painted_nodes: Vec::new(),
             compact: Vec::new(),
+            compact_bounds: Vec::new(),
             moves: Vec::new(),
             temp_breaks: Vec::new(),
             temp_images: Vec::new(),
@@ -7238,6 +7243,7 @@ impl Ui {
                     let old = target.instances[k];
                     self.damage_change(&old, &new);
                     target.instances[k] = new;
+                    target.bounds[k] = cull_bounds(&new);
                     add_range(&mut target.dirty, k as u32, k as u32 + 1);
                 }
             }
@@ -7253,6 +7259,8 @@ impl Ui {
                 self.damage_instance(new);
             }
             target.instances.splice(start..end, fresh.iter().copied().chain(std::iter::repeat_n(EMPTY, extra)));
+            target.bounds.reserve(target.instances.capacity().saturating_sub(target.bounds.len()));
+            target.bounds.splice(start..end, fresh.iter().map(cull_bounds).chain(std::iter::repeat_n(EMPTY_BOUNDS, extra)));
             let delta = (fresh.len() + extra - (end - start)) as u32;
             self.shifts += 1;
             add_range(&mut target.dirty, start as u32, target.instances.len() as u32);
@@ -8228,13 +8236,32 @@ fn patch_breaks(target: &mut Layer, old: &[Break], fresh: &Layer, start: usize, 
 
 /// What an instance can cover, in its own view's points (an empty instance covers nothing).
 fn bounds(i: &Instance) -> Option<Rect> {
+    if *i == EMPTY { return None; }
+    let [x0, y0, x1, y1] = i.clip.map(|v| v as f32);
+    let r = geometry_bounds(i).intersect(Rect::new(x0, y0, x1 - x0, y1 - y0));
+    (r.w > 0.0 && r.h > 0.0 && r.x.is_finite() && r.y.is_finite()).then_some(r)
+}
+
+/// Instance coverage before clipping. The renderer adds the device-pixel AA margin after mapping it.
+pub fn cull_bounds(i: &Instance) -> [f32; 4] {
+    use crate::draw::{flags, kind};
+    if *i == EMPTY { return EMPTY_BOUNDS; }
+    let r = geometry_bounds(i);
+    let pad = match i.kind {
+        kind::MASK if i.flags & flags::mask::LIGHT != 0 => 1.0 / half((i.extra[0] >> 16) as u16).max(1.0),
+        // These shaders can write to the edge of the padded vertex quad.
+        kind::GRID | kind::SHADOW => 1.0,
+        _ => 0.0,
+    };
+    let edges = [r.x - pad, r.y - pad, r.x + r.w + pad, r.y + r.h + pad];
+    if edges.iter().all(|v| v.is_finite()) { edges } else { [f32::NEG_INFINITY, f32::NEG_INFINITY, f32::INFINITY, f32::INFINITY] }
+}
+
+fn geometry_bounds(i: &Instance) -> Rect {
     use crate::draw::kind;
-    if *i == EMPTY {
-        return None;
-    }
     let [a, b, c, d] = i.rect;
     let span = |x0: f32, y0: f32, x1: f32, y1: f32, grow: f32| Rect::new(x0 - grow, y0 - grow, x1 - x0 + 2.0 * grow, y1 - y0 + 2.0 * grow);
-    let r = match i.kind {
+    match i.kind {
         kind::LINE => span(a.min(c), b.min(d), a.max(c), b.max(d), half(i.width)),
         kind::CURVE | kind::TRIANGLE => {
             let (cx, cy) = (f32::from_bits(i.extra[0]), f32::from_bits(i.extra[1]));
@@ -8247,10 +8274,7 @@ fn bounds(i: &Instance) -> Option<Rect> {
             span(a.min(a + dx), b.min(b + dy), c.max(c + dx), d.max(d + dy), grow)
         }
         _ => Rect::new(a, b, c - a, d - b),
-    };
-    let [x0, y0, x1, y1] = i.clip.map(|v| v as f32);
-    let r = r.intersect(Rect::new(x0, y0, x1 - x0, y1 - y0));
-    (r.w > 0.0 && r.h > 0.0 && r.x.is_finite() && r.y.is_finite()).then_some(r)
+    }
 }
 
 fn union(a: Option<Rect>, b: Rect) -> Rect {
@@ -9425,6 +9449,7 @@ impl Ui {
                     let d = &mut self.draw[j];
                     d.instances = old;
                     d.instances.clear();
+                    d.bounds.clear();
                     d.key = key;
                     d.breaks.clear();
                     d.images.clear();
@@ -9451,6 +9476,7 @@ impl Ui {
             }
             self.draw[j].instances = old;
             self.draw[j].instances.clear();
+            self.draw[j].bounds.clear();
             self.draw[j].key = i64::MIN;
         }
         self.draw_len = len;
@@ -9486,7 +9512,9 @@ impl Ui {
             let reserve = packed.saturating_add(SLACK.saturating_mul(self.views.len().saturating_sub(kept)))
                 .saturating_add(s.instances.len() / 8).saturating_mul(2).max(256);
             d.instances.reserve(reserve.saturating_sub(d.instances.len()));
+            d.bounds.reserve(d.instances.capacity().saturating_sub(d.bounds.len()));
             self.compact.reserve(reserve.saturating_sub(self.compact.len()));
+            self.compact_bounds.reserve(reserve.saturating_sub(self.compact_bounds.len()));
             self.moves.reserve(self.views.len().saturating_sub(self.moves.len()));
             d.dirty.reserve(s.pieces.len().saturating_sub(d.dirty.len()));
         }
@@ -9498,6 +9526,9 @@ impl Ui {
             if changed {
                 d.instances.clear();
                 d.instances.extend_from_slice(&s.instances);
+                d.bounds.clear();
+                d.bounds.reserve(d.instances.capacity());
+                d.bounds.extend(s.instances.iter().map(cull_bounds));
                 d.dirty.clear();
                 add_range(&mut d.dirty, 0, n);
             }
@@ -9552,6 +9583,8 @@ impl Ui {
                     let end = (at + len) as usize;
                     if end > d.instances.len() {
                         d.instances.resize(end, EMPTY);
+                        d.bounds.reserve(d.instances.capacity().saturating_sub(d.bounds.len()));
+                        d.bounds.resize(end, EMPTY_BOUNDS);
                     }
                     changed |= self.clear_piece_gap(&mut d, w, at);
                     if self.full_damage {
@@ -9559,6 +9592,9 @@ impl Ui {
                         let current = &mut d.instances[at as usize..end];
                         if end > old_len || current != fresh {
                             current.copy_from_slice(fresh);
+                            for (bounds, instance) in d.bounds[at as usize..end].iter_mut().zip(fresh) {
+                                *bounds = cull_bounds(instance);
+                            }
                             add_range(&mut d.dirty, at, end as u32);
                             changed = true;
                         }
@@ -9569,6 +9605,7 @@ impl Ui {
                                 if i < old_len { self.damage_change(&d.instances[i], new); }
                                 else { self.damage_instance(new); }
                                 d.instances[i] = *new;
+                                d.bounds[i] = cull_bounds(new);
                                 add_range(&mut d.dirty, i as u32, i as u32 + 1);
                                 changed = true;
                             }
@@ -9592,6 +9629,7 @@ impl Ui {
                 }
             }
             d.instances.truncate(w as usize);
+            d.bounds.truncate(w as usize);
             // a range the host never drew may reach past the shorter layer: the painter refuses it
             d.dirty.retain_mut(|r| { r.1 = r.1.min(w); r.0 < r.1 });
         } else {
@@ -9608,6 +9646,7 @@ impl Ui {
         if self.full_damage {
             if gap.iter().all(|i| *i == EMPTY) { return false; }
             gap.fill(EMPTY);
+            layer.bounds[start as usize..end as usize].fill(EMPTY_BOUNDS);
             add_range(&mut layer.dirty, start, end);
             return true;
         }
@@ -9617,6 +9656,7 @@ impl Ui {
                 self.damage_instance(instance);
                 *instance = EMPTY;
                 let i = start + offset as u32;
+                layer.bounds[i as usize] = EMPTY_BOUNDS;
                 add_range(&mut layer.dirty, i, i + 1);
                 changed = true;
             }
@@ -9627,14 +9667,18 @@ impl Ui {
     fn compact_layer(&mut self, s: &mut Layer, d: &mut Layer, old_len: usize) {
         self.compactions += 1;
         let mut out = std::mem::take(&mut self.compact);
+        let mut bounds = std::mem::take(&mut self.compact_bounds);
         out.clear();
+        bounds.clear();
         self.moves.clear();
         let mut fresh = 0usize;
         for k in 0..s.pieces.len() {
             let p = s.pieces[k];
             if p.view == NO_VIEW {
                 s.pieces[k].at = out.len() as u32;
-                out.extend_from_slice(&s.instances[p.a as usize..p.b as usize]);
+                let new = &s.instances[p.a as usize..p.b as usize];
+                out.extend_from_slice(new);
+                bounds.extend(new.iter().map(cull_bounds));
                 fresh += (p.b - p.a) as usize;
                 continue;
             }
@@ -9645,9 +9689,11 @@ impl Ui {
             }
             // Another fresh batch fits here; total extra padding is at most the scratch instance count.
             out.resize(out.len() + SLACK.max((b - a) as usize / 8) + fresh, EMPTY);
+            bounds.resize(out.len(), EMPTY_BOUNDS);
             fresh = 0;
             let to = out.len() as u32;
             out.extend_from_slice(&d.instances[a as usize..b as usize]);
+            bounds.extend_from_slice(&d.bounds[a as usize..b as usize]);
             s.pieces[k].at = to;
             self.moves.push((a, b, to));
         }
@@ -9676,7 +9722,9 @@ impl Ui {
             if let Some(start) = dirty_start { add_range(&mut d.dirty, start, out.len() as u32); }
         }
         std::mem::swap(&mut d.instances, &mut out);
+        std::mem::swap(&mut d.bounds, &mut bounds);
         self.compact = out;
+        self.compact_bounds = bounds;
         // ranges of skipped draws may reach past a layer that compaction made shorter: the painter refuses them
         let len = d.instances.len() as u32;
         d.dirty.retain_mut(|r| { r.1 = r.1.min(len); r.0 < r.1 });
