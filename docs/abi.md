@@ -147,3 +147,4 @@ and name the replacement; nothing is removed from the manifest.
 | 2.7 | Added `pxui_ui_animate_keys_at_rate` for display and shared ambient keyframe cadences. |
 | 2.8 | Added `pxui_renderer_draw_damage` to cull retained geometry against a host scissor. |
 | 2.9 | `PxuiOutput.repaint_hz` reports the active ambient rate in the former reserved word. The record size and offsets stay the same. |
+| 2.10 | Defined bit 0 of `PxuiTargetDesc.reserved_tail` (`PXUI_TARGET_BACKDROP_UI_DAMAGE`). The host guarantees backdrop pixels change only through Ui damage, uses one target and ordered queue per renderer, and leaves damage acknowledgement to that renderer. Call `pxui_renderer_resize` on canvas replacement, frame cancellation or GPU errors to invalidate reuse. Default renderers recompute. `PXUI_NO_BLUR_REUSE=1` disables reuse. The record layout is unchanged. |

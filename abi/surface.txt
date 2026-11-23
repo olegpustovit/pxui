@@ -33,6 +33,7 @@ Paint|text|Rays|done: pxui_paint_label (a Label)
 Paint|theme|Rays|inlined
 Renderer|draw|Gallery,Rays|done: layers first_layer.. of Pass, split callback for a backdrop blur
 Renderer|draw_damage|LocalWave|done: cull retained geometry against the host scissor
+Renderer|new_with_target_record|LocalWave|done: ABI 2.10 allows completed backdrop reuse with PxuiTargetDesc::BACKDROP_UI_DAMAGE
 Renderer|resize|LocalWave|done: prepare blur targets before frame recording
 Ui|a11y_name_of|Rays|done: the name text of one of them
 Ui|a11y_name|A4-required,Gallery,Rays|done

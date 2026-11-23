@@ -3605,14 +3605,14 @@ pxui_types::PxuiTargetDesc impl Copy @HEAD
 pxui_types::PxuiTargetDesc impl Debug @HEAD
 pxui_types::PxuiTargetDesc impl Default @HEAD
 pxui_types::PxuiTargetDesc struct @HEAD
-pxui_types::PxuiTargetDesc::BACKDROP_UI_DAMAGE const u32 @HEAD
+pxui_types::PxuiTargetDesc::BACKDROP_UI_DAMAGE const u32 @R5.4
 pxui_types::PxuiTargetDesc::color_height field u32 @HEAD
 pxui_types::PxuiTargetDesc::color_width field u32 @HEAD
 pxui_types::PxuiTargetDesc::format field u32 @HEAD
 pxui_types::PxuiTargetDesc::mask_height field u32 @HEAD
 pxui_types::PxuiTargetDesc::mask_width field u32 @HEAD
 pxui_types::PxuiTargetDesc::reserved field [u8; 3] @HEAD
-pxui_types::PxuiTargetDesc::reserved_tail field u32 @HEAD
+pxui_types::PxuiTargetDesc::reserved_tail field u32 @R5.4
 pxui_types::PxuiTargetDesc::samples field u8 @HEAD
 pxui_types::PxuiTargetDesc::size field u32 @HEAD
 pxui_types::PxuiTextInputOptions impl Clone @HEAD

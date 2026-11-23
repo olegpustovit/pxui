@@ -52,7 +52,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built: the version the app was built against, PXUI_ABI_BUILT (major << 16 | minor); pxui_ui_create refuses 0, another major and a newer minor (PXUI_ERR_VERSION). */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((2u << 16) | 9u)
+#define PXUI_ABI_BUILT ((2u << 16) | 10u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 /* size-prefixed (16 bytes); pxui_ui_text_input_options needs the caller's size to cover it. */
