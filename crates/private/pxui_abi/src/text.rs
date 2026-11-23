@@ -247,10 +247,8 @@ export!(bare pub unsafe fn pxui_shaper_create(fonts: *const Str, count: usize) -
     }
     // each font within the per-font and total caps and parseable: a refused font refuses the shaper
     if font_bytes.iter().map(|font| font.len()).sum::<usize>() > pxui_text::MAX_FONT_TOTAL_BYTES { return core::ptr::null_mut(); }
-    let mut text = Text::new(&font_bytes);
+    let text = Text::new(&font_bytes);
     if text.font_count() != font_bytes.len() { return core::ptr::null_mut(); }
-    // the same default as `Ui` (ui.rs `platform`), so a standalone shaper rasterises like the UI's
-    text.set_apple_raster(cfg!(any(target_os = "macos", target_os = "ios")));
     Box::into_raw(Box::new(PxuiShaper { text, raster_glyphs: Vec::new(), poisoned: false }))
 });
 

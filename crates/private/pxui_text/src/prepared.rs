@@ -39,7 +39,6 @@ impl Text {
         worker.system = self.system.clone();
         worker.font_generation = self.font_generation.clone();
         // shaping keys glyphs by the raster (unhinted on Apple): a worker layout must match the receiver's
-        worker.g.apple = self.g.apple;
         worker
     }
 
@@ -404,9 +403,8 @@ mod tests {
     }
 
     #[test]
-    fn prepared_layouts_shape_with_the_receivers_apple_raster() {
+    fn prepared_layouts_shape_unhinted_like_the_ui() {
         let mut ui = Text::new(&[PRAGMASEVKA]);
-        ui.set_apple_raster(true);
         let mut worker = ui.preparer();
         let record = worker.prepare("2:36", &Style::default(), 64.0, &[]).unwrap();
         let flags: Vec<_> = record.entry.buf.layout_runs().flat_map(|run| run.glyphs.iter().map(|g| g.cache_key_flags)).collect();

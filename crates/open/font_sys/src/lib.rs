@@ -1,11 +1,6 @@
 //! Native font discovery. Paths come from the OS cascade; no directory scan or font registration.
 use std::path::PathBuf;
 
-#[cfg(target_vendor="apple")]
-mod mask;
-#[cfg(target_vendor="apple")]
-pub use mask::{MaskFace, MaskFont, MaskLayout, MaskRaster};
-
 pub const SUPPORTED: bool=cfg!(target_vendor="apple");
 
 /// A local font covering a missing UTF-8 shaping cluster, selected for the user's locale.

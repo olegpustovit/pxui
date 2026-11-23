@@ -66,8 +66,6 @@ use std::sync::Arc;
 mod system;
 mod prepared;
 mod queue;
-#[cfg(target_vendor = "apple")]
-mod apple;
 pub use prepared::Prepared;
 pub use queue::{Worker, INSTALLS_PER_FRAME, MAX_LANES, QUEUE_BYTES, QUEUE_ROWS};
 
@@ -583,12 +581,6 @@ pub const CACHE_BYTES: usize = 4 << 20;
 struct Glyphs {
     fs: FontSystem,
     swash: SwashCache,
-    #[cfg(target_vendor = "apple")]
-    native: apple::Masks,
-    /// Apple text positioning and masks. Unsupported native faces retain the Swash approximation.
-    apple: bool,
-    /// the dilated mask of the glyph being rasterised (reused, so only a larger glyph allocates)
-    scratch: Vec<u8>,
     atlases: [Atlas; 4],
     slots: HashMap<CacheKey, Slot, Fast>,
     dirty: Vec<(AtlasKind, u32, u32, u32, u32)>,
@@ -611,35 +603,17 @@ impl Glyphs {
             return Some(*s);
         }
         let empty = Slot { kind: AtlasKind::Mask, shelf: 0, generation: 0, x: 0, y: 0, w: 0, h: 0, left: 0, top: 0 };
-        #[cfg(target_vendor = "apple")]
-        let native = self.apple.then(|| self.native.draw(&mut self.fs, key)).flatten().map(|(mask, pixels)| {
-            let slot = Slot { w: mask.width, h: mask.height, left: mask.left, top: mask.top, ..empty };
-            (slot, pixels, mask.stride)
-        });
-        #[cfg(not(target_vendor = "apple"))]
-        let native: Option<(Slot, &[u8], usize)> = None;
-        let img;
-        let (mut s, data, stride) = if let Some(native) = native {
-            native
-        } else {
-            let Some(image) = self.swash.get_image_uncached(&mut self.fs, key) else { return Some(empty) };
-            img = image;
-            let (w, h) = (img.placement.width, img.placement.height);
-            let (left, top) = (img.placement.left, img.placement.top);
-            let (kind, bpp) = match img.content {
-                SwashContent::Mask => (AtlasKind::Mask, 1),
-                SwashContent::Color => (AtlasKind::Color, 4),
-                SwashContent::SubpixelMask => return Some(empty),
-            };
-            if img.data.len() != (w * h * bpp) as usize { return Some(empty); }
-            if self.apple && kind == AtlasKind::Mask && w > 0 && h > 0 {
-                let (x0, y0, nw, nh) = dilate(&img.data, w, h, 0.006 * f32::from_bits(key.font_size_bits), &mut self.scratch);
-                (Slot { w: nw, h: nh, left: left - 1 + x0 as i32, top: top + 1 - y0 as i32, ..empty },
-                 self.scratch.as_slice(), nw as usize)
-            } else {
-                (Slot { kind, w, h, left, top, ..empty }, img.data.as_slice(), (w * bpp) as usize)
-            }
+        let Some(img) = self.swash.get_image_uncached(&mut self.fs, key) else { return Some(empty) };
+        let (w, h) = (img.placement.width, img.placement.height);
+        let (left, top) = (img.placement.left, img.placement.top);
+        let (kind, bpp) = match img.content {
+            SwashContent::Mask => (AtlasKind::Mask, 1),
+            SwashContent::Color => (AtlasKind::Color, 4),
+            SwashContent::SubpixelMask => return Some(empty),
         };
+        if img.data.len() != (w * h * bpp) as usize { return Some(empty); }
+        // cosmic-text's (swash) coverage on every platform: no native rasteriser, no emulated font smoothing
+        let (mut s, data, stride) = (Slot { kind, w, h, left, top, ..empty }, img.data.as_slice(), (w * bpp) as usize);
         let (primary, w, h) = (s.kind, s.w, s.h);
         let bpp = self.atlases[idx(primary)].bpp;
         if w > 0 && h > 0 {
@@ -706,29 +680,6 @@ impl Glyphs {
     }
 }
 
-/// `cosmic_text::SubpixelBin::new`, inlined: the replay must bin exactly as `physical` does.
-#[inline]
-fn subpixel_bin(pos: f32) -> (i32, SubpixelBin) {
-    let trunc = pos as i32;
-    let fract = pos - trunc as f32;
-    if pos.is_sign_negative() {
-        match fract {
-            f if f > -0.125 => (trunc, SubpixelBin::Zero),
-            f if f > -0.375 => (trunc - 1, SubpixelBin::Three),
-            f if f > -0.625 => (trunc - 1, SubpixelBin::Two),
-            f if f > -0.875 => (trunc - 1, SubpixelBin::One),
-            _ => (trunc - 1, SubpixelBin::Zero),
-        }
-    } else {
-        match fract {
-            f if f < 0.125 => (trunc, SubpixelBin::Zero),
-            f if f < 0.375 => (trunc, SubpixelBin::One),
-            f if f < 0.625 => (trunc, SubpixelBin::Two),
-            f if f < 0.875 => (trunc, SubpixelBin::Three),
-            _ => (trunc + 1, SubpixelBin::Zero),
-        }
-    }
-}
 
 /// CoreText uses fewer horizontal phases as the em grows.
 #[inline]
@@ -768,43 +719,6 @@ fn apple_x_translates(ppem: f32, x: f32) -> bool {
     gap == 0.0 || gap >= 1.0 / 256.0
 }
 
-/// CoreText's stem growth, applied to a coverage mask: a round dilation by `d` pixels shifted up by
-/// `d` is `c + d (|grad c| + dc/dy)` at an edge (empty pixels fill only where the edge crosses in). `out` gets the mask grown by one pixel all round,
-/// then trimmed of empty rows and columns; returns the trim's offset into the grown mask and its size.
-fn dilate(src: &[u8], w: u32, h: u32, d: f32, out: &mut Vec<u8>) -> (u32, u32, u32, u32) {
-    let (w, h) = (w as i32, h as i32);
-    let at = |x: i32, y: i32| if x < 0 || y < 0 || x >= w || y >= h { 0.0 } else { src[(y * w + x) as usize] as f32 };
-    out.clear();
-    let (mut x0, mut y0, mut x1, mut y1) = (i32::MAX, i32::MAX, -1, -1);
-    for y in -1..=h {
-        for x in -1..=w {
-            let gx = (at(x + 1, y) - at(x - 1, y)) * 0.5;
-            let gy = (at(x, y + 1) - at(x, y - 1)) * 0.5;
-            let c = at(x, y);
-            // an empty pixel only fills where the grown edge crosses into it (the top edge grows 2d)
-            let grown = if c > 0.0 { c + d * (gx.hypot(gy) + gy) } else {
-                let side = at(x - 1, y).max(at(x + 1, y)) / 255.0 + d - 1.0;
-                255.0 * side.max(at(x, y + 1) / 255.0 + 2.0 * d - 1.0).max(0.0)
-            };
-            let v = grown.clamp(0.0, 255.0).round() as u8;
-            if v > 0 {
-                (x0, y0, x1, y1) = (x0.min(x + 1), y0.min(y + 1), x1.max(x + 1), y1.max(y + 1));
-            }
-            out.push(v);
-        }
-    }
-    if x1 < 0 {
-        out.clear();
-        return (0, 0, 0, 0);
-    }
-    let (pw, nw, nh) = (w + 2, x1 - x0 + 1, y1 - y0 + 1);
-    for r in 0..nh {
-        let from = ((y0 + r) * pw + x0) as usize;
-        out.copy_within(from..from + nw as usize, (r * nw) as usize);
-    }
-    out.truncate((nw * nh) as usize);
-    (x0 as u32, y0 as u32, nw as u32, nh as u32)
-}
 
 struct Entry {
     buf: Buffer,
@@ -930,10 +844,6 @@ impl Text {
             g: Glyphs {
                 fs: FontSystem::new_with_locale_and_db(locale.into(), fontdb::Database::new()),
                 swash: SwashCache::new(),
-                #[cfg(target_vendor = "apple")]
-                native: apple::Masks::default(),
-                apple: false,
-                scratch: Vec::with_capacity(32 << 10),
                 atlases: [Atlas::new(mask, 1), Atlas::new(color, 4),Atlas::new(mask,1),Atlas::new(color,4)],
                 slots: HashMap::default(),
                 dirty: Vec::new(),
@@ -995,26 +905,6 @@ impl Text {
             self.font_generation=Arc::new(());
         }
         true
-    }
-
-    /// CoreText glyph masks on Apple, with ppem-quantised x origins and rounded baselines.
-    /// Swash approximates this raster for unsupported faces and on other platforms.
-    /// Drops every layout and glyph, so call it first.
-    pub fn set_apple_raster(&mut self, on: bool) {
-        if self.g.apple == on { return; }
-        self.g.apple = on;
-        self.g.slots.clear();
-        self.entries.clear();
-        self.keys.clear();
-        self.sweep = 0;
-        self.cache_bytes = 0;
-        self.layout_bytes = 0;
-        self.font_generation = Arc::new(());
-    }
-
-    /// Whether glyphs use the CoreText-matching raster (`set_apple_raster`).
-    pub fn apple_raster(&self) -> bool {
-        self.g.apple
     }
 
     /// Loads a font (copies the bytes); returns its index for `Style::font`, or `None` when it is refused: empty, larger than
@@ -1189,7 +1079,7 @@ impl Text {
             None => Family::SansSerif,
         };
         let attrs = Attrs::new().family(family).weight(Weight(style.weight)).style(if style.italic { CStyle::Italic } else { CStyle::Normal });
-        let attrs = if self.g.apple { attrs.cache_key_flags(CacheKeyFlags::DISABLE_HINTING) } else { attrs };
+        let attrs = attrs.cache_key_flags(CacheKeyFlags::DISABLE_HINTING);
         let attrs = if style.tracking != 0.0 { attrs.letter_spacing(style.tracking / style.size) } else { attrs };
         let mut features=FontFeatures::new();
         if style.features & Style::FEATURE_TABULAR_NUMBERS != 0 { features.enable(FeatureTag::new(b"tnum")); }
@@ -1448,7 +1338,7 @@ impl Text {
                     let x = (c.physical.0 + dx + s.left) as f32;
                     let y = if same_y { c.physical.1 } else {
                         let py = c.y.mul_add(scale, (origin.1 + c.line_y) * scale);
-                        (if g.apple { py.round() } else { py.trunc() }) as i32
+                        py.round() as i32
                     };
                     let y = (y - s.top) as f32;
                     let rect = [x, y, x + s.w as f32, y + s.h as f32].map(|p| p * *inverse);
@@ -1461,12 +1351,12 @@ impl Text {
             for c in &e.glyphs {
                 let (x, bin) = if let Some(dx) = shift_x { (c.physical.0 + dx, c.key.x_bin) } else {
                     let px = c.x.mul_add(scale, ox);
-                    if g.apple { apple_x(f32::from_bits(c.key.font_size_bits), px) } else { subpixel_bin(px) }
+                    apple_x(f32::from_bits(c.key.font_size_bits), px)
                 };
                 let y = if same_y { c.physical.1 } else {
                     // y has no subpixel bin.
                     let py = c.y.mul_add(scale, (origin.1 + c.line_y) * scale);
-                    (if g.apple { py.round() } else { py.trunc() }) as i32
+                    py.round() as i32
                 };
                 if bin == c.key.x_bin && g.evictions == start {
                     if c.slot.w > 0 && c.slot.h > 0 {
@@ -1501,19 +1391,19 @@ impl Text {
         e.glyphs.clear();
         e.shelves = [0; 8];
         e.cached = keep;
-        let mut translates_x = g.apple && (1.0..=16.0).contains(&scale) && scale.to_bits() & 0x007f_ffff == 0;
+        let mut translates_x = (1.0..=16.0).contains(&scale) && scale.to_bits() & 0x007f_ffff == 0;
         let spans=&e.rich[..];
         let (mut line,mut base)=(0,0);
         for run in e.buf.layout_runs() {
             while line<run.line_i { base+=e.buf.lines[line].text().len()+e.buf.lines[line].ending().as_str().len(); line+=1; }
             for lg in run.glyphs {
-                let p=if g.apple {
+                let p={
                     let ppem=lg.font_size*scale;
                     let (x,x_bin)=apple_x(ppem,(lg.x+lg.font_size*lg.x_offset).mul_add(scale,origin.0*scale));
                     let y=(lg.y-lg.font_size*lg.y_offset).mul_add(scale,(origin.1+run.line_y)*scale).round() as i32;
                     let cache_key=CacheKey { font_id:lg.font_id, glyph_id:lg.glyph_id, font_size_bits:ppem.to_bits(), x_bin, y_bin:SubpixelBin::Zero, font_weight:lg.font_weight, flags:lg.cache_key_flags };
                     cosmic_text::PhysicalGlyph { cache_key, x, y }
-                } else { lg.physical((origin.0*scale,(origin.1+run.line_y)*scale),scale) };
+                };
                 let Some(slot)=g.slot(p.cache_key) else { e.cached=false; continue; };
                 glyph_parts(&run,lg,base,spans,&mut |clip,color| {
                     if keep {

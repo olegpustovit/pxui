@@ -54,15 +54,11 @@ nothing may reach outside this repository (no `../../..` paths past the root).
   overrides. Cached glyph slots require the same scale and live atlas shelves. Integral origin shifts
   may reuse the slots when the subpixel bins stay fixed. Plain masks can emit directly from those
   slots with the same coordinates and atlas usage as a fresh walk. Mutable node access invalidates
-  reused view and positioned-label node templates. The Apple raster's ppem-dependent horizontal
-  phase rule is shared by glyph placement and cache replay.
-  On Apple, atlas misses use CoreText grayscale coverage for supported outline faces; on macOS it is
-  drawn black on white with font smoothing on (native Mac text weight) and inverted, iOS has none. Keep the
-  shaped face id, physical size, weight and baseline-relative bearings. Native font sources share
-  the shaping bytes. Bound face, size and bitmap storage, and keep native work off atlas hits.
-  Colour glyphs and unsupported native masks use Swash.
-  The Apple kit pixel fixtures use the `_coretext` suffix. Keep the portable Swash fixtures for
-  the same 1×/2× scenes on other platforms.
+  reused view and positioned-label node templates. One raster everywhere: cosmic-text (swash)
+  coverage, unhinted, with the Apple-style ppem-dependent horizontal phases and rounded baselines on
+  every platform, shared by glyph placement and cache replay. No platform rasteriser (CoreText) and no
+  emulated font smoothing: pxui is cross-platform and draws the same pixels everywhere. One set of
+  pixel fixtures for all platforms.
   Positioned labels with a default pose and no transition use the same layout memo, culling and
   painted range as regular line-box labels. Theme swaps still run through the normal paint path.
   A focused search field shows its empty prompt until text or marked IME input arrives.

@@ -1457,8 +1457,7 @@ impl Ui {
     #[inline(always)]
     pub fn serial(&self) -> u32 { self.ui_serial }
 
-    pub fn create(platform: Platform, font_points: Option<f32>, mut text: Text) -> Ui {
-        text.set_apple_raster(platform == Platform::Apple);
+    pub fn create(platform: Platform, font_points: Option<f32>, text: Text) -> Ui {
         let font_points = font_points.unwrap_or(theme::FONT_SIZE as f32);
         let font_size = round_points(font_points);
         if !(font_points.is_finite() && font_points > 0.0) {
@@ -6414,7 +6413,7 @@ impl Paint {
             layer.instances.push(Instance { clip,view,..Instance::rect([origin.0+r.x,origin.1+r.y,origin.0+r.x+r.w,origin.1+r.y+r.h],fade(deco.color)) });
         };
         if decorated { t.decorations(key,false,&mut |deco|decoration(deco,layer)); }
-        let (mask_flags, light) = if t.apple_raster() {
+        let (mask_flags, light) = {
             let ppem = style.size * d;
             let key = [ppem.to_bits(), d.to_bits()];
             let [older, recent] = *glyph_light_memo;
@@ -6424,7 +6423,7 @@ impl Paint {
                 extra
             };
             (crate::draw::flags::mask::LIGHT, extra)
-        } else { (0, [0; 2]) };
+        };
         let glyph_paint = pxui_text::GlyphPaint { clip, view, color, opacity, mask_flags, light };
         t.draw_at_baseline(key, (left, baseline), self.density, glyph_paint, &mut layer.instances, &mut layer.breaks);
         if decorated { t.decorations(key,true,&mut |deco|decoration(deco,layer)); }

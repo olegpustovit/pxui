@@ -24,7 +24,7 @@ fn render(t: &mut Text, size: f32, scale: f32, white: bool, w: usize, h: usize) 
     let mut out = vec![bg as u8; w * h];
     // Light text as ui.frag does it (CPU mirror of the shader math; Apple raster only)
     let ppem = size * scale;
-    let extra = if white && t.apple_raster() { (0.0025 * ppem * 4.0).min((0.33 - 0.006 * ppem).max(0.0)) } else { 0.0 };
+    let extra = if white { (0.0025 * ppem * 4.0).min((0.33 - 0.006 * ppem).max(0.0)) } else { 0.0 };
     let vs = ((ppem - 16.0) * 0.25).clamp(0.0, 1.0);
     for g in quads {
         let (aw, ah) = t.atlas_size(g.atlas);
@@ -60,7 +60,7 @@ fn glyph_ref_mae() {
         ("gm", format!("{fonts_dir}/GeistMono.ttf")),
         ("ps", concat!(env!("CARGO_MANIFEST_DIR"), "/../../../assets/fonts/Pragmasevka-Regular.ttf").to_string()),
     ];
-    let mut tsv = String::from("font\tsize\tscale\tpolarity\tother\tapple\n");
+    let mut tsv = String::from("font\tsize\tscale\tpolarity\tmae\n");
     for (name, path) in faces {
         let bytes = std::fs::read(path).unwrap();
         for size in [11, 13, 15, 17, 20, 28] {
@@ -68,13 +68,10 @@ fn glyph_ref_mae() {
                 for pol in ["black", "white"] {
                     let Some((w, h, reference)) = pgm(&format!("{dir}/{name}-{size}-{scale}x-{pol}.pgm")) else { continue };
                     let mut row = format!("{name}\t{size}\t{scale}x\t{pol}");
-                    for apple in [false, true] {
-                        let mut t = Text::new(&[&bytes]);
-                        t.set_apple_raster(apple);
-                        let ours = render(&mut t, size as f32, scale as f32, pol == "white", w, h);
-                        let sum: u64 = ours.iter().zip(&reference).map(|(a, b)| a.abs_diff(*b) as u64).sum();
-                        row += &format!("\t{:.3}", sum as f64 / (w * h) as f64);
-                    }
+                    let mut t = Text::new(&[&bytes]);
+                    let ours = render(&mut t, size as f32, scale as f32, pol == "white", w, h);
+                    let sum: u64 = ours.iter().zip(&reference).map(|(a, b)| a.abs_diff(*b) as u64).sum();
+                    row += &format!("\t{:.3}", sum as f64 / (w * h) as f64);
                     println!("{row}");
                     tsv += &(row + "\n");
                 }

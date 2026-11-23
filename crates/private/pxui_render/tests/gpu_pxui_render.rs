@@ -1155,8 +1155,6 @@ fn shared_inline_spans_render_colors_background_and_rule() {
     finish(device,queue);
 }
 
-const TEXT_RASTER_SUFFIX: &str = if cfg!(target_vendor = "apple") { "_coretext" } else { "" };
-
 fn shared_ellipsis_modes_native_pixels_and_warm_draw() {
     let Some(device)=open() else { return };
     let queue=ok(be::create_queue(&device));
@@ -1192,7 +1190,7 @@ fn shared_ellipsis_modes_native_pixels_and_warm_draw() {
             assert_eq!((red,blue),expected,"end/middle/head retain the correct original endpoints");
         }
         if frame==6 {
-            let path=format!("{}/../../../fixtures/pxui_render/ellipsis{TEXT_RASTER_SUFFIX}_2x.png",env!("CARGO_MANIFEST_DIR"));
+            let path=format!("{}/../../../fixtures/pxui_render/ellipsis_2x.png",env!("CARGO_MANIFEST_DIR"));
             if std::env::var("RAYS_UPDATE_FIXTURES").as_deref()==Ok("1") { std::fs::write(&path,png::encode(640,320,&pixels)).unwrap(); }
             let (w,h,expected)=png::decode(&std::fs::read(&path).expect("ellipsis golden"));
             assert_eq!((w,h),(640,320));
@@ -1301,7 +1299,7 @@ fn shared_panel(owner_first: bool) -> Option<(Vec<u8>, u64)> {
 
 fn shared_device_matches_kit_panel() {
     let Some((pixels, _)) = shared_panel(false) else { return };
-    let golden = format!("{}/../../../fixtures/pxui_core/kit_panel{TEXT_RASTER_SUFFIX}_2x.png", env!("CARGO_MANIFEST_DIR"));
+    let golden = format!("{}/../../../fixtures/pxui_core/kit_panel_2x.png", env!("CARGO_MANIFEST_DIR"));
     let (w, h, expected) = png::decode(&std::fs::read(&golden).expect("kit panel golden"));
     assert_eq!((w, h), (640, 600));
     assert_eq!(pixels.len(), expected.len());

@@ -357,8 +357,9 @@ fn texels(t: &mut Text, g: &Glyph) -> Vec<u8> {
 /// ever samples a rewritten texel, and churned text keeps finding room.
 #[test]
 fn atlas_eviction_never_rewrites_texels_in_use() {
-    // Two 80-row pages retain the former single-page total capacity and eviction pressure.
-    let mut t = Text::new_sized(&[&pragma()], (128, 80), (16, 16));
+    // Two 88-row pages: about three frames' worth of the unhinted Apple-positioned masks every platform now draws (80 rows
+    // held three frames of the old hinted masks); the pressure stays (200+ evictions) and so does the miss bound.
+    let mut t = Text::new_sized(&[&pragma()], (128, 88), (16, 16));
     let style = |size: f32| Style { size, ..Style::default() };
     // kept output: emitted once, then shown each frame without emitting until a retirement asks
     t.layout(1, "kept", &style(13.0), 0.0);
@@ -672,9 +673,8 @@ fn selection_streams_caret_ranges_across_bidi_ligatures_crlf_and_wrapping_withou
     }
 }
 
-fn apple_glyphs(apple: bool, origin: (f32, f32), size: f32, walk: bool) -> (Vec<Glyph>, Vec<u8>) {
+fn apple_glyphs(origin: (f32, f32), size: f32, walk: bool) -> (Vec<Glyph>, Vec<u8>) {
     let mut t = Text::new(&[&pragma()]);
-    t.set_apple_raster(apple);
     t.set_glyph_cache(!walk);
     let st = Style { size, ..Style::default() };
     t.layout(1, "Hamburg ilfo", &st, f32::INFINITY);
@@ -687,25 +687,18 @@ fn apple_glyphs(apple: bool, origin: (f32, f32), size: f32, walk: bool) -> (Vec<
 
 #[test]
 fn apple_raster_is_quantised_and_replays_like_a_walk() {
-    // 13 pt at 2x is 26 ppem: halves of a pixel in x and whole pixels in y.
-    let (apple, apple_px) = apple_glyphs(true, (0.3, 0.2), 13.0, false);
-    let (other, other_px) = apple_glyphs(false, (0.3, 0.2), 13.0, false);
-    assert_eq!(apple.len(), other.len());
-    assert_ne!(apple_px, other_px, "Apple masks differ from the cosmic-text ones");
-    #[cfg(not(target_vendor = "apple"))]
-    assert!(apple.iter().zip(&other).any(|(a, o)| a.rect.w > o.rect.w), "Swash's Apple approximation dilates masks");
+    // Apple-style positioning on every platform (cosmic-text coverage, no native raster or emulated smoothing): 13 pt at 2x
+    // is 26 ppem, halves of a pixel in x and whole pixels in y
+    let (apple, _) = apple_glyphs((0.3, 0.2), 13.0, false);
+    assert!(!apple.is_empty() && apple.iter().all(|g| g.rect.w > 0.0));
     assert!(apple.iter().all(|g| g.rect.y.fract() == 0.0 && g.rect.x.fract() == 0.0));
-    let (walked, _) = apple_glyphs(true, (0.3, 0.2), 13.0, true);
+    let (walked, _) = apple_glyphs((0.3, 0.2), 13.0, true);
     assert_eq!(apple, walked, "replay and walk agree");
-    // other platforms keep the same pixels as before: unhinted-off, quarter bins, truncated y
-    let (a, _) = apple_glyphs(false, (0.0, 0.0), 13.0, false);
-    assert!(a.iter().all(|g| g.rect.w > 0.0));
 }
 
 #[test]
 fn apple_mask_at_30_ppem_has_two_horizontal_phases() {
     let mut text = Text::new(&[&pragma()]);
-    text.set_apple_raster(true);
     text.layout(1, "H", &Style { size: 15.0, ..Style::default() }, 0.0);
     let mut mask = |x| {
         let mut glyph = None;
@@ -729,7 +722,6 @@ fn apple_integral_origins_draw_the_same_quads_as_a_walk() {
     let draw = GlyphPaint { clip: [0, 1, 40, 60], view: 7, color: [1, 2, 3, 99], opacity: 1.0,
         mask_flags: flags::mask::LIGHT, light: Instance::light_extra(26.0, 2.0) };
     for text in [&mut cached, &mut walked] {
-        text.set_apple_raster(true);
         text.layout(1, "Hamburg ilfo", &Style { size: 13.0, ..Style::default() }, 0.0);
     }
     let mut actual = Vec::with_capacity(32);
@@ -764,7 +756,6 @@ fn apple_integral_origins_draw_the_same_quads_as_a_walk() {
 #[test]
 fn apple_raster_warm_frame_allocates_nothing() {
     let mut t = Text::new(&[&pragma()]);
-    t.set_apple_raster(true);
     let st = Style { size: 13.0, ..Style::default() };
     t.layout(1, "Warm frame text", &st, f32::INFINITY);
     t.glyphs(1, (1.3, 2.7), 2.0, &mut |_| {});
