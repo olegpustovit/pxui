@@ -28,4 +28,5 @@ mem_sys = { path = "../../open/mem_sys", features = ["counting"] }
 workspace = true
 
 [target.'cfg(target_os = "macos")'.dev-dependencies]
+metal_sys = { path = "../../open/metal_sys", features = ["test-util"] }
 pxui_sdl = { path = "../../open/pxui_sdl", features = ["test-util"] }

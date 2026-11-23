@@ -230,6 +230,23 @@ fn damage_list(damage: &pxui_types::damage::DamageList) -> PxuiDamageList {
     out
 }
 
+export!(pub unsafe fn pxui_ui_set_promotion(ui: *mut PxuiUi, enabled: u8) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if state.shared().in_frame { return unsafe { fail_code(ui, "promotion mode changes between frames", PXUI_ERR_STATE) }; }
+    if enabled > 1 { return unsafe { fail(ui, "invalid promotion mode") }; }
+    unsafe { &mut *state.engine }.set_promotion(enabled != 0);
+    0
+});
+
+export!(pub unsafe fn pxui_ui_promoted(ui: *mut PxuiUi, ptr: *mut *const pxui_types::ffi::PxuiPromoted, len: *mut usize) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if ptr.is_null() || len.is_null() { return unsafe { fail(ui, "null promotion output") }; }
+    if state.shared().in_frame { return unsafe { fail_code(ui, "promotion output is available between frames", PXUI_ERR_STATE) }; }
+    let runs = unsafe { &*state.engine }.output().promoted;
+    unsafe { ptr.write(runs.as_ptr()); len.write(runs.len()); }
+    0
+});
+
 export!(pub unsafe fn pxui_ui_damage_list(ui: *mut PxuiUi, out: *mut PxuiDamageList) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if out.is_null() { return unsafe { fail(ui, "null damage list output") }; }

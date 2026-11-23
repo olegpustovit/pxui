@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 11
+minor 12
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_remove_surface int32_t pxui_a11y_remove_surface ( PxuiA11y * a11y , uint64_t surface ) ;
@@ -33,6 +33,7 @@ function pxui_renderer_draw int32_t pxui_renderer_draw ( PxuiRenderer * renderer
 function pxui_renderer_draw_calls uint64_t pxui_renderer_draw_calls ( PxuiRenderer * renderer ) ;
 function pxui_renderer_draw_damage int32_t pxui_renderer_draw_damage ( PxuiRenderer * renderer , const PxuiPass * pass , uint32_t x , uint32_t y , uint32_t width , uint32_t height ) ;
 function pxui_renderer_draw_damage_rects int32_t pxui_renderer_draw_damage_rects ( PxuiRenderer * renderer , const PxuiPass * pass , const uint32_t * rects , uint32_t count ) ;
+function pxui_renderer_exclude_promoted int32_t pxui_renderer_exclude_promoted ( PxuiRenderer * renderer , uint8_t exclude ) ;
 function pxui_renderer_forget_image int32_t pxui_renderer_forget_image ( PxuiRenderer * renderer , const PxuiImage * image , uint64_t completed ) ;
 function pxui_renderer_prepare int32_t pxui_renderer_prepare ( PxuiRenderer * renderer , const PxuiCommands * commands , uint64_t frame , uint64_t completed ) ;
 function pxui_renderer_resize int32_t pxui_renderer_resize ( PxuiRenderer * renderer , uint32_t width , uint32_t height ) ;
@@ -148,6 +149,8 @@ function pxui_ui_platform uint32_t pxui_ui_platform ( PxuiUi * ui ) ;
 function pxui_ui_popup int32_t pxui_ui_popup ( PxuiUi * ui , const PxuiKeyedDesc * keyed , const PxuiPopupDesc * desc , PxuiBuild build , void * user , uint8_t * out , PxuiBox * root ) ;
 function pxui_ui_press_keys int32_t pxui_ui_press_keys ( PxuiUi * ui , const PxuiBox * box , const uint32_t * * ptr , size_t * len ) ;
 function pxui_ui_progress int32_t pxui_ui_progress ( PxuiUi * ui , const PxuiKeyedDesc * keyed , uint8_t has_value , float value , PxuiBox * out ) ;
+function pxui_ui_promote int32_t pxui_ui_promote ( PxuiUi * ui , const PxuiBox * box ) ;
+function pxui_ui_promoted int32_t pxui_ui_promoted ( PxuiUi * ui , const PxuiPromoted * * ptr , size_t * len ) ;
 function pxui_ui_rect int32_t pxui_ui_rect ( PxuiUi * ui , const PxuiBox * box , PxuiRect * out ) ;
 function pxui_ui_remember int32_t pxui_ui_remember ( PxuiUi * ui , int64_t key , PxuiStr text , uint64_t caret , uint64_t anchor , uint8_t typing ) ;
 function pxui_ui_remove_surface int32_t pxui_ui_remove_surface ( PxuiUi * ui , uint64_t surface ) ;
@@ -177,6 +180,7 @@ function pxui_ui_set_dir int32_t pxui_ui_set_dir ( PxuiUi * ui , uint32_t dir ) 
 function pxui_ui_set_font_points int32_t pxui_ui_set_font_points ( PxuiUi * ui , float points ) ;
 function pxui_ui_set_node_fields int32_t pxui_ui_set_node_fields ( PxuiUi * ui , const PxuiBox * box , const PxuiNodeFields * fields ) ;
 function pxui_ui_set_node_layout int32_t pxui_ui_set_node_layout ( PxuiUi * ui , const PxuiBox * box , const PxuiNode * node ) ;
+function pxui_ui_set_promotion int32_t pxui_ui_set_promotion ( PxuiUi * ui , uint8_t enabled ) ;
 function pxui_ui_set_role int32_t pxui_ui_set_role ( PxuiUi * ui , const PxuiBox * box , uint32_t role , uint32_t states ) ;
 function pxui_ui_set_scroll_offset int32_t pxui_ui_set_scroll_offset ( PxuiUi * ui , const PxuiBox * box , float value ) ;
 function pxui_ui_set_state int32_t pxui_ui_set_state ( PxuiUi * ui , const PxuiBox * box , int64_t value ) ;
@@ -327,6 +331,8 @@ layout PxuiPlacement 16 4 0 1 4 8 12
 layout PxuiPoint 8 4 0 4
 layout PxuiPopupDesc 48 8 0 4 5 6 7 8 12 16 20 24 28 32
 layout PxuiProgressConfig 72 8 0 4 8 16 48 64
+layout PxuiPromoted 432 8 0 4 8 10 11 12 14 16 24 32 36 40 56 72
+layout PxuiPromotedKey 40 4 0 4 20 24
 layout PxuiRange 16 8 0 8
 layout PxuiResponse 40 8 0 4 8
 layout PxuiRewrite 24 8 0 16

@@ -18,6 +18,7 @@ fn main() {
         let mut build = cc::Build::new();
         build.cpp(true).include(&native_dir)
             .flag("-std=c++17").flag("-fobjc-arc").flag("-fblocks").warnings(true);
+        if env::var_os("CARGO_FEATURE_TEST_UTIL").is_some() { build.define("PXUI_METAL_TEST_UTIL", None); }
         if os == "ios" { build.flag("-Werror=unguarded-availability-new"); }
         build.flags(build_config::compile_flags(&sanitizers));
         build.flags(build_config::profile_compile_flags(&env::var("PROFILE").unwrap_or_default()));

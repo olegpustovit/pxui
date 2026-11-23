@@ -50,6 +50,7 @@ pub struct PxuiRenderer {
     drawn: Option<(gpu_backend::Commands, gpu_backend::RenderEncoder)>,
     split_points: Vec<u32>,
     no_cull: bool,
+    exclude_promoted: bool,
     breaks: Vec<Break>,
     blur_commands: Option<gpu_backend::Commands>,
     blur_reuse: bool,
@@ -127,7 +128,7 @@ unsafe fn make(ui: &mut PxuiUi, gpu: pxui_types::Gpu, target: PxuiTargetDesc, mu
     };
     let blur_reuse=target.reserved_tail & PxuiTargetDesc::BACKDROP_UI_DAMAGE != 0
         && std::env::var_os("PXUI_NO_BLUR_REUSE").as_deref() != Some(std::ffi::OsStr::new("1"));
-    Ok(PxuiRenderer { painter, queue, device, textures:std::collections::HashMap::new(), blur_sources:std::collections::HashMap::new(), engine:ui.engine, shared:ui.shared, format, samples:i64::from(target.samples), frame_serial:0, view_revision:None, completed:0, atlas_initialized:[false;4], prepared:None, drawn:None, split_points:Vec::new(), breaks:Vec::new(), blur_commands:None, no_cull:std::env::var_os("PXUI_NO_CULL").as_deref()==Some(std::ffi::OsStr::new("1")), blur_reuse, blur_slots:0, blur_cache:Default::default() })
+    Ok(PxuiRenderer { painter, queue, device, textures:std::collections::HashMap::new(), blur_sources:std::collections::HashMap::new(), engine:ui.engine, shared:ui.shared, format, samples:i64::from(target.samples), frame_serial:0, view_revision:None, completed:0, atlas_initialized:[false;4], prepared:None, drawn:None, split_points:Vec::new(), breaks:Vec::with_capacity(33), blur_commands:None, exclude_promoted:false, no_cull:std::env::var_os("PXUI_NO_CULL").as_deref()==Some(std::ffi::OsStr::new("1")), blur_reuse, blur_slots:0, blur_cache:Default::default() })
 }
 
 export!(bare pub unsafe fn pxui_renderer_create(ui:*mut PxuiUi, gpu:*const pxui_types::Gpu, target:*const PxuiTargetDesc, out:*mut *mut PxuiRenderer) -> i32 {
@@ -318,6 +319,12 @@ mod image_binding_tests {
     }
 }
 
+export!(pub unsafe fn pxui_renderer_exclude_promoted(renderer:*mut PxuiRenderer, exclude:u8) -> i32 {
+    if renderer.is_null() || exclude > 1 { return PXUI_ERR_ARGUMENT; }
+    unsafe { (*renderer).exclude_promoted = exclude != 0; }
+    0
+});
+
 // Draws layers `pass.first_layer..` (`pass.layer_count` of them, 0 for all) of the last frame into the app's open pass. A layer
 // with a backdrop blur asks the app to end the pass (`pass.split`), records the blur and goes on in the pass the app reopens.
 export!(pub unsafe fn pxui_renderer_draw(renderer:*mut PxuiRenderer, pass:*const pxui_types::Pass) -> i32 {
@@ -341,6 +348,7 @@ unsafe fn draw(renderer:*mut PxuiRenderer, pass:*const pxui_types::Pass, scissor
     const NEED_SPLIT: &str = "a layer with a backdrop blur needs the pass's split callback";
     if renderer.is_null() { return PXUI_ERR_ARGUMENT; }
     let renderer=unsafe { &mut *renderer };
+    if pass.is_null() { return renderer.fail(PXUI_ERR_ARGUMENT, "invalid pass descriptor"); }
     let Some(pass)=read_desc!(pass, pxui_types::Pass) else { return renderer.fail(PXUI_ERR_ARGUMENT, "invalid pass descriptor") };
     if pass.width_px==0 || pass.height_px==0 || !pass.scale.is_finite() || pass.scale<=0.0 { return renderer.fail(PXUI_ERR_ARGUMENT, "invalid pass descriptor"); }
     if scissors.iter().any(|&[x,y,w,h]| w==0 || h==0 || u64::from(x)+u64::from(w)>u64::from(pass.width_px) || u64::from(y)+u64::from(h)>u64::from(pass.height_px)) {
@@ -412,6 +420,8 @@ unsafe fn draw(renderer:*mut PxuiRenderer, pass:*const pxui_types::Pass, scissor
         // the texture the batch's last segment samples is the colour atlas
         let mut atlas_last=true;
         let mut offset=0u32;
+        let mut excluded = [0; 16];
+        let mut excluded_len = 0;
         for (part,index) in (index..batch_end).enumerate() {
             let layer=&ui.output().draw[index];
             parts[part]=(layer.id,&layer.instances,&layer.dirty);
@@ -444,10 +454,20 @@ unsafe fn draw(renderer:*mut PxuiRenderer, pass:*const pxui_types::Pass, scissor
                 atlas_last=texture.is_none();
                 renderer.breaks.push(Break { at_instance:offset+b.at_instance, texture });
             }
+            if renderer.exclude_promoted {
+                for run in ui.output().promoted.iter().filter(|run| run.layer as usize == index) {
+                    excluded[excluded_len] = offset + run.instance;
+                    excluded_len += 1;
+                }
+            }
             offset+=layer.instances.len() as u32;
         }
         let parts=&parts[..batch_end-index];
-        for &at in &renderer.split_points {
+        let excluded = &excluded[..excluded_len];
+        if !excluded.is_empty() {
+            renderer.breaks.reserve(excluded.len() * 2);
+        }
+        for at in renderer.split_points.iter().copied().chain(excluded.iter().flat_map(|&at| [at, at+1])) {
             let i=renderer.breaks.partition_point(|b| b.at_instance<at);
             if i==renderer.breaks.len() || renderer.breaks[i].at_instance!=at {
                 let texture=i.checked_sub(1).and_then(|j| renderer.breaks[j].texture.clone());
@@ -458,7 +478,7 @@ unsafe fn draw(renderer:*mut PxuiRenderer, pass:*const pxui_types::Pass, scissor
         let mut missing_split=false;
         let result=if renderer.split_points.is_empty() {
             let selected=cull.then(|| (scissors, &ui.output().draw[index..batch_end]));
-            renderer.painter.draw_retained_split(&encoder,size_px,pass.scale,parts,breaks,&[],selected,damage,&mut |_,_| Ok(None))
+            renderer.painter.draw_retained_split(&encoder,size_px,pass.scale,parts,breaks,&[],excluded,selected,damage,&mut |_,_| Ok(None))
         } else {
             if pass.split.is_none() && !reuse {
                 renderer.breaks.clear();
@@ -468,7 +488,7 @@ unsafe fn draw(renderer:*mut PxuiRenderer, pass:*const pxui_types::Pass, scissor
             let (native_commands,scale)=([pass.vk_command_buffer,pass.mtl_command_buffer],pass.scale);
             let mut reopened: Option<ogpu_core::backend::RenderEncoder>=None;
             let current=encoder.clone();
-            let outcome=renderer.painter.draw_retained_split(&current,size_px,scale,parts,breaks,&renderer.split_points,None,damage,&mut |painter,at| {
+            let outcome=renderer.painter.draw_retained_split(&current,size_px,scale,parts,breaks,&renderer.split_points,excluded,None,damage,&mut |painter,at| {
                 let mut latest=None;
                 for (slot,b) in ui.output().blurs.iter().enumerate().filter(|(_,b)|b.layer==index && b.at_instance==at) {
                     let [w,h]=size_px;

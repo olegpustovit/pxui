@@ -249,6 +249,54 @@ pub struct PxuiDamageList {
     pub rects: [[f32; 4]; 8],
 }
 
+/// One geometry and opacity stop in a compositor animation.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct PxuiPromotedKey {
+    /// Seconds from the beginning of the forward leg.
+    pub time: f32,
+    /// Window rectangle in points as `[x, y, width, height]`.
+    pub rect: [f32; 4],
+    /// Composed opacity, from zero to one.
+    pub opacity: f32,
+    /// Bézier control points for the segment ending at this stop.
+    pub curve: [f32; 4],
+}
+
+/// A retained view the host can composite above its canvas.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct PxuiPromoted {
+    /// Canvas layer ordinal.
+    pub layer: u32,
+    /// Ordinal of the excluded instance in the layer.
+    pub instance: u32,
+    /// Stable view-table index for this run.
+    pub view: u16,
+    /// Number of used keys. One key means static content.
+    pub count: u8,
+    /// Nonzero when the loop alternates forward and reverse.
+    pub autoreverse: u8,
+    /// Ambient refresh rate, or zero for the display rate.
+    pub hz: u16,
+    /// Reserved for the ABI, written as zero.
+    pub reserved: u16,
+    /// Changes when the retained content is repainted.
+    pub content_revision: u64,
+    /// Start of the run in the UI clock's seconds.
+    pub start: f64,
+    /// Phase into the first cycle, in seconds.
+    pub offset: f32,
+    /// Fill color as straight RGBA bytes.
+    pub color: [u8; 4],
+    /// Cover of every displayed pose, in window points.
+    pub swept: [f32; 4],
+    /// Fixed window-space clip in points as `[x, y, width, height]`.
+    pub clip: [f32; 4],
+    /// The initial pose and subsequent endpoints in ascending time order.
+    pub keys: [PxuiPromotedKey; 9],
+}
+
 /// Tagged value exposed to assistive technology.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
@@ -3253,6 +3301,28 @@ pub(crate) mod layout {
         check("Strided", size_of::<Strided<u32>>(), align_of::<Strided<u32>>(), &[("ptr", core::mem::offset_of!(Strided<u32>, ptr)), ("len", core::mem::offset_of!(Strided<u32>, len)), ("stride", core::mem::offset_of!(Strided<u32>, stride))]);
         check("Input", size_of::<Input>(), align_of::<Input>(), &[("size", core::mem::offset_of!(Input, size)), ("time", core::mem::offset_of!(Input, time)), ("dt", core::mem::offset_of!(Input, dt)), ("frame", core::mem::offset_of!(Input, frame)), ("tick", core::mem::offset_of!(Input, tick)), ("logical_size", core::mem::offset_of!(Input, logical_size)), ("pointer", core::mem::offset_of!(Input, pointer)), ("keys", core::mem::offset_of!(Input, keys)), ("buttons", core::mem::offset_of!(Input, buttons)), ("events", core::mem::offset_of!(Input, events)), ("pixel_scale", core::mem::offset_of!(Input, pixel_scale)), ("mouse_delta", core::mem::offset_of!(Input, mouse_delta)), ("fps", core::mem::offset_of!(Input, fps))]);
         check("PlatformOut", size_of::<PlatformOut>(), align_of::<PlatformOut>(), &[("size", core::mem::offset_of!(PlatformOut, size)), ("cursor", core::mem::offset_of!(PlatformOut, cursor)), ("has_cursor", core::mem::offset_of!(PlatformOut, has_cursor)), ("has_ime", core::mem::offset_of!(PlatformOut, has_ime)), ("has_background", core::mem::offset_of!(PlatformOut, has_background)), ("has_clipboard", core::mem::offset_of!(PlatformOut, has_clipboard)), ("ime_rect", core::mem::offset_of!(PlatformOut, ime_rect)), ("ime_caret", core::mem::offset_of!(PlatformOut, ime_caret)), ("clipboard", core::mem::offset_of!(PlatformOut, clipboard)), ("background", core::mem::offset_of!(PlatformOut, background)), ("paste", core::mem::offset_of!(PlatformOut, paste)), ("reserved", core::mem::offset_of!(PlatformOut, reserved))]);
+        check("PxuiPromotedKey", size_of::<PxuiPromotedKey>(), align_of::<PxuiPromotedKey>(), &[
+            ("time", core::mem::offset_of!(PxuiPromotedKey, time)),
+            ("rect", core::mem::offset_of!(PxuiPromotedKey, rect)),
+            ("opacity", core::mem::offset_of!(PxuiPromotedKey, opacity)),
+            ("curve", core::mem::offset_of!(PxuiPromotedKey, curve)),
+        ]);
+        check("PxuiPromoted", size_of::<PxuiPromoted>(), align_of::<PxuiPromoted>(), &[
+            ("layer", core::mem::offset_of!(PxuiPromoted, layer)),
+            ("instance", core::mem::offset_of!(PxuiPromoted, instance)),
+            ("view", core::mem::offset_of!(PxuiPromoted, view)),
+            ("count", core::mem::offset_of!(PxuiPromoted, count)),
+            ("autoreverse", core::mem::offset_of!(PxuiPromoted, autoreverse)),
+            ("hz", core::mem::offset_of!(PxuiPromoted, hz)),
+            ("reserved", core::mem::offset_of!(PxuiPromoted, reserved)),
+            ("content_revision", core::mem::offset_of!(PxuiPromoted, content_revision)),
+            ("start", core::mem::offset_of!(PxuiPromoted, start)),
+            ("offset", core::mem::offset_of!(PxuiPromoted, offset)),
+            ("color", core::mem::offset_of!(PxuiPromoted, color)),
+            ("swept", core::mem::offset_of!(PxuiPromoted, swept)),
+            ("clip", core::mem::offset_of!(PxuiPromoted, clip)),
+            ("keys", core::mem::offset_of!(PxuiPromoted, keys)),
+        ]);
         check("PxuiDamageList", size_of::<PxuiDamageList>(), align_of::<PxuiDamageList>(), &[("count", core::mem::offset_of!(PxuiDamageList, count)), ("full", core::mem::offset_of!(PxuiDamageList, full)), ("reserved", core::mem::offset_of!(PxuiDamageList, reserved)), ("rects", core::mem::offset_of!(PxuiDamageList, rects))]);
         check("Damage", size_of::<Damage>(), align_of::<Damage>(), &[("has_damage", core::mem::offset_of!(Damage, has_damage)), ("reserved", core::mem::offset_of!(Damage, reserved)), ("rect", core::mem::offset_of!(Damage, rect))]);
         check("A11yValue", size_of::<A11yValue>(), align_of::<A11yValue>(), &[("tag", core::mem::offset_of!(A11yValue, tag)), ("text_start", core::mem::offset_of!(A11yValue, text_start)), ("text_end", core::mem::offset_of!(A11yValue, text_end)), ("reserved", core::mem::offset_of!(A11yValue, reserved)), ("now", core::mem::offset_of!(A11yValue, now)), ("min", core::mem::offset_of!(A11yValue, min)), ("max", core::mem::offset_of!(A11yValue, max)), ("step", core::mem::offset_of!(A11yValue, step))]);

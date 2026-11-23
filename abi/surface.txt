@@ -34,6 +34,7 @@ Paint|theme|Rays|inlined
 Renderer|draw|Gallery,Rays|done: layers first_layer.. of Pass, split callback for a backdrop blur
 Renderer|draw_damage|LocalWave|done: cull retained geometry against the host scissor
 Renderer|draw_damage_rects|LocalWave|done: select geometry once and replay under the damage scissors
+Renderer|exclude_promoted|LocalWave|done: pxui_renderer_exclude_promoted
 Renderer|new_with_target_record|LocalWave|done: ABI 2.10 allows completed backdrop reuse with PxuiTargetDesc::BACKDROP_UI_DAMAGE
 Renderer|resize|LocalWave|done: prepare blur targets before frame recording
 Ui|a11y_name_of|Rays|done: the name text of one of them
@@ -220,3 +221,6 @@ Ui|a11y_value_of|LocalWave|done: borrowed text value from a current accessibilit
 Paint|triangle|LocalWave|done: one analytic instance through the shape span
 Ui|frame_reasons|LocalWave|done: pxui_ui_frame_reasons
 Ui|damage_list|LocalWave|done: pxui_ui_damage_list
+Ui|promote|LocalWave|done: pxui_ui_promote
+Ui|promoted|LocalWave|done: pxui_ui_promoted
+Ui|set_promotion|LocalWave|done: pxui_ui_set_promotion

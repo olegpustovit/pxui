@@ -447,12 +447,36 @@ fn gpu_cull_preserves_texture_breaks() {
         let before = painter.draw_calls();
         pass(&queue, &target, &mut |encoder| {
             ok(be::set_scissor(encoder, ogpu_core::render_pass::Rect { x: i64::from(10 * SCALE), y: i64::from(10 * SCALE), width: i64::from(10 * SCALE), height: i64::from(10 * SCALE) }));
-            ok(painter.draw_retained_split(encoder, size, SCALE as f32, &[(0, &instances, &[])], &breaks, &[], clip, None, &mut |_, _| Ok(None)));
+            ok(painter.draw_retained_split(encoder, size, SCALE as f32, &[(0, &instances, &[])], &breaks, &[], &[], clip, None, &mut |_, _| Ok(None)));
         });
         assert_eq!(painter.draw_calls() - before, 3);
         ok(be::read_texture(&target, i64::from(size[0]) * 4))
     };
-    assert_eq!(draw(&mut painter, None), draw(&mut painter, Some(input)));
+    let without_exclusions = draw(&mut painter, None);
+    assert_eq!(without_exclusions, draw(&mut painter, Some(input)));
+
+    // The excluded run is selected by culling and followed by ordinary canvas content.
+    let excluded_breaks = [
+        Break { at_instance: 1, texture: None },
+        Break { at_instance: 2, texture: None },
+        breaks[0].clone(), breaks[1].clone(),
+    ];
+    let scissors = [[10 * SCALE; 4], [30 * SCALE, 30 * SCALE, SCALE, SCALE]];
+    let damage = pxui_render::DamageClip::new(&scissors);
+    painter.begin_frame();
+    let before = painter.draw_calls();
+    pass(&queue, &target, &mut |encoder| {
+        ok(painter.draw_retained_split(encoder, size, SCALE as f32, &[(0, &instances, &[])],
+            &excluded_breaks, &[], &[1], Some((&scissors, std::slice::from_ref(&layer))), Some(&damage),
+            &mut |_, _| Ok(None)));
+    });
+    assert_eq!(painter.draw_calls() - before, 2, "only the selected canvas instances draw");
+    let pixels = ok(be::read_texture(&target, i64::from(size[0]) * 4));
+    let red = ((11 * SCALE * size[0] + 11 * SCALE) * 4) as usize;
+    assert_ne!(without_exclusions[red..red + 4], BG);
+    assert_eq!(pixels[red..red + 4], BG);
+    let green = ((16 * SCALE * size[0] + 16 * SCALE) * 4) as usize;
+    assert_eq!(pixels[green..green + 4], without_exclusions[green..green + 4]);
     ok(be::destroy_texture(&target));
     ok(be::destroy_texture(&texture));
     drop(painter);
@@ -490,7 +514,7 @@ fn gpu_warm_frame_allocates_nothing() {
         ok(painter.draw(&encoder, [W * SCALE, H * SCALE], SCALE as f32, &instances, &[]));
         let damage = pxui_render::DamageClip::new(&scissors);
         ok(painter.draw_retained_split(&encoder, [W * SCALE, H * SCALE], SCALE as f32,
-            &[(0, &instances, &[])], &[], &[], Some(input), Some(&damage), &mut |_, _| Ok(None)));
+            &[(0, &instances, &[])], &[], &[], &[], Some(input), Some(&damage), &mut |_, _| Ok(None)));
         if frame == 3 { allocations = mem_sys::local_alloc_count(); }
         ok(be::end_render(&encoder));
         ok(be::complete_through(&queue, ok(be::commit(&commands)).epoch));
@@ -735,7 +759,7 @@ fn gpu_retained_layer_writes_only_dirty_ranges() {
         let mut splits = 0;
         pass(&queue, &target, &mut |encoder| {
             mem_sys::local_reset();
-            ok(painter.draw_retained_split(encoder, size, SCALE as f32, &[(0, &instances[..], &dirty[..])], &breaks, &[2, 14], None, None, &mut |_, _| {
+            ok(painter.draw_retained_split(encoder, size, SCALE as f32, &[(0, &instances[..], &dirty[..])], &breaks, &[2, 14], &[], None, None, &mut |_, _| {
                 splits += 1;
                 ok(be::invalidate_state(encoder));
                 Ok(None)

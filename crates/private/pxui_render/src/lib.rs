@@ -782,7 +782,7 @@ impl Painter {
     /// retired until its frames finish. Each segment after a [`Break`] gets its own globals record in the
     /// ring because storage bindings need 256-byte offsets (see [`Painter::retained_bytes`]).
     pub fn draw_retained(&mut self, pass: &RenderEncoder, size_px: [u32; 2], scale: f32, layer: u32, instances: &[Instance], dirty: &[(u32, u32)], breaks: &[Break]) -> Result<(), Error> {
-        self.draw_retained_split(pass, size_px, scale, &[(layer, instances, dirty)], breaks, &[], None, None, &mut |_, _| Ok(None))
+        self.draw_retained_split(pass, size_px, scale, &[(layer, instances, dirty)], breaks, &[], &[], None, None, &mut |_, _| Ok(None))
     }
 
     /// [`Painter::draw_retained`] for consecutive layers (`parts`: each one's index, instances and dirty ranges) drawn in order as one batch from the first part's storage, with
@@ -792,7 +792,7 @@ impl Painter {
     /// `at_instance`; one at the end is ignored) it stops where the caller must end the pass and calls `split(self, at)`. The
     /// callback may record other passes and returns the pass the rest draws into, or `None` to go on in the same one.
     /// `cull` supplies the encoder's active pixel scissor and the same layers as `parts`, in order.
-    pub fn draw_retained_split(&mut self, pass: &RenderEncoder, size_px: [u32; 2], scale: f32, parts: &[(u32, &[Instance], &[(u32, u32)])], breaks: &[Break], splits: &[u32], cull: Option<(&[[u32; 4]], &[Layer])>, damage: Option<&DamageClip>, split: &mut dyn FnMut(&mut Painter, u32) -> Result<Option<RenderEncoder>, Error>) -> Result<(), Error> {
+    pub fn draw_retained_split(&mut self, pass: &RenderEncoder, size_px: [u32; 2], scale: f32, parts: &[(u32, &[Instance], &[(u32, u32)])], breaks: &[Break], splits: &[u32], excluded: &[u32], cull: Option<(&[[u32; 4]], &[Layer])>, damage: Option<&DamageClip>, split: &mut dyn FnMut(&mut Painter, u32) -> Result<Option<RenderEncoder>, Error>) -> Result<(), Error> {
         const OP: &str = "Painter.draw_retained";
         let mut pass = pass.clone();
         if !(scale > 0.0) || size_px[0] == 0 || size_px[1] == 0 { return Err(invalid(OP, "target size and scale must be positive")); }
@@ -906,6 +906,7 @@ impl Painter {
             if end_range > first_range && self.cull_ranges[end_range - 1].1 as usize > segment_to {
                 next -= 1;
             }
+            if segment_to == segment_from + 1 && excluded.binary_search(&(segment_from as u32)).is_ok() { continue; }
             for rect in 0..damage.map_or(1, DamageClip::len) {
                 let clips = damage.map(|damage| damage.rect(rect));
                 if clips.is_some_and(|clips| clips.is_empty()) { continue; }

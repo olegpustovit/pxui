@@ -14,7 +14,7 @@ fn partial_equals_full() {
 
     let mut window = Window::open_with("PXUI render oracle", i64::from(width(0)), i64::from(HEIGHT), false, true, false).unwrap();
     let mut ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
-    let mut graphics = Graphics::open(&mut window, &ui).unwrap();
+    let mut graphics = Graphics::open(&mut window, &mut ui).unwrap();
     let theme = pxui::ThemeHandle::parse("tokens.panel = #284557").unwrap();
     let mut previous = Vec::new();
     let mut saw_partial = false;
@@ -42,6 +42,164 @@ fn partial_equals_full() {
     window.destroy().unwrap();
 }
 
+
+#[cfg(target_os = "macos")]
+fn promotion_yields_to_a_popover_and_captures_in_app() {
+    use crate::{Graphics, Window};
+    use pxui::{Fill, FrameIn, Keyframes, Node, Repeat, Rgba, ThemeHandle, Ui, ui::{Curve, Keyframe}};
+    use pxui::ui::Overlay;
+    use pxui::geom::Point;
+    let mut window = Window::open_with("PXUI promoted view", 160, 100, false, true, false).unwrap();
+    let mut ui = Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
+    ui.set_theme(&ThemeHandle::parse("tokens.panel = #000000").unwrap()).unwrap();
+    let mut graphics = Graphics::open(&mut window, &mut ui).unwrap();
+    graphics.set_no_layers(&mut ui, false);
+    let build = |ui: &mut Ui, time, start, popup| {
+        ui.frame(&FrameIn::new(160.0, 100.0).time(time), &mut |ui| {
+            if popup {
+                let overlay = Overlay::DEFAULT.at(Point::new(0.0, 0.0)).w_px(40.0).h_px(40.0);
+                assert!(ui.popup("overlap", &overlay, |ui| {
+                    let target = ui.node("opaque", Node::column().w_px(30.0).h_px(30.0));
+                    ui.canvas(&target, |paint, rect| paint.fill(rect, Fill::new(Rgba::rgb(240, 0, 0))));
+                }).open);
+            }
+            ui.column(Node::column().w_px(2.0).h_px(11.0).at(8.0, 8.0), |ui| {
+                let view = ui.view_of("bar", &0, |ui| {
+                    let shape = ui.node("fill", Node::column().w_px(2.0).h_px(11.0));
+                    ui.canvas(&shape, |paint, rect| {
+                        paint.fill(rect, Fill::new(Rgba::rgb(255, 255, 255)).fractional());
+                    });
+                });
+                if start {
+                    let curve = Curve::Bezier { duration: 0.45, points: [0.42, 0.0, 0.58, 1.0] };
+                    let keys = [
+                        Keyframe::scale(0.0, 1.0, 0.4).anchor(0.0, 1.0).curve(curve),
+                        Keyframe::scale(0.45, 1.0, 1.0).anchor(0.0, 1.0).curve(curve),
+                    ];
+                    ui.animate_keys(&view, &keys, &Keyframes::DEFAULT.repeat(Repeat::Forever).autoreverse());
+                }
+            });
+
+        }).unwrap();
+    };
+    build(&mut ui, 0.0, true, false);
+    assert_eq!(ui.promoted().len(), 1);
+    assert_eq!(ui.promoted()[0].swept, [8.0, 8.0, 2.0, 11.0]);
+    assert!(ui.repaint_at().is_none(), "the compositor runs the only animation");
+    assert!(graphics.draw(&mut window, &ui, None).unwrap());
+    assert!(ui.step(0.2));
+    assert_eq!(ui.damage_list().count, 0, "an animation pose alone leaves the canvas clean");
+    assert!(!graphics.draw(&mut window, &ui, None).unwrap());
+    let (_, _, captured) = graphics.screenshot(&mut window, &ui).unwrap();
+    assert_eq!(captured[(17*160+8)*4], 255, "capture encodes the indicator in-app");
+    assert!(graphics.draw(&mut window, &ui, None).unwrap(), "restore normal composition after capture");
+    build(&mut ui, 0.21, false, true);
+    assert!(ui.promoted().is_empty(), "later popup content demotes the indicator immediately: {:?}",
+        ui.layers().map(|layer| (layer.key, layer.instances)).collect::<Vec<_>>());
+    assert!(ui.damage_list().count != 0);
+    assert!(ui.repaint_at().is_some(), "the demoted loop resumes in-app scheduling");
+    let (_, _, partial) = graphics.capture_frame(&mut window, &ui, false).unwrap();
+    let (_, _, full) = graphics.screenshot(&mut window, &ui).unwrap();
+    assert_eq!(partial, full, "demotion and popover compose the same pixels as a full draw");
+    graphics.set_no_layers(&mut ui, true);
+    build(&mut ui, 0.4, false, false);
+    assert!(ui.promoted().is_empty());
+    assert!(ui.repaint_at().is_some());
+    graphics.close().unwrap();
+    window.destroy().unwrap();
+}
+
+#[cfg(target_os = "macos")]
+fn vector_parity(density: u32) {
+    use crate::{Graphics, Window};
+    use pxui::{Fill, FrameIn, Keyframes, Node, Rate, Repeat, Rgba, ThemeHandle, Ui, ui::{Curve, Keyframe}};
+    let mut window = Window::open_with("PXUI compositor parity", 32, 24, false, true, false).unwrap();
+    let mut ui = Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
+    ui.set_theme(&ThemeHandle::parse("tokens.panel = #221936").unwrap()).unwrap();
+    let mut graphics = Graphics::open(&mut window, &mut ui).unwrap();
+    graphics.set_no_layers(&mut ui, false);
+    let curve = Curve::Bezier { duration: 0.45, points: [0.42, 0.0, 0.58, 1.0] };
+    ui.frame(&FrameIn::new(32.0, 24.0).scale(density as f32), &mut |ui| {
+        for (name, x, y, offset, color) in [
+            ("first", 4.0, 4.0, 0.0, Rgba::rgb(255, 255, 255)),
+            ("second", 8.0, 4.1, 0.3, Rgba::rgb(208, 155, 231)),
+            ("third", 12.0, 4.35, 0.6, Rgba::rgb(55, 221, 70)),
+            ("translucent", 16.0, 4.65, 0.2, Rgba::rgba(224, 211, 70, 160)),
+        ] {
+            ui.column(Node::column().w_px(2.0).h_px(11.0).at(x, y), |ui| {
+                let view = ui.view_of(name, &0, |ui| {
+                    let shape = ui.node("rect", Node::column().w_px(2.0).h_px(11.0));
+                    ui.canvas(&shape, move |paint, rect| paint.fill(rect, Fill::new(color).fractional()));
+                });
+                let alpha = if color.a == 255 { [1.0; 2] } else { [0.2, 0.85] };
+                let keys = [
+                    Keyframe::scale(0.0, 1.0, 0.4).anchor(0.5, 1.0).curve(curve),
+                    Keyframe::opacity(0.0, alpha[0]).curve(curve),
+                    Keyframe::scale(0.45, 1.0, 1.0).anchor(0.5, 1.0).curve(curve),
+                    Keyframe::opacity(0.45, alpha[1]).curve(curve),
+                ];
+                ui.animate_keys(&view, &keys, &Keyframes::DEFAULT.repeat(Repeat::Forever)
+                    .autoreverse().offset(offset).rate(Rate::Ambient(20)));
+            });
+        }
+    }).unwrap();
+    assert_eq!(ui.promoted().len(), 4, "{:?}", ui.promoted());
+    let times: [f64; 200] = std::array::from_fn(|i| i as f64 * 0.9 / 200.0);
+    let size = [32 * density, 24 * density];
+    let composited = graphics.test_layers(&ui, size, density, &times);
+    let mut canvas = vec![0; size[0] as usize * size[1] as usize * 4];
+    let mut maximum = 0;
+    for (time, sample) in times.iter().zip(composited.chunks_exact(canvas.len())) {
+        assert!(ui.step(*time));
+        graphics.test_read_canvas(&ui, size, density, false, &[], &mut canvas);
+        let (at, diff) = sample.iter().zip(&canvas).enumerate()
+            .map(|(at, (a, b))| (at, a.abs_diff(*b))).max_by_key(|&(_, diff)| diff).unwrap();
+        assert!(diff <= 2, "{density}x at {time:.4}s byte {at}: canvas {} compositor {}, delta {diff}", canvas[at], sample[at]);
+        maximum = maximum.max(diff);
+    }
+    let bg = ui.theme().tokens.panel;
+    let damage = [[3 * density, 3 * density, 8 * density, 14 * density],
+                  [11 * density, 3 * density, 8 * density, 14 * density]];
+    for rects in [&[][..], &damage[..]] {
+        graphics.test_read_canvas(&ui, size, density, true, rects, &mut canvas);
+        assert!(canvas.chunks_exact(4).all(|pixel| pixel == [bg.b, bg.g, bg.r, 255]),
+            "promoted instances must be absent from the canvas for damage {rects:?}");
+    }
+    eprintln!("vector parity {density}x: 200 samples, maximum {maximum}/channel");
+    graphics.close().unwrap();
+    window.destroy().unwrap();
+}
+
+#[cfg(target_os = "macos")]
+fn vector_parity_1x() { vector_parity(1); }
+
+#[cfg(target_os = "macos")]
+fn vector_parity_2x() { vector_parity(2); }
+
+#[cfg(target_os = "macos")]
+fn explicit_promotion_rejects_overlapping_fills() {
+    use pxui::{Fill, FrameIn, Node, Rgba, Ui, ui::ViewTransform};
+    let mut ui = Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
+    ui.set_promotion(true);
+    for copies in [1, 2] {
+        ui.frame(&FrameIn::new(32.0, 24.0).time(f64::from(copies)), &mut |ui| {
+            ui.column(Node::column().w_px(8.0).h_px(8.0), |ui| {
+                let view = ui.view_of("hint", &copies, |ui| {
+                    let shape = ui.node("fill", Node::column().w_px(8.0).h_px(8.0));
+                    ui.canvas(&shape, move |paint, rect| {
+                        for _ in 0..copies {
+                            paint.fill(rect, Fill::new(Rgba::rgb(255, 255, 255)).fractional());
+                        }
+                    });
+                });
+                ui.set_view(&view, &ViewTransform::DEFAULT.opacity(0.5));
+                ui.promote(&view).unwrap();
+            });
+        }).unwrap();
+        assert_eq!(ui.promoted().len(), usize::from(copies == 1));
+    }
+}
+
 #[cfg(target_os = "macos")]
 fn occluded_window_skips_gpu_and_redraws_on_exposure() {
     use crate::{Graphics, Window};
@@ -62,7 +220,7 @@ fn occluded_window_skips_gpu_and_redraws_on_exposure() {
     wait_for(&mut window, &mut events, true);
     let mut ui = Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
     ui.frame(&FrameIn::new(200.0, 140.0).scale(window.scale() as f32), &mut |_| {}).unwrap();
-    let mut graphics = Graphics::open(&mut window, &ui).unwrap();
+    let mut graphics = Graphics::open(&mut window, &mut ui).unwrap();
     assert!(graphics.draw(&mut window, &ui, None).unwrap());
     for index in 0..ui.layers().count() { ui.drawn(index); }
     assert!(!graphics.draw(&mut window, &ui, None).unwrap());
@@ -99,7 +257,7 @@ fn framework_host_uploads_exact_rgba_reuses_warm_frames_and_fences_texture_relea
     let mut window =
         Window::open_with("PXUI resource lifecycle", 320, 240, false, true, true).unwrap();
     let mut ui = Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
-    let mut graphics = Graphics::open(&mut window, &ui).unwrap();
+    let mut graphics = Graphics::open(&mut window, &mut ui).unwrap();
     graphics.configure_images(1.0, 64).unwrap();
     graphics.sync_images(1).unwrap();
     let epoch = graphics.images().epoch();
@@ -210,7 +368,7 @@ fn framework_host_screenshot_returns_presented_rgba_and_keeps_warm_draws_allocat
     mem_sys::set_peer(pxui::library_counter);
     let mut window = Window::open_with("PXUI screenshot", 320, 240, false, true, true).unwrap();
     let mut ui = Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
-    let mut graphics = Graphics::open(&mut window, &ui).unwrap();
+    let mut graphics = Graphics::open(&mut window, &mut ui).unwrap();
     let scale = window.scale();
     let build = |ui: &mut Ui, time: f64, green: u8| {
         ui.frame(&FrameIn::new(320.0, 240.0).scale(scale as f32).time(time), &mut |ui| {
@@ -248,7 +406,7 @@ fn framework_host_damage_redraws_only_the_change_and_keeps_the_rest() {
     use crate::{Graphics, Window};
     let mut window = Window::open_with("PXUI damage", 320, 240, false, true, true).unwrap();
     let mut ui = Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
-    let mut graphics = Graphics::open(&mut window, &ui).unwrap();
+    let mut graphics = Graphics::open(&mut window, &mut ui).unwrap();
     let scale = window.scale();
     let build = |ui: &mut Ui, time: f64, left: Rgba, right: Option<Rgba>| {
         ui.frame(&FrameIn::new(320.0, 240.0).scale(scale as f32).time(time), &mut |ui| {
@@ -283,7 +441,7 @@ fn framework_host_damage_redraws_only_the_change_and_keeps_the_rest() {
     assert_eq!((at(&third, 10.0, 10.0), at(&third, 250.0, 10.0)), ([0, 255, 0, 255], panel), "a removed swatch's damage is cleared");
     // and every pixel matches a full redraw of the same frame
     let mut full_ui = Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
-    let mut fresh = Graphics::open(&mut window, &full_ui).unwrap();
+    let mut fresh = Graphics::open(&mut window, &mut full_ui).unwrap();
     build(&mut full_ui, 0.2, green, None);
     assert!(fresh.screenshot(&mut window, &full_ui).unwrap().2 == third, "a damage-limited frame differs from a full redraw");
     // Seeded translucent edits and removals on both sides exercise two scissors on one encoder.
@@ -326,7 +484,7 @@ fn backdrop_blur_reads_the_canvas_and_preserves_undamaged_pixels() {
 
     let mut window = Window::open_with("PXUI backdrop blur", 320, 240, false, true, false).unwrap();
     let mut ui = Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
-    let mut graphics = Graphics::open(&mut window, &ui).unwrap();
+    let mut graphics = Graphics::open(&mut window, &mut ui).unwrap();
     let view = std::cell::Cell::new(None);
     let build = |ui: &mut Ui, time, left| {
         ui.frame(&FrameIn::new(320.0, 240.0).time(time), &mut |ui| {
@@ -353,7 +511,7 @@ fn backdrop_blur_reads_the_canvas_and_preserves_undamaged_pixels() {
     assert!(red(&pixels, 84) > 150 && red(&pixels, 84) < 230, "the white side receives blurred black");
     build(&mut ui, 0.2, Rgba::rgb(160, 0, 0));
     let updated = graphics.capture_frame(&mut window, &ui, false).unwrap().2;
-    let mut fresh = Graphics::open(&mut window, &ui).unwrap();
+    let mut fresh = Graphics::open(&mut window, &mut ui).unwrap();
     assert!(fresh.screenshot(&mut window, &ui).unwrap().2 == updated);
     assert_ne!(red(&pixels, 76), red(&updated, 76));
     drop(fresh);
@@ -402,10 +560,10 @@ fn framework_host_constructor_refusals_release_devices_and_queues() {
     let mut window =
         crate::Window::open_with("PXUI refused host", 320, 240, false, true, true).unwrap();
     window.destroy().unwrap();
-    let ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
+    let mut ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
     let before = ogpu_metal::impl_::live_handles();
     for _ in 0..3 {
-        assert!(crate::Graphics::open(&mut window, &ui).is_err());
+        assert!(crate::Graphics::open(&mut window, &mut ui).is_err());
     }
     assert_eq!(
         ogpu_metal::impl_::live_handles(),
@@ -557,6 +715,10 @@ pub(crate) fn main() {
         ("window_framework_host_damage_redraws_only_the_change_and_keeps_the_rest",framework_host_damage_redraws_only_the_change_and_keeps_the_rest),
         ("window_partial_equals_full",partial_equals_full),
         ("window_occluded_window_skips_gpu_and_redraws_on_exposure",occluded_window_skips_gpu_and_redraws_on_exposure),
+        ("explicit_promotion_rejects_overlapping_fills",explicit_promotion_rejects_overlapping_fills),
+        ("window_vector_parity_1x",vector_parity_1x),
+        ("window_vector_parity_2x",vector_parity_2x),
+        ("window_promotion_yields_to_a_popover_and_captures_in_app",promotion_yields_to_a_popover_and_captures_in_app),
         ("window_backdrop_blur_reads_the_canvas_and_preserves_undamaged_pixels",backdrop_blur_reads_the_canvas_and_preserves_undamaged_pixels),
         ("damage_rounds_out_pads_and_clamps_to_the_drawable",crate::graphics::damage_rounds_out_pads_and_clamps_to_the_drawable),
     ]);

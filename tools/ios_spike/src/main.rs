@@ -67,10 +67,10 @@ mod ios {
             if !window.token()?.alive() {
                 return Err("Metal layer token is not live".into());
             }
-            let ui = pxui::Ui::new(&pxui::UiDesc::new(pxui::Platform::Apple).fonts(&[pxui::FontData(include_bytes!(
+            let mut ui = pxui::Ui::new(&pxui::UiDesc::new(pxui::Platform::Apple).fonts(&[pxui::FontData(include_bytes!(
                     "../../../assets/fonts/Pragmasevka-Regular.ttf"
                 ))])).expect("pxui Ui");
-            let graphics = pxui_host::Graphics::open(window, &ui)
+            let graphics = pxui_host::Graphics::open(window, &mut ui)
                 .map_err(|error| error.to_string())?;
             Ok(Self {
                 ui,

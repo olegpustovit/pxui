@@ -46,6 +46,7 @@ mod string_pool;
 mod touch;
 pub mod gesture;
 mod reorder;
+mod promotion;
 use string_pool::{EmptyStrings, Field as StringField};
 
 impl StringField {
@@ -420,6 +421,7 @@ struct ViewRec {
     escapes: bool,
     patched: bool,
     palette_labels: bool,
+    promote: bool,
     palette_paint: bool,
     palette_shape_count: u8,
     viewport_independent: bool,
@@ -512,6 +514,7 @@ impl ViewRec {
             escapes: false,
             patched: false,
             palette_labels: false,
+            promote: false,
             palette_paint: false,
             palette_shape_count: 0,
             viewport_independent: false,
@@ -1116,6 +1119,7 @@ pub struct FrameOut<'a> {
     pub damage: &'a DamageList,
     pub views: &'a [(u16, ViewEntry)],
     pub blurs: &'a [BlurOut],
+    pub promoted: &'a [pxui_types::ffi::PxuiPromoted],
     /// the accessibility tree (empty unless `Ui::set_a11y(true)`): its `revision` changes only when
     /// its content did
     pub a11y: &'a A11yTree,
@@ -1449,6 +1453,7 @@ pub struct Ui {
     view_out: Vec<(u16, ViewEntry)>,
     blur_out: Vec<BlurOut>,
     view_prev: Vec<(u16, ViewEntry)>,
+    promotion: promotion::Promotion,
     /// (slot, scratch layer) of every node the frame painted, and the compaction buffer
     painted_nodes: Vec<(usize, usize)>,
     compact: Vec<Instance>,
@@ -1763,6 +1768,7 @@ impl Ui {
             view_out: Vec::new(),
             blur_out: Vec::new(),
             view_prev: Vec::new(),
+            promotion: promotion::Promotion::default(),
             painted_nodes: Vec::new(),
             compact: Vec::new(),
             compact_bounds: Vec::new(),
@@ -2228,8 +2234,9 @@ impl Ui {
     }
 
     /// The most recently completed frame.
+    #[inline]
     pub fn output(&self) -> FrameOut<'_> {
-        FrameOut { draw: &self.draw[..self.draw_len], platform: &self.out, damage: &self.damage, views: &self.view_out, blurs: &self.blur_out, a11y: &self.a11y }
+        FrameOut { draw: &self.draw[..self.draw_len], platform: &self.out, damage: &self.damage, views: &self.view_out, blurs: &self.blur_out, promoted: &self.promotion.current, a11y: &self.a11y }
     }
 
     /// The host drew layer `index` of the output with its `dirty` ranges: they start over empty, and
@@ -3829,8 +3836,9 @@ impl Ui {
         }
         let mut display = requested || interacting;
         let mut hz = 0;
+        let promoted = !self.promotion.current.is_empty();
         for tween in &self.tweens {
-            if !self.tween_visible(tween) { continue; }
+            if !self.tween_visible(tween) || (promoted && self.tween_promoted(tween)) { continue; }
             let keys = self.keyframes.get(tween.keys as usize);
             match keys.map_or(Rate::Display, |keys| keys.rate) {
                 Rate::Display => {
@@ -7564,6 +7572,7 @@ impl Ui {
             self.draw_revision += 1;
         }
         self.collect_blurs();
+        if self.promotion.enabled { self.update_promotions(); }
         self.out.repaint_at = self.next_repaint(t);
         true
     }
@@ -7575,7 +7584,13 @@ impl Ui {
     /// moved without a table entry or in another layer, a virtual grid's columns or a scroll gutter
     /// changed), the frame settles: it builds again at once with the same input minus its events (no
     /// click or key is seen twice), at most twice, so no stale frame is shown.
+    #[inline]
     pub fn frame(&mut self, frame: &rframe::Frame, f: &mut dyn FnMut(&mut Ui)) -> FrameOut<'_> {
+        self.build_frame(frame, f);
+        self.output()
+    }
+
+    fn build_frame(&mut self, frame: &rframe::Frame, f: &mut dyn FnMut(&mut Ui)) {
         self.cpu_phases = self.cpu_clock.map(|_| [0; PHASES]);
         self.first_build = self.frame_number + 1;
         self.begin_frame(frame);
@@ -7604,7 +7619,6 @@ impl Ui {
         }
         self.settle = false;
         self.full_damage = false;
-        self.output()
     }
 
     /// Leaves a frame whose build panicked (the panic goes on to the app): the next `frame` starts clean, and every kept view is
@@ -7859,6 +7873,7 @@ impl Ui {
             self.mark_key(self.focus);
             (self.seen.1, self.seen.2) = (self.focus, self.keyboard_focus);
         }
+        if self.promotion.enabled { self.update_promotions(); }
         self.out.repaint_at = self.next_repaint(frame.input.t);
         self.frame_damage = self.damage;
         self.frame_requested = false;
@@ -8049,6 +8064,7 @@ impl Ui {
     fn keyframe_age(&self, tween: &Tween, keys: &Keys, at: f64) -> f64 {
         let sample = match keys.rate {
             pxui_types::ui::Rate::Display => at,
+            _ if self.tween_promoted(tween) => at,
             pxui_types::ui::Rate::Ambient(_) => at.min(self.ambient_at).max(tween.start),
         };
         sample - tween.start
@@ -9155,6 +9171,7 @@ impl Ui {
                 self.draw_revision += 1;
             }
             self.collect_blurs();
+            if self.promotion.enabled { self.update_promotions(); }
         }
     }
 
@@ -9314,6 +9331,7 @@ impl Ui {
         self.stamp += 1;
         let mut out = std::mem::take(&mut self.view_prev);
         out.clear();
+        let promoted = !self.promotion.current.is_empty();
         for v in 1..self.views.len() as u32 {
             if self.views[v as usize].index == 0 || self.views[v as usize].slot == NONE {
                 continue;
@@ -9321,7 +9339,7 @@ impl Ui {
             let shown = self.shown(v);
             let r = &self.views[v as usize];
             let old_entry = r.entry();
-            let old_cover = (shown && !self.full_damage).then(|| r.cover(r.screen));
+            let old_cover = (shown && !self.full_damage && (!promoted || !self.promoted_view(r.index))).then(|| r.cover(r.screen));
             // Culled views still place rect/accessibility queries, without retaining draw runs.
             self.compose(v);
             let r = &self.views[v as usize];

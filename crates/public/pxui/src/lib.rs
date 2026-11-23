@@ -27,7 +27,7 @@ pub use pxui_types::{draw, geom};
 pub use pxui_types::a11y::Role;
 pub use pxui_types::geom::{Point, Rect, Rgba};
 pub use pxui_types::{Flags, Size};
-pub use pxui_types::ffi::{A11yAction, A11yNode, Input, Output, PlatformOut, PxuiDamageList, PxuiFrameReasons};
+pub use pxui_types::ffi::{A11yAction, A11yNode, Input, Output, PlatformOut, PxuiDamageList, PxuiFrameReasons, PxuiPromoted};
 #[doc(hidden)]
 pub use pxui_types::damage::DamageList;
 
@@ -168,6 +168,9 @@ mod sys {
         pub safe fn pxui_counter(which:u32)->u64;
         pub fn pxui_ui_create(desc:*const PxuiUiDesc,fonts:*const Str,count:usize,status:*mut i32) -> *mut PxuiUi;
         pub fn pxui_ui_output(ui:*mut PxuiUi)->*const pxui_types::ffi::Output;
+        pub fn pxui_ui_set_promotion(ui:*mut PxuiUi,enabled:u8)->i32;
+        pub fn pxui_ui_promoted(ui:*mut PxuiUi,ptr:*mut *const pxui_types::ffi::PxuiPromoted,len:*mut usize)->i32;
+        pub fn pxui_ui_promote(ui:*mut PxuiUi,box_:*const PxuiBox)->i32;
         pub fn pxui_ui_damage_list(ui:*mut PxuiUi,out:*mut pxui_types::ffi::PxuiDamageList)->i32;
         pub fn pxui_ui_theme(ui:*mut PxuiUi)->*const pxui_types::theme::ThemeSnapshot;
         pub fn pxui_ui_view_size(ui:*mut PxuiUi,out:*mut pxui_types::geom::Point)->i32;
@@ -195,6 +198,7 @@ mod sys {
         pub fn pxui_ui_scope(ui:*mut PxuiUi,label:Str,build:pxui_types::ffi::UiBuild,user:*mut c_void)->i32;
         pub fn pxui_renderer_prepare(renderer:*mut PxuiRenderer,commands:*const pxui_types::Commands,frame:u64,completed:u64)->i32;
         pub fn pxui_renderer_resize(renderer:*mut PxuiRenderer,width:u32,height:u32)->i32;
+        pub fn pxui_renderer_exclude_promoted(renderer:*mut PxuiRenderer,exclude:u8)->i32;
         pub fn pxui_renderer_draw(renderer:*mut PxuiRenderer,pass:*const pxui_types::Pass)->i32;
         pub fn pxui_renderer_draw_damage(renderer:*mut PxuiRenderer,pass:*const pxui_types::Pass,x:u32,y:u32,width:u32,height:u32)->i32;
         pub fn pxui_renderer_draw_damage_rects(renderer:*mut PxuiRenderer,pass:*const pxui_types::Pass,rects:*const u32,count:u32)->i32;
@@ -305,6 +309,19 @@ impl Renderer {
     pub fn forget_image(&mut self,image:&Image,completed:u64)->Result<(),Error> {
         let rc=unsafe { sys::pxui_renderer_forget_image(self.raw.as_ptr(),image,completed) };
         if rc==0 { Ok(()) } else { Err(Error::from_code(rc)) }
+    }
+    /// Omits promoted runs from subsequent draws when the host presents those runs separately.
+    ///
+    /// Pass `false` to render the entire scene into the target, including for offscreen capture.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// fn example(renderer: &mut pxui::Renderer) -> Result<(), pxui::Error> { renderer.exclude_promoted(true) }
+    /// let _ = example;
+    /// ```
+    pub fn exclude_promoted(&mut self, exclude: bool) -> Result<(), Error> {
+        status(unsafe { sys::pxui_renderer_exclude_promoted(self.raw.as_ptr(), exclude.into()) })
     }
     /// Records the prepared UI layers into the host’s open render pass.
     ///
@@ -941,6 +958,54 @@ impl Ui {
         let mut damage = PxuiDamageList::default();
         check(self, unsafe { sys::pxui_ui_damage_list(self.0.as_ptr(), &mut damage) });
         damage
+    }
+
+    /// Enables output promotion for a host that composites the reported views above its canvas.
+    ///
+    /// Call between frames and draw the reported runs separately on every frame that excludes them.
+    /// Allocates: reserves both promotion buffers on first enable.
+    /// Panics: when called inside a frame or refused by the library.
+    ///
+    /// ```
+    /// let mut ui = pxui::doc::frames(1, &mut |_| {});
+    /// ui.set_promotion(true);
+    /// ```
+    pub fn set_promotion(&mut self, enabled: bool) {
+        check(self, unsafe { sys::pxui_ui_set_promotion(self.0.as_ptr(), enabled.into()) });
+    }
+
+    /// Borrows the runs the compositor can put above the latest canvas output.
+    ///
+    /// Call between frames. Run positions and clips use window points and key times use seconds.
+    /// Allocates: never.
+    /// Panics: when called inside a frame or refused by the library.
+    ///
+    /// ```
+    /// let ui = pxui::doc::frames(1, &mut |_| {});
+    /// assert!(ui.promoted().is_empty());
+    /// ```
+    pub fn promoted(&self) -> &[pxui_types::ffi::PxuiPromoted] {
+        let (mut ptr, mut len) = (core::ptr::null(), 0);
+        check(self, unsafe { sys::pxui_ui_promoted(self.0.as_ptr(), &mut ptr, &mut len) });
+        if len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(ptr, len) } }
+    }
+
+    /// Hints that a retained view's content can move to the host compositor.
+    ///
+    /// Only eligible content without any later overlapping draws is promoted. The hint stays with
+    /// the live view. Returns `Error::InvalidInput` for a live handle that is not a retained view.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     let view = ui.view_of("v", &0, |_| {});
+    ///     ui.promote(&view).unwrap();
+    /// });
+    /// ```
+    pub fn promote(&mut self, view: &Handle) -> Result<(), Error> {
+        let rc = unsafe { sys::pxui_ui_promote(self.0.as_ptr(), view) };
+        status(rc)
     }
 
     /// Reads the host appearance from the last frame, including inside cached views.

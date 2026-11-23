@@ -42,6 +42,26 @@ fn damage_list_and_legacy_bounding_box_agree() {
 }
 
 #[test]
+fn promotion_outputs_are_only_borrowed_between_frames() {
+    let ui = create();
+    let mut records = core::ptr::null();
+    let mut len = 77;
+    assert_eq!(unsafe { pxui_ui_set_promotion(ui, 2) }, PXUI_ERR_ARGUMENT);
+    assert_eq!(unsafe { pxui_ui_set_promotion(ui, 1) }, 0);
+    assert_eq!(unsafe { pxui_ui_promoted(ui, core::ptr::null_mut(), &mut len) }, PXUI_ERR_ARGUMENT);
+    assert_eq!(in_frame(ui, &mut |handle| {
+        assert_eq!(unsafe { pxui_ui_set_promotion(handle, 0) }, PXUI_ERR_STATE);
+        unsafe { pxui_ui_promoted(handle, &mut records, &mut len) }
+    }), PXUI_ERR_STATE);
+    assert!(records.is_null());
+    assert_eq!(len, 77);
+    assert_eq!(unsafe { pxui_ui_promoted(ui, &mut records, &mut len) }, 0);
+    assert_eq!(len, 0);
+    assert_eq!(unsafe { pxui_renderer_exclude_promoted(core::ptr::null_mut(), 1) }, PXUI_ERR_ARGUMENT);
+    assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
+}
+
+#[test]
 fn diagnostics_respect_callback_renderer_and_poison_ownership_without_writing_outputs() {
     use pxui_types::ffi::PxuiDiagnostics;
     let ui = create();
@@ -1130,6 +1150,7 @@ fn every_box_taking_export_answers_a_foreign_handle_with_the_stale_status() {
         ("hovered", Box::new(|u, h| unsafe { pxui_ui_hovered(u, h, 0, &mut 0) })),
         ("press_keys", Box::new(|u, h| unsafe { let (mut ptr, mut len) = (core::ptr::null(), 0usize); pxui_ui_press_keys(u, h, &mut ptr, &mut len) })),
         ("view_offset", Box::new(|u, h| unsafe { pxui_ui_view_offset(u, h, 1.0, 1.0) })),
+        ("promote", Box::new(|u, h| unsafe { pxui_ui_promote(u, h) })),
         ("view_opacity", Box::new(|u, h| unsafe { pxui_ui_view_opacity(u, h, 0.5) })),
         ("view_scale", Box::new(|u, h| unsafe { pxui_ui_view_scale(u, h, 1.0) })),
         ("view_clip", Box::new(|u, h| unsafe { pxui_ui_view_clip(u, h, &PxuiRect::default()) })),

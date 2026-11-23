@@ -65,7 +65,8 @@ canvas to each drawable. Use `Graphics::set_full_damage` to force a full canvas 
 | A11y | `a11y_name(&Handle, &str) -> bool` with UTF-8-safe display clipping; `a11y_value/a11y_number(&Handle, ..) -> Result<bool, Error>`; `set_role(&Handle, Role, A11yStates)`; `a11y_tree() -> A11yTree<'_>` (borrowed strings, revision and first child); `a11y_nodes`, `a11y_name_of`, `a11y_value_of`, `box_of_a11y` | — | U1a.3 (rule), U1b.4 (types) |
 | Theme | `set_theme(&ThemeHandle) -> Result<(), Error>`, `themed(&ThemeHandle, f)`, `theme()`, `tokens()`, `ThemeHandle::parse/set_color/density/reduced_motion`; `bodies::register_<kind>_body(..) -> Result<BodyId, Error>`; `Rgba::token(T).alpha(a)` (D19); `ColorToken::ACCENT` (= `ColorToken(64)`, the theme's `Tokens::accent`); `Appearance`; sizes `f32` (`font_size`, `row_height`, `density`, `set_font_size`) | — | U1a.2; U1b.3 (units); U2b.7 (alpha, accent) |
 | Frame / lifecycle | `Ui::new(&UiDesc) -> Result<Ui, Error>` with `UiDesc::new(Platform).font_size(f32).fonts(&[FontData])` and `UiDesc::DEFAULT`; one `frame(&FrameIn, build)`; `FrameIn::new(w, h)` with const builders (`surface(u64)`; `events(&'a [Event])`, borrowed for the frame call, U5.1; the snapshot form was removed in U5.2), `Ui::add_surface(u64)`/`remove_surface(u64)` (`Ui::new` registers `pxui_types::FrameIn::MAIN`; an unregistered surface is `InvalidInput`; one surface per Ui); `layer(i) -> Option<Layer>`, `layers() -> Layers`, `output() -> Output`; `focus_box(&Handle)` stays public for the registered command editor body, with `focused` crate-private and `enter`/`leave` internal to the engine and C ABI; `focus_default(&Handle)` beside it (U2b.4.24): the box a key press takes as its focus while no node holds it, stated each build (an app's main list as the window's default key target); while another widget (not a text editor) holds the focus, a press it leaves untaken falls through to it (U4a re-review R1: a focused sidebar leaves ⌘A/Esc to the main list, keeps Return) | — | U1a.3, U2b.4.24 |
-| Host integration | `Renderer::new -> Result<_, Error>`; `Ui::register_<kind>_body(..) -> Result<BodyId, Error>`; `A11yBridge::connect -> Option`; `Gpu`, `Pass`, `Commands`, `Input`, `Output`, `Platform`, `Bytes`; pxui_host `Graphics::open/draw/close`, `Accessibility::open`, `Platform::pump/apply` → `Result<_, Error>`; `Accessibility::frame(ui, surface)` routes native actions to the frame's surface | — | U1a.3; U5.9 review fix |
+| Host integration | `Renderer::new -> Result<_, Error>`; `Ui::register_<kind>_body(..) -> Result<BodyId, Error>`; `A11yBridge::connect -> Option`; `Gpu`, `Pass`, `Commands`, `Input`, `Output`, `Platform`, `Bytes`; pxui_host `Graphics::open(&mut Window, &mut Ui)/draw/close`, `Accessibility::open`, `Platform::pump/apply` → `Result<_, Error>`; `Accessibility::frame(ui, surface)` routes native actions to the frame's surface | — | U1a.3; U5.9 review fix |
+| Compositor promotion | `Ui::promote`, `Ui::set_promotion`, `Ui::promoted`, `Renderer::exclude_promoted`, `Graphics::set_no_layers`; `Graphics::open` takes a mutable `Ui` to configure promotion | — | R7.1, ABI 2.12 |
 | Diagnostics | `phase_times`, `phase_cpu_times`, `set_timing`, `repaint_after`, `wants_frame`, `library_counter` (D3), `verify_views` (D22: per `Ui`, on under `debug_assertions`; `verify_new_views` deleted) | — | HEAD; U1c.2 |
 | Getters | `keyboard()`, `environment()`, `text_traits()` (was `text_input_options`), `ime() -> Option<Ime>`, `platform()`, `now()`, `frame_index()`, `system_appearance() -> Appearance` | — | U1a.4 (appearance), U1b.2 |
 | Signals | `signal`, `signal_keys` → `Signal`: documented as the body/custom-control layer | — | HEAD |
@@ -777,6 +778,7 @@ pxui::Progress::variant fn const (self, variant: u16) -> Progress @U1b.5
 pxui::PxuiDamageList use pxui_types::ffi::PxuiDamageList @HEAD
 pxui::PxuiFrameReasons use pxui_types::ffi::PxuiFrameReasons @HEAD
 pxui::PxuiPanel use pxui_types::PxuiPanel @HEAD
+pxui::PxuiPromoted use pxui_types::ffi::PxuiPromoted @HEAD
 pxui::PxuiTargetDesc use pxui_types::PxuiTargetDesc @HEAD
 pxui::PxuiUiDesc use pxui_types::PxuiUiDesc @HEAD
 pxui::Radio impl Clone @U1b.1
@@ -798,6 +800,7 @@ pxui::Renderer::draw_damage fn (&mut self, pass: &Pass, scissor: [u32; 4], split
 pxui::Renderer::draw_damage_rects fn (&mut self, pass: &Pass, rects: &[[u32; 4]], split: &mut dyn FnMut(Recorder) -> Result<Pass, Error>) -> Result<(), Error> @R3.9
 pxui::Renderer::draw_layer fn (&mut self, pass: &Pass, layer: u32, split: &mut dyn FnMut(Recorder<'_>) -> Result<Pass, Error>) -> Result<(), Error> @HEAD
 pxui::Renderer::draw_with_split fn (&mut self, pass: &Pass, split: &mut dyn FnMut(Recorder) -> Result<Pass, Error>) -> Result<(), Error> @HEAD
+pxui::Renderer::exclude_promoted fn (&mut self, exclude: bool) -> Result<(), Error> @HEAD
 pxui::Renderer::forget_image fn (&mut self, image: &Image, completed: u64) -> Result<(), Error> @HEAD
 pxui::Renderer::new fn (ui: &Ui, gpu: Gpu, target: TargetDesc) -> Result<Self, Error> @U1a.3
 pxui::Renderer::new_with_target_record fn (ui: &Ui, gpu: Gpu, target: PxuiTargetDesc) -> Result<Self, Error> @HEAD
@@ -1353,6 +1356,8 @@ pxui::Ui::pressable fn <K: Into<Key>, F: FnMut(&mut Ui, State)>(&mut self, key: 
 pxui::Ui::prewarm_text fn (&mut self, text: &str, style: &Label, max_width: f32) -> Result<(), Error> @HEAD
 -pxui::Ui::progress fn <K: Into<Key>>(&mut self, key: K, text: &str, value: Option<f32>) -> Handle @U1b.5
 pxui::Ui::progress fn <K: Into<Key>>(&mut self, key: K, text: &str, value: Option<f32>, progress: &Progress) -> Handle @U1b.5
+pxui::Ui::promote fn (&mut self, view: &Handle) -> Result<(), Error> @HEAD
+pxui::Ui::promoted fn (&self) -> &[PxuiPromoted] @HEAD
 pxui::Ui::radio fn <K: Into<Key>>(&mut self, key: K, items: &[Segment<'_>], selected: Option<usize>, radio: &Radio<'_>) -> PickResponse @U1b.1
 -pxui::Ui::radio fn <K: Into<Key>>(&mut self, key: K, options: &[&str], selected: usize, choice: &Choice<'_>) -> (Response, usize) @U1b.1
 pxui::Ui::rebuilt_named fn (&self, prefix: &str) -> usize @HEAD
@@ -1407,6 +1412,7 @@ pxui::Ui::repaint_after fn (&mut self, seconds: f64) @HEAD
 pxui::Ui::repaint_at fn (&self) -> Option<f64> @HEAD
 pxui::Ui::request_cursor fn (&mut self, shape: Cursor) @HEAD
 pxui::Ui::request_frame fn (&mut self) @HEAD
+pxui::Ui::set_promotion fn (&mut self, enabled: bool) @HEAD
 pxui::Ui::step fn (&mut self, time: f64) -> bool @HEAD
 pxui::Ui::resolve fn (&self, style: &Label) -> TextStyle @HEAD
 pxui::Ui::retain_palette_labels fn (&mut self) @HEAD
@@ -5238,6 +5244,38 @@ pxui_types::ffi::PxuiProgressConfig::row field PxuiBox @HEAD
 pxui_types::ffi::PxuiProgressConfig::size field u32 @HEAD
 pxui_types::ffi::PxuiProgressConfig::value field f32 @HEAD
 pxui_types::ffi::PxuiProgressConfig::variant field u16 @HEAD
+pxui_types::ffi::PxuiPromoted impl Clone @HEAD
+pxui_types::ffi::PxuiPromoted impl Copy @HEAD
+pxui_types::ffi::PxuiPromoted impl Debug @HEAD
+pxui_types::ffi::PxuiPromoted impl Default @HEAD
+pxui_types::ffi::PxuiPromoted impl PartialEq @HEAD
+pxui_types::ffi::PxuiPromoted impl StructuralPartialEq @HEAD
+pxui_types::ffi::PxuiPromoted struct @HEAD
+pxui_types::ffi::PxuiPromoted::autoreverse field u8 @HEAD
+pxui_types::ffi::PxuiPromoted::clip field [f32; 4] @HEAD
+pxui_types::ffi::PxuiPromoted::color field [u8; 4] @HEAD
+pxui_types::ffi::PxuiPromoted::content_revision field u64 @HEAD
+pxui_types::ffi::PxuiPromoted::count field u8 @HEAD
+pxui_types::ffi::PxuiPromoted::hz field u16 @HEAD
+pxui_types::ffi::PxuiPromoted::instance field u32 @HEAD
+pxui_types::ffi::PxuiPromoted::keys field [PxuiPromotedKey; 9] @HEAD
+pxui_types::ffi::PxuiPromoted::layer field u32 @HEAD
+pxui_types::ffi::PxuiPromoted::offset field f32 @HEAD
+pxui_types::ffi::PxuiPromoted::reserved field u16 @HEAD
+pxui_types::ffi::PxuiPromoted::start field f64 @HEAD
+pxui_types::ffi::PxuiPromoted::swept field [f32; 4] @HEAD
+pxui_types::ffi::PxuiPromoted::view field u16 @HEAD
+pxui_types::ffi::PxuiPromotedKey impl Clone @HEAD
+pxui_types::ffi::PxuiPromotedKey impl Copy @HEAD
+pxui_types::ffi::PxuiPromotedKey impl Debug @HEAD
+pxui_types::ffi::PxuiPromotedKey impl Default @HEAD
+pxui_types::ffi::PxuiPromotedKey impl PartialEq @HEAD
+pxui_types::ffi::PxuiPromotedKey impl StructuralPartialEq @HEAD
+pxui_types::ffi::PxuiPromotedKey struct @HEAD
+pxui_types::ffi::PxuiPromotedKey::curve field [f32; 4] @HEAD
+pxui_types::ffi::PxuiPromotedKey::opacity field f32 @HEAD
+pxui_types::ffi::PxuiPromotedKey::rect field [f32; 4] @HEAD
+pxui_types::ffi::PxuiPromotedKey::time field f32 @HEAD
 pxui_types::ffi::PxuiRange impl Clone @HEAD
 pxui_types::ffi::PxuiRange impl Copy @HEAD
 pxui_types::ffi::PxuiRange impl Debug @HEAD

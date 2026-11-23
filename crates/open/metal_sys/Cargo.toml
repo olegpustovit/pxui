@@ -8,6 +8,9 @@ build = "build.rs"
 [lib]
 test = false
 
+[features]
+test-util = []
+
 [dependencies]
 native_layer_token_sys = { path = "../native_layer_token_sys" }
 ogpu_core = { path = "../ogpu_core" }

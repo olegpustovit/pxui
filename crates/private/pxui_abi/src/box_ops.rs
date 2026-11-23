@@ -382,6 +382,11 @@ export!(pub unsafe fn pxui_ui_root_at(ui: *mut PxuiUi, x: f32, y: f32, roots: Sl
 
 // ------------------------------------------------------------------ views
 
+export!(pub unsafe fn pxui_ui_promote(ui:*mut PxuiUi, box_:*const PxuiBox) -> i32 {
+    let (e,b)=match unsafe { boxed(ui,box_) } { Ok(v)=>v,Err(code)=>return code };
+    if e.promote(&b) { 0 } else { unsafe { fail(ui, "promotion requires a retained view") } }
+});
+
 export!(pub unsafe fn pxui_ui_view_opacity(ui:*mut PxuiUi,box_:*const PxuiBox,opacity:f32)->i32 {
     let (e,b)=match unsafe { boxed(ui,box_) } { Ok(v)=>v,Err(code)=>return code };
     if !opacity.is_finite() || !(0.0..=1.0).contains(&opacity) { return unsafe { fail(ui,"view opacity out of range") }; }
