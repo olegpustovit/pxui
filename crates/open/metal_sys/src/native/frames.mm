@@ -1,6 +1,7 @@
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
 #import <QuartzCore/CAMetalLayer.h>
+#import <objc/runtime.h>
 #include "frames.h"
 #include <new>
 #include <string.h>
@@ -229,7 +230,12 @@ int rays_metal_frames_acquire(void *raw, uint64_t *wait_ns) {
         [frames->encoder endEncoding];
         frames->encoder = nil;
         const uint64_t started = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
-        id<CAMetalDrawable> drawable = [frames->layer nextDrawable];
+        // The SDL display-link callback lends its drawable on this layer. Capture changes
+        // framebufferOnly after that drawable was acquired, so it needs a fresh one.
+        const void *key = (const void *)sel_registerName("pxuiDisplayLinkDrawable");
+        id<CAMetalDrawable> drawable = objc_getAssociatedObject(frames->layer, key);
+        if (drawable) objc_setAssociatedObject(frames->layer, key, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        if (!drawable || frames->capture) drawable = [frames->layer nextDrawable];
         *wait_ns = clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - started;
         if (frames->commands && drawable.texture.width == frames->width && drawable.texture.height == frames->height) {
             frames->drawable = drawable;

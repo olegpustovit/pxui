@@ -1437,6 +1437,7 @@ pub struct Ui {
     /// Sample time shared by ambient animations and their next idle tick.
     ambient_at: f64,
     ambient_wake: f64,
+    repaint_hz: u8,
     /// Inside `step`: no node was painted this frame, so every running transition patches its node.
     stepping: bool,
     /// `damage` as the last frame left it: a difference at the next paint is between-frame damage not drawn yet.
@@ -1731,6 +1732,7 @@ impl Ui {
             frame_reasons: PxuiFrameReasons::default(),
             ambient_at: f64::NEG_INFINITY,
             ambient_wake: f64::INFINITY,
+            repaint_hz: 0,
             stepping: false,
             frame_damage: DamageList::default(),
             rebuilt: 0,
@@ -3687,6 +3689,11 @@ impl Ui {
         }
     }
 
+    /// The highest active ambient rate in Hz, or zero for display-rate and inactive frames.
+    pub fn repaint_hz(&self) -> u32 {
+        if self.frame_requested { 0 } else { u32::from(self.repaint_hz) }
+    }
+
     /// The frame gate: build, lay out and paint only for input or a due repaint. A host that gets
     /// `false` keeps the last frame and waits for input or `repaint_at`.
     pub fn wants_frame(&self, events: &[Event], now: f64) -> bool {
@@ -3787,8 +3794,10 @@ impl Ui {
         } else {
             self.ambient_at + 1.0 / f64::from(hz)
         };
+        let hold_display = hz != 0 && now - self.input_at < LOOP_IDLE;
+        self.repaint_hz = if display || hold_display { 0 } else { hz };
         if display { return Some(now); }
-        if hz != 0 && now - self.input_at < LOOP_IDLE {
+        if hold_display {
             if trace { self.frame_reasons.active_loop += 1; }
             return Some(now);
         }

@@ -1595,10 +1595,12 @@ pub fn window_pxui_idle_loops_step_slower() {
     assert!(ui.animate_keys(&view.get().unwrap(),&keys,&Keyframes::DEFAULT.repeat(Repeat::Forever).autoreverse()));
     ui.frame(&at(0.1,vec![Event::FocusGained, Event::PointerMoved((300.0, 180.0))]),&mut build);
     assert_eq!(ui.repaint_at(),Some(0.1),"input is recent");
+    assert_eq!(ui.repaint_hz(), 0, "input raises an ambient loop to display rate");
     ui.frame(&at(0.9,vec![]),&mut build);
     assert_eq!(ui.repaint_at(),Some(0.9),"still within a second of input");
     ui.frame(&at(1.2,vec![]),&mut build);
     assert_eq!(ui.repaint_at(),Some(1.2+1.0/30.0),"idle: the loop steps at 30 fps");
+    assert_eq!(ui.repaint_hz(), 30);
     ui.frame(&at(1.3, vec![Event::PointerMoved((10.0, 10.0))]), &mut build);
     assert_eq!(ui.repaint_at(), Some(1.3), "entering a hover target counts");
     ui.frame(&at(2.2, vec![Event::PointerMoved((11.0, 10.0))]), &mut build);
@@ -1607,6 +1609,7 @@ pub fn window_pxui_idle_loops_step_slower() {
     assert!(ui.animate_keys(&view.get().unwrap(),&keys,&Keyframes::DEFAULT.repeat(Repeat::Count(3))));
     ui.frame(&at(2.5,vec![]),&mut build);
     assert_eq!(ui.repaint_at(),Some(2.5),"a counted run plays every frame");
+    assert_eq!(ui.repaint_hz(), 0);
     ui.destroy();
 }
 
@@ -1631,6 +1634,7 @@ pub fn window_pxui_ambient_loops_share_ticks() {
     assert!(ui.animate_keys(&slow.get().unwrap(), &keys, &ambient.rate(Rate::Ambient(20))));
     ui.frame(&at(0.01, vec![]), &mut build);
     let original = ui.output().views.to_vec();
+    assert_eq!(ui.repaint_hz(), 20);
     assert_eq!(ui.repaint_at(), Some(0.01 + 0.05));
     ui.frame(&at(0.02, vec![Event::PointerMoved((0.0, 0.0))]), &mut build);
     assert_eq!(ui.output().views, original, "motion over the same target must not sample the loop early");
@@ -1639,6 +1643,7 @@ pub fn window_pxui_ambient_loops_share_ticks() {
     ui.frame(&at(0.023, vec![]), &mut build);
     let tick = 0.01 + 1.0 / 30.0;
     assert_eq!(ui.repaint_at(), Some(tick));
+    assert_eq!(ui.repaint_hz(), 30, "the fastest active loop controls the presentation rate");
     let initial = ui.output().views.to_vec();
     assert!(ui.step(tick));
     assert_eq!(ui.output().views.iter().zip(&initial).filter(|(a, b)| a.1.opacity != b.1.opacity).count(), 2);
