@@ -43,6 +43,76 @@ fn partial_equals_full() {
 }
 
 #[cfg(target_os = "macos")]
+fn present_pixels_match_canvas_with_partial_copies_and_fallbacks() {
+    use crate::{Graphics, Window};
+    use pxui::ui::{Node, Size};
+    use pxui::{Fill, FrameIn, Rgba, Ui};
+
+    mem_sys::set_peer(pxui::library_counter);
+    let mut window = Window::open_with("PXUI present oracle", 320, 240, false, true, false).unwrap();
+    let mut ui = Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
+    let mut graphics = Graphics::open_present(&mut window, &ui, false, 1).unwrap();
+    let build = |window: &Window, ui: &mut Ui, frame: usize| {
+        let (w, h) = window.extent().logical;
+        ui.frame(
+            &FrameIn::new(w as f32, h as f32).scale(window.scale() as f32).time(frame as f64 / 60.0),
+            &mut |ui| {
+                for (name, x) in [("left", 8.0), ("right", 270.0)] {
+                    let color = Rgba::rgb((frame * 13) as u8, 0, 0);
+                    let node = ui.node(name, Node::DEFAULT.w(Size::Px(14.0)).h(Size::Px(11.0)).at(x, 4.0));
+                    ui.canvas(&node, move |paint, rect| paint.fill(rect, Fill::new(color)));
+                }
+            },
+        ).unwrap();
+    };
+    let mut partials = 0;
+    let mut events = Vec::new();
+    for frame in 0..20 {
+        window.pump(&mut events);
+        build(&window, &mut ui, frame);
+        mem_sys::local_reset();
+        assert!(graphics.draw(&mut window, &ui, None).unwrap());
+        if frame >= 8 {
+            assert_eq!(mem_sys::local_alloc_count(), 0, "warm partial present");
+        }
+        partials += usize::from(graphics.last_present_was_partial());
+    }
+    assert!(partials >= 8, "expected repeated partial copies, got {partials}");
+    let (verified, failed) = graphics.present_verification();
+    assert!(verified >= 17 && !failed, "{verified} completed comparisons, mismatch={failed}");
+
+    window.set_resizable(true).unwrap();
+    window.resize(352, 240).unwrap();
+    build(&window, &mut ui, 20);
+    assert!(graphics.draw(&mut window, &ui, None).unwrap());
+    assert!(!graphics.last_present_was_partial(), "resize resets drawable history");
+
+    for frame in 21..32 {
+        window.pump(&mut events);
+        build(&window, &mut ui, frame);
+        assert!(graphics.draw(&mut window, &ui, None).unwrap());
+    }
+    assert!(graphics.last_present_was_partial());
+    window.show().unwrap();
+    window.pump(&mut events);
+    build(&window, &mut ui, 32);
+    assert!(graphics.draw(&mut window, &ui, None).unwrap());
+    assert!(!graphics.last_present_was_partial(), "becoming visible resets drawable history");
+
+    build(&window, &mut ui, 33);
+    graphics.capture_frame(&mut window, &ui, false).unwrap();
+    assert!(!graphics.last_present_was_partial(), "capture forces a full copy of a partial canvas");
+
+    graphics.set_full_present(true).unwrap();
+    build(&window, &mut ui, 34);
+    assert!(graphics.draw(&mut window, &ui, None).unwrap());
+    assert!(!graphics.last_present_was_partial(), "explicit full-copy mode");
+
+    graphics.close().unwrap();
+    window.destroy().unwrap();
+}
+
+#[cfg(target_os = "macos")]
 fn release_keepalive() {}
 
 #[cfg(target_os = "macos")]
@@ -508,6 +578,9 @@ pub(crate) fn main() {
         ("window_voiceover_bridge_maps_nodes_round_trips_actions_and_stays_quiet_when_unchanged",voiceover_bridge_maps_nodes_round_trips_actions_and_stays_quiet_when_unchanged),
         ("window_framework_host_constructor_refusals_release_devices_and_queues",framework_host_constructor_refusals_release_devices_and_queues),
         ("window_framework_host_damage_redraws_only_the_change_and_keeps_the_rest",framework_host_damage_redraws_only_the_change_and_keeps_the_rest),
+        ("present_damage_tracks_three_rotating_drawables",crate::graphics::present_damage_tracks_three_rotating_drawables),
+        ("window_present_pixels_match_canvas_with_partial_copies_and_fallbacks",present_pixels_match_canvas_with_partial_copies_and_fallbacks),
+        ("window_present_mismatch_disables_partial_for_the_session",crate::graphics::present_mismatch_disables_partial_for_the_session),
         ("window_partial_equals_full",partial_equals_full),
         ("window_backdrop_blur_reads_the_canvas_and_preserves_undamaged_pixels",backdrop_blur_reads_the_canvas_and_preserves_undamaged_pixels),
         ("damage_rounds_out_pads_and_clamps_to_the_drawable",crate::graphics::damage_rounds_out_pads_and_clamps_to_the_drawable),
