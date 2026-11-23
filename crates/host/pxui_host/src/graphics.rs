@@ -171,6 +171,11 @@ impl Graphics {
         self.partial_present
     }
 
+    #[cfg(test)]
+    pub(crate) fn wait_for_submitted_frames(&mut self) {
+        self.frames.as_mut().expect("Live frame context").wait().unwrap();
+    }
+
     /// Renders pending damage into the surface. Returns false if nothing needed presenting or no drawable was available.
     ///
     /// Native failures name the operation and renderer errors retain their library category.

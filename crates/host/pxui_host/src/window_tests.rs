@@ -82,20 +82,23 @@ fn present_pixels_match_canvas_with_partial_copies_and_fallbacks() {
     let (verified, failed) = graphics.present_verification();
     assert!(verified >= 17 && !failed, "{verified} completed comparisons, mismatch={failed}");
 
+    // Drain the old drawable work before testing recovery at the new size.
+    graphics.wait_for_submitted_frames();
     window.set_resizable(true).unwrap();
     window.resize(352, 240).unwrap();
     build(&window, &mut ui, 20);
     assert!(graphics.draw(&mut window, &ui, None).unwrap());
     assert!(!graphics.last_present_was_partial(), "resize resets drawable history");
+    graphics.wait_for_submitted_frames();
 
-    let mut resumed_partial = false;
     for frame in 21..32 {
         window.pump(&mut events);
         build(&window, &mut ui, frame);
         assert!(graphics.draw(&mut window, &ui, None).unwrap());
-        resumed_partial |= graphics.last_present_was_partial();
+        graphics.wait_for_submitted_frames();
     }
-    assert!(resumed_partial, "partial copies resume after resize");
+    assert!(graphics.last_present_was_partial(), "frame 31 must be a partial copy after resize");
+    assert_eq!(graphics.present_verification(), (32, false), "all copies through frame 31 must match the canvas");
     window.show().unwrap();
     let deadline = window.time() + 0.45;
     while window.presentation().is_none() && window.time() < deadline {
