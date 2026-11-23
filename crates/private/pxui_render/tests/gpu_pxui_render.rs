@@ -178,6 +178,7 @@ fn main() {
         ("shared_system_preferences_change_native_pixels_without_warm_allocations", shared_system_preferences_change_native_pixels_without_warm_allocations),
         ("shared_public_view_controls_keep_native_draws_and_instances", shared_public_view_controls_keep_native_draws_and_instances),
         ("shared_view_changes_between_scissored_draws", shared_view_changes_between_scissored_draws),
+        ("shared_damage_union_draws_once_and_preserves_gaps", shared_damage_union_draws_once_and_preserves_gaps),
         ("shared_public_measured_rows_render_settled_clipped_heights", shared_public_measured_rows_render_settled_clipped_heights),
         ("gpu_one_draw_per_layer", gpu_one_draw_per_layer),
         ("gpu_warm_frame_allocates_nothing", gpu_warm_frame_allocates_nothing),
@@ -337,11 +338,13 @@ fn runs_select_in_paint_order_with_transforms_merging_and_layer_fallback() {
         View { offset: [-78.0, -78.0], scale: 0.5, transform: [0.0, -1.0, 1.0, 0.0], pivot: [12.0, 12.0], ..View::IDENTITY },
     ];
     let mut out = Vec::new();
-    pxui_render::cull::ranges(scissor, &layers, &views, 1.0, &mut out);
-    assert_eq!(out, [(1, 18), (34, 35), (100, 101), (128, 152)]);
+    pxui_render::cull::ranges(&[scissor], &layers, &views, 1.0, &mut out);
+    assert_eq!(out, [(1, 18, 1), (34, 35, 1), (100, 101, 1), (128, 152, u8::MAX)]);
     let clipped = [View::IDENTITY, View { clip: [80.0, 80.0, 100.0, 100.0], ..views[1] }];
-    pxui_render::cull::ranges(scissor, &layers, &clipped, 1.0, &mut out);
-    assert_eq!(out, [(1, 18), (34, 35), (100, 101)]);
+    pxui_render::cull::ranges(&[scissor], &layers, &clipped, 1.0, &mut out);
+    assert_eq!(out, [(1, 18, 1), (34, 35, 1), (100, 101, 1)]);
+    pxui_render::cull::ranges(&[scissor, scissor], &layers, &clipped, 1.0, &mut out);
+    assert_eq!(out, [(1, 18, 3), (34, 35, 3), (100, 101, 3)]);
 }
 
 fn gpu_instance_bounds_contain_coverage() {
@@ -416,7 +419,7 @@ fn gpu_cull_preserves_texture_breaks() {
     let mut layer = Layer::default();
     layer.runs.extend(runs);
     layer.bounds.extend(bounds);
-    let input = ([10 * SCALE; 4], std::slice::from_ref(&layer));
+    let input = (&[[10 * SCALE; 4]][..], std::slice::from_ref(&layer));
     let breaks = [Break { at_instance: 3, texture: Some(texture.clone()) }, Break { at_instance: 5, texture: None }];
     let target = target(&device);
     let size = [W * SCALE, H * SCALE];
@@ -425,7 +428,7 @@ fn gpu_cull_preserves_texture_breaks() {
         let before = painter.draw_calls();
         pass(&queue, &target, &mut |encoder| {
             ok(be::set_scissor(encoder, ogpu_core::render_pass::Rect { x: i64::from(10 * SCALE), y: i64::from(10 * SCALE), width: i64::from(10 * SCALE), height: i64::from(10 * SCALE) }));
-            ok(painter.draw_retained_split(encoder, size, SCALE as f32, &[(0, &instances, &[])], &breaks, &[], clip, &mut |_, _| Ok(None)));
+            ok(painter.draw_retained_split(encoder, size, SCALE as f32, &[(0, &instances, &[])], &breaks, &[], clip, None, &mut |_, _| Ok(None)));
         });
         assert_eq!(painter.draw_calls() - before, 3);
         ok(be::read_texture(&target, i64::from(size[0]) * 4))
@@ -452,7 +455,8 @@ fn gpu_warm_frame_allocates_nothing() {
     let mut layer = Layer::default();
     layer.runs = runs;
     layer.bounds = bounds;
-    let input = ([0, 0, 32, 32], std::slice::from_ref(&layer));
+    let scissors = [[0, 0, 32, 32], [56, 32, 16, 16]];
+    let input = (&scissors[..], std::slice::from_ref(&layer));
     let mut allocations = u64::MAX;
     for frame in 0..4 {
         painter.begin_frame();
@@ -465,8 +469,10 @@ fn gpu_warm_frame_allocates_nothing() {
         mem_sys::local_reset();
         upload_atlases(&mut painter, &glyph, &checker);
         ok(painter.draw(&encoder, [W * SCALE, H * SCALE], SCALE as f32, &instances, &[]));
+        let damage = ok(painter.damage_clip(&scissors));
+        ok(damage.set_scissor(&encoder));
         ok(painter.draw_retained_split(&encoder, [W * SCALE, H * SCALE], SCALE as f32,
-            &[(0, &instances, &[])], &[], &[], Some(input), &mut |_, _| Ok(None)));
+            &[(0, &instances, &[])], &[], &[], Some(input), Some(&damage), &mut |_, _| Ok(None)));
         if frame == 3 { allocations = mem_sys::local_alloc_count(); }
         ok(be::end_render(&encoder));
         ok(be::complete_through(&queue, ok(be::commit(&commands)).epoch));
@@ -711,7 +717,7 @@ fn gpu_retained_layer_writes_only_dirty_ranges() {
         let mut splits = 0;
         pass(&queue, &target, &mut |encoder| {
             mem_sys::local_reset();
-            ok(painter.draw_retained_split(encoder, size, SCALE as f32, &[(0, &instances[..], &dirty[..])], &breaks, &[2, 14], None, &mut |_, _| {
+            ok(painter.draw_retained_split(encoder, size, SCALE as f32, &[(0, &instances[..], &dirty[..])], &breaks, &[2, 14], None, None, &mut |_, _| {
                 splits += 1;
                 ok(be::invalidate_state(encoder));
                 Ok(None)
@@ -2123,6 +2129,71 @@ fn shared_view_changes_between_scissored_draws() {
     assert_eq!(at(&pixels, 4.0, 4.0), RED);
     assert_eq!(at(&pixels, 28.0, 4.0), [0, 0, 0, 255]);
     assert_eq!(at(&pixels, 52.0, 4.0), RED);
+    drop(renderer);
+    ok(be::destroy_texture(&target));
+    finish(device, queue);
+}
+
+fn shared_damage_union_draws_once_and_preserves_gaps() {
+    let Some(device) = open() else { return };
+    let queue = ok(be::create_queue(&device));
+    let target = target(&device);
+    let mut ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
+    ui.frame(&pxui::FrameIn::new(W as f32, H as f32).scale(SCALE as f32), &mut |ui| {
+        ui.node("translucent", pxui::Node::DEFAULT.w_px(96.0).h_px(48.0).look(
+            pxui::theme::Look::NONE.fill(pxui::Rgba::rgba(20, 60, 220, 128)).radius(8.0),
+        ));
+        let filler = ui.node("filler", pxui::Node::DEFAULT.w_px(1.0).h_px(1.0).at(0.0, 0.0));
+        ui.canvas(&filler, |paint, _| {
+            for x in 0..80 {
+                paint.fill(pxui::Rect::new(x as f32, 72.0, 1.0, 1.0), pxui::Fill::new(pxui::Rgba::WHITE));
+            }
+        });
+        ui.node("foreground", pxui::Node::DEFAULT.w_px(32.0).h_px(16.0).at(24.0, 8.0).look(
+            pxui::theme::Look::NONE.fill(pxui::Rgba::rgba(20, 210, 60, 190)),
+        ));
+    }).unwrap();
+    assert!(ui.layer(0).unwrap().instances.len() >= 82, "the two visible instances are separated by an off-damage run");
+    let mut renderer = shared_renderer(&device, &ui);
+    let stride = i64::from(W * SCALE * 4);
+    shared_app_frame(&queue, &target, &mut renderer, 1, 0);
+    let full = ok(be::read_texture(&target, stride));
+    let rects = [[2, 2, 28, 24], [20, 10, 24, 16], [60, 4, 24, 24]]
+        .map(|rect| rect.map(|value| value * SCALE));
+    let clear = (228.0 / 255.0, 139.0 / 255.0, 161.0 / 255.0, 1.0);
+    for frame in 2..=5 {
+        let commands = ok(be::begin_commands(&queue));
+        let handles = public_commands(&commands);
+        renderer.prepare(&handles, frame, frame - 1).unwrap();
+        let encoder = ok(be::render_encoder(&commands, &RenderTarget { colors: vec![ColorAttachment {
+            texture: target.clone(), resolve: None, load: Load::Clear, store: Store::Store, clear,
+        }], depth: None }));
+        let native = ok(be::native_pass(&encoder));
+        let pass = pxui_types::Pass {
+            mtl_command_buffer: handles.mtl_command_buffer, mtl_render_encoder: native.mtl_render_encoder,
+            vk_command_buffer: native.vk_command_buffer, width_px: native.width_px, height_px: native.height_px,
+            scale: SCALE as f32, ..pxui_types::Pass::default()
+        };
+        let draws = renderer.draw_calls();
+        mem_sys::local_reset();
+        renderer.draw_damage_rects(&pass, &rects, &mut |_| panic!("no blur")).unwrap();
+        if frame == 5 { assert_eq!(mem_sys::local_alloc_count(), 0); }
+        assert_eq!(renderer.draw_calls() - draws, 1);
+        ok(be::invalidate_state(&encoder));
+        ok(be::end_render(&encoder));
+        let receipt = ok(be::commit(&commands));
+        ok(be::complete_through(&queue, receipt.epoch));
+    }
+    let partial = ok(be::read_texture(&target, stride));
+    let mut differs_from_clear = false;
+    for (i, pixel) in partial.chunks_exact(4).enumerate() {
+        let (x, y) = (i as u32 % (W * SCALE), i as u32 / (W * SCALE));
+        let damaged = rects.iter().any(|&[left, top, w, h]| x >= left && x < left+w && y >= top && y < top+h);
+        let expected = if damaged { &full[i*4..i*4+4] } else { &[228, 139, 161, 255] };
+        assert_eq!(pixel, expected, "pixel {x},{y}");
+        differs_from_clear |= damaged && pixel != [228, 139, 161, 255];
+    }
+    assert!(differs_from_clear);
     drop(renderer);
     ok(be::destroy_texture(&target));
     finish(device, queue);

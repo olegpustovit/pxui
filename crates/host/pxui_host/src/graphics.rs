@@ -267,6 +267,7 @@ impl Graphics {
                     scale,
                     ..Pass::default()
                 };
+                let merged = partial > 1 && !self.no_cull;
                 // A cache miss needs a full canvas to reconstruct its backdrop.
                 let mut redraw = false;
                 let mut split = |record: pxui::Recorder| {
@@ -276,7 +277,9 @@ impl Graphics {
                     }
                     split_backdrop(frames, pass, record)
                 };
-                let result = if partial != 0 && !self.no_cull {
+                let result = if merged {
+                    renderer.draw_damage_rects(&pass, &pixels[..partial], &mut split)
+                } else if partial == 1 && !self.no_cull {
                     renderer.draw_damage(&pass, pixels[0], &mut split)
                 } else {
                     renderer.draw_with_split(&pass, &mut split)
@@ -288,12 +291,10 @@ impl Graphics {
                     renderer.draw_with_split(&pass, &mut |record| split_backdrop(frames, pass, record))?;
                 } else {
                     result?;
-                    for rect in pixels.iter().take(partial).skip(1) {
-                        frames.scissor(rect);
-                        if self.no_cull {
+                    if self.no_cull {
+                        for rect in pixels.iter().take(partial).skip(1) {
+                            frames.scissor(rect);
                             renderer.draw(&pass)?;
-                        } else {
-                            renderer.draw_damage(&pass, *rect, &mut |_| Err(Error::Host("backdrop blur needs a full canvas")))?;
                         }
                     }
                 }

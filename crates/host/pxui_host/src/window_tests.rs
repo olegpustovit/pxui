@@ -301,7 +301,7 @@ fn framework_host_damage_redraws_only_the_change_and_keeps_the_rest() {
         assert_eq!(ui.damage_list().count, 2);
         let calls = graphics.draw_calls();
         let partial = read(&mut graphics, &mut window, &ui);
-        let two_draws = !full_damage && (no_cull || right.is_some());
+        let two_draws = !full_damage && no_cull;
         assert_eq!(graphics.draw_calls() - calls, 1 + u64::from(two_draws));
         assert_eq!(partial, fresh.screenshot(&mut window, &full_ui).unwrap().2, "seed {seed}");
     }

@@ -79,8 +79,8 @@ impl Frames {
         unsafe { rays_metal_frames_commands(self.raw) }
     }
     /// Opens the retained canvas pass. Returns its encoder and the number of damage rects to draw.
-    /// Each rect is `[x, y, width, height]` in drawable pixels. The first is already filled and
-    /// scissored. An empty list or invalid canvas clears the whole target and returns zero rects.
+    /// Each rect is `[x, y, width, height]` in drawable pixels. All are filled in one draw and the
+    /// first is set as the scissor. An empty list or invalid canvas clears the whole target and returns zero rects.
     pub fn pass(&mut self, color: [u8; 3], damage: &[[u32; 4]]) -> Result<(*mut c_void, usize), String> {
         let mut partial = 0;
         let pass = unsafe {
@@ -107,7 +107,7 @@ impl Frames {
         core::ptr::NonNull::new(unsafe { rays_metal_frames_resume_pass(self.raw) })
     }
 
-    /// Fills the next damage rect from `pass` and sets its scissor for another draw.
+    /// Sets the scissor to the next damage rect from `pass` for another draw.
     pub fn scissor(&mut self, rect: &[u32; 4]) {
         unsafe { rays_metal_frames_scissor(self.raw, rect); }
     }
