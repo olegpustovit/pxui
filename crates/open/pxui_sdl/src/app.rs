@@ -57,30 +57,33 @@ pub fn run_with_density(title: &str, width: i64, height: i64, high_density: bool
                 loop {
                     let at = deadline(next)?;
                     let hz = window.repaint_hz;
-                    let ready_for_link = pacing.is_some() && link_due(at, window.frame_time(), hz);
-                    if matches!(next, Schedule::WaitUntil(_)) && !ready_for_link {
+                    let ready_for_link = pacing.is_some() && link_due(at, window.time(), hz);
+                    let woke_for_event = if matches!(next, Schedule::WaitUntil(_)) && !ready_for_link {
                         if let Some(pacing) = &pacing { pacing.pause(); }
-                        window.wait(at);
-                    }
-                    let mut result = None;
-                    if window.presentation().is_some()
-                        && let Some(pacing) = &pacing
-                        && let Some(update) = pacing.tick(hz)
+                        window.wait_for_event(at)
+                    } else {
+                        false
+                    };
+                    let update = if window.presentation().is_some() {
+                        pacing.as_ref().and_then(|pacing| pacing.tick(hz))
+                    } else {
+                        None
+                    };
+                    if update.is_some()
+                        && !woke_for_event
+                        && !frame_due(next, window.time())
+                        && !window.wait_for_event(Some(0.0))
                     {
-                        window.mark_frame_time(update.lead);
-                        if hz != 0 && let Some(at) = at && at <= window.frame_time() + 0.001 {
-                            window.frame_time = window.frame_time.max(at);
-                        }
-                        result = Some(callback(&mut window, Signal::Frame));
+                        continue;
                     }
-                    if ready_for_link && result.is_none() {
+                    if ready_for_link && update.is_none() {
                         window.wait(at);
                     }
                     let visible = window.presentation().is_some();
-                    next = match result {
-                        Some(result) => result?,
-                        None => callback(&mut window, if visible { Signal::Frame } else { Signal::Control })?,
-                    };
+                    if let Some(update) = &update {
+                        window.mark_frame_time(update.lead);
+                    }
+                    next = callback(&mut window, if visible { Signal::Frame } else { Signal::Control })?;
                     if next == Schedule::Exit { return Ok(()); }
                     if !visible && matches!(next, Schedule::NextFrame) {
                         next = Schedule::WaitUntil(None);
@@ -125,6 +128,11 @@ fn link_due(at: Option<f64>, now: f64, hz: u32) -> bool {
     at.is_some_and(|at| at - now <= lead)
 }
 
+#[cfg(target_os = "macos")]
+fn frame_due(schedule: Schedule, now: f64) -> bool {
+    schedule == Schedule::NextFrame || matches!(schedule, Schedule::WaitUntil(Some(at)) if now >= at)
+}
+
 #[cfg(all(test, target_os = "macos"))]
 #[test]
 fn the_display_link_arms_for_due_work_and_nearby_ambient_deadlines() {
@@ -137,4 +145,24 @@ fn the_display_link_arms_for_due_work_and_nearby_ambient_deadlines() {
     assert!(link_due(Some(5.0), 5.0, 0));
     assert!(link_due(Some(4.99), 5.0, 0));
     assert!(!link_due(Some(5.01), 5.0, 0));
+}
+
+#[cfg(all(test, target_os = "macos"))]
+#[test]
+fn a_60_hz_callback_stream_respects_20_hz_repaint_deadlines() {
+    let interval = 1.0 / 20.0;
+    let mut next = Schedule::WaitUntil(Some(interval));
+    let mut draws = 0;
+    for tick in 1..=600 {
+        let now = f64::from(tick) / 60.0;
+        if frame_due(next, now) {
+            draws += 1;
+            next = Schedule::WaitUntil(Some(now + interval));
+        }
+        assert!(draws <= tick / 3);
+    }
+    assert!(draws > 0);
+    assert!(!frame_due(Schedule::WaitUntil(None), 10.0));
+    assert!(!frame_due(Schedule::WaitUntil(Some(10.0005)), 10.0));
+    assert!(frame_due(Schedule::WaitUntil(Some(10.0)), 10.0));
 }
