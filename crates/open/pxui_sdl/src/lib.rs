@@ -597,7 +597,7 @@ impl Window {
         Ok(self.dialog_selections.swap_remove(index).1)
     }
 
-    /// Shown and neither minimized nor covered.
+    /// Shown and neither minimized nor covered. AppKit reports exposure asynchronously.
     pub fn visible(&mut self) -> Result<bool, Error> {
         self.live()?;
         #[cfg(target_os = "macos")]

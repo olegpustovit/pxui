@@ -33,6 +33,20 @@ fn window_completed_drop_spans_pumps_and_cancel_reuses_buffers() {
     window.destroy().unwrap();
 }
 
+#[cfg(target_os = "macos")]
+fn wait_for_exposure(window: &mut Window, token: &Token) {
+    // AppKit sends occlusion changes asynchronously after WindowServer orders the window.
+    sdl3_sys::pacing::test_order_front(token, false);
+    let mut events = Vec::new();
+    let deadline = window.time() + 0.45;
+    while !window.visible().unwrap() && window.time() < deadline {
+        window.wait(Some(deadline));
+        assert!(window.pump(&mut events));
+        events.clear();
+    }
+    assert!(window.visible().unwrap(), "AppKit did not expose the window");
+}
+
 // Window visibility requires the initial thread and reports a missing window explicitly.
 fn window_visibility() {
     let mut window = match Window::open_with("pxui_sdl", 32, 24, true, true, true) {
@@ -65,7 +79,12 @@ fn window_visibility() {
     window.set_text_input(None).unwrap();
     assert!(!window.visible().unwrap(), "native window was not initially hidden");
     window.show().unwrap();
-    assert!(window.visible().unwrap(), "show did not set visible flag");
+    #[cfg(target_os = "macos")]
+    {
+        let token = window.token().unwrap();
+        wait_for_exposure(&mut window, &token);
+    }
+    assert!(window.visible().unwrap(), "show did not expose the window");
     // a window hands out a layer token, a size and a scale, and tracks resize
     window.token().unwrap();
     assert!(window.size().0 > 0 && window.scale() >= 1.);
@@ -337,7 +356,7 @@ fn app_loop_cleans_up_callbacks_before_the_window_on_success_and_errors() {
             if signal == Signal::Initialize {
                 let token = window.token()?;
                 #[cfg(target_os = "macos")]
-                sdl3_sys::pacing::test_order_front(&token, false);
+                wait_for_exposure(window, &token);
                 self.token = Some(token);
             }
             if (failure == 1 && signal == Signal::Initialize) || (failure == 2 && signal == Signal::Frame) {
