@@ -183,10 +183,15 @@ unsafe fn decode_key(ui: *mut PxuiUi, key: &PxuiKeyframeDesc, previous: f32) -> 
 // Plays the 1 to 8 keyframes `keys` on `box_` `repeat` times (1: once; 0: forever; a count includes the reverse leg), reversing every
 // other pass when `autoreverse` is 1, starting `start_offset` seconds in; writes 1 to `out` while the run is going.
 export!(pub unsafe fn pxui_ui_animate_keys(ui: *mut PxuiUi, box_: *const PxuiBox, keys: Slice<PxuiKeyframeDesc>, repeat: u32, autoreverse: u8, start_offset: f32, out: *mut u8) -> i32 {
-    unsafe { animate_keys(ui, box_, keys, (repeat, autoreverse, start_offset), out) }
+    unsafe { animate_keys(ui, box_, keys, (repeat, autoreverse, start_offset), if repeat == 0 { 30 } else { 0 }, out) }
 });
 
-unsafe fn animate_keys(ui: *mut PxuiUi, box_: *const PxuiBox, keys: Slice<PxuiKeyframeDesc>, repeat: (u32, u8, f32), out: *mut u8) -> i32 {
+// As pxui_ui_animate_keys, with an explicit idle cadence in Hz (0: display rate).
+export!(pub unsafe fn pxui_ui_animate_keys_at_rate(ui: *mut PxuiUi, box_: *const PxuiBox, keys: Slice<PxuiKeyframeDesc>, repeat: u32, autoreverse: u8, start_offset: f32, rate_hz: u8, out: *mut u8) -> i32 {
+    unsafe { animate_keys(ui, box_, keys, (repeat, autoreverse, start_offset), rate_hz, out) }
+});
+
+unsafe fn animate_keys(ui: *mut PxuiUi, box_: *const PxuiBox, keys: Slice<PxuiKeyframeDesc>, repeat: (u32, u8, f32), rate_hz: u8, out: *mut u8) -> i32 {
     let (engine, target_box) = match unsafe { boxed(ui, box_) } { Ok(v) => v, Err(code) => return code };
     if out.is_null() || keys.len == 0 || keys.len > MAX_KEYS || keys.ptr.is_null() { return unsafe { fail(ui, "invalid animation keyframe span") }; }
     if repeat.0 > u16::MAX as u32 || repeat.1 > 1 || !repeat.2.is_finite() || repeat.2 < 0.0 { return unsafe { fail(ui, "invalid animation repeat") }; }
@@ -199,12 +204,13 @@ unsafe fn animate_keys(ui: *mut PxuiUi, box_: *const PxuiBox, keys: Slice<PxuiKe
         match unsafe { decode_key(ui, key, previous) } { Ok(key) => { previous = key.time(); *slot = key; } Err(code) => return code }
     }
     let (count, reverse, offset) = repeat;
-    let running = if (count, reverse, offset) == (1, 0, 0.0) { engine.animate_keys(&target_box, &decoded[..raw.len()], &Keyframes::DEFAULT) } else {
-        if previous <= 0.0 { return unsafe { fail(ui, "repeating animation needs positive duration") }; }
-        let cycles = if count == 0 { Repeat::Forever } else { Repeat::Count(count as u16) };
-        let play = Keyframes::DEFAULT.repeat(cycles).offset(offset);
-        engine.animate_keys(&target_box, &decoded[..raw.len()], &if reverse != 0 { play.autoreverse() } else { play })
-    };
+    if (count, reverse, offset) != (1, 0, 0.0) && previous <= 0.0 {
+        return unsafe { fail(ui, "repeating animation needs positive duration") };
+    }
+    let cycles = if count == 0 { Repeat::Forever } else { Repeat::Count(count as u16) };
+    let rate = if rate_hz == 0 { pxui_types::ui::Rate::Display } else { pxui_types::ui::Rate::Ambient(rate_hz) };
+    let play = Keyframes::DEFAULT.repeat(cycles).offset(offset).rate(rate);
+    let running = engine.animate_keys(&target_box, &decoded[..raw.len()], &if reverse != 0 { play.autoreverse() } else { play });
     unsafe { *out = running as u8; }
     0
 }

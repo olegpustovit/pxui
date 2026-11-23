@@ -38,7 +38,7 @@ Ui|a11y_name|A4-required,Gallery,Rays|done
 Ui|a11y_nodes|Rays|done: the output's accessibility records as a slice
 Ui|a11y_number|A4-required|done
 Ui|anchored|Gallery|done
-Ui|animate_keys|Gallery|done
+Ui|animate_keys|Gallery,LocalWave|done: explicit rate via pxui_ui_animate_keys_at_rate
 Ui|animate|Rays|done
 Ui|arranged_nodes|Gallery|done
 Ui|background_request|Rays|done

@@ -1454,6 +1454,7 @@ pub const CASES: &[(&str, fn())] = &[
     ("window_pxui_damage_containment_preserves_other_views", window_pxui_damage_containment_preserves_other_views),
     ("window_pxui_view_entrance_channels", window_pxui_view_entrance_channels),
     ("window_pxui_idle_loops_step_slower", window_pxui_idle_loops_step_slower),
+    ("window_pxui_ambient_loops_share_ticks", window_pxui_ambient_loops_share_ticks),
     ("window_pxui_offscreen_transition_rests_without_frames", window_pxui_offscreen_transition_rests_without_frames),
     ("window_pxui_step_advances_transitions_without_a_build", window_pxui_step_advances_transitions_without_a_build),
     ("window_pxui_more_kept_views_reuse_compaction_scratch", window_pxui_more_kept_views_reuse_compaction_scratch),
@@ -1606,6 +1607,42 @@ pub fn window_pxui_idle_loops_step_slower() {
     assert!(ui.animate_keys(&view.get().unwrap(),&keys,&Keyframes::DEFAULT.repeat(Repeat::Count(3))));
     ui.frame(&at(2.5,vec![]),&mut build);
     assert_eq!(ui.repaint_at(),Some(2.5),"a counted run plays every frame");
+    ui.destroy();
+}
+
+/// Separate start times and cadences do not interleave repaint requests.
+pub fn window_pxui_ambient_loops_share_ticks() {
+    use pxui_types::ui::Rate;
+    let mut ui = new_ui(None);
+    let slow = Cell::new(None);
+    let fast = Cell::new(None);
+    let mut build = |ui: &mut Ui| {
+        slow.set(Some(ui.view("slow", 1, Size::Px(100.0), Size::Px(40.0), &mut |ui| {
+            chip(ui, "child", RED, Flags::NONE);
+        })));
+        fast.set(Some(ui.view("fast", 1, Size::Px(100.0), Size::Px(40.0), &mut |ui| {
+            chip(ui, "child", BLUE, Flags::NONE);
+        })));
+    };
+    ui.frame(&at(0.0, vec![]), &mut build);
+    let curve = Curve::Bezier { duration: 1.0, points: [0.0, 0.0, 1.0, 1.0] };
+    let keys = [Keyframe::opacity(0.0, 0.4).curve(curve), Keyframe::opacity(1.0, 1.0).curve(curve)];
+    let ambient = Keyframes::DEFAULT.repeat(Repeat::Forever);
+    assert!(ui.animate_keys(&slow.get().unwrap(), &keys, &ambient.rate(Rate::Ambient(20))));
+    ui.frame(&at(0.01, vec![]), &mut build);
+    let original = ui.output().views.to_vec();
+    assert_eq!(ui.repaint_at(), Some(0.01 + 0.05));
+    ui.frame(&at(0.02, vec![Event::PointerMoved((0.0, 0.0))]), &mut build);
+    assert_eq!(ui.output().views, original, "motion over the same target must not sample the loop early");
+    assert_eq!(ui.repaint_at(), Some(0.01 + 0.05));
+    assert!(ui.animate_keys(&fast.get().unwrap(), &keys, &ambient));
+    ui.frame(&at(0.023, vec![]), &mut build);
+    let tick = 0.01 + 1.0 / 30.0;
+    assert_eq!(ui.repaint_at(), Some(tick));
+    let initial = ui.output().views.to_vec();
+    assert!(ui.step(tick));
+    assert_eq!(ui.output().views.iter().zip(&initial).filter(|(a, b)| a.1.opacity != b.1.opacity).count(), 2);
+    assert_eq!(ui.repaint_at(), Some(tick + 1.0 / 30.0));
     ui.destroy();
 }
 

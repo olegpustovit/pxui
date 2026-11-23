@@ -66,4 +66,4 @@ pub(crate) use state::{fail, get, text};
 pub use pxui_types::{FrameIn, FrameOut, PxuiBox, PxuiPanel, PxuiTargetDesc, PxuiUiDesc, Str};
 pub use pxui_types::ffi::PxuiSignal;
 pub use pxui_types::{PXUI_ERR_ARGUMENT, PXUI_ERR_GPU, PXUI_ERR_PANIC, PXUI_ERR_STALE, PXUI_ERR_STATE, PXUI_ERR_VERSION};
-pub const ABI_VERSION: u32 = 131078; // 2.6 (major << 16 | minor), kept in step with ABI_BUILT
+pub const ABI_VERSION: u32 = 131079; // 2.7 (major << 16 | minor), kept in step with ABI_BUILT

@@ -213,7 +213,7 @@ pub struct PxuiFrameReasons {
     pub transition: u64,
     /// Immediate repaints requested by a finite keyframe run.
     pub finite_keys: u64,
-    /// Immediate repaints requested by an ambient loop after input.
+    /// Immediate repaints requested by display-rate loops or ambient loops after input.
     pub active_loop: u64,
     /// Repaints scheduled at the ambient loop interval.
     pub idle_loop: u64,

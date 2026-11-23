@@ -144,3 +144,4 @@ and name the replacement; nothing is removed from the manifest.
 | 2.4 | Added `pxui_ui_step`: advances running transitions without a build, so an animation frame patches only its nodes. |
 | 2.5 | Added `pxui_ui_frame_reasons` for opt-in scheduling counters and the last one-shot transition. |
 | 2.6 | Added `pxui_ui_damage_list` and appended `PxuiDamageList` to `PxuiOutput`. The legacy damage fields report the bounding box. |
+| 2.7 | Added `pxui_ui_animate_keys_at_rate` for display and shared ambient keyframe cadences. |

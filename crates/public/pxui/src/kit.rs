@@ -11,7 +11,7 @@ pub(crate) use pxui_types::ffi::{PxuiFooterDesc as FooterDesc, PxuiGridListDesc 
 
 #[cfg(feature = "static")]
 mod sys {
-    pub use pxui_abi_link::{pxui_ui_animate_keys, pxui_ui_menu_bar, pxui_ui_wants_frame};
+    pub use pxui_abi_link::{pxui_ui_animate_keys_at_rate, pxui_ui_menu_bar, pxui_ui_wants_frame};
 }
 #[cfg(not(feature = "static"))]
 mod sys {
@@ -44,7 +44,7 @@ mod sys {
     ///     ui.animate_keys(&b, &keys, &pxui::Keyframes::DEFAULT.repeat(pxui::Repeat::Count(2)));
     /// });
     /// ```
-    pub fn pxui_ui_animate_keys(ui: *mut PxuiUi, box_: *const PxuiBox, keys: Slice<KeyframeDesc>, repeat: u32, autoreverse: u8, start_offset: f32, out: *mut u8) -> i32;
+    pub fn pxui_ui_animate_keys_at_rate(ui: *mut PxuiUi, box_: *const PxuiBox, keys: Slice<KeyframeDesc>, repeat: u32, autoreverse: u8, start_offset: f32, rate_hz: u8, out: *mut u8) -> i32;
     }
 }
 
@@ -321,7 +321,7 @@ impl Ui {
         out != 0
     }
     /// Runs the keyframes `keys` (1 to 8, times ascending from 0) on the box `box_` as `play` says: how often they repeat (a count includes the reverse legs), whether each cycle plays back, and how far into the first cycle they start.
-    /// The run needs a positive duration; hidden runs request no frames. Call `animate_keys` with another run, or `animate`, to stop it. True while it runs; false for a stale handle.
+    /// The run uses the repaint cadence in `play`. Hidden runs request no frames. Call `animate_keys` with another run, or `animate`, to stop it. True while it runs; false for a stale handle.
     /// Allocates: never.
     /// Panics: when `keys` is empty or over 8, the count is `Repeat::Count(0)`, or the library refuses the run.
     ///
@@ -353,7 +353,8 @@ impl Ui {
         let mut out = 0;
         let span = Slice { ptr: descriptors.as_ptr(), len: keys.len() };
         let count = match play.cycles() { Repeat::Count(n) => n.into(), Repeat::Forever => 0 };
-        let rc = unsafe { sys::pxui_ui_animate_keys(self.0.as_ptr(), box_, span, count, play.reverses() as u8, play.start(), &mut out) };
+        let rate_hz = match play.repaint_rate() { crate::Rate::Display => 0, crate::Rate::Ambient(hz) => hz };
+        let rc = unsafe { sys::pxui_ui_animate_keys_at_rate(self.0.as_ptr(), box_, span, count, play.reverses() as u8, play.start(), rate_hz, &mut out) };
         crate::live(self, rc) && out != 0
     }
 

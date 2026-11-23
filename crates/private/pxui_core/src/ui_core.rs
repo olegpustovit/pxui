@@ -245,9 +245,8 @@ struct Tween {
 
 const NO_KEYS: u32 = u32::MAX;
 
-/// Seconds without input before endless keyframe loops step at `LOOP_STEP` (30 fps) instead of every display frame.
+/// Seconds after an interaction during which ambient animations match the display rate.
 const LOOP_IDLE: f64 = 1.0;
-const LOOP_STEP: f64 = 1.0 / 30.0;
 
 /// Most keyframes one `animate_keys` run holds.
 pub const MAX_KEYS: usize = 8;
@@ -263,6 +262,7 @@ struct Keys {
     repeat: u32,
     autoreverse: bool,
     offset: f32,
+    rate: pxui_types::ui::Rate,
 }
 
 impl Keys {
@@ -1434,6 +1434,9 @@ pub struct Ui {
     frame_requested: bool,
     /// Frame time of the last interaction that affected a control or its input state.
     input_at: f64,
+    /// Sample time shared by ambient animations and their next idle tick.
+    ambient_at: f64,
+    ambient_wake: f64,
     /// Inside `step`: no node was painted this frame, so every running transition patches its node.
     stepping: bool,
     /// `damage` as the last frame left it: a difference at the next paint is between-frame damage not drawn yet.
@@ -1726,6 +1729,8 @@ impl Ui {
             input_at: f64::NEG_INFINITY,
             trace_frame_reasons: AtomicBool::new(std::env::var_os("PXUI_FRAME_REASONS").is_some_and(|value| value == "1")),
             frame_reasons: PxuiFrameReasons::default(),
+            ambient_at: f64::NEG_INFINITY,
+            ambient_wake: f64::INFINITY,
             stepping: false,
             frame_damage: DamageList::default(),
             rebuilt: 0,
@@ -3732,58 +3737,63 @@ impl Ui {
         self.frame_reasons
     }
 
+    fn advance_ambient(&mut self, now: f64) {
+        if !self.ambient_wake.is_finite() || now >= self.ambient_wake || now - self.input_at < LOOP_IDLE {
+            self.ambient_at = now;
+        }
+    }
+
     fn next_repaint(&mut self, now: f64) -> Option<f64> {
+        use pxui_types::ui::Rate;
         let trace = self.trace_frame_reasons.load(Ordering::Relaxed);
-        if self.frame_requested || self.keyboard.flags & pxui_types::Keyboard::ANIMATING != 0 {
-            if trace { self.frame_reasons.requested += 1; }
-            return Some(now);
+        let requested = self.frame_requested || self.keyboard.flags & pxui_types::Keyboard::ANIMATING != 0;
+        let interacting = self.active.is_some() || !self.moving.is_empty() || !self.gsettle.is_empty();
+        if trace {
+            if requested { self.frame_reasons.requested += 1; }
+            else if interacting { self.frame_reasons.interaction += 1; }
         }
-        if self.active.is_some() || !self.moving.is_empty() || !self.gsettle.is_empty() {
-            if trace { self.frame_reasons.interaction += 1; }
-            return Some(now);
-        }
-        let mut looping = false;
-        for t in &self.tweens {
-            if !self.tween_visible(t) { continue; }
-            // a transition or a counted run plays at the display rate
-            match self.keyframes.get(t.keys as usize) {
-                None => {
-                    if trace {
-                        self.frame_reasons.transition += 1;
-                        self.frame_reasons.transition_key = self.slots[t.slot].key;
-                        self.frame_reasons.transition_curve = t.curve.into();
+        let mut display = requested || interacting;
+        let mut hz = 0;
+        for tween in &self.tweens {
+            if !self.tween_visible(tween) { continue; }
+            let keys = self.keyframes.get(tween.keys as usize);
+            match keys.map_or(Rate::Display, |keys| keys.rate) {
+                Rate::Display => {
+                    if trace && !display {
+                        match keys {
+                            None => {
+                                self.frame_reasons.transition += 1;
+                                self.frame_reasons.transition_key = self.slots[tween.slot].key;
+                                self.frame_reasons.transition_curve = tween.curve.into();
+                            }
+                            Some(keys) if keys.repeat != 0 => {
+                                self.frame_reasons.finite_keys += 1;
+                                let elapsed = keys.time(now - tween.start);
+                                let segment = keys.t[..keys.n].iter().position(|&end| elapsed < end).unwrap_or(keys.n - 1);
+                                let start = if segment == 0 { 0.0 } else { keys.t[segment - 1] };
+                                self.frame_reasons.transition_key = self.slots[tween.slot].key;
+                                self.frame_reasons.transition_curve = keys.curve[segment].with_duration(keys.t[segment] - start).into();
+                            }
+                            Some(_) => self.frame_reasons.active_loop += 1,
+                        }
                     }
-                    return Some(now);
+                    display = true;
                 }
-                Some(k) if k.repeat != 0 => {
-                    if trace {
-                        self.frame_reasons.finite_keys += 1;
-                        let elapsed = k.time(now - t.start);
-                        let segment = k.t[..k.n].iter().position(|&end| elapsed < end).unwrap_or(k.n - 1);
-                        let start = if segment == 0 { 0.0 } else { k.t[segment - 1] };
-                        self.frame_reasons.transition_key = self.slots[t.slot].key;
-                        self.frame_reasons.transition_curve = k.curve[segment].with_duration(k.t[segment] - start).into();
-                    }
-                    return Some(now);
-                }
-                Some(_) => {}
+                Rate::Ambient(rate) => hz = hz.max(rate),
             }
-            looping = true;
         }
-        // An endless loop (a playing indicator) is ambient: with input idle it steps at LOOP_STEP, not the display
-        // rate; each step still costs a frame submit and present even when `step` patches it without a build.
-        let looping = match looping {
-            false => f64::INFINITY,
-            true if now - self.input_at < LOOP_IDLE => {
-                if trace { self.frame_reasons.active_loop += 1; }
-                return Some(now);
-            }
-            true => {
-                if trace { self.frame_reasons.idle_loop += 1; }
-                now + LOOP_STEP
-            }
+        self.ambient_wake = if hz == 0 {
+            f64::INFINITY
+        } else {
+            self.ambient_at + 1.0 / f64::from(hz)
         };
-        let wake = self.views.iter().skip(1).fold(self.wake.min(self.touches.wake).min(looping), |w, r| w.min(r.wake));
+        if display { return Some(now); }
+        if hz != 0 && now - self.input_at < LOOP_IDLE {
+            if trace { self.frame_reasons.active_loop += 1; }
+            return Some(now);
+        }
+        if trace && hz != 0 { self.frame_reasons.idle_loop += 1; }
+        let wake = self.views.iter().skip(1).fold(self.wake.min(self.touches.wake).min(self.ambient_wake), |w, r| w.min(r.wake));
         let hover = match &self.hover_rest {
             Some((_, _, start, seen)) if *seen == self.frame_number && now - start < HOVER_SECONDS => start + HOVER_SECONDS,
             _ => f64::INFINITY,
@@ -7442,6 +7452,7 @@ impl Ui {
             return false;
         }
         if trace { self.frame_reasons.stepped += 1; }
+        self.advance_ambient(t);
         self.now = t;
         self.stepping = true;
         self.step_tweens();
@@ -7605,6 +7616,7 @@ impl Ui {
         self.rebuilt = 0;
         self.closed_section = NONE;
         (self.theme_depth, self.theme_id) = (0, 0);
+        self.advance_ambient(frame.input.t);
         (self.now, self.motion) = (frame.input.t, self.theme.tokens.moves());
         self.building = true;
         self.parents.clear();
@@ -7922,13 +7934,21 @@ impl Ui {
         match self.keyframes.get(t.keys as usize) {
             None => (&t.from, &t.to, self.curve_at(&t.curve, elapsed as f32)),
             Some(k) => {
-                let elapsed = k.time(elapsed);
+                let elapsed = k.time(self.keyframe_age(t, k, at));
                 let j = k.t[..k.n].iter().position(|&end| elapsed < end).unwrap_or(k.n - 1);
                 let (from, t0) = if j == 0 { (&t.from, 0.0) } else { (&k.pose[j - 1], k.t[j - 1]) };
                 let curve = k.curve[j].with_duration(k.t[j] - t0);
                 (from, &k.pose[j], self.curve_at(&curve, elapsed - t0))
             }
         }
+    }
+
+    fn keyframe_age(&self, tween: &Tween, keys: &Keys, at: f64) -> f64 {
+        let sample = match keys.rate {
+            pxui_types::ui::Rate::Display => at,
+            pxui_types::ui::Rate::Ambient(_) => at.min(self.ambient_at).max(tween.start),
+        };
+        sample - tween.start
     }
 
     /// Share a Bezier bisection between poses at the same time on the same curve.
@@ -8105,7 +8125,7 @@ impl Ui {
         if keys.iter().any(|key| matches!(key.target(), Target::Scale { .. })) && !self.view_id(b).is_some_and(|v| self.views[v as usize].index != 0) { return false; }
         let slot = b.box_slot;
         let from = self.pose(slot).0;
-        let mut k = Keys { n: 0, t: [0.0; MAX_KEYS], pose: [from; MAX_KEYS], curve: [Curve::Bezier { duration: 0.0, points: [0.0, 0.0, 1.0, 1.0] }; MAX_KEYS], repeat, autoreverse, offset };
+        let mut k = Keys { n: 0, t: [0.0; MAX_KEYS], pose: [from; MAX_KEYS], curve: [Curve::Bezier { duration: 0.0, points: [0.0, 0.0, 1.0, 1.0] }; MAX_KEYS], repeat, autoreverse, offset, rate: play.repaint_rate() };
         let mut at = from;
         for key in keys {
             let (t, curve) = (key.time(), key.segment());

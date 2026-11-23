@@ -1141,6 +1141,7 @@ fn every_box_taking_export_answers_a_foreign_handle_with_the_stale_status() {
         ("cached_label", Box::new(move |u, h| unsafe { pxui_ui_cached_label(u, h, 0, text, &mut Str::default()) })),
         ("text_state", Box::new(|u, h| unsafe { pxui_ui_text_state(u, h, &mut 0, &mut Str::default()) })),
         ("set_text_state", Box::new(move |u, h| unsafe { pxui_ui_set_text_state(u, h, 1, text) })),
+        ("animate_keys_at_rate", Box::new(|u, h| unsafe { pxui_ui_animate_keys_at_rate(u, h, pxui_types::ffi::Slice { ptr: core::ptr::null(), len: 0 }, 1, 0, 0.0, 20, &mut 0) })),
         ("animate_keys", Box::new(|u, h| unsafe { pxui_ui_animate_keys(u, h, pxui_types::ffi::Slice { ptr: core::ptr::null(), len: 0 }, 1, 0, 0.0, &mut 0) })),
         ("carry", Box::new(move |u, h| unsafe { pxui_ui_carry(u, 1, h, text, text) })),
         ("transfer_carry", Box::new(|u, h| unsafe { pxui_ui_transfer_carry(u, h, &mut 0) })),

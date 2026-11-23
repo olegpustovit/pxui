@@ -52,7 +52,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built: the version the app was built against, PXUI_ABI_BUILT (major << 16 | minor); pxui_ui_create refuses 0, another major and a newer minor (PXUI_ERR_VERSION). */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((2u << 16) | 6u)
+#define PXUI_ABI_BUILT ((2u << 16) | 7u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 /* size-prefixed (16 bytes); pxui_ui_text_input_options needs the caller's size to cover it. */
@@ -629,6 +629,8 @@ int32_t pxui_ui_wants_frame(PxuiUi *ui, PxuiEventSpan events, double now, uint8_
 int32_t pxui_ui_footer(PxuiUi *ui, const PxuiFooterDesc *desc);
 /* repeat 1 plays once, 0 forever, otherwise 1..65535 cycles (a count includes the reverse leg); autoreverse is 0/1; start_offset is seconds in. */
 int32_t pxui_ui_animate_keys(PxuiUi *ui, const PxuiBox *box, PxuiKeyframeSpan keys, uint32_t repeat, uint8_t autoreverse, float start_offset, uint8_t *out);
+/* Same playback options, with an explicit idle cadence in Hz (0: display rate). */
+int32_t pxui_ui_animate_keys_at_rate(PxuiUi *ui, const PxuiBox *box, PxuiKeyframeSpan keys, uint32_t repeat, uint8_t autoreverse, float start_offset, uint8_t rate_hz, uint8_t *out);
 /* Last host appearance; themes remain authored by the application. use_theme selects a parsed root
    theme between frames, avoiding reparsing source when appearance changes. */
 int32_t pxui_ui_system_appearance(PxuiUi *ui, uint32_t *out);

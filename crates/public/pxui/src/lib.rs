@@ -71,7 +71,7 @@ pub mod ui {
     pub use pxui_types::text_edit::{scrubbed, fuzzy_match, fuzzy_score, line_end, line_start};
     pub use pxui_types::ui::{
         Checkbox, Chosen, CodeContext, Completion, Cursor, Dropdown, Head, HeadAction, Key, Keyframe, Keyframes,
-        LineStep, ListResponse, Menu, MenuItem, Overlay, PanelOpts, Pick, PickArt, PickRow, PickRows, PickerResponse, Presentation, Repeat, SectionList,
+        LineStep, ListResponse, Menu, MenuItem, Overlay, PanelOpts, Pick, PickArt, PickRow, PickRows, PickerResponse, Presentation, Rate, Repeat, SectionList,
         SectionPart, Segmented, SelectionList, Slider, Target, TextEdit, Toast, TreeResponse,
         UndoKind, DRAG_THRESHOLD, ROOT_KEY, int_key, key_of,
     };
@@ -105,7 +105,7 @@ pub use text_inputs::ScrubPhase;
 mod frame;
 pub use frame::FrameIn;
 mod kit;
-pub use pxui_types::ui::{Keyframes, Repeat};
+pub use pxui_types::ui::{Keyframes, Rate, Repeat};
 #[path = "a11y.rs"]
 mod a11y_ffi;
 mod a11y_state;
