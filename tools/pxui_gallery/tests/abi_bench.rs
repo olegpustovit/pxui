@@ -70,6 +70,7 @@ const GATE_STATIC_OVERLAYS_INSTRUCTION_RATIO: f64 = 1.011; // 1.01 before the cu
 // longer swings its count (a sixth moved it by about 180). The limit stays: a miss is cut by wrapper work, never by raising it.
 /// Draw calls per page at 1x in the default theme: the A0 baseline (the engine's, before the migration).
 const DRAW_CALLS: [u64; 6] = [1, 2, 1, 1, 1, 1];
+const DRAW_CALLS_PARTIAL: u64 = 2;
 
 fn slow() -> bool {
     let on = std::env::var("RAYS_SLOW").as_deref() == Ok("1");
@@ -448,6 +449,33 @@ fn abi_bench_gpu() {
         assert_eq!(submits, 1, "{name}: a rendered frame is exactly the app's one submit");
         drop(renderer);
     }
+    let mut rows = wrapped();
+    let images = [gpu.image(1, 1, &[180; 4]), gpu.image(1, 1, &[220; 4])];
+    let build = |ui: &mut pxui::Ui, frame: u64| {
+        ui.frame(&FrameIn::new(320.0, 512.0).time(frame as f64), &mut |ui| {
+            let canvas = ui.node("one-row damage", pxui::Node::DEFAULT.w_px(320.0).h_px(512.0));
+            ui.canvas(&canvas, move |p, _| {
+                for row in 0..32 {
+                    let color = if row == 14 && frame > 1 { Rgba::rgb(200, 200, 200) } else { Rgba::rgb(100, 100, 100) };
+                    let y = row as f32 * 16.0 + 3.0;
+                    for column in 0..7 {
+                        p.fill(pxui::Rect::new(8.0 + column as f32 * 38.0, y, 35.0, 10.0), pxui::Fill::new(color));
+                    }
+                    p.image(pxui::Rect::new(280.0, y, 16.0, 10.0), &images[row % 2], &pxui::ImageStyle::DEFAULT).expect("row image");
+                }
+            });
+        }).expect("row frame");
+    };
+    build(&mut rows.ui, 1);
+    let mut renderer = gpu.renderer(&rows.ui).expect("row renderer");
+    gpu.render(&mut renderer, (320, 512), 1, [0, 0, 0, 255]);
+    build(&mut rows.ui, 2);
+    let before = renderer.draw_calls();
+    gpu.render_region(&mut renderer, (320, 512), 1, [0, 0, 0, 255], Some([0, 224, 320, 16]));
+    let partial = renderer.draw_calls() - before;
+    println!("PXUI abi_bench {MODE} one-row full_draw_calls={before} draw_calls_partial={partial} limit={DRAW_CALLS_PARTIAL}");
+    assert!((1..=DRAW_CALLS_PARTIAL).contains(&partial) && partial < before);
+    drop(renderer);
     gpu.close();
 }
 

@@ -102,6 +102,10 @@ impl Gpu {
     /// Draw PXUI's retained layers into the already-open host pass. PXUI leaves its own pipeline, bindings
     /// and dynamic state bound, so the app's encoder forgets what it cached before it draws anything else.
     pub fn draw(&self, renderer: &mut Renderer, commands: &be::Commands, encoder: &RenderEncoder, size_px: [u32; 2], scale: f32) -> Result<(), String> {
+        self.draw_region(renderer, commands, encoder, size_px, scale, None)
+    }
+
+    fn draw_region(&self, renderer: &mut Renderer, commands: &be::Commands, encoder: &RenderEncoder, size_px: [u32; 2], scale: f32, scissor: Option<[u32; 4]>) -> Result<(), String> {
         let commands = be::native_commands(commands).map_err(|e| error::to_string(&e))?;
         let native = be::native_pass(encoder).map_err(|e| error::to_string(&e))?;
         let pass = UiPass {
@@ -109,8 +113,16 @@ impl Gpu {
             mtl_render_encoder: native.mtl_render_encoder, width_px: size_px[0], height_px: size_px[1], scale,
             mtl_command_buffer: commands.mtl_command_buffer, ..UiPass::default()
         };
+        if let Some([x, y, w, h]) = scissor {
+            be::set_scissor(encoder, ogpu_core::render_pass::Rect { x: i64::from(x), y: i64::from(y), width: i64::from(w), height: i64::from(h) })
+                .map_err(|e| error::to_string(&e))?;
+        }
         let before = allocations();
-        let drawn = renderer.draw(&pass);
+        let drawn = if let Some(rect) = scissor {
+            renderer.draw_damage(&pass, rect, &mut |_| Err(pxui::Error::InvalidInput))
+        } else {
+            renderer.draw(&pass)
+        };
         self.draw_allocations.set(allocations() - before);
         drawn.map_err(|code| format!("pxui renderer draw failed ({code})"))?;
         be::invalidate_state(encoder).map_err(|e| error::to_string(&e))
@@ -124,6 +136,11 @@ impl Gpu {
 
     /// Render the last frame to an offscreen target and return its RGBA pixels.
     pub fn render(&mut self, renderer: &mut Renderer, size: (u32, u32), density: u32, ground: [u8; 4]) -> Vec<u8> {
+        self.render_region(renderer, size, density, ground, None)
+    }
+
+    /// Render to an offscreen target with a device-pixel scissor.
+    pub fn render_region(&mut self, renderer: &mut Renderer, size: (u32, u32), density: u32, ground: [u8; 4], scissor: Option<[u32; 4]>) -> Vec<u8> {
         let (w, h) = (size.0 * density, size.1 * density);
         let target = self.target(w, h);
         let commands = be::begin_commands(&self.queue).unwrap_or_else(|e| fail(e));
@@ -133,7 +150,7 @@ impl Gpu {
             colors: vec![ColorAttachment { texture: target.clone(), resolve: None, load: Load::Clear, store: Store::Store, clear: (clear[0], clear[1], clear[2], clear[3]) }],
             depth: None,
         }).unwrap_or_else(|e| fail(e));
-        self.draw(renderer, &commands, &encoder, [w, h], density as f32).unwrap_or_else(|e| { eprintln!("pxui_gallery: {e}"); std::process::exit(1) });
+        self.draw_region(renderer, &commands, &encoder, [w, h], density as f32, scissor).unwrap_or_else(|e| { eprintln!("pxui_gallery: {e}"); std::process::exit(1) });
         be::end_render(&encoder).unwrap_or_else(|e| fail(e));
         let receipt = be::commit(&commands).unwrap_or_else(|e| fail(e));
         self.epoch.set(receipt.epoch as u64);
