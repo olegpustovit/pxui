@@ -1587,20 +1587,25 @@ pub fn window_pxui_offscreen_transition_rests_without_frames() {
 pub fn window_pxui_idle_loops_step_slower() {
     let mut ui=new_ui(None);
     let view=Cell::new(None);
-    let mut build=|ui:&mut Ui| {view.set(Some(ui.view("loop",1,Size::Px(100.0),Size::Px(80.0),&mut |ui| {chip(ui,"child",RED,Flags::NONE);})));};
+    let mut build=|ui:&mut Ui| {view.set(Some(ui.view("loop",1,Size::Px(100.0),Size::Px(80.0),&mut |ui| {chip(ui,"child",RED,Flags::CLICKABLE);})));};
     ui.frame(&at(0.0,vec![]),&mut build);
     let curve=Curve::Bezier {duration:0.45,points:[0.0,0.0,1.0,1.0]};
     let keys=[Keyframe::opacity(0.0, 0.4).curve(curve),Keyframe::opacity(0.45, 1.0).curve(curve)];
     assert!(ui.animate_keys(&view.get().unwrap(),&keys,&Keyframes::DEFAULT.repeat(Repeat::Forever).autoreverse()));
-    ui.frame(&at(0.1,vec![Event::FocusGained]),&mut build);
+    ui.frame(&at(0.1,vec![Event::FocusGained, Event::PointerMoved((300.0, 180.0))]),&mut build);
     assert_eq!(ui.repaint_at(),Some(0.1),"input is recent");
     ui.frame(&at(0.9,vec![]),&mut build);
     assert_eq!(ui.repaint_at(),Some(0.9),"still within a second of input");
     ui.frame(&at(1.2,vec![]),&mut build);
     assert_eq!(ui.repaint_at(),Some(1.2+1.0/30.0),"idle: the loop steps at 30 fps");
+    ui.frame(&at(1.3, vec![Event::PointerMoved((10.0, 10.0))]), &mut build);
+    assert_eq!(ui.repaint_at(), Some(1.3), "entering a hover target counts");
+    ui.frame(&at(2.2, vec![Event::PointerMoved((11.0, 10.0))]), &mut build);
+    ui.frame(&at(2.4, vec![Event::PointerMoved((12.0, 10.0))]), &mut build);
+    assert_eq!(ui.repaint_at(), Some(2.4 + 1.0 / 30.0), "movement inside the same target doesn't extend the hold");
     assert!(ui.animate_keys(&view.get().unwrap(),&keys,&Keyframes::DEFAULT.repeat(Repeat::Count(3))));
-    ui.frame(&at(1.3,vec![]),&mut build);
-    assert_eq!(ui.repaint_at(),Some(1.3),"a counted run plays every frame");
+    ui.frame(&at(2.5,vec![]),&mut build);
+    assert_eq!(ui.repaint_at(),Some(2.5),"a counted run plays every frame");
     ui.destroy();
 }
 
