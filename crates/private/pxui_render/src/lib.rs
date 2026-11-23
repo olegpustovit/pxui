@@ -156,6 +156,9 @@ const ALIGN: usize = 256;
 fn align(n: usize) -> usize { (n + ALIGN - 1) & !(ALIGN - 1) }
 fn invalid(operation: &str, message: &str) -> Error { error::make(operation, ErrorKind::InvalidArgument, message) }
 
+pub mod cull;
+use pxui_core::ui_core::Layer;
+
 pub struct Painter {
     device: Device,
     pipeline: Pipeline,
@@ -181,6 +184,7 @@ pub struct Painter {
     headers: [usize; 4],
     header_key: ([u32; 2], u32),
     draw_calls: u64,
+    cull_ranges: Vec<(u32, u32)>,
     layers: Vec<Option<Retained>>,
     retained_bytes: u64,
     blur: Option<Blur>,
@@ -310,7 +314,7 @@ impl Painter {
         Ok(Painter {
             device: device.clone(), pipeline, sampler, smooth, mask, color,extra_atlases:[None,None], depth: depth != DepthFormat::NoDepth,
             ring, ring_ptr, region_size, region: 0, cursor: 0, retired: Vec::new(),
-            views: vec![View::IDENTITY], views_len: 1, headers: [usize::MAX; 4], header_key: ([0, 0], 0), draw_calls: 0, layers: Vec::new(), retained_bytes: 0, blur: None, retired_textures: Vec::new(),
+            views: vec![View::IDENTITY], views_len: 1, headers: [usize::MAX; 4], header_key: ([0, 0], 0), draw_calls: 0, cull_ranges: Vec::new(), layers: Vec::new(), retained_bytes: 0, blur: None, retired_textures: Vec::new(),
         })
     }
 
@@ -615,7 +619,7 @@ impl Painter {
     /// retired until its frames finish. Each segment after a [`Break`] gets its own globals record in the
     /// ring because storage bindings need 256-byte offsets (see [`Painter::retained_bytes`]).
     pub fn draw_retained(&mut self, pass: &RenderEncoder, size_px: [u32; 2], scale: f32, layer: u32, instances: &[Instance], dirty: &[(u32, u32)], breaks: &[Break]) -> Result<(), Error> {
-        self.draw_retained_split(pass, size_px, scale, &[(layer, instances, dirty)], breaks, &[], &mut |_, _| Ok(None))
+        self.draw_retained_split(pass, size_px, scale, &[(layer, instances, dirty)], breaks, &[], None, &mut |_, _| Ok(None))
     }
 
     /// [`Painter::draw_retained`] for consecutive layers (`parts`: each one's index, instances and dirty ranges) drawn in order as one batch from the first part's storage, with
@@ -624,7 +628,8 @@ impl Painter {
     /// drawn from its own storage. Before the segment that starts at each instance in `splits` (each must also be some break's
     /// `at_instance`; one at the end is ignored) it stops where the caller must end the pass and calls `split(self, at)`. The
     /// callback may record other passes and returns the pass the rest draws into, or `None` to go on in the same one.
-    pub fn draw_retained_split(&mut self, pass: &RenderEncoder, size_px: [u32; 2], scale: f32, parts: &[(u32, &[Instance], &[(u32, u32)])], breaks: &[Break], splits: &[u32], split: &mut dyn FnMut(&mut Painter, u32) -> Result<Option<RenderEncoder>, Error>) -> Result<(), Error> {
+    /// `cull` supplies the encoder's active pixel scissor and the same layers as `parts`, in order.
+    pub fn draw_retained_split(&mut self, pass: &RenderEncoder, size_px: [u32; 2], scale: f32, parts: &[(u32, &[Instance], &[(u32, u32)])], breaks: &[Break], splits: &[u32], cull: Option<([u32; 4], &[Layer])>, split: &mut dyn FnMut(&mut Painter, u32) -> Result<Option<RenderEncoder>, Error>) -> Result<(), Error> {
         const OP: &str = "Painter.draw_retained";
         let mut pass = pass.clone();
         if !(scale > 0.0) || size_px[0] == 0 || size_px[1] == 0 { return Err(invalid(OP, "target size and scale must be positive")); }
@@ -707,35 +712,58 @@ impl Painter {
         store.parts.extend(parts.iter().map(|p| (p.0, p.1.len() as u32)));
         store.len = len;
         if len == 0 { return Ok(()); }
+        // Every additional range needs a gap of 16 or more instances after merging.
+        let capacity = store.cap.div_ceil(17) + MAX_LAYERS;
+        self.cull_ranges.reserve(capacity.saturating_sub(self.cull_ranges.len()));
+        let culled = if let Some((scissor, layers)) = cull.filter(|_| splits.is_empty()) {
+            cull::ranges(scissor, layers, &self.views, scale, &mut self.cull_ranges);
+            true
+        } else {
+            false
+        };
         let mut bound = None;
         let mut bind_fixed = true;
+        let mut next = 0;
         for k in 0..=breaks.len() {
-            let from = if k == 0 { 0 } else { breaks[k - 1].at_instance as usize };
-            let to = breaks.get(k).map_or(len, |b| b.at_instance as usize);
-            if k > 0 && splits.contains(&(from as u32)) && to != from {
-                if let Some(next) = split(self, from as u32)? { pass = next; }
+            let segment_from = if k == 0 { 0 } else { breaks[k - 1].at_instance as usize };
+            let segment_to = breaks.get(k).map_or(len, |b| b.at_instance as usize);
+            if k > 0 && splits.contains(&(segment_from as u32)) && segment_to != segment_from {
+                if let Some(next) = split(self, segment_from as u32)? { pass = next; }
                 bound = None;
                 bind_fixed = true;
             }
-            if from == to { continue; }
-            // Bind 4-instance (256-byte) aligned and skip the remainder with the globals' first-instance field.
-            let start = self.header(size_px, scale, (from % 4) as u32)?;
-            // Pipeline, atlases and samplers stay fixed until a split callback can change state.
-            if bind_fixed {
-                self.bind(&pass, start)?;
-                bind_fixed = false;
-            } else {
-                backend::set_stage_buffer(&pass, ShaderStage::Vertex, 1, Some(start as i64), &self.ring)?;
+            if segment_from == segment_to { continue; }
+            loop {
+                let (from, to) = if culled {
+                    let Some((from, to)) = self.cull_ranges.get(next).copied() else { break; };
+                    let (from, to) = (from as usize, to as usize);
+                    if from >= segment_to { break; }
+                    if to <= segment_to { next += 1; }
+                    if to <= segment_from { continue; }
+                    (from.max(segment_from), to.min(segment_to))
+                } else {
+                    (segment_from, segment_to)
+                };
+                // Bind 4-instance (256-byte) aligned and skip the remainder with the globals' first-instance field.
+                let start = self.header(size_px, scale, (from % 4) as u32)?;
+                // Pipeline, atlases and samplers stay fixed until a split callback can change state.
+                if bind_fixed {
+                    self.bind(&pass, start)?;
+                    bind_fixed = false;
+                } else {
+                    backend::set_stage_buffer(&pass, ShaderStage::Vertex, 1, Some(start as i64), &self.ring)?;
+                }
+                let texture = if k == 0 { None } else { breaks[k - 1].texture.as_ref() }.unwrap_or(&self.color);
+                if bound != Some(texture as *const Texture) {
+                    backend::set_stage_texture(&pass, ShaderStage::Fragment, 3, texture)?;
+                    bound = Some(texture);
+                }
+                let store = self.layers[layer].as_ref().expect("layer was just stored");
+                backend::set_stage_buffer(&pass, ShaderStage::Vertex, 0, Some((store.stride * copy + from / 4 * 256) as i64), &store.buffer)?;
+                backend::draw(&pass, Primitive::TriangleList, 0, 6, Some((to - from) as i64))?;
+                self.draw_calls += 1;
+                if !culled || to == segment_to { break; }
             }
-            let texture = if k == 0 { None } else { breaks[k - 1].texture.as_ref() }.unwrap_or(&self.color);
-            if bound != Some(texture as *const Texture) {
-                backend::set_stage_texture(&pass, ShaderStage::Fragment, 3, texture)?;
-                bound = Some(texture);
-            }
-            let store = self.layers[layer].as_ref().expect("layer was just stored");
-            backend::set_stage_buffer(&pass, ShaderStage::Vertex, 0, Some((store.stride * copy + from / 4 * 256) as i64), &store.buffer)?;
-            backend::draw(&pass, Primitive::TriangleList, 0, 6, Some((to - from) as i64))?;
-            self.draw_calls += 1;
         }
         Ok(())
     }

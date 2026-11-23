@@ -573,7 +573,7 @@ fn gpu_retained_layer_writes_only_dirty_ranges() {
         let mut splits = 0;
         pass(&queue, &target, &mut |encoder| {
             mem_sys::local_reset();
-            ok(painter.draw_retained_split(encoder, size, SCALE as f32, &[(0, &instances[..], &dirty[..])], &breaks, &[2, 14], &mut |_, _| {
+            ok(painter.draw_retained_split(encoder, size, SCALE as f32, &[(0, &instances[..], &dirty[..])], &breaks, &[2, 14], None, &mut |_, _| {
                 splits += 1;
                 ok(be::invalidate_state(encoder));
                 Ok(None)

@@ -379,14 +379,14 @@ export!(pub unsafe fn pxui_renderer_draw(renderer:*mut PxuiRenderer, pass:*const
         }
         let breaks=&renderer.breaks;
         let result=if renderer.split_points.is_empty() {
-            renderer.painter.draw_retained_split(&encoder,size_px,pass.scale,parts,breaks,&[],&mut |_,_| Ok(None))
+            renderer.painter.draw_retained_split(&encoder,size_px,pass.scale,parts,breaks,&[],None,&mut |_,_| Ok(None))
         } else {
             let Some(split)=pass.split else { renderer.breaks.clear(); return renderer.fail(PXUI_ERR_STATE, "a layer with a backdrop blur needs the pass's split callback") };
             let (queue,device,format,samples,serial)=(&renderer.queue,&renderer.device,renderer.format,renderer.samples,renderer.frame_serial);
             let (native_commands,scale)=([pass.vk_command_buffer,pass.mtl_command_buffer],pass.scale);
             let mut reopened: Option<ogpu_core::backend::RenderEncoder>=None;
             let current=encoder.clone();
-            let outcome=renderer.painter.draw_retained_split(&current,size_px,scale,parts,breaks,&renderer.split_points,&mut |painter,at| {
+            let outcome=renderer.painter.draw_retained_split(&current,size_px,scale,parts,breaks,&renderer.split_points,None,&mut |painter,at| {
                 let mut latest=None;
                 for b in ui.output().blurs.iter().filter(|b|b.layer==index && b.at_instance==at) {
                     let [w,h]=size_px;
