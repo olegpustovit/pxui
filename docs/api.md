@@ -23,6 +23,10 @@ The open-tier `pxui_sdl::app::run_with_density(title, width, height, high_densit
 uses the same callback lifecycle as `app::run`. On Apple platforms, `false` requests a drawable
 at the window's logical size for native 1× captures. `app::run` requests display density.
 
+R4b.2 removes the Metal host methods `Graphics::set_full_present` and
+`Graphics::present_verification`. `Graphics` redraws canvas damage and copies the full
+canvas to each drawable. Use `Graphics::set_full_damage` to force a full canvas redraw.
+
 | Job | Signature (target) | Body kind | Step |
 |---|---|---|---|
 | Containers | `row/column/stack<F>(node: Node, f: F) -> Handle` (keyless, D25.1); `id<K, F>(key, f)` scopes descendant identities without adding a node; the instance getter `id() -> usize` is renamed `instance_id() -> usize` (D26) so `id` names one thing; `node<K>(key: K, node: Node) -> Handle` (HEAD takes `Key`; becomes key-first generic like every other call, codemod drops `.into()`); `within(&Handle, &mut dyn FnMut(&mut Ui))` | — | keyless + `id` U1b.6; `node` U1b.2; `enter/leave` → crate-private U1a.3 |
