@@ -1085,11 +1085,12 @@ pub struct Keyframes {
     repeat: Repeat,
     autoreverse: bool,
     offset: f32,
+    rate: Option<Rate>,
 }
 
 impl Keyframes {
     /// One forward cycle from the start.
-    pub const DEFAULT: Keyframes = Keyframes { repeat: Repeat::Count(1), autoreverse: false, offset: 0.0 };
+    pub const DEFAULT: Keyframes = Keyframes { repeat: Repeat::Count(1), autoreverse: false, offset: 0.0, rate: None };
     /// Plays `repeat` cycles.
     /// Allocates: never.
     /// Panics: never.
@@ -1115,6 +1116,33 @@ impl Keyframes {
     /// let _ = pxui_types::ui::Keyframes::DEFAULT.offset(0.25);
     /// ```
     pub const fn offset(self, seconds: f32) -> Keyframes { Keyframes { offset: seconds, ..self } }
+    /// Sets the run's repaint cadence. Ambient rates share a tick at the fastest visible cadence.
+    /// During interaction, ambient runs can update at the display rate.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::ui::{Keyframes, Rate};
+    /// assert_eq!(Keyframes::DEFAULT.rate(Rate::Ambient(20)).repaint_rate(), Rate::Ambient(20));
+    /// ```
+    pub const fn rate(self, rate: Rate) -> Keyframes { Keyframes { rate: Some(rate), ..self } }
+    /// Returns the cadence. By default counted runs use the display and endless runs use 30 Hz.
+    /// An ambient rate of zero is treated as 1 Hz.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::ui::{Keyframes, Repeat, Rate};
+    /// assert_eq!(Keyframes::DEFAULT.repeat(Repeat::Forever).repaint_rate(), Rate::Ambient(30));
+    /// ```
+    pub const fn repaint_rate(&self) -> Rate {
+        match (self.rate, self.repeat) {
+            (Some(Rate::Ambient(0)), _) => Rate::Ambient(1),
+            (Some(rate), _) => rate,
+            (None, Repeat::Forever) => Rate::Ambient(30),
+            (None, Repeat::Count(_)) => Rate::Display,
+        }
+    }
     /// How many cycles run.
     /// Allocates: never.
     /// Panics: never.
@@ -1140,6 +1168,15 @@ impl Keyframes {
     /// assert_eq!(pxui_types::ui::Keyframes::DEFAULT.offset(0.5).start(), 0.5);
     /// ```
     pub const fn start(&self) -> f32 { self.offset }
+}
+
+/// Repaint cadence for a keyframe run.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Rate {
+    /// Update on every display frame while visible.
+    Display,
+    /// Request updates at this many ticks per second while input is idle.
+    Ambient(u8),
 }
 
 /// The result of a `picker` for a frame.

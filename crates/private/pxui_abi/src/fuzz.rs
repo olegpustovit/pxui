@@ -233,7 +233,7 @@ fuzz!(
     pxui_shaper_prepare/7, pxui_shaper_rasterize_rgba/14, pxui_shaper_system_fonts/1, pxui_shaper_measure/7,
     pxui_ui_slot/3, pxui_supports/1, pxui_text_add_font/2, pxui_text_install/2, pxui_text_system_fonts/1, pxui_theme_animate_swap/2, pxui_theme_density/2, pxui_theme_last_error/1, pxui_theme_parse/2,
     pxui_theme_reduced_motion/2, pxui_theme_set_color/3, pxui_ui_a11y_name/3, pxui_ui_a11y_number/6, pxui_ui_a11y_value/5, pxui_ui_animate/4,
-    pxui_ui_add_surface/2, pxui_ui_remove_surface/2, pxui_ui_animate_keys/7, pxui_ui_box_of_a11y/3, pxui_ui_box_of_key/3, pxui_ui_busy_step/4,
+    pxui_ui_add_surface/2, pxui_ui_remove_surface/2, pxui_ui_animate_keys/7, pxui_ui_animate_keys_at_rate/8, pxui_ui_box_of_a11y/3, pxui_ui_box_of_key/3, pxui_ui_busy_step/4,
     pxui_ui_button/5, pxui_ui_button_plain/4, pxui_ui_bytes/3,
     pxui_ui_cached_label/5, pxui_ui_cancel_carry/1, pxui_ui_captured/1, pxui_ui_reordering/1, pxui_ui_carry/5, pxui_ui_carrying/4, pxui_ui_progress/5, pxui_ui_spinner/3,
     pxui_ui_badge/4, pxui_ui_anchored/8, pxui_ui_scroll_view/6, pxui_ui_view/6,

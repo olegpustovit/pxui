@@ -242,9 +242,8 @@ struct Tween {
 
 const NO_KEYS: u32 = u32::MAX;
 
-/// Seconds without input before endless keyframe loops step at `LOOP_STEP` (30 fps) instead of every display frame.
+/// Seconds after an interaction during which ambient animations match the display rate.
 const LOOP_IDLE: f64 = 1.0;
-const LOOP_STEP: f64 = 1.0 / 30.0;
 
 /// Most keyframes one `animate_keys` run holds.
 pub const MAX_KEYS: usize = 8;
@@ -260,6 +259,7 @@ struct Keys {
     repeat: u32,
     autoreverse: bool,
     offset: f32,
+    rate: pxui_types::ui::Rate,
 }
 
 impl Keys {
@@ -1409,6 +1409,9 @@ pub struct Ui {
     frame_requested: bool,
     /// Frame time of the last interaction that affected a control or its input state.
     input_at: f64,
+    /// Sample time shared by ambient animations and their next idle tick.
+    ambient_at: f64,
+    ambient_wake: f64,
     /// Inside `step`: no node was painted this frame, so every running transition patches its node.
     stepping: bool,
     /// `damage` as the last frame left it: a difference at the next paint is between-frame damage not drawn yet.
@@ -1697,6 +1700,8 @@ impl Ui {
             painting: false,
             frame_requested: false,
             input_at: f64::NEG_INFINITY,
+            ambient_at: f64::NEG_INFINITY,
+            ambient_wake: f64::INFINITY,
             stepping: false,
             frame_damage: None,
             rebuilt: 0,
@@ -3698,26 +3703,31 @@ impl Ui {
         }
     }
 
-    fn next_repaint(&self, now: f64) -> Option<f64> {
-        if self.frame_requested || self.keyboard.flags & pxui_types::Keyboard::ANIMATING != 0
-            || self.active.is_some() || !self.moving.is_empty() || !self.gsettle.is_empty() {
-            return Some(now);
+    fn advance_ambient(&mut self, now: f64) {
+        if !self.ambient_wake.is_finite() || now >= self.ambient_wake || now - self.input_at < LOOP_IDLE {
+            self.ambient_at = now;
         }
-        let mut looping = false;
-        for t in &self.tweens {
-            if !self.tween_visible(t) { continue; }
-            // a transition or a counted run plays at the display rate
-            if self.keyframes.get(t.keys as usize).is_none_or(|k| k.repeat != 0) { return Some(now); }
-            looping = true;
+    }
+
+    fn next_repaint(&mut self, now: f64) -> Option<f64> {
+        use pxui_types::ui::Rate;
+        let mut display = self.frame_requested || self.keyboard.flags & pxui_types::Keyboard::ANIMATING != 0
+            || self.active.is_some() || !self.moving.is_empty() || !self.gsettle.is_empty();
+        let mut hz = 0;
+        for tween in &self.tweens {
+            if !self.tween_visible(tween) { continue; }
+            match self.keyframes.get(tween.keys as usize).map_or(Rate::Display, |keys| keys.rate) {
+                Rate::Display => display = true,
+                Rate::Ambient(rate) => hz = hz.max(rate),
+            }
         }
-        // An endless loop (a playing indicator) is ambient: with input idle it steps at LOOP_STEP, not the display
-        // rate; each step still costs a frame submit and present even when `step` patches it without a build.
-        let looping = match looping {
-            false => f64::INFINITY,
-            true if now - self.input_at < LOOP_IDLE => return Some(now),
-            true => now + LOOP_STEP,
+        self.ambient_wake = if hz == 0 {
+            f64::INFINITY
+        } else {
+            self.ambient_at + 1.0 / f64::from(hz)
         };
-        let wake = self.views.iter().skip(1).fold(self.wake.min(self.touches.wake).min(looping), |w, r| w.min(r.wake));
+        if display || (hz != 0 && now - self.input_at < LOOP_IDLE) { return Some(now); }
+        let wake = self.views.iter().skip(1).fold(self.wake.min(self.touches.wake).min(self.ambient_wake), |w, r| w.min(r.wake));
         let hover = match &self.hover_rest {
             Some((_, _, start, seen)) if *seen == self.frame_number && now - start < HOVER_SECONDS => start + HOVER_SECONDS,
             _ => f64::INFINITY,
@@ -7362,6 +7372,7 @@ impl Ui {
         if wake <= t || hover {
             return false;
         }
+        self.advance_ambient(t);
         self.now = t;
         self.stepping = true;
         self.step_tweens();
@@ -7525,6 +7536,7 @@ impl Ui {
         self.rebuilt = 0;
         self.closed_section = NONE;
         (self.theme_depth, self.theme_id) = (0, 0);
+        self.advance_ambient(frame.input.t);
         (self.now, self.motion) = (frame.input.t, self.theme.tokens.moves());
         self.building = true;
         self.parents.clear();
@@ -7842,13 +7854,21 @@ impl Ui {
         match self.keyframes.get(t.keys as usize) {
             None => (&t.from, &t.to, self.curve_at(&t.curve, elapsed as f32)),
             Some(k) => {
-                let elapsed = k.time(elapsed);
+                let elapsed = k.time(self.keyframe_age(t, k, at));
                 let j = k.t[..k.n].iter().position(|&end| elapsed < end).unwrap_or(k.n - 1);
                 let (from, t0) = if j == 0 { (&t.from, 0.0) } else { (&k.pose[j - 1], k.t[j - 1]) };
                 let curve = k.curve[j].with_duration(k.t[j] - t0);
                 (from, &k.pose[j], self.curve_at(&curve, elapsed - t0))
             }
         }
+    }
+
+    fn keyframe_age(&self, tween: &Tween, keys: &Keys, at: f64) -> f64 {
+        let sample = match keys.rate {
+            pxui_types::ui::Rate::Display => at,
+            pxui_types::ui::Rate::Ambient(_) => at.min(self.ambient_at).max(tween.start),
+        };
+        sample - tween.start
     }
 
     /// Share a Bezier bisection between poses at the same time on the same curve.
@@ -8030,7 +8050,7 @@ impl Ui {
         if keys.iter().any(|key| matches!(key.target(), Target::Scale { .. })) && !self.view_id(b).is_some_and(|v| self.views[v as usize].index != 0) { return false; }
         let slot = b.box_slot;
         let from = self.pose(slot).0;
-        let mut k = Keys { n: 0, t: [0.0; MAX_KEYS], pose: [from; MAX_KEYS], curve: [Curve::Bezier { duration: 0.0, points: [0.0, 0.0, 1.0, 1.0] }; MAX_KEYS], repeat, autoreverse, offset };
+        let mut k = Keys { n: 0, t: [0.0; MAX_KEYS], pose: [from; MAX_KEYS], curve: [Curve::Bezier { duration: 0.0, points: [0.0, 0.0, 1.0, 1.0] }; MAX_KEYS], repeat, autoreverse, offset, rate: play.repaint_rate() };
         let mut at = from;
         for key in keys {
             let (t, curve) = (key.time(), key.segment());
