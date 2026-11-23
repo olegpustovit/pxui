@@ -770,6 +770,7 @@ pxui::Progress impl Debug @U1b.5
 pxui::Progress struct @U1b.5
 pxui::Progress::DEFAULT const Progress @U1b.5
 pxui::Progress::variant fn const (self, variant: u16) -> Progress @U1b.5
+pxui::PxuiFrameReasons use pxui_types::ffi::PxuiFrameReasons @HEAD
 pxui::PxuiPanel use pxui_types::PxuiPanel @HEAD
 pxui::PxuiTargetDesc use pxui_types::PxuiTargetDesc @HEAD
 pxui::PxuiUiDesc use pxui_types::PxuiUiDesc @HEAD
