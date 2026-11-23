@@ -192,6 +192,7 @@ pub mod shapes {
             let root = self.0.popup_root(key, overlay, page!(f));
             OverlayResponse { handle: root.unwrap_or_default(), open: root.is_some() }
         }
+        pub fn icon_button(&mut self, key: &str, icon: pxui_core::ui::Icon, name: &str, button: &pxui_core::ui::IconButton) -> pxui_core::ui::Response { self.0.icon_button(key, icon, name, button, None) }
         pub fn button(&mut self, key: &str, text: &str, _: &Button) -> pxui_core::ui::Response {
             self.0.button_opts(key, text, None, &pxui_core::ui_kit::ButtonOpts::DEFAULT, [""; 3], None, None)
         }

@@ -247,7 +247,7 @@ fuzz!(
     pxui_ui_node_fields/3, pxui_ui_node_keyed/4, pxui_ui_node_layout/3, pxui_ui_now/1, pxui_ui_output/1, pxui_ui_passed_undo/1, pxui_ui_patch_field/5,
     pxui_ui_patch_look/4, pxui_ui_patch_mark/4, pxui_ui_patch_rect/4, pxui_ui_patch_text/4, pxui_ui_platform/1,
     pxui_ui_press_keys/4, pxui_ui_rect/3, pxui_ui_remember/6,
-    pxui_ui_repaint_after/2, pxui_ui_request_cursor/2, pxui_ui_request_frame/1, pxui_ui_resolve_label/3, pxui_ui_retain_palette_labels/1, pxui_ui_retain_palette_paint/1, pxui_ui_retain_view_on_resize/1, pxui_ui_reveal/3, pxui_ui_root_at/6, pxui_ui_row_points/2,
+    pxui_ui_repaint_after/2, pxui_ui_request_cursor/2, pxui_ui_request_frame/1, pxui_ui_step/3, pxui_ui_resolve_label/3, pxui_ui_retain_palette_labels/1, pxui_ui_retain_palette_paint/1, pxui_ui_retain_view_on_resize/1, pxui_ui_reveal/3, pxui_ui_root_at/6, pxui_ui_row_points/2,
     pxui_ui_scroll_offset/4, pxui_ui_search_field/11, pxui_ui_section_list/7, pxui_ui_selection_list/7, pxui_ui_table_head/4, pxui_ui_table/7,
     pxui_ui_segmented/5, pxui_ui_set_a11y/2, pxui_ui_set_at/4, pxui_ui_set_dir/2,
     pxui_ui_set_font_points/2, pxui_ui_set_node_fields/3, pxui_ui_set_node_layout/3, pxui_ui_set_role/4, pxui_ui_set_scroll_offset/3,

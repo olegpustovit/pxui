@@ -52,7 +52,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built: the version the app was built against, PXUI_ABI_BUILT (major << 16 | minor); pxui_ui_create refuses 0, another major and a newer minor (PXUI_ERR_VERSION). */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((2u << 16) | 3u)
+#define PXUI_ABI_BUILT ((2u << 16) | 4u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 /* size-prefixed (16 bytes); pxui_ui_text_input_options needs the caller's size to cover it. */
@@ -648,6 +648,9 @@ int32_t pxui_ui_signal(PxuiUi *ui, const PxuiBox *box, PxuiSignal *out);
 int32_t pxui_ui_patch_text(PxuiUi *ui, const PxuiBox *box, PxuiStr value, uint8_t *out); /* out: whether the text was written; a stale box is PXUI_ERR_STALE */
 int32_t pxui_ui_busy_step(PxuiUi *ui, const PxuiBox *box, double now, uint8_t *out);
 int32_t pxui_ui_request_frame(PxuiUi *ui);
+/* 2.4: advances running transitions to `time` without a build (patching animated nodes in place); *out 0 when the next frame
+   needs a build (input, a timer, a frame request, layout settling) and nothing changed. A host with nothing new calls it in place of a frame. */
+int32_t pxui_ui_step(PxuiUi *ui, double time, uint8_t *out);
 int32_t pxui_ui_node(PxuiUi *ui, PxuiStr label, const PxuiNode *node, PxuiBox *out); /* node->size = sizeof(PxuiNode); copied in the call */
 /* a keyless layout container: the n-th of the current scope, keyed by the library in a positional namespace no label
    or id reaches (labels and images are keyed the same way, each kind counted apart). No caller text crosses. */

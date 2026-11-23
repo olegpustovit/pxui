@@ -639,7 +639,8 @@ fn repeating_keyframes_keep_instances_and_builds_idle_when_hidden_and_stop_witho
             assert_eq!(ui.rect(&resolved), rect);
             assert!((rect.h - (4.0 + 6.0 * progress as f32)).abs() < 0.001);
             assert!((rect.y + rect.h - 10.0).abs() < 0.001, "fixed bottom anchor");
-            assert!(ui.wants_frame(&[], start + dt));
+            // a running loop keeps asking for frames: every display frame, or 30 fps after a second without input
+            assert!(ui.repaint_at().is_some_and(|at| at <= start + dt + 1.0 / 30.0 + 1e-9));
             assert_eq!(builds.get(), built);
             assert_eq!(ui.layer(0).expect("base layer").instances, instances.as_slice());
         }
@@ -652,13 +653,13 @@ fn repeating_keyframes_keep_instances_and_builds_idle_when_hidden_and_stop_witho
         assert!(!ui.wants_frame(&[], start + 2.5), "an omitted clip keeps the existing one");
         ui.set_view(&view, &crate::ViewTransform::DEFAULT.clip(None));
         ui.frame(&input().time(start + 3.0), &mut build).unwrap();
-        assert!(ui.wants_frame(&[], start + 3.0));
+        assert!(ui.wants_frame(&[], start + 3.0 + 1.0 / 30.0), "a shown loop runs again (30 fps: no recent input)");
         ui.set_view(&view, &ViewTransform::DEFAULT.opacity(0.0));
         ui.frame(&input().time(start + 3.0), &mut build).unwrap();
         assert!(!ui.wants_frame(&[], start + 3.0), "manually hidden loops must idle");
         ui.set_view(&view, &ViewTransform::DEFAULT.opacity(1.0));
         ui.frame(&input().time(start + 3.0), &mut build).unwrap();
-        assert!(ui.wants_frame(&[], start + 3.0));
+        assert!(ui.wants_frame(&[], start + 3.0 + 1.0 / 30.0));
         // Finite cycles count both legs and settle at their authored first stop.
         assert!(ui.animate_keys(&view, &keys, &Keyframes::DEFAULT.repeat(Repeat::Count(2)).autoreverse()));
         for (dt, height, running) in [(0.5, 10.0, true), (1.0, 4.0, true), (1.5, 10.0, true), (2.0, 4.0, false)] {

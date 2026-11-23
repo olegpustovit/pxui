@@ -242,6 +242,10 @@ struct Tween {
 
 const NO_KEYS: u32 = u32::MAX;
 
+/// Seconds without input before endless keyframe loops step at `LOOP_STEP` (30 fps) instead of every display frame.
+const LOOP_IDLE: f64 = 1.0;
+const LOOP_STEP: f64 = 1.0 / 30.0;
+
 /// Most keyframes one `animate_keys` run holds.
 pub const MAX_KEYS: usize = 8;
 
@@ -1403,6 +1407,12 @@ pub struct Ui {
     arena: Arena,
     painting: bool,
     frame_requested: bool,
+    /// Frame time of the last frame with events; endless loops step slower after `LOOP_IDLE` without one.
+    input_at: f64,
+    /// Inside `step`: no node was painted this frame, so every running transition patches its node.
+    stepping: bool,
+    /// `damage` as the last frame left it: a difference at the next paint is between-frame damage not drawn yet.
+    frame_damage: Option<Rect>,
     /// views built (not kept) this frame
     rebuilt: usize,
     /// the earliest `repaint_after` the root asked for this frame
@@ -1686,6 +1696,9 @@ impl Ui {
             arena: Arena::default(),
             painting: false,
             frame_requested: false,
+            input_at: f64::NEG_INFINITY,
+            stepping: false,
+            frame_damage: None,
             rebuilt: 0,
             wake: f64::INFINITY,
             out: PlatformOut::default(),
@@ -3687,10 +3700,24 @@ impl Ui {
 
     fn next_repaint(&self, now: f64) -> Option<f64> {
         if self.frame_requested || self.keyboard.flags & pxui_types::Keyboard::ANIMATING != 0
-            || self.active.is_some() || self.tweens.iter().any(|t| t.keys == NO_KEYS || self.tween_visible(t)) || !self.moving.is_empty() || !self.gsettle.is_empty() {
+            || self.active.is_some() || !self.moving.is_empty() || !self.gsettle.is_empty() {
             return Some(now);
         }
-        let wake = self.views.iter().skip(1).fold(self.wake.min(self.touches.wake), |w, r| w.min(r.wake));
+        let mut looping = false;
+        for t in &self.tweens {
+            if t.keys != NO_KEYS && !self.tween_visible(t) { continue; }
+            // a transition or a counted run plays at the display rate
+            if self.keyframes.get(t.keys as usize).is_none_or(|k| k.repeat != 0) { return Some(now); }
+            looping = true;
+        }
+        // An endless loop (a playing indicator) is ambient: with input idle it steps at LOOP_STEP, not the display
+        // rate; each step still costs a frame submit and present even when `step` patches it without a build.
+        let looping = match looping {
+            false => f64::INFINITY,
+            true if now - self.input_at < LOOP_IDLE => return Some(now),
+            true => now + LOOP_STEP,
+        };
+        let wake = self.views.iter().skip(1).fold(self.wake.min(self.touches.wake).min(looping), |w, r| w.min(r.wake));
         let hover = match &self.hover_rest {
             Some((_, _, start, seen)) if *seen == self.frame_number && now - start < HOVER_SECONDS => start + HOVER_SECONDS,
             _ => f64::INFINITY,
@@ -6953,7 +6980,10 @@ impl Ui {
         self.chain_key = 0;
         self.paint_xf = 0;
         let clip = Rect::new(0.0, 0.0, frame.input.size.0 as f32, frame.input.size.1 as f32);
-        self.damage = self.full_damage.then_some(clip);
+        // a frame reports its own damage, plus what changed between frames (patches, steps) and was not drawn yet:
+        // the build re-declares a patched look, so its own comparison would not see that the screen still lacks it
+        let between = if self.damage != self.frame_damage { self.damage } else { None };
+        self.damage = if self.full_damage { Some(clip) } else { between };
         let scratch = std::mem::take(&mut self.spare);
         let mut paint = self.paint_begin(scratch, clip);
         self.painted = self.frame_number;
@@ -7313,6 +7343,37 @@ impl Ui {
         self.arena.reset();
     }
 
+    /// Advance the running transitions to `t` without building, laying out or painting: each
+    /// animated node is patched in place and a view-level transition moves its view entry, so the
+    /// cost follows the animated nodes, not the window. Returns false, changing nothing, when the
+    /// next frame needs a build instead: before the first frame, while input, a gesture, a frame
+    /// request, a timer, a hover delay or a settling layout is due by `t`, or when time runs backwards.
+    /// A host with no events and nothing new to show calls this in place of `frame` while
+    /// `repaint_at` comes only from transitions; damage and `draw_revision` report what changed.
+    pub fn step(&mut self, t: f64) -> bool {
+        if self.destroyed || self.building || self.painting || self.painted < 0 || !t.is_finite() || t < self.now
+            || self.settle || !self.repatch.is_empty() || self.frame_requested
+            || self.keyboard.flags & pxui_types::Keyboard::ANIMATING != 0 || self.active.is_some()
+            || !self.moving.is_empty() || !self.gsettle.is_empty() || self.views.iter().any(|v| v.dirty) {
+            return false;
+        }
+        let wake = self.views.iter().skip(1).fold(self.wake.min(self.touches.wake), |w, r| w.min(r.wake));
+        let hover = matches!(&self.hover_rest, Some((_, _, start, seen)) if *seen == self.frame_number && t >= start + HOVER_SECONDS);
+        if wake <= t || hover {
+            return false;
+        }
+        self.now = t;
+        self.stepping = true;
+        self.step_tweens();
+        self.stepping = false;
+        if self.refresh_views() {
+            self.draw_revision += 1;
+        }
+        self.collect_blurs();
+        self.out.repaint_at = self.next_repaint(t);
+        true
+    }
+
     /// Route the frame's ordered events, run the builder, lay out, and paint. Tab/Shift-Tab
     /// traverse visible focusable boxes in presentation order, restricted to an open popup.
     /// Enter/Space activate controls.
@@ -7590,7 +7651,11 @@ impl Ui {
             self.mark_key(self.focus);
             (self.seen.1, self.seen.2) = (self.focus, self.keyboard_focus);
         }
+        if !frame.input.events.is_empty() {
+            self.input_at = frame.input.t;
+        }
         self.out.repaint_at = self.next_repaint(frame.input.t);
+        self.frame_damage = self.damage;
         self.frame_requested = false;
         // Layout, hit rectangles and painting are published data now. The callbacks can capture
         // whole document versions, so keep them only while building.
@@ -7849,8 +7914,8 @@ impl Ui {
             // a node of a view verified this frame was painted as of the kept build (`verify_time`):
             // it shows now what a fresh paint would, which is no patch for the next check to skip
             let owner = self.slots[slot].owner as usize;
-            let verified = owner != 0 && self.views[owner].verify && self.views[owner].built == self.frame_number;
-            if !view_only && (done || verified || self.slots[slot].painted != self.frame_number) {
+            let verified = !self.stepping && owner != 0 && self.views[owner].verify && self.views[owner].built == self.frame_number;
+            if !view_only && (done || verified || self.stepping || self.slots[slot].painted != self.frame_number) {
                 let patched = self.views[owner].patched;
                 if self.range_valid(slot) {
                     let paint = paint.get_or_insert_with(|| {

@@ -366,6 +366,28 @@ pub fn window_pxui_node_patch_damage_accumulates() {
     ui.destroy();
 }
 
+/// A between-frame patch, then a frame built before any draw: the damage still covers the patch until a draw consumes it.
+pub fn window_pxui_patch_damage_survives_an_undrawn_frame() {
+    let mut ui = new_ui(None);
+    let handle = Cell::new(None);
+    let mut build = |ui: &mut Ui| {
+        ui.node("gap".into(), Node::DEFAULT.w(Size::Px(80.0)).h(Size::Px(150.0)));
+        handle.set(Some(chip(ui, "bottom", "b", Rgba::WHITE)));
+    };
+    frame(&mut ui, 0.0, &mut build);
+    ui.drawn(0);
+    let bottom = handle.get().unwrap();
+    check(ui.patch_fill(&bottom, Rgba::rgb(4, 5, 6)), "patch bottom");
+    frame(&mut ui, 0.1, &mut build);
+    let d = ui.output().damage.expect("the undrawn frame dropped the patch's damage");
+    let b = ui.rect(&bottom);
+    check(d.y <= b.y && d.y + d.h >= b.y + b.h, &format!("damage {d:?} lost the patch at {b:?}"));
+    ui.drawn(0);
+    frame(&mut ui, 0.2, &mut build);
+    check(ui.output().damage.is_none(), "a drawn patch's damage came back");
+    ui.destroy();
+}
+
 /// Integer keys are scoped to the parent: two components that use the same id under different parents get distinct nodes, and
 /// both keep their state across frames.
 pub fn window_pxui_integer_keys_are_scoped_to_the_parent() {
@@ -399,6 +421,7 @@ pub const CASES: &[(&str, fn())] = &[
     ("window_pxui_node_patch", window_pxui_node_patch),
     ("window_pxui_empty_look_keeps_reserved_room_and_focus_ink", window_pxui_empty_look_keeps_reserved_room_and_focus_ink),
     ("window_pxui_node_patch_damage_accumulates", window_pxui_node_patch_damage_accumulates),
+    ("window_pxui_patch_damage_survives_an_undrawn_frame", window_pxui_patch_damage_survives_an_undrawn_frame),
     ("window_pxui_node_patch_nested_kept", window_pxui_node_patch_nested_kept),
     ("window_pxui_arena_closures", window_pxui_arena_closures),
     ("window_pxui_arena_first_frame", window_pxui_arena_first_frame),

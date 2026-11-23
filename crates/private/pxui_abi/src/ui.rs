@@ -269,6 +269,13 @@ export!(pub unsafe fn pxui_ui_busy_step(ui: *mut PxuiUi, box_: *const PxuiBox, n
     0
 });
 
+export!(pub unsafe fn pxui_ui_step(ui: *mut PxuiUi, time: f64, out: *mut u8) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if out.is_null() || !time.is_finite() { return unsafe { fail(ui, "invalid step arguments") }; }
+    unsafe { *out = (&mut *state.engine).step(time) as u8; }
+    0
+});
+
 export!(pub unsafe fn pxui_ui_request_frame(ui: *mut PxuiUi) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     unsafe { (&mut *state.engine).request_frame(); }

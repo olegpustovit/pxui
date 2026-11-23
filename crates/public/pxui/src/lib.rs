@@ -176,6 +176,7 @@ mod sys {
         pub fn pxui_ui_patch_text(ui:*mut PxuiUi,box_:*const PxuiBox,value:Str,out:*mut u8)->i32;
         pub fn pxui_ui_busy_step(ui:*mut PxuiUi,box_:*const PxuiBox,now:f64,out:*mut u8)->i32;
         pub fn pxui_ui_request_frame(ui:*mut PxuiUi)->i32;
+        pub fn pxui_ui_step(ui:*mut PxuiUi,time:f64,out:*mut u8)->i32;
         pub fn pxui_ui_rect(ui:*mut PxuiUi,box_:*const PxuiBox,out:*mut pxui_types::geom::Rect)->i32;
         pub fn pxui_ui_box_of_key(ui:*mut PxuiUi,key:i64,out:*mut PxuiBox)->u8;
         pub fn pxui_ui_key_seed(ui:*mut PxuiUi,out:*mut i64)->i32;
@@ -1020,6 +1021,21 @@ impl Ui {
     /// pxui::doc::frames(1, &mut |ui| { let b = ui.node("sample", pxui::Node::DEFAULT.w_px(20.0).h_px(20.0)); let _ = ui.busy_step(&b, 0.0); });
     /// ```
     #[inline] #[track_caller] pub fn busy_step(&mut self,box_:&Handle,now:f64)->bool{let mut out=0;let rc=unsafe{sys::pxui_ui_busy_step(self.0.as_ptr(),box_,now,&mut out)};live(self,rc)&&out!=0}
+    /// Advances running transitions (`animate`, `animate_keys`) to `time` without building, laying out or painting:
+    /// animated nodes are patched in place and a view's transition moves its view entry, so the cost follows the
+    /// animated nodes, not the window. Returns false, changing nothing, when the next frame needs a build: before the
+    /// first frame, while input, a gesture, a frame request, a timer, a hover delay or settling layout is due by `time`,
+    /// or when time runs backwards. A host with no events and nothing new to show calls it instead of `frame` when
+    /// `repaint_at` is due; `output().damage` and `draw_revision` report what changed.
+    ///
+    /// Allocates: never once warm (the patch scratch grows on first use).
+    /// Panics: when the UI is poisoned.
+    ///
+    /// ```
+    /// let mut ui = pxui::doc::frames(1, &mut |_| {});
+    /// assert!(ui.step(1.0) || ui.repaint_at().is_none());
+    /// ```
+    #[inline] #[track_caller] pub fn step(&mut self,time:f64)->bool{let mut out=0;let rc=unsafe{sys::pxui_ui_step(self.0.as_ptr(),time,&mut out)};live(self,rc)&&out!=0}
     /// Requests another frame from the host.
     ///
     /// Allocates: never.

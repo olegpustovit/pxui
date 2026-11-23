@@ -28,6 +28,12 @@ struct PXUIMetalFrames {
     id<MTLCommandBuffer> captured;
     uint32_t captureWidth;
     uint32_t captureHeight;
+    // Damage-limited frames draw into `canvas`, which keeps the last frame; `copy` puts it on the fresh drawable.
+    id<MTLTexture> canvas;
+    bool canvasValid;
+    id<MTLRenderPipelineState> fill;
+    id<MTLRenderPipelineState> copy;
+    MTLRenderPassDescriptor *present;
 #if TARGET_OS_IOS
     id pauseObserver;
     id resumeObserver;
@@ -63,6 +69,26 @@ void *rays_metal_frames_create(void *layerPointer, void *devicePointer, void *qu
         frames->layer.displaySyncEnabled = YES;
 #endif
         frames->pass = [MTLRenderPassDescriptor new];
+        frames->present = [MTLRenderPassDescriptor new];
+        frames->present.colorAttachments[0].loadAction = MTLLoadActionDontCare;
+        frames->present.colorAttachments[0].storeAction = MTLStoreActionStore;
+        // A fullscreen triangle: `fill` paints the scissored damage the panel colour (Metal has no scissored clear),
+        // `copy` reads the canvas texel for texel onto the drawable, which stays framebuffer-only.
+        static NSString *const source = @"#include <metal_stdlib>\nusing namespace metal;\n"
+            "struct V { float4 p [[position]]; };\n"
+            "vertex V pxui_full(uint id [[vertex_id]]) { float2 q = float2((id << 1) & 2, id & 2); V v; v.p = float4(q * 2.0 - 1.0, 0.0, 1.0); return v; }\n"
+            "fragment float4 pxui_fill(constant float4 &c [[buffer(0)]]) { return c; }\n"
+            "fragment float4 pxui_copy(V v [[stage_in]], texture2d<float> t [[texture(0)]]) { return t.read(uint2(v.p.xy)); }\n";
+        NSError *error = nil;
+        id<MTLLibrary> library = [frames->device newLibraryWithSource:source options:nil error:&error];
+        MTLRenderPipelineDescriptor *pipeline = [MTLRenderPipelineDescriptor new];
+        pipeline.vertexFunction = [library newFunctionWithName:@"pxui_full"];
+        pipeline.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
+        pipeline.fragmentFunction = [library newFunctionWithName:@"pxui_fill"];
+        if (library) frames->fill = [frames->device newRenderPipelineStateWithDescriptor:pipeline error:&error];
+        pipeline.fragmentFunction = [library newFunctionWithName:@"pxui_copy"];
+        if (library) frames->copy = [frames->device newRenderPipelineStateWithDescriptor:pipeline error:&error];
+        if (!frames->fill || !frames->copy) { delete frames; return NULL; }
 #if TARGET_OS_IOS
         frames->suspended = UIApplication.sharedApplication.applicationState != UIApplicationStateActive;
         frames->pauseObserver = [NSNotificationCenter.defaultCenter addObserverForName:UIApplicationWillResignActiveNotification object:nil queue:nil usingBlock:^(NSNotification *) {
@@ -115,16 +141,37 @@ uint64_t rays_metal_frames_serial(void *raw) { return (static_cast<PXUIMetalFram
 uint64_t rays_metal_frames_completed(void *raw) { return (static_cast<PXUIMetalFrames *>(raw))->completed; }
 void *rays_metal_frames_commands(void *raw) { return (__bridge void *)(static_cast<PXUIMetalFrames *>(raw))->commands; }
 
-void *rays_metal_frames_pass(void *raw, double red, double green, double blue) {
+void *rays_metal_frames_pass(void *raw, double red, double green, double blue, uint32_t x, uint32_t y, uint32_t width, uint32_t height) {
     @autoreleasepool {
         PXUIMetalFrames *frames = static_cast<PXUIMetalFrames *>(raw);
         if (![NSThread isMainThread] || !frames->commands || frames->encoder) return NULL;
+        id<MTLTexture> target = frames->drawable.texture;
+        if (!frames->canvas || frames->canvas.width != target.width || frames->canvas.height != target.height) {
+            MTLTextureDescriptor *d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:target.pixelFormat
+                width:target.width height:target.height mipmapped:NO];
+            d.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
+            d.storageMode = MTLStorageModePrivate;
+            frames->canvas = [frames->device newTextureWithDescriptor:d];
+            frames->canvasValid = false;
+            if (!frames->canvas) return NULL;
+        }
+        // a damage rectangle inside a canvas that holds the last frame redraws only there; anything else redraws it all
+        const bool partial = frames->canvasValid && width && height && (uint64_t)x + width <= target.width && (uint64_t)y + height <= target.height
+            && (width < target.width || height < target.height);
         MTLRenderPassColorAttachmentDescriptor *color = frames->pass.colorAttachments[0];
-        color.texture = frames->drawable.texture;
-        color.loadAction = MTLLoadActionClear;
+        color.texture = frames->canvas;
+        color.loadAction = partial ? MTLLoadActionLoad : MTLLoadActionClear;
         color.storeAction = MTLStoreActionStore;
         color.clearColor = MTLClearColorMake(red, green, blue, 1);
         frames->encoder = [frames->commands renderCommandEncoderWithDescriptor:frames->pass];
+        if (frames->encoder && partial) {
+            const float panel[4] = {(float)red, (float)green, (float)blue, 1};
+            [frames->encoder setScissorRect:(MTLScissorRect){x, y, width, height}];
+            [frames->encoder setRenderPipelineState:frames->fill];
+            [frames->encoder setFragmentBytes:panel length:sizeof panel atIndex:0];
+            [frames->encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+        }
+        frames->canvasValid = frames->encoder != nil;
         return (__bridge void *)frames->encoder;
     }
 }
@@ -140,6 +187,14 @@ int rays_metal_frames_submit(void *raw) {
         if (!frames->commands || !frames->encoder) return -1;
         [frames->encoder endEncoding];
         frames->encoder = nil;
+        frames->present.colorAttachments[0].texture = frames->drawable.texture;
+        id<MTLRenderCommandEncoder> present = [frames->commands renderCommandEncoderWithDescriptor:frames->present];
+        frames->present.colorAttachments[0].texture = nil;
+        if (!present) { frames->canvasValid = false; return -1; }
+        [present setRenderPipelineState:frames->copy];
+        [present setFragmentTexture:frames->canvas atIndex:0];
+        [present drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+        [present endEncoding];
         if (frames->capture) {
             id<MTLTexture> texture = frames->drawable.texture;
             const NSUInteger width = texture.width, height = texture.height, bytes = width * height * 4;

@@ -17,6 +17,9 @@ pub struct Graphics {
     device: be::Device,
     blur_extent: (u32, u32),
     acquire_wall: std::time::Duration,
+    /// Damage of frames that could not start (no drawable, an inactive app, an empty surface), in window points: the next
+    /// draw adds it. `Some(None)` is a frame with no damage reported, which redraws everything.
+    held: Option<Option<[f32; 4]>>,
 }
 
 impl Graphics {
@@ -47,6 +50,7 @@ impl Graphics {
             device,
             blur_extent: (0, 0),
             acquire_wall: std::time::Duration::ZERO,
+            held: None,
         };
         let layer = window.token().map_err(|_| Error::Host("could not get surface token"))?;
         host.frames = Some(Frames::new(&host.device, layer).map_err(|_| Error::Host("could not open native frame context"))?);
@@ -116,6 +120,13 @@ impl Graphics {
             }
         };
         let before = count();
+        let reported = ui.output().damage;
+        let reported = (reported.has_damage != 0).then_some([reported.rect.x, reported.rect.y, reported.rect.w, reported.rect.h]);
+        // a frame that cannot start keeps its damage for the next one; whatever reaches the renderer is in the canvas
+        self.held = Some(match self.held.take() {
+            Some(held) => held.zip(reported).map(|(a, b)| union(a, b)),
+            None => reported,
+        });
         #[cfg(target_os = "ios")]
         if !self.can_draw() { return Ok(false); }
         let extent = window.extent();
@@ -154,7 +165,8 @@ impl Graphics {
             )?;
         let prepared = count();
         let color = ui.theme().tokens.panel;
-        let encoder = frames.pass([color.r, color.g, color.b])
+        let damage = damage_px(self.held.take().flatten(), window.scale() as f32, size);
+        let encoder = frames.pass([color.r, color.g, color.b], damage)
             .map_err(|_| Error::Host("could not open native render pass"))?;
         renderer
             .draw(&Pass {
@@ -268,4 +280,33 @@ impl Drop for Graphics {
         let _ = be::destroy_queue(&self.queue);
         let _ = be::destroy_device(&self.device);
     }
+}
+
+/// The smallest `[x, y, width, height]` covering both.
+fn union(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
+    let (x, y) = (a[0].min(b[0]), a[1].min(b[1]));
+    [x, y, (a[0] + a[2]).max(b[0] + b[2]) - x, (a[1] + a[3]).max(b[1] + b[3]) - y]
+}
+
+/// The frame's damage (`[x, y, width, height]` window points, when reported) as the drawable pixels to redraw: outward to
+/// whole pixels plus one for antialiasing, clamped to the drawable. `None` redraws everything; damage wholly off the
+/// drawable redraws one pixel (nothing there changed).
+fn damage_px(damage: Option<[f32; 4]>, scale: f32, (width, height): (u32, u32)) -> Option<[u32; 4]> {
+    let [x, y, w, h] = damage?;
+    let edge = |v: f32, limit: u32| v.clamp(0.0, limit as f32) as u32;
+    let (x0, y0) = (edge((x * scale).floor() - 1.0, width), edge((y * scale).floor() - 1.0, height));
+    let (x1, y1) = (edge(((x + w) * scale).ceil() + 1.0, width), edge(((y + h) * scale).ceil() + 1.0, height));
+    if x1 <= x0 || y1 <= y0 {
+        return Some([0, 0, 1, 1]);
+    }
+    Some([x0, y0, x1 - x0, y1 - y0])
+}
+
+#[cfg(all(test, target_os = "macos"))]
+pub(crate) fn damage_rounds_out_pads_and_clamps_to_the_drawable() {
+    assert_eq!(damage_px(None, 2.0, (100, 80)), None);
+    // 10.25..24.25 points at 2x: 20.5..48.5 px, out to 20..49, padded to 19..50
+    assert_eq!(damage_px(Some([10.25, 5.0, 14.0, 3.0]), 2.0, (100, 80)), Some([19, 9, 31, 8]));
+    assert_eq!(damage_px(Some([-5.0, 30.0, 100.0, 100.0]), 2.0, (100, 80)), Some([0, 59, 100, 21]));
+    assert_eq!(damage_px(Some([200.0, 0.0, 5.0, 5.0]), 2.0, (100, 80)), Some([0, 0, 1, 1]));
 }

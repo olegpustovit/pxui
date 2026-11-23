@@ -17,6 +17,10 @@ pub enum Schedule {
     WaitUntil(Option<f64>),
     Exit,
 }
+/// Shortest wait for a deadline while the window cannot be seen (SDL reports no end of occlusion, so this bounds it).
+#[cfg(not(target_os = "ios"))]
+const HIDDEN_WAIT: f64 = 0.5;
+
 pub type Callback = dyn FnMut(&mut Window, Signal) -> Result<Schedule, String>;
 
 /// Finish and captured resource destruction precede window destruction, including callback errors.
@@ -52,6 +56,9 @@ pub fn run_with_density(title: &str, width: i64, height: i64, high_density: bool
                         if at.is_some_and(|at| !at.is_finite()) {
                             return Err("Repaint deadline must be finite".into());
                         }
+                        // Nobody sees a hidden, minimized or covered window: its deadlines (animation, progress) wait at
+                        // least HIDDEN_WAIT, while input and worker wakes still arrive at once.
+                        let at = if window.visible()? { at } else { at.map(|at| at.max(window.time() + HIDDEN_WAIT)) };
                         window.wait(at);
                     }
                 }

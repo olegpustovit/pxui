@@ -149,6 +149,55 @@ fn framework_host_screenshot_returns_presented_rgba_and_keeps_warm_draws_allocat
     window.destroy().unwrap();
 }
 
+/// A small change redraws only its damage over the retained canvas: the presented frame matches what a full redraw shows.
+#[cfg(target_os = "macos")]
+fn framework_host_damage_redraws_only_the_change_and_keeps_the_rest() {
+    use pxui::ui::{Node, Size};
+    use pxui::{Fill, FrameIn, Rgba, Ui};
+    use crate::{Graphics, Window};
+    let mut window = Window::open_with("PXUI damage", 320, 240, false, true, true).unwrap();
+    let mut ui = Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
+    let mut graphics = Graphics::open(&mut window, &ui).unwrap();
+    let scale = window.scale();
+    let build = |ui: &mut Ui, time: f64, left: Rgba, right: Option<Rgba>| {
+        ui.frame(&FrameIn::new(320.0, 240.0).scale(scale as f32).time(time), &mut |ui| {
+            ui.row(Node::row().w(Size::Grow).h(Size::Px(20.0)).gap(200.0), |ui| {
+                let a = ui.node("left", Node::DEFAULT.w(Size::Px(40.0)).h(Size::Px(20.0)));
+                ui.canvas(&a, move |paint, r| paint.fill(r, Fill::new(left)));
+                let b = ui.node("right", Node::DEFAULT.w(Size::Px(40.0)).h(Size::Px(20.0)));
+                if let Some(right) = right { ui.canvas(&b, move |paint, r| paint.fill(r, Fill::new(right))); }
+            });
+        }).unwrap();
+    };
+    let (red, green, blue) = (Rgba::rgb(255, 0, 0), Rgba::rgb(0, 255, 0), Rgba::rgb(0, 0, 255));
+    let panel = ui.theme().tokens.panel;
+    let panel = [panel.r, panel.g, panel.b, 255];
+    let read = |graphics: &mut Graphics, window: &mut Window, ui: &Ui| graphics.screenshot(window, ui).unwrap().2;
+    let width = (320.0 * scale) as usize;
+    let at = |pixels: &[u8], x: f64, y: f64| { let i = ((y * scale) as usize * width + (x * scale) as usize) * 4; [pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3]] };
+    build(&mut ui, 0.0, red, Some(blue));
+    let first = read(&mut graphics, &mut window, &ui);
+    assert_eq!((at(&first, 10.0, 10.0), at(&first, 250.0, 10.0)), ([255, 0, 0, 255], [0, 0, 255, 255]));
+    // only the left swatch changes: its damage is small, the right one and the panel come from the retained canvas
+    build(&mut ui, 0.1, green, Some(blue));
+    let damage = ui.output().damage;
+    assert!(damage.has_damage != 0 && damage.rect.w <= 60.0 && damage.rect.h <= 40.0, "a swatch's change damages only it: {damage:?}");
+    let second = read(&mut graphics, &mut window, &ui);
+    assert_eq!(at(&second, 10.0, 10.0), [0, 255, 0, 255], "the damaged swatch is redrawn");
+    assert_eq!(at(&second, 250.0, 10.0), [0, 0, 255, 255], "the undamaged swatch is kept");
+    assert_eq!(at(&second, 200.0, 200.0), panel, "the panel is kept");
+    // the right swatch disappears: its damage is cleared back to the panel colour
+    build(&mut ui, 0.2, green, None);
+    let third = read(&mut graphics, &mut window, &ui);
+    assert_eq!((at(&third, 10.0, 10.0), at(&third, 250.0, 10.0)), ([0, 255, 0, 255], panel), "a removed swatch's damage is cleared");
+    // and every pixel matches a full redraw of the same frame
+    let mut fresh = Graphics::open(&mut window, &ui).unwrap();
+    assert!(read(&mut fresh, &mut window, &ui) == third, "a damage-limited frame differs from a full redraw");
+    fresh.close().unwrap();
+    graphics.close().unwrap();
+    window.destroy().unwrap();
+}
+
 #[cfg(target_os = "macos")]
 fn framework_window_chrome_preserves_resize_zoom_and_rejects_dead_layers_and_invalid_minimums() {
     use crate::{Chrome, Window};
@@ -342,6 +391,8 @@ pub(crate) fn main() {
         ("window_framework_window_chrome_preserves_resize_zoom_and_rejects_dead_layers_and_invalid_minimums",framework_window_chrome_preserves_resize_zoom_and_rejects_dead_layers_and_invalid_minimums),
         ("window_voiceover_bridge_maps_nodes_round_trips_actions_and_stays_quiet_when_unchanged",voiceover_bridge_maps_nodes_round_trips_actions_and_stays_quiet_when_unchanged),
         ("window_framework_host_constructor_refusals_release_devices_and_queues",framework_host_constructor_refusals_release_devices_and_queues),
+        ("window_framework_host_damage_redraws_only_the_change_and_keeps_the_rest",framework_host_damage_redraws_only_the_change_and_keeps_the_rest),
+        ("damage_rounds_out_pads_and_clamps_to_the_drawable",crate::graphics::damage_rounds_out_pads_and_clamps_to_the_drawable),
     ]);
 }
 

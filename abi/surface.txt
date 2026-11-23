@@ -167,6 +167,7 @@ Ui|slider|Gallery|done
 Ui|spinner|Gallery|done
 Ui|split|Gallery|done
 Ui|state|A4-required,Rays|done
+Ui|step|LocalWave|done
 Ui|style|A4-required|done
 Ui|table_view|Gallery|done
 Ui|tabs|Gallery|done

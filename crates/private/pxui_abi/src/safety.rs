@@ -97,6 +97,7 @@ fn a_caught_panic_poisons_the_ui_until_its_next_frame() {
     // every later call on this Ui fails at once with the same code, even valid ones
     assert_eq!(unsafe { pxui_ui_set_dir(ui, 0) }, PXUI_ERR_PANIC);
     assert_eq!(unsafe { pxui_ui_request_frame(ui) }, PXUI_ERR_PANIC);
+    assert_eq!(unsafe { pxui_ui_step(ui, 1.0, &mut 0) }, PXUI_ERR_PANIC);
     let x = Str::from("x");
     assert_eq!(unsafe { pxui_ui_button_plain(ui, x, x, &mut { pxui_types::ffi::PxuiResponse::EMPTY }) }, PXUI_ERR_PANIC);
     // another Ui is untouched

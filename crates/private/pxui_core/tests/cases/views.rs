@@ -1453,6 +1453,8 @@ pub const CASES: &[(&str, fn())] = &[
     ("window_pxui_streaming_rows_reuse_retained_gaps", window_pxui_streaming_rows_reuse_retained_gaps),
     ("window_pxui_damage_containment_preserves_other_views", window_pxui_damage_containment_preserves_other_views),
     ("window_pxui_view_entrance_channels", window_pxui_view_entrance_channels),
+    ("window_pxui_idle_loops_step_slower", window_pxui_idle_loops_step_slower),
+    ("window_pxui_step_advances_transitions_without_a_build", window_pxui_step_advances_transitions_without_a_build),
     ("window_pxui_more_kept_views_reuse_compaction_scratch", window_pxui_more_kept_views_reuse_compaction_scratch),
     ("window_pxui_empty_buffers_preserve_names_and_values", window_pxui_empty_buffers_preserve_names_and_values),
     ("window_pxui_field_kept_drag", window_pxui_field_kept_drag),
@@ -1517,6 +1519,61 @@ pub fn window_pxui_view_unchanged_controls_keep_table_storage() {
     ui.destroy();
 }
 
+
+/// A transition steps without a build: the builder does not run, and the output is what a full frame at the same time shows.
+pub fn window_pxui_step_advances_transitions_without_a_build() {
+    let mut ui=new_ui(None);
+    let (view,child,builds)=(Cell::new(None),Cell::new(None),Cell::new(0));
+    let mut build=|ui:&mut Ui| {
+        builds.set(builds.get()+1);
+        view.set(Some(ui.view("stepped",1,Size::Px(100.0),Size::Px(80.0),&mut |ui| {child.set(Some(chip(ui,"child",RED,Flags::NONE)));})));
+        chip(ui,"outside",BLUE,Flags::NONE);
+    };
+    assert!(!ui.step(0.0),"nothing to step before the first frame");
+    ui.frame(&at(0.0,vec![]),&mut build);
+    ui.frame(&at(0.1,vec![]),&mut build);
+    let curve=Curve::Bezier {duration:1.0,points:[0.0,0.0,1.0,1.0]};
+    assert!(ui.animate_keys(&child.get().unwrap(),&[Keyframe::opacity(0.0,0.0).curve(curve),Keyframe::opacity(1.0,1.0).curve(curve)],&Keyframes::DEFAULT));
+    assert!(ui.animate_keys(&view.get().unwrap(),&[Keyframe::offset(0.0,0.0,0.0).curve(curve),Keyframe::offset(1.0,20.0,0.0).curve(curve)],&Keyframes::DEFAULT));
+    ui.frame(&at(0.2,vec![]),&mut build);
+    let (built,revision)=(builds.get(),ui.draw_revision());
+    // warm the step's patch scratch once, then a step allocates nothing
+    assert!(ui.step(0.3));
+    mem_sys::local_reset();
+    assert!(ui.step(0.6),"only transitions are pending");
+    assert_eq!(mem_sys::local_alloc_count(),0,"a warm step allocated");
+    assert_eq!(builds.get(),built,"a step ran the builder");
+    assert!(ui.draw_revision()>revision && ui.output().damage.is_some(),"a step reports what changed");
+    assert_eq!(ui.repaint_at(),Some(0.6),"the transitions still run");
+    let stepped=(ui.output().draw[0].instances.clone(),ui.output().views.to_vec());
+    assert!(!ui.step(0.5),"time runs forward only");
+    ui.frame(&at(0.6,vec![]),&mut build);
+    assert_eq!((ui.output().draw[0].instances.clone(),ui.output().views.to_vec()),stepped,"a full frame at the same time shows the same");
+    ui.request_frame();
+    assert!(!ui.step(0.7),"a frame request needs a build");
+    ui.destroy();
+}
+
+/// An endless loop asks for every display frame while input is recent, then steps at 30 fps; a counted run never slows.
+pub fn window_pxui_idle_loops_step_slower() {
+    let mut ui=new_ui(None);
+    let view=Cell::new(None);
+    let mut build=|ui:&mut Ui| {view.set(Some(ui.view("loop",1,Size::Px(100.0),Size::Px(80.0),&mut |ui| {chip(ui,"child",RED,Flags::NONE);})));};
+    ui.frame(&at(0.0,vec![]),&mut build);
+    let curve=Curve::Bezier {duration:0.45,points:[0.0,0.0,1.0,1.0]};
+    let keys=[Keyframe::opacity(0.0, 0.4).curve(curve),Keyframe::opacity(0.45, 1.0).curve(curve)];
+    assert!(ui.animate_keys(&view.get().unwrap(),&keys,&Keyframes::DEFAULT.repeat(Repeat::Forever).autoreverse()));
+    ui.frame(&at(0.1,vec![Event::FocusGained]),&mut build);
+    assert_eq!(ui.repaint_at(),Some(0.1),"input is recent");
+    ui.frame(&at(0.9,vec![]),&mut build);
+    assert_eq!(ui.repaint_at(),Some(0.9),"still within a second of input");
+    ui.frame(&at(1.2,vec![]),&mut build);
+    assert_eq!(ui.repaint_at(),Some(1.2+1.0/30.0),"idle: the loop steps at 30 fps");
+    assert!(ui.animate_keys(&view.get().unwrap(),&keys,&Keyframes::DEFAULT.repeat(Repeat::Count(3))));
+    ui.frame(&at(1.3,vec![]),&mut build);
+    assert_eq!(ui.repaint_at(),Some(1.3),"a counted run plays every frame");
+    ui.destroy();
+}
 
 pub fn window_pxui_view_entrance_channels() {
     let mut ui=new_ui(None);

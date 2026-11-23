@@ -16,7 +16,7 @@ unsafe extern "C" {
     fn rays_metal_frames_serial(host: *mut c_void) -> u64;
     fn rays_metal_frames_completed(host: *mut c_void) -> u64;
     fn rays_metal_frames_commands(host: *mut c_void) -> *mut c_void;
-    fn rays_metal_frames_pass(host: *mut c_void, red: f64, green: f64, blue: f64) -> *mut c_void;
+    fn rays_metal_frames_pass(host: *mut c_void, red: f64, green: f64, blue: f64, x: u32, y: u32, width: u32, height: u32) -> *mut c_void;
     fn rays_metal_frames_submit(host: *mut c_void) -> i32;
     fn rays_metal_frames_capture(host: *mut c_void, on: i32) -> i32;
     fn rays_metal_frames_read(
@@ -78,13 +78,18 @@ impl Frames {
     pub fn commands(&self) -> *mut c_void {
         unsafe { rays_metal_frames_commands(self.raw) }
     }
-    pub fn pass(&mut self, color: [u8; 3]) -> Result<*mut c_void, String> {
+    /// Opens the frame's pass over the retained canvas. `damage` (`[x, y, width, height]` drawable pixels) redraws only
+    /// that region: the pass keeps the last frame, its scissor is the damage and the damage is filled with `color`; the
+    /// caller draws everything that intersects it. `None`, a first frame or a resize clears and redraws the whole canvas.
+    pub fn pass(&mut self, color: [u8; 3], damage: Option<[u32; 4]>) -> Result<*mut c_void, String> {
+        let [x, y, width, height] = damage.unwrap_or_default();
         let pass = unsafe {
             rays_metal_frames_pass(
                 self.raw,
                 color[0] as f64 / 255.0,
                 color[1] as f64 / 255.0,
                 color[2] as f64 / 255.0,
+                x, y, width, height,
             )
         };
         if pass.is_null() {

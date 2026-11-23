@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 3
+minor 4
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_remove_surface int32_t pxui_a11y_remove_surface ( PxuiA11y * a11y , uint64_t surface ) ;
@@ -183,6 +183,7 @@ function pxui_ui_slot int32_t pxui_ui_slot ( PxuiUi * ui , PxuiSlot slot , uint8
 function pxui_ui_spinner int32_t pxui_ui_spinner ( PxuiUi * ui , const PxuiKeyedDesc * keyed , PxuiBox * out ) ;
 function pxui_ui_split int32_t pxui_ui_split ( PxuiUi * ui , const PxuiSplitDesc * desc , PxuiResponse * out , uint8_t * has_ratio , float * ratio ) ;
 function pxui_ui_state int32_t pxui_ui_state ( PxuiUi * ui , const PxuiBox * box , int64_t default_value , int64_t * out ) ;
+function pxui_ui_step int32_t pxui_ui_step ( PxuiUi * ui , double time , uint8_t * out ) ;
 function pxui_ui_style int32_t pxui_ui_style ( PxuiUi * ui , const PxuiBox * box , const PxuiLookDesc * look , const PxuiStateDesc * state ) ;
 function pxui_ui_swipe_actions int32_t pxui_ui_swipe_actions ( PxuiUi * ui , const PxuiBox * box , const PxuiSwipeIn * in ) ;
 function pxui_ui_system_appearance int32_t pxui_ui_system_appearance ( PxuiUi * ui , uint32_t * out ) ;
