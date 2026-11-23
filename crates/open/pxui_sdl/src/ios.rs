@@ -12,7 +12,7 @@ pub(super) fn run_with_density(title: &str, width: i64, height: i64, high_densit
     let mut callback = Some(callback);
     let mut failure = None;
     let status = {
-        let mut invoke = |native| {
+        let mut invoke = |native, lead| {
             let signal = match native {
                 sdl3::ios::Signal::Initialize => Signal::Initialize,
                 sdl3::ios::Signal::Frame => Signal::Frame,
@@ -56,6 +56,9 @@ pub(super) fn run_with_density(title: &str, width: i64, height: i64, high_densit
             let Some(app) = &mut callback else {
                 return Step::exit(false);
             };
+            if signal == Signal::Frame {
+                window.mark_frame_time(lead);
+            }
             let schedule = match app(window, signal) {
                 Ok(schedule) => schedule,
                 Err(error) => {
@@ -71,10 +74,10 @@ pub(super) fn run_with_density(title: &str, width: i64, height: i64, high_densit
                     failure.get_or_insert("iOS repaint deadline must be finite".into());
                     return Step::exit(false);
                 }
-                return match window.handle.id() {
-                    Ok(id) => Step::initialize(id),
+                return match window.handle.id().map_err(|e| e.to_string()).and_then(|id| window.token().map(|layer| (id, layer))) {
+                    Ok((id, layer)) => Step::initialize(id, &layer),
                     Err(error) => {
-                        failure.get_or_insert(error.to_string());
+                        failure.get_or_insert(error);
                         Step::exit(false)
                     }
                 };
@@ -90,7 +93,7 @@ pub(super) fn run_with_density(title: &str, width: i64, height: i64, high_densit
                     Step::exit(false)
                 }
                 Schedule::Exit => Step::exit(true),
-            }
+            }.rate(window.repaint_hz)
         };
         sdl3::ios::run(&mut invoke)
     };
