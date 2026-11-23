@@ -628,10 +628,14 @@ fn repeating_keyframes_keep_instances_and_builds_idle_when_hidden_and_stop_witho
         ui.frame(&input().time(start), &mut build).unwrap();
         mem_sys::local_reset();
         assert!(ui.animate_keys(&view, &keys, &Keyframes::DEFAULT.repeat(Repeat::Forever).autoreverse().offset(0.25)));
+        let mut sample = start;
         for tick in 0..61 {
-            let dt = tick as f64 / 60.0;
-            ui.frame(&input().time(start + dt), &mut build).unwrap();
-            let phase = (dt + 0.25) % 1.0;
+            let time = start + tick as f64 / 60.0;
+            if time >= sample + 1.0 / 30.0 {
+                sample = time;
+            }
+            ui.frame(&input().time(time), &mut build).unwrap();
+            let phase = (sample - start + 0.25) % 1.0;
             let progress = if phase < 0.5 { phase * 2.0 } else { 2.0 - phase * 2.0 };
             let rect = ui.rect(&child);
             let resolved = ui.box_of_a11y(identity).unwrap();
@@ -639,8 +643,7 @@ fn repeating_keyframes_keep_instances_and_builds_idle_when_hidden_and_stop_witho
             assert_eq!(ui.rect(&resolved), rect);
             assert!((rect.h - (4.0 + 6.0 * progress as f32)).abs() < 0.001);
             assert!((rect.y + rect.h - 10.0).abs() < 0.001, "fixed bottom anchor");
-            // a running loop keeps asking for frames: every display frame, or 30 fps after a second without input
-            assert!(ui.repaint_at().is_some_and(|at| at <= start + dt + 1.0 / 30.0 + 1e-9));
+            assert_eq!(ui.repaint_at(), Some(sample + 1.0 / 30.0));
             assert_eq!(builds.get(), built);
             assert_eq!(ui.layer(0).expect("base layer").instances, instances.as_slice());
         }
