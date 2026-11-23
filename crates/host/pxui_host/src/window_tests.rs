@@ -43,7 +43,44 @@ fn partial_equals_full() {
 }
 
 #[cfg(target_os = "macos")]
-fn present_pixels_match_canvas_with_partial_copies_and_fallbacks() {
+fn direct_partial_equals_full() {
+    use crate::{Graphics, Window};
+    use pxui::{Rect, ThemeHandle, Ui};
+    use render_edits::{HEIGHT, STAGES, edit, width};
+
+    let mut window = Window::open_with("PXUI direct render oracle", i64::from(width(0)), i64::from(HEIGHT), false, true, false).unwrap();
+    let mut ui = Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
+    let mut graphics = Graphics::open_present(&mut window, &ui, false, 1, true).unwrap();
+    let theme = ThemeHandle::parse("tokens.panel = #284557").unwrap();
+    let mut partials = 0;
+    let mut events = Vec::new();
+    for stage in 0..STAGES {
+        if stage > 0 && width(stage) != width(stage - 1) {
+            window.set_resizable(true).unwrap();
+            window.resize(i64::from(width(stage)), i64::from(HEIGHT)).unwrap();
+        }
+        edit(&mut ui, stage, window.scale() as f32, &theme);
+        assert!(graphics.draw(&mut window, &ui, None).unwrap(), "edit {stage}");
+        partials += usize::from(graphics.last_present_was_partial());
+        for index in 0..ui.layers().count() { ui.drawn(index); }
+        let viewport = Rect::new(0.0, 0.0, width(stage) as f32, HEIGHT as f32);
+        // Cycle past the old buffers even when this edit requested a full redraw.
+        for x in [370.0, 369.0, 368.0, 367.0] {
+            window.pump(&mut events);
+            graphics.hold_damage_for_test(Rect::new(x, 460.0, 1.0, 1.0), viewport);
+            assert!(graphics.draw(&mut window, &ui, None).unwrap(), "rotation after edit {stage}");
+            partials += usize::from(graphics.last_present_was_partial());
+        }
+    }
+    assert!(partials >= STAGES, "expected partial redraws after rotation, got {partials}");
+    let (verified, failed) = graphics.present_verification();
+    assert!(verified >= (STAGES * 5 - 3) as u64 && !failed, "{verified} comparisons, mismatch={failed}");
+    graphics.close().unwrap();
+    window.destroy().unwrap();
+}
+
+#[cfg(target_os = "macos")]
+fn direct_present_matches_full_redraw_with_rotation_and_fallbacks() {
     use crate::{Graphics, Window};
     use pxui::ui::{Node, Size};
     use pxui::{Fill, FrameIn, Rgba, Ui};
@@ -51,7 +88,7 @@ fn present_pixels_match_canvas_with_partial_copies_and_fallbacks() {
     mem_sys::set_peer(pxui::library_counter);
     let mut window = Window::open_with("PXUI present oracle", 320, 240, false, true, false).unwrap();
     let mut ui = Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
-    let mut graphics = Graphics::open_present(&mut window, &ui, false, 1).unwrap();
+    let mut graphics = Graphics::open_present(&mut window, &ui, false, 1, true).unwrap();
     graphics.set_full_damage(false);
     let build = |window: &Window, ui: &mut Ui, frame: usize| {
         let (w, h) = window.extent().logical;
@@ -78,7 +115,7 @@ fn present_pixels_match_canvas_with_partial_copies_and_fallbacks() {
         }
         partials += usize::from(graphics.last_present_was_partial());
     }
-    assert!(partials >= 8, "expected repeated partial copies, got {partials}");
+    assert!(partials >= 8, "expected repeated partial redraws, got {partials}");
     let (verified, failed) = graphics.present_verification();
     assert!(verified >= 17 && !failed, "{verified} completed comparisons, mismatch={failed}");
 
@@ -112,12 +149,12 @@ fn present_pixels_match_canvas_with_partial_copies_and_fallbacks() {
 
     build(&window, &mut ui, 33);
     graphics.capture_frame(&mut window, &ui, false).unwrap();
-    assert!(!graphics.last_present_was_partial(), "capture forces a full copy of a partial canvas");
+    assert!(!graphics.last_present_was_partial(), "capture forces a full redraw");
 
     graphics.set_full_present(true).unwrap();
     build(&window, &mut ui, 34);
     assert!(graphics.draw(&mut window, &ui, None).unwrap());
-    assert!(!graphics.last_present_was_partial(), "explicit full-copy mode");
+    assert!(!graphics.last_present_was_partial(), "explicit full-redraw mode");
 
     graphics.close().unwrap();
     window.destroy().unwrap();
@@ -382,7 +419,7 @@ fn framework_host_damage_redraws_only_the_change_and_keeps_the_rest() {
         assert_eq!(ui.damage_list().count, 2);
         let calls = graphics.draw_calls();
         let partial = read(&mut graphics, &mut window, &ui);
-        let two_draws = !full_damage && (no_cull || right.is_some());
+        let two_draws = !graphics.capture_uses_full_redraw() && !full_damage && (no_cull || right.is_some());
         assert_eq!(graphics.draw_calls() - calls, 1 + u64::from(two_draws));
         assert_eq!(partial, fresh.screenshot(&mut window, &full_ui).unwrap().2, "seed {seed}");
     }
@@ -637,9 +674,10 @@ pub(crate) fn main() {
         ("window_framework_host_constructor_refusals_release_devices_and_queues",framework_host_constructor_refusals_release_devices_and_queues),
         ("window_framework_host_damage_redraws_only_the_change_and_keeps_the_rest",framework_host_damage_redraws_only_the_change_and_keeps_the_rest),
         ("present_damage_tracks_three_rotating_drawables",crate::graphics::present_damage_tracks_three_rotating_drawables),
-        ("window_present_pixels_match_canvas_with_partial_copies_and_fallbacks",present_pixels_match_canvas_with_partial_copies_and_fallbacks),
+        ("window_direct_present_matches_full_redraw_with_rotation_and_fallbacks",direct_present_matches_full_redraw_with_rotation_and_fallbacks),
         ("window_present_mismatch_disables_partial_for_the_session",crate::graphics::present_mismatch_disables_partial_for_the_session),
         ("window_partial_equals_full",partial_equals_full),
+        ("window_direct_partial_equals_full",direct_partial_equals_full),
         ("window_occluded_window_skips_gpu_and_redraws_on_exposure",occluded_window_skips_gpu_and_redraws_on_exposure),
         ("window_backdrop_blur_reads_the_canvas_and_preserves_undamaged_pixels",backdrop_blur_reads_the_canvas_and_preserves_undamaged_pixels),
         ("damage_rounds_out_pads_and_clamps_to_the_drawable",crate::graphics::damage_rounds_out_pads_and_clamps_to_the_drawable),
