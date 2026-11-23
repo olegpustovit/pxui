@@ -321,21 +321,29 @@ mod image_binding_tests {
 // Draws layers `pass.first_layer..` (`pass.layer_count` of them, 0 for all) of the last frame into the app's open pass. A layer
 // with a backdrop blur asks the app to end the pass (`pass.split`), records the blur and goes on in the pass the app reopens.
 export!(pub unsafe fn pxui_renderer_draw(renderer:*mut PxuiRenderer, pass:*const pxui_types::Pass) -> i32 {
-    unsafe { draw(renderer, pass, None) }
+    unsafe { draw(renderer, pass, &[]) }
 });
 
 export!(pub unsafe fn pxui_renderer_draw_damage(renderer:*mut PxuiRenderer, pass:*const pxui_types::Pass, x:u32, y:u32, width:u32, height:u32) -> i32 {
-    unsafe { draw(renderer, pass, Some([x,y,width,height])) }
+    unsafe { draw(renderer, pass, &[[x,y,width,height]]) }
 });
 
-unsafe fn draw(renderer:*mut PxuiRenderer, pass:*const pxui_types::Pass, scissor:Option<[u32;4]>) -> i32 {
+export!(pub unsafe fn pxui_renderer_draw_damage_rects(renderer:*mut PxuiRenderer, pass:*const pxui_types::Pass, rects:*const u32, count:u32) -> i32 {
+    if renderer.is_null() { return PXUI_ERR_ARGUMENT; }
+    if !(2..=8).contains(&count) || rects.is_null() || !rects.is_aligned() {
+        return unsafe { &mut *renderer }.fail(PXUI_ERR_ARGUMENT, "expected two to eight damage rectangles");
+    }
+    // SAFETY: the ABI caller provides `count` contiguous four-word records until this call returns.
+    unsafe { draw(renderer, pass, core::slice::from_raw_parts(rects.cast::<[u32;4]>(), count as usize)) }
+});
+
+unsafe fn draw(renderer:*mut PxuiRenderer, pass:*const pxui_types::Pass, scissors:&[[u32;4]]) -> i32 {
     const NEED_SPLIT: &str = "a layer with a backdrop blur needs the pass's split callback";
     if renderer.is_null() { return PXUI_ERR_ARGUMENT; }
     let renderer=unsafe { &mut *renderer };
     let Some(pass)=read_desc!(pass, pxui_types::Pass) else { return renderer.fail(PXUI_ERR_ARGUMENT, "invalid pass descriptor") };
     if pass.width_px==0 || pass.height_px==0 || !pass.scale.is_finite() || pass.scale<=0.0 { return renderer.fail(PXUI_ERR_ARGUMENT, "invalid pass descriptor"); }
-    if let Some([x,y,w,h])=scissor
-        && (w==0 || h==0 || u64::from(x)+u64::from(w)>u64::from(pass.width_px) || u64::from(y)+u64::from(h)>u64::from(pass.height_px)) {
+    if scissors.iter().any(|&[x,y,w,h]| w==0 || h==0 || u64::from(x)+u64::from(w)>u64::from(pass.width_px) || u64::from(y)+u64::from(h)>u64::from(pass.height_px)) {
         return renderer.fail(PXUI_ERR_ARGUMENT, "scissor must be nonempty and inside the target");
     }
     if renderer.frame_serial==0 { return renderer.fail(PXUI_ERR_STATE, "draw needs a prepared frame"); }
@@ -359,9 +367,16 @@ unsafe fn draw(renderer:*mut PxuiRenderer, pass:*const pxui_types::Pass, scissor
         }
         renderer.view_revision=Some(revision);
     }
+    let damage=if scissors.len()>1 {
+        match renderer.painter.damage_clip(scissors).and_then(|clip| { clip.set_scissor(&encoder)?; Ok(clip) }) {
+            Ok(clip)=>Some(clip),
+            Err(e)=>return renderer.fail_gpu(e),
+        }
+    } else { None };
+    let damage=damage.as_ref();
     // Backdrop capture reads outside the scissor and can split the pass.
-    let scissor=scissor.filter(|&[_,_,w,h]| !renderer.no_cull
-        && (w!=pass.width_px || h!=pass.height_px) && ui.output().blurs.is_empty());
+    let cull=!renderer.no_cull && !scissors.is_empty()
+        && scissors!=[[0,0,pass.width_px,pass.height_px]] && ui.output().blurs.is_empty();
     let layers=ui.output().draw.len();
     let first=(pass.first_layer as usize).min(layers);
     let end=if pass.layer_count==0 { layers } else { (first+pass.layer_count as usize).min(layers) };
@@ -447,8 +462,8 @@ unsafe fn draw(renderer:*mut PxuiRenderer, pass:*const pxui_types::Pass, scissor
         let breaks=&renderer.breaks;
         let mut missing_split=false;
         let result=if renderer.split_points.is_empty() {
-            let cull=scissor.map(|scissor| (scissor, &ui.output().draw[index..batch_end]));
-            renderer.painter.draw_retained_split(&encoder,size_px,pass.scale,parts,breaks,&[],cull,&mut |_,_| Ok(None))
+            let selected=cull.then(|| (scissors, &ui.output().draw[index..batch_end]));
+            renderer.painter.draw_retained_split(&encoder,size_px,pass.scale,parts,breaks,&[],selected,damage,&mut |_,_| Ok(None))
         } else {
             if pass.split.is_none() && !reuse {
                 renderer.breaks.clear();
@@ -458,7 +473,7 @@ unsafe fn draw(renderer:*mut PxuiRenderer, pass:*const pxui_types::Pass, scissor
             let (native_commands,scale)=([pass.vk_command_buffer,pass.mtl_command_buffer],pass.scale);
             let mut reopened: Option<ogpu_core::backend::RenderEncoder>=None;
             let current=encoder.clone();
-            let outcome=renderer.painter.draw_retained_split(&current,size_px,scale,parts,breaks,&renderer.split_points,None,&mut |painter,at| {
+            let outcome=renderer.painter.draw_retained_split(&current,size_px,scale,parts,breaks,&renderer.split_points,None,damage,&mut |painter,at| {
                 let mut latest=None;
                 for (slot,b) in ui.output().blurs.iter().enumerate().filter(|(_,b)|b.layer==index && b.at_instance==at) {
                     let [w,h]=size_px;
@@ -491,6 +506,7 @@ unsafe fn draw(renderer:*mut PxuiRenderer, pass:*const pxui_types::Pass, scissor
                         let resumed=adopt_again(queue,Some(commands.clone()),commands_native)?;
                         let encoder=if gpu_backend::readopt_render_encoder(&resumed,&open,native_next)? { open } else { gpu_backend::adopt_render_encoder(&resumed,native_next,format,samples)? };
                         commands=resumed;
+                        if let Some(damage)=damage { damage.set_scissor(&encoder)?; }
                         if let Some(slot)=cache_slot {
                             renderer.blur_cache[slot]=Some(CachedBlur{view:*b,result:blurred.clone(),extent:size_px,scale,written:serial});
                         }
@@ -500,7 +516,7 @@ unsafe fn draw(renderer:*mut PxuiRenderer, pass:*const pxui_types::Pass, scissor
                     let (alpha,radius)=((255.0*b.opacity.clamp(0.0,1.0)).round() as u8,b.radii.iter().fold(0.0f32,|a,r|a.max(*r)));
                     let clip=[b.rect.x.floor(),b.rect.y.floor(),(b.rect.x+b.rect.w).ceil(),(b.rect.y+b.rect.h).ceil()].map(|v|v as i16);
                     let image=Instance::image(rect,blurred.uv,[alpha;4]).clip(clip,radius);
-                    painter.draw(&encoder,size_px,scale,&[image],&[Break { at_instance:0, texture:Some(blurred.texture.clone()) }])?;
+                    painter.draw_clipped(&encoder,size_px,scale,&[image],&[Break { at_instance:0, texture:Some(blurred.texture.clone()) }],damage)?;
                     latest=Some(encoder);
                 }
                 if latest.is_some() { reopened=latest.clone(); }

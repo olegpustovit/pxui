@@ -8266,9 +8266,13 @@ const VIEW_NODES: usize = 32;
 
 /// IEEE half bits as f32.
 fn half(h: u16) -> f32 {
-    let (e, m) = (((h >> 10) & 0x1f) as i32, (h & 0x3ff) as f32);
-    let v = if e == 0 { m * 2f32.powi(-24) } else if e == 31 { f32::INFINITY } else { (1.0 + m / 1024.0) * 2f32.powi(e - 15) };
-    if h & 0x8000 != 0 { -v } else { v }
+    let magnitude = u32::from(h & 0x7fff);
+    let value = match magnitude {
+        0..=0x03ff => magnitude as f32 / 16_777_216.0,
+        0x7c00.. => f32::INFINITY,
+        _ => f32::from_bits((magnitude << 13) + (112 << 23)),
+    };
+    if h & 0x8000 != 0 { -value } else { value }
 }
 
 /// A patch rewrote instances `start..old_end` of `target` (its tail moved by `delta`) with `fresh`'s
@@ -8323,14 +8327,20 @@ fn bounds(i: &Instance) -> Option<Rect> {
 pub fn cull_bounds(i: &Instance) -> [f32; 4] {
     use crate::draw::{flags, kind};
     if *i == EMPTY { return EMPTY_BOUNDS; }
-    let r = geometry_bounds(i);
+    let [x0, y0, x1, y1] = match i.kind {
+        kind::LINE | kind::CURVE | kind::TRIANGLE | kind::ARC | kind::SHADOW => {
+            let r = geometry_bounds(i);
+            [r.x, r.y, r.x + r.w, r.y + r.h]
+        }
+        _ => i.rect,
+    };
     let pad = match i.kind {
         kind::MASK if i.flags & flags::mask::LIGHT != 0 => 1.0 / half((i.extra[0] >> 16) as u16).max(1.0),
         // These shaders can write to the edge of the padded vertex quad.
         kind::GRID | kind::SHADOW => 1.0,
         _ => 0.0,
     };
-    let edges = [r.x - pad, r.y - pad, r.x + r.w + pad, r.y + r.h + pad];
+    let edges = [x0 - pad, y0 - pad, x1 + pad, y1 + pad];
     if edges.iter().all(|v| v.is_finite()) { edges } else { [f32::NEG_INFINITY, f32::NEG_INFINITY, f32::INFINITY, f32::INFINITY] }
 }
 
@@ -9613,9 +9623,11 @@ impl Ui {
                 d.bounds.extend(s.instances.iter().map(cull_bounds));
                 d.dirty.clear();
                 add_range(&mut d.dirty, 0, n);
+                for p in &s.pieces { fresh_runs(&mut runs, &d, p.a, p.b); }
+                self.finish_cull_runs(&mut d, runs);
+            } else {
+                self.cull_runs = runs;
             }
-            for p in &s.pieces { fresh_runs(&mut runs, &d, p.a, p.b); }
-            self.finish_cull_runs(&mut d, runs);
             changed |= self.rebuild_breaks(s, &mut d);
             self.draw[at] = d;
             return changed;
@@ -9695,13 +9707,11 @@ impl Ui {
                             }
                         }
                     }
-                    fresh_runs(&mut runs, &d, at, end as u32);
                     w = end as u32;
                 } else {
                     let (a, b) = self.views[p.view as usize].run;
                     if a != b {
                         changed |= self.clear_piece_gap(&mut d, w, a);
-                        kept_runs(&mut runs, &d.runs, a, b, a);
                         w = b;
                     }
                 }
@@ -9718,11 +9728,23 @@ impl Ui {
             d.bounds.truncate(w as usize);
             // a range the host never drew may reach past the shorter layer: the painter refuses it
             d.dirty.retain_mut(|r| { r.1 = r.1.min(w); r.0 < r.1 });
+            // Exact instance bytes still have valid runs, even if a view moved on screen.
+            if changed {
+                for p in &s.pieces {
+                    if p.view == NO_VIEW {
+                        fresh_runs(&mut runs, &d, p.at, p.at + p.b - p.a);
+                    } else {
+                        let (a, b) = self.views[p.view as usize].run;
+                        if a != b { kept_runs(&mut runs, &d.runs, a, b, a); }
+                    }
+                }
+            }
         } else {
             changed = true;
             self.compact_layer(s, &mut d, old_len, &mut runs);
         }
-        self.finish_cull_runs(&mut d, runs);
+        if changed { self.finish_cull_runs(&mut d, runs); }
+        else { self.cull_runs = runs; }
         changed |= self.rebuild_breaks(s, &mut d);
         self.draw[at] = d;
         changed
