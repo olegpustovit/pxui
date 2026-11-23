@@ -60,14 +60,12 @@ fn draw(
         ok(be::invalidate_state(&encoder));
         ok(be::end_render(&encoder));
         let image = ok(be::native_texture(target));
-        record(&pxui::Image {
-            vk_image_view: image.vk_image_view,
-            mtl_texture: image.mtl_texture,
-            width: opened.width_px,
-            height: opened.height_px,
-            format: image.format,
-            ..Default::default()
-        })?;
+        record(&pxui::Image::rgba8(
+            opened.width_px,
+            opened.height_px,
+            image.vk_image_view,
+            image.mtl_texture,
+        ))?;
         encoder = begin(Load::Load);
         Ok(pass(&encoder, handles))
     });
