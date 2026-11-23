@@ -463,8 +463,8 @@ impl Renderer {
     /// Draws the prepared layers into the union of two to eight rectangles in target pixels.
     ///
     /// Each `[x, y, width, height]` must be nonempty and inside the target. The host clears these
-    /// pixels before calling. PXUI sets the enclosing scissor and leaves pixels outside the union
-    /// untouched. See [`Renderer::draw_with_split`] for the backdrop contract.
+    /// pixels before calling. PXUI scissors to each rectangle and clips overlapping portions so
+    /// each damaged pixel is painted once. See [`Renderer::draw_with_split`] for the backdrop contract.
     /// Allocates: when render storage first grows or the host callback allocates.
     /// Panics: if the host callback panics.
     ///

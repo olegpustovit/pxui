@@ -268,6 +268,9 @@ impl Graphics {
                     ..Pass::default()
                 };
                 let merged = partial > 1 && !self.no_cull;
+                if merged {
+                    for rect in &pixels[1..partial] { frames.scissor(rect); }
+                }
                 // A cache miss needs a full canvas to reconstruct its backdrop.
                 let mut redraw = false;
                 let mut split = |record: pxui::Recorder| {

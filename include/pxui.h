@@ -986,8 +986,8 @@ int32_t pxui_renderer_draw(PxuiRenderer *renderer, const PxuiPass *pass);
    exact scissor before drawing. PXUI may skip geometry outside it. */
 int32_t pxui_renderer_draw_damage(PxuiRenderer *renderer, const PxuiPass *pass, uint32_t x, uint32_t y, uint32_t width, uint32_t height);
 /* ABI 2.11. Two to eight nonempty device-pixel rectangles as consecutive [x, y, width, height] records.
-   The host clears these pixels before drawing. PXUI sets their enclosing scissor and paints each
-   selected instance once, clipped to the union. The records are borrowed until the call returns. */
+   The host clears these pixels before drawing. PXUI replays selected instances under each scissor
+   and paints overlapping pixels once. The records are borrowed until the call returns. */
 int32_t pxui_renderer_draw_damage_rects(PxuiRenderer *renderer, const PxuiPass *pass, const uint32_t *rects, uint32_t count);
 /* The draw calls the renderer has issued so far. */
 /* forget on every sampling renderer before destroying/reusing an app texture.

@@ -75,22 +75,20 @@ void *rays_metal_frames_create(void *layerPointer, void *devicePointer, void *qu
         frames->pass = [MTLRenderPassDescriptor new];
         frames->present = [MTLRenderPassDescriptor new];
         frames->present.colorAttachments[0].storeAction = MTLStoreActionStore;
-        // Draw all damage clears as one instanced strip. The fullscreen triangle presents the canvas.
+        // A fullscreen triangle: `fill` paints the scissored damage the panel colour (Metal has no scissored clear),
+        // `copy` reads the whole canvas texel for texel onto a drawable that needs a full copy.
         static NSString *const source = @"#include <metal_stdlib>\nusing namespace metal;\n"
             "struct V { float4 p [[position]]; };\n"
             "vertex V pxui_full(uint id [[vertex_id]]) { float2 q = float2((id << 1) & 2, id & 2); V v; v.p = float4(q * 2.0 - 1.0, 0.0, 1.0); return v; }\n"
-            "vertex V pxui_clear(uint id [[vertex_id]], uint rect [[instance_id]], constant float4 *boxes [[buffer(0)]]) {\n"
-            "  float4 b = boxes[rect]; V v; v.p = float4(mix(b.xy, b.zw, float2(id & 1, id >> 1)), 0.0, 1.0); return v; }\n"
             "fragment float4 pxui_fill(constant float4 &c [[buffer(0)]]) { return c; }\n"
             "fragment float4 pxui_copy(V v [[stage_in]], texture2d<float> t [[texture(0)]]) { return t.read(uint2(v.p.xy)); }\n";
         NSError *error = nil;
         id<MTLLibrary> library = [frames->device newLibraryWithSource:source options:nil error:&error];
         MTLRenderPipelineDescriptor *pipeline = [MTLRenderPipelineDescriptor new];
-        pipeline.vertexFunction = [library newFunctionWithName:@"pxui_clear"];
+        pipeline.vertexFunction = [library newFunctionWithName:@"pxui_full"];
         pipeline.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
         pipeline.fragmentFunction = [library newFunctionWithName:@"pxui_fill"];
         if (library) frames->fill = [frames->device newRenderPipelineStateWithDescriptor:pipeline error:&error];
-        pipeline.vertexFunction = [library newFunctionWithName:@"pxui_full"];
         pipeline.fragmentFunction = [library newFunctionWithName:@"pxui_copy"];
         if (library) frames->copy = [frames->device newRenderPipelineStateWithDescriptor:pipeline error:&error];
         if (!frames->fill || !frames->copy) { delete frames; return NULL; }
@@ -183,23 +181,7 @@ void *rays_metal_frames_pass(void *raw, double red, double green, double blue, c
         color.storeAction = MTLStoreActionStore;
         color.clearColor = MTLClearColorMake(red, green, blue, 1);
         frames->encoder = [frames->commands renderCommandEncoderWithDescriptor:frames->pass];
-        if (frames->encoder && *partial) {
-            float boxes[8][4];
-            const float sx = 2.0f / w, sy = 2.0f / h;
-            for (uint32_t i = 0; i < *partial; ++i) {
-                const auto &r = rects[i];
-                boxes[i][0] = r[0] * sx - 1.0f;
-                boxes[i][1] = 1.0f - r[1] * sy;
-                boxes[i][2] = (r[0] + r[2]) * sx - 1.0f;
-                boxes[i][3] = 1.0f - (r[1] + r[3]) * sy;
-            }
-            const float panel[] = {(float)red, (float)green, (float)blue, 1.0f};
-            [frames->encoder setRenderPipelineState:frames->fill];
-            [frames->encoder setVertexBytes:boxes length:*partial * sizeof boxes[0] atIndex:0];
-            [frames->encoder setFragmentBytes:panel length:sizeof panel atIndex:0];
-            [frames->encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4 instanceCount:*partial];
-            rays_metal_frames_scissor(raw, rects[0]);
-        }
+        if (frames->encoder && *partial) rays_metal_frames_scissor(raw, rects[0]);
         frames->canvasValid = frames->encoder != nil;
         return (__bridge void *)frames->encoder;
     }
@@ -227,7 +209,12 @@ void rays_metal_frames_scissor(void *raw, const uint32_t rect[4]) {
     PXUIMetalFrames *frames = static_cast<PXUIMetalFrames *>(raw);
     if (!frames->encoder || !rect[2] || !rect[3] ||
         (uint64_t)rect[0] + rect[2] > frames->canvas.width || (uint64_t)rect[1] + rect[3] > frames->canvas.height) return;
+    const MTLClearColor color = frames->pass.colorAttachments[0].clearColor;
+    const float panel[4] = {(float)color.red, (float)color.green, (float)color.blue, 1};
     [frames->encoder setScissorRect:(MTLScissorRect){rect[0], rect[1], rect[2], rect[3]}];
+    [frames->encoder setRenderPipelineState:frames->fill];
+    [frames->encoder setFragmentBytes:panel length:sizeof panel atIndex:0];
+    [frames->encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
 }
 
 void rays_metal_frames_cancel(void *raw) {

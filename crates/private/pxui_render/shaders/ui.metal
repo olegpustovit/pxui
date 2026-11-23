@@ -212,10 +212,10 @@ float sd_bezier(float2 pos, float2 A, float2 B, float2 C) {
   return sqrt(res);
 }
 
-inline float4 paint_fragment(VOut in, texture2d<float> mask_tex,
-                             texture2d<float> color_tex, sampler samp,
-                             texture2d<float> atlas_tex, sampler smooth_samp,
-                             texture2d<float> mask2_tex, texture2d<float> color2_tex, bool damaged) {
+fragment float4 ui_fragment(VOut in [[stage_in]], texture2d<float> mask_tex [[texture(2)]],
+                            texture2d<float> color_tex [[texture(3)]], sampler samp [[sampler(4)]],
+                            texture2d<float> atlas_tex [[texture(5)]], sampler smooth_samp [[sampler(6)]],
+                            texture2d<float> mask2_tex [[texture(7)]], texture2d<float> color2_tex [[texture(8)]]) {
   float2 p = in.v_pos.xy;
   uint kind = in.v_kf.x & 255u, flags = in.v_kf.y & 255u, ramp = in.v_kf.y >> 8u;
   bool instance_clip = (in.v_kf.x & INSTANCE_CLIP) != 0u;
@@ -248,7 +248,7 @@ inline float4 paint_fragment(VOut in, texture2d<float> mask_tex,
     uv_dx = dfdx(in.v_pos.zw);
     uv_dy = dfdy(in.v_pos.zw);
   }
-  if (!damaged || clip_cov <= 0.0) discard_fragment();
+  if (clip_cov <= 0.0) discard_fragment();
   float4 col;
   if (kind == MASK) {
     float mask = (flags & 2u) != 0u ? mask2_tex.sample(samp,in.v_pos.zw,level(0.0)).r : mask_tex.sample(samp,in.v_pos.zw,level(0.0)).r;
@@ -374,23 +374,4 @@ inline float4 paint_fragment(VOut in, texture2d<float> mask_tex,
     col = float4(in.v_color.rgb, in.v_color.a * cover(d, px));
   }
   return float4(col.rgb, col.a * clip_cov * in.v_misc.z);
-}
-
-fragment float4 ui_fragment(VOut in [[stage_in]], texture2d<float> mask_tex [[texture(2)]],
-                            texture2d<float> color_tex [[texture(3)]], sampler samp [[sampler(4)]],
-                            texture2d<float> atlas_tex [[texture(5)]], sampler smooth_samp [[sampler(6)]],
-                            texture2d<float> mask2_tex [[texture(7)]], texture2d<float> color2_tex [[texture(8)]]) {
-  return paint_fragment(in, mask_tex, color_tex, samp, atlas_tex, smooth_samp, mask2_tex, color2_tex, true);
-}
-
-fragment float4 ui_fragment_damage(VOut in [[stage_in]], texture2d<float> mask_tex [[texture(2)]],
-                                   texture2d<float> color_tex [[texture(3)]], sampler samp [[sampler(4)]],
-                                   texture2d<float> atlas_tex [[texture(5)]], sampler smooth_samp [[sampler(6)]],
-                                   texture2d<float> mask2_tex [[texture(7)]], texture2d<float> color2_tex [[texture(8)]],
-                                   constant float4* damage [[buffer(9)]]) {
-  bool damaged = false;
-  for (uint i = 1; i <= uint(damage[0].x) && !damaged; ++i) {
-    damaged = all(in.position.xy >= damage[i].xy) && all(in.position.xy < damage[i].zw);
-  }
-  return paint_fragment(in, mask_tex, color_tex, samp, atlas_tex, smooth_samp, mask2_tex, color2_tex, damaged);
 }

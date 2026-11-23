@@ -36,6 +36,7 @@ fn in_view(rect: [f32; 4], view: &View, pixel: f32) -> [f32; 4] {
 }
 
 pub fn ranges(scissors: &[[u32; 4]], layers: &[Layer], views: &[View], scale: f32, out: &mut Vec<(u32, u32, u8)>) {
+    let split_masks = scissors.len() > 1;
     let pixel = 1.0 / scale;
     let mut rects = [([0.0; 4], [0.0; 4]); 8];
     let rects = &mut rects[..scissors.len()];
@@ -76,8 +77,8 @@ pub fn ranges(scissors: &[[u32; 4]], layers: &[Layer], views: &[View], scale: f3
             });
             let run_mask = mask(run.bounds, u8::MAX);
             if run_mask == 0 { continue; }
-            if run.to - run.from <= 64 {
-                push_layer(out, first, offset + run.from, offset + run.to, run_mask);
+            if run.to - run.from <= 64 && (!split_masks || run_mask.is_power_of_two()) {
+                push_layer(out, first, offset + run.from, offset + run.to, run_mask, split_masks);
                 selected += run.to - run.from;
             } else {
                 for at in run.from..run.to {
@@ -85,19 +86,19 @@ pub fn ranges(scissors: &[[u32; 4]], layers: &[Layer], views: &[View], scale: f3
                     if bounds == EMPTY_BOUNDS { continue; }
                     let damage = mask(bounds, run_mask);
                     if damage != 0 {
-                        push_layer(out, first, offset + at, offset + at + 1, damage);
+                        push_layer(out, first, offset + at, offset + at + 1, damage, split_masks);
                         selected += 1;
-                        if selected > len / 2 { break; }
+                        if !split_masks && selected > len / 2 { break; }
                     }
                 }
             }
-            if selected > len / 2 {
+            if !split_masks && selected > len / 2 {
                 out.truncate(first);
                 out.push((offset, offset + len, u8::MAX));
                 break;
             }
         }
-        if first > 0 && out.len() > first && out[first].0 - out[first - 1].1 < 16 {
+        if first > 0 && out.len() > first && can_join(out[first - 1], out[first].0, out[first].2, split_masks) {
             let (_, to, damage) = out.remove(first);
             out[first - 1].1 = to;
             out[first - 1].2 |= damage;
@@ -106,11 +107,16 @@ pub fn ranges(scissors: &[[u32; 4]], layers: &[Layer], views: &[View], scale: f3
     }
 }
 
-fn push_layer(out: &mut Vec<(u32, u32, u8)>, first: usize, from: u32, to: u32, damage: u8) {
-    if out.len() > first && let Some(last) = out.last_mut() && from - last.1 < 16 {
+fn push_layer(out: &mut Vec<(u32, u32, u8)>, first: usize, from: u32, to: u32, damage: u8, split_masks: bool) {
+    if out.len() > first && let Some(last) = out.last_mut() && can_join(*last, from, damage, split_masks) {
         last.1 = to;
         last.2 |= damage;
     } else {
         out.push((from, to, damage));
     }
+}
+
+fn can_join(last: (u32, u32, u8), from: u32, mask: u8, split_masks: bool) -> bool {
+    // Packing can join disjoint ranges without replaying the intervening instances.
+    if split_masks { last.1 == from && last.2 == mask } else { from - last.1 < 16 }
 }
