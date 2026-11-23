@@ -542,6 +542,12 @@ impl Window {
         self.sync()
     }
 
+    /// Hides the window. A later call to `show` can return it to the display.
+    pub fn hide(&mut self) -> Result<(), Error> {
+        self.live()?;
+        self.handle.hide().map_err(fail)
+    }
+
     /// Opens a native file dialog and returns at once with its id; the outcome is an
     /// `Event::FileDialog` carrying the same id. `pattern` lists extensions separated by
     /// semicolons ("png;jpg"), or "*". At most 8 dialogs are open at once; a ninth is an error.
