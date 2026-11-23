@@ -1432,7 +1432,7 @@ pub struct Ui {
     arena: Arena,
     painting: bool,
     frame_requested: bool,
-    /// Frame time of the last frame with events; endless loops step slower after `LOOP_IDLE` without one.
+    /// Frame time of the last interaction that affected a control or its input state.
     input_at: f64,
     /// Inside `step`: no node was painted this frame, so every running transition patches its node.
     stepping: bool,
@@ -7558,9 +7558,22 @@ impl Ui {
             self.window_ground = Some(self.theme.tokens.panel);
             self.out.background = Some(self.theme.tokens.panel);
         }
+        let previous_input = (self.hot, self.active, self.focus, self.keyboard_focus);
+        let accessible_input = !self.a11y_pending.is_empty();
         self.route(frame);
         self.dismissed_popups.clear();
         self.apply_a11y();
+        if accessible_input || (!frame.input.events.is_empty()
+            && (previous_input != (self.hot, self.active, self.focus, self.keyboard_focus)
+                || !self.signals.is_empty()
+                || self.routed_events.iter().any(|(owner, event, _)| match event {
+                    Event::PointerMoved(_) => false,
+                    Event::FocusGained | Event::FocusLost => true,
+                    _ => *owner != 0,
+                })))
+        {
+            self.input_at = frame.input.t;
+        }
         self.mark_input();
         // overlay thumbs whose hold is over: their views repaint without them
         let mut i = 0;
@@ -7730,9 +7743,6 @@ impl Ui {
             self.mark_key(self.seen.1);
             self.mark_key(self.focus);
             (self.seen.1, self.seen.2) = (self.focus, self.keyboard_focus);
-        }
-        if !frame.input.events.is_empty() {
-            self.input_at = frame.input.t;
         }
         self.out.repaint_at = self.next_repaint(frame.input.t);
         self.frame_damage = self.damage;
