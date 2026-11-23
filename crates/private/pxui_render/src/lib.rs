@@ -180,6 +180,7 @@ pub struct Painter {
     /// most four times a frame whatever the layers and breaks.
     headers: [usize; 4],
     header_key: ([u32; 2], u32),
+    legacy_clip: bool,
     draw_calls: u64,
     layers: Vec<Option<Retained>>,
     retained_bytes: u64,
@@ -310,6 +311,7 @@ impl Painter {
         Ok(Painter {
             device: device.clone(), pipeline, sampler, smooth, mask, color,extra_atlases:[None,None], depth: depth != DepthFormat::NoDepth,
             ring, ring_ptr, region_size, region: 0, cursor: 0, retired: Vec::new(),
+            legacy_clip: std::env::var_os("PXUI_LEGACY_CLIP").as_deref() == Some(std::ffi::OsStr::new("1")),
             views: vec![View::IDENTITY], views_len: 1, headers: [usize::MAX; 4], header_key: ([0, 0], 0), draw_calls: 0, layers: Vec::new(), retained_bytes: 0, blur: None, retired_textures: Vec::new(),
         })
     }
@@ -394,9 +396,9 @@ impl Painter {
         Ok(at)
     }
 
-    /// Globals at `start`: target size in points, the first-instance offset, then the view table.
+    /// Globals: target size in points, first-instance offset, unconditional clip flag, and the view table.
     fn write_header(&self, start: usize, size_px: [u32; 2], scale: f32, first: u32) {
-        let globals = [size_px[0] as f32 / scale, size_px[1] as f32 / scale, f32::from_bits(first), 0.0];
+        let globals = [size_px[0] as f32 / scale, size_px[1] as f32 / scale, f32::from_bits(first), f32::from(u8::from(self.legacy_clip))];
         self.write_floats(start, &globals);
         for (i, v) in self.views[..self.views_len].iter().enumerate() {
             let record = [
