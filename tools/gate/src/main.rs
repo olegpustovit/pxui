@@ -2399,6 +2399,14 @@ fn growth(workspace: &Path, old_header: &str, current: &BTreeMap<String, String>
 
 fn abi_snapshot(workspace: &Path, write: bool) -> Result<Vec<String>, String> {
     let (minor, lines, ext) = abi_snapshot_lines(workspace)?;
+    let build_path = workspace.join("crates/private/pxui_dylib/build.rs");
+    let build = fs::read_to_string(&build_path).map_err(|error| format!("{}: {error}", build_path.display()))?;
+    let expected = format!("{ABI_MAJOR}.{minor}.0");
+    let versions: Vec<_> = build.lines().filter_map(|line| line.split_once("-Wl,-current_version,"))
+        .filter_map(|(_, tail)| tail.split_once('"').map(|(version, _)| version)).collect();
+    if versions != [expected.as_str()] {
+        return Ok(vec![format!("abi-snapshot: dylib current_version must be {expected} (found {versions:?})")]);
+    }
     let path = workspace.join("abi/pxui.v1.txt");
     let ext_path = workspace.join("abi/pxui.ext.txt");
     let old = match fs::read_to_string(&path) {
