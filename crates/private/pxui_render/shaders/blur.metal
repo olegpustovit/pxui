@@ -26,11 +26,30 @@ fragment float4 blur_fragment(BOut in [[stage_in]], texture2d<float> src [[textu
   float total = 0.0;
   int r = int(in.tap.w);
   int n = int(in.mode.x);
+  if (n < 0) {
+    // Cache every horizontal phase of a 4x4 premultiplied source block for the Gaussian taps.
+    int2 lo = int2(int(in.position.x) + int(in.rect.x), int(floor(base.y * in.mode.z - 1.5)));
+    int2 hi = int2(in.mode.yz) - 1;
+    for (int j = 0; j < 4; j++) {
+      for (int i = 0; i < 4; i++) {
+        float4 t = src.read(uint2(clamp(lo + int2(i, j), int2(0), hi)));
+        sum += float4(t.rgb * t.a, t.a);
+      }
+    }
+    // Keep straight RGB in the 8-bit scratch so transparent texels preserve their hue.
+    return sum.a > 0.0 ? float4(sum.rgb / sum.a, sum.a / 16.0) : float4(0.0);
+  }
+
   for (int k = -r; k <= r; k++) {
     float w = exp(-0.5 * float(k * k) / (in.tap.z * in.tap.z));
     float2 at = base + in.tap.xy * float(k);
     float4 c;
-    if (n > 0) {
+    if (n == 1) {
+      int lo = int(floor(at.x * in.mode.y - 1.5));
+      int x = clamp(lo - int(in.mode.w), 0, int(in.mode.z) - 1);
+      float4 t = src.read(uint2(int2(x, int(in.position.y))));
+      c = float4(t.rgb * t.a, t.a);
+    } else if (n > 0) {
       // first pass: the n x n source block around the tap, premultiplied, averaged (straight-alpha source)
       int2 lo = int2(floor(at * in.mode.yz - 0.5 * float(n) + 0.5)), hi = int2(in.mode.yz) - 1;
       c = float4(0.0);

@@ -15,11 +15,30 @@ void main() {
   float total = 0.0;
   int r = int(v_tap.w);
   int n = int(v_mode.x);
+  if (n < 0) {
+    // Cache every horizontal phase of a 4x4 premultiplied source block for the Gaussian taps.
+    ivec2 lo = ivec2(int(gl_FragCoord.x) + int(v_rect.x), int(floor(base.y * v_mode.z - 1.5)));
+    ivec2 hi = ivec2(v_mode.yz) - 1;
+    for (int j = 0; j < 4; j++) {
+      for (int i = 0; i < 4; i++) {
+        vec4 t = texelFetch(sampler2D(src, samp), clamp(lo + ivec2(i, j), ivec2(0), hi), 0);
+        sum += vec4(t.rgb * t.a, t.a);
+      }
+    }
+    // Keep straight RGB in the 8-bit scratch so transparent texels preserve their hue.
+    out_color = sum.a > 0.0 ? vec4(sum.rgb / sum.a, sum.a / 16.0) : vec4(0.0); return;
+  }
+
   for (int k = -r; k <= r; k++) {
     float w = exp(-0.5 * float(k * k) / (v_tap.z * v_tap.z));
     vec2 at = base + v_tap.xy * float(k);
     vec4 c;
-    if (n > 0) {
+    if (n == 1) {
+      int lo = int(floor(at.x * v_mode.y - 1.5));
+      int x = clamp(lo - int(v_mode.w), 0, int(v_mode.z) - 1);
+      vec4 t = texelFetch(sampler2D(src, samp), ivec2(x, int(gl_FragCoord.y)), 0);
+      c = vec4(t.rgb * t.a, t.a);
+    } else if (n > 0) {
       // first pass: the n x n source block around the tap, premultiplied, averaged (straight-alpha source)
       ivec2 lo = ivec2(floor(at * v_mode.yz - 0.5 * float(n) + 0.5)), hi = ivec2(v_mode.yz) - 1;
       c = vec4(0.0);
