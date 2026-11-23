@@ -3,12 +3,11 @@
 #include "metal_link.h"
 #include "bridge.h"
 
-typedef void (*pxui_tick)(void *, double);
-
 @interface PXUISDLWindowPacing : NSObject
 @property(nonatomic, readonly) uint64_t presentation;
 - (instancetype)initWithLayer:(CAMetalLayer *)layer;
-- (BOOL)tick:(pxui_tick)callback user:(void *)user rate:(unsigned)hz;
+- (BOOL)tick:(unsigned)hz lead:(double *)lead;
+- (void)releaseDrawable;
 - (void)refreshVisibility;
 - (void)pause;
 @end
@@ -20,8 +19,8 @@ typedef void (*pxui_tick)(void *, double);
     uint64_t linkFailedAt;
     uint64_t generation;
     BOOL visible;
-    pxui_tick tick;
-    void *tickUser;
+    BOOL waiting;
+    double frameLead;
 }
 
 - (instancetype)initWithLayer:(CAMetalLayer *)target {
@@ -78,31 +77,36 @@ typedef void (*pxui_tick)(void *, double);
     if (@available(macOS 14.0, *)) [(PXUISDLMetalLink *)link setPaused:YES];
 }
 
-- (void)frame:(double)lead {
-    pxui_tick callback = tick;
-    tick = NULL;
-    if (callback && self.presentation) callback(tickUser, lead);
+- (BOOL)frame:(double)lead {
+    if (!waiting || !self.presentation) return NO;
+    frameLead = lead;
+    waiting = NO;
+    return YES;
 }
 
-- (BOOL)tick:(pxui_tick)callback user:(void *)user rate:(unsigned)hz {
+- (void)releaseDrawable {
+    if (@available(macOS 14.0, *)) [(PXUISDLMetalLink *)link releaseDrawable];
+}
+
+- (BOOL)tick:(unsigned)hz lead:(double *)lead {
     if (@available(macOS 14.0, *)) {
-        if (!self.presentation || generation == linkFailedAt || tick || !layer.device) return NO;
+        if (!self.presentation || generation == linkFailedAt || waiting || !layer.device) return NO;
         if (!link) {
             __weak PXUISDLWindowPacing *weak = self;
-            link = [[PXUISDLMetalLink alloc] initWithLayer:layer frame:^(double lead) { [weak frame:lead]; }];
+            link = [[PXUISDLMetalLink alloc] initWithLayer:layer frame:^BOOL(double lead) { return [weak frame:lead]; }];
             if (!link) { linkFailedAt = generation; return NO; }
         }
-        tick = callback;
-        tickUser = user;
+        waiting = YES;
+        frameLead = -1.0;
         [(PXUISDLMetalLink *)link setRate:hz maximum:window.screen.maximumFramesPerSecond];
         [(PXUISDLMetalLink *)link setPaused:NO];
         // A display can disappear or stop delivering updates during a screen transition.
         CFTimeInterval end = CACurrentMediaTime() + 0.1;
-        while (tick && self.presentation) {
+        while (waiting && self.presentation) {
             CFTimeInterval remaining = end - CACurrentMediaTime();
             if (remaining <= 0 || CFRunLoopRunInMode(kCFRunLoopDefaultMode, remaining, true) == kCFRunLoopRunFinished) break;
         }
-        BOOL served = tick == NULL;
+        BOOL served = frameLead >= 0.0;
         if (!served) {
             [self pause];
             if (self.presentation) {
@@ -111,8 +115,8 @@ typedef void (*pxui_tick)(void *, double);
                 linkFailedAt = generation;
             }
         }
-        tick = NULL;
-        tickUser = NULL;
+        waiting = NO;
+        *lead = frameLead;
         return served;
     }
     return NO;
@@ -138,10 +142,14 @@ uint64_t pxui_sdl3_window_presentation(void *pacing) {
     return ((__bridge PXUISDLWindowPacing *)pacing).presentation;
 }
 
-bool pxui_sdl3_window_tick(void *pacing, unsigned hz, pxui_tick callback, void *user) {
+bool pxui_sdl3_window_tick(void *pacing, unsigned hz, double *lead) {
     @autoreleasepool {
-        return [(__bridge PXUISDLWindowPacing *)pacing tick:callback user:user rate:hz];
+        return [(__bridge PXUISDLWindowPacing *)pacing tick:hz lead:lead];
     }
+}
+
+void pxui_sdl3_window_release_drawable(void *pacing) {
+    [(__bridge PXUISDLWindowPacing *)pacing releaseDrawable];
 }
 
 void pxui_sdl3_window_pacing_close(void *pacing) {

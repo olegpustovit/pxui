@@ -5,16 +5,17 @@
 #import <objc/runtime.h>
 #include <math.h>
 
-// The delegate lends this layer's drawable during its callback. metal_sys consumes it at most once.
+// The display update lends this layer's drawable to one host frame. metal_sys consumes it at most once.
 static inline const void *pxui_metal_drawable_key(void) {
     return (const void *)sel_registerName("pxuiDisplayLinkDrawable");
 }
 
 API_AVAILABLE(macos(14.0), ios(17.0))
 @interface PXUISDLMetalLink : NSObject
-- (instancetype)initWithLayer:(CAMetalLayer *)layer frame:(void (^)(double))frame;
+- (instancetype)initWithLayer:(CAMetalLayer *)layer frame:(BOOL (^)(double))frame;
 - (void)setPaused:(BOOL)paused;
 - (void)setRate:(unsigned)hz maximum:(float)maximum;
+- (void)releaseDrawable;
 - (void)invalidate;
 @end
 

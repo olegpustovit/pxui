@@ -9,13 +9,13 @@
 @implementation PXUISDLMetalLink {
     CAMetalLayer *layer;
     CAMetalDisplayLink *link;
-    void (^frame)(double);
+    BOOL (^frame)(double);
     unsigned lastRate;
     float lastMaximum;
     BOOL inFrame;
 }
 
-- (instancetype)initWithLayer:(CAMetalLayer *)target frame:(void (^)(double))callback {
+- (instancetype)initWithLayer:(CAMetalLayer *)target frame:(BOOL (^)(double))callback {
     if (!(self = [super init]) || !target.device) return nil;
     link = [[CAMetalDisplayLink alloc] initWithMetalLayer:target];
     if (!link) return nil;
@@ -38,7 +38,13 @@
     link.preferredFrameRateRange = pxui_frame_rate(hz, maximum);
 }
 
+- (void)releaseDrawable {
+    objc_setAssociatedObject(layer, pxui_metal_drawable_key(), nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    inFrame = NO;
+}
+
 - (void)invalidate {
+    [self releaseDrawable];
     [link invalidate];
     link = nil;
 }
@@ -48,8 +54,7 @@
     inFrame = YES;
     const void *key = pxui_metal_drawable_key();
     objc_setAssociatedObject(layer, key, update.drawable, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    frame(fmax(0, fmin(0.1, update.targetPresentationTimestamp - CACurrentMediaTime())));
-    objc_setAssociatedObject(layer, key, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    inFrame = NO;
+    double lead = fmax(0, fmin(0.1, update.targetPresentationTimestamp - CACurrentMediaTime()));
+    if (!frame(lead)) [self releaseDrawable];
 }
 @end
