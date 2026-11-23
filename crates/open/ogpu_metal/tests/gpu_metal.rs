@@ -984,6 +984,22 @@ fn gpu_private_texture_transfers() {
     }
     let owned = texture.read_bytes(&write).unwrap();
     assert_eq!(&owned[..4096], &source[..4096]);
+    let queue = CommandQueue::create(&device).unwrap();
+    let commands = CommandBuffer::create(&queue).unwrap();
+    reject(ErrorKind::InvalidArgument, commands.write_texture(&texture, &write, &source[..3]).err());
+    commands.write_texture(&texture, &write, &source).unwrap();
+    let pixel = ogpu_core::validation::admit_texture_read(texture.admitted_descriptor(), full_region(1, 1), 0, 0, 4, 4).unwrap();
+    let mut colour = [39, 81, 177, 255];
+    commands.write_texture(&texture, &pixel, &colour).unwrap();
+    colour.fill(0);
+    commands.commit().unwrap();
+    commands.wait_until_completed().unwrap();
+    let staged = texture.read_bytes(&write).unwrap();
+    assert_eq!(&staged[..4], &[39, 81, 177, 255]);
+    assert_eq!(&staged[4..4096], &source[4..4096]);
+    assert_eq!(&staged[1024 * row..1024 * row + 4096], &source[1024 * row..1024 * row + 4096]);
+    commands.destroy().unwrap();
+    queue.destroy().unwrap();
     reject(ErrorKind::InvalidState, device.destroy().err());
     texture.destroy().unwrap();
     reject(ErrorKind::StaleHandle, texture.write_bytes(&write, &source).err());
