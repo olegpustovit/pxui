@@ -87,14 +87,21 @@ fn present_pixels_match_canvas_with_partial_copies_and_fallbacks() {
     assert!(graphics.draw(&mut window, &ui, None).unwrap());
     assert!(!graphics.last_present_was_partial(), "resize resets drawable history");
 
+    let mut resumed_partial = false;
     for frame in 21..32 {
         window.pump(&mut events);
         build(&window, &mut ui, frame);
         assert!(graphics.draw(&mut window, &ui, None).unwrap());
+        resumed_partial |= graphics.last_present_was_partial();
     }
-    assert!(graphics.last_present_was_partial());
+    assert!(resumed_partial, "partial copies resume after resize");
     window.show().unwrap();
-    window.pump(&mut events);
+    let deadline = window.time() + 0.45;
+    while window.presentation().is_none() && window.time() < deadline {
+        window.wait(Some(deadline));
+        assert!(window.pump(&mut events));
+    }
+    assert!(window.presentation().is_some(), "the revealed window must be exposed");
     build(&window, &mut ui, 32);
     assert!(graphics.draw(&mut window, &ui, None).unwrap());
     assert!(!graphics.last_present_was_partial(), "becoming visible resets drawable history");
