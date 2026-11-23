@@ -22,6 +22,8 @@ pub struct Graphics {
     held: Option<DamageList>,
     full_damage: bool,
     no_cull: bool,
+    #[cfg(target_os = "macos")]
+    presentation: Option<u64>,
     present_debt: bool,
     present_damage: [DamageList; 4],
     #[cfg(test)]
@@ -78,6 +80,8 @@ impl Graphics {
             present_damage: [DamageList::default(); 4],
             #[cfg(test)]
             partial_present: false,
+            #[cfg(target_os = "macos")]
+            presentation: None,
         };
         let layer = window.token().map_err(|_| Error::Host("could not get surface token"))?;
         host.frames = Some(Frames::new(&host.device, layer, full_present, verify_present).map_err(|_| Error::Host("could not open native frame context"))?);
@@ -208,6 +212,18 @@ impl Graphics {
         let extent = window.extent();
         let size = (extent.drawable.0 as u32, extent.drawable.1 as u32);
         let viewport = Rect::new(0.0, 0.0, extent.logical.0 as f32, extent.logical.1 as f32);
+        #[cfg(target_os = "macos")]
+        let presentation = window.presentation();
+        #[cfg(target_os = "macos")]
+        {
+            let Some(generation) = presentation else {
+                self.presentation = None;
+                return Ok(false);
+            };
+            if self.presentation != Some(generation) {
+                self.held = Some(DamageList::full(viewport));
+            }
+        }
         let reported = ui.damage_list();
         let count_rects = usize::from(reported.count);
         if reported.full != 0 || count_rects > reported.rects.len() || (self.full_damage && count_rects != 0) {
@@ -356,6 +372,8 @@ impl Graphics {
                 return Err(error);
             }
         };
+        #[cfg(target_os = "macos")]
+        if presented { self.presentation = presentation; }
         self.present_debt = !presented;
         self.held = None;
         // Suspending iOS may discard the command buffer while waiting for a drawable.
@@ -416,6 +434,14 @@ impl Graphics {
             pixel.swap(0, 2); // BGRA drawable to RGBA
         }
         Ok((width, height, pixels))
+    }
+
+    /// A newly visible or moved surface needs a full redraw even with an unchanged UI revision.
+    pub fn surface_changed(&self, window: &Window) -> bool {
+        #[cfg(target_os = "macos")]
+        { window.presentation().is_some_and(|generation| Some(generation) != self.presentation) }
+        #[cfg(target_os = "ios")]
+        { let _ = window; false }
     }
 
     /// Whether encoded canvas content or held damage still needs to reach the surface.

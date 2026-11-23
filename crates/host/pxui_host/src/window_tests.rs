@@ -113,6 +113,50 @@ fn present_pixels_match_canvas_with_partial_copies_and_fallbacks() {
 }
 
 #[cfg(target_os = "macos")]
+fn occluded_window_skips_gpu_and_redraws_on_exposure() {
+    use crate::{Graphics, Window};
+    use pxui::{FrameIn, Ui};
+
+    let mut window = Window::open("PXUI occlusion", 200, 140).unwrap();
+    pxui_sdl::test_order_front(&window.token().unwrap(), false);
+    let mut events = Vec::new();
+    let wait_for = |window: &mut Window, events: &mut Vec<input::Event>, visible: bool| {
+        let deadline = window.time() + 0.45;
+        while window.visible().unwrap() != visible && window.time() < deadline {
+            window.wait(Some(deadline));
+            assert!(window.pump(events));
+            events.clear();
+        }
+        assert_eq!(window.visible().unwrap(), visible, "native window visibility");
+    };
+    wait_for(&mut window, &mut events, true);
+    let mut ui = Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
+    ui.frame(&FrameIn::new(200.0, 140.0).scale(window.scale() as f32), &mut |_| {}).unwrap();
+    let mut graphics = Graphics::open(&mut window, &ui).unwrap();
+    assert!(graphics.draw(&mut window, &ui, None).unwrap());
+    for index in 0..ui.layers().count() { ui.drawn(index); }
+    assert!(!graphics.draw(&mut window, &ui, None).unwrap());
+
+    let mut cover = Window::open("PXUI cover", 600, 440).unwrap();
+    pxui_sdl::test_order_front(&cover.token().unwrap(), true);
+    wait_for(&mut window, &mut events, false);
+    let calls = graphics.draw_calls();
+    for _ in 0..10 {
+        assert!(!graphics.draw_forced(&mut window, &ui, None).unwrap());
+    }
+    assert_eq!(graphics.draw_calls(), calls);
+
+    cover.destroy().unwrap();
+    wait_for(&mut window, &mut events, true);
+    assert!(graphics.surface_changed(&window));
+    assert!(graphics.draw(&mut window, &ui, None).unwrap());
+    assert!(!graphics.surface_changed(&window));
+    assert!(!graphics.draw(&mut window, &ui, None).unwrap());
+    graphics.close().unwrap();
+    window.destroy().unwrap();
+}
+
+#[cfg(target_os = "macos")]
 fn release_keepalive() {}
 
 #[cfg(target_os = "macos")]
@@ -582,6 +626,7 @@ pub(crate) fn main() {
         ("window_present_pixels_match_canvas_with_partial_copies_and_fallbacks",present_pixels_match_canvas_with_partial_copies_and_fallbacks),
         ("window_present_mismatch_disables_partial_for_the_session",crate::graphics::present_mismatch_disables_partial_for_the_session),
         ("window_partial_equals_full",partial_equals_full),
+        ("window_occluded_window_skips_gpu_and_redraws_on_exposure",occluded_window_skips_gpu_and_redraws_on_exposure),
         ("window_backdrop_blur_reads_the_canvas_and_preserves_undamaged_pixels",backdrop_blur_reads_the_canvas_and_preserves_undamaged_pixels),
         ("damage_rounds_out_pads_and_clamps_to_the_drawable",crate::graphics::damage_rounds_out_pads_and_clamps_to_the_drawable),
     ]);
