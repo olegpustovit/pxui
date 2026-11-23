@@ -27,6 +27,7 @@ float light_extra(float3 srgb, float ppem) {
   float level = floor(4.0 * dot(lin, float3(0.2126, 0.7152, 0.0722)) + 0.5);
   return min(0.0025 * ppem * level, max(0.33 - 0.006 * ppem, 0.0));
 }
+constant uint INSTANCE_CLIP = 256u, VIEW_CLIP = 512u;
 constant uint RECT = 0u, MASK = 1u, IMAGE = 2u, SHADOW = 3u, LINE = 4u, ARC = 5u, CURVE = 6u, GRID = 7u, BORDER = 8u, TRIANGLE = 9u;
 constant uint INNER = 4u, ROUND = 8u;
 constant float TAU = 6.2831853;
@@ -94,7 +95,11 @@ vertex VOut ui_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
   o.v_p2 = p2;
   o.v_uvr = float4(uv0, uv1);
   o.v_misc = float4(width, half2x16(I.c.y).y, va.z, (kind == MASK && (flags & LIGHT) != 0u) ? light_extra(unpack_unorm4x8_to_float(I.a.z).rgb, p0.x) : 0.0);
-  o.v_kf = uint2(kind, kind == BORDER ? I.b.y : flags | (kind == RECT ? I.b.y << 8u : 0u));  // rect: gradient ramp row + 1 above the flags; border: the left colour
+  // Pack clip presence before adding the view offset to the instance's whole-i16-range sentinel.
+  bool legacy = g[0].w != 0.0;
+  uint clips = (legacy || I.a.x != 0x80008000u || I.a.y != 0x7fff7fffu || (I.c.y & 0x7fff0000u) != 0u ? INSTANCE_CLIP : 0u)
+             | (legacy || any(vclip != float4(-32768.0, -32768.0, 32767.0, 32767.0)) ? VIEW_CLIP : 0u);
+  o.v_kf = uint2(kind | clips, kind == BORDER ? I.b.y : flags | (kind == RECT ? I.b.y << 8u : 0u));  // rect: gradient ramp row + 1 above the flags; border: the left colour
   return o;
 }
 
@@ -193,14 +198,34 @@ fragment float4 ui_fragment(VOut in [[stage_in]], texture2d<float> mask_tex [[te
                             texture2d<float> atlas_tex [[texture(5)]], sampler smooth_samp [[sampler(6)]],
                             texture2d<float> mask2_tex [[texture(7)]], texture2d<float> color2_tex [[texture(8)]]) {
   float2 p = in.v_pos.xy;
-  // points per pixel, rotation invariant (equals the old fwidth form on axis-aligned views)
-  float2 pixel_dx = dfdx(p), pixel_dy = dfdy(p);
-  float px = max(sqrt(0.5 * (dot(pixel_dx, pixel_dx) + dot(pixel_dy, pixel_dy))), 1e-4);
-  float pxt = max(sqrt(0.5 * (dot(dfdx(in.v_tp), dfdx(in.v_tp)) + dot(dfdy(in.v_tp), dfdy(in.v_tp)))), 1e-4);
-  // texture coordinate steps per pixel, taken before any discard: a smooth image picks its mip level from them
-  float2 uv_dx = dfdx(in.v_pos.zw), uv_dy = dfdy(in.v_pos.zw);
-  uint kind = in.v_kf.x, flags = in.v_kf.y & 255u, ramp = in.v_kf.y >> 8u;
-  float clip_cov = cover(sd_rect(p, in.v_clip, float4(in.v_misc.y)), px) * cover(sd_rect(in.v_tp, in.v_vclip, float4(0.0)), pxt);
+  uint kind = in.v_kf.x & 255u, flags = in.v_kf.y & 255u, ramp = in.v_kf.y >> 8u;
+  bool instance_clip = (in.v_kf.x & INSTANCE_CLIP) != 0u;
+  bool view_clip = (in.v_kf.x & VIEW_CLIP) != 0u;
+  bool rounded_image = kind == IMAGE && dot(in.v_radii, float4(1.0)) > 0.0;
+  bool smooth_image = kind == IMAGE && (flags & 3u) == 1u;
+  // Derivative branches depend only on flat values, and all run before the first discard.
+  // Local points per pixel stay rotation invariant for analytic shapes and instance clips.
+  float2 pixel_dx = float2(0.0), pixel_dy = float2(0.0);
+  float px = 1.0;
+  if (instance_clip || (kind != MASK && kind != IMAGE) || rounded_image) {
+    pixel_dx = dfdx(p);
+    pixel_dy = dfdy(p);
+    px = max(sqrt(0.5 * (dot(pixel_dx, pixel_dx) + dot(pixel_dy, pixel_dy))), 1e-4);
+  }
+  float clip_cov = 1.0;
+  if (instance_clip) {
+    clip_cov = cover(sd_rect(p, in.v_clip, float4(in.v_misc.y)), px);
+  }
+  if (view_clip) {
+    float2 tx = dfdx(in.v_tp), ty = dfdy(in.v_tp);
+    float pxt = max(sqrt(0.5 * (dot(tx, tx) + dot(ty, ty))), 1e-4);
+    clip_cov *= cover(sd_rect(in.v_tp, in.v_vclip, float4(0.0)), pxt);
+  }
+  float2 uv_dx = float2(0.0), uv_dy = float2(0.0);
+  if (smooth_image) {
+    uv_dx = dfdx(in.v_pos.zw);
+    uv_dy = dfdy(in.v_pos.zw);
+  }
   if (clip_cov <= 0.0) discard_fragment();
   float4 col;
   if (kind == MASK) {
@@ -228,7 +253,7 @@ fragment float4 ui_fragment(VOut in [[stage_in]], texture2d<float> mask_tex [[te
     float2 size = float2(color_tex.get_width(), color_tex.get_height()), tx = uv_dx * size, ty = uv_dy * size;
     float lod = max(0.0, 0.5 * log2(max(max(dot(tx, tx), dot(ty, ty)), 1e-8)));
     col = in.v_color * ((flags & 2u) != 0u ? color2_tex.sample(samp,in.v_pos.zw,level(0.0)) : ((flags & 1u) != 0u ? color_tex.sample(smooth_samp, in.v_pos.zw, level(lod)) : color_tex.sample(samp, in.v_pos.zw, level(0.0))));
-    if (dot(in.v_radii, float4(1.0)) > 0.0) col.a *= cover(sd_rect(p, in.v_rect, in.v_radii), px);
+    if (rounded_image) col.a *= cover(sd_rect(p, in.v_rect, in.v_radii), px);
   } else if (kind == TRIANGLE) {
     col = float4(in.v_color.rgb, in.v_color.a * cover(sd_triangle(p, in.v_rect.xy, in.v_rect.zw, in.v_p0.xy), px));
   } else if (kind == RECT) {

@@ -28,6 +28,7 @@ float light_extra(vec3 srgb, float ppem) {
   float level = floor(4.0 * dot(lin, vec3(0.2126, 0.7152, 0.0722)) + 0.5);
   return min(0.0025 * ppem * level, max(0.33 - 0.006 * ppem, 0.0));
 }
+const uint INSTANCE_CLIP = 256u, VIEW_CLIP = 512u;
 const uint RECT = 0u, MASK = 1u, IMAGE = 2u, SHADOW = 3u, LINE = 4u, ARC = 5u, CURVE = 6u, GRID = 7u, BORDER = 8u, TRIANGLE = 9u;
 const uint INNER = 4u;
 const vec2 CORNERS[6] = vec2[6](vec2(0, 0), vec2(1, 0), vec2(0, 1), vec2(0, 1), vec2(1, 0), vec2(1, 1));
@@ -92,5 +93,9 @@ void main() {
   v_p2 = p2;
   v_uvr = vec4(uv0, uv1);
   v_misc = vec4(width, unpackHalf2x16(I.c.y).y, va.z, (kind == MASK && (flags & LIGHT) != 0u) ? light_extra(unpackUnorm4x8(I.a.z).rgb, p0.x) : 0.0);
-  v_kf = uvec2(kind, kind == BORDER ? I.b.y : flags | (kind == RECT ? I.b.y << 8u : 0u));  // rect: gradient ramp row + 1 above the flags; border: the left colour
+  // Pack clip presence before adding the view offset to the instance's whole-i16-range sentinel.
+  bool legacy = g[0].w != 0.0;
+  uint clips = (legacy || I.a.x != 0x80008000u || I.a.y != 0x7fff7fffu || (I.c.y & 0x7fff0000u) != 0u ? INSTANCE_CLIP : 0u)
+             | (legacy || any(notEqual(vclip, vec4(-32768.0, -32768.0, 32767.0, 32767.0))) ? VIEW_CLIP : 0u);
+  v_kf = uvec2(kind | clips, kind == BORDER ? I.b.y : flags | (kind == RECT ? I.b.y << 8u : 0u));  // rect: gradient ramp row + 1 above the flags; border: the left colour
 }

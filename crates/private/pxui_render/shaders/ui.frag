@@ -24,6 +24,7 @@ layout(location = 11) in vec2 v_tp;
 layout(location = 12) flat in vec4 v_uvr;
 layout(location = 0) out vec4 out_color;
 
+const uint INSTANCE_CLIP = 256u, VIEW_CLIP = 512u;
 const uint RECT = 0u, MASK = 1u, IMAGE = 2u, SHADOW = 3u, LINE = 4u, ARC = 5u, CURVE = 6u, GRID = 7u, BORDER = 8u, TRIANGLE = 9u;
 const uint INNER = 4u, ROUND = 8u;
 const float TAU = 6.2831853;
@@ -120,14 +121,34 @@ float sd_bezier(vec2 pos, vec2 A, vec2 B, vec2 C) {
 
 void main() {
   vec2 p = v_pos.xy;
-  // points per pixel, rotation invariant (equals the old fwidth form on axis-aligned views)
-  vec2 pixel_dx = dFdx(p), pixel_dy = dFdy(p);
-  float px = max(sqrt(0.5 * (dot(pixel_dx, pixel_dx) + dot(pixel_dy, pixel_dy))), 1e-4);
-  float pxt = max(sqrt(0.5 * (dot(dFdx(v_tp), dFdx(v_tp)) + dot(dFdy(v_tp), dFdy(v_tp)))), 1e-4);
-  // texture coordinate steps per pixel, taken before any discard: a smooth image picks its mip level from them
-  vec2 uv_dx = dFdx(v_pos.zw), uv_dy = dFdy(v_pos.zw);
-  uint kind = v_kf.x, flags = v_kf.y & 255u, ramp = v_kf.y >> 8u;
-  float clip_cov = cover(sd_rect(p, v_clip, vec4(v_misc.y)), px) * cover(sd_rect(v_tp, v_vclip, vec4(0.0)), pxt);
+  uint kind = v_kf.x & 255u, flags = v_kf.y & 255u, ramp = v_kf.y >> 8u;
+  bool instance_clip = (v_kf.x & INSTANCE_CLIP) != 0u;
+  bool view_clip = (v_kf.x & VIEW_CLIP) != 0u;
+  bool rounded_image = kind == IMAGE && dot(v_radii, vec4(1.0)) > 0.0;
+  bool smooth_image = kind == IMAGE && (flags & 3u) == 1u;
+  // Derivative branches depend only on flat values, and all run before the first discard.
+  // Local points per pixel stay rotation invariant for analytic shapes and instance clips.
+  vec2 pixel_dx = vec2(0.0), pixel_dy = vec2(0.0);
+  float px = 1.0;
+  if (instance_clip || (kind != MASK && kind != IMAGE) || rounded_image) {
+    pixel_dx = dFdx(p);
+    pixel_dy = dFdy(p);
+    px = max(sqrt(0.5 * (dot(pixel_dx, pixel_dx) + dot(pixel_dy, pixel_dy))), 1e-4);
+  }
+  float clip_cov = 1.0;
+  if (instance_clip) {
+    clip_cov = cover(sd_rect(p, v_clip, vec4(v_misc.y)), px);
+  }
+  if (view_clip) {
+    vec2 tx = dFdx(v_tp), ty = dFdy(v_tp);
+    float pxt = max(sqrt(0.5 * (dot(tx, tx) + dot(ty, ty))), 1e-4);
+    clip_cov *= cover(sd_rect(v_tp, v_vclip, vec4(0.0)), pxt);
+  }
+  vec2 uv_dx = vec2(0.0), uv_dy = vec2(0.0);
+  if (smooth_image) {
+    uv_dx = dFdx(v_pos.zw);
+    uv_dy = dFdy(v_pos.zw);
+  }
   if (clip_cov <= 0.0) discard;
   vec4 col;
   if (kind == MASK) {
@@ -156,7 +177,7 @@ void main() {
     vec2 size = vec2(textureSize(sampler2D(color_tex, smooth_samp), 0)), tx = uv_dx * size, ty = uv_dy * size;
     float lod = max(0.0, 0.5 * log2(max(max(dot(tx, tx), dot(ty, ty)), 1e-8)));
     col = v_color * ((flags & 2u) != 0u ? textureLod(sampler2D(color2_tex,samp),v_pos.zw,0.0) : ((flags & 1u) != 0u ? textureLod(sampler2D(color_tex, smooth_samp), v_pos.zw, lod) : textureLod(sampler2D(color_tex, samp), v_pos.zw, 0.0)));
-    if (dot(v_radii, vec4(1.0)) > 0.0) col.a *= cover(sd_rect(p, v_rect, v_radii), px);
+    if (rounded_image) col.a *= cover(sd_rect(p, v_rect, v_radii), px);
   } else if (kind == TRIANGLE) {
     col = vec4(v_color.rgb, v_color.a * cover(sd_triangle(p, v_rect.xy, v_rect.zw, v_p0.xy), px));
   } else if (kind == RECT) {
