@@ -63,14 +63,15 @@ pub fn run_with_density(title: &str, width: i64, height: i64, high_density: bool
                         window.wait(at);
                     }
                     let mut result = None;
-                    if window.presentation().is_some() && let Some(pacing) = &pacing {
-                        pacing.tick(hz, &mut |lead| {
-                            window.mark_frame_time(lead);
-                            if hz != 0 && let Some(at) = at && at <= window.frame_time() + 0.001 {
-                                window.frame_time = window.frame_time.max(at);
-                            }
-                            result = Some(callback(&mut window, Signal::Frame));
-                        });
+                    if window.presentation().is_some()
+                        && let Some(pacing) = &pacing
+                        && let Some(update) = pacing.tick(hz)
+                    {
+                        window.mark_frame_time(update.lead);
+                        if hz != 0 && let Some(at) = at && at <= window.frame_time() + 0.001 {
+                            window.frame_time = window.frame_time.max(at);
+                        }
+                        result = Some(callback(&mut window, Signal::Frame));
                     }
                     if ready_for_link && result.is_none() {
                         window.wait(at);

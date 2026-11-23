@@ -194,7 +194,7 @@ static void ios_source(void *context);
     if (@available(iOS 17.0, *)) {
         const char *timerPacing = getenv("PXUI_TIMER_PACING");
         if (!timerPacing || strcmp(timerPacing, "1") != 0) {
-            metalLink = [[PXUISDLMetalLink alloc] initWithLayer:(__bridge CAMetalLayer *)initial.layer frame:^(double lead) { [weak tick:lead]; }];
+            metalLink = [[PXUISDLMetalLink alloc] initWithLayer:(__bridge CAMetalLayer *)initial.layer frame:^BOOL(double lead) { [weak tick:lead]; return NO; }];
         }
     }
     if (!metalLink) {

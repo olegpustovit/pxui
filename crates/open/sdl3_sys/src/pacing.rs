@@ -1,11 +1,17 @@
 //! Main-thread AppKit window visibility and one-shot Metal display-link callbacks.
 use native_layer_token_sys::portable::Token;
-use std::{ffi::c_void, panic::{self, AssertUnwindSafe}, ptr::NonNull, rc::Rc};
+use std::{ffi::c_void, ptr::NonNull, rc::Rc};
 
 #[derive(Clone)]
 pub struct Pacing(Rc<Native>);
 
 struct Native(NonNull<c_void>);
+
+/// Owns the update's drawable loan until the frame callback returns or unwinds.
+pub struct Tick {
+    pacing: Pacing,
+    pub lead: f64,
+}
 
 impl Pacing {
     pub fn open(layer: &Token) -> Option<Self> {
@@ -27,24 +33,19 @@ impl Pacing {
         (generation != 0).then_some(generation)
     }
 
-    pub fn tick(&self, hz: u32, callback: &mut dyn FnMut(f64)) -> bool {
-        struct Invocation<'a> {
-            call: &'a mut dyn FnMut(f64),
-            panic: Option<Box<dyn std::any::Any + Send>>,
+    pub fn tick(&self, hz: u32) -> Option<Tick> {
+        let mut lead = 0.0;
+        if unsafe { pxui_sdl3_window_tick(self.0.0.as_ptr(), hz, &mut lead) } {
+            Some(Tick { pacing: self.clone(), lead })
+        } else {
+            None
         }
-        extern "C" fn invoke(user: *mut c_void, lead: f64) {
-            // The native loop removes the callback before the invocation can leave scope.
-            let invocation = unsafe { &mut *user.cast::<Invocation<'_>>() };
-            invocation.panic = panic::catch_unwind(AssertUnwindSafe(|| (invocation.call)(lead))).err();
-        }
-        let mut invocation = Invocation { call: callback, panic: None };
-        let served = unsafe {
-            pxui_sdl3_window_tick(self.0.0.as_ptr(), hz, invoke, (&mut invocation as *mut Invocation<'_>).cast())
-        };
-        if let Some(panic) = invocation.panic {
-            panic::resume_unwind(panic);
-        }
-        served
+    }
+}
+
+impl Drop for Tick {
+    fn drop(&mut self) {
+        unsafe { pxui_sdl3_window_release_drawable(self.pacing.0.0.as_ptr()); }
     }
 }
 
@@ -60,7 +61,8 @@ unsafe extern "C" {
     fn pxui_sdl3_window_pause_link(pacing: *mut c_void);
     fn pxui_sdl3_window_refresh_visibility(pacing: *mut c_void);
     fn pxui_sdl3_window_presentation(pacing: *mut c_void) -> u64;
-    fn pxui_sdl3_window_tick(pacing: *mut c_void, hz: u32, callback: extern "C" fn(*mut c_void, f64), user: *mut c_void) -> bool;
+    fn pxui_sdl3_window_tick(pacing: *mut c_void, hz: u32, lead: *mut f64) -> bool;
+    fn pxui_sdl3_window_release_drawable(pacing: *mut c_void);
 }
 
 #[cfg(feature = "test-util")]
