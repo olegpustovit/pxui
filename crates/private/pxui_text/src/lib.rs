@@ -701,10 +701,11 @@ fn dilate(src: &[u8], w: u32, h: u32, d: f32, out: &mut Vec<u8>) -> (u32, u32, u
             let gx = (at(x + 1, y) - at(x - 1, y)) * 0.5;
             let gy = (at(x, y + 1) - at(x, y - 1)) * 0.5;
             let c = at(x, y);
-            // an empty pixel only fills where the grown edge crosses into it (the top edge grows 2d)
+            // an empty pixel only fills where the grown edge crosses into it (the top edge grows 2d);
+            // only next to ink, or at large sizes (2d > 1) every empty pixel of the box would fill
             let grown = if c > 0.0 { c + d * (gx.hypot(gy) + gy) } else {
-                let side = at(x - 1, y).max(at(x + 1, y)) / 255.0 + d - 1.0;
-                255.0 * side.max(at(x, y + 1) / 255.0 + 2.0 * d - 1.0).max(0.0)
+                let edge = |n: f32, g: f32| if n > 0.0 { n / 255.0 + g - 1.0 } else { 0.0 };
+                255.0 * edge(at(x - 1, y).max(at(x + 1, y)), d).max(edge(at(x, y + 1), 2.0 * d)).max(0.0)
             };
             let v = grown.clamp(0.0, 255.0).round() as u8;
             if v > 0 {
@@ -1935,5 +1936,18 @@ mod layout_cache_tests {
         // the last window's rows are all still cached
         assert!((19_998..20_018).all(|r| text.entries.contains_key(&(1000 + r as u64))));
         assert!(text.entries.len() < 4 * LIST_KEEP_ROWS as usize + 200, "{} layouts after a scroll", text.entries.len());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn dilate_never_fills_empty_pixels_away_from_ink() {
+        // one inked pixel in a 5x5 box at a large size (d = 0.6, 2d > 1)
+        let mut src = [0u8; 25];
+        src[12] = 255;
+        let mut out = Vec::new();
+        let (_, _, w, h) = super::dilate(&src, 5, 5, 0.6, &mut out);
+        assert!(w <= 3 && h <= 3, "grew to {w}x{h}");
     }
 }

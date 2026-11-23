@@ -435,7 +435,8 @@ impl Ui {
         let (lo, hi) = (*range.start(), *range.end());
         let enabled = hi > lo;
         let node = self.node_ref(label, &Node {
-            flags: Flags::CLIP | if enabled { Flags::CLICKABLE | Flags::FOCUSABLE | Flags::FOCUS_MARK } else { Flags::NONE },
+            // like the kit controls, Tab focuses it and a mouse scrub leaves Space and the arrows with the host's shortcuts
+            flags: Flags::CLIP | if enabled { Flags::CLICKABLE | Flags::TAB_STOP_MARKED } else { Flags::NONE },
             w: Size::Grow, h: Size::Px(self.control_h()),
             role: if enabled { Role::Slider } else { Role::Progress },
             ..Node::DEFAULT

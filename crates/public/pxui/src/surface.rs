@@ -384,6 +384,9 @@ fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_war
             (pointer(Event::POINTER_RELEASED, 150.0, 0), Some(85.0), Some(85.0), false),
             (pointer(Event::POINTER_PRESSED, 50.0, 1), None, None, false),
             (pointer(Event::POINTER_RELEASED, 50.0, 1), None, None, false),
+            // a mouse scrub leaves the keys with the host; Tab focuses the scrubber
+            (key(crate::KeyCode::Space), None, None, false),
+            (key(crate::KeyCode::Tab), None, None, false),
             (key(crate::KeyCode::ArrowRight), Some(45.0), Some(45.0), false),
             (key(crate::KeyCode::ArrowLeft), Some(35.0), Some(35.0), false),
             (key(crate::KeyCode::ArrowUp), Some(45.0), Some(45.0), false),
@@ -442,7 +445,8 @@ fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_war
             frame.events = core::slice::from_ref(&cancel);
             frame
         }, &mut build).unwrap();
-        for accessible in [false,true] {
+        // (a key during a mouse hold is the host's: the press left no key focus)
+        for accessible in [true] {
             ui.frame(&{
                 let mut frame = input().time(time);
                 frame.events = core::slice::from_ref(&press);
@@ -465,7 +469,7 @@ fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_war
             },&mut build).unwrap();
             assert!(result.get().unwrap().commit.is_none());
         }
-        let events = [key(crate::KeyCode::ArrowRight), key(crate::KeyCode::ArrowRight), key(crate::KeyCode::ArrowLeft)];
+        let events = [key(crate::KeyCode::Tab), key(crate::KeyCode::ArrowRight), key(crate::KeyCode::ArrowRight), key(crate::KeyCode::ArrowLeft)];
         ui.frame(&{
             let mut frame = input().time(time);
             frame.events = &events[..];
@@ -581,10 +585,10 @@ fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_war
         frame
     }, &mut build).unwrap();
     assert_eq!(result.get().unwrap().commit, Some(35.0));
-    let right = key(crate::KeyCode::ArrowRight);
+    let keys = [key(crate::KeyCode::Tab), key(crate::KeyCode::ArrowRight)];
     ui.frame(&{
         let mut frame = input().time(time);
-        frame.events = core::slice::from_ref(&right);
+        frame.events = &keys[..];
         frame
     }, &mut build).unwrap();
     assert_eq!(result.get().unwrap().commit, Some(35.0));
