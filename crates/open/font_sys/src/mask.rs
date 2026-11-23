@@ -134,7 +134,7 @@ mod tests {
         fn CGContextFlush(ctx: Ref);
     }
 
-    /// Compare the reusable crop to a full opaque CoreText canvas at the same absolute baseline.
+    /// Compare the reusable crop to a full opaque CoreText canvas at the same absolute baseline, font-smoothed on macOS.
     #[test]
     fn grayscale_crop_matches_native_pixels_and_bearings_after_reuse() {
         const SIZE: usize = 128;
@@ -161,8 +161,9 @@ mod tests {
                     CGContextSetGrayFillColor(ctx, 1.0, 1.0);
                     CGContextFillRect(ctx, Rect { origin: Point { x: 0.0, y: 0.0 }, w: SIZE as f64, h: SIZE as f64 });
                     CGContextSetGrayFillColor(ctx, 0.0, 1.0);
-                    CGContextSetAllowsFontSmoothing(ctx, false);
-                    CGContextSetShouldSmoothFonts(ctx, false);
+                    // macOS text is font-smoothed (the native mask draws it so); iOS has no smoothing
+                    CGContextSetAllowsFontSmoothing(ctx, cfg!(target_os = "macos"));
+                    CGContextSetShouldSmoothFonts(ctx, cfg!(target_os = "macos"));
                     CGContextSetAllowsFontSubpixelPositioning(ctx, true);
                     CGContextSetShouldSubpixelPositionFonts(ctx, true);
                     CGContextSetAllowsFontSubpixelQuantization(ctx, true);

@@ -56,7 +56,8 @@ nothing may reach outside this repository (no `../../..` paths past the root).
   slots with the same coordinates and atlas usage as a fresh walk. Mutable node access invalidates
   reused view and positioned-label node templates. The Apple raster's ppem-dependent horizontal
   phase rule is shared by glyph placement and cache replay.
-  On Apple, atlas misses use CoreText grayscale coverage for supported outline faces. Keep the
+  On Apple, atlas misses use CoreText grayscale coverage for supported outline faces; on macOS it is
+  drawn black on white with font smoothing on (native Mac text weight) and inverted, iOS has none. Keep the
   shaped face id, physical size, weight and baseline-relative bearings. Native font sources share
   the shaping bytes. Bound face, size and bitmap storage, and keep native work off atlas hits.
   Colour glyphs and unsupported native masks use Swash.

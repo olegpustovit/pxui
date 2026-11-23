@@ -1,5 +1,6 @@
 #include <CoreGraphics/CoreGraphics.h>
 #include <CoreText/CoreText.h>
+#include <TargetConditionals.h>
 #include <math.h>
 #include <stdint.h>
 #include <string.h>
@@ -73,6 +74,19 @@ static int prepare_bitmap(CGContextRef *bitmap, size_t width, size_t height) {
     size_t h = *bitmap ? CGBitmapContextGetHeight(*bitmap) : 0;
     if (w >= width && h >= height) return 1;
 
+#if TARGET_OS_OSX
+    // macOS draws text with font smoothing (its stem darkening), which CoreGraphics applies only to glyphs on an opaque
+    // background: black on white in gray, inverted to coverage after drawing (`invert` below)
+    CGColorSpaceRef gray = CGColorSpaceCreateDeviceGray();
+    CGContextRef fresh = gray ? CGBitmapContextCreate(NULL, scratch_size(w, width), scratch_size(h, height),
+                                                      8, 0, gray, kCGImageAlphaNone) : NULL;
+    if (gray) CGColorSpaceRelease(gray);
+    if (!fresh) return 0;
+    CGContextSetAllowsAntialiasing(fresh, true);
+    CGContextSetShouldAntialias(fresh, true);
+    CGContextSetAllowsFontSmoothing(fresh, true);
+    CGContextSetShouldSmoothFonts(fresh, true);
+#else
     CGContextRef fresh = CGBitmapContextCreate(NULL, scratch_size(w, width), scratch_size(h, height),
                                                8, 0, NULL, kCGImageAlphaOnly);
     if (!fresh) return 0;
@@ -80,11 +94,16 @@ static int prepare_bitmap(CGContextRef *bitmap, size_t width, size_t height) {
     CGContextSetShouldAntialias(fresh, true);
     CGContextSetAllowsFontSmoothing(fresh, false);
     CGContextSetShouldSmoothFonts(fresh, false);
+#endif
     CGContextSetAllowsFontSubpixelPositioning(fresh, true);
     CGContextSetShouldSubpixelPositionFonts(fresh, true);
     CGContextSetAllowsFontSubpixelQuantization(fresh, true);
     CGContextSetShouldSubpixelQuantizeFonts(fresh, true);
+#if TARGET_OS_OSX
+    CGContextSetGrayFillColor(fresh, 0, 1);
+#else
     CGContextSetGrayFillColor(fresh, 1, 1);
+#endif
 
     if (*bitmap) CFRelease(*bitmap);
     *bitmap = fresh;
@@ -109,11 +128,22 @@ int pxui_font_mask_draw(CTFontRef font, CGContextRef *bitmap, CGGlyph glyph,
     if (!prepare_bitmap(bitmap, w, h)) return 0;
     uint8_t *pixels = CGBitmapContextGetData(*bitmap);
     size_t stride = CGBitmapContextGetBytesPerRow(*bitmap);
-    for (size_t y = 0; y < h; y++) memset(pixels + y * stride, 0, w);
+#if TARGET_OS_OSX
+    uint8_t blank = 255;
+#else
+    uint8_t blank = 0;
+#endif
+    for (size_t y = 0; y < h; y++) memset(pixels + y * stride, blank, w);
 
     CGPoint pen = CGPointMake(phase - left, CGBitmapContextGetHeight(*bitmap) - top);
     CTFontDrawGlyphs(font, &glyph, &pen, 1, *bitmap);
     CGContextFlush(*bitmap);
+#if TARGET_OS_OSX
+    // ink is dark on white: coverage is its inverse
+    for (size_t y = 0; y < h; y++) {
+        for (size_t x = 0; x < w; x++) pixels[y * stride + x] = 255 - pixels[y * stride + x];
+    }
+#endif
 
     size_t x0 = w, x1 = 0, y0 = h, y1 = 0;
     for (size_t y = 0; y < h; y++) {
