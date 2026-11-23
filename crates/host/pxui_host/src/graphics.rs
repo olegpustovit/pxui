@@ -18,9 +18,10 @@ pub struct Graphics {
     blur_extent: (u32, u32),
     acquire_wall: std::time::Duration,
     /// Damage of frames that could not start (no drawable, an inactive app, an empty surface), in window points: the next
-    /// draw adds it. An explicit draw without a damage report requests the whole viewport.
-    held: DamageList,
+    /// draw adds it. Forced frames without a damage report redraw the whole viewport.
+    held: Option<DamageList>,
     full_damage: bool,
+    present_debt: bool,
 }
 
 impl Graphics {
@@ -51,8 +52,9 @@ impl Graphics {
             device,
             blur_extent: (0, 0),
             acquire_wall: std::time::Duration::ZERO,
-            held: DamageList::default(),
+            held: None,
             full_damage: std::env::var_os("PXUI_FULL_DAMAGE").as_deref() == Some(std::ffi::OsStr::new("1")),
+            present_debt: false,
         };
         let layer = window.token().map_err(|_| Error::Host("could not get surface token"))?;
         host.frames = Some(Frames::new(&host.device, layer).map_err(|_| Error::Host("could not open native frame context"))?);
@@ -115,7 +117,7 @@ impl Graphics {
         self.full_damage = full;
     }
 
-    /// Renders the UI into the surface, or returns false when no frame can be submitted.
+    /// Renders pending damage into the surface. Returns false if nothing needed presenting or no drawable was available.
     ///
     /// Native failures name the operation and renderer errors retain their library category.
     pub fn draw(
@@ -124,6 +126,27 @@ impl Graphics {
         ui: &Ui,
         trace: Option<&mut [u64; 4]>,
     ) -> Result<bool, Error> {
+        self.draw_inner(window, ui, trace, false)
+    }
+
+    /// Presents even when the UI is clean, for workloads that measure a fixed number of GPU frames.
+    pub fn draw_forced(
+        &mut self,
+        window: &mut Window,
+        ui: &Ui,
+        trace: Option<&mut [u64; 4]>,
+    ) -> Result<bool, Error> {
+        self.draw_inner(window, ui, trace, true)
+    }
+
+    fn draw_inner(
+        &mut self,
+        window: &mut Window,
+        ui: &Ui,
+        trace: Option<&mut [u64; 4]>,
+        force: bool,
+    ) -> Result<bool, Error> {
+        self.acquire_wall = std::time::Duration::ZERO;
         let count = || {
             if trace.is_some() {
                 mem_sys::local_alloc_count()
@@ -136,16 +159,19 @@ impl Graphics {
         let size = (extent.drawable.0 as u32, extent.drawable.1 as u32);
         let viewport = Rect::new(0.0, 0.0, extent.logical.0 as f32, extent.logical.1 as f32);
         let reported = ui.damage_list();
-        if self.full_damage || reported.full != 0 || reported.count == 0 || usize::from(reported.count) > reported.rects.len() {
-            self.held = DamageList::full(viewport);
-        } else {
-            for &[x, y, w, h] in &reported.rects[..usize::from(reported.count)] {
-                self.held.add(Rect::new(x, y, w, h), viewport);
+        let count_rects = usize::from(reported.count);
+        if reported.full != 0 || count_rects > reported.rects.len() || (self.full_damage && count_rects != 0) {
+            self.held = Some(DamageList::full(viewport));
+        } else if count_rects != 0 {
+            let held = self.held.get_or_insert_with(DamageList::default);
+            for &[x, y, w, h] in &reported.rects[..count_rects] {
+                held.add(Rect::new(x, y, w, h), viewport);
             }
         }
         #[cfg(target_os = "ios")]
         if !self.can_draw() { return Ok(false); }
         if size.0 == 0 || size.1 == 0 {
+            self.held = Some(DamageList::full(viewport));
             return Ok(false);
         }
         if self.blur_extent != size {
@@ -154,86 +180,106 @@ impl Graphics {
                 .expect("Live graphics renderer")
                 .resize(size.0, size.1)?;
             self.blur_extent = size;
+            self.held = Some(DamageList::full(viewport));
         }
-        let frames = self.frames.as_mut().expect("Live frame context");
-        let acquiring = std::time::Instant::now();
-        let began = frames.begin(extent.drawable.0 as u32, extent.drawable.1 as u32)
-            .map_err(|_| Error::Host("could not begin native frame"))?;
-        self.acquire_wall = acquiring.elapsed();
-        if !began {
+        if force && self.held.is_none() {
+            self.held = Some(DamageList::full(viewport));
+        }
+        if self.held.is_none() && !self.present_debt {
             return Ok(false);
         }
         let frames = self.frames.as_mut().expect("Live frame context");
-        let acquired = count();
-        let renderer = self.renderer.as_mut().expect("Live graphics renderer");
-        let commands = frames.commands();
-        let scale = window.scale() as f32;
-        let color = ui.theme().tokens.panel;
-        let mut pixels = [[0; 4]; 8];
-        let mut len = 0;
-        if !self.held.is_full() {
-            for r in self.held.rects() {
-                pixels[len] = damage_px([r.x, r.y, r.w, r.h], scale, size);
-                len += 1;
+        let acquiring = std::time::Instant::now();
+        let began = frames.begin(size.0, size.1);
+        self.acquire_wall = acquiring.elapsed();
+        match began {
+            Ok(true) => {}
+            Ok(false) => return Ok(false),
+            Err(_) => {
+                self.held = Some(DamageList::full(viewport));
+                return Err(Error::Host("could not begin native frame"));
             }
         }
-
+        let acquired = count();
+        let mut prepared = acquired;
         let mut render = || -> Result<_, Error> {
-            renderer.prepare(
-                &Commands {
-                    size: core::mem::size_of::<Commands>() as u32,
-                    mtl_command_buffer: commands,
-                    ..Commands::default()
-                },
-                frames.serial(),
-                frames.completed(),
-            )?;
-            let prepared = count();
-            let (encoder, partial) = frames.pass([color.r, color.g, color.b], &pixels[..len])
-                .map_err(|_| Error::Host("could not open native render pass"))?;
-            let mut pass = Pass {
-                size: core::mem::size_of::<Pass>() as u32,
-                mtl_command_buffer: commands,
-                mtl_render_encoder: encoder,
-                width_px: size.0,
-                height_px: size.1,
-                scale,
-                ..Pass::default()
-            };
-            // shortcut: use a full canvas for blur until partial draws can reconstruct its backdrop.
-            let mut redraw = false;
-            let result = renderer.draw_with_split(&pass, &mut |record| {
-                if partial != 0 {
-                    redraw = true;
-                    return Err(Error::Host("backdrop blur needs a full canvas"));
+            if let Some(held) = self.held {
+                let renderer = self.renderer.as_mut().expect("Live graphics renderer");
+                let commands = frames.commands();
+                let scale = window.scale() as f32;
+                let color = ui.theme().tokens.panel;
+                let mut pixels = [[0; 4]; 8];
+                let mut len = 0;
+                if !held.is_full() {
+                    for r in held.rects() {
+                        pixels[len] = damage_px([r.x, r.y, r.w, r.h], scale, size);
+                        len += 1;
+                    }
                 }
-                split_backdrop(frames, pass, record)
-            });
-            if redraw {
-                frames.end_pass().ok_or(Error::Host("could not end native render pass"))?;
-                pass.mtl_render_encoder = frames.pass([color.r, color.g, color.b], &[])
-                    .map_err(|_| Error::Host("could not open full native render pass"))?.0;
-                renderer.draw_with_split(&pass, &mut |record| split_backdrop(frames, pass, record))?;
-            } else {
-                result?;
-            }
-            for rect in pixels.iter().take(if redraw { 0 } else { partial }).skip(1) {
-                frames.scissor(rect);
-                renderer.draw(&pass)?;
+
+                renderer.prepare(
+                    &Commands {
+                        size: core::mem::size_of::<Commands>() as u32,
+                        mtl_command_buffer: commands,
+                        ..Commands::default()
+                    },
+                    frames.serial(),
+                    frames.completed(),
+                )?;
+                prepared = count();
+                let (encoder, partial) = frames.pass([color.r, color.g, color.b], &pixels[..len])
+                    .map_err(|_| Error::Host("could not open native render pass"))?;
+                let mut pass = Pass {
+                    size: core::mem::size_of::<Pass>() as u32,
+                    mtl_command_buffer: commands,
+                    mtl_render_encoder: encoder,
+                    width_px: size.0,
+                    height_px: size.1,
+                    scale,
+                    ..Pass::default()
+                };
+                // shortcut: use a full canvas for blur until partial draws can reconstruct its backdrop.
+                let mut redraw = false;
+                let result = renderer.draw_with_split(&pass, &mut |record| {
+                    if partial != 0 {
+                        redraw = true;
+                        return Err(Error::Host("backdrop blur needs a full canvas"));
+                    }
+                    split_backdrop(frames, pass, record)
+                });
+                if redraw {
+                    frames.end_pass().ok_or(Error::Host("could not end native render pass"))?;
+                    pass.mtl_render_encoder = frames.pass([color.r, color.g, color.b], &[])
+                        .map_err(|_| Error::Host("could not open full native render pass"))?.0;
+                    renderer.draw_with_split(&pass, &mut |record| split_backdrop(frames, pass, record))?;
+                } else {
+                    result?;
+                    for rect in pixels.iter().take(partial).skip(1) {
+                        frames.scissor(rect);
+                        renderer.draw(&pass)?;
+                    }
+                }
             }
             let drawn = count();
-            let submitted = frames.submit().map_err(|_| Error::Host("could not submit native frame"))?;
-            Ok((prepared, drawn, submitted))
+            self.acquire_wall += frames.acquire().map_err(|_| Error::Host("could not acquire native drawable"))?;
+            let presented = frames.submit().map_err(|_| Error::Host("could not submit native frame"))?;
+            Ok((drawn, presented))
         };
-        let (prepared, drawn) = match render() {
-            Ok((prepared, drawn, true)) => (prepared, drawn),
-            result => {
+        let (drawn, presented) = match render() {
+            Ok(result) => result,
+            Err(error) => {
                 frames.cancel();
-                self.held = DamageList::full(viewport);
-                return result.map(|_| false);
+                self.held = Some(DamageList::full(viewport));
+                return Err(error);
             }
         };
-        self.held = DamageList::default();
+        self.present_debt = !presented;
+        self.held = None;
+        // Suspending iOS may discard the command buffer while waiting for a drawable.
+        #[cfg(target_os = "ios")]
+        if !frames.can_draw() {
+            self.held = Some(DamageList::full(viewport));
+        }
         self.images.submitted(frames.serial());
         let completed = frames.completed();
         self.retire_images(completed)?;
@@ -246,12 +292,7 @@ impl Graphics {
                 submitted - drawn,
             ];
         }
-        Ok(true)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn full_damage_for_test(&mut self) {
-        self.held = DamageList::full(Rect::default());
+        Ok(presented)
     }
 
     /// Draws one frame like `draw` and returns what it presented: drawable-pixel width, height and
@@ -267,11 +308,11 @@ impl Graphics {
 
     pub(crate) fn capture_frame(&mut self, window: &mut Window, ui: &Ui, full: bool) -> Result<(u32, u32, Vec<u8>), Error> {
         if full {
-            self.held = DamageList::full(Rect::default());
+            self.held = Some(DamageList::full(Rect::default()));
         }
         let frames = self.frames.as_mut().expect("Live frame context");
         frames.capture(true).map_err(|_| Error::Host("could not start frame capture"))?;
-        let drawn = self.draw(window, ui, None);
+        let drawn = self.draw_inner(window, ui, None, true);
         let frames = self.frames.as_mut().expect("Live frame context");
         let stopped = frames.capture(false);
         let drawn = drawn?;
@@ -287,6 +328,11 @@ impl Graphics {
             pixel.swap(0, 2); // BGRA drawable to RGBA
         }
         Ok((width, height, pixels))
+    }
+
+    /// Whether encoded canvas content or held damage still needs to reach the surface.
+    pub fn needs_present(&self) -> bool {
+        self.present_debt || self.held.is_some()
     }
 
     /// Wall time the last `draw` spent acquiring its drawable and frame slot: display pacing,

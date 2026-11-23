@@ -21,6 +21,7 @@ unsafe extern "C" {
     fn rays_metal_frames_cancel(host: *mut c_void);
     fn rays_metal_frames_end_pass(host: *mut c_void) -> *mut c_void;
     fn rays_metal_frames_resume_pass(host: *mut c_void) -> *mut c_void;
+    fn rays_metal_frames_acquire(host: *mut c_void, wait_ns: *mut u64) -> i32;
     fn rays_metal_frames_submit(host: *mut c_void) -> i32;
     fn rays_metal_frames_capture(host: *mut c_void, on: i32) -> i32;
     fn rays_metal_frames_read(
@@ -109,7 +110,7 @@ impl Frames {
     /// Starts another render pass on this frame's canvas, loading pixels from the last pass.
     pub fn resume_pass(&mut self) -> Option<core::ptr::NonNull<c_void>> {
         core::ptr::NonNull::new(unsafe { rays_metal_frames_resume_pass(self.raw) })
-}
+    }
 
     /// Fills the next damage rect from `pass` and sets its scissor for another draw.
     pub fn scissor(&mut self, rect: &[u32; 4]) {
@@ -118,6 +119,15 @@ impl Frames {
     /// Discards an unsubmitted frame and requires a full redraw on the next pass.
     pub fn cancel(&mut self) {
         unsafe { rays_metal_frames_cancel(self.raw); }
+    }
+
+    /// Ends canvas encoding before waiting for a drawable. A missed drawable still permits a canvas commit.
+    pub fn acquire(&mut self) -> Result<std::time::Duration, String> {
+        let mut wait_ns = 0;
+        match unsafe { rays_metal_frames_acquire(self.raw, &mut wait_ns) } {
+            1 | 0 => Ok(std::time::Duration::from_nanos(wait_ns)),
+            _ => Err("Could not acquire Metal drawable".into()),
+        }
     }
     pub fn submit(&mut self) -> Result<bool, String> {
         match unsafe { rays_metal_frames_submit(self.raw) } {

@@ -4,6 +4,7 @@
 #include "frames.h"
 #include <new>
 #include <string.h>
+#include <time.h>
 #include <TargetConditionals.h>
 #if TARGET_OS_IOS
 #import <UIKit/UIKit.h>
@@ -31,6 +32,8 @@ struct PXUIMetalFrames {
     // Damage-limited frames draw into `canvas`, which keeps the last frame; `copy` puts it on the fresh drawable.
     id<MTLTexture> canvas;
     bool canvasValid;
+    uint32_t width;
+    uint32_t height;
     id<MTLRenderPipelineState> fill;
     id<MTLRenderPipelineState> copy;
     MTLRenderPassDescriptor *present;
@@ -127,10 +130,10 @@ int rays_metal_frames_begin(void *raw, uint32_t width, uint32_t height) {
         }
         const CGSize size = CGSizeMake(width, height);
         if (!CGSizeEqualToSize(frames->layer.drawableSize, size)) frames->layer.drawableSize = size;
-        frames->drawable = [frames->layer nextDrawable];
-        if (!frames->drawable) return 0;
         frames->commands = [frames->queue commandBuffer];
-        if (!frames->commands) { frames->drawable = nil; return -1; }
+        if (!frames->commands) return -1;
+        frames->width = width;
+        frames->height = height;
         frames->serial++;
         return 1;
     }
@@ -144,10 +147,10 @@ void *rays_metal_frames_pass(void *raw, double red, double green, double blue, c
     @autoreleasepool {
         PXUIMetalFrames *frames = static_cast<PXUIMetalFrames *>(raw);
         if (![NSThread isMainThread] || !frames->commands || frames->encoder) return NULL;
-        id<MTLTexture> target = frames->drawable.texture;
-        if (!frames->canvas || frames->canvas.width != target.width || frames->canvas.height != target.height) {
-            MTLTextureDescriptor *d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:target.pixelFormat
-                width:target.width height:target.height mipmapped:NO];
+        const NSUInteger w = frames->width, h = frames->height;
+        if (!frames->canvas || frames->canvas.width != w || frames->canvas.height != h) {
+            MTLTextureDescriptor *d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:frames->layer.pixelFormat
+                width:w height:h mipmapped:NO];
             d.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
             d.storageMode = MTLStorageModePrivate;
             frames->canvas = [frames->device newTextureWithDescriptor:d];
@@ -157,8 +160,8 @@ void *rays_metal_frames_pass(void *raw, double red, double green, double blue, c
         *partial = frames->canvasValid && count <= 8 ? count : 0;
         for (uint32_t i = 0; i < *partial; ++i) {
             const auto &r = rects[i];
-            if (!r[2] || !r[3] || (uint64_t)r[0] + r[2] > target.width || (uint64_t)r[1] + r[3] > target.height
-                || (r[2] == target.width && r[3] == target.height)) {
+            if (!r[2] || !r[3] || (uint64_t)r[0] + r[2] > w || (uint64_t)r[1] + r[3] > h
+                || (r[2] == w && r[3] == h)) {
                 *partial = 0;
             }
         }
@@ -214,6 +217,27 @@ void rays_metal_frames_cancel(void *raw) {
     frames->canvasValid = false;
 }
 
+int rays_metal_frames_acquire(void *raw, uint64_t *wait_ns) {
+    @autoreleasepool {
+        PXUIMetalFrames *frames = static_cast<PXUIMetalFrames *>(raw);
+        if (![NSThread isMainThread]) return -1;
+#if TARGET_OS_IOS
+        if (frames->failed) return -1;
+        if (!rays_metal_frames_can_draw(frames)) return 0;
+#endif
+        if (!frames->commands || !frames->canvasValid) return -1;
+        [frames->encoder endEncoding];
+        frames->encoder = nil;
+        const uint64_t started = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+        id<CAMetalDrawable> drawable = [frames->layer nextDrawable];
+        *wait_ns = clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - started;
+        if (frames->commands && drawable.texture.width == frames->width && drawable.texture.height == frames->height) {
+            frames->drawable = drawable;
+        }
+        return frames->drawable ? 1 : 0;
+    }
+}
+
 int rays_metal_frames_submit(void *raw) {
     @autoreleasepool {
         PXUIMetalFrames *frames = static_cast<PXUIMetalFrames *>(raw);
@@ -222,33 +246,35 @@ int rays_metal_frames_submit(void *raw) {
         if (frames->failed) return -1;
         if (!rays_metal_frames_can_draw(frames)) return 0;
 #endif
-        if (!frames->commands || !frames->encoder) return -1;
-        [frames->encoder endEncoding];
-        frames->encoder = nil;
-        frames->present.colorAttachments[0].texture = frames->drawable.texture;
-        id<MTLRenderCommandEncoder> present = [frames->commands renderCommandEncoderWithDescriptor:frames->present];
-        frames->present.colorAttachments[0].texture = nil;
-        if (!present) { frames->canvasValid = false; return -1; }
-        [present setRenderPipelineState:frames->copy];
-        [present setFragmentTexture:frames->canvas atIndex:0];
-        [present drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
-        [present endEncoding];
-        if (frames->capture) {
-            id<MTLTexture> texture = frames->drawable.texture;
-            const NSUInteger width = texture.width, height = texture.height, bytes = width * height * 4;
-            if (!frames->captureBuffer || frames->captureBuffer.length < bytes)
-                frames->captureBuffer = [frames->device newBufferWithLength:bytes options:MTLResourceStorageModeShared];
-            id<MTLBlitCommandEncoder> blit = [frames->commands blitCommandEncoder];
-            if (!frames->captureBuffer || !blit) return -1;
-            [blit copyFromTexture:texture sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0, 0, 0)
-                       sourceSize:MTLSizeMake(width, height, 1) toBuffer:frames->captureBuffer destinationOffset:0
-            destinationBytesPerRow:width * 4 destinationBytesPerImage:bytes];
-            [blit endEncoding];
-            frames->captured = frames->commands;
-            frames->captureWidth = (uint32_t)width;
-            frames->captureHeight = (uint32_t)height;
+        if (!frames->commands || frames->encoder || !frames->canvasValid) return -1;
+        const bool displayed = frames->drawable != nil;
+        if (displayed) {
+            frames->present.colorAttachments[0].texture = frames->drawable.texture;
+            id<MTLRenderCommandEncoder> present = [frames->commands renderCommandEncoderWithDescriptor:frames->present];
+            frames->present.colorAttachments[0].texture = nil;
+            if (!present) { frames->canvasValid = false; return -1; }
+            [present setRenderPipelineState:frames->copy];
+            [present setFragmentTexture:frames->canvas atIndex:0];
+            [present drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+            [present endEncoding];
+            if (frames->capture) {
+                id<MTLTexture> texture = frames->drawable.texture;
+                const NSUInteger width = texture.width, height = texture.height, bytes = width * height * 4;
+                if (!frames->captureBuffer || frames->captureBuffer.length < bytes)
+                    frames->captureBuffer = [frames->device newBufferWithLength:bytes options:MTLResourceStorageModeShared];
+                if (!frames->captureBuffer) return -1;
+                id<MTLBlitCommandEncoder> blit = [frames->commands blitCommandEncoder];
+                if (!blit) return -1;
+                [blit copyFromTexture:texture sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0, 0, 0)
+                           sourceSize:MTLSizeMake(width, height, 1) toBuffer:frames->captureBuffer destinationOffset:0
+                destinationBytesPerRow:width * 4 destinationBytesPerImage:bytes];
+                [blit endEncoding];
+                frames->captured = frames->commands;
+                frames->captureWidth = (uint32_t)width;
+                frames->captureHeight = (uint32_t)height;
+            }
+            [frames->commands presentDrawable:frames->drawable];
         }
-        [frames->commands presentDrawable:frames->drawable];
         [frames->commands commit];
         const NSUInteger slot = (frames->serial - 1) % 3;
         frames->pending[slot] = frames->commands;
@@ -256,7 +282,7 @@ int rays_metal_frames_submit(void *raw) {
         frames->commands = nil;
         frames->drawable = nil;
         frames->pass.colorAttachments[0].texture = nil;
-        return 1;
+        return displayed ? 1 : 0;
     }
 }
 

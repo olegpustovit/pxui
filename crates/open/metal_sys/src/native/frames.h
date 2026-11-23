@@ -15,6 +15,7 @@ void rays_metal_frames_scissor(void *host, const uint32_t rect[4]);
 void rays_metal_frames_cancel(void *host);
 void *rays_metal_frames_end_pass(void *host);
 void *rays_metal_frames_resume_pass(void *host);
+int rays_metal_frames_acquire(void *host, uint64_t *wait_ns);
 int rays_metal_frames_submit(void *host);
 int rays_metal_frames_capture(void *host, int on);
 int rays_metal_frames_read(void *host, uint8_t *out, size_t length, uint32_t *width, uint32_t *height);
