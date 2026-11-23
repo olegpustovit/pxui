@@ -999,17 +999,58 @@ pub struct Layer {
     pub images: Vec<Image>,
     pub dirty: Vec<(u32, u32)>,
     pub bounds: Vec<[f32; 4]>,
+    pub runs: Vec<CullRun>,
     pieces: Vec<Piece>,
     live: bool,
 }
 
 impl Layer {
     fn new(key: i64, id: u32) -> Layer {
-        Layer { key, id, role: LayerRole::Base, anchor: Rect::default(), instances: Vec::with_capacity(256), breaks: Vec::new(), images: Vec::new(), dirty: Vec::new(), bounds: Vec::new(), pieces: Vec::new(), live: false }
+        Layer { key, id, role: LayerRole::Base, anchor: Rect::default(), instances: Vec::with_capacity(256), breaks: Vec::new(), images: Vec::new(), dirty: Vec::new(), bounds: Vec::new(), runs: Vec::new(), pieces: Vec::new(), live: false }
     }
 }
 
+/// A contiguous paint piece sharing a renderer view. Bounds are in that view's points.
+#[derive(Clone, Copy)]
+pub struct CullRun {
+    pub from: u32,
+    pub to: u32,
+    pub view: u16,
+    pub bounds: [f32; 4],
+}
+
 pub const EMPTY_BOUNDS: [f32; 4] = [f32::INFINITY, f32::INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY];
+
+fn union_bounds(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
+    [a[0].min(b[0]), a[1].min(b[1]), a[2].max(b[2]), a[3].max(b[3])]
+}
+
+fn fresh_runs(out: &mut Vec<CullRun>, layer: &Layer, from: u32, to: u32) {
+    let mut run = None::<CullRun>;
+    for at in from..to {
+        let bounds = layer.bounds[at as usize];
+        if bounds == EMPTY_BOUNDS { continue; }
+        let view = layer.instances[at as usize].view;
+        if let Some(current) = &mut run && current.view == view {
+            current.to = at + 1;
+            current.bounds = union_bounds(current.bounds, bounds);
+        } else if let Some(previous) = run.replace(CullRun { from: at, to: at + 1, view, bounds }) {
+            out.push(previous);
+        }
+    }
+    out.extend(run);
+}
+
+fn kept_runs(out: &mut Vec<CullRun>, old: &[CullRun], from: u32, to: u32, at: u32) {
+    let first = old.partition_point(|run| run.to <= from);
+    for run in old[first..].iter().take_while(|run| run.from < to) {
+        out.push(CullRun {
+            from: at + (run.from.max(from) - from),
+            to: at + (run.to.min(to) - from),
+            ..*run
+        });
+    }
+}
 
 /// What a paint layer holds: the window's content, or a floating root the engine raised over it. Every popup, modal, tooltip and drag
 /// root is a layer of its own, so a host that can (a compositor) presents it in a child surface that may overflow the window; one
@@ -1405,6 +1446,7 @@ pub struct Ui {
     painted_nodes: Vec<(usize, usize)>,
     compact: Vec<Instance>,
     compact_bounds: Vec<[f32; 4]>,
+    cull_runs: Vec<CullRun>,
     /// the kept runs a compaction moves (from, to, where to), applied together
     moves: Vec<(u32, u32, u32)>,
     temp_breaks: Vec<Break>,
@@ -1713,6 +1755,7 @@ impl Ui {
             painted_nodes: Vec::new(),
             compact: Vec::new(),
             compact_bounds: Vec::new(),
+            cull_runs: Vec::new(),
             moves: Vec::new(),
             temp_breaks: Vec::new(),
             temp_images: Vec::new(),
@@ -7296,6 +7339,23 @@ impl Ui {
                 self.frame_requested = true;
             }
         }
+        let node_end = (start + fresh.len()) as u32;
+        if !fresh.is_empty() || target.instances.len() != old_len {
+            let at = target.runs.partition_point(|run| run.to <= start as u32);
+            if target.instances.len() == old_len
+                && target.runs.get(at).is_some_and(|run| run.from <= start as u32 && node_end <= run.to && run.view == paint.view)
+            {
+                let run = &mut target.runs[at];
+                for &bounds in &target.bounds[start..node_end as usize] {
+                    run.bounds = union_bounds(run.bounds, bounds);
+                }
+            } else {
+                let mut runs = std::mem::take(&mut target.runs);
+                runs.clear();
+                fresh_runs(&mut runs, &target, 0, target.instances.len() as u32);
+                target.runs = runs;
+            }
+        }
         self.temp_breaks = old_breaks;
         self.draw[layer] = target;
         self.views[owner as usize].patched = true;
@@ -9450,6 +9510,7 @@ impl Ui {
                     d.instances = old;
                     d.instances.clear();
                     d.bounds.clear();
+                    d.runs.clear();
                     d.key = key;
                     d.breaks.clear();
                     d.images.clear();
@@ -9477,6 +9538,7 @@ impl Ui {
             self.draw[j].instances = old;
             self.draw[j].instances.clear();
             self.draw[j].bounds.clear();
+            self.draw[j].runs.clear();
             self.draw[j].key = i64::MIN;
         }
         self.draw_len = len;
@@ -9518,6 +9580,9 @@ impl Ui {
             self.moves.reserve(self.views.len().saturating_sub(self.moves.len()));
             d.dirty.reserve(s.pieces.len().saturating_sub(d.dirty.len()));
         }
+        let mut runs = std::mem::take(&mut self.cull_runs);
+        runs.clear();
+        runs.reserve(d.runs.len().max(s.pieces.len()).max(self.views.len() * 2));
         if self.full_damage && kept == 0 && s.pieces.iter().all(|p| p.view == NO_VIEW) {
             for p in &mut s.pieces {
                 p.at = p.a;
@@ -9532,6 +9597,8 @@ impl Ui {
                 d.dirty.clear();
                 add_range(&mut d.dirty, 0, n);
             }
+            for p in &s.pieces { fresh_runs(&mut runs, &d, p.a, p.b); }
+            self.finish_cull_runs(&mut d, runs);
             changed |= self.rebuild_breaks(s, &mut d);
             self.draw[at] = d;
             return changed;
@@ -9611,11 +9678,13 @@ impl Ui {
                             }
                         }
                     }
+                    fresh_runs(&mut runs, &d, at, end as u32);
                     w = end as u32;
                 } else {
                     let (a, b) = self.views[p.view as usize].run;
                     if a != b {
                         changed |= self.clear_piece_gap(&mut d, w, a);
+                        kept_runs(&mut runs, &d.runs, a, b, a);
                         w = b;
                     }
                 }
@@ -9634,11 +9703,18 @@ impl Ui {
             d.dirty.retain_mut(|r| { r.1 = r.1.min(w); r.0 < r.1 });
         } else {
             changed = true;
-            self.compact_layer(s, &mut d, old_len);
+            self.compact_layer(s, &mut d, old_len, &mut runs);
         }
+        self.finish_cull_runs(&mut d, runs);
         changed |= self.rebuild_breaks(s, &mut d);
         self.draw[at] = d;
         changed
+    }
+
+    fn finish_cull_runs(&mut self, layer: &mut Layer, mut runs: Vec<CullRun>) {
+        std::mem::swap(&mut layer.runs, &mut runs);
+        runs.reserve(layer.runs.capacity().saturating_sub(runs.len()));
+        self.cull_runs = runs;
     }
 
     fn clear_piece_gap(&mut self, layer: &mut Layer, start: u32, end: u32) -> bool {
@@ -9664,7 +9740,7 @@ impl Ui {
         changed
     }
 
-    fn compact_layer(&mut self, s: &mut Layer, d: &mut Layer, old_len: usize) {
+    fn compact_layer(&mut self, s: &mut Layer, d: &mut Layer, old_len: usize, runs: &mut Vec<CullRun>) {
         self.compactions += 1;
         let mut out = std::mem::take(&mut self.compact);
         let mut bounds = std::mem::take(&mut self.compact_bounds);
@@ -9697,16 +9773,27 @@ impl Ui {
             s.pieces[k].at = to;
             self.moves.push((a, b, to));
         }
+        // Fresh pieces and copied runs must be appended in their final paint order.
+        std::mem::swap(&mut d.instances, &mut out);
+        std::mem::swap(&mut d.bounds, &mut bounds);
+        let mut kept = self.moves.iter();
+        for p in &s.pieces {
+            if p.view == NO_VIEW {
+                fresh_runs(runs, d, p.at, p.at + p.b - p.a);
+            } else if self.views[p.view as usize].run.0 != self.views[p.view as usize].run.1 {
+                if let Some(&(a, b, to)) = kept.next() { kept_runs(runs, &d.runs, a, b, to); }
+            }
+        }
         self.moves.sort_unstable_by_key(|m| m.0);
         self.move_runs(d.key);
         if self.full_damage {
             // Placement may have moved any kept run. One upload covers the new layer.
             d.dirty.clear();
-            add_range(&mut d.dirty, 0, out.len() as u32);
+            add_range(&mut d.dirty, 0, d.instances.len() as u32);
         } else {
             let mut dirty_start = None;
-            for i in 0..out.len().max(old_len) {
-                let (old, new) = (d.instances.get(i), out.get(i));
+            for i in 0..d.instances.len().max(old_len) {
+                let (old, new) = (out.get(i), d.instances.get(i));
                 if old != new {
                     match (old, new) {
                         (Some(old), Some(new)) => self.damage_change(old, new),
@@ -9719,10 +9806,8 @@ impl Ui {
                     add_range(&mut d.dirty, start, i as u32);
                 }
             }
-            if let Some(start) = dirty_start { add_range(&mut d.dirty, start, out.len() as u32); }
+            if let Some(start) = dirty_start { add_range(&mut d.dirty, start, d.instances.len() as u32); }
         }
-        std::mem::swap(&mut d.instances, &mut out);
-        std::mem::swap(&mut d.bounds, &mut bounds);
         self.compact = out;
         self.compact_bounds = bounds;
         // ranges of skipped draws may reach past a layer that compaction made shorter: the painter refuses them
