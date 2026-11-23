@@ -55,7 +55,7 @@ fn draw(
         ok(be::set_scissor(&encoder, clip));
     }
     let opened = pass(&encoder, handles);
-    let drawn = renderer.draw_with_split(&opened, &mut |record| {
+    let mut split = |record: pxui::Recorder| {
         assert!(clip.is_none(), "blur redraws the complete backdrop");
         ok(be::invalidate_state(&encoder));
         ok(be::end_render(&encoder));
@@ -68,7 +68,11 @@ fn draw(
         ))?;
         encoder = begin(Load::Load);
         Ok(pass(&encoder, handles))
-    });
+    };
+    let drawn = match clip {
+        Some(r) => renderer.draw_damage(&opened, [r.x as u32, r.y as u32, r.width as u32, r.height as u32], &mut split),
+        None => renderer.draw_with_split(&opened, &mut split),
+    };
     assert!(
         drawn.is_ok(),
         "native render oracle frame {frame}: {drawn:?}"
@@ -99,6 +103,10 @@ pub(super) fn native() {
         )
     };
     let mut target = create(0);
+    let extent = Pass { width_px: width(0), height_px: HEIGHT, ..Pass::default() };
+    for rect in [[0, 0, 0, HEIGHT], [u32::MAX, 0, 2, 1], [0, HEIGHT, 1, 1]] {
+        assert!(matches!(renderer.draw_damage(&extent, rect, &mut |_| unreachable!()), Err(pxui::Error::InvalidInput)));
+    }
     renderer.resize(width(0), HEIGHT).unwrap();
     let theme = ThemeHandle::parse("tokens.panel = #284557").unwrap();
     let mut saw_partial = false;

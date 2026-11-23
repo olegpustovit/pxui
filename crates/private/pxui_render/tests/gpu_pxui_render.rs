@@ -7,7 +7,8 @@ use ogpu_core::error::{self, Error};
 use ogpu_core::pipeline::{ColorFormat, DepthFormat};
 use ogpu_core::render_pass::{Load, Store};
 use ogpu_core::types::{Extent, Origin, TextureDescriptor, TextureFormat, TextureUsage};
-use pxui_core::draw::{fit, nine_slice, Fit};
+use pxui_core::draw::{borders, fit, nine_slice, Fit};
+use pxui_core::ui_core::{cull_bounds, CullRun, Layer};
 use pxui_render::{flags, ramp, AtlasKind, Blurred, Break, Instance, Painter, View};
 
 #[path = "../../../../tools/t/png.rs"]
@@ -167,6 +168,9 @@ fn main() {
     let cases: &[(&str, fn())] = &[
         ("partial_equals_full_mock", partial_equals_full::mock),
         ("gpu_partial_equals_full", partial_equals_full::native),
+        ("cull_runs_select_in_paint_order", runs_select_in_paint_order_with_transforms_merging_and_layer_fallback),
+        ("gpu_instance_bounds_contain_coverage", gpu_instance_bounds_contain_coverage),
+        ("gpu_cull_preserves_texture_breaks", gpu_cull_preserves_texture_breaks),
         ("gpu_scene_golden_and_spot_checks", gpu_scene_golden_and_spot_checks),
         ("gpu_second_atlas_pages_sample_in_one_draw", gpu_second_atlas_pages_sample_in_one_draw),
         ("shared_second_atlas_activates_after_prepare_without_replacing_first_page", shared_second_atlas_activates_after_prepare_without_replacing_first_page),
@@ -310,6 +314,127 @@ fn gpu_one_draw_per_layer() {
     finish(device, queue);
 }
 
+fn runs_select_in_paint_order_with_transforms_merging_and_layer_fallback() {
+    let near = [10.0, 10.0, 12.0, 12.0];
+    let far = [90.0, 90.0, 95.0, 95.0];
+    let mut base = [far; 128];
+    for index in [1, 17, 34, 100] {
+        base[index] = near;
+    }
+    let base_runs = [CullRun { from: 0, to: 128, view: 0, bounds: [10.0, 10.0, 95.0, 95.0] }];
+    let popup = [far; 24];
+    let popup_runs = [CullRun { from: 4, to: 24, view: 1, bounds: far }];
+    let mut layers = [Layer::default(), Layer::default()];
+    layers[0].runs.extend(base_runs);
+    layers[0].bounds.extend(base);
+    layers[1].runs.extend(popup_runs);
+    layers[1].bounds.extend(popup);
+    let scissor = [10, 10, 2, 2];
+    let views = [
+        View::IDENTITY,
+        View { offset: [-78.0, -78.0], scale: 0.5, transform: [0.0, -1.0, 1.0, 0.0], pivot: [12.0, 12.0], ..View::IDENTITY },
+    ];
+    let mut out = Vec::new();
+    pxui_render::cull::ranges(scissor, &layers, &views, 1.0, &mut out);
+    assert_eq!(out, [(1, 18), (34, 35), (100, 101), (128, 152)]);
+    let clipped = [View::IDENTITY, View { clip: [80.0, 80.0, 100.0, 100.0], ..views[1] }];
+    pxui_render::cull::ranges(scissor, &layers, &clipped, 1.0, &mut out);
+    assert_eq!(out, [(1, 18), (34, 35), (100, 101)]);
+}
+
+fn gpu_instance_bounds_contain_coverage() {
+    let Some(device) = open() else { return };
+    let queue = ok(be::create_queue(&device));
+    let mut painter = painter(&device);
+    let (_, checker) = atlas_bytes();
+    // Put coverage at the shelf edges to exercise all four neighbouring taps.
+    upload_atlases(&mut painter, &[255; 64], &checker);
+    let rect = [32.2, 28.3, 40.2, 36.3];
+    let uv = [16.0 / 64.0, 16.0 / 64.0, 24.0 / 64.0, 24.0 / 64.0];
+    let cases = [
+        Instance::rect(rect, RED).radii([2.3; 4]).border(1.7, BLUE),
+        Instance::mask(rect, uv, INK),
+        Instance::mask(rect, uv, [255; 4]).light(Instance::light_extra(24.0, 1.0)),
+        Instance::image(rect, [0.0, 0.0, 4.0 / 256.0, 4.0 / 32.0], [255; 4]),
+        Instance::shadow(rect, [3.0; 4], [255; 4], [2.3, -1.5], 4.0, 1.4, false),
+        Instance::shadow(rect, [3.0; 4], [255; 4], [2.3, -1.5], 1.5, 1.4, true),
+        Instance::line([32.2, 48.1], [57.8, 61.3], 2.3, INK).round_caps(),
+        Instance::arc([32.2, 48.1], 8.1, 0.1, 4.3, 2.3, RED).round_caps(),
+        Instance::curve([31.5, 55.3], [46.4, 25.6], [52.4, 56.2], 2.3, GREEN),
+        Instance::grid(rect, [32.0, 28.0], 2.0, 1.0, BLUE),
+        borders(rect, [2.0; 4], [1.5, 2.1, 3.0, 1.7], [RED, BLUE, GREEN, INK]).0[0],
+        Instance::triangle([32.2, 28.4], [40.7, 28.4], [37.4, 40.8], GREEN),
+    ];
+    for scale in [1, 2] {
+        let size = [96 * scale, 80 * scale];
+        let target = texture(&device, size[0], size[1], &[TextureUsage::RenderAttachment, TextureUsage::TextureCopySrc]);
+        for instance in cases {
+            painter.begin_frame();
+            let commands = ok(be::begin_commands(&queue));
+            let encoder = ok(be::render_encoder(&commands, &RenderTarget {
+                colors: vec![ColorAttachment { texture: target.clone(), resolve: None, load: Load::Clear, store: Store::Store, clear: (0.0, 0.0, 0.0, 0.0) }],
+                depth: None,
+            }));
+            ok(painter.draw(&encoder, size, scale as f32, &[instance], &[]));
+            ok(be::end_render(&encoder));
+            ok(be::complete_through(&queue, ok(be::commit(&commands)).epoch));
+            let pixels = ok(be::read_texture(&target, i64::from(size[0]) * 4));
+            let bounds = cull_bounds(&instance).map(|n| n * scale as f32);
+            let mut seen = false;
+            for (at, rgba) in pixels.chunks_exact(4).enumerate() {
+                if rgba == [0; 4] { continue; }
+                seen = true;
+                let x = (at % size[0] as usize) as f32 + 0.5;
+                let y = (at / size[0] as usize) as f32 + 0.5;
+                assert!(x >= bounds[0] - 1.0 && x <= bounds[2] + 1.0 && y >= bounds[1] - 1.0 && y <= bounds[3] + 1.0,
+                    "kind {} at {scale}x: pixel ({x}, {y}) exceeds {bounds:?}", instance.kind);
+            }
+            assert!(seen, "kind {} drew no coverage at {scale}x", instance.kind);
+        }
+        ok(be::destroy_texture(&target));
+    }
+    drop(painter);
+    finish(device, queue);
+}
+
+fn gpu_cull_preserves_texture_breaks() {
+    let Some(device) = open() else { return };
+    let queue = ok(be::create_queue(&device));
+    let mut painter = painter(&device);
+    let (_, checker) = atlas_bytes();
+    upload_atlases(&mut painter, &[255; 64], &checker);
+    let texture = texture(&device, 1, 1, &[TextureUsage::TextureBinding, TextureUsage::TextureCopyDst]);
+    ok(be::write_texture(&texture, None, Origin { x: 0, y: 0, z: 0 }, Extent { width: 1, height: 1, depth: 1 }, 4, &BLUE));
+    let mut instances = [Instance::rect([100.0, 60.0, 110.0, 70.0], GREEN); 128];
+    instances[1] = Instance::rect([10.0, 10.0, 20.0, 20.0], RED);
+    instances[4] = Instance::image([12.0, 12.0, 19.0, 19.0], [0.0, 0.0, 1.0, 1.0], [200; 4]);
+    instances[80] = Instance::rect([15.0, 15.0, 18.0, 18.0], GREEN);
+    let bounds = instances.map(|i| cull_bounds(&i));
+    let runs = [CullRun { from: 0, to: 128, view: 0, bounds: [10.0, 10.0, 110.0, 70.0] }];
+    let mut layer = Layer::default();
+    layer.runs.extend(runs);
+    layer.bounds.extend(bounds);
+    let input = ([10 * SCALE; 4], std::slice::from_ref(&layer));
+    let breaks = [Break { at_instance: 3, texture: Some(texture.clone()) }, Break { at_instance: 5, texture: None }];
+    let target = target(&device);
+    let size = [W * SCALE, H * SCALE];
+    let draw = |painter: &mut Painter, clip| {
+        painter.begin_frame();
+        let before = painter.draw_calls();
+        pass(&queue, &target, &mut |encoder| {
+            ok(be::set_scissor(encoder, ogpu_core::render_pass::Rect { x: i64::from(10 * SCALE), y: i64::from(10 * SCALE), width: i64::from(10 * SCALE), height: i64::from(10 * SCALE) }));
+            ok(painter.draw_retained_split(encoder, size, SCALE as f32, &[(0, &instances, &[])], &breaks, &[], clip, &mut |_, _| Ok(None)));
+        });
+        assert_eq!(painter.draw_calls() - before, 3);
+        ok(be::read_texture(&target, i64::from(size[0]) * 4))
+    };
+    assert_eq!(draw(&mut painter, None), draw(&mut painter, Some(input)));
+    ok(be::destroy_texture(&target));
+    ok(be::destroy_texture(&texture));
+    drop(painter);
+    finish(device, queue);
+}
+
 fn gpu_warm_frame_allocates_nothing() {
     let Some(device) = open() else { return };
     let queue = ok(be::create_queue(&device));
@@ -318,6 +443,14 @@ fn gpu_warm_frame_allocates_nothing() {
     let (glyph, checker) = atlas_bytes();
     let target = target(&device);
     let instances = scene();
+    let bounds: Vec<_> = instances.iter().map(cull_bounds).collect();
+    let runs: Vec<_> = instances.iter().enumerate().map(|(at, instance)| CullRun {
+        from: at as u32, to: at as u32 + 1, view: instance.view, bounds: bounds[at],
+    }).collect();
+    let mut layer = Layer::default();
+    layer.runs = runs;
+    layer.bounds = bounds;
+    let input = ([0, 0, 32, 32], std::slice::from_ref(&layer));
     let mut allocations = u64::MAX;
     for frame in 0..4 {
         painter.begin_frame();
@@ -326,9 +459,12 @@ fn gpu_warm_frame_allocates_nothing() {
             colors: vec![ColorAttachment { texture: target.clone(), resolve: None, load: Load::Clear, store: Store::Store, clear: (0.0, 0.0, 0.0, 1.0) }],
             depth: None,
         }));
+        ok(be::set_scissor(&encoder, ogpu_core::render_pass::Rect { x: 0, y: 0, width: 32, height: 32 }));
         mem_sys::local_reset();
         upload_atlases(&mut painter, &glyph, &checker);
         ok(painter.draw(&encoder, [W * SCALE, H * SCALE], SCALE as f32, &instances, &[]));
+        ok(painter.draw_retained_split(&encoder, [W * SCALE, H * SCALE], SCALE as f32,
+            &[(0, &instances, &[])], &[], &[], Some(input), &mut |_, _| Ok(None)));
         if frame == 3 { allocations = mem_sys::local_alloc_count(); }
         ok(be::end_render(&encoder));
         ok(be::complete_through(&queue, ok(be::commit(&commands)).epoch));

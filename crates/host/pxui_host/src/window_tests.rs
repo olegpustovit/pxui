@@ -255,7 +255,7 @@ fn framework_host_damage_redraws_only_the_change_and_keeps_the_rest() {
         assert_eq!(ui.damage_list().count, 2);
         let calls = graphics.draw_calls();
         let partial = read(&mut graphics, &mut window, &ui);
-        assert_eq!(graphics.draw_calls() - calls, 2);
+        assert_eq!(graphics.draw_calls() - calls, if right.is_some() { 2 } else { 1 });
         assert_eq!(partial, fresh.screenshot(&mut window, &full_ui).unwrap().2, "seed {seed}");
     }
     // Build, query damage, encode two scissors and submit with both allocation counters on.
