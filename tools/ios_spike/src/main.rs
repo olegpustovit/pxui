@@ -78,6 +78,7 @@ mod ios {
                 system: pxui_sdl::PreferencesSnapshot {
                     appearance: u32::MAX,
                     reduced_motion: u32::MAX,
+                    ..pxui_sdl::PreferencesSnapshot::default()
                 },
                 graphics,
                 gallery: pxui_gallery::Gallery::new(),
@@ -354,8 +355,7 @@ mod ios {
                         let mut frame = pxui::FrameIn::new(extent.logical.0 as f32, extent.logical.1 as f32).scale(window.scale() as f32).time(window.time()).environment(self.platform.environment()).keyboard(self.platform.keyboard());
                         frame.wire.appearance = self.system.appearance;
                         frame.wire.reduced_motion = self.system.reduced_motion;
-                        frame.events = &wire[..];
-                        frame
+                        frame.events(&wire[..])
                     },
                     &mut |ui| {
                         use pxui::ui::{Edges, Node, Size};
