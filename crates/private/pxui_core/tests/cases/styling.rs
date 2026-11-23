@@ -352,6 +352,31 @@ pub fn styling_animate_spring() {
     ui.destroy();
 }
 
+/// The first paint patch may occur after the UI has settled and become allocation-free.
+pub fn styling_first_transition_patch_allocates_nothing() {
+    let mut ui = new_ui(None);
+    let node = Cell::new(None);
+    let mut build = |ui: &mut Ui| {
+        ui.view("v", 1, Size::Px(200.0), Size::Px(100.0), &mut |ui| {
+            node.set(Some(ui.node("chip".into(), Node::DEFAULT.w_px(20.0).h_px(20.0)
+                .look(Look::NONE.fill(Rgba::rgb(200, 40, 40))))));
+        });
+    };
+    for tick in 0..4 {
+        ui.frame(&at(f64::from(tick) / 10.0, vec![]), &mut build);
+        ui.drawn(0);
+    }
+    let curve = Curve::Bezier { duration: 0.2, points: [0.0, 0.0, 1.0, 1.0] };
+    assert!(ui.animate(&node.get().unwrap(), Target::Offset(10.0, 0.0), curve));
+    let settled = at(0.6, vec![]);
+    mem_sys::local_reset();
+    ui.frame(&settled, &mut build);
+    assert_eq!(mem_sys::local_alloc_count(), 0);
+    assert_eq!(ui.transitions(), 0);
+    assert!(ui.output().draw[0].instances.iter().any(|i| i.color[0] == 200 && i.rect[0] == 10.0));
+    ui.destroy();
+}
+
 /// Shared and interleaved curves keep each tween's exact progress as time advances.
 pub fn styling_interleaved_curves() {
     let mut ui = new_ui(None);
@@ -789,6 +814,7 @@ pub const CASES: &[(&str, fn())] = &[
     ("styling_theme_swap_transition", styling_theme_swap_transition),
     ("styling_theme_swap_uses_the_look_at_the_swap", styling_theme_swap_uses_the_look_at_the_swap),
     ("styling_animate_spring", styling_animate_spring),
+    ("styling_first_transition_patch_allocates_nothing", styling_first_transition_patch_allocates_nothing),
     ("styling_colour_token_looks", styling_colour_token_looks),
     ("styling_animate_keys", styling_animate_keys),
     ("styling_nested_view_transform", styling_nested_view_transform),
