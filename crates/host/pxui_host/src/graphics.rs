@@ -21,14 +21,10 @@ pub struct Graphics {
     /// draw adds it. Forced frames without a damage report redraw the whole viewport.
     held: Option<DamageList>,
     full_damage: bool,
-    force_full_present: bool,
     no_cull: bool,
     #[cfg(target_os = "macos")]
     presentation: Option<u64>,
     present_debt: bool,
-    present_damage: [DamageList; 4],
-    #[cfg(test)]
-    partial_present: bool,
 }
 
 impl Graphics {
@@ -38,30 +34,9 @@ impl Graphics {
     }
     /// Creates a device, queue, frame context and renderer for this surface on the main thread.
     ///
-    /// Set `PXUI_VERIFY_PRESENT=N` to try damage-limited presentation and compare every Nth drawable.
-    /// Set `PXUI_FULL_PRESENT=1` to force a full redraw or `PXUI_FULL_PRESENT=0` to opt in without verification.
-    /// With partial presentation enabled, `PXUI_PRESENT_STRATEGY=A` selects the retained canvas for comparison.
-    /// `PXUI_PRESENT_STRATEGY=B` selects direct rendering even when forcing full redraws.
     /// A native startup failure returns `Error::Host` with the operation that failed.
     /// Renderer creation can return `Error::Gpu`.
     pub fn open(window: &mut Window, ui: &Ui) -> Result<Self, Error> {
-        let verify_present = std::env::var("PXUI_VERIFY_PRESENT")
-            .ok()
-            .and_then(|value| value.parse().ok())
-            .unwrap_or(0);
-        let full_present = match std::env::var("PXUI_FULL_PRESENT").as_deref() {
-            Ok("1") => true,
-            Ok("0") => false,
-            _ => verify_present == 0,
-        };
-        let strategy = std::env::var("PXUI_PRESENT_STRATEGY");
-        let direct = strategy.as_deref() == Ok("B") || (!full_present && strategy.as_deref() != Ok("A"));
-        let mut host = Self::open_present(window, ui, full_present, verify_present, direct)?;
-        host.force_full_present = std::env::var("PXUI_FULL_PRESENT").as_deref() == Ok("1");
-        Ok(host)
-    }
-
-    pub(crate) fn open_present(window: &mut Window, ui: &Ui, full_present: bool, verify_present: u64, direct: bool) -> Result<Self, Error> {
         ogpu_core::impl_::select(ogpu_metal::impl_::implementation());
         let driver = ogpu_core::impl_::create_driver().map_err(|_| Error::Host("could not create graphics driver"))?;
         let device = be::create_device(driver).map_err(|_| Error::Host("could not create graphics device"))?;
@@ -82,17 +57,13 @@ impl Graphics {
             acquire_wall: std::time::Duration::ZERO,
             held: None,
             full_damage: std::env::var_os("PXUI_FULL_DAMAGE").as_deref() == Some(std::ffi::OsStr::new("1")),
-            force_full_present: false,
             no_cull: std::env::var_os("PXUI_NO_CULL").as_deref() == Some(std::ffi::OsStr::new("1")),
             present_debt: false,
-            present_damage: [DamageList::default(); 4],
-            #[cfg(test)]
-            partial_present: false,
             #[cfg(target_os = "macos")]
             presentation: None,
         };
         let layer = window.token().map_err(|_| Error::Host("could not get surface token"))?;
-        host.frames = Some(Frames::new(&host.device, layer, full_present, verify_present, direct).map_err(|_| Error::Host("could not open native frame context"))?);
+        host.frames = Some(Frames::new(&host.device, layer).map_err(|_| Error::Host("could not open native frame context"))?);
         let native = be::native_leased(&host.device).map_err(|_| Error::Host("could not lease graphics device"))?;
         let renderer = Renderer::new_with_target_record(
             ui,
@@ -156,40 +127,6 @@ impl Graphics {
     /// Draw all geometry under each scissor. `PXUI_NO_CULL=1` also disables culling.
     pub fn set_no_cull(&mut self, no_cull: bool) {
         self.no_cull = no_cull;
-    }
-
-
-    /// Enables full drawable redraws, or restores damage-limited presentation.
-    pub fn set_full_present(&mut self, full: bool) -> Result<(), Error> {
-        let frames = self.frames.as_mut().expect("Live frame context");
-        if frames.set_full_present(full) {
-            self.force_full_present = full;
-            Ok(())
-        } else {
-            Err(Error::Host("could not change native presentation mode"))
-        }
-    }
-
-    /// Returns completed drawable comparisons and whether a mismatch disabled partial presentation.
-    pub fn present_verification(&self) -> (u64, bool) {
-        self.frames.as_ref().expect("Live frame context").present_verification()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn last_present_was_partial(&self) -> bool {
-        self.partial_present
-    }
-
-    #[cfg(test)]
-    pub(crate) fn capture_uses_full_redraw(&self) -> bool {
-        self.force_full_present || self.frames.as_ref().is_some_and(Frames::direct)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn hold_damage_for_test(&mut self, rect: Rect, viewport: Rect) {
-        let mut damage = DamageList::default();
-        damage.add(rect, viewport);
-        self.held = Some(damage);
     }
 
     /// Renders pending damage into the surface. Returns false if nothing needed presenting or no drawable was available.
@@ -277,7 +214,6 @@ impl Graphics {
             return Ok(false);
         }
         let frames = self.frames.as_mut().expect("Live frame context");
-        let direct = frames.direct();
         let acquiring = std::time::Instant::now();
         let began = frames.begin(size.0, size.1);
         self.acquire_wall = acquiring.elapsed();
@@ -293,26 +229,14 @@ impl Graphics {
         let acquired = count();
         let mut prepared = acquired;
         let mut render = || -> Result<_, Error> {
-            let pixel_viewport = Rect::new(0.0, 0.0, size.0 as f32, size.1 as f32);
-            let scale = window.scale() as f32;
-            let panel = ui.theme().tokens.panel;
-            let color = [panel.r, panel.g, panel.b];
-            let (commands, serial, completed) = (frames.commands(), frames.serial(), frames.completed());
-            let mut pass = Pass {
-                size: core::mem::size_of::<Pass>() as u32,
-                mtl_command_buffer: commands,
-                width_px: size.0,
-                height_px: size.1,
-                scale,
-                ..Pass::default()
-            };
-            let mut damage = DamageList::default();
-            let mut pixels = [[0; 4]; 8];
-            let mut len = 0;
             if let Some(held) = self.held {
-                if held.is_full() || self.force_full_present {
-                    damage = DamageList::full(pixel_viewport);
-                } else {
+                let renderer = self.renderer.as_mut().expect("Live graphics renderer");
+                let commands = frames.commands();
+                let scale = window.scale() as f32;
+                let color = ui.theme().tokens.panel;
+                let mut pixels = [[0; 4]; 8];
+                let mut len = 0;
+                if !held.is_full() {
                     for r in held.rects() {
                         pixels[len] = damage_px([r.x, r.y, r.w, r.h], scale, size);
                         len += 1;
@@ -320,58 +244,63 @@ impl Graphics {
                     if !self.no_cull && len > 1 {
                         len = merge_pixel_damage(&mut pixels[..len], size);
                     }
-                    for &[x, y, w, h] in &pixels[..len] {
-                        damage.add(Rect::new(x as f32, y as f32, w as f32, h as f32), pixel_viewport);
+                }
+
+                renderer.prepare(
+                    &Commands {
+                        size: core::mem::size_of::<Commands>() as u32,
+                        mtl_command_buffer: commands,
+                        ..Commands::default()
+                    },
+                    frames.serial(),
+                    frames.completed(),
+                )?;
+                prepared = count();
+                let (encoder, partial) = frames.pass([color.r, color.g, color.b], &pixels[..len])
+                    .map_err(|_| Error::Host("could not open native render pass"))?;
+                let mut pass = Pass {
+                    size: core::mem::size_of::<Pass>() as u32,
+                    mtl_command_buffer: commands,
+                    mtl_render_encoder: encoder,
+                    width_px: size.0,
+                    height_px: size.1,
+                    scale,
+                    ..Pass::default()
+                };
+                // A cache miss needs a full canvas to reconstruct its backdrop.
+                let mut redraw = false;
+                let mut split = |record: pxui::Recorder| {
+                    if partial != 0 {
+                        redraw = true;
+                        return Err(Error::Host("backdrop blur needs a full canvas"));
+                    }
+                    split_backdrop(frames, pass, record)
+                };
+                let result = if partial != 0 && !self.no_cull {
+                    renderer.draw_damage(&pass, pixels[0], &mut split)
+                } else {
+                    renderer.draw_with_split(&pass, &mut split)
+                };
+                if redraw {
+                    frames.end_pass().ok_or(Error::Host("could not end native render pass"))?;
+                    pass.mtl_render_encoder = frames.pass([color.r, color.g, color.b], &[])
+                        .map_err(|_| Error::Host("could not open full native render pass"))?.0;
+                    renderer.draw_with_split(&pass, &mut |record| split_backdrop(frames, pass, record))?;
+                } else {
+                    result?;
+                    for rect in pixels.iter().take(partial).skip(1) {
+                        frames.scissor(rect);
+                        if self.no_cull {
+                            renderer.draw(&pass)?;
+                        } else {
+                            renderer.draw_damage(&pass, *rect, &mut |_| Err(Error::Host("backdrop blur needs a full canvas")))?;
+                        }
                     }
                 }
             }
-            let mut copy_len = 0;
-            let mut copy_rects = [[0; 4]; 8];
-            let renderer = self.renderer.as_mut().expect("Live graphics renderer");
-            let mut ready = false;
-            if direct {
-                let (wait, acquired, slot) = frames.acquire().map_err(|_| Error::Host("could not acquire native drawable"))?;
-                self.acquire_wall += wait;
-                if !acquired {
-                    frames.submit(&[]).map_err(|_| Error::Host("could not retire unused Metal frame"))?;
-                    return Ok((count(), false));
-                }
-                let redraw = present_damage(&mut self.present_damage, slot, damage, pixel_viewport);
-                len = pixel_rects(redraw, &mut pixels);
-            }
-            if direct || self.held.is_some() {
-                prepare(renderer, commands, serial, completed)?;
-                ready = true;
-                prepared = count();
-                let partial = draw_regions(renderer, frames, &mut pass, color, &pixels[..len], self.no_cull)?;
-                #[cfg(test)]
-                if direct {
-                    self.partial_present = partial;
-                }
-                if !direct && !partial {
-                    damage = DamageList::full(pixel_viewport);
-                }
-            }
             let drawn = count();
-            if !direct {
-                let (wait, _, slot) = frames.acquire().map_err(|_| Error::Host("could not acquire native drawable"))?;
-                self.acquire_wall += wait;
-                let copy = present_damage(&mut self.present_damage, slot, damage, pixel_viewport);
-                copy_len = pixel_rects(copy, &mut copy_rects);
-                #[cfg(test)]
-                { self.partial_present = copy_len != 0; }
-            }
-            if frames.verify() {
-                if !ready {
-                    prepare(renderer, commands, serial, completed)?;
-                }
-                // A reference pass clears its own target and recomputes any backdrop blur.
-                renderer.resize(size.0, size.1)?;
-                pass.mtl_render_encoder = frames.pass(color, &[], true)
-                    .map_err(|_| Error::Host("could not open Metal reference pass"))?.0;
-                renderer.draw_with_split(&pass, &mut |record| split_backdrop(frames, pass, record))?;
-            }
-            let presented = frames.submit(&copy_rects[..copy_len]).map_err(|_| Error::Host("could not submit native frame"))?;
+            self.acquire_wall += frames.acquire().map_err(|_| Error::Host("could not acquire native drawable"))?;
+            let presented = frames.submit().map_err(|_| Error::Host("could not submit native frame"))?;
             Ok((drawn, presented))
         };
         let (drawn, presented) = match render() {
@@ -385,10 +314,8 @@ impl Graphics {
         };
         #[cfg(target_os = "macos")]
         if presented { self.presentation = presentation; }
-        self.present_debt = !direct && !presented;
-        if !direct || presented {
-            self.held = None;
-        }
+        self.present_debt = !presented;
+        self.held = None;
         // Suspending iOS may discard the command buffer while waiting for a drawable.
         #[cfg(target_os = "ios")]
         if !frames.can_draw() {
@@ -521,66 +448,6 @@ impl Drop for Graphics {
     }
 }
 
-fn prepare(renderer: &mut Renderer, commands: *mut core::ffi::c_void, serial: u64, completed: u64) -> Result<(), Error> {
-    renderer.prepare(
-        &Commands {
-            size: core::mem::size_of::<Commands>() as u32,
-            mtl_command_buffer: commands,
-            ..Commands::default()
-        },
-        serial,
-        completed,
-    )
-}
-
-fn pixel_rects(damage: DamageList, pixels: &mut [[u32; 4]; 8]) -> usize {
-    if damage.is_full() {
-        return 0;
-    }
-    for (pixel, rect) in pixels.iter_mut().zip(damage.rects()) {
-        *pixel = [rect.x, rect.y, rect.w, rect.h].map(|v| v as u32);
-    }
-    damage.rects().len()
-}
-
-fn draw_regions(
-    renderer: &mut Renderer,
-    frames: &mut Frames,
-    pass: &mut Pass,
-    color: [u8; 3],
-    pixels: &[[u32; 4]],
-    no_cull: bool,
-) -> Result<bool, Error> {
-    let (encoder, partial) = frames.pass(color, pixels, false)
-        .map_err(|_| Error::Host("could not open native render pass"))?;
-    pass.mtl_render_encoder = encoder;
-    // A blur cache miss reads beyond the scissor and needs a full redraw.
-    let mut redraw = false;
-    for (index, &rect) in pixels[..partial].iter().enumerate() {
-        if index != 0 { frames.scissor(&rect); }
-        let mut split = |_: pxui::Recorder| {
-            redraw = true;
-            Err(Error::Host("backdrop blur needs a full redraw"))
-        };
-        let result = if no_cull {
-            renderer.draw_with_split(pass, &mut split)
-        } else {
-            renderer.draw_damage(pass, rect, &mut split)
-        };
-        if redraw { break; }
-        result?;
-    }
-    if redraw || partial == 0 {
-        if redraw {
-            pass.mtl_render_encoder = frames.pass(color, &[], false)
-                .map_err(|_| Error::Host("could not open full native render pass"))?.0;
-        }
-        renderer.draw_with_split(pass, &mut |record| split_backdrop(frames, *pass, record))?;
-        return Ok(false);
-    }
-    Ok(true)
-}
-
 fn split_backdrop(frames: &mut Frames, mut pass: Pass, record: pxui::Recorder<'_>) -> Result<Pass, Error> {
     let canvas = frames.end_pass().ok_or(Error::Host("could not end native render pass"))?;
     record(&pxui::Image {
@@ -590,25 +457,6 @@ fn split_backdrop(frames: &mut Frames, mut pass: Pass, record: pxui::Recorder<'_
     pass.mtl_render_encoder = frames.resume_pass()
         .ok_or(Error::Host("could not resume native render pass"))?.as_ptr();
     Ok(pass)
-}
-
-/// Ages each drawable by the current UI damage and clears the chosen drawable’s debt.
-fn present_damage(
-    history: &mut [DamageList; 4],
-    slot: Option<(usize, bool)>,
-    damage: DamageList,
-    viewport: Rect,
-) -> DamageList {
-    if slot.is_none_or(|(_, reset)| reset) || damage.is_full() {
-        *history = [DamageList::full(viewport); 4];
-    } else {
-        for age in &mut *history {
-            for &rect in damage.rects() {
-                age.add(rect, viewport);
-            }
-        }
-    }
-    slot.map_or(DamageList::full(viewport), |(index, _)| std::mem::take(&mut history[index]))
 }
 
 /// Rounds damage out to drawable pixels and pads one pixel for antialiasing.
@@ -646,79 +494,4 @@ pub(crate) fn damage_rounds_out_pads_and_clamps_to_the_drawable() {
     let mut pixels = [[9, 9, 4, 14], [13, 14, 4, 8], [17, 10, 4, 13], [60, 20, 4, 4]];
     let len = merge_pixel_damage(&mut pixels, (100, 80));
     assert_eq!(&pixels[..len], &[[9, 9, 12, 14], [60, 20, 4, 4]]);
-}
-
-#[cfg(all(test, target_os = "macos"))]
-pub(crate) fn present_damage_tracks_three_rotating_drawables() {
-    let viewport = Rect::new(0.0, 0.0, 32.0, 1.0);
-    let mut history = [DamageList::default(); 4];
-    let mut canvas = [0; 32];
-    let mut drawables = [[255; 32]; 4];
-    let mut partial = 0;
-    for frame in 0..16 {
-        let x = (frame * 7) % canvas.len();
-        canvas[x] = 1 + frame;
-        let mut damage = DamageList::default();
-        damage.add(Rect::new(x as f32, 0.0, 1.0, 1.0), viewport);
-        let index = if frame == 12 { 3 } else { frame % 3 };
-        let reset = frame < 3 || frame == 12;
-        let copy = present_damage(&mut history, Some((index, reset)), damage, viewport);
-        if copy.is_full() {
-            drawables[index] = canvas;
-        } else {
-            partial += 1;
-            for rect in copy.rects() {
-                let range = rect.x as usize..(rect.x + rect.w) as usize;
-                drawables[index][range.clone()].copy_from_slice(&canvas[range]);
-            }
-        }
-        assert_eq!(drawables[index], canvas, "frame {frame}, drawable {index}");
-        if reset {
-            assert!(copy.is_full(), "unknown texture has a full copy");
-        }
-    }
-    assert!(partial >= 6, "rotation should settle into partial copies");
-
-    history = [DamageList::default(); 4];
-    let mut damage = DamageList::default();
-    damage.add(Rect::new(0.0, 0.0, 10.0, 1.0), viewport);
-    present_damage(&mut history, Some((1, false)), damage, viewport);
-    let mut damage = DamageList::default();
-    damage.add(Rect::new(10.0, 0.0, 10.0, 1.0), viewport);
-    assert!(present_damage(&mut history, Some((0, false)), damage, viewport).is_full());
-    assert!(present_damage(&mut history, None, DamageList::default(), viewport).is_full());
-    assert!(present_damage(&mut history, Some((1, false)), DamageList::default(), viewport).is_full());
-}
-
-#[cfg(all(test, target_os = "macos"))]
-pub(crate) fn present_mismatch_disables_partial_for_the_session() {
-    let mut window = Window::open_with("PXUI mismatched present", 96, 64, false, true, false).unwrap();
-    let ui = Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
-    let mut graphics = Graphics::open_present(&mut window, &ui, false, 1, true).unwrap();
-    let frames = graphics.frames.as_mut().unwrap();
-    assert!(frames.direct());
-
-    for _ in 0..5 {
-        assert!(frames.begin(96, 64).unwrap());
-        assert!(frames.acquire().unwrap().1);
-        frames.pass([0, 0, 0], &[], false).unwrap();
-        frames.pass([0, 0, 0], &[], true).unwrap();
-        assert!(frames.submit(&[]).unwrap());
-    }
-    assert!(frames.begin(96, 64).unwrap());
-    let (_, acquired, slot) = frames.acquire().unwrap();
-    assert!(acquired && matches!(slot, Some((_, false))));
-    // Leave the rest of a known drawable stale to exercise the automatic fallback.
-    assert_eq!(frames.pass([255, 0, 0], &[[0, 0, 1, 1]], false).unwrap().1, 1);
-    frames.pass([255, 0, 0], &[], true).unwrap();
-    assert!(frames.submit(&[]).unwrap());
-    frames.wait().unwrap();
-    assert_eq!(frames.present_verification(), (6, true));
-
-    assert!(frames.begin(96, 64).unwrap());
-    assert!(frames.acquire().unwrap().2.is_none());
-    frames.pass([255, 0, 0], &[], false).unwrap();
-    assert!(frames.submit(&[]).unwrap());
-    graphics.close().unwrap();
-    window.destroy().unwrap();
 }

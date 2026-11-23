@@ -43,121 +43,6 @@ fn partial_equals_full() {
 }
 
 #[cfg(target_os = "macos")]
-fn direct_partial_equals_full() {
-    use crate::{Graphics, Window};
-    use pxui::{Rect, ThemeHandle, Ui};
-    use render_edits::{HEIGHT, STAGES, edit, width};
-
-    let mut window = Window::open_with("PXUI direct render oracle", i64::from(width(0)), i64::from(HEIGHT), false, true, false).unwrap();
-    let mut ui = Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
-    let mut graphics = Graphics::open_present(&mut window, &ui, false, 1, true).unwrap();
-    let theme = ThemeHandle::parse("tokens.panel = #284557").unwrap();
-    let mut partials = 0;
-    let mut events = Vec::new();
-    for stage in 0..STAGES {
-        if stage > 0 && width(stage) != width(stage - 1) {
-            window.set_resizable(true).unwrap();
-            window.resize(i64::from(width(stage)), i64::from(HEIGHT)).unwrap();
-        }
-        edit(&mut ui, stage, window.scale() as f32, &theme);
-        assert!(graphics.draw(&mut window, &ui, None).unwrap(), "edit {stage}");
-        partials += usize::from(graphics.last_present_was_partial());
-        for index in 0..ui.layers().count() { ui.drawn(index); }
-        let viewport = Rect::new(0.0, 0.0, width(stage) as f32, HEIGHT as f32);
-        // Cycle past the old buffers even when this edit requested a full redraw.
-        for x in [370.0, 369.0, 368.0, 367.0] {
-            window.pump(&mut events);
-            graphics.hold_damage_for_test(Rect::new(x, 460.0, 1.0, 1.0), viewport);
-            assert!(graphics.draw(&mut window, &ui, None).unwrap(), "rotation after edit {stage}");
-            partials += usize::from(graphics.last_present_was_partial());
-        }
-    }
-    assert!(partials >= STAGES, "expected partial redraws after rotation, got {partials}");
-    let (verified, failed) = graphics.present_verification();
-    assert!(verified >= (STAGES * 5 - 3) as u64 && !failed, "{verified} comparisons, mismatch={failed}");
-    graphics.close().unwrap();
-    window.destroy().unwrap();
-}
-
-#[cfg(target_os = "macos")]
-fn direct_present_matches_full_redraw_with_rotation_and_fallbacks() {
-    use crate::{Graphics, Window};
-    use pxui::ui::{Node, Size};
-    use pxui::{Fill, FrameIn, Rgba, Ui};
-
-    mem_sys::set_peer(pxui::library_counter);
-    let mut window = Window::open_with("PXUI present oracle", 320, 240, false, true, false).unwrap();
-    let mut ui = Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
-    let mut graphics = Graphics::open_present(&mut window, &ui, false, 1, true).unwrap();
-    graphics.set_full_damage(false);
-    let build = |window: &Window, ui: &mut Ui, frame: usize| {
-        let (w, h) = window.extent().logical;
-        ui.frame(
-            &FrameIn::new(w as f32, h as f32).scale(window.scale() as f32).time(frame as f64 / 60.0),
-            &mut |ui| {
-                for (name, x) in [("left", 8.0), ("right", 270.0)] {
-                    let color = Rgba::rgb((frame * 13) as u8, 0, 0);
-                    let node = ui.node(name, Node::DEFAULT.w(Size::Px(14.0)).h(Size::Px(11.0)).at(x, 4.0));
-                    ui.canvas(&node, move |paint, rect| paint.fill(rect, Fill::new(color)));
-                }
-            },
-        ).unwrap();
-    };
-    let mut partials = 0;
-    let mut events = Vec::new();
-    for frame in 0..20 {
-        window.pump(&mut events);
-        build(&window, &mut ui, frame);
-        mem_sys::local_reset();
-        assert!(graphics.draw(&mut window, &ui, None).unwrap());
-        if frame >= 8 {
-            assert_eq!(mem_sys::local_alloc_count(), 0, "warm partial present");
-        }
-        partials += usize::from(graphics.last_present_was_partial());
-    }
-    assert!(partials >= 8, "expected repeated partial redraws, got {partials}");
-    let (verified, failed) = graphics.present_verification();
-    assert!(verified >= 17 && !failed, "{verified} completed comparisons, mismatch={failed}");
-
-    window.set_resizable(true).unwrap();
-    window.resize(352, 240).unwrap();
-    build(&window, &mut ui, 20);
-    assert!(graphics.draw(&mut window, &ui, None).unwrap());
-    assert!(!graphics.last_present_was_partial(), "resize resets drawable history");
-
-    let mut resumed_partial = false;
-    for frame in 21..32 {
-        window.pump(&mut events);
-        build(&window, &mut ui, frame);
-        assert!(graphics.draw(&mut window, &ui, None).unwrap());
-        resumed_partial |= graphics.last_present_was_partial();
-    }
-    assert!(resumed_partial, "partial redraws resume after resize");
-    window.show().unwrap();
-    let deadline = window.time() + 0.45;
-    while window.presentation().is_none() && window.time() < deadline {
-        window.wait(Some(deadline));
-        assert!(window.pump(&mut events));
-    }
-    assert!(window.presentation().is_some(), "the revealed window must be exposed");
-    build(&window, &mut ui, 32);
-    assert!(graphics.draw(&mut window, &ui, None).unwrap());
-    assert!(!graphics.last_present_was_partial(), "becoming visible resets drawable history");
-
-    build(&window, &mut ui, 33);
-    graphics.capture_frame(&mut window, &ui, false).unwrap();
-    assert!(!graphics.last_present_was_partial(), "capture forces a full redraw");
-
-    graphics.set_full_present(true).unwrap();
-    build(&window, &mut ui, 34);
-    assert!(graphics.draw(&mut window, &ui, None).unwrap());
-    assert!(!graphics.last_present_was_partial(), "explicit full-redraw mode");
-
-    graphics.close().unwrap();
-    window.destroy().unwrap();
-}
-
-#[cfg(target_os = "macos")]
 fn occluded_window_skips_gpu_and_redraws_on_exposure() {
     use crate::{Graphics, Window};
     use pxui::{FrameIn, Ui};
@@ -416,7 +301,7 @@ fn framework_host_damage_redraws_only_the_change_and_keeps_the_rest() {
         assert_eq!(ui.damage_list().count, 2);
         let calls = graphics.draw_calls();
         let partial = read(&mut graphics, &mut window, &ui);
-        let two_draws = !graphics.capture_uses_full_redraw() && !full_damage && (no_cull || right.is_some());
+        let two_draws = !full_damage && (no_cull || right.is_some());
         assert_eq!(graphics.draw_calls() - calls, 1 + u64::from(two_draws));
         assert_eq!(partial, fresh.screenshot(&mut window, &full_ui).unwrap().2, "seed {seed}");
     }
@@ -670,11 +555,7 @@ pub(crate) fn main() {
         ("window_voiceover_bridge_maps_nodes_round_trips_actions_and_stays_quiet_when_unchanged",voiceover_bridge_maps_nodes_round_trips_actions_and_stays_quiet_when_unchanged),
         ("window_framework_host_constructor_refusals_release_devices_and_queues",framework_host_constructor_refusals_release_devices_and_queues),
         ("window_framework_host_damage_redraws_only_the_change_and_keeps_the_rest",framework_host_damage_redraws_only_the_change_and_keeps_the_rest),
-        ("present_damage_tracks_three_rotating_drawables",crate::graphics::present_damage_tracks_three_rotating_drawables),
-        ("window_direct_present_matches_full_redraw_with_rotation_and_fallbacks",direct_present_matches_full_redraw_with_rotation_and_fallbacks),
-        ("window_present_mismatch_disables_partial_for_the_session",crate::graphics::present_mismatch_disables_partial_for_the_session),
         ("window_partial_equals_full",partial_equals_full),
-        ("window_direct_partial_equals_full",direct_partial_equals_full),
         ("window_occluded_window_skips_gpu_and_redraws_on_exposure",occluded_window_skips_gpu_and_redraws_on_exposure),
         ("window_backdrop_blur_reads_the_canvas_and_preserves_undamaged_pixels",backdrop_blur_reads_the_canvas_and_preserves_undamaged_pixels),
         ("damage_rounds_out_pads_and_clamps_to_the_drawable",crate::graphics::damage_rounds_out_pads_and_clamps_to_the_drawable),
