@@ -530,7 +530,8 @@ fn run_tests(
         }
         let grouped = case.executable.file_name().and_then(|name| name.to_str())
             .is_some_and(|name| name.starts_with("gpu_all-") || (case.crate_name == "rays_editor"
-                && (name.starts_with("gpu_editor-") || name.starts_with("gpu_flow_integration-"))));
+                && (name.starts_with("gpu_editor-") || name.starts_with("gpu_flow_integration-")
+                    || name.starts_with("window_rays_graph-"))));
         let outcomes = if grouped {
             let executable = case.executable.clone();
             let mut group = vec![case];
