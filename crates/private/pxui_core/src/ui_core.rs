@@ -20,7 +20,7 @@ use std::any::Any;
 use pxui_text::{Metrics, Style, Text};
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
-use crate::ui_text::{EditDelta, EditRun, ShelfEntry, TextEdit};
+use crate::ui_text::{EditDelta, EditRun, ShelfEntry, TextDiff, TextEdit};
 use std::rc::Rc;
 
 pub use pxui_types::{Flags, Size};
@@ -941,6 +941,8 @@ pub struct Ui {
     pub(crate) edit_redo: VecDeque<EditDelta>,
     pub(crate) edit_group: Option<(EditRun, usize, f64)>,
     pub(crate) edit_serial: u64,
+    pub(crate) edit_revision: u64,
+    pub(crate) edit_diff: Option<TextDiff>,
     pub(crate) edit_pending: Option<(TextEdit, bool)>,
     pub(crate) edit_shelf: Vec<ShelfEntry>,
     /// the picker's rows, kept between frames so `picker_filled` reuses their strings
@@ -1166,6 +1168,8 @@ impl Ui {
             edit_redo: VecDeque::new(),
             edit_group: None,
             edit_serial: 0,
+            edit_revision: 0,
+            edit_diff: None,
             edit_pending: None,
             edit_shelf: Vec::new(),
             picker_rows: Vec::new(),
