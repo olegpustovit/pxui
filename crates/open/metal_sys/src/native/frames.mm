@@ -33,6 +33,8 @@ struct PXUIMetalFrames {
     // Damage-limited frames draw into `canvas`, which keeps the last frame; `copy` puts it on the fresh drawable.
     id<MTLTexture> canvas;
     bool canvasValid;
+    id<MTLTexture> checkedCanvas;
+    id<MTLTexture> referenceCanvas;
     uint32_t width;
     uint32_t height;
     id<MTLRenderPipelineState> fill;
@@ -228,6 +230,11 @@ void rays_metal_frames_cancel(void *raw) {
     frames->commands = nil;
     frames->drawable = nil;
     frames->pass.colorAttachments[0].texture = nil;
+    if (frames->checkedCanvas) {
+        frames->referenceCanvas = frames->canvas;
+        frames->canvas = frames->checkedCanvas;
+        frames->checkedCanvas = nil;
+    }
     frames->canvasValid = false;
 }
 
@@ -384,6 +391,49 @@ int rays_metal_frames_read(void *raw, uint8_t *out, size_t length, uint32_t *wid
         if (failed) return -1;
         memcpy(out, frames->captureBuffer.contents, bytes);
         return 1;
+    }
+}
+
+int rays_metal_frames_begin_canvas_check(void *raw) {
+    PXUIMetalFrames *frames = static_cast<PXUIMetalFrames *>(raw);
+    if (![NSThread isMainThread] || !frames->canvasValid || frames->checkedCanvas || frames->captured) return 0;
+    if (rays_metal_frames_begin(raw, frames->width, frames->height) != 1) return 0;
+    frames->checkedCanvas = frames->canvas;
+    frames->canvas = frames->referenceCanvas;
+    frames->referenceCanvas = nil;
+    frames->canvasValid = false;
+    return 1;
+}
+
+int rays_metal_frames_end_canvas_check(void *raw) {
+    @autoreleasepool {
+        PXUIMetalFrames *frames = static_cast<PXUIMetalFrames *>(raw);
+        if (![NSThread isMainThread] || !frames->checkedCanvas || !frames->canvasValid ||
+            !rays_metal_frames_end_pass(raw)) return -1;
+        const NSUInteger width = frames->width, height = frames->height;
+        const NSUInteger bytes = width * height * 4;
+        if (frames->captureBuffer.length < bytes * 2)
+            frames->captureBuffer = [frames->device newBufferWithLength:bytes * 2 options:MTLResourceStorageModeShared];
+        if (!frames->captureBuffer) return -1;
+        id<MTLCommandBuffer> commands = frames->commands;
+        id<MTLBlitCommandEncoder> blit = [commands blitCommandEncoder];
+        if (!blit) return -1;
+        id<MTLTexture> sources[] = {frames->checkedCanvas, frames->canvas};
+        for (NSUInteger i = 0; i < 2; ++i) {
+            [blit copyFromTexture:sources[i] sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0, 0, 0)
+                       sourceSize:MTLSizeMake(width, height, 1) toBuffer:frames->captureBuffer
+                destinationOffset:i * bytes destinationBytesPerRow:width * 4 destinationBytesPerImage:0];
+        }
+        [blit endEncoding];
+        // No drawable was acquired. Submit on the same queue to order readback after the damage pass.
+        if (rays_metal_frames_submit(raw) != 0) return -1;
+        [commands waitUntilCompleted];
+        frames->referenceCanvas = frames->canvas;
+        frames->canvas = frames->checkedCanvas;
+        frames->checkedCanvas = nil;
+        if (commands.status != MTLCommandBufferStatusCompleted) return -1;
+        const auto *pixels = static_cast<const uint8_t *>(frames->captureBuffer.contents);
+        return memcmp(pixels, pixels + bytes, bytes) == 0 ? 1 : 0;
     }
 }
 

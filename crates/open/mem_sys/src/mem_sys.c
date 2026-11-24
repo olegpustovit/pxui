@@ -23,6 +23,13 @@ static dispatch_source_t pressure_source;
 static int read_rusage(struct rusage_info_v4 *info) {
   return proc_pid_rusage(getpid(), RUSAGE_INFO_V4, (rusage_info_t *)info) == 0;
 }
+
+int mem_sys_resident_size(int64_t *out) {
+  struct rusage_info_v4 info;
+  if (!read_rusage(&info) || info.ri_resident_size > INT64_MAX) return 0;
+  *out = (int64_t)info.ri_resident_size;
+  return 1;
+}
 #else
 static int read_vm(task_vm_info_data_t *info, mach_msg_type_number_t required) {
   mach_msg_type_number_t count = TASK_VM_INFO_COUNT;

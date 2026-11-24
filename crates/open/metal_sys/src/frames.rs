@@ -30,6 +30,8 @@ unsafe extern "C" {
         height: *mut u32,
     ) -> i32;
     fn rays_metal_frames_wait(host: *mut c_void) -> i32;
+    fn rays_metal_frames_begin_canvas_check(host: *mut c_void) -> i32;
+    fn rays_metal_frames_end_canvas_check(host: *mut c_void) -> i32;
     fn rays_metal_frames_destroy(host: *mut c_void);
 }
 
@@ -182,6 +184,20 @@ impl Frames {
             Ok(())
         } else {
             Err("Metal GPU execution failed".into())
+        }
+    }
+
+    /// Opens a fresh offscreen frame while preserving the last damage-limited canvas.
+    pub fn begin_canvas_check(&mut self) -> bool {
+        self.layer.alive() && unsafe { rays_metal_frames_begin_canvas_check(self.raw) } == 1
+    }
+
+    /// Commits the offscreen frame and compares its complete bytes with the preserved canvas.
+    pub fn end_canvas_check(&mut self) -> Option<bool> {
+        match unsafe { rays_metal_frames_end_canvas_check(self.raw) } {
+            0 => Some(false),
+            1 => Some(true),
+            _ => None,
         }
     }
 }

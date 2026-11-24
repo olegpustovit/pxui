@@ -22,6 +22,8 @@ uint32_t rays_metal_frames_present_slot(void *host);
 void *rays_metal_frames_present(void *host, bool composite_only, const uint32_t (*rects)[4], size_t count);
 int rays_metal_frames_capture(void *host, int on);
 int rays_metal_frames_read(void *host, uint8_t *out, size_t length, uint32_t *width, uint32_t *height);
+int rays_metal_frames_begin_canvas_check(void *host);
+int rays_metal_frames_end_canvas_check(void *host);
 int rays_metal_frames_wait(void *host);
 void rays_metal_frames_destroy(void *host);
 #ifdef __cplusplus

@@ -497,6 +497,53 @@ impl Graphics {
         self.acquire_wall
     }
 
+    /// Compares the last rendered canvas with a full redraw of the same UI into a separate Metal texture.
+    /// Call after a successful in-app draw and before changing the UI or viewport. This waits for
+    /// readback without acquiring or presenting another drawable. First use or an extent change
+    /// can allocate scratch storage.
+    pub fn verify_canvas(&mut self, ui: &Ui, scale: f32) -> Result<bool, Error> {
+        if !self.no_layers && !ui.promoted().is_empty() {
+            return Err(Error::Host("canvas verification requires in-app composition"));
+        }
+        let (width, height) = self.blur_extent;
+        let frames = self.frames.as_mut().expect("Live frame context");
+        let renderer = self.renderer.as_mut().expect("Live graphics renderer");
+        if !frames.begin_canvas_check() {
+            return Err(Error::Host("could not begin offscreen canvas verification"));
+        }
+        let check = (|| {
+            // Clear the backdrop cache so the reference also checks pixels from reused blur results.
+            renderer.resize(width, height)?;
+            let commands = frames.commands();
+            renderer.prepare(&Commands {
+                size: core::mem::size_of::<Commands>() as u32,
+                mtl_command_buffer: commands,
+                ..Commands::default()
+            }, frames.serial(), frames.completed())?;
+            let color = ui.theme().tokens.panel;
+            let (encoder, _) = frames.pass([color.r, color.g, color.b], &[])
+                .map_err(|_| Error::Host("could not open the reference canvas pass"))?;
+            let pass = Pass {
+                size: core::mem::size_of::<Pass>() as u32,
+                mtl_command_buffer: commands,
+                mtl_render_encoder: encoder,
+                width_px: width,
+                height_px: height,
+                scale,
+                ..Pass::default()
+            };
+            renderer.draw_with_split(&pass, &mut |record| split_backdrop(frames, pass, record))?;
+            let matches = frames.end_canvas_check().ok_or(Error::Host("could not compare canvas pixels"))?;
+            renderer.resize(width, height)?;
+            Ok(matches)
+        })();
+        if check.is_err() {
+            frames.cancel();
+            self.blur_extent = (0, 0);
+        }
+        check
+    }
+
     /// Waits for submitted work, then releases this surface's graphics resources.
     ///
     /// A failed wait returns `Error::Host`. Drop still runs the graphics cleanup path.

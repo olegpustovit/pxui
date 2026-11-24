@@ -54,6 +54,7 @@ fn partial_equals_full() {
     let theme = pxui::ThemeHandle::parse("tokens.panel = #284557").unwrap();
     let mut previous = Vec::new();
     let mut saw_partial = false;
+    let mut canvas_checks = 0;
     for stage in 0..STAGES {
         if stage > 0 && width(stage) != width(stage - 1) {
             window.set_resizable(true).unwrap();
@@ -67,6 +68,10 @@ fn partial_equals_full() {
         assert!(capture.is_ok(), "{capture:?}: {}", ui.last_error());
         let (w, h, partial) = capture.unwrap();
         assert_eq!((w, h), (width(stage), HEIGHT));
+        if ui.promoted().is_empty() {
+            assert!(graphics.verify_canvas(&ui, window.scale() as f32).unwrap(), "offscreen reference at edit {stage}");
+            canvas_checks += 1;
+        }
         let (_, _, full) = graphics.screenshot(&mut window, &ui).unwrap();
         diff(&partial, &full, 0, stage);
         for index in 0..ui.layers().count() { ui.drawn(index); }
@@ -74,6 +79,13 @@ fn partial_equals_full() {
         previous = partial;
     }
     assert!(saw_partial);
+    assert!(canvas_checks > 0);
+    let scale = window.scale() as f32;
+    ui.frame(
+        &pxui::FrameIn::new(width(STAGES - 1) as f32, HEIGHT as f32).scale(scale),
+        &mut |_| {},
+    ).unwrap();
+    assert!(!graphics.verify_canvas(&ui, scale).unwrap(), "the previous canvas must differ from the now-empty UI");
     graphics.close().unwrap();
     window.destroy().unwrap();
 }

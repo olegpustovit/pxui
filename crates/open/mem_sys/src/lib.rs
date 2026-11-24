@@ -272,6 +272,8 @@ unsafe extern "C" {
     fn mem_sys_pressure_start(callback: extern "C" fn(i32)) -> i32;
     fn mem_sys_pressure_poll() -> i32;
     fn mem_sys_phys_footprint(out: *mut i64) -> i32;
+    #[cfg(target_os = "macos")]
+    fn mem_sys_resident_size(out: *mut i64) -> i32;
     fn mem_sys_peak_footprint(out: *mut i64) -> i32;
     fn mem_sys_instructions(out: *mut i64) -> i32;
     fn mem_sys_physical_ram() -> i64;
@@ -316,6 +318,13 @@ pub fn pressure_relief() {
 pub fn phys_footprint() -> Option<i64> {
     let mut value = 0;
     (unsafe { mem_sys_phys_footprint(&mut value) } != 0).then_some(value)
+}
+
+/// Current process RSS in bytes on macOS.
+#[cfg(target_os = "macos")]
+pub fn resident_size() -> Option<i64> {
+    let mut value = 0;
+    (unsafe { mem_sys_resident_size(&mut value) } != 0).then_some(value)
 }
 
 pub fn peak_footprint() -> Option<i64> {
