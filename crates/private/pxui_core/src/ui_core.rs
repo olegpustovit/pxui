@@ -9713,6 +9713,20 @@ impl Ui {
             }
         }
         if fits {
+            let track_gaps = !self.full_damage && kept != 0 && d.images.is_empty() && s.images.is_empty();
+            if track_gaps {
+                // End alignment can move unchanged fresh instances through the slack. The kept
+                // runs are fixed anchors here, so compare the paint in each gap before writing it.
+                let (mut old_at, mut fresh_at) = (0, 0);
+                for p in s.pieces.iter().filter(|p| p.view != NO_VIEW) {
+                    let (a, b) = self.views[p.view as usize].run;
+                    if a != b {
+                        self.damage_paint_gap(&d.instances[old_at..a as usize], &s.instances[fresh_at..p.a as usize]);
+                        (old_at, fresh_at) = (b as usize, p.a as usize);
+                    }
+                }
+                self.damage_paint_gap(&d.instances[old_at..], &s.instances[fresh_at..]);
+            }
             w = 0;
             for p in &s.pieces {
                 let at = p.at;
@@ -9724,7 +9738,7 @@ impl Ui {
                         d.bounds.reserve(d.instances.capacity().saturating_sub(d.bounds.len()));
                         d.bounds.resize(end, EMPTY_BOUNDS);
                     }
-                    changed |= self.clear_piece_gap(&mut d, w, at);
+                    changed |= self.clear_piece_gap(&mut d, w, at, track_gaps);
                     if self.full_damage {
                         let fresh = &s.instances[p.a as usize..p.b as usize];
                         let current = &mut d.instances[at as usize..end];
@@ -9740,8 +9754,10 @@ impl Ui {
                         for (x, new) in s.instances[p.a as usize..p.b as usize].iter().enumerate() {
                             let i = at as usize + x;
                             if i >= old_len || d.instances[i] != *new {
-                                if i < old_len { self.damage_change(&d.instances[i], new); }
-                                else { self.damage_instance(new); }
+                                if !track_gaps {
+                                    if i < old_len { self.damage_change(&d.instances[i], new); }
+                                    else { self.damage_instance(new); }
+                                }
                                 d.instances[i] = *new;
                                 d.bounds[i] = cull_bounds(new);
                                 add_range(&mut d.dirty, i as u32, i as u32 + 1);
@@ -9753,12 +9769,12 @@ impl Ui {
                 } else {
                     let (a, b) = self.views[p.view as usize].run;
                     if a != b {
-                        changed |= self.clear_piece_gap(&mut d, w, a);
+                        changed |= self.clear_piece_gap(&mut d, w, a, track_gaps);
                         w = b;
                     }
                 }
             }
-            if self.full_damage {
+            if self.full_damage || track_gaps {
                 changed |= d.instances.len() > w as usize;
             } else {
                 for i in w as usize..d.instances.len() {
@@ -9798,9 +9814,9 @@ impl Ui {
         self.cull_runs = runs;
     }
 
-    fn clear_piece_gap(&mut self, layer: &mut Layer, start: u32, end: u32) -> bool {
+    fn clear_piece_gap(&mut self, layer: &mut Layer, start: u32, end: u32, damage_tracked: bool) -> bool {
         let gap = &mut layer.instances[start as usize..end as usize];
-        if self.full_damage {
+        if self.full_damage || damage_tracked {
             if gap.iter().all(|i| *i == EMPTY) { return false; }
             gap.fill(EMPTY);
             layer.bounds[start as usize..end as usize].fill(EMPTY_BOUNDS);
@@ -9872,15 +9888,28 @@ impl Ui {
             d.dirty.clear();
             add_range(&mut d.dirty, 0, d.instances.len() as u32);
         } else {
+            // Moving an unchanged run within its storage does not move its pixels. Match the
+            // gaps between kept runs when their paint order survived compaction.
+            let ordered = d.images.is_empty() && s.images.is_empty() && self.moves.windows(2).all(|pair| {
+                let (a, b, to) = pair[0];
+                b <= pair[1].0 && to + (b - a) <= pair[1].2
+            });
+            if ordered {
+                let (mut old_at, mut new_at) = (0, 0);
+                for i in 0..self.moves.len() {
+                    let (a, b, to) = self.moves[i];
+                    let (a, b, to) = (a as usize, b as usize, to as usize);
+                    self.damage_paint_gap(&out[old_at..a], &d.instances[new_at..to]);
+                    (old_at, new_at) = (b, to + b - a);
+                }
+                self.damage_paint_gap(&out[old_at..], &d.instances[new_at..]);
+            }
             let mut dirty_start = None;
             for i in 0..d.instances.len().max(old_len) {
                 let (old, new) = (out.get(i), d.instances.get(i));
                 if old != new {
-                    match (old, new) {
-                        (Some(old), Some(new)) => self.damage_change(old, new),
-                        (Some(old), None) => self.damage_instance(old),
-                        (None, Some(new)) => self.damage_instance(new),
-                        (None, None) => {}
+                    if !ordered {
+                        self.damage_paint_change(old, new);
                     }
                     if new.is_some() { dirty_start.get_or_insert(i as u32); }
                 } else if let Some(start) = dirty_start.take() {
@@ -9894,6 +9923,25 @@ impl Ui {
         // ranges of skipped draws may reach past a layer that compaction made shorter: the painter refuses them
         let len = d.instances.len() as u32;
         d.dirty.retain_mut(|r| { r.1 = r.1.min(len); r.0 < r.1 });
+    }
+
+    fn damage_paint_gap(&mut self, old: &[Instance], new: &[Instance]) {
+        let mut old = old.iter().filter(|&&item| item != EMPTY);
+        let mut new = new.iter().filter(|&&item| item != EMPTY);
+        loop {
+            let (before, after) = (old.next(), new.next());
+            if before.is_none() && after.is_none() { break; }
+            if before != after { self.damage_paint_change(before, after); }
+        }
+    }
+
+    fn damage_paint_change(&mut self, before: Option<&Instance>, after: Option<&Instance>) {
+        match (before, after) {
+            (Some(old), Some(new)) => self.damage_change(old, new),
+            (Some(old), None) => self.damage_instance(old),
+            (None, Some(new)) => self.damage_instance(new),
+            (None, None) => {}
+        }
     }
 
     /// A kept run `a..b` of layer `key` moved to `to`: the runs inside it and the ranges of nodes

@@ -554,6 +554,39 @@ pub fn window_pxui_rebuilt_view_keeps_compaction_room_outside_its_run() {
     ui.destroy();
 }
 
+/// Compaction uploads moved instances, but the unchanged kept panel does not need repainting.
+pub fn window_pxui_compaction_only_damages_changed_paint() {
+    let mut ui = new_ui(None);
+    let build = |ui: &mut Ui, fills| {
+        ui.node("background".into(), Node::DEFAULT.w(Size::Px(320.0)).h(Size::Px(240.0)).at(0.0, 0.0)
+            .look(Look::NONE.fill(Rgba::BLACK)));
+        let lead = ui.node("lead".into(), Node::DEFAULT.w(Size::Px(10.0)).h(Size::Px(10.0)).at(0.0, 0.0));
+        ui.canvas(&lead, move |paint, rect| {
+            for _ in 0..fills { paint.fill(rect.x, rect.y, rect.w, rect.h, RED); }
+        });
+        let holder = ui.node("holder".into(), Node::DEFAULT.w(Size::Px(240.0)).h(Size::Px(220.0)).at(60.0, 20.0));
+        ui.within(&holder, &mut |ui| {
+            ui.view("kept panel", 0, Size::Px(240.0), Size::Px(220.0), &mut |ui| {
+                ui.node("ink".into(), Node::DEFAULT.w(Size::Grow).h(Size::Grow).look(Look::NONE.fill(BLUE)));
+            });
+        });
+    };
+    ui.frame(&at(0.0, vec![]), &mut |ui| build(ui, 1));
+    ui.drawn(0);
+    let before = ui.layer_rewrites().1;
+    ui.frame(&at(0.1, vec![]), &mut |ui| build(ui, 80));
+    assert!(ui.layer_rewrites().1 > before);
+    for (time, next) in [(0.2, 1), (0.3, 80), (0.4, 1)] {
+        let out = ui.output();
+        assert!(!out.draw[0].dirty.is_empty());
+        let bounds = out.damage.bounds().expect("the changed fill is damaged");
+        assert!(bounds.x + bounds.w <= 11.0 && bounds.y + bounds.h <= 11.0, "{bounds:?}");
+        ui.drawn(0);
+        ui.frame(&at(time, vec![]), &mut |ui| build(ui, next));
+    }
+    ui.destroy();
+}
+
 /// Verify mode across a layer change: a clean view that its parent moves into a raised layer and
 /// back is checked against the run it kept in its old layer, not the same range of the new one; a
 /// stale fill there is still named.
@@ -1488,6 +1521,7 @@ pub const CASES: &[(&str, fn())] = &[
     ("window_pxui_view_verify", window_pxui_view_verify),
     ("window_pxui_view_verify_transition", window_pxui_view_verify_transition),
     ("window_pxui_view_verify_hover_fade", window_pxui_view_verify_hover_fade),
+    ("window_pxui_compaction_only_damages_changed_paint", window_pxui_compaction_only_damages_changed_paint),
     ("window_pxui_rebuilt_view_keeps_compaction_room_outside_its_run", window_pxui_rebuilt_view_keeps_compaction_room_outside_its_run),
     ("window_pxui_view_verify_layer", window_pxui_view_verify_layer),
     ("window_pxui_view_costs", window_pxui_view_costs),
