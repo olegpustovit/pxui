@@ -6,7 +6,9 @@
 //! (`Ui::resolve`); a worker's `Text` takes the resolved `TextStyle` that call returns, so worker-prepared text matches what the `Ui`
 //! draws. `Wrap`, `Ellipsis` and `TextAlign` name the numbers the resolved record carries.
 use crate::sys::{PxuiPreparedText, PxuiShaper, PxuiTextWorker};
-use crate::{as_str, as_text, Error, Handle, Ui};
+#[cfg(not(feature = "static"))]
+use crate::as_str;
+use crate::{as_text, Error, Handle, Ui};
 use core::ptr::NonNull;
 use pxui_types::{ffi::{PxuiLabelStyle, PxuiTextStyle}, Label, Str, TextGlyph, TextMetrics, TextSpan, TextSpans};
 
@@ -516,7 +518,7 @@ impl Ui {
         let variant = style.body_variant();
         if variant != 0 { self.set_variant(pxui_types::theme::BodyKind::label, variant); }
         #[cfg(feature = "static")]
-        let rc = unsafe { pxui_abi_link::trusted::pxui_ui_label(self.0.as_ptr(), as_str(text), style.fields(), digits, &mut out) };
+        let rc = unsafe { pxui_abi_link::trusted::label_str(self.0.as_ptr(), text, style.fields(), digits, &mut out) };
         #[cfg(not(feature = "static"))]
         let rc = {
             // plain (the theme label's style and box): read off the fields, so the records are built only for a styled label

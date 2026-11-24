@@ -189,12 +189,13 @@ impl Ui {
     #[track_caller]
     #[inline]
     pub fn part(&mut self, part: Part, node: Node) -> Handle {
-        let mut out = Handle::default();
+        let mut out = core::mem::MaybeUninit::<Handle>::uninit();
         #[cfg(feature = "static")]
-        check(self, unsafe { pxui_abi_link::trusted::part(self.0.as_ptr(), part.0, &node, &mut out) });
+        check(self, unsafe { pxui_abi_link::trusted::part(self.0.as_ptr(), part.0, &node, out.as_mut_ptr()) });
         #[cfg(not(feature = "static"))]
-        check(self, unsafe { sys::pxui_ui_part(self.0.as_ptr(), part.0, &node, &mut out) });
-        out
+        check(self, unsafe { sys::pxui_ui_part(self.0.as_ptr(), part.0, &node, out.as_mut_ptr()) });
+        // Both entries write the handle before reporting success.
+        unsafe { out.assume_init() }
     }
 
     /// Returns a named part of a widget from its last build.

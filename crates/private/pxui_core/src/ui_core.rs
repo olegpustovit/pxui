@@ -4174,6 +4174,13 @@ impl Ui {
         self.node_unique(unique, node)
     }
 
+    /// Writes the handle directly into the ABI caller's output after its building-handle check.
+    pub fn write_node_in_frame(&mut self, key: i64, node: &Node, out: &mut core::mem::MaybeUninit<UiBox>) {
+        debug_assert!(self.building);
+        let unique = self.unique_key(key);
+        out.write(self.node_unique(unique, node));
+    }
+
     /// A keyless layout container (`row`/`column`/`stack`): the n-th container of the current scope, keyed in the engine's positional
     /// namespace (`positional_key`), so containers keep their keys while labels, images or keyed siblings come and go.
     pub fn layout_node(&mut self, node: &Node) -> Handle {
@@ -4325,6 +4332,7 @@ impl Ui {
 
     /// The handle is this frame's build record `index` holds, by its key: where `within` attaches children (its slot is not read), so a
     /// handle of an earlier frame, a forged index or a record another node holds now is refused. One bounds check and one key compare.
+    #[inline]
     pub fn is_build_record(&self, b: &Handle) -> bool {
         b.index < self.count && self.boxes.get(b.index).is_some_and(|record| record.key == b.box_key)
     }

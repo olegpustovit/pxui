@@ -745,6 +745,7 @@ impl Ui {
     /// ui.frame(&pxui::FrameIn::new(320.0, 240.0), &mut |ui| { ui.label("b", pxui::Label::DEFAULT); }).unwrap();
     /// assert_eq!(ui.frame_index(), 2);
     /// ```
+    #[inline]
     pub fn frame(&mut self, input: &FrameIn<'_>, mut build: &mut dyn FnMut(&mut Ui)) -> Result<Frame<'_>, Error> {
         let mut out = FrameOut::default();
         // the wire record points at the borrowed events for this call only, whatever `input.wire.events` held
@@ -757,8 +758,11 @@ impl Ui {
         #[cfg(feature = "static")]
         let rc = unsafe {
             let outer = self.0.as_ptr();
-            let build: &mut dyn FnMut(&mut pxui_abi_link::trusted::Engine) = inner!(outer, |ui: &mut Ui| build(ui));
-            pxui_abi_link::trusted::frame(self.0.as_ptr(), &wire, build, &mut out)
+            let mut invoke = |engine: &mut pxui_abi_link::trusted::Engine| {
+                let mut borrowed = pxui_abi_link::trusted::Borrowed::new(engine, outer);
+                build(&mut core::mem::ManuallyDrop::new(Ui(core::ptr::NonNull::new_unchecked(borrowed.enter()))));
+            };
+            pxui_abi_link::trusted::frame(outer, &wire, &mut invoke, &mut out)
         };
         #[cfg(not(feature = "static"))]
         let rc = unsafe {
@@ -1328,7 +1332,10 @@ impl Ui {
     #[track_caller]
     pub fn within(&mut self, box_: &Handle, mut f: &mut dyn FnMut(&mut Ui)) {
         #[cfg(feature = "static")]
-        let rc = unsafe { let outer = self.0.as_ptr(); pxui_abi_link::trusted::within(outer, box_, inner!(outer, |ui: &mut Ui| f(ui))) };
+        let rc = unsafe {
+            let outer = self.0;
+            pxui_abi_link::trusted::within(outer.as_ptr(), box_, &mut |_| f(&mut core::mem::ManuallyDrop::new(Ui(outer))))
+        };
         #[cfg(not(feature = "static"))]
         let rc = unsafe { sys::pxui_ui_within(self.0.as_ptr(), box_, Some(composite::call), &mut f as *mut _ as *mut c_void) };
         check(self, rc)

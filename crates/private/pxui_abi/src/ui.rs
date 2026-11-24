@@ -5,7 +5,7 @@
 //!
 //! The `Ui` lifecycle, the two frame entry points, theme and platform calls, and the first widgets.
 use crate::trusted;
-use crate::state::{Build, Inner, PxuiUi, Shared, boxed, checked, fail, fail_code, get, pair, text};
+use crate::state::{Build, Inner, PxuiUi, Shared, boxed, checked, fail, fail_code, get, text};
 use crate::{PXUI_ERR_ARGUMENT, PXUI_ERR_PANIC, PXUI_ERR_STATE, FrameIn, FrameOut, PxuiBox, PxuiPanel, PxuiUiDesc, Str};
 use core::ffi::c_void;
 use input::{Event, Key, MouseButton, Platform, frame};
@@ -708,12 +708,15 @@ export!(build pub unsafe fn pxui_ui_label_at(ui: *mut PxuiUi, key: Str, rect: px
 export!(trusted pub unsafe fn pxui_ui_label(ui: *mut PxuiUi, text: Str, style: *const pxui_types::ffi::PxuiLabelStyle, label_box: *const pxui_types::ffi::PxuiLabelBox, out: *mut PxuiBox) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     let (Some(text), false) = (unsafe { checked(text) }, out.is_null()) else { return unsafe { fail(ui, "invalid label arguments") } };
+    if style.is_null() && label_box.is_null() {
+        return unsafe { trusted::label(ui, text, &pxui_types::text::LabelFields::UNSET, false, &mut *out) };
+    }
     let (mut style, digits) = if style.is_null() { (pxui_types::text::LabelFields::UNSET, false) } else {
         let Some(read) = label_style(style) else { return unsafe { fail(ui, "invalid label style") } };
         read
     };
     if !label_box.is_null() && !read_label_box(label_box, &mut style) { return unsafe { fail(ui, "invalid label box") } }
-    unsafe { trusted::pxui_ui_label(ui, pair(text), &style, digits, &mut *out) }
+    unsafe { trusted::label(ui, text, &style, digits, &mut *out) }
 });
 
 /// Applies the caller's `PxuiLabelBox` (not null) to `label`: false, leaving `label` as it was, for a short record, unknown `set` bits,
@@ -977,7 +980,7 @@ mod tests {
         let mut out = FrameOut::default();
         for (code, payload) in [(0, "/Music/名前.flac\0/Music/Björk.m4a"), (1, "transport limit exceeded"), (0, "")] {
             let backing = payload.to_owned();
-            let event = { let mut record = Wire::default(); record.kind = Wire::FILES_DROPPED; record.code = code; record.x = -12.5; record.y = 31.25; record.text = pair(&backing); record };
+            let event = { let mut record = Wire::default(); record.kind = Wire::FILES_DROPPED; record.code = code; record.x = -12.5; record.y = 31.25; record.text = crate::state::pair(&backing); record };
             let frame = { let mut record = FrameIn::new(320.0, 240.0); record.events = pxui_types::ffi::Strided { ptr: &event, len: 1, stride: core::mem::size_of::<pxui_types::Event>() }; record };
             assert_eq!(unsafe { pxui_frame(ui, &frame, None, core::ptr::null_mut(), &mut out) }, 0);
             drop(backing);

@@ -152,7 +152,7 @@ impl Ui {
 mod tests {
     use crate::bodies::{ModalConfig, PanelConfig, PickerFieldConfig, PopupConfig, ScrollViewConfig, ToastsConfig};
     use crate::ui::{Node, Rect, Role, Size};
-    use crate::{testing, FrameIn, Overlay, Picker, Ui};
+    use crate::{testing, FrameIn, Key, Overlay, Picker, Ui};
     use std::cell::RefCell;
     use crate::bodies::BodyConfig;
 
@@ -444,5 +444,21 @@ mod tests {
         };
         assert!(painted(&Overlay::DEFAULT.look(&LOOK)), "the panel's own look is drawn");
         assert!(!painted(&Overlay::DEFAULT), "a panel without one is in the theme's");
+    }
+
+    #[test]
+    fn a_panel_rejects_invalid_geometry_before_its_content() {
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+        for key in [Key::from("panel"), Key::Id(7)] {
+            let mut built = false;
+            let rc = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                ui.frame(&FrameIn::new(400.0, 400.0), &mut |ui| {
+                    ui.panel(key, &Overlay::DEFAULT.w_px(f32::NAN), |_| built = true);
+                })
+                .unwrap();
+            }));
+            assert!(rc.is_err());
+            assert!(!built);
+        }
     }
 }

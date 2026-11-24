@@ -110,11 +110,14 @@ export!(trusted pub unsafe fn pxui_ui_grid_list(ui: *mut PxuiUi, desc: *const Px
     if desc.is_null() || out.is_null() { return unsafe { fail(ui, "null grid list argument") }; }
     let Some(desc) = sized!(desc) else { return unsafe { fail(ui, "invalid grid list descriptor") }; };
     let Some(label) = (unsafe { crate::state::checked_key(desc.label) }) else { return unsafe { fail(ui, "invalid grid list label") }; };
-    let (shared, build, user) = (unsafe { (*ui).shared }, desc.build, desc.user);
-    unsafe { crate::trusted::grid_list(ui, label, desc.count, desc.cell_w, desc.cell_h, &mut |engine: &mut pxui_core::ui::Ui, index| {
-        let mut borrowed = PxuiUi::borrowed(engine, shared);
-        let _current = crate::state::Current::set(shared, &mut borrowed);
-        if let Some(build) = build { build(user, (&mut borrowed as *mut PxuiUi).cast(), index) }
+    let mut cell = unsafe { crate::state::row_handle(ui) };
+    unsafe { crate::trusted::grid_list_keyed(ui, label, false, desc.count, desc.cell_w, desc.cell_h, &mut |engine: &mut pxui_core::ui::Ui, index| {
+        if let Some(build) = desc.build {
+            debug_assert!(core::ptr::eq(engine, cell.engine));
+            let handle: *mut PxuiUi = &mut cell;
+            let _current = crate::state::Current::set(cell.shared, handle);
+            build(desc.user, handle.cast(), index);
+        }
     }, &mut *out) }
 });
 

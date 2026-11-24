@@ -226,13 +226,11 @@ impl Ui {
         let label = key.label(&mut id_label);
         let mut out = Handle::default();
         #[cfg(feature = "static")]
-        let outer = self.0.as_ptr();
-        #[cfg(feature = "static")]
-        check(self, unsafe { pxui_abi_link::trusted::grid_list(outer, label, count, cell_w, cell_h, &mut |engine: &mut pxui_abi_link::trusted::Engine, index: usize| {
-            let mut slot = None;
-            let handle = pxui_abi_link::trusted::Borrowed::handle(engine, outer, &mut slot);
-            build(&mut ManuallyDrop::new(Ui(NonNull::new_unchecked(handle))), index)
-        }, &mut out) });
+        {
+            let outer = self.0;
+            check(self, unsafe { pxui_abi_link::trusted::grid_list(outer.as_ptr(), label, count, cell_w, cell_h,
+                &mut |_, index| build(&mut ManuallyDrop::new(Ui(outer)), index), &mut out) });
+        }
         #[cfg(not(feature = "static"))]
         {
             let mut build = build;

@@ -90,13 +90,40 @@ impl Ui {
     /// the keyed export.
     #[track_caller]
     #[inline]
+    #[cfg(feature = "static")]
+    pub(crate) fn panel_key(&mut self, key: Key, overlay: &Overlay<'_>, f: &mut dyn FnMut(&mut Ui)) -> OverlayResponse {
+        let valid = pxui_abi_link::trusted::overlay_ok(overlay);
+        match key {
+            Key::Label(label) => self.panel_static(label, overlay, valid, f),
+            _ => self.panel_static_key(key, overlay, valid, f),
+        }
+    }
+
+    #[track_caller]
+    #[inline(never)]
+    #[cfg(feature = "static")]
+    fn panel_static_key(&mut self, key: Key, overlay: &Overlay<'_>, valid: bool, f: &mut dyn FnMut(&mut Ui)) -> OverlayResponse {
+        let mut encoded = [0; 17];
+        self.panel_static(key.label(&mut encoded), overlay, valid, f)
+    }
+
+    #[track_caller]
+    #[inline(never)]
+    #[cfg(feature = "static")]
+    fn panel_static(&mut self, key: &str, overlay: &Overlay<'_>, valid: bool, mut f: &mut dyn FnMut(&mut Ui)) -> OverlayResponse {
+        let mut handle = Handle::default();
+        let outer = self.0.as_ptr();
+        check(self, unsafe { pxui_abi_link::trusted::panel(outer, key, overlay, valid, inner!(outer, |ui: &mut Ui| f(ui)), &mut handle) });
+        OverlayResponse { handle, open: true }
+    }
+
+    #[track_caller]
+    #[inline]
+    #[cfg(not(feature = "static"))]
     pub(crate) fn panel_key(&mut self, key: Key, overlay: &Overlay<'_>, mut f: &mut dyn FnMut(&mut Ui)) -> OverlayResponse {
         let mut id_label = [0u8; 17];
         let key = key.label(&mut id_label);
         let mut handle = Handle::default();
-        #[cfg(feature = "static")]
-        let rc = unsafe { let outer = self.0.as_ptr(); pxui_abi_link::trusted::panel(outer, key, overlay, inner!(outer, |ui: &mut Ui| f(ui)), &mut handle) };
-        #[cfg(not(feature = "static"))]
         let rc = {
             // the options a panel usually has are written as they are; each optional part only when it is there
             let mut panel = PxuiPanel { x: overlay.at.0, y: overlay.at.1, width: overlay.w.unwrap_or(280.0), padding_points: overlay.padding, padding: if overlay.padding.is_finite() && overlay.padding >= 0.0 { overlay.padding.round() as i64 } else { -1 }, window: overlay.window as u8, ..PxuiPanel::default() };
@@ -212,7 +239,10 @@ impl Ui {
         let key = key.label(&mut id_label);
         let mut out = Handle::default();
         #[cfg(feature = "static")]
-        check(self, unsafe { let outer = self.0.as_ptr(); pxui_abi_link::trusted::view_of(outer, key, revision, inner!(outer, |ui: &mut Ui| build(ui)), &mut out) });
+        check(self, unsafe {
+            let outer = self.0;
+            pxui_abi_link::trusted::view_of(outer.as_ptr(), key, revision, &mut |_| build(&mut ManuallyDrop::new(Ui(outer))), &mut out)
+        });
         #[cfg(not(feature = "static"))]
         check(self, unsafe { keyed_sys::pxui_ui_view(self.0.as_ptr(), &PxuiKeyedDesc::new(key, ""), revision, Some(call), &mut build as *mut _ as *mut c_void, &mut out) });
         out

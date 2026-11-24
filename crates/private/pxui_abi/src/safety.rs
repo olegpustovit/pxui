@@ -523,6 +523,41 @@ fn only_the_innermost_callbacks_handle_may_be_used_while_a_frame_is_built() {
 }
 
 #[test]
+fn grid_cells_use_the_current_handle_and_validate_keys_before_building() {
+    use pxui_types::ffi::PxuiGridListDesc;
+
+    extern "C" fn cell(user: *mut c_void, raw: *mut c_void, _: usize) {
+        let (outer, theme, calls) = unsafe { &mut *user.cast::<(*mut PxuiUi, *const pxui_types::theme::ThemeSnapshot, usize)>() };
+        let cell = raw.cast::<PxuiUi>();
+        assert_eq!(unsafe { (*cell).theme }, *theme);
+        assert_eq!(unsafe { pxui_ui_node_keyed(*outer, 7, &pxui_types::Node::DEFAULT, &mut PxuiBox::default()) }, PXUI_ERR_STATE);
+        assert_eq!(unsafe { pxui_ui_node_keyed(cell, 7, &pxui_types::Node::DEFAULT, &mut PxuiBox::default()) }, 0);
+        *calls += 1;
+    }
+
+    let ui = create();
+    assert_eq!(in_frame(ui, &mut |outer| {
+        let theme = unsafe { pxui_ui_theme(outer) };
+        let mut state = (outer, theme, 0usize);
+        let desc = PxuiGridListDesc {
+            size: core::mem::size_of::<PxuiGridListDesc>() as u32, reserved: 0, label: Str::from("grid"), count: 2,
+            cell_w: 20.0, cell_h: 20.0, build: Some(cell), user: (&raw mut state).cast(),
+        };
+        let oversized = [b'x'; crate::state::MAX_KEY_BYTES + 1];
+        let mut out = PxuiBox::default();
+        for label in [b"\xff".as_slice(), b"\x010000000000000000", &oversized] {
+            let bad = PxuiGridListDesc { label: str_of(label), ..desc };
+            assert_eq!(unsafe { pxui_ui_grid_list(outer, &bad, &mut out) }, PXUI_ERR_ARGUMENT);
+            assert_eq!((state.2, out.box_key), (0, 0));
+        }
+        assert_eq!(unsafe { pxui_ui_grid_list(outer, &desc, &mut out) }, 0);
+        assert_eq!(state.2, 2);
+        unsafe { pxui_ui_node_keyed(outer, 7, &pxui_types::Node::DEFAULT, &mut out) }
+    }), 0);
+    assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
+}
+
+#[test]
 fn the_current_handle_is_restored_when_a_callback_unwinds() {
     let ui = create();
     // the callback panics on another thread (the gate allows no catch_unwind here); the state is plain data the thread reaches by address
@@ -1356,6 +1391,10 @@ fn strings_are_capped_by_role() {
         let b = { let mut b = PxuiBox::default(); assert_eq!(unsafe { pxui_ui_node(ui, str_of(b"t"), &pxui_types::Node::DEFAULT, &mut b) }, 0); b };
         assert_eq!(unsafe { pxui_ui_text(ui, &b, str_of(label), core::ptr::null(), core::ptr::null(), 0) }, 0);
         assert_eq!(unsafe { pxui_ui_text(ui, &b, str_of(&long), core::ptr::null(), core::ptr::null(), 0) }, PXUI_ERR_ARGUMENT);
+        for text in [long.as_slice(), b"\xff".as_slice()] {
+            assert_eq!(unsafe { pxui_ui_label(ui, str_of(text), core::ptr::null(), core::ptr::null(), &mut out) }, PXUI_ERR_ARGUMENT);
+        }
+        assert_eq!(unsafe { pxui_ui_label(ui, str_of(b"valid"), core::ptr::null(), core::ptr::null(), &mut out) }, 0);
         // a text field's value is editor text: past the label cap is fine
         let (mut changed, mut flag) = (Str::default(), 0u8);
         let field = pxui_types::ffi::PxuiTextFieldDesc { size: core::mem::size_of::<pxui_types::ffi::PxuiTextFieldDesc>() as u32, autocorrect: 0, capitalization: 0, action: 0, reserved: 0,
@@ -1944,7 +1983,7 @@ mod sized_records {
     }
 
     #[test]
-    fn plain_icon_button_rejects_invalid_keys_and_text_before_building() {
+    fn plain_buttons_and_toggle_reject_invalid_keys_and_text_before_building() {
         use crate::state::{MAX_KEY_BYTES, MAX_LABEL_BYTES};
 
         let ui = create();
@@ -1968,11 +2007,27 @@ mod sized_records {
                 assert_eq!(rc, PXUI_ERR_ARGUMENT, "{case}");
                 assert_eq!(nodes(), before, "{case}");
             }
+            let response = PxuiResponse { flags: 123, ..PxuiResponse::EMPTY };
+            for (key, text) in [
+                (&long[..MAX_KEY_BYTES + 1], name),
+                (b"\x010000000000000001".as_slice(), name),
+                (b"\xff".as_slice(), name),
+                (key, long.as_slice()),
+                (key, b"\xff".as_slice()),
+            ] {
+                let mut out = response;
+                assert_eq!(unsafe { pxui_ui_button_plain(h, str_of(key), str_of(text), &mut out) }, PXUI_ERR_ARGUMENT);
+                assert_eq!(unsafe { pxui_ui_toggle_plain(h, str_of(key), str_of(text), 1, &mut out) }, PXUI_ERR_ARGUMENT);
+                assert_eq!(out.flags, response.flags);
+                assert_eq!(nodes(), before);
+            }
             let mut out = PxuiResponse::EMPTY;
             let rc = unsafe { pxui_ui_icon_button_plain(h, str_of(key), str_of(icon), str_of(name), &mut out) };
             assert_eq!(rc, 0, "{}", error(h));
             assert!(nodes() > before);
             assert_ne!(out.node.box_key, 0);
+            assert_eq!(unsafe { pxui_ui_button_plain(h, str_of(b"button"), str_of(name), &mut out) }, 0);
+            assert_eq!(unsafe { pxui_ui_toggle_plain(h, str_of(b"toggle"), str_of(name), 1, &mut out) }, 0);
             0
         }), 0);
         assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);

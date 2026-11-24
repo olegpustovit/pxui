@@ -226,6 +226,7 @@ impl Ui {
 }
 
 /// The wrapper's `Signal` from what the library wrote.
+#[inline]
 pub(crate) fn decode_signal(raw:&PxuiSignal)->Signal {
     let f=raw.flags;
     Signal{hovered:f&PxuiSignal::HOVERED!=0,pressed:f&PxuiSignal::PRESSED!=0,held:f&PxuiSignal::HELD!=0,released:f&PxuiSignal::RELEASED!=0,clicked:f&PxuiSignal::CLICKED!=0,double_clicked:f&PxuiSignal::DOUBLE_CLICKED!=0,dragging:f&PxuiSignal::DRAGGING!=0,

@@ -280,6 +280,7 @@ impl Ui {
     /// The one body of `toggle`; a click is the flip of `on`. Linked statically, the library's trusted entry with the options
     /// as they are; else the plain call for `Toggle::DEFAULT`, or the options as a descriptor. One `PxuiResponse` comes back either way.
     #[track_caller]
+    #[inline]
     pub(crate) fn toggle_keyed(&mut self, key: &str, text: &str, on: bool, toggle: &Toggle) -> Response {
         let mut out = PxuiResponse::EMPTY;
         let plain = toggle.row_h.is_none() && toggle.switch.is_none() && toggle.track.is_none() && toggle.knob.is_none() && toggle.enabled && toggle.detail.is_empty()

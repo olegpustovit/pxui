@@ -432,7 +432,9 @@ pub(crate) fn ascii(bytes: &[u8]) -> bool {
         else if n <= 64 { ends(4) & 0x8080_8080_8080_8080 == 0 }
         else { bytes.is_ascii() }
     }
-    else if n >= 4 { (half(0) | half(n - 4)) & 0x8080_8080 == 0 }
+    else if n == 4 { half(0) & 0x8080_8080 == 0 }
+    else if n > 4 { (half(0) | half(n - 4)) & 0x8080_8080 == 0 }
+    else if n == 1 { (unsafe { *p }) < 0x80 }
     // one to three bytes: the first, the middle and the last are all of them
     else { n == 0 || unsafe { *p | *p.add(n / 2) | *p.add(n - 1) } & 0x80 == 0 }
 }
@@ -451,8 +453,14 @@ pub(crate) unsafe fn checked(value: Str) -> Option<&'static str> {
 
 /// `text` cut to `MAX_LABEL_BYTES` at a character boundary: display text from the Rust wrapper, which clips rather than panics on user
 /// data. The C exports never clip (they refuse, `checked`); a trusted entry clips what only the static wrapper can pass.
+#[inline]
 pub(crate) fn clip(text: &str) -> &str {
-    if text.len() <= MAX_LABEL_BYTES { return text; }
+    if text.len() <= MAX_LABEL_BYTES { text } else { clip_long(text) }
+}
+
+#[cold]
+#[inline(never)]
+fn clip_long(text: &str) -> &str {
     let mut end = MAX_LABEL_BYTES;
     while !text.is_char_boundary(end) { end -= 1; }
     &text[..end]

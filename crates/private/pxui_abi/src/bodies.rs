@@ -360,20 +360,19 @@ unsafe fn register_body(ui: *mut PxuiUi, kind: u32, name: Str, body: PxuiBodyFn,
 // Builds a node as `part` of the widget whose body is running (the way `pxui_ui_node_keyed` does): behaviour finds it again by role.
 // A part is a number of `Part`; refused outside a body call (but for a reorderable list row's `Part::HANDLE`, built by the row's
 // content) or for a number that names no part.
-// A checked node with no grid takes the static wrapper's entry (one call, counted once); a grid, a 1.x anchor or a refused node takes
-// the keyed node's export, which copies a grid and corrects or refuses the node.
+// A checked node with no grid takes the static wrapper's entry; the grid path copies and retains the validated node's tracks.
 export!(trusted pub unsafe fn pxui_ui_part(ui: *mut PxuiUi, part: u32, node: *const Node, out: *mut PxuiBox) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT };
     if out.is_null() { enter!(ui); return unsafe { fail(ui, "null part argument") } }
     match unsafe { crate::node::checked_node(node) } {
         Some(node) if node.grid.is_none() => unsafe { crate::trusted::part(ui, part, node, out) },
-        _ => unsafe { part_by_export(ui, part, node, out) },
+        checked => unsafe { grid_part(ui, part, checked, out) },
     }
 });
-/// `pxui_ui_part` for a node `checked_node` does not pass as it is: the part's key, then the keyed node's export.
+/// Build a checked grid part or report an invalid node after checking the part's context.
 #[cold]
 #[inline(never)]
-unsafe fn part_by_export(ui: *mut PxuiUi, part: u32, node: *const Node, out: *mut PxuiBox) -> i32 {
+unsafe fn grid_part(ui: *mut PxuiUi, part: u32, node: Option<&Node>, out: *mut PxuiBox) -> i32 {
     let shared = unsafe { (*ui).shared };
     if unsafe { (*shared).building } != ui { return unsafe { crate::state::not_building(ui) } }
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT };
@@ -381,8 +380,9 @@ unsafe fn part_by_export(ui: *mut PxuiUi, part: u32, node: *const Node, out: *mu
     let handle = part == Part::HANDLE.0 && unsafe { (*state.engine).in_movable_row() };
     if state.shared().bodies.depth == 0 && !handle { return unsafe { fail_code(ui, "a part is built inside a body", PXUI_ERR_STATE) } }
     if !Part::valid(part) { return unsafe { fail(ui, "invalid part number") } }
+    let Some(node) = node else { return unsafe { fail(ui, "invalid node") } };
     let key = unsafe { (*state.engine).own_part_key(Part(part)) };
-    let rc = unsafe { crate::pxui_ui_node_keyed(ui, key, node, out) };
+    let rc = unsafe { crate::node::place_node(ui, None, key, node, out) };
     if rc == 0 { if let Some(b) = unsafe { crate::state::unconfirmed_box(*out) } { unsafe { (*state.engine).note_part(Part(part), b) } } }
     rc
 }
@@ -432,6 +432,9 @@ mod tests {
     fn error(ui: *mut PxuiUi) -> String { let e = unsafe { pxui_last_error(ui) }; String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(e.ptr, e.len) }).into_owned() }
 
     extern "C" fn toggle_body(_: *mut c_void, ui: *mut c_void, config: *const c_void) {
+        use pxui_types::layout::{Grid, Track};
+        static VALID: [Track; 1] = [Track::Px(20.0)];
+        static INVALID: [Track; 1] = [Track::Px(f32::NAN)];
         let (ui, c) = (ui.cast::<PxuiUi>(), unsafe { &*config.cast::<PxuiToggleConfig>() });
         let label = String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(c.label.ptr, c.label.len) }).into_owned();
         let (node, mut out) = (Node::DEFAULT, PxuiBox::default());
@@ -440,6 +443,16 @@ mod tests {
         // the owner's key is the row's: its part is found by it, one it never built is not
         let mut found = PxuiBox::default();
         let again = unsafe { pxui_ui_part_box(ui, c.row.box_key, Part::HIT.0, &mut found) } + 10 * unsafe { pxui_ui_part_box(ui, c.row.box_key, Part::TRACK.0, &mut found) };
+        let mut short = Raw([0; core::mem::size_of::<Node>()]);
+        short.0[..4].copy_from_slice(&4u32.to_ne_bytes());
+        let part = Part::RAIL.0;
+        let mut grid = PxuiBox::default();
+        assert_eq!(unsafe { pxui_ui_part(ui, part, short.0.as_ptr().cast(), &mut grid) }, PXUI_ERR_ARGUMENT);
+        assert_eq!(unsafe { pxui_ui_part(ui, part, &node.grid(Grid::new(&INVALID, &[])), &mut grid) }, PXUI_ERR_ARGUMENT);
+        assert_eq!(grid.box_key, 0);
+        assert_eq!(unsafe { pxui_ui_part(ui, part, &node.grid(Grid::new(&VALID, &[])), &mut grid) }, 0);
+        assert_eq!(unsafe { pxui_ui_part_box(ui, c.row.box_key, part, &mut found) }, 0);
+        assert_eq!(found.box_key, grid.box_key);
         TOGGLE.with(|t| t.borrow_mut().push((c.size, label, c.on, hit, bad, again)));
         REGISTERED_IN_FRAME.with(|r| r.set(unsafe { reg_id(ui, BodyKind::toggle as u32, text("late"), Some(toggle_body), core::ptr::null_mut()) }));
     }

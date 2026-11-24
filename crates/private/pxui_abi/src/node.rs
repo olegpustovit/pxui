@@ -26,12 +26,10 @@ const fn payload(tag: usize, align: usize) -> usize { tag.div_ceil(align) * alig
 #[inline(always)]
 unsafe fn size_ok(p: *const u8, at: usize) -> bool {
     let value = at + payload(4, align_of::<Size>());
-    match unsafe { p.add(at).cast::<u32>().read_unaligned() } {
-        0 | 1 => (unsafe { p.add(value).cast::<f32>().read_unaligned() }).is_finite(),
-        2 => (unsafe { p.add(value).cast::<usize>().read_unaligned() }) != 0,
-        3 | 4 => true,
-        _ => false,
-    }
+    let kind = unsafe { p.add(at).cast::<u32>().read_unaligned() };
+    if kind >= 3 { return kind <= 4; }
+    if kind == 2 { return (unsafe { p.add(value).cast::<usize>().read_unaligned() }) != 0; }
+    (unsafe { p.add(value).cast::<f32>().read_unaligned() }).is_finite()
 }
 /// Whether the `Mark` at `at` is a known one.
 #[inline(always)]
@@ -98,7 +96,7 @@ unsafe fn node_ok(p: *const Node) -> bool {
     for &(at, _) in &NODE_BYTES[HEAD..HEAD + OPTIONAL] { optional |= tag(at); }
     for &(at, _) in &NODE_BYTES[HEAD + OPTIONAL..MARK] { flags |= tag(at); }
     let mark = tag(offset_of!(Node, mark));
-    if over || optional | flags > 1 || mark > 2 || !unsafe { size_ok(p, offset_of!(Node, w)) && size_ok(p, offset_of!(Node, h)) } { return false; }
+    if over || (optional | flags) & !1 != 0 || mark > 2 || !unsafe { size_ok(p, offset_of!(Node, w)) && size_ok(p, offset_of!(Node, h)) } { return false; }
     // the common node sets none of the optional values whose contents are checked: one branch
     if optional | mark == 0 { return true; }
     let value = |at: usize, align: usize| at + payload(1, align);
@@ -128,15 +126,29 @@ unsafe fn tracks(ptr: *const Track, len: usize, out: &mut [Track]) -> Option<usi
 /// slices), so the engine keeps its pointers; a C node's grid reaches here only as the library's own copy (`grid_node`). The handle
 /// goes to `out` as its bytes (two vector moves) where the engine's handle has the same layout, else field by field.
 #[inline(always)]
-pub(crate) fn declare(engine: &mut Ui, label: Option<&str>, key: i64, desc: &Node, out: &mut PxuiBox) {
+pub(crate) unsafe fn declare(engine: &mut Ui, label: Option<&str>, key: i64, desc: &Node, out: *mut PxuiBox, in_place: bool) {
     // no label and key 0 (a key no keyed call accepts): a keyless layout container, keyed by the engine by position
-    let mut b = || match label { Some(label) => engine.node_ref(label, desc), None if key == 0 => engine.layout_node(desc), None => engine.node_keyed_ref(key, desc) };
-    // written in place: the engine returns the handle straight into `out`
-    if SAME_BOX { unsafe { (out as *mut PxuiBox).cast::<UiBox>().write(b()) } }
-    else { let b = b(); (out.index, out.box_key, out.box_slot, out.generation, out.ui) = (b.index as u64, b.box_key, b.box_slot as u64, b.generation, b.ui); }
+    if in_place && SAME_BOX && (label.is_some() || key != 0) {
+        let key = label.map_or(key, |label| checked_label_key(engine.current_seed(), label));
+        engine.write_node_in_frame(key, desc, unsafe { &mut *out.cast::<core::mem::MaybeUninit<UiBox>>() });
+        return;
+    }
+    let b = match label { Some(label) => engine.node_ref(label, desc), None if key == 0 => engine.layout_node(desc), None => engine.node_keyed_ref(key, desc) };
+    if SAME_BOX { unsafe { out.cast::<UiBox>().write(b) } }
+    else { unsafe { out.write(crate::state::to_abi_box(b)) } }
+}
+
+/// The ABI checked the resolved-key encoding already. Any `###` in a short label spans byte 1.
+#[inline]
+fn checked_label_key(seed: i64, label: &str) -> i64 {
+    if label.len() <= 4 && label.as_bytes().get(1) != Some(&b'#') {
+        pxui_types::ui::hash_range(seed, label, 0, label.len())
+    } else {
+        pxui_types::ui::key_of(seed, label)
+    }
 }
 /// Whether the engine's handle is `PxuiBox` byte for byte (every 64-bit target): its padding is copied too, as padding.
-const SAME_BOX: bool = size_of::<UiBox>() == size_of::<PxuiBox>() && offset_of!(UiBox, index) == offset_of!(PxuiBox, index)
+const SAME_BOX: bool = size_of::<UiBox>() == size_of::<PxuiBox>() && align_of::<UiBox>() == align_of::<PxuiBox>() && offset_of!(UiBox, index) == offset_of!(PxuiBox, index)
     && offset_of!(UiBox, box_key) == offset_of!(PxuiBox, box_key) && offset_of!(UiBox, box_slot) == offset_of!(PxuiBox, box_slot)
     && offset_of!(UiBox, generation) == offset_of!(PxuiBox, generation) && offset_of!(UiBox, ui) == offset_of!(PxuiBox, ui) && size_of::<usize>() == size_of::<u64>();
 
@@ -164,7 +176,7 @@ unsafe fn grid_node(ui: *mut PxuiUi, label: Option<&str>, key: i64, desc: &Node,
     let rc = match label {
         Some(label) => unsafe { crate::trusted::node(ui, label, &node, out) },
         None if key == 0 => unsafe { crate::trusted::layout_node(ui, &node, out) },
-        None => unsafe { crate::trusted::pxui_ui_node_keyed(ui, key, &node, out) },
+        None => unsafe { crate::trusted::keyed_node(ui, key, false, &node, out) },
     };
     if rc != 0 { return rc; }
     let shared = unsafe { (*ui).shared() };
@@ -186,12 +198,12 @@ pub(crate) unsafe fn checked_node<'a>(desc: *const Node) -> Option<&'a Node> {
 unsafe fn invalid_node(ui: *mut PxuiUi) -> i32 { unsafe { fail(ui, "invalid node") } }
 
 #[inline(always)]
-unsafe fn place_node(ui: *mut PxuiUi, label: Option<&str>, key: i64, desc: &Node, out: *mut PxuiBox) -> i32 {
+pub(crate) unsafe fn place_node(ui: *mut PxuiUi, label: Option<&str>, key: i64, desc: &Node, out: *mut PxuiBox) -> i32 {
     if desc.grid.is_some() { return unsafe { grid_node(ui, label, key, desc, out) }; }
     match label {
         Some(label) => unsafe { crate::trusted::node(ui, label, desc, out) },
         None if key == 0 => unsafe { crate::trusted::layout_node(ui, desc, out) },
-        None => unsafe { crate::trusted::pxui_ui_node_keyed(ui, key, desc, out) },
+        None => unsafe { crate::trusted::keyed_node(ui, key, false, desc, out) },
     }
 }
 
@@ -319,6 +331,13 @@ mod tests {
     use crate::{FrameIn, FrameOut, PXUI_ERR_ARGUMENT, pxui_frame, pxui_ui_destroy};
     use core::ffi::c_void;
     use pxui_types::{Size, layout::Placement, node::Transition, theme::Curve};
+
+    #[test]
+    fn short_c_node_labels_match_engine_keys() {
+        for label in ["", "a", "é", "row", "name", "#", "##", "###", "###x", "x###", "#x##", "value###id", "\u{1}0000000000000002"] {
+            assert_eq!(checked_label_key(71, label), pxui_types::ui::key_of(71, label));
+        }
+    }
 
     #[test]
     fn accessibility_box_lookup_keeps_failed_output_and_callback_ownership() {

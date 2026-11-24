@@ -132,30 +132,24 @@ fn fill(chunk: &mut KeyChunk, keys: &[Event], surface: u64) {
     }
 }
 
-fn copy_signal(signal: &Signal, output: &mut PxuiSignal) {
-    output.flags = signal.hovered as u32 | (signal.pressed as u32) << 1 | (signal.held as u32) << 2 | (signal.released as u32) << 3
+fn signal_record(signal: &Signal) -> PxuiSignal {
+    let flags = signal.hovered as u32 | (signal.pressed as u32) << 1 | (signal.held as u32) << 2 | (signal.released as u32) << 3
         | (signal.clicked as u32) << 4 | (signal.double_clicked as u32) << 5 | (signal.dragging as u32) << 6;
-    output.has_subtree_press = signal.subtree_press.is_some() as u8;
-    output.subtree_press = signal.subtree_press.unwrap_or(0);
-    output.clicks = signal.clicks;
-    output.drag = [signal.drag.0, signal.drag.1];
-    output.pointer = [signal.pointer.0, signal.pointer.1];
-    output.press_point = [signal.press_point.0, signal.press_point.1];
-    output.release_point = [signal.release_point.0, signal.release_point.1];
-    output.button = signal.button.map_or(u8::MAX, |b| button_code(b) as u8);
-    output.scroll = [signal.scroll.0, signal.scroll.1];
-    output.pinch = signal.pinch;
-    output.has_a11y_value = signal.a11y_value.is_some() as u8;
-    output.a11y_value = signal.a11y_value.unwrap_or(0.0);
-    output.has_a11y_select = signal.a11y_select.is_some() as u8;
     let selection = signal.a11y_select.unwrap_or((0, 0));
-    output.a11y_select = [selection.0, selection.1];
+    PxuiSignal {
+        size: core::mem::size_of::<PxuiSignal>() as u32, flags, reserved: [0; 4],
+        has_subtree_press: signal.subtree_press.is_some() as u8, subtree_press: signal.subtree_press.unwrap_or(0),
+        clicks: signal.clicks, drag: [signal.drag.0, signal.drag.1], pointer: [signal.pointer.0, signal.pointer.1],
+        press_point: [signal.press_point.0, signal.press_point.1], release_point: [signal.release_point.0, signal.release_point.1],
+        button: signal.button.map_or(u8::MAX, |b| button_code(b) as u8), scroll: [signal.scroll.0, signal.scroll.1], pinch: signal.pinch,
+        has_a11y_value: signal.a11y_value.is_some() as u8, a11y_value: signal.a11y_value.unwrap_or(0.0),
+        has_a11y_select: signal.a11y_select.is_some() as u8, a11y_select: [selection.0, selection.1], keys: Default::default(),
+    }
 }
 
 /// Fills `output` from `signal`; its key events (and their text) are kept in the `Ui`'s chunk buffers until the next frame.
 pub(crate) fn write_signal(state: &PxuiUi, signal: &Signal, output: &mut PxuiSignal) {
-    *output = PxuiSignal::default();
-    copy_signal(signal, output);
+    *output = signal_record(signal);
     if !signal.keys.is_empty() {
         let shared = state.shared();
         if shared.chunks_used == shared.chunks.len() { shared.chunks.push(KeyChunk::default()); }
@@ -168,8 +162,7 @@ pub(crate) fn write_signal(state: &PxuiUi, signal: &Signal, output: &mut PxuiSig
 
 // Borrow routed events rather than constructing an owned core Signal's event vector.
 pub(crate) fn write_borrowed_signal(state: &PxuiUi, signal: &Signal, keys: &[(Event, Vec<input::Key>)], output: &mut PxuiSignal) {
-    *output = PxuiSignal::default();
-    copy_signal(signal, output);
+    *output = signal_record(signal);
     if !keys.is_empty() {
         let shared = state.shared();
         if shared.chunks_used == shared.chunks.len() { shared.chunks.push(KeyChunk::default()); }

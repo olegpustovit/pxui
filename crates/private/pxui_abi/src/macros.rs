@@ -81,12 +81,17 @@ macro_rules! export {
     (@handle $count:tt, $vis:vis $name:ident ($h:ident: $hty:ty $(, $arg:ident: $ty:ty)*) ($($ret:tt)*) ($failed:expr) ($refused:tt) $body:block) => {
         #[unsafe(no_mangle)]
         $vis unsafe extern "C" fn $name($h: $hty $(, $arg: $ty)*) $($ret)* {
-            let shared = <$hty as $crate::state::Handle>::shared($h);
+            let shared = if $count { <$hty as $crate::state::Handle>::shared($h) } else { core::ptr::null_mut() };
             // one compare: a poisoned `Ui` has no current handle, so it is refused here too (`state::refuse` tells which). A `trusted`
             // export (`$count` false) is checked by its trusted entry instead, which the static wrapper calls directly (`enter!`)
             if $count { unsafe { $crate::state::note_call(shared) }; }
             if $count && !<$hty as $crate::state::Handle>::usable($h, shared) { export!(@refuse $refused, shared); }
-            export!(@run payload => { unsafe { $crate::state::panicked(shared, payload, false); } $failed }, $body)
+            export!(@run payload => {
+                // A builder's trusted entry handles the Ui while it runs. The export needs its state only on unwind.
+                let shared = if $count { shared } else { <$hty as $crate::state::Handle>::shared($h) };
+                unsafe { $crate::state::panicked(shared, payload, false); }
+                $failed
+            }, $body)
         }
     };
     (@refuse status, $shared:expr) => { return unsafe { $crate::state::refuse($shared) } };

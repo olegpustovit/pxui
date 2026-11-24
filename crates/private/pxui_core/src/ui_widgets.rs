@@ -302,6 +302,12 @@ impl Ui {
     /// A list row's text names nothing (as before), a tree row's names the row. Panics outside a collection item (`in_item`).
     pub fn item_text(&mut self, text: &str) {
         assert!(self.in_item(), "Ui.item_text: outside a selection_list or tree row or a table cell");
+        self.write_item_text(text);
+    }
+
+    /// Writes text after the caller confirmed it is building a collection item.
+    #[inline]
+    pub fn write_item_text(&mut self, text: &str) {
         match self.bodies.item_kind {
             ITEM_LIST => { self.row_text(text); }
             ITEM_TREE => { let n = self.row_text(text); self.a11y_name(&n, text); }
@@ -311,6 +317,7 @@ impl Ui {
     }
 
     /// Whether a `selection_list`/`tree` row or a `table` cell is being built (where `item_text` puts its text).
+    #[inline]
     pub fn in_item(&self) -> bool { self.bodies.item_kind != ITEM_NONE }
 
     /// A text row's text: a row-high label in the look of `item`, which it returns (the C text-row exports' row; it names nothing).

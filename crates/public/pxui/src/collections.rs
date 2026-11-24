@@ -147,7 +147,7 @@ const HEAD_EMPTY: PxuiHeadResult = PxuiHeadResult { size: core::mem::size_of::<P
 
 /// A build index as the list part it names.
 pub(crate) fn part_of(index: usize) -> SectionPart {
-    match index { usize::MAX => SectionPart::Leading, i if i == usize::MAX - 1 => SectionPart::Header, i if i == usize::MAX - 2 => SectionPart::Trailing, i => SectionPart::Row(i) }
+    match usize::MAX - index { 0 => SectionPart::Leading, 1 => SectionPart::Header, 2 => SectionPart::Trailing, _ => SectionPart::Row(index) }
 }
 
 /// The engine's row record as the row's `CellState`, field by field.
@@ -185,6 +185,7 @@ const _: () = {
 };
 
 /// The library's list record as a `ListResponse`.
+#[inline]
 pub(crate) fn list_response(out: &PxuiListResult) -> ListResponse {
     let at = |i: usize| (i != usize::MAX).then_some(i);
     let row = (out.activated != usize::MAX || out.secondary != usize::MAX).then_some(out.row);
@@ -220,6 +221,7 @@ impl Ui {
     /// The one body of `selection_list`: keyed by `key`; the list record, `state`'s flags (sized to `count`) and anchor cross in one
     /// call (`pxui_ui_selection_list`), the whole `ListResponse` comes back in one record.
     #[track_caller]
+    #[inline]
     pub(crate) fn selection_list_key(&mut self, key: Key, count: usize, row_key: &dyn Fn(usize) -> i64, state: &mut ListState, list: &SelectionList, cell: &mut dyn FnMut(&mut Ui, SectionPart, CellState)) -> ListResponse {
         // shrink then grow: truncating first means rows that come back start unflagged (no stale SELECTED); capacity is kept
         state.rows.resize(count, 0);
@@ -229,7 +231,7 @@ impl Ui {
         #[cfg(feature = "static")]
         let drop_look = pxui_types::ffi::PxuiLookDesc::default();
         #[cfg(not(feature = "static"))]
-        let drop_look = crate::node::look(list.drop_look.unwrap_or(crate::theme::Look::NONE));
+        let drop_look = list.drop_look.map_or_else(pxui_types::ffi::PxuiLookDesc::default, crate::node::look);
         let desc = PxuiSelectionListDesc { size: core::mem::size_of::<PxuiSelectionListDesc>() as u32, mode: list.mode as u8, fit: list.fit as u8, open_on_click: list.open_on_click as u8,
             overlay_scrollbar: list.overlay_scrollbar as u8, measured: list.measured as u8, reorder: list.reorder as u8, has_drop_look: list.drop_look.is_some() as u8, bare: list.bare as u8, has_revision: state.revision.is_some() as u8, reserved: [0; 3], count, row_height: list.row_height, leading_height: list.leading_height,
             header_height: list.header_height, trailing_height: list.trailing_height, rows: PxuiU8MutSpan { ptr: state.rows.as_mut_ptr(), len: count }, anchor: state.anchor.unwrap_or(usize::MAX),

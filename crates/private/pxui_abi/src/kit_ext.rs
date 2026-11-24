@@ -31,7 +31,7 @@ export!(trusted pub unsafe fn pxui_ui_button_plain(ui: *mut PxuiUi, key: Str, te
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short button response") } };
     let (Some(key), Some(text)) = (unsafe { crate::state::checked_key(key) }, unsafe { checked(text) }) else { return unsafe { fail(ui, "invalid button text") } };
     let mut r = trusted::EngineResponse::default();
-    let rc = unsafe { trusted::button_plain(ui, key, text, &mut r) };
+    let rc = unsafe { trusted::button_plain_checked(ui, key, text, false, &mut r) };
     if rc == 0 { trusted::respond(&r, out); }
     rc
 });
@@ -148,7 +148,7 @@ export!(trusted pub unsafe fn pxui_ui_toggle_plain(ui: *mut PxuiUi, key: Str, te
     let (Some(key), Some(text)) = (unsafe { crate::state::checked_key(key) }, unsafe { checked(text) }) else { return unsafe { fail(ui, "invalid toggle text") } };
     if on > 1 { return unsafe { fail(ui, "invalid toggle value") }; }
     let mut r = trusted::EngineResponse::default();
-    let rc = unsafe { trusted::toggle_plain(ui, key, text, on != 0, &mut r) };
+    let rc = unsafe { trusted::toggle_plain_checked(ui, key, text, on != 0, false, &mut r) };
     if rc == 0 { trusted::respond(&r, out); }
     rc
 });
@@ -220,11 +220,29 @@ unsafe fn checked_items<'a>(items: Slice<PxuiPickItem>) -> Option<&'a [PxuiPickI
     let items = if items.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(items.ptr, items.len) } };
     let mut total = 0usize;
     for item in items {
-        total = total.saturating_add(item.text.len).saturating_add(item.name.len).saturating_add(item.detail.len);
-        let strings = unsafe { checked(item.text).is_some() && checked(item.name).is_some() && checked(item.detail).is_some() };
-        if !strings || item.has_id > 1 || item.reserved != [0; 7] || total > MAX_TOTAL_TEXT_BYTES { return None; }
+        if item.has_id > 1 || item.reserved != [0; 7] || unsafe { checked(item.text) }.is_none() { return None; }
+        if item.name.len | item.detail.len != 0 && unsafe { checked(item.name).is_none() || checked(item.detail).is_none() } { return None; }
+        // Three bounded strings per item and at most MAX_OPTIONS items fit in usize.
+        total += item.text.len + item.name.len + item.detail.len;
+        if total > MAX_TOTAL_TEXT_BYTES { return None; }
     }
     Some(items)
+}
+
+#[cfg(test)]
+#[test]
+fn pick_items_check_each_string_and_the_total_byte_limit() {
+    use crate::state::MAX_LABEL_BYTES;
+
+    let text = "x".repeat(MAX_LABEL_BYTES + 1);
+    let item = PxuiPickItem { has_id: 0, reserved: [0; 7], id: 0, text: crate::state::pair(&text[..MAX_LABEL_BYTES]), name: Str::default(), detail: Str::default() };
+    let valid = vec![item; MAX_TOTAL_TEXT_BYTES / MAX_LABEL_BYTES];
+    assert!(unsafe { checked_items(Slice { ptr: valid.as_ptr(), len: valid.len() }) }.is_some());
+    let mut over_budget = valid;
+    over_budget.push(PxuiPickItem { text: Str::from("x"), ..item });
+    assert!(unsafe { checked_items(Slice { ptr: over_budget.as_ptr(), len: over_budget.len() }) }.is_none());
+    let oversized = PxuiPickItem { detail: crate::state::pair(&text), ..item };
+    assert!(unsafe { checked_items(Slice { ptr: &oversized, len: 1 }) }.is_none());
 }
 
 /// Item `i` of items `checked_items` passed, as the engine's segment (its strings were checked: read as they are).

@@ -58,7 +58,10 @@ pub unsafe fn node_str(ui: *mut PxuiUi, label: &str, desc: &Node, out: *mut Pxui
 pub unsafe fn node_label(ui: *mut PxuiUi, label: &str, desc: &Node, out: *mut PxuiBox) -> i32 {
     if ui.is_null() || label.len() > MAX_KEY_BYTES || unsafe { (*(*ui).shared).building } != ui || desc.transition.is_some() { return unsafe { node_label_checked(ui, label, desc, out) } }
     unsafe { (*(*ui).shared).calls = (*(*ui).shared).calls.wrapping_add(1) };
-    declare(unsafe { engine(ui) }, Some(label), 0, desc, unsafe { &mut *out });
+    let e = unsafe { engine(ui) };
+    let seed = e.current_seed();
+    let key = if label.as_bytes().contains(&b'#') { pxui_types::ui::key_of(seed, label) } else { pxui_types::ui::hash_range(seed, label, 0, label.len()) };
+    unsafe { declare(e, None, key, desc, out, false) };
     0
 }
 
@@ -74,7 +77,7 @@ unsafe fn node_label_checked(ui: *mut PxuiUi, label: &str, desc: &Node, out: *mu
 pub(crate) unsafe fn node(ui: *mut PxuiUi, label: &str, desc: &Node, out: *mut PxuiBox) -> i32 {
     enter!(ui);
     if let pxui_types::node::OptTransition::Some(curve) = &desc.transition { if !valid_curve(curve) { return unsafe { fail(ui, "invalid transition curve") }; } }
-    declare(unsafe { engine(ui) }, Some(label), 0, desc, unsafe { &mut *out });
+    unsafe { declare(engine(ui), Some(label), 0, desc, out, true) };
     0
 }
 
@@ -83,16 +86,22 @@ pub(crate) unsafe fn node(ui: *mut PxuiUi, label: &str, desc: &Node, out: *mut P
 pub unsafe fn layout_node(ui: *mut PxuiUi, desc: &Node, out: *mut PxuiBox) -> i32 {
     enter!(ui);
     if let pxui_types::node::OptTransition::Some(curve) = &desc.transition { if !valid_curve(curve) { return unsafe { fail(ui, "invalid transition curve") }; } }
-    declare(unsafe { engine(ui) }, None, 0, desc, unsafe { &mut *out });
+    unsafe { declare(engine(ui), None, 0, desc, out, false) };
     0
 }
 
 #[inline]
 pub unsafe fn pxui_ui_node_keyed(ui: *mut PxuiUi, key: i64, desc: &Node, out: *mut PxuiBox) -> i32 {
+    unsafe { keyed_node(ui, key, key == 0 || key == 1, desc, out) }
+}
+
+/// A keyed node whose C entry has already ruled out reserved keys.
+#[inline(always)]
+pub(crate) unsafe fn keyed_node(ui: *mut PxuiUi, key: i64, reserved: bool, desc: &Node, out: *mut PxuiBox) -> i32 {
     enter!(ui);
-    if key == 0 || key == 1 { return unsafe { fail(ui, "reserved node key; derive integer keys with int_key") }; }
+    if reserved { return unsafe { fail(ui, "reserved node key; derive integer keys with int_key") }; }
     if let pxui_types::node::OptTransition::Some(curve) = &desc.transition { if !valid_curve(curve) { return unsafe { fail(ui, "invalid transition curve") }; } }
-    declare(unsafe { engine(ui) }, None, key, desc, unsafe { &mut *out });
+    unsafe { declare(engine(ui), None, key, desc, out, false) };
     0
 }
 
@@ -104,14 +113,16 @@ pub unsafe fn part(ui: *mut PxuiUi, part: u32, desc: &Node, out: *mut PxuiBox) -
     use pxui_types::theme::Part;
     enter!(ui);
     let e = unsafe { engine(ui) };
-    if unsafe { (*ui).shared() }.bodies.depth == 0 && !(part == Part::HANDLE.0 && e.in_movable_row()) { return unsafe { crate::state::fail_code(ui, "a part is built inside a body", crate::PXUI_ERR_STATE) } }
-    if !Part::valid(part) { return unsafe { fail(ui, "invalid part number") } }
+    if part != Part::HANDLE.0 || !e.in_movable_row() {
+        if unsafe { (*ui).shared() }.bodies.depth == 0 { return unsafe { crate::state::fail_code(ui, "a part is built inside a body", crate::PXUI_ERR_STATE) } }
+        if !Part::valid(part) { return unsafe { fail(ui, "invalid part number") } }
+    }
     if let pxui_types::node::OptTransition::Some(curve) = &desc.transition { if !valid_curve(curve) { return unsafe { fail(ui, "invalid transition curve") }; } }
+    // The engine derives part keys with int_key, which cannot produce 0 or 1.
     let key = e.own_part_key(Part(part));
-    if key == 0 || key == 1 { return unsafe { fail(ui, "reserved node key; derive integer keys with int_key") }; }
-    declare(e, None, key, desc, unsafe { &mut *out });
-    // the handle the library just wrote: its serial is this `Ui`'s by construction
-    if let Some(b) = crate::state::unconfirmed_box(unsafe { *out }) { e.note_part(Part(part), b) }
+    let b = e.node_keyed_ref(key, desc);
+    e.note_part(Part(part), b);
+    unsafe { out.write(to_abi_box(b)) };
     0
 }
 
@@ -144,9 +155,14 @@ pub(crate) unsafe fn text(ui: *mut PxuiUi, box_: *const PxuiBox, value: &str) ->
 }
 
 #[inline(always)]
-pub unsafe fn pxui_ui_label(ui: *mut PxuiUi, text: Str, style: &pxui_types::text::LabelFields, digits: bool, out: &mut PxuiBox) -> i32 {
+pub unsafe fn label_str(ui: *mut PxuiUi, text: &str, style: &LabelFields, digits: bool, out: &mut PxuiBox) -> i32 {
+    unsafe { label(ui, clip(text), style, digits, out) }
+}
+
+/// A label whose display text the caller has already bounded and decoded.
+#[inline(always)]
+pub(crate) unsafe fn label(ui: *mut PxuiUi, text: &str, style: &LabelFields, digits: bool, out: &mut PxuiBox) -> i32 {
     enter!(ui);
-    let Some(text) = (unsafe { utf8(text, usize::MAX) }).map(clip) else { return unsafe { fail(ui, "invalid label text") } };
     let Some(node) = with_variant!(ui, pxui_types::theme::BodyKind::label, style.variant, unsafe { engine(ui) }.label_styled(text, style, digits)) else { return unsafe { fail(ui, "invalid label style: a size, line height, box height, padding, width, wrap, align, ellipsis or feature no style has, or a font not loaded") }; };
     *out = to_abi_box(node);
     0
@@ -156,9 +172,14 @@ pub unsafe fn pxui_ui_label(ui: *mut PxuiUi, text: Str, style: &pxui_types::text
 /// for them. A click is the flip of `on`, which the caller keeps.
 #[inline(always)]
 pub unsafe fn toggle_plain(ui: *mut PxuiUi, key: &str, text: &str, on: bool, out: &mut EngineResponse) -> i32 {
+    unsafe { toggle_plain_checked(ui, key, clip(text), on, bad_key(key), out) }
+}
+
+/// The C entry has checked the key and display text.
+#[inline(always)]
+pub(crate) unsafe fn toggle_plain_checked(ui: *mut PxuiUi, key: &str, text: &str, on: bool, bad: bool, out: &mut EngineResponse) -> i32 {
     enter!(ui);
-    let text = clip(text);
-    if bad_key(key) { return unsafe { fail(ui, "invalid toggle text") }; }
+    if bad { return unsafe { fail(ui, "invalid toggle text") }; }
     let r = unsafe { engine(ui) }.toggle_opts(key, text, on, &ToggleOpts::DEFAULT);
     *out = r;
     0
@@ -338,7 +359,6 @@ fn finite(size: Size) -> bool { !matches!(size, Size::Px(v) | Size::Pct(v) if !v
 #[inline]
 pub unsafe fn frame(ui: *mut PxuiUi, input: &FrameIn, f: Inner, out: &mut FrameOut) -> i32 { unsafe { crate::ui::frame_body(ui, input, f, out) } }
 
-
 // ---- widgets: Rust types in, so the wrapper passes its own `&str` and slices (no `Str` span to build, nothing to decode)
 
 pub(crate) const MAX_OPTIONS: usize = 4096;
@@ -365,6 +385,12 @@ fn clip_segments<'a>(list: &'a [Segment<'a>], spare: &'a mut Vec<Segment<'a>>) -
 #[inline(always)]
 fn clipped_overlay<'a>(overlay: &'a Overlay<'a>, spare: &'a mut Option<Overlay<'a>>) -> &'a Overlay<'a> {
     if !overlay.name.is_some_and(long) { return overlay; }
+    clip_overlay_name(overlay, spare)
+}
+
+#[cold]
+#[inline(never)]
+fn clip_overlay_name<'a>(overlay: &'a Overlay<'a>, spare: &'a mut Option<Overlay<'a>>) -> &'a Overlay<'a> {
     spare.insert(Overlay { name: overlay.name.map(clip), ..*overlay })
 }
 /// Segments as `clip_segments` gives them and whether `segments_ok` holds, in one pass when their texts together are within one
@@ -590,9 +616,14 @@ pub unsafe fn button_with(ui: *mut PxuiUi, key: &str, text: &str, name: Option<&
 /// default options, so nothing is built or checked for them.
 #[inline(always)]
 pub unsafe fn button_plain(ui: *mut PxuiUi, key: &str, text: &str, out: &mut EngineResponse) -> i32 {
+    unsafe { button_plain_checked(ui, key, clip(text), bad_key(key), out) }
+}
+
+/// The C entry has checked the key and display text.
+#[inline(always)]
+pub(crate) unsafe fn button_plain_checked(ui: *mut PxuiUi, key: &str, text: &str, bad: bool, out: &mut EngineResponse) -> i32 {
     enter!(ui);
-    let text = clip(text);
-    if bad_key(key) { return unsafe { fail(ui, "invalid button text") }; }
+    if bad { return unsafe { fail(ui, "invalid button text") }; }
     let r = unsafe { engine(ui) }.button_opts(key, text, None, &pxui_core::ui::ButtonOpts::DEFAULT, [""; 3], None, None);
     *out = r;
     0
@@ -781,31 +812,35 @@ pub unsafe fn footer(ui: *mut PxuiUi, right: Option<&str>, hints: &[(&str, &str)
 
 // ---- containers with options
 
-/// Whether every number of `overlay` is finite (and its width, height and padding not negative).
-/// On the bits, one compare a group: a finite number's bits less the sign are below infinity's; one in `0.0..=f32::MAX` is a
-/// positive finite number's bits or -0.0 (its bits less the sign 0); NaN is neither.
+/// Checks overlay geometry, in line so a constant Rust style can be checked at its call site.
 #[inline(always)]
-fn overlay_ok(overlay: &Overlay) -> bool {
-    let finite = [overlay.at.0, overlay.at.1, overlay.max_h.unwrap_or_default()].iter().fold(0, |most, v| most.max(v.to_bits() & 0x7fff_ffff)) < 0x7f80_0000;
-    let sized = [overlay.w.unwrap_or_default(), overlay.h.unwrap_or_default(), overlay.padding, overlay.dismiss.fraction.unwrap_or_default(), overlay.dismiss.velocity.unwrap_or_default()]
-        .iter().fold(0, |most, v| { let bits = v.to_bits(); most.max(if bits == 0x8000_0000 { 0 } else { bits }) }) <= f32::MAX.to_bits();
-    finite & sized
+pub fn overlay_ok(overlay: &Overlay) -> bool {
+    let nonnegative = |v: f32| v >= 0.0 && v < f32::INFINITY;
+    overlay.at.0.is_finite() && overlay.at.1.is_finite()
+        && nonnegative(overlay.padding) && overlay.w.is_none_or(nonnegative)
+        && overlay.h.is_none_or(nonnegative) && overlay.max_h.is_none_or(f32::is_finite)
+        && overlay.dismiss.fraction.is_none_or(nonnegative) && overlay.dismiss.velocity.is_none_or(nonnegative)
 }
 
-/// A panel keyed by `key`, placed, dressed and named by `overlay`.
+/// A panel with geometry already checked by the Rust wrapper.
 #[inline]
-pub unsafe fn panel(ui: *mut PxuiUi, key: &str, overlay: &Overlay, f: Inner, root: &mut PxuiBox) -> i32 {
+pub unsafe fn panel(ui: *mut PxuiUi, key: &str, overlay: &Overlay, valid: bool, f: Inner, root: &mut PxuiBox) -> i32 {
     let mut clipped = None;
     let overlay = clipped_overlay(overlay, &mut clipped);
-    unsafe { panel_keyed(ui, key, bad_key(key), overlay, f, root) }
+    unsafe { panel_checked(ui, key, !valid || bad_key(key), overlay, f, root) }
 }
 
 /// Build a panel whose name is already within the display text limit and whose key the caller checked (`bad`: refused).
 /// The C export's `read_keyed` checks both limits before this call. Always inline, the export is one body.
 #[inline(always)]
 pub(crate) unsafe fn panel_keyed(ui: *mut PxuiUi, key: &str, bad: bool, overlay: &Overlay, f: Inner, root: &mut PxuiBox) -> i32 {
+    unsafe { panel_checked(ui, key, bad || !overlay_ok(overlay), overlay, f, root) }
+}
+
+#[inline(always)]
+unsafe fn panel_checked(ui: *mut PxuiUi, key: &str, bad: bool, overlay: &Overlay, f: Inner, root: &mut PxuiBox) -> i32 {
     enter!(ui);
-    if bad || !overlay_ok(overlay) { return unsafe { fail(ui, "invalid panel descriptor") }; }
+    if bad { return unsafe { fail(ui, "invalid panel descriptor") }; }
     *root = to_abi_box(unsafe { engine(ui) }.panel_root(key, overlay, f));
     0
 }
@@ -846,8 +881,14 @@ const MAX_ITEMS: usize = 1_000_000;
 /// A grid of `count` cells, built on demand: `cell` gets the engine and the cell's index, and makes its own borrowed handle.
 #[inline]
 pub unsafe fn grid_list(ui: *mut PxuiUi, label: &str, count: usize, cell_w: f32, cell_h: f32, cell: &mut dyn FnMut(&mut Ui, usize), out: &mut PxuiBox) -> i32 {
+    unsafe { grid_list_keyed(ui, label, bad_key(label), count, cell_w, cell_h, cell, out) }
+}
+
+/// The C entry already checked the label. The grid geometry is checked here for both callers.
+#[inline]
+pub(crate) unsafe fn grid_list_keyed(ui: *mut PxuiUi, label: &str, bad_key: bool, count: usize, cell_w: f32, cell_h: f32, cell: &mut dyn FnMut(&mut Ui, usize), out: &mut PxuiBox) -> i32 {
     enter!(ui);
-    if bad_key(label) || count > MAX_ITEMS || !cell_w.is_finite() || !cell_h.is_finite() || cell_w <= 0.0 || cell_h <= 0.0 { return unsafe { fail(ui, "invalid grid list descriptor") }; }
+    if bad_key || count > MAX_ITEMS || !cell_w.is_finite() || !cell_h.is_finite() || cell_w <= 0.0 || cell_h <= 0.0 { return unsafe { fail(ui, "invalid grid list descriptor") }; }
     *out = to_abi_box(unsafe { engine(ui) }.grid_list(label, count, cell_w, cell_h, cell));
     0
 }
@@ -921,7 +962,7 @@ pub unsafe fn item_text(ui: *mut PxuiUi, text: &str) -> i32 {
     enter!(ui);
     let engine = unsafe { engine(ui) };
     if !engine.in_item() { return unsafe { fail(ui, "item_text outside a collection row or cell") }; }
-    engine.item_text(text);
+    engine.write_item_text(text);
     0
 }
 
@@ -1065,6 +1106,7 @@ fn write_head(h: &pxui_core::ui_lists::HeadResult, sort: Option<(i64, bool)>, ou
 /// `pxui_ui_section_list`'s body (and the static wrapper's `section_list`): `desc` checked, then the list keyed by `key` with
 /// its trailer; `f` gets the borrowed handle, the part's index (`usize::MAX - 2` the trailer) and its cell: a row's box (the lead-in,
 /// heading and trailer the empty box) and the part's logical content Y, enabled, nothing selected, focused or held.
+#[inline]
 pub unsafe fn section_list(ui: *mut PxuiUi, key: &str, desc: &PxuiSectionListDesc, ids: Option<&dyn Fn(usize) -> i64>, f: &mut dyn FnMut(&mut Ui, usize, &ListCell), out: &mut PxuiListResult) -> i32 {
     enter!(ui);
     if bad_key(key) || desc.overlay_scrollbar > 1 || desc.measured > 1 || desc.reorder > 1 || desc.reserved != 0
@@ -1163,7 +1205,7 @@ mod segment_tests {
         assert!(!checked_segments(&many, &mut spare).1);
     }
 
-    /// `overlay_ok` on the bits takes what the float compares took: finite places, sizes in `0.0..=f32::MAX` (-0.0 included).
+    /// Positions and maximum height must be finite. Other sizes accept zero (including -0.0) through f32::MAX.
     #[test]
     fn overlay_ok_takes_finite_places_and_sizes_from_zero_to_max() {
         let base = Overlay::DEFAULT;
