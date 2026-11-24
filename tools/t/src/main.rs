@@ -398,6 +398,7 @@ fn run_tests(
     let run_started = Instant::now();
 
     let mut ordinary = Vec::new();
+    let mut editor = Vec::new();
     let mut serial = Vec::new();
     let mut gpu = Vec::new();
     let mut order = 0;
@@ -490,6 +491,8 @@ fn run_tests(
                 gpu.push(case);
             } else if target.starts_with("window_") || is_serial_test(&case.name) {
                 serial.push(case);
+            } else if case.crate_name == "rays_editor" && target.starts_with("editor-") {
+                editor.push(case);
             } else {
                 ordinary.push(case);
             }
@@ -504,6 +507,22 @@ fn run_tests(
     if record_outcomes(outcomes, timings, &mut failure_code) {
         return report_whole_timeout(run_started);
     }
+    if !editor.is_empty() {
+        let mut shards = vec![Vec::new(); workers.min(editor.len())];
+        let count = shards.len();
+        for (index, case) in editor.into_iter().enumerate() {
+            shards[index % count].push(case);
+        }
+        let outcomes = thread::scope(|scope| {
+            let jobs: Vec<_> = shards.into_iter().map(|cases| {
+                scope.spawn(move || run_case_groups(&cases, args, run_started, timeout))
+            }).collect();
+            jobs.into_iter().flat_map(|job| job.join().unwrap()).collect::<Vec<_>>()
+        });
+        if record_outcomes(outcomes, timings, &mut failure_code) {
+            return report_whole_timeout(run_started);
+        }
+    }
     gpu.extend(serial);
     let mut gpu = VecDeque::from(gpu);
     while let Some(case) = gpu.pop_front() {
@@ -516,7 +535,7 @@ fn run_tests(
             let executable = case.executable.clone();
             let mut group = vec![case];
             while gpu.front().is_some_and(|next| next.executable == executable) { group.push(gpu.pop_front().unwrap()); }
-            run_gpu_groups(&group, args, run_started, timeout)
+            run_case_groups(&group, args, run_started, timeout)
         } else { vec![run_test_case(case, args, run_started, timeout)] };
         if record_outcomes(outcomes, timings, &mut failure_code) {
             return report_whole_timeout(run_started);
@@ -683,12 +702,12 @@ fn run_test_case(
     }
 }
 
-fn run_gpu_groups(cases: &[TestCase], args: &Args, run_started: Instant, timeout: Option<Duration>) -> Vec<TestOutcome> {
+fn run_case_groups(cases: &[TestCase], args: &Args, run_started: Instant, timeout: Option<Duration>) -> Vec<TestOutcome> {
     let mut outcomes = Vec::with_capacity(cases.len());
     while outcomes.len() < cases.len() {
         // A failing child may have left native state behind. Start a fresh process for the
         // remaining cases, retaining the failing result and the original whole-run deadline.
-        let batch = run_gpu_group(&cases[outcomes.len()..], args, run_started, timeout);
+        let batch = run_case_group(&cases[outcomes.len()..], args, run_started, timeout);
         let whole_timeout = batch.iter().any(|outcome| outcome.whole_timeout);
         outcomes.extend(batch);
         if whole_timeout { break; }
@@ -696,7 +715,7 @@ fn run_gpu_groups(cases: &[TestCase], args: &Args, run_started: Instant, timeout
     outcomes
 }
 
-fn run_gpu_group(cases: &[TestCase], args: &Args, run_started: Instant, timeout: Option<Duration>) -> Vec<TestOutcome> {
+fn run_case_group(cases: &[TestCase], args: &Args, run_started: Instant, timeout: Option<Duration>) -> Vec<TestOutcome> {
     use std::io::BufRead;
     let mut command = Command::new(&cases[0].executable);
     command.arg("--rays-group").args(cases.iter().map(|case| &case.name)).env("SDL_AUDIODRIVER", "dummy");
@@ -1435,7 +1454,7 @@ mod tests {
         }).collect();
         let mut args = parse_args(std::iter::empty()).unwrap();
         args.test_timeout = Duration::from_millis(500);
-        let outcomes = run_gpu_group(&cases, &args, Instant::now(), Some(Duration::from_secs(1)));
+        let outcomes = run_case_group(&cases, &args, Instant::now(), Some(Duration::from_secs(1)));
         assert_eq!(outcomes.len(), 2);
         assert_eq!(outcomes[0].failure_code, 0);
         assert_eq!(outcomes[0].timing.elapsed, Duration::from_millis(1));
@@ -1457,7 +1476,7 @@ mod tests {
             order, executable: fixture.clone(), crate_name: "fixture".into(), name: name.into(),
         }).collect();
         let args = parse_args(std::iter::empty()).unwrap();
-        let outcomes = run_gpu_groups(&cases, &args, Instant::now(), Some(Duration::from_secs(2)));
+        let outcomes = run_case_groups(&cases, &args, Instant::now(), Some(Duration::from_secs(2)));
         assert_eq!(outcomes.iter().map(|outcome| (outcome.order, outcome.failure_code)).collect::<Vec<_>>(),
             [(0, 0), (1, 101), (2, 0)]);
         fs::remove_dir_all(root).unwrap();
