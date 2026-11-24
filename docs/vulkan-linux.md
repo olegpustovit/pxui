@@ -14,6 +14,15 @@ cargo t -p ogpu_vulkan && cargo t -p pxui_render && cargo t -p pxui_wayland
 
 A changed `PATH` reruns the shader build step. Build in the Linux filesystem, not under `/mnt/c`.
 
+WSL2 exposes the host GPU through `/dev/dxg`; Ubuntu's Mesa ships no Vulkan driver for it, so `vulkaninfo` shows only
+llvmpipe. `tools/mesa-dzn.sh --install-deps` builds Mesa 25.0.7's D3D12-backed Vulkan driver (dzn,
+`-Dvulkan-drivers=microsoft-experimental`) into `~/.local/mesa-dzn`; select it with
+`LD_LIBRARY_PATH=/usr/lib/wsl/lib VK_DRIVER_FILES=~/.local/mesa-dzn/share/vulkan/icd.d/dzn_icd.x86_64.json`. On an RTX 2080 Ti
+it reports `Microsoft Direct3D12 (NVIDIA GeForce RTX 2080 Ti)`, but as a Vulkan 1.2 device without `VK_KHR_push_descriptor`,
+`VK_EXT_extended_dynamic_state3`, `VK_EXT_robustness2` or `VK_KHR_incremental_present`: `ogpu_vulkan` requires the first four
+and refuses the device (`device_create` fails with `NoAdapter`), so on WSL every ogpu test and host still runs on lavapipe. The script prints those
+lines so a newer Mesa that closes the gap shows up.
+
 Compositor hooks (`ogpu_core::dmabuf`, `backend::{external, dmabuf_formats, import_dmabuf, export_sync_file,
 import_sync_file}`, Linux only) degrade through `backend::external(device)`. Lavapipe in WSL imports dmabufs
 (linear only: no `VK_EXT_image_drm_format_modifier`) but exports none, and has no SYNC_FD semaphores; WSL has
