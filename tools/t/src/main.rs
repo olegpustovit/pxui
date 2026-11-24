@@ -484,8 +484,7 @@ fn run_tests(
                 name: test,
             };
             order += 1;
-            // GPU and window cases each get their own process and deadline.
-            // Serialize native work so GPU contention cannot consume another case's budget.
+            // Serialize GPU and window cases so GPU contention cannot consume another case's deadline.
             let target = case.executable.file_name().and_then(|name| name.to_str()).unwrap_or("");
             if target.starts_with("gpu_") {
                 gpu.push(case);
@@ -530,7 +529,8 @@ fn run_tests(
             return report_whole_timeout(run_started);
         }
         let grouped = case.executable.file_name().and_then(|name| name.to_str())
-            .is_some_and(|name| name.starts_with("gpu_all-") || name.starts_with("gpu_editor-"));
+            .is_some_and(|name| name.starts_with("gpu_all-") || (case.crate_name == "rays_editor"
+                && (name.starts_with("gpu_editor-") || name.starts_with("gpu_flow_integration-"))));
         let outcomes = if grouped {
             let executable = case.executable.clone();
             let mut group = vec![case];
