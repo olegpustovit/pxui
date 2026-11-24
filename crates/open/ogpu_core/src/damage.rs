@@ -124,6 +124,32 @@ impl History {
     }
 }
 
+/// One `drm_mode_rect` of a DRM/KMS plane's `FB_DAMAGE_CLIPS` property blob: framebuffer pixels, `x2`/`y2` exclusive.
+/// Design hook for a KMS host (docs/vulkan-linux.md): each scanout buffer owes its debt like a swapchain image.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DrmClip {
+    pub x1: i32,
+    pub y1: i32,
+    pub x2: i32,
+    pub y2: i32,
+}
+
+/// Fills `out` with the damage clips for an atomic commit of a `extent` framebuffer from what `History::take`
+/// returned (`None`: the whole buffer) and returns how many it wrote. Zero clips means nothing changed; the KMS
+/// property then stays unset, which the kernel reads as the whole plane.
+/// Allocates: never.
+pub fn drm_clips(copy: Option<&[Rect]>, extent: (i64, i64), out: &mut [DrmClip; MAX_RECTS]) -> usize {
+    let whole = Rect { x: 0, y: 0, width: extent.0, height: extent.1 };
+    let fit = |v: i64| v.clamp(0, i64::from(i32::MAX)) as i32;
+    let mut count = 0;
+    for rect in copy.unwrap_or(std::slice::from_ref(&whole)).iter().filter_map(|&r| clamp(r, whole)).take(MAX_RECTS) {
+        out[count] = DrmClip { x1: fit(rect.x), y1: fit(rect.y), x2: fit(rect.x + rect.width), y2: fit(rect.y + rect.height) };
+        count += 1;
+    }
+    count
+}
+
 /// `rect` inside `bounds`, or `None` when nothing of it is.
 pub fn clamp(rect: Rect, bounds: Rect) -> Option<Rect> {
     let (x0, y0) = (rect.x.max(bounds.x), rect.y.max(bounds.y));
@@ -190,6 +216,16 @@ mod tests {
         // Over 60% of the image owed: one whole copy.
         h.take(1, ext, 0, Some(&[r(0, 0, 1000, 700)]));
         assert_eq!(h.take(1, ext, 1, Some(&[])), None);
+    }
+
+    #[test]
+    fn drm_damage_clips() {
+        let mut out = [DrmClip::default(); MAX_RECTS];
+        assert_eq!(drm_clips(None, (640, 480), &mut out), 1);
+        assert_eq!(out[0], DrmClip { x1: 0, y1: 0, x2: 640, y2: 480 });
+        let n = drm_clips(Some(&[r(10, 20, 30, 40), r(630, 470, 50, 50), r(700, 0, 5, 5)]), (640, 480), &mut out);
+        assert_eq!(&out[..n], &[DrmClip { x1: 10, y1: 20, x2: 40, y2: 60 }, DrmClip { x1: 630, y1: 470, x2: 640, y2: 480 }]);
+        assert_eq!(drm_clips(Some(&[]), (640, 480), &mut out), 0);
     }
 
     #[test]

@@ -62,6 +62,13 @@ long-lived weston with `--idle-time=0`: its desktop shell locks the screen after
 FIFO presents (and frame-paced hosts) stop. Weston 13 offers no `wp_fractional_scale_v1`, so the fractional path (with
 `wp_viewporter`) still needs another compositor.
 
+Design hooks, not built: (1) Promoted views (R7's `FrameOut.promoted`) map to desynchronized `wl_subsurface`s, one per
+promoted view, each with its own swapchain (or a dmabuf `wl_buffer`) and its own damage history; their position goes
+through `wl_subsurface.set_position` on the parent's commit, and content commits independently. (2) A DRM/KMS host
+presents the same canvas through an atomic commit with `FB_DAMAGE_CLIPS` (a blob of `drm_mode_rect`, x1/y1/x2/y2 in
+framebuffer pixels) filled by `ogpu_core::damage::drm_clips` from the same per-buffer `damage::History`: each scanout buffer owes its debt the same way a
+swapchain image does. KMS and real-display energy are pending hardware; WSL has no `/dev/dri`.
+
 `pxui_atspi` (the AT-SPI2 accessibility bridge) links `libdbus-1` (`libdbus-1-dev`). Its bus test starts a private
 `dbus-daemon` and, when `at-spi2-core` is installed, `at-spi-bus-launcher` with the registry; it skips without
 `dbus-daemon`. A libatspi client walk runs too when `/usr/bin/python3` imports `gi` with the Atspi typelib: unpack
