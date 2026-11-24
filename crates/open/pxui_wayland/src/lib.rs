@@ -28,6 +28,27 @@ pub struct Extent {
     pub drawable: (i64, i64),
 }
 
+/// Frame pacing counters: wl_surface.frame callbacks and wp_presentation feedback.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FrameStats {
+    /// Frame callbacks the compositor sent (each one invites the next frame).
+    pub callbacks: u64,
+    /// Frames requested with `request_frame`, i.e. presents (commits) paced by callbacks.
+    pub requests: u64,
+    /// Presents the compositor reported shown (wp_presentation `presented`).
+    pub presented: u64,
+    /// Presents it reported never shown (superseded or hidden: `discarded`).
+    pub discarded: u64,
+    /// When the last presented frame turned to light, in nanoseconds on the presentation clock.
+    pub presented_ns: u64,
+    /// The output's refresh period then, in nanoseconds (0: unknown or variable).
+    pub refresh_ns: u64,
+    /// wp_presentation_feedback kind flags of that frame (vsync, hw_clock, hw_completion, zero_copy).
+    pub flags: u32,
+    /// The presentation clock (a clockid_t, e.g. CLOCK_MONOTONIC = 1).
+    pub clock: u32,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CursorShape {
     Default,
@@ -52,6 +73,8 @@ impl Protocols {
     pub const SERVER_DECORATED: i32 = 512;
     /// No cursor-shape-v1, but an XCursor theme loaded: cursors come from it.
     pub const CURSOR_THEME: i32 = 1024;
+    /// wp_presentation: `frame_stats` reports when frames reached the screen.
+    pub const PRESENTATION: i32 = 2048;
     pub fn has(self, bit: i32) -> bool {
         self.0 & bit != 0
     }
@@ -158,6 +181,10 @@ unsafe extern "C" {
     fn rw_request_paste(window: *mut c_void) -> i32;
     fn rw_clipboard_get(window: *mut c_void, timeout_ms: i32) -> *mut c_char;
     fn rw_set_relative(window: *mut c_void, enabled: i32) -> i32;
+    fn rw_request_frame(window: *mut c_void);
+    fn rw_minimize(window: *mut c_void);
+    fn rw_frame_ready(window: *mut c_void) -> i32;
+    fn rw_frame_stats(window: *mut c_void, out: *mut u64);
 }
 
 unsafe extern "C" fn keep(_: *mut c_void) {}
@@ -421,6 +448,44 @@ impl Window {
         let timeout = if self.portal.as_ref().is_some_and(portal::Portal::buffered) { 0 } else { timeout };
         // SAFETY: a live window. A lost connection is reported by the next pump.
         unsafe { rw_dispatch(raw, timeout) };
+    }
+
+    /// Whether the compositor invites a frame: no wl_surface.frame callback is in flight. Frame-paced hosts draw only
+    /// then, so a hidden, minimised or suspended surface (which gets no callbacks) draws and commits nothing. A
+    /// callback arrives as an event, so `wait` wakes for it. False for a destroyed window.
+    /// Allocates: never.
+    pub fn frame_ready(&self) -> bool {
+        // SAFETY: a live window.
+        self.raw.is_some_and(|raw| unsafe { rw_frame_ready(raw.as_ptr()) } != 0)
+    }
+
+    /// Asks for the next frame callback, and wp_presentation feedback, with the surface's next commit. Call it right
+    /// before the GPU present of a frame, which makes that commit; until the callback is done `frame_ready` is false.
+    /// Allocates: never on the Rust side (libwayland allocates the callback and feedback proxies).
+    pub fn request_frame(&mut self) {
+        if let Ok(raw) = self.live() {
+            // SAFETY: a live window.
+            unsafe { rw_request_frame(raw) };
+        }
+    }
+
+    /// Asks the compositor to minimise the window (xdg_toplevel.set_minimized; it may ignore the request). A
+    /// minimised surface gets no frame callbacks, so a frame-paced host stops drawing until it is shown again.
+    pub fn minimize(&mut self) -> Result<(), Error> {
+        // SAFETY: a live window.
+        unsafe { rw_minimize(self.live()?) };
+        Ok(())
+    }
+
+    /// Frame callback and presentation feedback counters (all zero for a destroyed window).
+    /// Allocates: never.
+    pub fn frame_stats(&self) -> FrameStats {
+        let Some(raw) = self.raw else { return FrameStats::default() };
+        let mut out = [0u64; 8];
+        // SAFETY: a live window; eight u64 out-slots.
+        unsafe { rw_frame_stats(raw.as_ptr(), out.as_mut_ptr()) };
+        FrameStats { callbacks: out[0], requests: out[1], presented: out[2], discarded: out[3], presented_ns: out[4],
+            refresh_ns: out[5], flags: out[6] as u32, clock: out[7] as u32 }
     }
 
     /// Logical size in points.

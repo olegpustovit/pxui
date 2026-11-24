@@ -18,6 +18,7 @@
 #include "../protocol/xdg-decoration-unstable-v1.h"
 #include "../protocol/viewporter.h"
 #include "../protocol/fractional-scale-v1.h"
+#include "../protocol/presentation-time.h"
 #include "../protocol/cursor-shape-v1.h"
 #include "../protocol/text-input-unstable-v3.h"
 #include "../protocol/relative-pointer-unstable-v1.h"
@@ -31,7 +32,7 @@ enum { RW_KEY = 1, RW_MOTION, RW_BUTTON, RW_AXIS, RW_AXIS_DISCRETE, RW_AXIS_SOUR
 /* Protocol bits reported by rw_protocols. */
 enum { HAS_VIEWPORTER = 1, HAS_FRACTIONAL = 2, HAS_CURSOR_SHAPE = 4, HAS_DECORATION = 8, HAS_TEXT_INPUT = 16,
        HAS_DATA_DEVICE = 32, HAS_SEAT = 64, HAS_POINTER = 128, HAS_KEYBOARD = 256, SERVER_DECORATED = 512,
-       HAS_CURSOR_THEME = 1024 };
+       HAS_CURSOR_THEME = 1024, HAS_PRESENTATION = 2048 };
 
 typedef struct {
   int32_t kind, a, b, c, d, e;
@@ -58,6 +59,8 @@ typedef struct rw {
   struct wl_data_device *data_device;
   struct wp_viewporter *viewporter;
   struct wp_fractional_scale_manager_v1 *fractional_manager;
+  struct wp_presentation *presentation;
+  uint32_t presentation_clock;
   struct wp_cursor_shape_manager_v1 *cursor_manager;
   struct wl_shm *shm;
   struct wl_cursor_theme *cursor_theme; /* without cursor-shape-v1: the XCursor theme, at theme_scale */
@@ -124,6 +127,14 @@ typedef struct rw {
   size_t paste_len;
   struct { int fd; char *text; size_t at, len; } writes[MAX_WRITES];
   int write_count;
+
+  /* Frame pacing: the wl_surface.frame callback the next present carries, and wp_presentation feedback. */
+  struct wl_callback *frame_callback; /* in flight: no drawing until it is done */
+  uint32_t frame_time;                /* the last callback's timestamp (ms) */
+  uint64_t callbacks, requests;       /* callbacks done; frames requested */
+  uint64_t presented, discarded;      /* presentation feedback outcomes */
+  uint64_t presented_ns, refresh_ns;  /* the last presented frame's time (presentation clock) and output refresh */
+  uint32_t presented_flags;
 
   rw_event *queue;
   int queue_head, queue_len, queue_cap;
@@ -208,6 +219,61 @@ static void decoration_configure(void *data, struct zxdg_toplevel_decoration_v1 
   ((rw *)data)->server_decorated = mode == ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE;
 }
 static const struct zxdg_toplevel_decoration_v1_listener decoration_listener = {.configure = decoration_configure};
+
+/* ---- frame pacing ---- */
+
+static void frame_done(void *data, struct wl_callback *callback, uint32_t time) {
+  rw *w = data;
+  wl_callback_destroy(callback);
+  if (w->frame_callback == callback) w->frame_callback = NULL;
+  w->frame_time = time;
+  w->callbacks++;
+}
+static const struct wl_callback_listener frame_listener = {.done = frame_done};
+
+static void feedback_sync_output(void *data, struct wp_presentation_feedback *f, struct wl_output *output) {
+  (void)data; (void)f; (void)output;
+}
+static void feedback_presented(void *data, struct wp_presentation_feedback *f, uint32_t sec_hi, uint32_t sec_lo, uint32_t nsec,
+                               uint32_t refresh, uint32_t seq_hi, uint32_t seq_lo, uint32_t flags) {
+  rw *w = data;
+  (void)seq_hi; (void)seq_lo;
+  wp_presentation_feedback_destroy(f);
+  w->presented++;
+  w->presented_ns = (((uint64_t)sec_hi << 32) | sec_lo) * 1000000000ull + nsec;
+  w->refresh_ns = refresh;
+  w->presented_flags = flags;
+}
+static void feedback_discarded(void *data, struct wp_presentation_feedback *f) {
+  rw *w = data;
+  wp_presentation_feedback_destroy(f);
+  w->discarded++;
+}
+static const struct wp_presentation_feedback_listener feedback_listener = {
+  .sync_output = feedback_sync_output, .presented = feedback_presented, .discarded = feedback_discarded,
+};
+static void presentation_clock(void *data, struct wp_presentation *p, uint32_t clock) { (void)p; ((rw *)data)->presentation_clock = clock; }
+static const struct wp_presentation_listener presentation_listener = {.clock_id = presentation_clock};
+
+/* Asks for a frame callback (and presentation feedback) with the surface's next commit: the Vulkan present the host
+ * makes right after. No-op while one is in flight. */
+void rw_request_frame(rw *w) {
+  if (w->frame_callback) return;
+  w->frame_callback = wl_surface_frame(w->surface);
+  wl_callback_add_listener(w->frame_callback, &frame_listener, w);
+  w->requests++;
+  if (w->presentation) {
+    struct wp_presentation_feedback *f = wp_presentation_feedback(w->presentation, w->surface);
+    wp_presentation_feedback_add_listener(f, &feedback_listener, w);
+  }
+}
+/* 1 when no frame callback is in flight: the compositor wants (or has never been asked for) a frame. */
+int32_t rw_frame_ready(rw *w) { return w->frame_callback == NULL; }
+/* Counters: [callbacks, requests, presented, discarded, presented_ns, refresh_ns, flags, clock_id]. */
+void rw_frame_stats(rw *w, uint64_t *out) {
+  out[0] = w->callbacks; out[1] = w->requests; out[2] = w->presented; out[3] = w->discarded;
+  out[4] = w->presented_ns; out[5] = w->refresh_ns; out[6] = w->presented_flags; out[7] = w->presentation_clock;
+}
 
 /* ---- scale sources ---- */
 
@@ -690,6 +756,9 @@ static void registry_global(void *data, struct wl_registry *r, uint32_t name, co
     w->data_manager = wl_registry_bind(r, name, &wl_data_device_manager_interface, at_most(version, 3));
   } else if (!strcmp(interface, wp_viewporter_interface.name)) {
     w->viewporter = wl_registry_bind(r, name, &wp_viewporter_interface, 1);
+  } else if (!strcmp(interface, wp_presentation_interface.name)) {
+    w->presentation = wl_registry_bind(r, name, &wp_presentation_interface, 1);
+    wp_presentation_add_listener(w->presentation, &presentation_listener, w);
   } else if (!strcmp(interface, wp_fractional_scale_manager_v1_interface.name)) {
     w->fractional_manager = wl_registry_bind(r, name, &wp_fractional_scale_manager_v1_interface, 1);
   } else if (!strcmp(interface, wp_cursor_shape_manager_v1_interface.name)) {
@@ -829,6 +898,8 @@ void rw_close(rw *w) {
   if (w->cursor_surface) wl_surface_destroy(w->cursor_surface);
   if (w->cursor_theme) wl_cursor_theme_destroy(w->cursor_theme);
   if (w->shm) wl_shm_destroy(w->shm);
+  if (w->frame_callback) wl_callback_destroy(w->frame_callback);
+  if (w->presentation) wp_presentation_destroy(w->presentation);
   if (w->fractional_manager) wp_fractional_scale_manager_v1_destroy(w->fractional_manager);
   if (w->viewporter) wp_viewporter_destroy(w->viewporter);
   if (w->data_manager) wl_data_device_manager_destroy(w->data_manager);
@@ -850,7 +921,8 @@ int32_t rw_protocols(rw *w) {
   return (w->viewporter ? HAS_VIEWPORTER : 0) | (w->fractional ? HAS_FRACTIONAL : 0) | (w->cursor_manager ? HAS_CURSOR_SHAPE : 0)
        | (w->decoration_manager ? HAS_DECORATION : 0) | (w->text_input ? HAS_TEXT_INPUT : 0) | (w->data_device ? HAS_DATA_DEVICE : 0)
        | (w->seat ? HAS_SEAT : 0) | (w->pointer ? HAS_POINTER : 0) | (w->keyboard ? HAS_KEYBOARD : 0)
-       | (w->server_decorated ? SERVER_DECORATED : 0) | (w->cursor_theme ? HAS_CURSOR_THEME : 0);
+       | (w->server_decorated ? SERVER_DECORATED : 0) | (w->cursor_theme ? HAS_CURSOR_THEME : 0)
+       | (w->presentation ? HAS_PRESENTATION : 0);
 }
 /* Logical size, scale in 120ths, key repeat (rate per second, delay ms). */
 void rw_state(rw *w, int32_t *width, int32_t *height, int32_t *scale120, int32_t *rate, int32_t *delay) {
@@ -913,6 +985,8 @@ void rw_resize(rw *w, int32_t width, int32_t height) {
   w->height = height;
   apply_geometry(w);
 }
+/* Asks the compositor to minimise the window; it then gets no frame callbacks until shown again. */
+void rw_minimize(rw *w) { xdg_toplevel_set_minimized(w->toplevel); wl_display_flush(w->display); }
 void rw_set_resizable(rw *w, int32_t enabled) {
   xdg_toplevel_set_min_size(w->toplevel, enabled ? 0 : w->width, enabled ? 0 : w->height);
   xdg_toplevel_set_max_size(w->toplevel, enabled ? 0 : w->width, enabled ? 0 : w->height);

@@ -44,6 +44,24 @@ around the caret, and its deletions arrive as Backspace/Delete presses. Without 
 changes with the `PixelSizeChanged` the host announces, so the resized swapchain's present carries it.
 `cargo run -p pxui_wayland --example window` runs the host loop.
 
+**Damage-only present and frame pacing (R8).** The canvas texture is the source of truth. `be::commit_present_damage`
+copies into the acquired swapchain image only what that image lacks: `ogpu_core::damage::History` keeps, per image index,
+the union of the damage presented since that image was last shown. Unknown images, a rebuilt (out-of-date) or resized
+swapchain, and a frame without a damage list get a whole copy. When the device has `VK_KHR_incremental_present`
+(lavapipe does, dzn does not), the frame's damage rides along as `VkPresentRegionsKHR`, and Mesa's Wayland WSI sends
+one `wl_surface.damage_buffer` per rect. A whole frame damages `(0, 0, INT32_MAX, INT32_MAX)`. Kill switch:
+`PXUI_VK_FULL_PRESENT=1` (read when the surface is created) or `be::set_full_present`. `pxui_wayland` paces by
+`wl_surface.frame`: `Window::request_frame` (called right before the present, so the callback and a `wp_presentation`
+feedback ride the WSI's commit), then `frame_ready` stays false until the callback is done, and `wait` wakes for it. A
+host draws only when something changed (input, or a repaint due by its rate class: every callback for Display,
+`repaint_at` spacing for Ambient(hz)) *and* `frame_ready`. An idle window therefore commits nothing, and a hidden or
+minimised one, which gets no callbacks, stops. `frame_stats` reports callbacks, requests and presentation feedback
+(presented/discarded, time, refresh, flags). `window_wayland_damage_pacing` starts its own
+`weston --backend=headless --idle-time=0` and runs a child under `WAYLAND_DEBUG=client` to check those requests. Run any
+long-lived weston with `--idle-time=0`: its desktop shell locks the screen after 300 s, which hides every surface, so
+FIFO presents (and frame-paced hosts) stop. Weston 13 offers no `wp_fractional_scale_v1`, so the fractional path (with
+`wp_viewporter`) still needs another compositor.
+
 `pxui_atspi` (the AT-SPI2 accessibility bridge) links `libdbus-1` (`libdbus-1-dev`). Its bus test starts a private
 `dbus-daemon` and, when `at-spi2-core` is installed, `at-spi-bus-launcher` with the registry; it skips without
 `dbus-daemon`. A libatspi client walk runs too when `/usr/bin/python3` imports `gi` with the Atspi typelib: unpack

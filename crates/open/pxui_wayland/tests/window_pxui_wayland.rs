@@ -125,9 +125,168 @@ fn window_wayland_present() {
     assert!(!window.pump(&mut events));
 }
 
+/// The compositor side of `window_wayland_damage_pacing`, run in a child process with WAYLAND_DEBUG=client so the
+/// parent reads every request it sends. Markers on stderr split the protocol log into phases.
+#[cfg(target_os = "linux")]
+fn damage_pacing_child() {
+    use ogpu_core::backend as be;
+    use ogpu_core::render_pass::Rect;
+    use pxui_render::Instance;
+    use pxui_wayland::Window;
+    let mut window = Window::open("pxui_wayland pacing", 320, 200).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(window.scale(), 1.0, "weston --backend=headless runs at scale 1");
+    let mut gpu = gpu::Gpu::open(&mut window, || ogpu_vulkan::backend::create_with_validation((true, true)));
+    let (w, h) = (320usize, 200usize);
+    gpu::ok(be::capture_presents(gpu.surface(), (w * h * 4) as u64));
+    let mut events = Vec::new();
+    let deadline = window.time() + 3.0;
+    // Frame-paced: block (on events, which include frame callbacks) until the compositor invites a frame.
+    let mut wait_ready = |window: &mut Window| {
+        while !window.frame_ready() {
+            assert!(window.time() < deadline, "no frame callback within 3 s");
+            window.wait(Some(window.time() + 0.1));
+            assert!(window.pump(&mut events), "window closed");
+            events.clear();
+        }
+    };
+    let scene = |x: f32| [
+        Instance::rect([8.0, 8.0, 150.0, 150.0], [220, 40, 40, 255]).radii([8.0; 4]),
+        Instance::rect([160.0, 8.0, 312.0, 150.0], [40, 80, 220, 255]).radii([8.0; 4]).border(2.0, [240, 240, 240, 255]),
+        Instance::rect([x, 160.0, x + 24.0, 184.0], [240, 200, 60, 255]).radii([4.0; 4]),
+    ];
+    let place = |x: f32| Rect { x: x as i64 - 1, y: 159, width: 27, height: 27 };
+    let check = |gpu: &gpu::Gpu, frame: usize| {
+        let mut shown = vec![0u8; w * h * 4];
+        gpu::ok(be::read_capture(gpu.surface(), &mut shown));
+        let canvas = gpu.canvas();
+        for (i, (s, c)) in shown.chunks_exact(4).zip(canvas.chunks_exact(4)).enumerate() {
+            let bgra = [c[2], c[1], c[0], c[3]];
+            assert!(s.iter().zip(bgra).all(|(a, b)| a.abs_diff(b) <= 2), "frame {frame}: presented pixel {i} {s:?} is not the canvas {bgra:?}");
+        }
+        canvas
+    };
+    wait_ready(&mut window);
+    eprintln!("R8MARK full");
+    assert!(gpu.frame_damage(&mut window, &scene(10.0), None));
+    check(&gpu, 0);
+    let mut x = 10.0;
+    for frame in 1..=6 {
+        wait_ready(&mut window);
+        let damage = ogpu_core::damage::union(place(x), place(x + 12.0));
+        x += 12.0;
+        eprintln!("R8MARK damage {} {} {} {}", damage.x, damage.y, damage.width, damage.height);
+        assert!(gpu.frame_damage(&mut window, &scene(x), Some(damage)));
+        check(&gpu, frame);
+    }
+    // partial_equals_full: the damage-only canvas equals a whole redraw of the same scene.
+    let partial = gpu.canvas();
+    wait_ready(&mut window);
+    eprintln!("R8MARK full");
+    assert!(gpu.frame_damage(&mut window, &scene(x), None));
+    let full = check(&gpu, 7);
+    let worst = partial.iter().zip(&full).map(|(a, b)| a.abs_diff(*b)).max().unwrap_or(0);
+    assert!(worst <= 2, "the damage-only canvas differs from a whole redraw by {worst}");
+    let stats = gpu::ok(be::present_stats(gpu.surface()));
+    assert!(stats.partial >= 4 && stats.regions >= 6, "damaged frames copied and announced only their damage: {stats:?}");
+    // Idle: nothing changed, so nothing is drawn or committed.
+    wait_ready(&mut window);
+    eprintln!("R8MARK idle");
+    let until = window.time() + 0.3;
+    while window.time() < until {
+        window.wait(Some(until));
+        window.pump(&mut events);
+        events.clear();
+    }
+    // Hidden: a minimised surface gets no frame callbacks, so a frame-paced animation stops after one frame.
+    eprintln!("R8MARK hidden");
+    window.minimize().unwrap();
+    let (until, mut hidden_draws) = (window.time() + 0.3, 0);
+    while window.time() < until {
+        if window.frame_ready() {
+            x = if x > 280.0 { 10.0 } else { x + 12.0 };
+            hidden_draws += usize::from(gpu.frame_damage(&mut window, &scene(x), Some(place(x))));
+        }
+        window.wait(Some(until));
+        window.pump(&mut events);
+        events.clear();
+    }
+    eprintln!("R8MARK end");
+    let frames = window.frame_stats();
+    println!("pxui_wayland pacing: hidden draws {hidden_draws}, {frames:?}, {stats:?}");
+    assert!(frames.requests >= 8 && frames.callbacks >= 7, "frames were paced by callbacks: {frames:?}");
+    gpu::ok(be::capture_presents(gpu.surface(), 0));
+    gpu.close();
+    window.destroy().unwrap();
+}
+
+/// Against its own `weston --backend=headless`: damage-only presents send one wl_surface.damage_buffer per damage
+/// rect, the presented images equal the canvas, frame callbacks pace the commits, an idle window commits nothing and
+/// a minimised one stops. Skips without weston.
+#[cfg(target_os = "linux")]
+fn window_wayland_damage_pacing() {
+    use std::process::{Command, Stdio};
+    let Some(weston) = std::env::var_os("PATH").and_then(|p| std::env::split_paths(&p).map(|d| d.join("weston")).find(|w| w.is_file())) else {
+        println!("RAYS_TEST_SKIP: pxui_wayland: weston is not installed");
+        return;
+    };
+    let dir = std::env::temp_dir().join(format!("pxui-wayland-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::set_permissions(&dir, std::os::unix::fs::PermissionsExt::from_mode(0o700)).unwrap();
+    let mut compositor = Command::new(weston).args(["--backend=headless", "--socket=pxui-test", "--width=640", "--height=480", "--idle-time=0"])
+        .env("XDG_RUNTIME_DIR", &dir).env_remove("WAYLAND_DISPLAY").env_remove("DISPLAY").stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+    let started = std::time::Instant::now();
+    while !dir.join("pxui-test.lock").exists() || !dir.join("pxui-test").exists() {
+        assert!(started.elapsed().as_secs_f64() < 2.0, "weston did not open its socket");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    let child = Command::new(std::env::current_exe().unwrap()).env("PXUI_WAYLAND_PACING_CHILD", "1").env("WAYLAND_DEBUG", "client")
+        .env("XDG_RUNTIME_DIR", &dir).env("WAYLAND_DISPLAY", "pxui-test").output();
+    let _ = compositor.kill();
+    let _ = compositor.wait();
+    let _ = std::fs::remove_dir_all(&dir);
+    let child = child.unwrap();
+    let log = String::from_utf8_lossy(&child.stderr);
+    print!("{}", String::from_utf8_lossy(&child.stdout));
+    assert!(child.status.success(), "the pacing child failed: {}", log.lines().filter(|l| !l.starts_with('[')).collect::<Vec<_>>().join("\n"));
+    // The toplevel is the first surface made; follow its requests phase by phase.
+    let surface = log.lines().find_map(|l| l.split("create_surface(new id ").nth(1)).and_then(|r| r.split(')').next()).expect("a surface").to_owned();
+    let (mut phase, mut phases): (String, Vec<(String, usize, Vec<[i64; 4]>)>) = (String::new(), Vec::new());
+    for line in log.lines() {
+        if let Some(marker) = line.strip_prefix("R8MARK ") {
+            phase = marker.to_owned();
+            phases.push((phase.clone(), 0, Vec::new()));
+        } else if let Some(entry) = phases.last_mut().filter(|_| line.contains(&format!(" -> {surface}."))) {
+            if line.ends_with(".commit()") {
+                entry.1 += 1;
+            } else if let Some(args) = line.split(".damage_buffer(").nth(1) {
+                let v: Vec<i64> = args.trim_end_matches(')').split(", ").map(|n| n.parse().unwrap()).collect();
+                entry.2.push([v[0], v[1], v[2], v[3]]);
+            }
+        }
+    }
+    let _ = phase;
+    let damaged: Vec<_> = phases.iter().filter(|p| p.0.starts_with("damage ")).collect();
+    assert_eq!(damaged.len(), 6, "six damaged frames: {phases:?}");
+    for (marker, commits, rects) in damaged {
+        let want: Vec<i64> = marker[7..].split(' ').map(|n| n.parse().unwrap()).collect();
+        assert_eq!(*commits, 1, "{marker}: one commit");
+        assert_eq!(rects, &vec![[want[0], want[1], want[2], want[3]]], "{marker}: one damage_buffer of exactly the frame's damage");
+    }
+    for (marker, commits, rects) in phases.iter().filter(|p| p.0 == "full") {
+        assert_eq!((*commits, rects.as_slice()), (1, &[[0, 0, i64::from(i32::MAX), i64::from(i32::MAX)]][..]), "{marker}: a whole frame damages everything");
+    }
+    let count = |name: &str| phases.iter().find(|p| p.0 == name).map(|p| p.1);
+    assert_eq!(count("idle"), Some(0), "an idle window commits nothing");
+    assert!(count("hidden").is_some_and(|c| c <= 1), "a minimised window stops after the frame already invited: {phases:?}");
+}
+
 fn main() {
     #[cfg(target_os = "linux")]
-    common::run(&[("window_wayland_present", window_wayland_present)]);
+    if std::env::var_os("PXUI_WAYLAND_PACING_CHILD").is_some() {
+        return damage_pacing_child();
+    }
+    #[cfg(target_os = "linux")]
+    common::run(&[("window_wayland_present", window_wayland_present), ("window_wayland_damage_pacing", window_wayland_damage_pacing)]);
     #[cfg(not(target_os = "linux"))]
     common::run(&[]);
 }

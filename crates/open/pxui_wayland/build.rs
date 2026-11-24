@@ -10,7 +10,7 @@ fn main() {
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("linux") {
         return;
     }
-    let protocols = ["xdg-shell", "xdg-decoration-unstable-v1", "viewporter", "fractional-scale-v1", "cursor-shape-v1", "tablet-v2", "text-input-unstable-v3", "relative-pointer-unstable-v1", "pointer-constraints-unstable-v1", "xdg-foreign-unstable-v2"];
+    let protocols = ["xdg-shell", "xdg-decoration-unstable-v1", "viewporter", "fractional-scale-v1", "presentation-time", "cursor-shape-v1", "tablet-v2", "text-input-unstable-v3", "relative-pointer-unstable-v1", "pointer-constraints-unstable-v1", "xdg-foreign-unstable-v2"];
     let mut build = cc::Build::new();
     build.file("src/shim.c").includes(pkg_config(&["wayland-client", "wayland-cursor", "xkbcommon"], "--cflags-only-I", "-I").unwrap_or_default()).warnings(true);
     for protocol in protocols {
