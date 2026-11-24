@@ -27,6 +27,9 @@ mod host {
         Window::open_with("PXUI gallery", w, h, true, hidden, true)
     }
     pub fn wait(win: &mut Window, deadline: Option<f64>) { win.wait(deadline); }
+    /// SDL paces through the swapchain: every frame is invited.
+    pub fn frame_ready(_: &Window) -> bool { true }
+    pub fn request_frame(_: &mut Window) {}
     pub fn cursor(win: &mut Window, c: Option<u32>) {
         let shape = match c { Some(1) => CursorShape::HorizontalResize, Some(2) => CursorShape::VerticalResize, Some(3) => CursorShape::Text, _ => CursorShape::Default };
         let _ = win.set_cursor(shape);
@@ -54,6 +57,9 @@ mod host {
         Window::open_with("PXUI gallery", w, h, true, hidden, true)
     }
     pub fn wait(win: &mut Window, deadline: Option<f64>) { win.wait(deadline); }
+    /// Wayland paces by frame callbacks: draw only when the compositor invites a frame (a hidden window never does).
+    pub fn frame_ready(win: &Window) -> bool { win.frame_ready() }
+    pub fn request_frame(win: &mut Window) { win.request_frame(); }
     pub fn cursor(win: &mut Window, c: Option<u32>) {
         let shape = match c { Some(1) => CursorShape::HorizontalResize, Some(2) => CursorShape::VerticalResize, Some(3) => CursorShape::Text, _ => CursorShape::Default };
         let _ = win.set_cursor(shape);
@@ -71,7 +77,7 @@ mod host {
     }
     pub fn a11y_gone(win: &mut Window) { win.set_wake_fd(-1); }
     pub fn a11y_update(b: &mut A11y, tree: &A11yTree) {
-        if !b.update(tree) { eprintln!("pxui_gallery: accessibility tree refused"); }
+        if !b.update(pxui_types::FrameIn::MAIN, tree) { eprintln!("pxui_gallery: accessibility tree refused"); }
     }
     pub fn a11y_pump(b: &mut A11y, out: &mut Vec<A11yAction>) -> bool { b.pump(&mut |a| out.push(a)) }
 }
@@ -206,6 +212,8 @@ fn main() {
     let mut cost = Cost::default();
     let mut text = String::with_capacity(160);
     let mut force = true;
+    // a changed frame not drawn yet because no frame callback had arrived
+    let mut deferred = false;
     let started = Instant::now();
     mem_sys::local_reset();
     loop {
@@ -316,8 +324,12 @@ fn main() {
         if animating {
             for h in &s.busy { ui.busy_step(h, now); }
         }
-        if (built || animating) && ui.draw_revision() != drawn_revision {
+        // A changed frame waits for the compositor's invitation (Wayland frame callback) when it presents to a window.
+        let wanted = ui.draw_revision() != drawn_revision && (built || animating || deferred);
+        deferred = wanted && surface.is_some() && !host::frame_ready(&win);
+        if wanted && !deferred {
             drawn_revision = ui.draw_revision();
+            if surface.is_some() { host::request_frame(&mut win); }
             draw(&mut gpu, &mut ui, &mut renderer, &target, surface.as_ref(), extent, win.scale() as f32);
             draws += 1;
             if label_only && draws == 1 { println!("pxui_gallery: first-frame {:.3}", entered.elapsed().as_secs_f64() * 1e3 - window_ms); }
@@ -333,6 +345,7 @@ fn main() {
         if animating { wake = wake.min(now + 1.0 / 60.0); }
         if shot.is_some() && draws < 3 { (wake, force) = (now, true); }
         if let Some(secs) = exit_after { wake = wake.min(secs); }
+        // a deferred frame's callback is an event: it wakes the wait
         if wake > win.time() { host::wait(&mut win, wake.is_finite().then_some(wake)); }
     }
     if let Some(at) = calls_at_settle { calls_idle = ui.library_calls() - at; }
