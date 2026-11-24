@@ -228,7 +228,8 @@ impl<'a> Paint<'a> {
     /// Each distinct character is shaped once per style and then hit in the text cache; there is no kerning between characters and
     /// no wrapping. Returns the width drawn. `0`-`9`, `:` `.` `,` `-` `/` `+` `%` and space are the intended set; any other character
     /// is drawn with its own advance. `style` resolves as in `text`, and `at` is the layout's top as there.
-    /// Allocates: never when warm; the first use of a character in a style shapes it.
+    /// Allocates: the first numeric use of a style prepares its digits and minus sign; the first use of any
+    /// other character shapes it. Warm calls reuse the character layouts and glyphs.
     /// Panics: never.
     ///
     /// ```

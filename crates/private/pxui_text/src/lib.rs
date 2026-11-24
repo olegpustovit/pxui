@@ -1354,6 +1354,15 @@ impl Text {
         self.emit_glyphs(key, at, scale, true, None, f);
     }
 
+    /// Populate an integral-origin glyph cache entry without emitting draw instances.
+    pub fn prepare_glyphs(&mut self, key: u64, scale: f32) {
+        if self.entries.get(&key).is_some_and(|entry| {
+            !entry.cached || entry.cached_scale != scale.to_bits() || entry.cached_evictions != self.g.evictions
+        }) {
+            self.glyphs_at_baseline(key, (0.0, 0.0), scale, &mut |_| {});
+        }
+    }
+
     /// Draw the layout at a snapped baseline without calling back for every unadorned cached glyph.
     pub fn draw_at_baseline(&mut self, key: u64, at: (f32, f32), density: i64, paint: GlyphPaint, out: &mut Vec<Instance>, breaks: &mut Vec<Break>) {
         let scale = density as f32;

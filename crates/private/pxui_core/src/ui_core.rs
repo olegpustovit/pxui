@@ -6204,15 +6204,23 @@ impl Paint {
         m
     }
 
-    /// Draws `text` one character at a time from one-character layouts in `style` (capitals when `caps`), digits on the advance of
-    /// `0`: a number that changes every frame shapes nothing after the first use of its characters. Returns the width drawn.
+    /// Draws `text` from one-character layouts in `style` (capitals when `caps`), digits on the advance of `0`.
+    /// Prepares the decimal repertoire so a changing number can use any digit on a warm frame.
     pub fn chars(&mut self, at: (f32, f32), style: &Style, color: Option<Rgba>, caps: bool, text: &str) -> f32 {
-        let zero = self.text_metrics(style, 0.0, "0").w;
+        let (key, zero) = lay_out(&mut self.text, style, 0.0, "0");
+        if text.bytes().any(|byte| byte.is_ascii_digit()) {
+            let scale = self.density as f32;
+            self.text.prepare_glyphs(key, scale);
+            for digit in ["1", "2", "3", "4", "5", "6", "7", "8", "9", "-"] {
+                let (key, _) = lay_out(&mut self.text, style, 0.0, digit);
+                self.text.prepare_glyphs(key, scale);
+            }
+        }
         let (mut x, mut utf8) = (at.0, [0u8; 4]);
         for ch in text.chars() {
             let ch = if caps { ch.to_ascii_uppercase() } else { ch };
             let advance = self.text_styled((x, at.1), style, 0.0, color, ch.encode_utf8(&mut utf8)).w;
-            x += if ch.is_ascii_digit() { zero } else { advance };
+            x += if ch.is_ascii_digit() { zero.w } else { advance };
         }
         x - at.0
     }

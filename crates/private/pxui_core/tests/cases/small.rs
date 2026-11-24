@@ -335,6 +335,24 @@ pub fn window_pxui_typography() {
     ui.destroy();
 }
 
+fn numeric_painter_prepares_unseen_digits() {
+    let mut ui = new_ui(None);
+    let style = pxui_core::text::Style { size: 12.0, ..Default::default() };
+    for (index, text) in ["00", "00", "00", "89", "-2"].into_iter().enumerate() {
+        mem_sys::local_reset();
+        ui.frame(&frame_at(vec![], 2.0, index as f64 / 60.0, vec![]), &mut |ui| {
+            let node = ui.box_("number", BoxOpts::default().w(Size::Px(100.0)).h(Size::Px(20.0)));
+            ui.draw(&node, move |paint, rect| {
+                paint.chars((rect.x, rect.y), &style, None, false, text);
+            });
+        });
+        if index >= 3 {
+            assert_eq!(mem_sys::local_alloc_count(), 0, "warm numeric paint {text}");
+        }
+    }
+    ui.destroy();
+}
+
 /// Dirty ranges stay sorted and disjoint; past the cap the closest two merge, never all of them.
 fn dirty_ranges_merge_closest() {
     let mut r = Vec::new();
@@ -485,6 +503,7 @@ pub const CASES: &[(&str, fn())] = &[
     ("fuzzy_score_ranks", fuzzy_score_ranks),
     ("dirty_ranges_merge_closest", dirty_ranges_merge_closest),
     ("window_pxui_typography", window_pxui_typography),
+    ("numeric_painter_prepares_unseen_digits", numeric_painter_prepares_unseen_digits),
     ("window_pxui_keyboard", window_pxui_keyboard),
     ("window_pxui_input", window_pxui_input),
 ];
