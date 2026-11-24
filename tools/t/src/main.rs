@@ -56,6 +56,7 @@ struct TestTiming {
     test: String,
     elapsed: Duration,
     status: &'static str,
+    retried: bool,
 }
 
 #[derive(Clone)]
@@ -90,11 +91,13 @@ impl RunReport {
             .iter()
             .fold(Duration::ZERO, |total, timing| total.saturating_add(timing.elapsed));
         eprintln!(
-            "rays-t: total wall {:.3}s; {:.3}s across {} tests; {} skipped",
+            "rays-t: total wall {:.3}s; {:.3}s across {} tests; {} skipped; {} retried; {} passed on retry",
             self.started.elapsed().as_secs_f64(),
             test_time.as_secs_f64(),
             self.timings.len(),
-            self.timings.iter().filter(|timing| timing.status == "skip").count()
+            self.timings.iter().filter(|timing| timing.status == "skip").count(),
+            self.timings.iter().filter(|timing| timing.retried).count(),
+            self.timings.iter().filter(|timing| timing.retried && timing.status == "pass").count()
         );
         let mut slowest: Vec<_> = self.timings.iter().collect();
         slowest.sort_by(|left, right| right.elapsed.cmp(&left.elapsed));
@@ -642,13 +645,14 @@ fn run_test_batch(
                 let Some(case) = case else {
                     break;
                 };
-                let mut outcome = run_test_case(case.clone(), args, run_started, timeout);
-                let contended = baselines.get(&(case.crate_name.clone(), case.name.clone()))
-                    .is_some_and(|baseline| outcome.timing.elapsed > baseline.saturating_mul(2));
-                if !outcome.whole_timeout && (contended || outcome.retry) {
+                let outcome = run_test_case(case.clone(), args, run_started, timeout);
+                // Short passes can look contended because process startup and polling dominate their timings.
+                let contended_failure = outcome.failure_code != 0
+                    && baselines.get(&(case.crate_name.clone(), case.name.clone()))
+                        .is_some_and(|baseline| outcome.timing.elapsed > baseline.saturating_mul(2));
+                if !outcome.whole_timeout && (contended_failure || outcome.retry) {
                     limit.store(2, Ordering::Relaxed);
                     retries.lock().unwrap_or_else(|p| p.into_inner()).push(case);
-                    outcome.retry = true;
                 }
                 let whole_timeout = outcome.whole_timeout;
                 results
@@ -668,7 +672,12 @@ fn run_test_batch(
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     for case in retries.into_inner().unwrap_or_else(|p| p.into_inner()) {
         eprintln!("rays-t: retrying {}::{} alone after contention", case.crate_name, case.name);
-        let outcome = run_test_case(case, args, run_started, timeout);
+        let mut outcome = run_test_case(case, args, run_started, timeout);
+        outcome.timing.retried = true;
+        if outcome.timing.status == "pass" {
+            eprintln!("rays-t: flaky case {}::{} failed on first attempt and passed on retry",
+                outcome.timing.crate_name, outcome.timing.test);
+        }
         outcomes.retain(|old| old.order != outcome.order);
         outcomes.push(outcome);
     }
@@ -739,6 +748,7 @@ fn run_test_case(
             test: case.name,
             elapsed,
             status: if skipped { "skip" } else if failure_code == 124 { "timeout" } else if failure_code == 0 { "pass" } else { "fail" },
+            retried: false,
         },
         failure_code,
         whole_timeout,
@@ -760,7 +770,7 @@ fn run_gpu_group(cases: Vec<TestCase>, args: &Args, run_started: Instant, timeou
     #[cfg(not(windows))]
     let mut child = match spawned { Ok(child) => child, Err(_) => return vec![run_test_case(cases[0].clone(), args, run_started, timeout)] };
     let stdout = child.stdout.take().unwrap();
-    let stderr = child.stderr.take().map(read_pipe);
+    let stderr = child.stderr.take().map(|pipe| read_pipe(pipe, None));
     let (sender, receiver) = std::sync::mpsc::channel();
     let reader = thread::spawn(move || {
         for line in io::BufReader::new(stdout).lines() {
@@ -794,7 +804,7 @@ fn run_gpu_group(cases: Vec<TestCase>, args: &Args, run_started: Instant, timeou
                         if let Some(case) = cases.iter().find(|case| case.name == name) {
                             let elapsed = seconds.parse::<f64>().ok().and_then(|value| Duration::try_from_secs_f64(value).ok()).unwrap_or_else(|| started.elapsed());
                             outcomes.push(TestOutcome { order: case.order,
-                                timing: TestTiming { crate_name: case.crate_name.clone(), test: case.name.clone(), elapsed, status: if skipped { "skip" } else { "pass" } },
+                                timing: TestTiming { crate_name: case.crate_name.clone(), test: case.name.clone(), elapsed, status: if skipped { "skip" } else { "pass" }, retried: false },
                                 failure_code: if skipped && env::var("RAYS_ALLOW_SKIP").as_deref() != Ok("1") { 1 } else { 0 },
                                 whole_timeout: false, retry: false });
                             active = None;
@@ -818,7 +828,7 @@ fn run_gpu_group(cases: Vec<TestCase>, args: &Args, run_started: Instant, timeou
     if let Some(index) = active.or_else(|| (outcomes.len() < cases.len()).then_some(outcomes.len())) {
         let case = &cases[index];
         outcomes.push(TestOutcome { order: case.order,
-            timing: TestTiming { crate_name: case.crate_name.clone(), test: case.name.clone(), elapsed: started.elapsed(), status: if skipped { "skip" } else if timed_out { "timeout" } else { "fail" } },
+            timing: TestTiming { crate_name: case.crate_name.clone(), test: case.name.clone(), elapsed: started.elapsed(), status: if skipped { "skip" } else if timed_out { "timeout" } else { "fail" }, retried: false },
             failure_code: if timed_out { 124 } else { status.map_or(1, status_code).max(1) }, whole_timeout, retry: false });
         eprintln!("rays-t: grouped case {}::{} failed", case.crate_name, case.name);
     }
@@ -1052,8 +1062,10 @@ fn run_command(
     let (mut child, job) = mem_sys::windows_process::Job::spawn(command)?;
     #[cfg(not(windows))]
     let mut child = spawn(command)?;
-    let stdout_reader = child.stdout.take().map(read_pipe);
-    let stderr_reader = child.stderr.take().map(read_pipe);
+    let (finished, pipe_completions) = std::sync::mpsc::channel();
+    let stdout_reader = child.stdout.take().map(|pipe| read_pipe(pipe, Some(finished.clone())));
+    let stderr_reader = child.stderr.take().map(|pipe| read_pipe(pipe, Some(finished)));
+    let mut open_pipes = usize::from(stdout_reader.is_some()) + usize::from(stderr_reader.is_some());
     let mut status = None;
 
     loop {
@@ -1088,10 +1100,7 @@ fn run_command(
         if status.is_none() {
             status = child.try_wait()?;
         }
-        if status.is_some()
-            && stdout_reader.as_ref().map_or(true, |reader| reader.is_finished())
-            && stderr_reader.as_ref().map_or(true, |reader| reader.is_finished())
-        {
+        if status.is_some() && open_pipes == 0 {
             return Ok(RunResult::Finished(Completed {
                 status: status.unwrap(),
                 stdout: join_pipe(stdout_reader)?,
@@ -1105,7 +1114,16 @@ fn run_command(
             .min()
             .unwrap_or(POLL_INTERVAL)
             .min(POLL_INTERVAL);
-        thread::sleep(delay);
+        // Short processes usually reach EOF before the next polling interval.
+        if open_pipes == 0 {
+            thread::sleep(delay);
+        } else {
+            match pipe_completions.recv_timeout(delay) {
+                Ok(()) => open_pipes -= 1,
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => open_pipes = 0,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            }
+        }
     }
 }
 
@@ -1113,11 +1131,17 @@ fn remaining(started: Instant, timeout: Option<Duration>) -> Option<Duration> {
     timeout.map(|timeout| timeout.saturating_sub(started.elapsed()))
 }
 
-fn read_pipe(mut pipe: impl Read + Send + 'static) -> thread::JoinHandle<io::Result<Vec<u8>>> {
+fn read_pipe(
+    mut pipe: impl Read + Send + 'static,
+    finished: Option<std::sync::mpsc::Sender<()>>,
+) -> thread::JoinHandle<io::Result<Vec<u8>>> {
     thread::spawn(move || {
         let mut output = Vec::new();
-        pipe.read_to_end(&mut output)?;
-        Ok(output)
+        let result = pipe.read_to_end(&mut output).map(|_| output);
+        if let Some(finished) = finished {
+            let _ = finished.send(());
+        }
+        result
     })
 }
 
@@ -1548,7 +1572,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn contention_reduces_workers_and_retries_each_case_once_alone() {
+    fn contention_reduces_workers_and_retries_failures_once_alone() {
         // Compile a native fixture to qualify OS process concurrency without shell sleeps or cleanup commands.
         let root = temp_path("contention");
         fs::create_dir_all(root.join("ready")).unwrap();
@@ -1578,7 +1602,7 @@ fn main() {
             barrier(root, "ready", &name);
             event(root, "end", &name);
             barrier(root, "done", &name);
-            return;
+            std::process::exit(1);
         }
     }
     let started = Instant::now();
@@ -1593,6 +1617,7 @@ fn main() {
         let outcomes = run_test_batch(cases, 4, &args, Instant::now(), Some(Duration::from_secs(3)), &baselines);
         assert_eq!(outcomes.len(), 8);
         assert!(outcomes.iter().all(|outcome| outcome.failure_code == 0));
+        assert!(outcomes.iter().all(|outcome| outcome.timing.retried == (outcome.order < 4)));
         let calls = fs::read_to_string(root.join("calls")).unwrap();
         let mut active = 0usize;
         let mut starts = Vec::new();
@@ -1606,10 +1631,13 @@ fn main() {
         }
         assert_eq!(active, 0);
         let calls = starts;
-        assert_eq!(calls.len(), 16);
+        assert_eq!(calls.len(), 12);
         assert!(calls[4..8].iter().all(|(_, active)| *active <= 2), "workers did not drop to two: {calls:?}");
         assert!(calls[8..].iter().all(|(_, active)| *active == 1), "retries overlapped: {calls:?}");
-        for index in 0..8 { assert_eq!(calls.iter().filter(|(name, _)| *name == format!("case_{index}")).count(), 2); }
+        for index in 0..8 {
+            let runs = if index < 4 { 2 } else { 1 };
+            assert_eq!(calls.iter().filter(|(name, _)| *name == format!("case_{index}")).count(), runs);
+        }
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -1960,6 +1988,7 @@ fn main() {
                 test: "module::case\nname".into(),
                 elapsed: Duration::from_millis(1250),
                 status: "fail",
+                retried: false,
             }],
         )
         .unwrap();
