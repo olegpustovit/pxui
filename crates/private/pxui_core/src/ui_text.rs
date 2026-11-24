@@ -1728,7 +1728,8 @@ fn text_area_submit_body(this: &mut Ui, place: Node, o: &TextAreaOpts, label: &s
         y - row * (y / row).floor() >= row - 9.0
     };
     let mut edit = if focused {
-        this.load_text_edit(body.box_key, text)
+        let buffer = std::mem::take(&mut this.edit_work);
+        this.load_text_edit_into(body.box_key, text, buffer)
     } else {
         // nothing reads an unfocused area's edit text: the painted text is `final_text`
         TextEdit { text: String::new(), caret: text.len(), anchor: text.len() }
@@ -2137,7 +2138,10 @@ fn text_area_submit_body(this: &mut Ui, place: Node, o: &TextAreaOpts, label: &s
     };
     this.draw(&body, move |paint, rect| painted.paint(paint, rect));
     if changed {
-        this.returned = edit.text;
+        std::mem::swap(&mut this.returned, &mut edit.text);
+    }
+    if focused {
+        this.edit_work = edit.text;
     }
     (changed, st.submitted)
 }

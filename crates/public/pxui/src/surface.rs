@@ -1626,6 +1626,20 @@ fn text_area_borrows_its_text_and_allocates_nothing_on_warm_frames() {
         }).expect("frame");
     }
     assert_eq!(changed.as_deref(), Some("ALPHA\nbeta\ngamma"));
+    assert!(ui.text_input_focused());
+    let source = changed.as_deref().unwrap();
+    for tick in 16..24 {
+        let scope = (tick >= 20).then(mem_sys::warm_scope);
+        ui.frame(&input().time(tick as f64 / 60.0), &mut |ui: &mut Ui| {
+            ui.panel("borrowed", &crate::Overlay::DEFAULT, &mut |ui: &mut Ui| {
+                let area = ui.text_area("area", source, pxui_types::Node::DEFAULT.at(0.0, 0.0).w_px(100.0).h_px(100.0), &plain, &AreaCallbacks::DEFAULT);
+                assert_eq!((area.changed, area.submitted), (None, false));
+            });
+        }).expect("frame");
+        drop(scope);
+        assert!(mem_sys::take_reports().is_empty(), "focused text area allocated on warm frame {tick}");
+    }
+
 }
 
 #[test]
