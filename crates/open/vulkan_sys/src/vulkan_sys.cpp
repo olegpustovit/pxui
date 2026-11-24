@@ -124,7 +124,7 @@ struct Device {
   VkQueue main_queue{}, transfer_queue{};
   uint32_t main_family{}, transfer_family{};
   VkPhysicalDeviceProperties properties{};
-  bool budget{}, swapchain{}, ray_tracing{};
+  bool budget{}, swapchain{}, ray_tracing{}, incremental{};
   bool borrowed_device{}, owns_pipeline_cache{true};
   // Borrowed devices retire by the app's frame serials instead of `ticks`: work recorded into the app's
   // command buffer of frame `adopted_serial` is free once the app reports `retired` >= that serial.
@@ -190,6 +190,12 @@ struct Surface {
   int current_image{-1};
   VkSemaphore current_semaphore{};
   bool stale{};
+  // Bumped by each swapchain (re)build: the presenter forgets its per-image damage history on a change.
+  uint64_t generation{};
+  bool readable{};  // the images allow TRANSFER_SRC (capture)
+  // Test capture: each present also copies the presented image (BGRA8, tight rows) into this host buffer.
+  VkBuffer capture{}; VmaAllocation capture_allocation{}; void *capture_bytes{}; VkDeviceSize capture_size{};
+  uint64_t stats[4]{};  // whole copies, damage-only copies, rects copied, presents carrying regions
 };
 struct Accel {
   Device *device{};
@@ -338,6 +344,10 @@ int create_device(bool validation, bool fatal, Device **out) {
   // Optional features degrade through caps: no swapchain extension = no windows; no ray extensions = no ray tracing.
   if (!failure && has_extension(available, available_count, VK_KHR_SWAPCHAIN_EXTENSION_NAME)) {
     enabled[enabled_count++] = VK_KHR_SWAPCHAIN_EXTENSION_NAME; d->swapchain = true;
+    // Present regions: a hint (Wayland: wl_surface.damage_buffer per rect); presents stay correct without it.
+    if (has_extension(available, available_count, VK_KHR_INCREMENTAL_PRESENT_EXTENSION_NAME)) {
+      enabled[enabled_count++] = VK_KHR_INCREMENTAL_PRESENT_EXTENSION_NAME; d->incremental = true;
+    }
   }
   d->ray_tracing = !failure;
   for (const char *name : ray_extensions) d->ray_tracing = d->ray_tracing && has_extension(available, available_count, name);
@@ -1165,12 +1175,13 @@ static VkResult rv_swapchain_build(Surface *s) {
   VkExtent2D extent = caps.currentExtent;
   if (extent.width == UINT32_MAX) extent = {std::clamp(s->wanted.width, caps.minImageExtent.width, caps.maxImageExtent.width), std::clamp(s->wanted.height, caps.minImageExtent.height, caps.maxImageExtent.height)};
   if (!s->wanted.width && caps.currentExtent.width == UINT32_MAX) extent = {};
-  s->extent = extent;
+  s->extent = extent; ++s->generation;
   if (!extent.width || !extent.height) { if (old) vkDestroySwapchainKHR(d->device,old,nullptr); return VK_SUCCESS; }
   uint32_t minimum = std::max(caps.minImageCount + 1,3u); if (caps.maxImageCount && minimum > caps.maxImageCount) minimum = caps.maxImageCount;
   VkSwapchainCreateInfoKHR ci{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR}; ci.surface = s->surface; ci.minImageCount = minimum;
   ci.imageFormat = VK_FORMAT_B8G8R8A8_UNORM; ci.imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR; ci.imageExtent = extent;
-  ci.imageArrayLayers = 1; ci.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT; ci.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  ci.imageArrayLayers = 1; ci.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+  s->readable = caps.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT; if (s->readable) ci.imageUsage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT; ci.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
   // An unthrottled request takes a supported mode: IMMEDIATE, else MAILBOX, else FIFO (which every surface offers).
   // Wayland compositors never tear, so there it is MAILBOX: Mesa 25.2's lavapipe segfaults in libwayland presenting
   // IMMEDIATE to WSLg's Weston. ponytail: Wayland skips IMMEDIATE outright; retry it once Mesa's path is known good.
@@ -1226,28 +1237,86 @@ int32_t rv_surface_acquire(void *surface, int32_t *image) {
   *image=-1;return VK_SUCCESS;
 }
 void rv_surface_discard(void *surface) { auto *s=static_cast<Surface *>(surface);s->held_image=s->current_image;s->held_semaphore=s->current_semaphore;s->current_image=-1; }
-int32_t rv_commit_present(void *commands, void *surface, void *source, uint64_t *epoch, bool *committed) {
+// Copies the canvas `source` into the acquired image and presents it. `full`: the whole image (scaled when the sizes
+// differ); else only the `copy` rects, onto the image's previous contents (the caller's per-image damage history says
+// what it lacks). `regions` (the frame's damage) go to VK_KHR_incremental_present when the device has it.
+int32_t rv_commit_present(void *commands, void *surface, void *source, const rv_rect *copy, uint32_t copy_count, bool full,
+    const rv_rect *regions, uint32_t region_count, uint64_t *epoch, bool *committed) {
   auto *c=static_cast<Command *>(commands);auto *s=static_cast<Surface *>(surface);auto *t=static_cast<Texture *>(source);Device *d=s->device;
   *committed=false;
   if(s->current_image<0||static_cast<uint32_t>(s->current_image)>=s->image_count)return VK_ERROR_OUT_OF_DATE_KHR;
+  if(copy_count>16||region_count>16)return VK_ERROR_VALIDATION_FAILED_EXT;
+  full=full||t->width!=s->extent.width||t->height!=s->extent.height;
   uint32_t idx=static_cast<uint32_t>(s->current_image);VkImage image=s->images[idx];VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};
   VkImageMemoryBarrier2 b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};b.srcStageMask=VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;b.dstStageMask=VK_PIPELINE_STAGE_2_BLIT_BIT;
-  b.dstAccessMask=VK_ACCESS_2_TRANSFER_WRITE_BIT;b.oldLayout=VK_IMAGE_LAYOUT_UNDEFINED;b.newLayout=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;b.image=image;
+  // A damage-only copy keeps what the image showed last (it was presented before: PRESENT_SRC); a whole one discards it.
+  b.dstAccessMask=VK_ACCESS_2_TRANSFER_WRITE_BIT;b.oldLayout=full?VK_IMAGE_LAYOUT_UNDEFINED:VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;b.newLayout=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;b.image=image;
   b.srcQueueFamilyIndex=b.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;b.subresourceRange=range;
   VkDependencyInfo info{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};info.imageMemoryBarrierCount=1;info.pImageMemoryBarriers=&b;full_barrier(c->cb);vkCmdPipelineBarrier2(c->cb,&info);
-  VkImageBlit blit{};blit.srcSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};blit.srcOffsets[1]={static_cast<int32_t>(t->width),static_cast<int32_t>(t->height),1};
-  blit.dstSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};blit.dstOffsets[1]={static_cast<int32_t>(s->extent.width),static_cast<int32_t>(s->extent.height),1};
-  vkCmdBlitImage(c->cb,t->image,VK_IMAGE_LAYOUT_GENERAL,image,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,1,&blit,VK_FILTER_NEAREST);
+  // A blit, not a copy: it converts the RGBA canvas to the BGRA image. Same-size regions sample 1:1 (NEAREST).
+  VkImageBlit blits[16]{};uint32_t blit_count=0;
+  if(full){
+    VkImageBlit &blit=blits[blit_count++];blit.srcSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};blit.srcOffsets[1]={static_cast<int32_t>(t->width),static_cast<int32_t>(t->height),1};
+    blit.dstSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};blit.dstOffsets[1]={static_cast<int32_t>(s->extent.width),static_cast<int32_t>(s->extent.height),1};
+  } else for(uint32_t i=0;i<copy_count;++i){
+    const rv_rect &r=copy[i];int32_t x0=std::max(r.x,0),y0=std::max(r.y,0);
+    int32_t x1=std::min(r.x+r.width,static_cast<int32_t>(s->extent.width)),y1=std::min(r.y+r.height,static_cast<int32_t>(s->extent.height));
+    if(x1<=x0||y1<=y0)continue;
+    VkImageBlit &blit=blits[blit_count++];blit.srcSubresource=blit.dstSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};
+    blit.srcOffsets[0]=blit.dstOffsets[0]={x0,y0,0};blit.srcOffsets[1]=blit.dstOffsets[1]={x1,y1,1};
+  }
+  if(blit_count)vkCmdBlitImage(c->cb,t->image,VK_IMAGE_LAYOUT_GENERAL,image,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,blit_count,blits,VK_FILTER_NEAREST);
+  ++s->stats[full?0:1];s->stats[2]+=full?0:blit_count;
+  VkImageLayout last=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+  if(s->capture&&s->readable&&s->capture_size>=static_cast<VkDeviceSize>(s->extent.width)*s->extent.height*4){
+    b.srcStageMask=VK_PIPELINE_STAGE_2_BLIT_BIT;b.srcAccessMask=VK_ACCESS_2_TRANSFER_WRITE_BIT;b.dstStageMask=VK_PIPELINE_STAGE_2_COPY_BIT;b.dstAccessMask=VK_ACCESS_2_TRANSFER_READ_BIT;
+    b.oldLayout=last;b.newLayout=last=VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;vkCmdPipelineBarrier2(c->cb,&info);
+    VkBufferImageCopy region{};region.imageSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};region.imageExtent={s->extent.width,s->extent.height,1};
+    vkCmdCopyImageToBuffer(c->cb,image,last,s->capture,1,&region);
+  }
   /* dst ALL_COMMANDS, not NONE: the transition must be ordered before the semaphore signal (sync validation PRESENT_AFTER_WRITE). */
-  b.srcStageMask=VK_PIPELINE_STAGE_2_BLIT_BIT;b.srcAccessMask=VK_ACCESS_2_TRANSFER_WRITE_BIT;b.dstStageMask=VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;b.dstAccessMask=0;
-  b.oldLayout=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;b.newLayout=VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;vkCmdPipelineBarrier2(c->cb,&info);
+  b.srcStageMask=VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;b.srcAccessMask=VK_ACCESS_2_TRANSFER_WRITE_BIT|VK_ACCESS_2_TRANSFER_READ_BIT;b.dstStageMask=VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;b.dstAccessMask=0;
+  b.oldLayout=last;b.newLayout=VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;vkCmdPipelineBarrier2(c->cb,&info);
+  if(s->capture)full_barrier(c->cb);
   VkSemaphore rendered=s->rendered[idx];int64_t e=commit_cmd(c,s->current_semaphore,rendered);if(e<0)return static_cast<int32_t>(e);*committed=true;
   VkPresentInfoKHR pi{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};pi.waitSemaphoreCount=1;pi.pWaitSemaphores=&rendered;pi.swapchainCount=1;pi.pSwapchains=&s->swapchain;pi.pImageIndices=&idx;
+  VkRectLayerKHR layers[16];VkPresentRegionKHR region{};VkPresentRegionsKHR present_regions{VK_STRUCTURE_TYPE_PRESENT_REGIONS_KHR};
+  if(d->incremental&&region_count){
+    for(uint32_t i=0;i<region_count;++i)layers[i]={{regions[i].x,regions[i].y},{static_cast<uint32_t>(regions[i].width),static_cast<uint32_t>(regions[i].height)},0};
+    region.rectangleCount=region_count;region.pRectangles=layers;present_regions.swapchainCount=1;present_regions.pRegions=&region;pi.pNext=&present_regions;++s->stats[3];
+  }
   VkResult r;{std::lock_guard<std::recursive_mutex> lock(d->qlock);r=vkQueuePresentKHR(d->main_queue,&pi);}s->current_image=-1;
   if(r==VK_ERROR_OUT_OF_DATE_KHR||r==VK_SUBOPTIMAL_KHR)s->stale=true;else if(r!=VK_SUCCESS)return r;*epoch=static_cast<uint64_t>(e);return VK_SUCCESS;
 }
+// The swapchain generation (bumped by every rebuild), its image count and extent, and whether presents carry regions.
+uint64_t rv_surface_state(void *surface, uint32_t *image_count, uint32_t *width, uint32_t *height, bool *incremental) {
+  auto *s=static_cast<Surface *>(surface);*image_count=s->swapchain?s->image_count:0;*width=s->extent.width;*height=s->extent.height;
+  *incremental=s->device->incremental;return s->generation;
+}
+void rv_surface_stats(void *surface, uint64_t *out) { auto *s=static_cast<Surface *>(surface); for(int i=0;i<4;++i) out[i]=s->stats[i]; }
+static void capture_release(Surface *s) {
+  if(s->capture)vmaDestroyBuffer(s->device->allocator,s->capture,s->capture_allocation);s->capture={};s->capture_allocation={};s->capture_bytes=nullptr;s->capture_size=0;
+}
+// Test capture of `bytes` per present (0: off). Needs images that allow TRANSFER_SRC.
+int32_t rv_surface_capture(void *surface, uint64_t bytes) {
+  auto *s=static_cast<Surface *>(surface);Device *d=s->device;
+  {std::lock_guard<std::recursive_mutex> lock(d->qlock);vkQueueWaitIdle(d->main_queue);}capture_release(s);
+  if(!bytes)return VK_SUCCESS;
+  VkSurfaceCapabilitiesKHR caps{};vkGetPhysicalDeviceSurfaceCapabilitiesKHR(d->physical,s->surface,&caps);  // the next build's usage
+  if(!(caps.supportedUsageFlags&VK_IMAGE_USAGE_TRANSFER_SRC_BIT))return VK_ERROR_FORMAT_NOT_SUPPORTED;
+  VkBufferCreateInfo bi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};bi.size=bytes;bi.usage=VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+  VmaAllocationCreateInfo ai{};ai.flags=VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT|VMA_ALLOCATION_CREATE_MAPPED_BIT;ai.usage=VMA_MEMORY_USAGE_AUTO;
+  VmaAllocationInfo mapped{};VkResult r=vmaCreateBuffer(d->allocator,&bi,&ai,&s->capture,&s->capture_allocation,&mapped);if(r!=VK_SUCCESS){s->capture={};return r;}
+  s->capture_bytes=mapped.pMappedData;s->capture_size=bytes;return VK_SUCCESS;
+}
+// The last captured present (BGRA8, rows of width*4): call after its commands completed.
+int32_t rv_surface_captured(void *surface, void *out, uint64_t bytes) {
+  auto *s=static_cast<Surface *>(surface);if(!s->capture_bytes||bytes>s->capture_size)return VK_ERROR_VALIDATION_FAILED_EXT;
+  vmaInvalidateAllocation(s->device->allocator,s->capture_allocation,0,bytes);memcpy(out,s->capture_bytes,bytes);return VK_SUCCESS;
+}
 void rv_surface_destroy(void *surface) {
   auto *s=static_cast<Surface *>(surface);Device *d=s->device;{std::lock_guard<std::recursive_mutex> lock(d->qlock);vkQueueWaitIdle(d->main_queue);}
+  capture_release(s);
   for(auto sem:s->rendered)if(sem)vkDestroySemaphore(d->device,sem,nullptr);for(auto sem:s->acquired)if(sem)vkDestroySemaphore(d->device,sem,nullptr);
   if(s->swapchain)vkDestroySwapchainKHR(d->device,s->swapchain,nullptr);vkDestroySurfaceKHR(d->instance,s->surface,nullptr);delete s;
 }

@@ -163,6 +163,33 @@ pub trait DriverSurface {
     fn acquire_sync(&self) -> Result<DriverAcquire, Error>;
     fn discard(&self, frame: DriverFrame) -> Result<(), Error>;
     fn destroy_surface(&self) -> Result<(), Error>;
+    /// The kill switch: true makes every present copy the whole image and carry no regions.
+    fn set_full_present(&self, _on: bool) -> Result<(), Error> { Ok(()) }
+    fn present_stats(&self) -> Result<PresentStats, Error> {
+        Err(error::make("Backend.present_stats", ErrorKind::Unsupported, "present statistics are unavailable"))
+    }
+    /// Test capture: `bytes` per present (0: off), read back with `read_capture`.
+    fn capture_presents(&self, _bytes: u64) -> Result<(), Error> {
+        Err(error::make("Backend.capture_presents", ErrorKind::Unsupported, "present capture is unavailable"))
+    }
+    fn read_capture(&self, _out: &mut [u8]) -> Result<(), Error> {
+        Err(error::make("Backend.read_capture", ErrorKind::Unsupported, "present capture is unavailable"))
+    }
+}
+
+/// What a surface's presents did so far.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PresentStats {
+    /// Presents that copied the whole canvas into the image.
+    pub full: u64,
+    /// Presents that copied only the image's damage debt.
+    pub partial: u64,
+    /// Rectangles those damage-only presents copied.
+    pub rects: u64,
+    /// Presents that carried regions (VK_KHR_incremental_present).
+    pub regions: u64,
+    /// Whether this surface's presents can carry regions at all.
+    pub incremental: bool,
 }
 
 pub trait DriverLibrary {
@@ -340,6 +367,11 @@ pub trait DriverCommands {
     }
     fn commit(&self) -> Result<Receipt, Error>;
     fn commit_present(&self, source: &dyn DriverResource, frame: DriverFrame) -> Result<Receipt, Error>;
+    /// `commit_present` with the canvas damage since the previous present (`None`: unknown, all of it). A driver
+    /// without damage-only presentation copies the whole canvas.
+    fn commit_present_damage(&self, source: &dyn DriverResource, frame: DriverFrame, _damage: Option<&[Rect]>) -> Result<Receipt, Error> {
+        self.commit_present(source, frame)
+    }
     fn abandon(&self) -> Result<(), Error>;
     fn native_commands(&self) -> Result<NativeCommands, Error> {
         Err(error::make("Backend.native_commands", ErrorKind::Unsupported, "native command export is unavailable"))
@@ -1219,6 +1251,36 @@ pub fn destroy_queue(queue: &Queue) -> Result<(), Error> {
     q.device.0.children.set(q.device.0.children.get() - 1);
     Ok(())
 }
+fn live_surface(operation: &str, surface: &Surface) -> Result<(), Error> {
+    if surface.0.dead.get() { Err(make_error(operation, ErrorKind::StaleHandle, "surface is destroyed")) } else { Ok(()) }
+}
+
+/// The kill switch for damage-only presentation: on, every present copies the whole canvas and carries no regions.
+/// Also on from the start when the environment sets `PXUI_VK_FULL_PRESENT=1` (read when the surface is created).
+pub fn set_full_present(surface: &Surface, on: bool) -> Result<(), Error> {
+    live_surface("Backend.set_full_present", surface)?;
+    surface.0.raw().set_full_present(on)
+}
+
+/// What `surface`'s presents did so far; `Unsupported` for a driver that does not count them.
+pub fn present_stats(surface: &Surface) -> Result<PresentStats, Error> {
+    live_surface("Backend.present_stats", surface)?;
+    surface.0.raw().present_stats()
+}
+
+/// For tests: each later present also copies its image (BGRA8, width x 4 bytes per row, `bytes` in all; 0 stops)
+/// so `read_capture` can compare what was presented with the canvas.
+pub fn capture_presents(surface: &Surface, bytes: u64) -> Result<(), Error> {
+    live_surface("Backend.capture_presents", surface)?;
+    surface.0.raw().capture_presents(bytes)
+}
+
+/// The image the last capturing present showed; read after that present's commands completed.
+pub fn read_capture(surface: &Surface, out: &mut [u8]) -> Result<(), Error> {
+    live_surface("Backend.read_capture", surface)?;
+    surface.0.raw().read_capture(out)
+}
+
 pub fn destroy_surface(surface: &Surface) -> Result<(), Error> {
     if surface.0.dead.get() { return Ok(()); }
     if surface.0.frames.get() != 0 { return Err(make_error("Backend.destroy_surface", ErrorKind::InvalidState, "surface has acquired frames")); }
@@ -2619,13 +2681,22 @@ fn validate_present(operation: &str, queue: &Queue, source: &Texture, frame: &Fr
     Ok(())
 }
 pub fn commit_present(commands: &Commands, source: &Texture, frame: &Frame) -> Result<Receipt, Error> {
+    commit_present_damage(commands, source, frame, None)
+}
+
+/// Presents `source` (the retained canvas, the source of truth) to `frame`'s image, copying only what that image
+/// lacks: its damage history plus `damage`, the canvas pixels changed since the previous present (physical pixels;
+/// `None`: unknown, everything). The driver falls back to a whole copy for unknown, new, resized or out-of-date
+/// images, and passes `damage` on as present regions where it can (Vulkan: VK_KHR_incremental_present).
+/// Allocates: never.
+pub fn commit_present_damage(commands: &Commands, source: &Texture, frame: &Frame, damage: Option<&[Rect]>) -> Result<Receipt, Error> {
     const OP: &str = "Backend.commit_present";
     if commands.0.borrowed.get() { return Err(make_error(OP, ErrorKind::InvalidState, "adopted commands are owned by the app")); }
     recording(OP, commands)?;
     validate_present(OP, &commands.0.queue, source, frame)?;
     admit(OP, &commands.0.queue)?;
     SUBMITS.with(|n| n.set(n.get() + 1));
-    let receipt = commands.0.raw().commit_present(&*source.resource.0.raw(), frame.0.raw.clone())?;
+    let receipt = commands.0.raw().commit_present_damage(&*source.resource.0.raw(), frame.0.raw.clone(), damage)?;
     commands.0.queue.0.borrow_mut().submitted = receipt.epoch;
     commands.0.state.set(CommandsState::Committed);
     commands.0.raw.borrow_mut().take();

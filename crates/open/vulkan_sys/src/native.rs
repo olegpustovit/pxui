@@ -125,6 +125,7 @@ pub struct SamplerDescriptor {
     pub lod_max: f64,
 }
 
+#[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Rect { pub x: i32, pub y: i32, pub width: i32, pub height: i32 }
 
@@ -273,7 +274,11 @@ unsafe extern "C" {
     fn rv_surface_configure(surface:*mut c_void,immediate:bool)->i32;
     fn rv_surface_acquire(surface:*mut c_void,image:*mut i32)->i32;
     fn rv_surface_discard(surface:*mut c_void);
-    fn rv_commit_present(commands:*mut c_void,surface:*mut c_void,source:*mut c_void,epoch:*mut u64,committed:*mut bool)->i32;
+    fn rv_commit_present(commands:*mut c_void,surface:*mut c_void,source:*mut c_void,copy:*const Rect,copy_count:u32,full:bool,regions:*const Rect,region_count:u32,epoch:*mut u64,committed:*mut bool)->i32;
+    fn rv_surface_state(surface:*mut c_void,image_count:*mut u32,width:*mut u32,height:*mut u32,incremental:*mut bool)->u64;
+    fn rv_surface_stats(surface:*mut c_void,out:*mut u64);
+    fn rv_surface_capture(surface:*mut c_void,bytes:u64)->i32;
+    fn rv_surface_captured(surface:*mut c_void,out:*mut c_void,bytes:u64)->i32;
     fn rv_surface_destroy(surface:*mut c_void);
     fn rv_accel_create_blas(device:*mut c_void,geometries:*const NativeGeometry,count:u32,refit:bool,out:*mut *mut c_void)->i32;
     fn rv_accel_create_tlas(device:*mut c_void,instances:*mut c_void,offset:u64,count:u32,structures:*const *mut c_void,structure_count:u32,children:bool,out:*mut *mut c_void)->i32;
@@ -682,15 +687,37 @@ impl Surface{
         match image{-1=>Ok(Acquire::TimedOut),-2=>Ok(Acquire::Occluded),n if n>=0=>{self.acquired=true;Ok(Acquire::Image(n as u32))},_=>Err(Error::InvalidInput("invalid surface image result"))}
     }
     pub fn discard(&mut self){unsafe{rv_surface_discard(self.raw.as_ptr())};self.acquired=false}
-    pub fn present(&mut self,commands:&mut Commands,source:&Texture)->Result<u64,Error>{
+    /// Copies `source` into the acquired image and presents it: `copy` None copies the whole image, else only those
+    /// rects onto the image's previous contents (at most 16). `regions` (at most 16) become VkPresentRegionsKHR when
+    /// the device has VK_KHR_incremental_present.
+    pub fn present(&mut self,commands:&mut Commands,source:&Texture,copy:Option<&[Rect]>,regions:&[Rect])->Result<u64,Error>{
         if !self.acquired{return Err(Error::InvalidInput("surface image was not acquired"));}
         same(&self.device,&source.device)?;same(&self.device,&commands.queue.device)?;
+        let rects=copy.unwrap_or(&[]);
+        if rects.len()>16||regions.len()>16{return Err(Error::InvalidInput("more than 16 present rects"));}
         let mut epoch=0;let mut committed=false;
-        let result=unsafe{rv_commit_present(commands.raw.as_ptr(),self.raw.as_ptr(),source.raw.as_ptr(),&mut epoch,&mut committed)};
+        // SAFETY: live handles of this device; the rect slices outlive the call.
+        let result=unsafe{rv_commit_present(commands.raw.as_ptr(),self.raw.as_ptr(),source.raw.as_ptr(),rects.as_ptr(),rects.len() as u32,copy.is_none(),regions.as_ptr(),regions.len() as u32,&mut epoch,&mut committed)};
         if committed{commands.active=false;self.acquired=false;}
         Error::status(result)?;Ok(epoch)
     }
 }
+impl Surface{
+    /// The swapchain generation (bumped by each rebuild), image count and extent, and whether presents carry regions.
+    pub fn state(&self)->SurfaceState{
+        let (mut images,mut width,mut height,mut incremental)=(0,0,0,false);
+        let generation=unsafe{rv_surface_state(self.raw.as_ptr(),&mut images,&mut width,&mut height,&mut incremental)};
+        SurfaceState{generation,images,width,height,incremental}
+    }
+    /// Presents so far: whole copies, damage-only copies, rects those copied, presents that carried regions.
+    pub fn stats(&self)->[u64;4]{let mut out=[0;4];unsafe{rv_surface_stats(self.raw.as_ptr(),out.as_mut_ptr())};out}
+    /// Test capture: each present also copies the presented image into a `bytes`-sized host buffer (0: off).
+    pub fn capture(&mut self,bytes:u64)->Result<(),Error>{Error::status(unsafe{rv_surface_capture(self.raw.as_ptr(),bytes)})}
+    /// The last captured present, BGRA8 rows of width*4 bytes; read after its commands completed.
+    pub fn captured(&self,out:&mut [u8])->Result<(),Error>{Error::status(unsafe{rv_surface_captured(self.raw.as_ptr(),out.as_mut_ptr().cast(),out.len() as u64)})}
+}
+#[derive(Debug,Clone,Copy,PartialEq,Eq)]
+pub struct SurfaceState{pub generation:u64,pub images:u32,pub width:u32,pub height:u32,pub incremental:bool}
 impl Drop for Surface{fn drop(&mut self){unsafe{rv_surface_destroy(self.raw.as_ptr())}}}
 
 struct AccelInner { raw:NonNull<c_void>,_device:Arc<DeviceInner>,_buffers:RefCell<Vec<Arc<BufferInner>>>,_children:Vec<Arc<AccelInner>> }

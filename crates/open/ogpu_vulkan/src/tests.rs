@@ -1573,13 +1573,9 @@ fn gpu_out_of_device_memory_is_capacity() {
     assert_eq!(crate::vulkan::Device::validation_messages(), 0, "out-of-memory test: validation messages");
 }
 
-/// Wayland: surface from a (wl_display, wl_surface) token, swapchain, acquire and present one image. Needs a compositor
-/// (WSLg's `WAYLAND_DISPLAY=wayland-0` works); no xdg role is required for the swapchain.
+/// A token for a bare wl_surface on the running compositor, or None after a printed skip without one.
 #[cfg(wayland_probe)]
-#[test]
-fn gpu_wayland_surface_swapchain_present() {
-    use crate::vulkan as vk;
-    use ogpu_core::validation::{admit_texture, TextureProfile};
+fn wayland_probe_token(case: &str) -> Option<native_layer_token_sys::portable::Token> {
     use native_layer_token_sys::portable::Token;
     use native_layer_token_sys::{Token as SysToken, WaylandLayer};
     use std::ffi::c_void;
@@ -1588,13 +1584,24 @@ fn gpu_wayland_surface_swapchain_present() {
     unsafe extern "C" fn free_layer(layer: *mut c_void) { drop(unsafe { Box::from_raw(layer.cast::<WaylandLayer>()) }) }
     let (mut display, mut surface) = (std::ptr::null_mut(), std::ptr::null_mut());
     if unsafe { rays_wl_probe_open(&mut display, &mut surface) } != 0 {
-        eprintln!("RAYS_TEST_SKIP: OGPU Wayland surface: no compositor (set WAYLAND_DISPLAY / XDG_RUNTIME_DIR)");
+        eprintln!("RAYS_TEST_SKIP: {case}: no compositor (set WAYLAND_DISPLAY / XDG_RUNTIME_DIR)");
         assert!(std::env::var("RAYS_ALLOW_SKIP").as_deref() == Ok("1"), "RAYS_ALLOW_SKIP=1 explicitly permits skipping");
-        return;
+        return None;
     }
     let layer = Box::into_raw(Box::new(WaylandLayer { display, surface }));
     // SAFETY: the layer is freed exactly once by the token's release callback; display and surface outlive the process.
     let token = Token::from_sys(unsafe { SysToken::from_raw(layer.cast(), 1, 1, Some(keep), Some(free_layer)) }.unwrap());
+    Some(token)
+}
+
+/// Wayland: surface from a (wl_display, wl_surface) token, swapchain, acquire and present one image. Needs a compositor
+/// (WSLg's `WAYLAND_DISPLAY=wayland-0` works); no xdg role is required for the swapchain.
+#[cfg(wayland_probe)]
+#[test]
+fn gpu_wayland_surface_swapchain_present() {
+    use crate::vulkan as vk;
+    use ogpu_core::validation::{admit_texture, TextureProfile};
+    let Some(token) = wayland_probe_token("OGPU Wayland surface") else { return };
     let device = vk::Device::create(true, true).expect("fatal-validation Vulkan device");
     let mut window = device.surface(&token, 1, 1, false).expect("VkSurfaceKHR from wl_surface");
     assert_eq!(window.acquire().unwrap(), vk::Acquire::Occluded, "no size asked yet");
@@ -1606,8 +1613,75 @@ fn gpu_wayland_surface_swapchain_present() {
     let queue = device.queue().unwrap();
     assert!(matches!(window.acquire().unwrap(), vk::Acquire::Image(_)), "swapchain image acquired");
     let mut commands = queue.begin().unwrap();
-    let epoch = window.present(&mut commands, &source).expect("present");
+    let epoch = window.present(&mut commands, &source, None).expect("present");
     queue.wait(epoch).unwrap();
+    assert_eq!(vk::Device::validation_messages(), 0);
+}
+
+/// Damage-only presentation under fatal validation: whole copies for unknown images, then only each image's damage
+/// debt onto its previous contents. A capture of every presented image must equal the canvas exactly.
+#[cfg(wayland_probe)]
+#[test]
+fn gpu_wayland_damage_present_matches_canvas() {
+    use crate::vulkan as vk;
+    use ogpu_core::render_pass::Rect;
+    use ogpu_core::validation::{admit_texture, TextureProfile};
+    let Some(token) = wayland_probe_token("OGPU Wayland damage present") else { return };
+    let device = vk::Device::create(true, true).expect("fatal-validation Vulkan device");
+    // Unthrottled (MAILBOX): the bare surface has no role, so the compositor sends no frame callbacks for FIFO to wait on.
+    let mut window = device.surface(&token, 1, 1, true).expect("VkSurfaceKHR from wl_surface");
+    window.set_full_present(false);
+    let (w, h) = (64u32, 48u32);
+    window.set_extent(w, h);
+    let caps = device.facts().unwrap().capabilities();
+    let profile = TextureProfile::descriptor_2d(TextureFormat::Rgba8Unorm, w as usize, h as usize, types::StorageMode::Private,
+        vec![TextureUsage::TextureCopySrc, TextureUsage::TextureCopyDst, TextureUsage::RenderAttachment], None);
+    let source = device.texture(&admit_texture(&caps, profile).unwrap()).unwrap();
+    let queue = device.queue().unwrap();
+    window.capture(u64::from(w * h * 4)).expect("swapchain images allow TRANSFER_SRC");
+    // The canvas, on the CPU too: frame 0 fills it, each later frame repaints one 8x8 cell.
+    let mut canvas = vec![0u8; (w * h * 4) as usize];
+    let mut captured = vec![0u8; canvas.len()];
+    for frame in 0..12u32 {
+        let rect = if frame == 0 { Rect { x: 0, y: 0, width: w as i64, height: h as i64 } }
+            else { Rect { x: i64::from(frame * 5 % (w - 8)), y: i64::from(frame * 7 % (h - 8)), width: 8, height: 8 } };
+        let mut cell = vec![0u8; (rect.width * rect.height * 4) as usize];
+        for (i, px) in cell.chunks_exact_mut(4).enumerate() {
+            px.copy_from_slice(&[(frame * 40 + i as u32) as u8, (frame * 90) as u8, (255 - frame * 20) as u8, 255]);
+        }
+        for y in 0..rect.height as usize {
+            let row = ((rect.y as usize + y) * w as usize + rect.x as usize) * 4;
+            canvas[row..row + rect.width as usize * 4].copy_from_slice(&cell[y * rect.width as usize * 4..(y + 1) * rect.width as usize * 4]);
+        }
+        let image = loop {
+            if let vk::Acquire::Image(i) = window.acquire().unwrap() { break i; }
+        };
+        let mut commands = queue.begin().unwrap();
+        commands.write_texture(&source, &cell, vk::BlitDescriptor { buffer_offset: 0, bytes_per_row: rect.width as u32 * 4, texel_bytes: 4,
+            mip_level: 0, x: rect.x as i32, y: rect.y as i32, z: 0, width: rect.width as u32, height: rect.height as u32, depth: 1 }).unwrap();
+        let damage = [rect];
+        let epoch = window.present(&mut commands, &source, (frame > 0).then_some(&damage[..])).expect("present");
+        queue.wait(epoch).unwrap();
+        window.captured(&mut captured).unwrap();
+        for (i, (got, want)) in captured.chunks_exact(4).zip(canvas.chunks_exact(4)).enumerate() {
+            assert_eq!([got[2], got[1], got[0], got[3]], [want[0], want[1], want[2], want[3]], "frame {frame} image {image}: pixel {i} differs from the canvas");
+        }
+    }
+    let stats = window.present_stats();
+    eprintln!("damage present stats: {stats:?}");
+    assert!(stats.partial >= 6 && stats.rects >= stats.partial, "later frames copied only damage: {stats:?}");
+    assert_eq!(stats.full + stats.partial, 12);
+    assert_eq!(stats.regions > 0, stats.incremental, "frames with damage carried regions when the device can: {stats:?}");
+    // The kill switch: whole copies, no regions.
+    window.set_full_present(true);
+    let before = window.present_stats();
+    let _ = loop { if let vk::Acquire::Image(i) = window.acquire().unwrap() { break i; } };
+    let commands = &mut queue.begin().unwrap();
+    let epoch = window.present(commands, &source, Some(&[Rect { x: 0, y: 0, width: 1, height: 1 }])).unwrap();
+    queue.wait(epoch).unwrap();
+    let after = window.present_stats();
+    assert_eq!((after.full - before.full, after.partial - before.partial, after.regions - before.regions), (1, 0, 0));
+    window.capture(0).unwrap();
     assert_eq!(vk::Device::validation_messages(), 0);
 }
 

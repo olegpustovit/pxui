@@ -51,15 +51,6 @@ impl Debt {
     }
 }
 
-/// What to copy into the image being presented.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Region<'a> {
-    /// The whole extent: unknown contents, no damage list, the kill switch, or the debt covers most of the image.
-    Full,
-    /// Only these rectangles (clamped to the extent, possibly none: the image is already current).
-    Rects(&'a [Rect]),
-}
-
 /// The damage history of one swapchain: per image index, the canvas changes it has not shown yet.
 #[derive(Clone, Debug)]
 pub struct History {
@@ -69,7 +60,7 @@ pub struct History {
     extent: (i64, i64),
     /// The kill switch: every present copies the whole extent and carries no regions.
     force_full: bool,
-    /// The last `take`'s copy list, which `Region::Rects` borrows.
+    /// The last `take`'s copy list, which its result borrows.
     copy: Debt,
 }
 
@@ -99,9 +90,11 @@ impl History {
     }
 
     /// Records a present of `image` on swapchain `generation` with `extent` (pixels) whose canvas changed in
-    /// `damage` since the previous present (`None`: unknown, everything), and returns what to copy into it.
+    /// `damage` since the previous present (`None`: unknown, everything), and returns what to copy into it: `None`
+    /// for the whole extent (unknown contents, no damage list, the kill switch, or most of the image owed), else only
+    /// these rects (clamped to the extent; none when the image is already current).
     /// Every other image owes this frame's damage from now on; `image` owes nothing after the copy.
-    pub fn take(&mut self, generation: u64, extent: (i64, i64), image: usize, damage: Option<&[Rect]>) -> Region<'_> {
+    pub fn take(&mut self, generation: u64, extent: (i64, i64), image: usize, damage: Option<&[Rect]>) -> Option<&[Rect]> {
         if generation != self.generation || extent != self.extent {
             self.generation = generation;
             self.extent = extent;
@@ -120,14 +113,14 @@ impl History {
                 _ => *debt = Debt::FULL,
             }
         }
-        let Some(debt) = self.images.get_mut(image) else { return Region::Full };
+        let Some(debt) = self.images.get_mut(image) else { return None };
         self.copy = std::mem::take(debt);
         let area: i64 = self.copy.rects[..self.copy.len as usize].iter().map(|r| r.width * r.height).sum();
         // Most of the image: one whole copy is cheaper than many scattered ones.
         if self.copy.full || area * 10 > whole.width * whole.height * 6 {
-            return Region::Full;
+            return None;
         }
-        Region::Rects(&self.copy.rects[..self.copy.len as usize])
+        Some(&self.copy.rects[..self.copy.len as usize])
     }
 }
 
@@ -142,7 +135,8 @@ fn contains(a: Rect, b: Rect) -> bool {
     a.x <= b.x && a.y <= b.y && a.x + a.width >= b.x + b.width && a.y + a.height >= b.y + b.height
 }
 
-fn union(a: Rect, b: Rect) -> Rect {
+/// The bounding box of `a` and `b`.
+pub fn union(a: Rect, b: Rect) -> Rect {
     let (x, y) = (a.x.min(b.x), a.y.min(b.y));
     Rect { x, y, width: (a.x + a.width).max(b.x + b.width) - x, height: (a.y + a.height).max(b.y + b.height) - y }
 }
@@ -159,29 +153,29 @@ mod tests {
         let mut h = History::new();
         let ext = (100, 100);
         // Unknown images copy whole, whatever the frame's damage.
-        assert_eq!(h.take(1, ext, 0, Some(&[r(0, 0, 4, 4)])), Region::Full);
-        assert_eq!(h.take(1, ext, 1, Some(&[r(10, 10, 4, 4)])), Region::Full);
-        assert_eq!(h.take(1, ext, 2, Some(&[r(20, 20, 4, 4)])), Region::Full);
+        assert_eq!(h.take(1, ext, 0, Some(&[r(0, 0, 4, 4)])), None);
+        assert_eq!(h.take(1, ext, 1, Some(&[r(10, 10, 4, 4)])), None);
+        assert_eq!(h.take(1, ext, 2, Some(&[r(20, 20, 4, 4)])), None);
         // Image 0 last showed frame 0: it owes frames 1, 2 and this frame 3.
-        assert_eq!(h.take(1, ext, 0, Some(&[r(30, 30, 4, 4)])), Region::Rects(&[r(10, 10, 4, 4), r(20, 20, 4, 4), r(30, 30, 4, 4)]));
+        assert_eq!(h.take(1, ext, 0, Some(&[r(30, 30, 4, 4)])), Some(&[r(10, 10, 4, 4), r(20, 20, 4, 4), r(30, 30, 4, 4)][..]));
         // Image 1 owes frames 2, 3 and 4 (an off-extent part is clipped away).
-        assert_eq!(h.take(1, ext, 1, Some(&[r(98, 98, 8, 8)])), Region::Rects(&[r(20, 20, 4, 4), r(30, 30, 4, 4), r(98, 98, 2, 2)]));
+        assert_eq!(h.take(1, ext, 1, Some(&[r(98, 98, 8, 8)])), Some(&[r(20, 20, 4, 4), r(30, 30, 4, 4), r(98, 98, 2, 2)][..]));
         // A contained rect adds nothing; an idle frame (no damage) leaves the image's own debt.
-        assert_eq!(h.take(1, ext, 2, Some(&[r(31, 31, 2, 2)])), Region::Rects(&[r(30, 30, 4, 4), r(98, 98, 2, 2)]));
-        assert_eq!(h.take(1, ext, 0, Some(&[])), Region::Rects(&[r(98, 98, 2, 2), r(31, 31, 2, 2)]));
-        assert_eq!(h.take(1, ext, 1, Some(&[])), Region::Rects(&[r(31, 31, 2, 2)]));
-        assert_eq!(h.take(1, ext, 2, Some(&[])), Region::Rects(&[]));
+        assert_eq!(h.take(1, ext, 2, Some(&[r(31, 31, 2, 2)])), Some(&[r(30, 30, 4, 4), r(98, 98, 2, 2)][..]));
+        assert_eq!(h.take(1, ext, 0, Some(&[])), Some(&[r(98, 98, 2, 2), r(31, 31, 2, 2)][..]));
+        assert_eq!(h.take(1, ext, 1, Some(&[])), Some(&[r(31, 31, 2, 2)][..]));
+        assert_eq!(h.take(1, ext, 2, Some(&[])), Some(&[][..]));
         // A frame without a damage list owes everything to every image.
-        assert_eq!(h.take(1, ext, 0, None), Region::Full);
-        assert_eq!(h.take(1, ext, 1, Some(&[])), Region::Full);
+        assert_eq!(h.take(1, ext, 0, None), None);
+        assert_eq!(h.take(1, ext, 1, Some(&[])), None);
         // A new swapchain generation (rebuilt, out of date) or a resized extent forgets every image.
         for i in 0..3 { h.take(1, ext, i, Some(&[])); }
-        assert_eq!(h.take(1, ext, 2, Some(&[r(1, 1, 1, 1)])), Region::Rects(&[r(1, 1, 1, 1)]));
-        assert_eq!(h.take(2, ext, 2, Some(&[r(1, 1, 1, 1)])), Region::Full);
+        assert_eq!(h.take(1, ext, 2, Some(&[r(1, 1, 1, 1)])), Some(&[r(1, 1, 1, 1)][..]));
+        assert_eq!(h.take(2, ext, 2, Some(&[r(1, 1, 1, 1)])), None);
         for i in 0..3 { h.take(2, ext, i, Some(&[])); }
-        assert_eq!(h.take(2, (100, 90), 1, Some(&[])), Region::Full);
+        assert_eq!(h.take(2, (100, 90), 1, Some(&[])), None);
         // An index past the tracked images is always whole.
-        assert_eq!(h.take(2, (100, 90), MAX_IMAGES, Some(&[])), Region::Full);
+        assert_eq!(h.take(2, (100, 90), MAX_IMAGES, Some(&[])), None);
     }
 
     #[test]
@@ -192,10 +186,10 @@ mod tests {
         // Nine scattered rects on image 0 overflow image 1's eight slots into one bounding box.
         let rects: Vec<Rect> = (0..9).map(|i| r(i * 20, i * 20, 5, 5)).collect();
         h.take(1, ext, 0, Some(&rects));
-        assert_eq!(h.take(1, ext, 1, Some(&[])), Region::Rects(&[r(0, 0, 165, 165)]));
+        assert_eq!(h.take(1, ext, 1, Some(&[])), Some(&[r(0, 0, 165, 165)][..]));
         // Over 60% of the image owed: one whole copy.
         h.take(1, ext, 0, Some(&[r(0, 0, 1000, 700)]));
-        assert_eq!(h.take(1, ext, 1, Some(&[])), Region::Full);
+        assert_eq!(h.take(1, ext, 1, Some(&[])), None);
     }
 
     #[test]
@@ -203,11 +197,11 @@ mod tests {
         let mut h = History::new();
         let ext = (100, 100);
         h.set_force_full(true);
-        for i in 0..3 { assert_eq!(h.take(1, ext, i, Some(&[r(0, 0, 1, 1)])), Region::Full); }
-        assert_eq!(h.take(1, ext, 0, Some(&[r(0, 0, 1, 1)])), Region::Full);
+        for i in 0..3 { assert_eq!(h.take(1, ext, i, Some(&[r(0, 0, 1, 1)])), None); }
+        assert_eq!(h.take(1, ext, 0, Some(&[r(0, 0, 1, 1)])), None);
         // Back on: every image is unknown again.
         h.set_force_full(false);
-        assert_eq!(h.take(1, ext, 1, Some(&[r(0, 0, 1, 1)])), Region::Full);
-        assert_eq!(h.take(1, ext, 1, Some(&[r(0, 0, 1, 1)])), Region::Rects(&[r(0, 0, 1, 1)]));
+        assert_eq!(h.take(1, ext, 1, Some(&[r(0, 0, 1, 1)])), None);
+        assert_eq!(h.take(1, ext, 1, Some(&[r(0, 0, 1, 1)])), Some(&[r(0, 0, 1, 1)][..]));
     }
 }

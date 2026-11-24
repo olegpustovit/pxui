@@ -4,6 +4,9 @@
 use native_layer_token_sys::portable::Token;
 use std::error::Error as StdError;
 use std::fmt;
+use ogpu_core::backend::PresentStats;
+use ogpu_core::damage::{self, History};
+use ogpu_core::render_pass::Rect as CoreRect;
 use vulkan_sys as sys;
 
 pub use sys::{
@@ -68,7 +71,12 @@ impl Device {
     pub fn sampler(&self, descriptor: SamplerDescriptor) -> Result<Sampler, Error> { self.0.sampler(descriptor).map_err(|failure| error("sampler_create", failure)).map(Sampler) }
     pub fn surface(&self, token: &Token, owner: i64, generation: i64, immediate: bool) -> Result<Surface, Error> {
         let hwnd = token.borrow_raw(owner, generation).ok_or_else(|| Error { operation: "surface_create", kind: ErrorKind::InvalidInput("native layer token is not live") })?;
-        self.0.surface(hwnd, immediate).map_err(|failure| error("surface_create", failure)).map(|surface| Surface { inner: surface, _token: token.clone() })
+        self.0.surface(hwnd, immediate).map_err(|failure| error("surface_create", failure)).map(|surface| {
+            let mut history = History::new();
+            // The kill switch, also at run time through `Surface::set_full_present`.
+            history.set_force_full(std::env::var_os("PXUI_VK_FULL_PRESENT").is_some_and(|v| v != "0"));
+            Surface { inner: surface, _token: token.clone(), history, image: usize::MAX }
+        })
     }
     pub fn acceleration_blas(&self, geometries: &[Geometry], allow_refit: bool) -> Result<AccelerationStructure, Error> {
         let native = geometries.iter().map(Geometry::native).collect::<Vec<_>>();
@@ -205,13 +213,63 @@ impl ZeroedView {
     pub fn as_mut_slice(&mut self) -> &mut [f32] { self.0.as_mut_slice() }
 }
 pub struct Sampler(sys::Sampler);
-pub struct Surface { inner: sys::Surface, _token: Token }
+/// A swapchain that presents a retained canvas: each present copies into the acquired image only what that image
+/// lacks (its per-image damage `History`), and passes the frame's damage on as present regions.
+pub struct Surface { inner: sys::Surface, _token: Token, history: History, image: usize }
 impl Surface {
     pub fn set_extent(&mut self, width: u32, height: u32) { self.inner.set_extent(width, height) }
     pub fn configure(&mut self, immediate: bool) -> Result<(), Error> { self.inner.configure(immediate).map_err(|failure| error("surface_configure", failure)) }
-    pub fn acquire(&mut self) -> Result<Acquire, Error> { self.inner.acquire().map_err(|failure| error("surface_acquire", failure)) }
+    pub fn acquire(&mut self) -> Result<Acquire, Error> {
+        let acquired = self.inner.acquire().map_err(|failure| error("surface_acquire", failure))?;
+        if let Acquire::Image(index) = acquired { self.image = index as usize; }
+        Ok(acquired)
+    }
     pub fn discard(&mut self) { self.inner.discard() }
-    pub fn present(&mut self, commands: &mut Commands, source: &Texture) -> Result<u64, Error> { self.inner.present(&mut commands.0, &source.0).map_err(|failure| error("commit_present", failure)) }
+    /// Presents `source` with the canvas `damage` since the previous present (physical pixels; `None`: all of it).
+    /// Allocates: never.
+    pub fn present(&mut self, commands: &mut Commands, source: &Texture, damage: Option<&[CoreRect]>) -> Result<u64, Error> {
+        let state = self.inner.state();
+        let extent = (i64::from(state.width), i64::from(state.height));
+        let whole = CoreRect { x: 0, y: 0, width: extent.0, height: extent.1 };
+        // The frame's damage as present regions: clamped, at most MAX_RECTS (more collapse to their bounds), none when
+        // unknown or with the kill switch on (a present without regions means the whole image changed).
+        let mut regions = [sys::Rect { x: 0, y: 0, width: 0, height: 0 }; damage::MAX_RECTS];
+        let mut region_count = 0;
+        if let (Some(rects), false, true) = (damage, self.history.force_full(), state.incremental) {
+            let mut bounds: Option<CoreRect> = None;
+            for rect in rects.iter().filter_map(|&r| damage::clamp(r, whole)) {
+                bounds = Some(bounds.map_or(rect, |b| damage::union(b, rect)));
+                if region_count < regions.len() { regions[region_count] = native_rect(rect); }
+                region_count += 1;
+            }
+            if region_count > regions.len() { regions[0] = native_rect(bounds.unwrap_or(whole)); region_count = 1; }
+            // Nothing changed, yet the caller presents: zero rectangles would mean the whole image changed, so
+            // name one pixel instead (overstating damage is always correct).
+            if region_count == 0 { regions[0] = sys::Rect { x: 0, y: 0, width: 1, height: 1 }; region_count = 1; }
+        }
+        let mut copy = [sys::Rect { x: 0, y: 0, width: 0, height: 0 }; damage::MAX_RECTS];
+        let copy = self.history.take(state.generation, extent, self.image, damage).map(|rects| {
+            for (slot, &rect) in copy.iter_mut().zip(rects) { *slot = native_rect(rect); }
+            &copy[..rects.len()]
+        });
+        let presented = self.inner.present(&mut commands.0, &source.0, copy, &regions[..region_count]);
+        // An image the present did not reach still holds its old contents: forget what the history assumed.
+        if presented.is_err() { self.history.invalidate(); }
+        presented.map_err(|failure| error("commit_present", failure))
+    }
+    /// The kill switch: on, every present copies the whole canvas and carries no regions.
+    pub fn set_full_present(&mut self, on: bool) { self.history.set_force_full(on) }
+    pub fn present_stats(&self) -> PresentStats {
+        let [full, partial, rects, regions] = self.inner.stats();
+        PresentStats { full, partial, rects, regions, incremental: self.inner.state().incremental }
+    }
+    pub fn capture(&mut self, bytes: u64) -> Result<(), Error> { self.inner.capture(bytes).map_err(|failure| error("surface_capture", failure)) }
+    pub fn captured(&self, out: &mut [u8]) -> Result<(), Error> { self.inner.captured(out).map_err(|failure| error("surface_capture", failure)) }
+}
+
+fn native_rect(r: CoreRect) -> sys::Rect {
+    let clamp = |v: i64| v.clamp(0, i64::from(i32::MAX)) as i32;
+    sys::Rect { x: clamp(r.x), y: clamp(r.y), width: clamp(r.width), height: clamp(r.height) }
 }
 #[derive(Clone)]
 pub struct AccelerationStructure(sys::AccelerationStructure);

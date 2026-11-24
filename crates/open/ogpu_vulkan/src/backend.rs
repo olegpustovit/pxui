@@ -1579,6 +1579,9 @@ impl DriverCommands for CommandsHandle {
         })
     }
     fn commit_present(&self, source: &dyn DriverResource, frame: DriverFrame) -> Result<Receipt, Error> {
+        self.commit_present_damage(source, frame, None)
+    }
+    fn commit_present_damage(&self, source: &dyn DriverResource, frame: DriverFrame, damage: Option<&[ogpu_core::render_pass::Rect]>) -> Result<Receipt, Error> {
         let source = texture_entry(QUEUE_OP, source)?;
         let Some(surface) = frame.0.downcast_ref::<RefCell<Option<vk::Surface>>>() else {
             return Err(fail(QUEUE_OP, ErrorKind::InvalidState, "frame is not this driver's"));
@@ -1587,7 +1590,7 @@ impl DriverCommands for CommandsHandle {
             let handle_error = || vk::Error { operation: "commit_present", kind: vk::ErrorKind::InvalidHandle };
             let commands = slot.as_mut().ok_or_else(handle_error)?;
             let mut surface = surface.borrow_mut();
-            let epoch = surface.as_mut().ok_or_else(handle_error)?.present(commands, &source.texture)?;
+            let epoch = surface.as_mut().ok_or_else(handle_error)?.present(commands, &source.texture, damage)?;
             *slot = None;
             Ok(epoch)
         })
@@ -1730,6 +1733,19 @@ impl DriverSurface for SurfaceHandle {
         live_add(-1);
         *self.cell.borrow_mut() = None;
         Ok(())
+    }
+    fn set_full_present(&self, on: bool) -> Result<(), Error> {
+        self.cell.borrow_mut().as_mut().ok_or_else(surface_stale)?.set_full_present(on);
+        Ok(())
+    }
+    fn present_stats(&self) -> Result<ogpu_core::backend::PresentStats, Error> {
+        Ok(self.cell.borrow().as_ref().ok_or_else(surface_stale)?.present_stats())
+    }
+    fn capture_presents(&self, bytes: u64) -> Result<(), Error> {
+        self.cell.borrow_mut().as_mut().ok_or_else(surface_stale)?.capture(bytes).map_err(|failure| of_vk(SURFACE_OP, failure))
+    }
+    fn read_capture(&self, out: &mut [u8]) -> Result<(), Error> {
+        self.cell.borrow().as_ref().ok_or_else(surface_stale)?.captured(out).map_err(|failure| of_vk(SURFACE_OP, failure))
     }
 }
 
