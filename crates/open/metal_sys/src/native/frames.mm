@@ -38,6 +38,9 @@ struct PXUIMetalFrames {
     id<MTLRenderPipelineState> fill;
     id<MTLRenderPipelineState> copy;
     MTLRenderPassDescriptor *present;
+    __weak id<MTLTexture> presentTextures[4];
+    size_t nextPresentTexture;
+    id presentColorSpace;
 #if TARGET_OS_IOS
     id pauseObserver;
     id resumeObserver;
@@ -265,20 +268,46 @@ int rays_metal_frames_acquire(void *raw, uint64_t *wait_ns) {
     }
 }
 
+uint32_t rays_metal_frames_present_slot(void *raw) {
+    auto *frames = static_cast<PXUIMetalFrames *>(raw);
+    id<MTLTexture> texture = frames->drawable.texture;
+    if (!texture) return UINT32_MAX;
+    id colorSpace = (__bridge id)frames->layer.colorspace;
+    bool reset = frames->presentColorSpace != colorSpace;
+    frames->presentColorSpace = colorSpace;
+    uint32_t slot = 0;
+    while (slot < 4 && frames->presentTextures[slot] != texture) ++slot;
+    if (slot == 4) {
+        slot = frames->nextPresentTexture++ % 4;
+        frames->presentTextures[slot] = texture;
+        reset = true;
+    }
+    return slot | (reset ? 4 : 0);
+}
+
 // Begin with the retained canvas. The portable renderer can append the promoted runs in this
 // same encoder before submit, so no intermediate full-size composite target is necessary.
-void *rays_metal_frames_present(void *raw, bool compositeOnly) {
+void *rays_metal_frames_present(void *raw, bool compositeOnly, const uint32_t (*rects)[4], size_t count) {
     @autoreleasepool {
         auto *frames = static_cast<PXUIMetalFrames *>(raw);
         if (!NSThread.isMainThread || !frames->commands || !frames->drawable || frames->encoder) return NULL;
         auto *color = frames->present.colorAttachments[0];
+        color.loadAction = count ? MTLLoadActionLoad : MTLLoadActionDontCare;
         color.texture = frames->drawable.texture;
         frames->encoder = [frames->commands renderCommandEncoderWithDescriptor:frames->present];
         color.texture = nil;
         frames->encoder.label = compositeOnly ? @"Render Command 1 pxui composite only" : @"Render Command 1 pxui present full";
         [frames->encoder setRenderPipelineState:frames->copy];
         [frames->encoder setFragmentTexture:frames->canvas atIndex:0];
-        [frames->encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+        if (count) {
+            for (size_t i = 0; i < count; ++i) {
+                const auto &r = rects[i];
+                [frames->encoder setScissorRect:(MTLScissorRect){r[0], r[1], r[2], r[3]}];
+                [frames->encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+            }
+        } else {
+            [frames->encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+        }
         return (__bridge void *)frames->encoder;
     }
 }

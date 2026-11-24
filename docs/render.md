@@ -45,15 +45,16 @@ leave retained instance bytes intact.
 
 ## Presentation
 
-**Metal.** Draw into the retained canvas and copy the whole canvas to each presented drawable. Partial canvas
-repaint still saves scene work. Acquire the drawable late or use the drawable loan from the display link. A
-new canvas, changed presentation generation or invalidated GPU state requires a full canvas repaint. The
-whole-canvas present needs no drawable-content history.
+**Metal.** Acquire the drawable late or use the drawable loan from the display link. Partial canvas repaint
+saves scene work. A new canvas, changed presentation generation or invalidated GPU state requires a full
+canvas repaint. With promoted layers, track damage for each known drawable and copy the accumulated regions
+from the canvas. An unknown drawable, changed color space, or full damage forces a whole-canvas copy.
+Frames without promoted layers copy the whole canvas.
 
 R4b measured two alternate Metal presenters on the M1 Mac mini at 1440 × 872, with 160 presents per 14-second
 trace. Strategy A copied accumulated damage from the canvas into known drawables. Strategy B rendered directly
-into known drawables. After culling, the full canvas copy had the lowest total GPU time in both scenarios, so
-the experimental paths and Metal present verifier were removed. The R4b.2 measurements in GPU ms per present
+into known drawables. After culling, the full canvas copy had the lowest total GPU time in both scenarios.
+Those runs preceded pxui layer composition. The R4b.2 measurements in GPU ms per present
 were:
 
 | Presenter | Playing list | Pointer |
@@ -115,7 +116,8 @@ changes in pose. Ambient loops keep the UI's repaint rate and an idle frame subm
 The retained canvas is reused on animation-only frames. The compositor scissors each promoted
 draw to its swept bounds. A retained final target can restore base pixels and composite within
 the swept damage in a single pass, then pass the damage to incremental presentation. Metal
-copies the canvas into the acquired drawable and draws the promoted layers in that encoder.
+restores the acquired drawable's accumulated damage from the canvas and draws the promoted
+layers in the same encoder.
 
 `PXUI_NO_LAYERS=1` restores in-canvas rendering. `cargo run -p gate -- deps` restricts native
 window-surface, drawable and vsync symbols to the platform glue. It rejects native layer-tree
@@ -129,7 +131,7 @@ Set environment flags before creating the applicable renderer, host or surface.
 | --- | --- |
 | `PXUI_FULL_DAMAGE=1` or `Graphics::set_full_damage` | Full canvas redraw for damaged frames. Idle frames can still be skipped. |
 | `PXUI_NO_CULL=1` or `Graphics::set_no_cull` | Replay all canvas geometry under each damage scissor. |
-| `PXUI_VK_FULL_PRESENT=1` or `ogpu_core::backend::set_full_present` on Vulkan | Whole canvas-to-image copies without incremental present regions. Metal always copies the full canvas. |
+| `PXUI_VK_FULL_PRESENT=1` or `ogpu_core::backend::set_full_present` on Vulkan | Whole canvas-to-image copies without incremental present regions. |
 | `PXUI_NO_LAYERS=1` or `Graphics::set_no_layers` | Render otherwise promoted views and their animations in the canvas. |
 | `PXUI_TIMER_PACING=1` on Apple | Timer and event pacing in place of Metal display-link updates. |
 | `PXUI_NO_BLUR_REUSE=1` | Recompute the backdrop blur even when the host opted in to reuse using `PXUI_TARGET_BACKDROP_UI_DAMAGE`. |

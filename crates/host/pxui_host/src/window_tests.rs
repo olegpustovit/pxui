@@ -147,6 +147,51 @@ fn promotion_yields_to_a_popover_and_captures_in_app() {
 }
 
 #[cfg(target_os = "macos")]
+fn window_promoted_drawable_damage_keeps_canvas_and_clears_old_poses() {
+    use crate::Window;
+    use pxui::{Fill, FrameIn, Node, Rgba, ThemeHandle, Ui};
+
+    let mut window = Window::open_with("PXUI layer damage", 160, 100, false, true, false).unwrap();
+    let mut ui = Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
+    ui.set_theme(&ThemeHandle::parse("tokens.panel = #000000").unwrap()).unwrap();
+    let mut graphics = Graphics::open(&mut window, &mut ui).unwrap();
+    graphics.set_no_layers(&mut ui, false);
+    graphics.test_capture_drawables(true).unwrap();
+    let mut partials = 0;
+    for frame in 0..12 {
+        let x = 8 + (frame % 5) * 8;
+        let marker = if frame % 2 == 0 { Rgba::rgb(20, 90, 170) } else { Rgba::rgb(170, 20, 90) };
+        ui.frame(&FrameIn::new(160.0, 100.0).time(frame as f64 / 20.0), &mut |ui| {
+            let canvas = ui.node("canvas patch", Node::column().w_px(8.0).h_px(8.0).at(100.0, 32.0));
+            ui.canvas(&canvas, move |p, r| p.fill(r, Fill::new(marker)));
+            ui.column(Node::column().w_px(4.0).h_px(8.0).at(x as f32, 8.0), |ui| {
+                let view = ui.view_of("composited bar", &0, |ui| {
+                    let ink = ui.node("ink", Node::column().w_px(4.0).h_px(8.0));
+                    ui.canvas(&ink, |p, r| p.fill(r, Fill::new(Rgba::WHITE).fractional()));
+                });
+                ui.promote(&view).unwrap();
+            });
+        }).unwrap();
+        assert_eq!(ui.promoted().len(), 1);
+        let drawn = graphics.draw(&mut window, &ui, None);
+        assert_eq!(drawn, Ok(true), "{}", ui.last_error());
+        let (width, height, pixels, partial) = graphics.test_presented_pixels().unwrap();
+        assert_eq!((width, height), (160, 100));
+        partials += usize::from(partial);
+        let pixel = |x, y| &pixels[(y * width as usize + x) * 4..][..4];
+        assert_eq!(pixel(102, 34), &[marker.r, marker.g, marker.b, 255]);
+        for left in [8, 16, 24, 32, 40] {
+            let expected = if left == x { [255; 4] } else { [0, 0, 0, 255] };
+            assert_eq!(pixel(left + 1, 9), &expected, "frame {frame}, x={left}, partial={partial}");
+        }
+    }
+    assert!(partials > 2, "drawable reuse must exercise scissored presentation");
+    graphics.test_capture_drawables(false).unwrap();
+    graphics.close().unwrap();
+    window.destroy().unwrap();
+}
+
+#[cfg(target_os = "macos")]
 fn explicit_promotion_rejects_overlapping_fills() {
     use pxui::{Fill, FrameIn, Node, Rgba, Ui, ui::ViewTransform};
     let mut ui = Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
@@ -688,6 +733,7 @@ pub(crate) fn main() {
         ("window_occluded_window_skips_gpu_and_redraws_on_exposure",occluded_window_skips_gpu_and_redraws_on_exposure),
         ("explicit_promotion_rejects_overlapping_fills",explicit_promotion_rejects_overlapping_fills),
         ("window_promotion_yields_to_a_popover_and_captures_in_app",promotion_yields_to_a_popover_and_captures_in_app),
+        ("window_promoted_drawable_damage_keeps_canvas_and_clears_old_poses",window_promoted_drawable_damage_keeps_canvas_and_clears_old_poses),
         ("window_backdrop_blur_reads_the_canvas_and_preserves_undamaged_pixels",backdrop_blur_reads_the_canvas_and_preserves_undamaged_pixels),
         ("damage_rounds_out_pads_and_clamps_to_the_drawable",crate::graphics::damage_rounds_out_pads_and_clamps_to_the_drawable),
     ]);

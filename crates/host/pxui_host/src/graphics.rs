@@ -27,6 +27,11 @@ pub struct Graphics {
     no_layers: bool,
     present_debt: bool,
     presented_revision: Option<u64>,
+    presenting_layers: bool,
+    #[cfg(test)]
+    last_partial_present: bool,
+    present_history: ogpu_core::damage::History,
+    present_damage: DamageList,
 }
 
 impl Graphics {
@@ -63,6 +68,11 @@ impl Graphics {
             no_layers: std::env::var_os("PXUI_NO_LAYERS").as_deref() == Some(std::ffi::OsStr::new("1")),
             present_debt: false,
             presented_revision: None,
+            presenting_layers: false,
+            #[cfg(test)]
+            last_partial_present: false,
+            present_history: ogpu_core::damage::History::new(),
+            present_damage: DamageList::default(),
             #[cfg(target_os = "macos")]
             presentation: None,
         };
@@ -230,6 +240,23 @@ impl Graphics {
         if self.held.is_none() && !self.present_debt && !(composite && self.presented_revision != Some(revision)) {
             return Ok(false);
         }
+        if composite {
+            if let Some(held) = self.held {
+                if held.is_full() {
+                    self.present_damage = DamageList::full(viewport);
+                } else {
+                    for &rect in held.rects() { self.present_damage.add(rect, viewport); }
+                }
+            }
+            for run in ui.promoted() {
+                let [x, y, w, h] = run.swept;
+                self.present_damage.add(Rect::new(x, y, w, h), viewport);
+            }
+        } else if self.presenting_layers {
+            self.present_history.invalidate();
+            self.present_damage = DamageList::default();
+        }
+        self.presenting_layers = composite;
         let frames = self.frames.as_mut().expect("Live frame context");
         let acquiring = std::time::Instant::now();
         let began = frames.begin(size.0, size.1);
@@ -320,7 +347,28 @@ impl Graphics {
             let (drawable, waited) = frames.acquire().map_err(|_| Error::Host("could not acquire native drawable"))?;
             self.acquire_wall += waited;
             if drawable {
-                pass.mtl_render_encoder = frames.present_pass(composite && self.held.is_none())
+                let mut pixels = [[0; 4]; 8];
+                let mut len = 0;
+                if composite && let Some((slot, reset)) = frames.present_slot() {
+                    use ogpu_core::render_pass::Rect as PixelRect;
+                    if reset { self.present_history.invalidate(); }
+                    let mut dirty = [PixelRect { x: 0, y: 0, width: 0, height: 0 }; 8];
+                    let damage = self.present_damage.rects();
+                    for (out, rect) in dirty.iter_mut().zip(damage) {
+                        let [x, y, width, height] = damage_px([rect.x, rect.y, rect.w, rect.h], scale, size).map(i64::from);
+                        *out = PixelRect { x, y, width, height };
+                    }
+                    let dirty = (!self.present_damage.is_full()).then_some(&dirty[..damage.len()]);
+                    if let Some(copy) = self.present_history.take(0, (i64::from(size.0), i64::from(size.1)), slot, dirty) {
+                        for (out, rect) in pixels.iter_mut().zip(copy) {
+                            *out = [rect.x, rect.y, rect.width, rect.height].map(|v| v as u32);
+                        }
+                        len = merge_pixel_damage(&mut pixels[..copy.len()], size);
+                    }
+                }
+                #[cfg(test)]
+                { self.last_partial_present = len != 0; }
+                pass.mtl_render_encoder = frames.present_pass(composite && self.held.is_none(), &pixels[..len])
                     .ok_or(Error::Host("could not open present pass"))?.as_ptr();
                 if composite { renderer.composite(&pass, None, None)?; }
             }
@@ -339,7 +387,10 @@ impl Graphics {
         };
         #[cfg(target_os = "macos")]
         if presented { self.presentation = presentation; }
-        if presented { self.presented_revision = Some(revision); }
+        if presented {
+            self.presented_revision = Some(revision);
+            self.present_damage = DamageList::default();
+        }
         self.present_debt = !presented;
         self.held = None;
         // Suspending iOS may discard the command buffer while waiting for a drawable.
@@ -391,6 +442,11 @@ impl Graphics {
         }
         let drawn = drawn?;
         stopped.map_err(|_| Error::Host("could not stop frame capture"))?;
+        self.read_capture(drawn)
+    }
+
+    fn read_capture(&mut self, drawn: bool) -> Result<(u32, u32, Vec<u8>), Error> {
+        let frames = self.frames.as_mut().expect("Live frame context");
         let (width, height, mut pixels) = frames
             .read_capture()
             .map_err(|_| {
@@ -402,6 +458,18 @@ impl Graphics {
             pixel.swap(0, 2); // BGRA drawable to RGBA
         }
         Ok((width, height, pixels))
+    }
+
+    #[cfg(all(test, target_os = "macos"))]
+    pub(crate) fn test_capture_drawables(&mut self, on: bool) -> Result<(), Error> {
+        self.frames.as_mut().expect("Live frame context").capture(on)
+            .map_err(|_| Error::Host("could not change frame capture"))
+    }
+
+    #[cfg(all(test, target_os = "macos"))]
+    pub(crate) fn test_presented_pixels(&mut self) -> Result<(u32, u32, Vec<u8>, bool), Error> {
+        let (w, h, pixels) = self.read_capture(true)?;
+        Ok((w, h, pixels, self.last_partial_present))
     }
 
     /// A newly visible or moved surface needs a full redraw even with an unchanged UI revision.

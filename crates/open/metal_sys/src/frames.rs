@@ -19,7 +19,8 @@ unsafe extern "C" {
     fn rays_metal_frames_resume_pass(host: *mut c_void) -> *mut c_void;
     fn rays_metal_frames_acquire(host: *mut c_void, wait_ns: *mut u64) -> i32;
     fn rays_metal_frames_submit(host: *mut c_void) -> i32;
-    fn rays_metal_frames_present(host: *mut c_void, composite_only: bool) -> *mut c_void;
+    fn rays_metal_frames_present_slot(host: *mut c_void) -> u32;
+    fn rays_metal_frames_present(host: *mut c_void, composite_only: bool, rects: *const [u32; 4], count: usize) -> *mut c_void;
     fn rays_metal_frames_capture(host: *mut c_void, on: i32) -> i32;
     fn rays_metal_frames_read(
         host: *mut c_void,
@@ -125,9 +126,15 @@ impl Frames {
             _ => Err("Could not acquire Metal drawable".into()),
         }
     }
+    /// The acquired texture's slot and whether old framebuffer contents must be discarded.
+    pub fn present_slot(&self) -> Option<(usize, bool)> {
+        let slot = unsafe { rays_metal_frames_present_slot(self.raw) };
+        (slot < 8).then_some(((slot & 3) as usize, slot & 4 != 0))
+    }
+
     /// Copies the retained canvas into the acquired drawable and leaves the encoder open.
-    pub fn present_pass(&mut self, composite_only: bool) -> Option<core::ptr::NonNull<c_void>> {
-        core::ptr::NonNull::new(unsafe { rays_metal_frames_present(self.raw, composite_only) })
+    pub fn present_pass(&mut self, composite_only: bool, rects: &[[u32; 4]]) -> Option<core::ptr::NonNull<c_void>> {
+        core::ptr::NonNull::new(unsafe { rays_metal_frames_present(self.raw, composite_only, rects.as_ptr(), rects.len()) })
     }
 
     /// Commits the frame and presents the drawable after its pass ends.
