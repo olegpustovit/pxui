@@ -1,6 +1,7 @@
 //! Text widgets with options: the value field (slide, scrub and validity callbacks), the text area, and the text edit the `Ui` keeps.
 use crate::composite::{defer_callback_panic, deferred};
-use crate::{as_str, check, lent_string, live, Ui};
+use crate::{as_str, check, lent_str, lent_string, live, Ui};
+use std::cell::RefCell;
 use core::ffi::c_void;
 use pxui_types::{ffi::{AreaNotify, PxuiAreaCallbacks, PxuiColorSpan, PxuiCompletion, PxuiDescription, PxuiMaybeRange, PxuiNote, PxuiRange, PxuiRewrite, PxuiSplice, PxuiTextAreaDesc, PxuiValueFieldDesc, Slice}, ui::{CodeContext, Drop, Payload, TextEdit}, PxuiBox, Str};
 
@@ -69,6 +70,19 @@ fn value_desc<'a>(at: (f32, f32), width: f32, height: f32, o: &'a ValueFieldOpts
 
 /// What the library's text area callbacks reach: the app's closures, and the data a callback produced (lent to the library
 /// until its next callback).
+#[derive(Default)]
+struct AreaScratch {
+    messages: Vec<PxuiNote>,
+    spans: Vec<PxuiRange>,
+    splice: Vec<PxuiSplice>,
+    chips: Vec<PxuiColorSpan>,
+    pairs: Vec<u32>,
+}
+
+thread_local! {
+    static AREA_SCRATCH: RefCell<Vec<AreaScratch>> = const { RefCell::new(Vec::new()) };
+}
+
 struct Area<'a> {
     opts: &'a TextAreaOpts,
     colors: Vec<PxuiColorSpan>, ranges: Vec<PxuiRange>, completions: Vec<PxuiCompletion>, completion_texts: Vec<pxui_types::ui::Completion>, produced: String,
@@ -151,13 +165,27 @@ impl Ui {
     /// A multiline text area: the new text and whether it was submitted. The app's closures in `options` run during this call.
     #[track_caller]
     pub fn text_area_submit(&mut self, at: (f32, f32), width: f32, height: f32, o: &TextAreaOpts, label: &str, value: &str) -> (String, bool) {
-        let ranges = |v: &[(i64, i64)]| -> Vec<PxuiRange> { v.iter().map(|(start, end)| PxuiRange { start: *start, end: *end }).collect() };
-        let messages: Vec<PxuiNote> = o.messages.iter().map(|(line, range, text)| PxuiNote { line: *line, start: range.map_or(0, |r| r.0), end: range.map_or(0, |r| r.1), has_range: range.is_some() as u8, reserved: [0; 7], text: as_str(text) }).collect();
-        let spans = ranges(&o.spans);
-        let splice: Vec<PxuiSplice> = o.splice.iter().map(|(start, end, text)| PxuiSplice { start: *start, end: *end, text: as_str(text) }).collect();
-        let chips: Vec<PxuiColorSpan> = o.chips.iter().map(|(start, end, color)| PxuiColorSpan { start: *start, end: *end, color: *color, reserved: 0 }).collect();
-        let pairs: Vec<u32> = o.language.as_ref().map_or_else(Vec::new, |l| l.pairs.iter().flat_map(|(a, b)| [*a as u32, *b as u32]).collect());
+        let (text, submitted) = self.text_area_submit_borrowed(at, width, height, o, label, value);
+        (text.to_owned(), submitted)
+    }
+
+    /// A multiline text area with a result borrowed from `value` or the current frame.
+    #[track_caller]
+    pub fn text_area_submit_borrowed<'a>(&'a mut self, at: (f32, f32), width: f32, height: f32, o: &TextAreaOpts, label: &str, value: &'a str) -> (&'a str, bool) {
+        let mut scratch = AREA_SCRATCH.with(|pool| pool.borrow_mut().pop().unwrap_or_default());
         let lang = o.language.as_ref();
+        scratch.messages.clear();
+        scratch.messages.extend(o.messages.iter().map(|(line, range, text)| PxuiNote { line: *line, start: range.map_or(0, |r| r.0), end: range.map_or(0, |r| r.1), has_range: range.is_some() as u8, reserved: [0; 7], text: as_str(text) }));
+        scratch.spans.clear();
+        scratch.spans.extend(o.spans.iter().map(|&(start, end)| PxuiRange { start, end }));
+        scratch.splice.clear();
+        scratch.splice.extend(o.splice.iter().map(|(start, end, text)| PxuiSplice { start: *start, end: *end, text: as_str(text) }));
+        scratch.chips.clear();
+        scratch.chips.extend(o.chips.iter().map(|&(start, end, color)| PxuiColorSpan { start, end, color, reserved: 0 }));
+        scratch.pairs.clear();
+        if let Some(lang) = lang {
+            scratch.pairs.extend(lang.pairs.iter().flat_map(|&(a, b)| [a as u32, b as u32]));
+        }
         let has = |on: bool, flag: u32| if on { flag } else { 0 };
         let desc = PxuiTextAreaDesc {
             size: core::mem::size_of::<PxuiTextAreaDesc>() as u32,
@@ -165,9 +193,9 @@ impl Ui {
                 | has(lang.is_some(), PxuiTextAreaDesc::HAS_LANGUAGE) | has(lang.is_some_and(|l| l.rewrite.is_some()), PxuiTextAreaDesc::HAS_REWRITE),
             x: at.0, y: at.1, width, height, reveal: o.reveal.unwrap_or_default(), reveal_nonce: o.reveal_nonce,
             select: o.select.map_or(PxuiRange::default(), |(start, end)| PxuiRange { start, end }), label: as_str(label), value: as_str(value),
-            errors: Slice { ptr: o.errors.as_ptr(), len: o.errors.len() }, messages: Slice { ptr: messages.as_ptr(), len: messages.len() },
-            spans: Slice { ptr: spans.as_ptr(), len: spans.len() }, splice: Slice { ptr: splice.as_ptr(), len: splice.len() }, chips: Slice { ptr: chips.as_ptr(), len: chips.len() },
-            comment: as_str(lang.map_or("", |l| l.comment.as_str())), pairs: Slice { ptr: pairs.as_ptr(), len: pairs.len() },
+            errors: Slice { ptr: o.errors.as_ptr(), len: o.errors.len() }, messages: Slice { ptr: scratch.messages.as_ptr(), len: scratch.messages.len() },
+            spans: Slice { ptr: scratch.spans.as_ptr(), len: scratch.spans.len() }, splice: Slice { ptr: scratch.splice.as_ptr(), len: scratch.splice.len() }, chips: Slice { ptr: scratch.chips.as_ptr(), len: scratch.chips.len() },
+            comment: as_str(lang.map_or("", |l| l.comment.as_str())), pairs: Slice { ptr: scratch.pairs.as_ptr(), len: scratch.pairs.len() },
         };
         let mut ctx = Area { opts: o, colors: Vec::new(), ranges: Vec::new(), completions: Vec::new(), completion_texts: Vec::new(), produced: String::new() };
 
@@ -192,7 +220,8 @@ impl Ui {
         };
         let (mut out, mut changed, mut submitted) = (Str::default(), 0, 0);
         check(self, unsafe { lib::pxui_ui_text_area_submit(self.0.as_ptr(), &desc, &cbs, &mut out, &mut changed, &mut submitted) });
-        (lent_string(out), submitted != 0)
+        AREA_SCRATCH.with(|pool| pool.borrow_mut().push(scratch));
+        (if changed == 0 { value } else { lent_str(out) }, submitted != 0)
     }
 
     /// A compact field: the new text and whether a text editor is open. Only text `valid` accepts commits.

@@ -40,6 +40,9 @@ pub(crate) struct Shared {
     pub renderers: u32,
     /// text handed to C (an edited field, the picker query), valid until the next frame
     pub returned: Vec<String>,
+    /// A stable copy of each unchanged text-area result, with storage reused between frames.
+    pub returned_areas: Vec<String>,
+    pub returned_areas_used: usize,
     /// grid tracks the engine's nodes borrow, one shared slice per keyed node that has a grid (equal lists share one)
     pub grid_tracks: HashMap<i64, Rc<[Track]>>,
     /// replaced track slices, freed at the end of the frame (the old node may still borrow them until then)
@@ -86,7 +89,7 @@ impl Shared {
     pub fn put_strs(&mut self, mut strs: Vec<&'static str>) { strs.clear(); self.strs.push(strs); }
     pub fn new() -> Self {
         Self {
-            error: String::new(), poisoned: false, paint_error: false, in_frame: false, current: core::ptr::null_mut(), frame_ended: false, renderers: 0, returned: Vec::new(),
+            error: String::new(), poisoned: false, paint_error: false, in_frame: false, current: core::ptr::null_mut(), frame_ended: false, renderers: 0, returned: Vec::new(), returned_areas: Vec::new(), returned_areas_used: 0,
             grid_tracks: HashMap::new(), grid_retired: Vec::new(), output: Output::default(), nodes: Vec::new(),
             layers: Vec::new(), dirty: Vec::new(), last_children: Vec::new(), chunks: Vec::new(), chunks_used: 0, spare_input: None, key_codes: Vec::new(), menu: Vec::new(), routed: None, routed_events: Vec::new(), routed_text: Vec::new(), routed_keys: Vec::new(), routed_buttons: Vec::new(),
             hints: Vec::new(), hits: Vec::new(), actions: Vec::new(), rename: None, field: None, strs: Vec::new(), menus: Vec::new(), bodies: Default::default(),
@@ -112,6 +115,21 @@ impl PxuiUi {
         returned.push(value);
         let value = returned.last().map_or("", String::as_str);
         Str { ptr: value.as_ptr(), len: value.len() }
+    }
+
+    pub(crate) fn give_area(&self, value: &str) -> Str {
+        let shared = self.shared();
+        let index = shared.returned_areas_used;
+        shared.returned_areas_used += 1;
+        if index == shared.returned_areas.len() {
+            shared.returned_areas.push(String::new());
+        }
+        let result = &mut shared.returned_areas[index];
+        if result != value {
+            result.clear();
+            result.push_str(value);
+        }
+        Str { ptr: result.as_ptr(), len: result.len() }
     }
 }
 

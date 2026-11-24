@@ -171,9 +171,9 @@ pub fn kit_page(ui: &mut Ui, s: &mut Gallery) {
         });
         let notes = node(ui, "notes", Node { h: Size::Px(64.0), ..Node::DEFAULT });
         ui.within(&notes, &mut |ui: &mut Ui| {
-            let (text, _) = ui.text_area_submit((12.0, 4.0), 270.0, 56.0, &TextAreaOpts::default(), "notes-area", &s.notes);
+            let (text, _) = ui.text_area_submit_borrowed((12.0, 4.0), 270.0, 56.0, &TextAreaOpts::default(), "notes-area", &s.notes);
             if text != s.notes {
-                s.notes = text;
+                s.notes = text.to_owned();
             }
         });
         let _ = ui.footer(Some("2 keys"), &s.hints);

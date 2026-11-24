@@ -198,7 +198,8 @@ fn a_stale_field_patches_nothing_and_whole_source_files_round_trip() {
     ui.frame(&input(), &mut |ui: &mut Ui| {
         let edit: TextEdit = ui.load_text_edit(9, &source);
         assert_eq!(edit.text.len(), source.len(), "the edit holds the whole text");
-        let (text, _) = ui.text_area_submit((0.0, 0.0), 100.0, 100.0, &Default::default(), "area", &source);
-        assert_eq!(text.len(), source.len(), "the area returns the whole text");
+        let (text, _) = ui.text_area_submit_borrowed((0.0, 0.0), 100.0, 100.0, &Default::default(), "area", &source);
+        assert_eq!(text, source, "the area returns the whole text");
+        assert_eq!(text.as_ptr(), source.as_ptr(), "an unchanged result borrows the input");
     }).expect("frame");
 }

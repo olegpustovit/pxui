@@ -97,9 +97,12 @@ export!(pub unsafe fn pxui_ui_text_area_submit(
         return unsafe { fail(ui, "invalid text area strings") };
     };
     let Some(opts) = (unsafe { area_opts(&d, cbs.as_ref()) }) else { return unsafe { fail(ui, "invalid text area options") }; };
-    let (text, submitted) = unsafe { (&mut *state.engine).text_area_submit((d.x, d.y), d.width, d.height, &opts, label, value) };
-    unsafe { *out_changed = (text != value) as u8; *out_submitted = submitted as u8; }
-    unsafe { *out_text = state.give(text); }
+    let (changed, submitted) = unsafe { (&mut *state.engine).text_area_changed((d.x, d.y), d.width, d.height, &opts, label, value) };
+    unsafe {
+        *out_changed = changed.is_some() as u8;
+        *out_submitted = submitted as u8;
+        *out_text = match changed { Some(text) => state.give(text), None => state.give_area(value) };
+    }
     0
 });
 

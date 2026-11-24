@@ -957,8 +957,8 @@ impl Ui {
         pressed: &mut Option<i64>,
     ) {
         let saved = self.enter(header);
-        let b = self.box_(
-            &format!("{}-button-{}", key, index),
+        let b = self.box_fmt(
+            format_args!("{}-button-{}", key, index),
             BoxOpts::default().flags(if enabled { CLICKABLE | TAB_STOP } else { NO_FLAGS }).at((x, y_buttons)).w(Size::Px(w)).h(Size::Px(self.control_h())),
         );
         let signal = self.signal(&b);
@@ -1086,8 +1086,8 @@ fn stop_of(rows: &Rows, i: usize) -> usize {
     rows[i].1
 }
 
-fn row_text(text: &str, rows: &Rows, i: usize) -> String {
-    text[start_of(rows, i)..stop_of(rows, i)].to_owned()
+fn row_text<'a>(text: &'a str, rows: &Rows, i: usize) -> &'a str {
+    &text[start_of(rows, i)..stop_of(rows, i)]
 }
 
 /// the row holding byte `index`
@@ -1121,7 +1121,7 @@ fn row_at_slot(notes: &Notes, count: usize, k: i64) -> usize {
 }
 
 fn gutter_of(char_w: f32, lines: usize) -> f32 {
-    36.0 + char_w * 0.max(lines.to_string().len() as i64 - 3) as f32
+    36.0 + char_w * lines.max(1).ilog10().saturating_sub(2) as f32
 }
 
 fn clamp_pos(v: i64) -> usize {
@@ -1381,6 +1381,11 @@ impl Ui {
     /// one undo step before `select`.
     #[allow(clippy::too_many_arguments)]
     pub fn text_area_submit(&mut self, at: (f32, f32), w: f32, h: f32, o: &TextAreaOpts, label: &str, text: &str) -> (String, bool) {
+        let (changed, submitted) = self.text_area_changed(at, w, h, o, label, text);
+        (changed.unwrap_or_else(|| text.to_owned()), submitted)
+    }
+
+    pub fn text_area_changed(&mut self, at: (f32, f32), w: f32, h: f32, o: &TextAreaOpts, label: &str, text: &str) -> (Option<String>, bool) {
         text_area_submit_body(self, at, w, h, o, label, text)
     }
 }
@@ -1397,7 +1402,6 @@ struct AreaPaint {
     errors: Vec<i64>,
     notes: Notes,
     char_w: f32,
-    final_text: String,
     rows: Rows,
     count: usize,
     focused: bool,
@@ -1415,7 +1419,7 @@ struct AreaPaint {
 impl AreaPaint {
     fn paint(&self, paint: &mut Paint, Rect { x: bx, y: by, w: bw, h: bh }: Rect) {
         let theme = self.theme;
-        let final_text = self.final_text.as_str();
+        let final_text = self.edit.text.as_str();
         let rows = &self.rows;
         let row = self.row;
         let char_w = self.char_w;
@@ -1689,7 +1693,7 @@ impl Ui {
 
 // Method bodies outside `impl` blocks: each module is its own codegen unit, so the big bodies
 // compile in parallel with the rest of the crate (rustc places methods with their type).
-fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &TextAreaOpts, label: &str, text: &str) -> (String, bool) {
+fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &TextAreaOpts, label: &str, text: &str) -> (Option<String>, bool) {
     // a line of code is one and a half times its text, as code editors set it (17 points at
     // 11, 20 at 13): the 24-point row is a control's, twice the text
     let row = this.text_line_height() as f32;
@@ -1710,7 +1714,7 @@ fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &Text
     let cfg = Wrap { wrap: o.wrap, w, char_w };
     let rows = this.area_rows(cfg, text);
     let count = rows.len();
-    let language = o.language.clone();
+    let language = &o.language;
     // a diagnostic's message is a row of its own under the last row of its line
     let note_rows = |rows: &Rows| -> Notes {
         if o.messages.is_empty() {
@@ -1735,8 +1739,8 @@ fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &Text
     // the content box scrolls; two empty boxes keep the completion popup's and the number
     // scrub's state between frames
     let saved = this.enter(&body);
-    let content = this.box_(
-        &format!("{}-content", label),
+    let content = this.box_fmt(
+        format_args!("{}-content", label),
         BoxOpts::default().w(Size::Px(w)).h(Size::Px((count + note_rows(&rows).len()) as f32 * row + pad)),
     );
     let suggest = this.box_fmt(format_args!("{}-suggest", label), BoxOpts::default().w(Size::Px(0.0)).h(Size::Px(0.0)).at((0.0, 0.0)));
@@ -1789,7 +1793,7 @@ fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &Text
     let mut scrubbing: Scrubbing = None;
     // arm_scrub: a press on a number arms a scrub (its state is the start + 1, negated once
     // dragging); three points sideways make it one, three points down a selection as before
-    if let Some(l) = &language {
+    if let Some(l) = language {
         if signal.pressed && signal.button == Some(MouseButton::LeftButton) {
             let number = if on_handle(signal.press_point) {
                 let byte = point_in(this, false, text, &rows, signal.press_point).unwrap();
@@ -1839,7 +1843,7 @@ fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &Text
         this.set_state(&suggest, 0);
         0
     };
-    let items: Vec<Completion> = match &language {
+    let items: Vec<Completion> = match language {
         Some(l) if open != 0 => (l.complete)(&edit.text, edit.caret as i64),
         _ => Vec::new(),
     };
@@ -1926,12 +1930,12 @@ fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &Text
         this.end_group_on_move(&edit);
         this.finish_text_change(&edit);
         let page = 1.max((bh / row) as i64 - 1);
-        this.handle_keys(&body, cfg, page, &language, &suggest, open, &items, shown, &mut st, &mut edit);
+        this.handle_keys(&body, cfg, page, language, &suggest, open, &items, shown, &mut st, &mut edit);
         // a dragged number: the literal at the press follows the pointer (the caret sits after it)
         this.apply_scrub(&scrubbing, &o.on_scrub, &suggest, &o.on_scrub_edit, &mut edit);
         // typing opens the popup on the token at the caret (the selection starts over); a popup
         // left open follows the caret and closes when the caret leaves its token
-        if let Some(l) = &language {
+        if let Some(l) = language {
             if st.typed || (open != 0 && !st.closed) {
                 let found = (l.complete)(&edit.text, edit.caret as i64);
                 match found.first() {
@@ -1944,7 +1948,7 @@ fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &Text
             }
         }
         // the language's rewrite (parinfer) after this frame's edits; the anchor maps like the caret
-        if let Some(l) = &language {
+        if let Some(l) = language {
             if let Some(rewrite) = &l.rewrite {
                 if st.changed {
                     let (text2, caret2) = rewrite(&edit.text, edit.caret as i64);
@@ -1965,7 +1969,8 @@ fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &Text
         moved = edit.caret != caret0 || edit.text != text || signal.pressed;
     }
     // scrolling: the wheel, then whatever keeps the caret (or `reveal`) in view
-    let final_text = edit.text.clone();
+    let final_text = edit.text.as_str();
+    let changed = final_text != text;
     if focused {
         if let Some(f) = &o.on_caret {
             f(edit.caret as i64);
@@ -1996,14 +2001,14 @@ fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &Text
             }
         }
     }
-    let rows = if final_text == text {
+    let rows = if !changed {
         rows
     } else if st.pasted {
-        this.area_rows(cfg, &final_text)
+        this.area_rows(cfg, final_text)
     } else {
         let diff = this.edit_diff.filter(|_| this.edit_revision == revision + 1)
-            .unwrap_or_else(|| TextDiff::between(text, &final_text));
-        this.update_area_rows(cfg, text, rows, &final_text, diff)
+            .unwrap_or_else(|| TextDiff::between(text, final_text));
+        this.update_area_rows(cfg, text, rows, final_text, diff)
     };
     let count = rows.len();
     let notes = note_rows(&rows);
@@ -2056,23 +2061,23 @@ fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &Text
     let area_look = this.theme().text_area.idle;
     let composition = this.composition().to_owned();
     // the language's colours and the bracket pair at the caret, once per frame
-    let colors: Rc<Vec<(i64, i64, Color)>> = match &language {
-        Some(l) => this.text_colors(l, &final_text),
+    let colors: Rc<Vec<(i64, i64, Color)>> = match language {
+        Some(l) => this.text_colors(l, final_text),
         None => Rc::new(Vec::new()),
     };
-    let matched: Option<(usize, usize)> = match &language {
+    let matched: Option<(usize, usize)> = match language {
         Some(l) if focused => {
             let c = edit.caret as i64;
-            (l.brackets)(&final_text).into_iter().find(|(o, k)| *o == c - 1 || *k == c - 1 || *o == c || *k == c).map(|(a, b)| (clamp_pos(a), clamp_pos(b)))
+            (l.brackets)(final_text).into_iter().find(|(o, k)| *o == c - 1 || *k == c - 1 || *o == c || *k == c).map(|(a, b)| (clamp_pos(a), clamp_pos(b)))
         }
         _ => None,
     };
     // the pointer over a number invites a drag; over any other token it describes it after a rest
-    let under_pointer = match &language {
-        Some(_) if signal.hovered && this.active().is_none() => point_in(this, true, &final_text, &rows, signal.pointer),
+    let under_pointer = match language {
+        Some(_) if signal.hovered && this.active().is_none() => point_in(this, true, final_text, &rows, signal.pointer),
         _ => None,
     };
-    let hovered_number: Option<(usize, usize)> = match (&language, under_pointer, &scrubbing) {
+    let hovered_number: Option<(usize, usize)> = match (language, under_pointer, &scrubbing) {
         (_, _, Some((start, _, _, _))) => {
             let mut stop = *start;
             let b = final_text.as_bytes();
@@ -2081,15 +2086,15 @@ fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &Text
             }
             Some((*start, stop))
         }
-        (Some(l), Some(byte), None) if on_handle(signal.pointer) => (l.number_at)(&final_text, byte as i64).map(|(a, b)| (clamp_pos(a), clamp_pos(b))),
+        (Some(l), Some(byte), None) if on_handle(signal.pointer) => (l.number_at)(final_text, byte as i64).map(|(a, b)| (clamp_pos(a), clamp_pos(b))),
         _ => None,
     };
     if hovered_number.is_some() {
         this.request_cursor(Cursor::HorizontalResize);
     }
-    if let (Some(l), Some(byte)) = (&language, under_pointer) {
+    if let (Some(l), Some(byte)) = (language, under_pointer) {
         if hovered_number.is_none() && open == 0 {
-            if let Some((start, _, doc)) = (l.describe)(&final_text, byte as i64) {
+            if let Some((start, _, doc)) = (l.describe)(final_text, byte as i64) {
                 if !doc.is_empty() {
                     this.tooltip(&format!("{}#{}", label, start), &doc);
                 }
@@ -2138,6 +2143,7 @@ fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &Text
         }
     }
     // the text area's painting: gutter, selection, runs, diagnostics, caret
+    let result = changed.then(|| edit.text.clone());
     let painted = AreaPaint {
         colors,
         composition,
@@ -2150,11 +2156,10 @@ fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &Text
         errors: o.errors.clone(),
         notes,
         char_w,
-        final_text,
         rows,
         count,
         focused,
-        edit: edit.clone(),
+        edit,
         row,
         pad,
         offset,
@@ -2164,7 +2169,7 @@ fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &Text
         look: area_look,
     };
     this.draw(&body, move |paint, rect| painted.paint(paint, rect));
-    (edit.text, st.submitted)
+    (result, st.submitted)
 }
 
 fn handle_keys_body(this: &mut Ui, body: &UiBox, cfg: Wrap, page: i64, language: &Option<Language>, suggest: &UiBox, open: i64, items: &[Completion], shown: usize, st: &mut AreaState, edit: &mut TextEdit) {
@@ -2447,7 +2452,7 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, label: &str, query: &str, fill: &m
     let clamp = |cursor: i64, count: usize| if count == 0 { 0 } else { 0.max((count as i64 - 1).min(cursor)) };
     let mut cursor = clamp(this.state(&search, 0), rows.len());
     let mut armed = this.state(&list, -1);
-    let mut query = query.to_owned();
+    let mut query = std::borrow::Cow::Borrowed(query);
     let mut result = Pick::None;
     let mut edit = this.load_text_edit(search.box_key, &query);
     let (sx, _, sw, _) = ints(this.rect(&search));
@@ -2489,7 +2494,7 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, label: &str, query: &str, fill: &m
                 event => {
                     this.edit_text_event(false, &mut edit, &|_| true, &modifiers, event);
                     if edit.text != query {
-                        query = edit.text.clone();
+                        query = std::borrow::Cow::Owned(edit.text.clone());
                         fill(&query, &mut rows);
                         cursor = 0;
                         armed = -1;
@@ -2503,7 +2508,7 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, label: &str, query: &str, fill: &m
     let length = o.limit.min(count);
     let start = if length == count { 0 } else { 0.max((count - length).min(cursor - length / 2)) };
     let composition = this.composition().to_owned();
-    let placeholder = display(label);
+    let placeholder = shown(label);
     let font_size = this.font_size();
     let (slash, at_rest) = (o.slash, o.at_rest);
     let t = this.theme();
@@ -2516,9 +2521,8 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, label: &str, query: &str, fill: &m
     this.a11y_value(&search, &edit.text, (edit.text[..edit.anchor.min(edit.text.len())].chars().count() as u32, edit.text[..edit.caret.min(edit.text.len())].chars().count() as u32));
     this.set_role(&list, Role::List, 0);
     let config = PickerFieldConfig { state, empty: edit.text.is_empty(), slash, prefix: prefix as f32, inset, search };
-    in_body!(this, search.box_key, search, picker_field, default_picker_field(&config, &placeholder));
+    in_body!(this, search.box_key, search, picker_field, default_picker_field(&config, placeholder));
     {
-        let edit = edit.clone();
         let marks = if edit.text.is_empty() { None } else { Some((field.selection, field.caret)) };
         this.canvas_over(&search, move |paint, rect| {
             let (cx, cy, cw, ch) = ints(rect);
@@ -2559,7 +2563,7 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, label: &str, query: &str, fill: &m
     this.set_state(&search, cursor);
     this.set_state(&list, armed);
     this.picker_rows = rows;
-    (query, result)
+    (query.into_owned(), result)
 }
 
 /// The built-in picker search field: the field look (the hairline, no caret ink) on the box, the `/` before the query when `slash`, and the
@@ -2606,12 +2610,12 @@ pub(crate) fn default_picker_row(this: &mut Ui, c: &PickerRowConfig, text: &str,
         this.placed(rk(0), (this.space(2), ((row_height - 8) / 2) as f32), Size::Px(8.0), 8.0, Look { fill, ..Look::NONE }, Edges::default(), "");
     }
     // the query's letters, matched in order, in the accent
-    let q = query.to_ascii_lowercase();
+    let q = query.as_bytes();
     let mut next = 0usize;
     let mut pen = text_x;
     let mut start = 0usize;
     let is_matched = |at: usize, next: &mut usize| {
-        let hit = *next < q.len() && text.len() > at && text.as_bytes()[at].to_ascii_lowercase() == q.as_bytes()[*next];
+        let hit = *next < q.len() && text.len() > at && text.as_bytes()[at].eq_ignore_ascii_case(&q[*next]);
         if hit {
             *next += 1;
         }
@@ -2821,7 +2825,7 @@ fn inspector_header_body(this: &mut Ui, key: &str, kind: Option<&str>, badge: Op
     let title_h = if win { this.row_height() as f32 } else { (display_size + 8) as f32 };
     let width = this.inspector_width();
     let chips = !win && (kind.is_some() || badge.is_some() || index.is_some());
-    let actions: Vec<HeadAction> = if win { Vec::new() } else { actions.to_vec() };
+    let actions = if win { &actions[..0] } else { actions };
     let reset = if win { None } else { reset };
     let buttons = !actions.is_empty() || reset.is_some();
     let text_x = if win { 12.0 } else { 8.0 };
@@ -2887,12 +2891,13 @@ fn inspector_header_body(this: &mut Ui, key: &str, kind: Option<&str>, badge: Op
         let taken = index.map(|t| mono_width(0.0, small, t) + 6.0).unwrap_or(0.0) + badge.map(|t| mono_width(0.08 * small as f32, small, t) + 6.0).unwrap_or(0.0);
         if let Some(text) = kind {
             let room = ((w - 16.0 - taken) / per) as i64;
-            let text: String = if text.len() as i64 <= room {
-                text.to_owned()
+            let text = if text.len() as i64 <= room {
+                std::borrow::Cow::Borrowed(text)
             } else if room <= 1 {
-                String::new()
+                std::borrow::Cow::Borrowed("")
             } else {
-                format!("{}.", &text[..(room - 1) as usize])
+                let end = text.floor_char_boundary((room - 1) as usize);
+                std::borrow::Cow::Owned(format!("{}.", &text[..end]))
             };
             let tw = this.cap_width(&text);
             this.text_part(k(0), (cx, at), tw, label_look, &text);
