@@ -47,13 +47,15 @@ impl Painter {
         }
         for run in out.promoted {
             let size = [run.swept[2], run.swept[3]].map(|v| (v * density).ceil().max(1.0) as u32);
+            let fits = |surface: &Surface| surface.size[0] >= size[0] && surface.size[1] >= size[1];
+            let idle = |surface: &Surface| !out.promoted.iter().any(|run| run.view == surface.view);
             let slot = self.layer_surfaces.iter().position(|slot| slot.as_ref().is_some_and(|s| s.view == run.view))
+                // Virtualized views can return with a new identity and the same extent.
+                .or_else(|| self.layer_surfaces.iter().position(|slot| slot.as_ref().is_some_and(|s| fits(s) && idle(s))))
                 .or_else(|| self.layer_surfaces.iter().position(Option::is_none))
-                .or_else(|| self.layer_surfaces.iter().position(|slot| slot.as_ref().is_some_and(|s| {
-                    !out.promoted.iter().any(|run| run.view == s.view)
-                })))
+                .or_else(|| self.layer_surfaces.iter().position(|slot| slot.as_ref().is_some_and(idle)))
                 .ok_or_else(|| invalid("Painter.prepare_composition", "promotion exceeds surface capacity"))?;
-            if !self.layer_surfaces[slot].as_ref().is_some_and(|s| s.size[0] >= size[0] && s.size[1] >= size[1]) {
+            if !self.layer_surfaces[slot].as_ref().is_some_and(fits) {
                 let texture = backend::create_texture(&self.device, TextureDescriptor {
                     label: Some("pxui.layer.content".into()),
                     width: i64::from(size[0]), height: i64::from(size[1]), depth: 1, mip_levels: 1, sample_count: 1,

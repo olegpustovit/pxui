@@ -445,6 +445,10 @@ pub(super) fn promoted_mock() {
     for frame in 0..8 {
         if frame == 2 { runs[0].content_revision += 1; }
         if frame == 3 { runs[0].swept[3] = 12.0; }
+        if frame == 6 {
+            runs[0].view = 2;
+            ok(painter.set_view(2, View::IDENTITY));
+        }
         let out = FrameOut {
             draw: &layers, platform: &Default::default(), damage: &Default::default(), views: &[],
             blurs: &[], promoted: &runs, a11y: &pxui_core::a11y::A11yTree::new(),
@@ -453,7 +457,7 @@ pub(super) fn promoted_mock() {
         let commands = ok(be::begin_commands(&queue));
         let calls = painter.draw_calls();
         ok(painter.prepare_composition(&commands, &out, 1.0, TextureFormat::Rgba8Unorm));
-        assert_eq!(painter.draw_calls() - calls, u64::from(matches!(frame, 0 | 2 | 3)));
+        assert_eq!(painter.draw_calls() - calls, u64::from(matches!(frame, 0 | 2 | 3 | 6)));
         let encoder = ok(be::render_encoder(&commands, &RenderTarget {
             colors: vec![ColorAttachment { texture: target.clone(), resolve: None, load: Load::Clear,
                 store: Store::Store, clear: (0.0, 0.0, 0.0, 1.0) }],
