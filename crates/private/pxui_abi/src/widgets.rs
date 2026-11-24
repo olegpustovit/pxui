@@ -131,6 +131,7 @@ fn write_scrub(result: &pxui_core::ui::Scrub, out: &mut pxui_types::ffi::PxuiScr
 /// A `PxuiKeyedDesc` read whole: `size` at least the record's, `reserved` zero, `key` UTF-8 of at most `MAX_KEY_BYTES` and `name` display
 /// text (UTF-8, at most `MAX_LABEL_BYTES`); `None` refuses the call. The key's other check (a 0x01-led label that is not a usable resolved
 /// key, `state::unusable`) is the trusted entry's `bad_key`, made once; a caller whose entry has none filters with `unusable` itself.
+#[inline(always)]
 pub(crate) unsafe fn read_keyed<'a>(desc: *const PxuiKeyedDesc) -> Option<(&'a str, &'a str)> {
     let d = sized!(desc)?;
     if d.reserved != 0 || d.key.len > crate::state::MAX_KEY_BYTES { return None; }

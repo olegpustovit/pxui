@@ -1922,6 +1922,77 @@ mod sized_records {
         unsafe { pxui_ui_destroy(ui); }
     }
 
+    #[test]
+    fn plain_icon_button_rejects_invalid_keys_and_text_before_building() {
+        use crate::state::{MAX_KEY_BYTES, MAX_LABEL_BYTES};
+
+        let ui = create();
+        let long = vec![b'x'; MAX_LABEL_BYTES + 1];
+        let (key, icon, name) = (b"icon".as_slice(), b"+".as_slice(), b"Add".as_slice());
+        assert_eq!(in_frame(ui, &mut |h| {
+            let cases = [
+                ("long key", &long[..MAX_KEY_BYTES + 1], icon, name),
+                ("unusable key", b"\x010000000000000000", icon, name),
+                ("long icon", key, long.as_slice(), name),
+                ("long name", key, icon, long.as_slice()),
+                ("invalid key UTF-8", b"\xff", icon, name),
+                ("invalid icon UTF-8", key, b"\xff", name),
+                ("invalid name UTF-8", key, icon, b"\xff"),
+            ];
+            let nodes = || unsafe { (&*(*h).engine).built_nodes() };
+            let before = nodes();
+            for (case, key, icon, name) in cases {
+                let mut out = PxuiResponse::EMPTY;
+                let rc = unsafe { pxui_ui_icon_button_plain(h, str_of(key), str_of(icon), str_of(name), &mut out) };
+                assert_eq!(rc, PXUI_ERR_ARGUMENT, "{case}");
+                assert_eq!(nodes(), before, "{case}");
+            }
+            let mut out = PxuiResponse::EMPTY;
+            let rc = unsafe { pxui_ui_icon_button_plain(h, str_of(key), str_of(icon), str_of(name), &mut out) };
+            assert_eq!(rc, 0, "{}", error(h));
+            assert!(nodes() > before);
+            assert_ne!(out.node.box_key, 0);
+            0
+        }), 0);
+        assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
+    }
+
+    #[test]
+    fn panel_rejects_invalid_keys_and_names_before_building() {
+        use crate::state::{MAX_KEY_BYTES, MAX_LABEL_BYTES};
+        use pxui_types::ffi::PxuiKeyedDesc;
+
+        let ui = create();
+        let long = vec![b'x'; MAX_LABEL_BYTES + 1];
+        let panel = PxuiPanel { width: 100.0, ..PxuiPanel::default() };
+        let (key, name) = (b"panel".as_slice(), b"Options".as_slice());
+        assert_eq!(in_frame(ui, &mut |h| {
+            let cases = [
+                ("long key", &long[..MAX_KEY_BYTES + 1], name),
+                ("unusable key", b"\x010000000000000000", name),
+                ("long name", key, long.as_slice()),
+                ("invalid key UTF-8", b"\xff", name),
+                ("invalid name UTF-8", key, b"\xff"),
+            ];
+            let nodes = || unsafe { (&*(*h).engine).built_nodes() };
+            let before = nodes();
+            let call = |key, name, out| {
+                let keyed = PxuiKeyedDesc { key: str_of(key), name: str_of(name), ..PxuiKeyedDesc::new("", "") };
+                unsafe { pxui_ui_panel(h, &keyed, &panel, None, core::ptr::null_mut(), out) }
+            };
+            for (case, key, name) in cases {
+                assert_eq!(call(key, name, &mut PxuiBox::default()), PXUI_ERR_ARGUMENT, "{case}");
+                assert_eq!(nodes(), before, "{case}");
+            }
+            let mut out = PxuiBox::default();
+            assert_eq!(call(key, name, &mut out), 0, "{}", error(h));
+            assert!(nodes() > before);
+            assert_ne!(out.box_key, 0);
+            0
+        }), 0);
+        assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
+    }
+
     /// ABI 1.53: `pxui_ui_dialog` checks its descriptor as the other sized records (size word, text, masks naming a button
     /// that is not there, an index out of range, a bad width) and refuses a null or short `PxuiDialogResult`; a good call answers.
     #[test]

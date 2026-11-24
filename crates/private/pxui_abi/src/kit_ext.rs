@@ -87,7 +87,7 @@ export!(trusted pub unsafe fn pxui_ui_icon_button_plain(ui: *mut PxuiUi, key: St
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short icon button response") } };
     let (Some(key), Some(icon), Some(name)) = (unsafe { crate::state::checked_key(key) }, unsafe { checked(icon) }, unsafe { checked(name) }) else { return unsafe { fail(ui, "invalid icon button text") } };
     let mut r = trusted::EngineResponse::default();
-    let rc = unsafe { trusted::icon_button_plain(ui, key, icon, name, &mut r) };
+    let rc = unsafe { trusted::icon_button_plain_checked(ui, key, icon, name, false, &mut r) };
     if rc == 0 { trusted::respond(&r, out); }
     rc
 });
