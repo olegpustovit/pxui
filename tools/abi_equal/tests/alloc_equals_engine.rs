@@ -68,5 +68,6 @@ fn a_picker_and_a_head_allocate_what_the_engine_does() {
     assert!(mem_sys::local_alloc_count() > counted, "the counting allocator is installed");
     let (engine, wrapper) = (engine_allocations(), wrapper_allocations());
     println!("settled picker + head: engine {engine} allocations, wrapper {wrapper}");
+    assert!(engine <= 3, "the settled widgets allocated {engine} times");
     assert_eq!(wrapper, engine + 1, "the library and the wrapper add only the owned copy of the title to the engine's own");
 }

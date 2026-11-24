@@ -926,6 +926,7 @@ pub struct Ui {
     previous_keys: Vec<Key>,
     pub(crate) edit_focus: i64,
     pub edit_value: String,
+    pub(crate) area_result: String,
     pub(crate) edit_caret: usize,
     pub(crate) edit_anchor: usize,
     pub(crate) edit_scroll_x: f32,
@@ -1156,6 +1157,7 @@ impl Ui {
             previous_keys: Vec::new(),
             edit_focus: 0,
             edit_value: String::new(),
+            area_result: String::new(),
             edit_caret: 0,
             edit_anchor: 0,
             edit_scroll_x: 0.0,
@@ -6314,20 +6316,24 @@ impl Ui {
 
     fn mark_hover(&mut self, old: i64, new: i64) {
         let mut chains = std::mem::take(&mut self.hover_chains);
-        for (chain, key) in chains.iter_mut().zip([old, new]) {
-            chain.clear();
-            self.hit_ancestors(key, &mut |ancestor| chain.push(ancestor));
-        }
+        let mut traced = false;
         let exact = [old, new].map(|key| if self.flags_of_key(key) & HOVER_FREE == 0 { key } else { 0 });
         for v in 1..self.views.len() {
-            let view = &mut self.views[v];
-            if view.valid && !view.dirty && view.hover_reads.get_mut().iter().any(|&(key, within)| {
-                if within {
-                    chains[0].contains(&key) != chains[1].contains(&key)
-                } else {
-                    exact.contains(&key)
+            let view = &self.views[v];
+            let dirty = view.valid && !view.dirty && view.hover_reads.borrow().iter().any(|&(key, within)| {
+                if !within {
+                    return exact.contains(&key);
                 }
-            }) {
+                if !traced {
+                    for (chain, hot) in chains.iter_mut().zip([old, new]) {
+                        chain.clear();
+                        self.hit_ancestors(hot, &mut |ancestor| chain.push(ancestor));
+                    }
+                    traced = true;
+                }
+                chains[0].contains(&key) != chains[1].contains(&key)
+            });
+            if dirty {
                 // The enclosing closures still declare a dirty child. Their other
                 // cached children keep their builds.
                 self.mark_view(v as u32);

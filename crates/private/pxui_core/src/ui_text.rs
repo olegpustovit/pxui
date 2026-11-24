@@ -1385,6 +1385,18 @@ impl Ui {
         (changed.unwrap_or_else(|| text.to_owned()), submitted)
     }
 
+    pub fn text_area_submit_borrowed<'a>(&'a mut self, at: (f32, f32), w: f32, h: f32, o: &TextAreaOpts, label: &str, text: &'a str) -> (&'a str, bool) {
+        let (changed, submitted) = self.text_area_changed(at, w, h, o, label, text);
+        let result = match changed {
+            Some(changed) => {
+                self.area_result = changed;
+                self.area_result.as_str()
+            }
+            None => text,
+        };
+        (result, submitted)
+    }
+
     pub fn text_area_changed(&mut self, at: (f32, f32), w: f32, h: f32, o: &TextAreaOpts, label: &str, text: &str) -> (Option<String>, bool) {
         text_area_submit_body(self, at, w, h, o, label, text)
     }
