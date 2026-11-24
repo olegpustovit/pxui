@@ -29,7 +29,8 @@ cmake -S "$build_root/SDL3-$version" -B "$build" \
     -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$prefix" -DCMAKE_INSTALL_LIBDIR=lib \
     -DSDL_SHARED=OFF -DSDL_STATIC=ON -DSDL_FRAMEWORK=OFF \
     -DSDL_OPENGL=OFF -DSDL_OPENGLES=OFF -DSDL_VULKAN=OFF \
-    -DSDL_TESTS=OFF -DSDL_TEST_LIBRARY=OFF -DSDL_EXAMPLES=OFF
+    -DSDL_TESTS=OFF -DSDL_TEST_LIBRARY=OFF -DSDL_EXAMPLES=OFF \
+    -DSDL_CAMERA=OFF -DSDL_HIDAPI=OFF
 cmake --build "$build" --parallel "$(sysctl -n hw.ncpu)"
 cmake --install "$build"
 xcrun lipo -verify_arch arm64 "$prefix/lib/libSDL3.a"
