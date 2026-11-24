@@ -444,7 +444,8 @@ pub fn text_area_5(rig: &mut Rig) {
     rig.expect("Command-Z steps back through the changes", "one two Xthree");
     rig.keyed(vec![Key::Meta, Key::Shift], vec![key_down(kc('z'))]);
     rig.expect("Shift-Command-Z redoes", "one two three");
-    rig.area = String::new();
+    rig.ui.destroy();
+    *rig = empty_text_area(Platform::Apple);
     rig.plain(vec![press((150, 12)), release((150, 12))]);
     rig.plain(vec![Event::TextInput("a".into())]);
     rig.plain(vec![Event::TextInput("b".into())]);
@@ -514,6 +515,42 @@ pub fn window_pxui_text_area() {
 pub fn window_pxui_text_area_windows() {
     let mut rig = text_area_start(Platform::Other);
     text_area_windows(&mut rig);
+    rig.ui.destroy();
+}
+
+fn text_edit_external_change_keeps_selection_and_history() {
+    let mut rig = empty_text_area(Platform::Apple);
+    rig.area = "é alpha".into();
+    rig.plain(vec![press((150, 12)), release((150, 12)), Event::TextInput("!".into())]);
+    rig.keyed(vec![Key::Shift], vec![key_down(Key::ArrowLeft)]);
+    assert_eq!(rig.selected.get(), (8, 9));
+    rig.area = "漢字 alpha!".into();
+    rig.plain(vec![]);
+    assert_eq!(rig.selected.get(), (12, 13));
+    rig.keyed(vec![Key::Meta], vec![key_down(kc('z'))]);
+    rig.expect("undo typing preserves the external replacement", "漢字 alpha");
+    rig.keyed(vec![Key::Meta, Key::Shift], vec![key_down(kc('z'))]);
+    rig.expect("redo typing preserves the external replacement", "漢字 alpha!");
+    rig.ui.destroy();
+}
+
+fn text_edit_typing_runs_break_on_pause_and_navigation() {
+    let mut rig = empty_text_area(Platform::Apple);
+    rig.plain(vec![press((150, 12)), release((150, 12))]);
+    for part in ["hello", " ", "world"] {
+        rig.plain(vec![Event::TextInput(part.into())]);
+    }
+    rig.plain(vec![key_down(Key::Enter), Event::TextInput("next".into())]);
+    rig.time += 1.0;
+    rig.plain(vec![Event::TextInput("!".into())]);
+    rig.keyed(vec![Key::Meta], vec![key_down(kc('z'))]);
+    rig.expect("a pause breaks the typing run", "hello world\nnext");
+    rig.keyed(vec![Key::Meta], vec![key_down(kc('z'))]);
+    rig.expect("a typing run includes spaces and Enter", "");
+    rig.plain(vec![Event::TextInput("a".into())]);
+    rig.plain(vec![key_down(Key::ArrowLeft), key_down(Key::ArrowRight), Event::TextInput("b".into())]);
+    rig.keyed(vec![Key::Meta], vec![key_down(kc('z'))]);
+    rig.expect("a caret jump breaks the run even when it returns", "a");
     rig.ui.destroy();
 }
 
@@ -918,62 +955,50 @@ pub fn window_pxui_retained_keys() {
     ui.destroy();
 }
 
-/// Text undo: one byte cap over the open stacks and the shelf (five stacks of 200 snapshots would
-/// otherwise be 100 MB at 100 KB of text), and the ledger follows it. The rows of an unchanged
-/// text are not walked again, with several panes on screen, and belong to the handle.
+/// The active and shelved histories share a byte budget and stay keyed to their own editors.
+/// Rows of an unchanged text remain cached for each UI.
 pub fn window_pxui_text_memory() {
-    let mut ui = ui11();
+    let mut ui = Ui::create(Platform::Apple, Some(11.0), golden_text());
     let mut other = ui11();
-    let mut edit = ui.load_text_edit(1, "alpha");
-    ui.remember(&edit, false);
-    edit.text = "beta".into();
-    ui.edit_value.clone_from(&edit.text);
-    ui.unfocus();
-    let mut edit = ui.load_text_edit(2, "beta");
-    ui.remember(&edit, false);
-    edit.text = "gamma".into();
-    ui.edit_value.clone_from(&edit.text);
-    ui.unfocus();
-    let edit = ui.load_text_edit(1, "beta");
-    assert_eq!(ui.edit_undo[0].0, "alpha", "blur must preserve the history's field identity");
-    ui.unfocus();
-    let reopened = ui.load_text_edit(1, "beta");
-    assert_eq!((reopened.caret, reopened.anchor), (edit.caret, edit.anchor));
-    assert_eq!(ui.edit_undo[0].0, "alpha", "refocus must keep undo history");
-    ui.load_text_edit(2, "gamma");
-    assert_eq!(ui.edit_undo[0].0, "beta", "equal field values must not share undo history");
-    for key in 1..=5i64 {
-        for step in 1..=200i64 {
-            let last = format!("{} {} {}", key, step, "x".repeat(100_000));
-            let current = if step == 1 { last.clone() } else { ui.edit_value.clone() };
-            let mut edit = ui.load_text_edit(key, &current);
-            edit.text = last.clone();
-            ui.remember(&edit, false);
-            ui.edit_value = last;
-        }
+    let mut values = ["alpha".to_owned(), "beta".to_owned()];
+    let mut step = |time, keys, events| {
+        ui.frame(&frame_at(keys, 1.0, time, events), &mut |ui| {
+            for (i, key) in ["first", "second"].into_iter().enumerate() {
+                let node = Node::DEFAULT.at(0.0, i as f32 * 100.0).w_px(300.0).h_px(96.0);
+                if let (Some(text), _) = ui.text_area_submit(node, &TextAreaOpts::default(), key, &values[i]) {
+                    values[i] = text.to_owned();
+                }
+            }
+        });
+        values.clone()
+    };
+    step(0.0, vec![], vec![]);
+    step(0.1, vec![], vec![press((150, 12)), release((150, 12))]);
+    step(0.2, vec![Key::Meta], vec![key_down(kc('a'))]);
+    assert_eq!(step(0.3, vec![], vec![Event::TextInput("beta".into())]), ["beta", "beta"]);
+    step(0.4, vec![], vec![press((150, 112)), release((150, 112))]);
+    step(0.5, vec![Key::Meta], vec![key_down(kc('a'))]);
+    assert_eq!(step(0.6, vec![], vec![Event::TextInput("gamma".into())]), ["beta", "gamma"]);
+    step(0.7, vec![], vec![press((150, 12)), release((150, 12))]);
+    assert_eq!(step(0.8, vec![Key::Meta], vec![key_down(kc('z'))]), ["alpha", "gamma"]);
+    step(0.9, vec![], vec![press((150, 112)), release((150, 112))]);
+    assert_eq!(step(1.0, vec![Key::Meta], vec![key_down(kc('z'))]), ["alpha", "beta"]);
+    let first_text = "x".repeat(100_000);
+    let second_text = "y".repeat(100_000);
+    let mut edit = ui.load_text_edit(9, &first_text);
+    for _ in 0..100 {
+        let next = if edit.text == first_text { &second_text } else { &first_text };
+        ui.remember(&edit, false);
+        edit = ui.load_text_edit(9, next);
     }
     let bytes = ui.text_undo_bytes();
-    if bytes > TEXT_UNDO_BYTE_CAP {
-        fail("text undo passed its byte cap across stacks");
-    }
-    if bytes < TEXT_UNDO_BYTE_CAP / 2 {
-        fail("text undo kept far less than its cap");
-    }
-    if ui.bytes().text_undo != bytes as i64 {
-        fail("the UI does not report the text undo it holds");
-    }
-    if ui.edit_undo.is_empty() {
-        fail("the open text keeps its newest steps");
-    }
-    let oversize = "y".repeat(2 * TEXT_UNDO_BYTE_CAP);
-    let mut edit = ui.load_text_edit(9, "small");
-    edit.text = oversize;
+    assert!((TEXT_UNDO_BYTE_CAP / 2..=TEXT_UNDO_BYTE_CAP).contains(&bytes));
+    assert_eq!(ui.bytes().text_undo, bytes as i64);
+    let oversize = "z".repeat(2 * TEXT_UNDO_BYTE_CAP);
+    let edit = ui.load_text_edit(10, "small");
     ui.remember(&edit, false);
-    edit.text = "after".to_owned();
-    ui.remember(&edit, false);
-    if ui.edit_undo.is_empty() {
-        fail("a text over the cap still undoes once");
-    }
+    ui.load_text_edit(10, &oversize);
+    assert!(ui.text_undo_bytes() >= oversize.len(), "an oversized replacement still undoes once");
     let (a, b) = ("alpha\nbeta", "gamma\ndelta");
     let first_a = ui.text_rows(None, a);
     let first_b = ui.text_rows(None, b);
@@ -996,6 +1021,8 @@ pub fn window_pxui_text_memory() {
 }
 
 pub const CASES: &[(&str, fn())] = &[
+    ("text_edit_external_change_keeps_selection_and_history", text_edit_external_change_keeps_selection_and_history),
+    ("text_edit_typing_runs_break_on_pause_and_navigation", text_edit_typing_runs_break_on_pause_and_navigation),
     ("window_pxui_text_area", window_pxui_text_area),
     ("window_pxui_text_area_windows", window_pxui_text_area_windows),
     ("window_pxui_modal_1", window_pxui_modal_1),

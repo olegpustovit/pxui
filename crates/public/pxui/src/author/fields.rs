@@ -6,9 +6,9 @@ use crate::{AreaCallbacks, LineField, LineFieldResponse, SliderResponse, Scrubbe
 use pxui_types::geom::Rect;
 
 impl Ui {
-    /// Snapshots `edit` for undo; with `typing`, consecutive typing at one caret joins the previous snapshot into one step.
-    /// Taking a snapshot clears the redo history. The history holds the latest 200 steps and is bounded in bytes overall (`text_undo_bytes`).
-    /// Allocates: a copy of the text for each snapshot that is not joined.
+    /// Stages `edit` for the field’s next replacement. With `typing`, consecutive typing at one caret can share one undo step.
+    /// Recording a change clears redo. The history is bounded in bytes overall (`text_undo_bytes`).
+    /// Allocates: a copy of the text to stage the edit.
     /// Identity: the key identifies the field whose undo history receives the snapshot.
     /// Panics: when the library refuses the call (a null `Ui`, or `edit.text` over the limit).
     ///

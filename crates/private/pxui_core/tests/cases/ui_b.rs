@@ -317,7 +317,7 @@ impl Rig {
     }
 }
 
-pub fn text_area_start(platform: Platform) -> Rig {
+pub fn empty_text_area(platform: Platform) -> Rig {
     let mut rig = Rig {
         ui: Ui::create(platform, Some(11.0), golden_text()),
         area: String::new(),
@@ -333,6 +333,11 @@ pub fn text_area_start(platform: Platform) -> Rig {
         command_key: input::primary(platform),
     };
     rig.plain(vec![]);
+    rig
+}
+
+pub fn text_area_start(platform: Platform) -> Rig {
+    let mut rig = empty_text_area(platform);
     rig.plain(vec![
         press((150, 12)),
         release((150, 12)),

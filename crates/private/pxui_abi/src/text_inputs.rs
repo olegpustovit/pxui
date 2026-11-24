@@ -291,6 +291,6 @@ export!(pub unsafe fn pxui_ui_remember(ui: *mut PxuiUi, key: i64, text: Str, car
     let at = |offset: u64| usize::try_from(offset).ok().filter(|offset| text.is_char_boundary(*offset));
     let (Some(caret), Some(anchor)) = (at(caret), at(anchor)) else { return unsafe { fail(ui, "caret and anchor must sit on characters of the text") }; };
     if typing > 1 { return unsafe { fail(ui, "invalid typing flag") }; }
-    unsafe { (&mut *state.engine).remember_key(key, &pxui_core::ui_text::TextEdit { text: text.to_owned(), caret, anchor }, typing != 0); }
+    unsafe { (&mut *state.engine).remember_key(key, pxui_core::ui_text::TextEdit { text: text.to_owned(), caret, anchor }, typing != 0); }
     0
 });

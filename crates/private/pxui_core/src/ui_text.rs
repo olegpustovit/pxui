@@ -16,6 +16,7 @@ pub use pxui_types::ui::PickRows;
 use pxui_types::ui::Key as NodeKey;
 use input::{Event, Key, MouseButton};
 use crate::geom::Rgba;
+use std::collections::VecDeque;
 use std::rc::Rc;
 
 pub fn previous_utf8(text: &str, index: usize) -> usize {
@@ -64,13 +65,102 @@ fn clipboard_command(command: bool, event: &Event) -> Option<char> {
     }
 }
 
-/// Snapshots hold the whole text, and five stacks of 200 at 100 KB is 100 MB: so one cap covers the
-/// open stacks and the shelf together. The shelf's oldest stack goes first, then the open text's
-/// oldest step; the newest step stays, so a text over the cap still undoes once.
+/// Shared by the active history and histories of text panes out of focus.
 pub const TEXT_UNDO_BYTE_CAP: usize = 8 * 1024 * 1024;
+const TEXT_UNDO_STEPS: usize = 200;
 
-fn stack_bytes(stack: &[(String, usize, usize)]) -> usize {
-    stack.iter().map(|(text, _, _)| text.len()).sum()
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EditRun { Insert, Backspace, Delete }
+
+#[derive(Clone)]
+pub(crate) struct EditDelta {
+    start: usize,
+    removed: String,
+    inserted: String,
+    before: (usize, usize),
+    after: (usize, usize),
+    group: u64,
+}
+
+pub(crate) struct ShelfEntry {
+    key: i64,
+    value: String,
+    selection: (usize, usize),
+    undo: VecDeque<EditDelta>,
+    redo: VecDeque<EditDelta>,
+    pending: Option<(TextEdit, bool)>,
+}
+
+#[derive(Clone, Copy)]
+struct TextDiff {
+    start: usize,
+    end: usize,
+    inserted: usize,
+}
+
+impl TextDiff {
+    fn between(old: &str, new: &str) -> Self {
+        let start = old.bytes().zip(new.bytes()).take_while(|(a, b)| a == b).count();
+        let start = old.floor_char_boundary(start);
+        let suffix = old[start..].bytes().rev().zip(new[start..].bytes().rev()).take_while(|(a, b)| a == b).count();
+        let end = old.ceil_char_boundary(old.len() - suffix);
+        Self { start, end, inserted: new.len() - (old.len() - end) - start }
+    }
+
+    fn map(self, at: usize) -> usize {
+        if at < self.start {
+            at
+        } else if at < self.end {
+            self.start
+        } else {
+            at - self.end + self.start + self.inserted
+        }
+    }
+
+    fn selection(self, (caret, anchor): (usize, usize)) -> (usize, usize) {
+        (self.map(caret), self.map(anchor))
+    }
+}
+
+fn stack_bytes(stack: &VecDeque<EditDelta>) -> usize {
+    stack.iter().map(|d| d.removed.capacity() + d.inserted.capacity() + std::mem::size_of::<EditDelta>()).sum()
+}
+
+/// Carry the external change through the historical states, newest first. A step whose
+/// source overlaps the incoming replacement cannot safely replay against it.
+fn rebase_text_history(stack: &mut VecDeque<EditDelta>, mut external: TextDiff, redo: bool) -> bool {
+    let mut conflict = false;
+    for i in (0..stack.len()).rev() {
+        let d = &mut stack[i];
+        let (from, to, before, after) = if redo {
+            (d.removed.len(), d.inserted.len(), &mut d.before, &mut d.after)
+        } else {
+            (d.inserted.len(), d.removed.len(), &mut d.after, &mut d.before)
+        };
+        *before = external.selection(*before);
+        let stop = d.start + from;
+        if stop <= external.start && (d.start < external.start || external.start < external.end) {
+            external.start = external.start - from + to;
+            external.end = external.end - from + to;
+        } else if external.end <= d.start {
+            d.start = external.map(d.start);
+        } else {
+            // The active timeline retains the external bytes. In the historical timeline the
+            // step still happened, so widen the difference for the next (older) step.
+            let start = d.start.min(external.start);
+            let end = stop.max(external.end);
+            external = TextDiff {
+                start,
+                end: end - from + to,
+                inserted: end - start - (external.end - external.start) + external.inserted,
+            };
+            stack.remove(i);
+            conflict = true;
+            continue;
+        }
+        *after = external.selection(*after);
+    }
+    conflict
 }
 
 pub fn text_selection(edit: &TextEdit) -> (usize, usize) {
@@ -79,7 +169,7 @@ pub fn text_selection(edit: &TextEdit) -> (usize, usize) {
 
 pub fn replace_text(edit: &mut TextEdit, inserted: &str) {
     let (start, stop) = text_selection(edit);
-    edit.text = format!("{}{}{}", &edit.text[..start], inserted, &edit.text[stop..]);
+    edit.text.replace_range(start..stop, inserted);
     edit.caret = start + inserted.len();
     edit.anchor = edit.caret;
 }
@@ -126,7 +216,7 @@ fn line_block(text: &str, a: usize, b: usize) -> (usize, usize) {
 
 /// the bytes `[first, stop)` of the edit's text replaced by `replacement`
 fn replace_block(edit: &mut TextEdit, first: usize, stop: usize, replacement: &str) {
-    edit.text = format!("{}{}{}", &edit.text[..first], replacement, &edit.text[stop..]);
+    edit.text.replace_range(first..stop, replacement);
 }
 
 /// a selection over the replacement afterwards keeps its direction
@@ -251,45 +341,72 @@ impl Ui {
     }
 
     pub fn text_undo_bytes(&self) -> usize {
-        stack_bytes(&self.edit_undo)
-            + stack_bytes(&self.edit_redo)
-            + self.edit_shelf.iter().map(|(_, _, undo, redo)| stack_bytes(undo) + stack_bytes(redo)).sum::<usize>()
+        self.text_undo_held as usize
     }
 
     fn enforce_text_undo(&mut self) {
-        loop {
-            let bytes = self.text_undo_bytes();
-            let dropped = bytes > TEXT_UNDO_BYTE_CAP
-                && if !self.edit_shelf.is_empty() {
-                    self.edit_shelf.pop();
-                    true
-                } else if self.edit_undo.len() >= 2 {
-                    self.edit_undo.pop();
-                    true
-                } else {
-                    false
-                };
-            if !dropped {
-                // `Ui::bytes` reports the stacks' one running total
-                self.text_undo_held = bytes as i64;
-                return;
+        let bytes = |ui: &Ui| {
+            stack_bytes(&ui.edit_undo) + stack_bytes(&ui.edit_redo)
+                + ui.edit_shelf.iter().map(|entry| {
+                    entry.value.capacity() + stack_bytes(&entry.undo) + stack_bytes(&entry.redo)
+                        + entry.pending.as_ref().map_or(0, |(edit, _)| edit.text.capacity())
+                }).sum::<usize>()
+                + ui.edit_pending.as_ref().map_or(0, |(edit, _)| edit.text.capacity())
+        };
+        let mut held = bytes(self);
+        while held > TEXT_UNDO_BYTE_CAP || self.edit_undo.len() > TEXT_UNDO_STEPS {
+            if held > TEXT_UNDO_BYTE_CAP && self.edit_shelf.pop().is_some() {
+                held = bytes(self);
+                continue;
             }
+            let stack = if self.edit_undo.len() >= self.edit_redo.len() { &mut self.edit_undo } else { &mut self.edit_redo };
+            let Some(oldest) = stack.front() else { break };
+            let group = oldest.group;
+            // Keep one operation available even when the operation itself exceeds the cap.
+            if stack.back().is_some_and(|d| d.group == group) {
+                break;
+            }
+            while stack.front().is_some_and(|d| d.group == group) {
+                stack.pop_front();
+            }
+            held = bytes(self);
         }
+        self.text_undo_held = held as i64;
     }
 
-    /// A text starts being edited: the caret at its end, the selection from `anchor`, and nothing of
-    /// the text edited before it (scroll, undo stacks, a double click's selection unit).
+    fn shelve_text_edit(&mut self) {
+        let end = self.edit_value.len();
+        if self.edit_owner == 0 || (self.edit_undo.is_empty() && self.edit_redo.is_empty() && self.edit_pending.is_none()
+            && (self.edit_caret, self.edit_anchor) == (end, end)) {
+            return;
+        }
+        self.edit_shelf.insert(0, ShelfEntry {
+            key: self.edit_owner,
+            value: std::mem::take(&mut self.edit_value),
+            selection: (self.edit_caret, self.edit_anchor),
+            undo: std::mem::take(&mut self.edit_undo),
+            redo: std::mem::take(&mut self.edit_redo),
+            pending: self.edit_pending.take(),
+        });
+        self.edit_shelf.truncate(4);
+    }
+
+    /// Start a fresh edit, with the requested selection and empty local history.
     pub(crate) fn reset_edit(&mut self, key: i64, text: &str, anchor: usize) {
+        if self.edit_owner != key {
+            self.shelve_text_edit();
+        }
         self.edit_focus = key;
         self.edit_owner = key;
         self.edit_value.clear();
         self.edit_value.push_str(text);
         self.edit_caret = text.len();
-        self.edit_anchor = anchor;
+        self.edit_anchor = text.floor_char_boundary(anchor);
         self.edit_scroll_x = 0.0;
         self.edit_undo.clear();
         self.edit_redo.clear();
-        self.edit_group = -1;
+        self.edit_group = None;
+        self.edit_pending = None;
         self.edit_unit = None;
         self.edit_column = -1.0;
         self.enforce_text_undo();
@@ -301,28 +418,49 @@ impl Ui {
 
     pub(crate) fn load_text_edit_into(&mut self, key: i64, text: &str, mut buffer: String) -> TextEdit {
         if self.edit_owner != key || self.edit_value != text {
-            let back = self.edit_shelf.iter().position(|(k, v, _, _)| *k == key && v == text)
-                .map(|index| self.edit_shelf.remove(index));
-            if !(self.edit_undo.is_empty() && self.edit_redo.is_empty()) {
-                let left: ShelfEntry = (self.edit_owner, std::mem::take(&mut self.edit_value),
-                    std::mem::take(&mut self.edit_undo), std::mem::take(&mut self.edit_redo));
-                self.edit_shelf.truncate(3);
-                self.edit_shelf.insert(0, left);
+            let matching = self.edit_shelf.iter().position(|entry| entry.key == key && entry.value == text);
+            let restored = matching.or_else(|| {
+                if self.edit_owner == key { None } else { self.edit_shelf.iter().position(|entry| entry.key == key) }
+            }).map(|i| self.edit_shelf.remove(i));
+            if self.edit_owner != key || restored.is_some() {
+                self.shelve_text_edit();
+                self.reset_edit(key, text, text.len());
+                if let Some(entry) = restored {
+                    self.edit_value = entry.value;
+                    (self.edit_caret, self.edit_anchor) = entry.selection;
+                    self.edit_undo = entry.undo;
+                    self.edit_redo = entry.redo;
+                    self.edit_pending = entry.pending;
+                }
             }
-            let (undo, redo) = if let Some((_, value, undo, redo)) = back {
-                self.edit_value = value;
-                (undo, redo)
-            } else { (Vec::new(), Vec::new()) };
-            self.reset_edit(key, text, text.len());
-            self.edit_undo = undo;
-            self.edit_redo = redo;
+            if self.edit_value != text {
+                let change = TextDiff::between(&self.edit_value, text);
+                let selection = change.selection((self.edit_caret, self.edit_anchor));
+                if self.edit_pending.is_some() {
+                    self.finish_text_change_to(text, selection);
+                } else {
+                    let (mut undo, mut redo) = (self.edit_undo.clone(), self.edit_redo.clone());
+                    let conflict = rebase_text_history(&mut undo, change, false) | rebase_text_history(&mut redo, change, true);
+                    if conflict {
+                        self.shelve_text_edit();
+                    }
+                    (self.edit_undo, self.edit_redo) = (undo, redo);
+                }
+                self.edit_value.clear();
+                self.edit_value.push_str(text);
+                (self.edit_caret, self.edit_anchor) = selection;
+                self.edit_group = None;
+                self.edit_unit = None;
+                self.edit_column = -1.0;
+            }
             self.enforce_text_undo();
         }
         self.edit_focus = key;
-        // a screen reader's Select (AT-SPI SetCaretOffset/SetSelection) lands in whichever field loads its edit
+        // A screen reader's Select lands in whichever field loads its edit.
         if let Some((anchor, caret)) = self.a11y_select_of(key) {
             let byte = |chars: u32| text.char_indices().nth(chars as usize).map_or(text.len(), |(b, _)| b);
             (self.edit_anchor, self.edit_caret) = (byte(anchor), byte(caret));
+            self.edit_group = None;
         }
         buffer.clear();
         buffer.push_str(text);
@@ -330,56 +468,131 @@ impl Ui {
     }
 
     pub(crate) fn save_text_edit(&mut self, edit: &TextEdit) {
-        if self.edit_value != edit.text { self.edit_value.clone_from(&edit.text); }
+        self.finish_text_change(edit);
+        if self.edit_value != edit.text {
+            self.edit_value.clone_from(&edit.text);
+        }
         self.edit_caret = edit.caret;
         self.edit_anchor = edit.anchor;
     }
 
-    // ---- undo inside the focused text: snapshots before each change, consecutive typing as one
-
+    /// Stages the before-state for commands that may make several replacements.
     pub fn remember(&mut self, edit: &TextEdit, typing: bool) {
-        if !(typing && edit.caret == edit.anchor && self.edit_group == edit.caret as i64) {
-            self.edit_undo.insert(0, (edit.text.clone(), edit.caret, edit.anchor));
-            self.edit_undo.truncate(200);
-            self.edit_redo.clear();
-            self.enforce_text_undo();
-        }
-        self.edit_group = -1;
+        self.finish_text_change(edit);
+        self.edit_pending = Some((edit.clone(), typing));
+        self.enforce_text_undo();
     }
 
-    /// `remember` for the field keyed `key` (a resolved box key): the active editor's history when `key` owns it, a shelved
-    /// history of that key otherwise; a key with no history is left alone. The active editor never changes.
-    pub fn remember_key(&mut self, key: i64, edit: &TextEdit, typing: bool) {
-        if key == self.edit_owner { return self.remember(edit, typing); }
-        if let Some(entry) = self.edit_shelf.iter_mut().find(|entry| entry.0 == key) {
-            entry.2.insert(0, (edit.text.clone(), edit.caret, edit.anchor));
-            entry.2.truncate(200);
-            entry.3.clear();
-            self.enforce_text_undo();
+    /// Stage a replacement for a resolved key, without changing the active editor.
+    pub fn remember_key(&mut self, key: i64, edit: TextEdit, typing: bool) {
+        if key == self.edit_owner {
+            self.finish_text_change(&edit);
+            self.edit_pending = Some((edit, typing));
+        } else if let Some(entry) = self.edit_shelf.iter_mut().find(|entry| entry.key == key) {
+            if let Some((before, _)) = entry.pending.take() {
+                if before.text != edit.text {
+                    let diff = TextDiff::between(&before.text, &edit.text);
+                    self.edit_serial += 1;
+                    entry.undo.push_back(EditDelta {
+                        start: diff.start,
+                        removed: before.text[diff.start..diff.end].to_owned(),
+                        inserted: edit.text[diff.start..diff.start + diff.inserted].to_owned(),
+                        before: (before.caret, before.anchor),
+                        after: (edit.caret, edit.anchor),
+                        group: self.edit_serial,
+                    });
+                    entry.redo.clear();
+                }
+            }
+            entry.value.clone_from(&edit.text);
+            entry.selection = (edit.caret, edit.anchor);
+            entry.pending = Some((edit, typing));
+        } else {
+            return;
         }
+        self.enforce_text_undo();
+    }
+
+    fn finish_text_change(&mut self, edit: &TextEdit) {
+        self.finish_text_change_to(&edit.text, (edit.caret, edit.anchor));
+    }
+
+    fn finish_text_change_to(&mut self, text: &str, selection: (usize, usize)) {
+        if let Some((before, typing)) = self.edit_pending.take() {
+            let diff = TextDiff::between(&before.text, text);
+            self.record_text_change(
+                diff.start, &before.text[diff.start..diff.end], &text[diff.start..diff.start + diff.inserted],
+                (before.caret, before.anchor), selection, typing.then_some(EditRun::Insert), false,
+            );
+        }
+    }
+
+    fn record_text_change(&mut self, start: usize, removed: &str, inserted: &str, before: (usize, usize), after: (usize, usize), run: Option<EditRun>, join: bool) {
+        if removed == inserted {
+            self.enforce_text_undo();
+            return;
+        }
+        let time = self.input_frame_time().unwrap_or(0.0);
+        let join = join || self.edit_group.is_some_and(|(kind, caret, last)| {
+            Some(kind) == run && before == (caret, caret) && time >= last && time - last < 1.0
+        });
+        if !join {
+            self.edit_serial += 1;
+        }
+        let merged = join && self.edit_undo.back_mut().is_some_and(|last| {
+            if last.group != self.edit_serial {
+                return false;
+            }
+            if removed.is_empty() && last.start + last.inserted.len() == start {
+                last.inserted.push_str(inserted);
+            } else if inserted.is_empty() && last.inserted.is_empty() && last.start == start {
+                last.removed.push_str(removed);
+            } else {
+                return false;
+            }
+            last.after = after;
+            true
+        });
+        if !merged {
+            self.edit_undo.push_back(EditDelta {
+                start, removed: removed.to_owned(), inserted: inserted.to_owned(),
+                before, after, group: self.edit_serial,
+            });
+        }
+        self.edit_group = run.map(|kind| (kind, after.0, time));
+        self.edit_redo.clear();
+        self.enforce_text_undo();
+    }
+
+    fn edit_replacement(&mut self, edit: &mut TextEdit, start: usize, stop: usize, inserted: &str, run: Option<EditRun>) -> bool {
+        self.finish_text_change(edit);
+        let caret = start + inserted.len();
+        let changed = edit.text[start..stop] != *inserted;
+        self.record_text_change(start, &edit.text[start..stop], inserted, (edit.caret, edit.anchor), (caret, caret), run, false);
+        edit.text.replace_range(start..stop, inserted);
+        (edit.caret, edit.anchor) = (caret, caret);
+        changed
     }
 
     fn undo_text(&mut self, edit: &mut TextEdit, redo: bool) -> bool {
-        let stack = if redo { &mut self.edit_redo } else { &mut self.edit_undo };
-        if stack.is_empty() {
-            return false;
+        self.finish_text_change(edit);
+        self.edit_group = None;
+        let (stack, other) = if redo { (&mut self.edit_redo, &mut self.edit_undo) } else { (&mut self.edit_undo, &mut self.edit_redo) };
+        let Some(group) = stack.back().map(|d| d.group) else { return false };
+        while stack.back().is_some_and(|d| d.group == group) {
+            let d = stack.pop_back().unwrap();
+            let (from, to, selection) = if redo { (&d.removed, &d.inserted, d.after) } else { (&d.inserted, &d.removed, d.before) };
+            let range = d.start..d.start + from.len();
+            debug_assert_eq!(edit.text.get(range.clone()), Some(from.as_str()));
+            edit.text.replace_range(range, to);
+            (edit.caret, edit.anchor) = selection;
+            other.push_back(d);
         }
-        let (text, caret, anchor) = stack.remove(0);
-        let now = (edit.text.clone(), edit.caret, edit.anchor);
-        if redo {
-            self.edit_undo.insert(0, now);
-        } else {
-            self.edit_redo.insert(0, now);
-        }
-        edit.text = text;
-        edit.caret = caret;
-        edit.anchor = anchor;
-        self.edit_group = -1;
         self.enforce_text_undo();
         true
     }
 
-    /// an exhausted stack hands the key to the host's own undo (`passed_undo`)
+    /// An exhausted stack reports the key. The host decides whether document undo applies.
     fn pass_undo(&mut self, edit: &mut TextEdit, redo: bool) -> bool {
         if self.undo_text(edit, redo) {
             return true;
@@ -388,9 +601,16 @@ impl Ui {
         false
     }
 
+    fn end_group_on_move(&mut self, edit: &TextEdit) {
+        if self.edit_group.is_some_and(|(_, caret, _)| (edit.caret, edit.anchor) != (caret, caret)) {
+            self.edit_group = None;
+        }
+    }
+
     /// A press places the caret (Shift extends the selection), a double click selects the word
     /// there, a triple click the `line_of` range; the drag that follows extends by the same unit.
     pub(crate) fn press_select(&mut self, edit: &mut TextEdit, shift: bool, clicks: i64, line_of: &dyn Fn(&TextEdit, usize) -> (usize, usize), at: usize) {
+        self.edit_group = None;
         if clicks < 2 {
             edit.caret = at;
             if !shift {
@@ -406,6 +626,7 @@ impl Ui {
     }
 
     pub(crate) fn drag_select(&mut self, edit: &mut TextEdit, line_of: &dyn Fn(&TextEdit, usize) -> (usize, usize), at: usize) {
+        self.edit_group = None;
         match self.edit_unit {
             None => edit.caret = at,
             Some((a, b, clicks)) => {
@@ -458,6 +679,7 @@ impl Ui {
         let clip = clipboard_command(command, event);
         match clip {
             Some('a') => {
+                self.edit_group = None;
                 edit.anchor = 0;
                 edit.caret = edit.text.len();
                 return false;
@@ -469,13 +691,12 @@ impl Ui {
                 }
                 self.copy(&edit.text[start..stop]);
                 if key == 'x' {
-                    self.remember(edit, false);
-                    replace_text(edit, "");
-                    return true;
+                    return self.edit_replacement(edit, start, stop, "", None);
                 }
                 return false;
             }
             Some('v') => {
+                self.edit_group = None;
                 self.request_paste();
                 return false;
             }
@@ -484,25 +705,22 @@ impl Ui {
             _ => {}
         }
         match event {
-            // a field of one line takes a copied line without its break
+            // A single-line field discards the pasted line breaks.
             Event::Paste(text) => {
-                let text: String = if multiline { text.clone() } else { text.chars().filter(|c| *c != '\n' && *c != '\r').collect() };
-                if accept(&text) {
-                    self.remember(edit, false);
-                    replace_text(edit, &text);
-                    true
+                let filtered;
+                let text = if multiline || !text.contains(['\n', '\r']) {
+                    text.as_str()
                 } else {
-                    false
-                }
+                    filtered = text.chars().filter(|c| *c != '\n' && *c != '\r').collect::<String>();
+                    &filtered
+                };
+                self.edit_group = None;
+                let (start, stop) = text_selection(edit);
+                accept(text) && self.edit_replacement(edit, start, stop, text, None)
             }
             Event::TextInput(text) if accept(text) => {
-                let typing = !text.chars().any(|c| c == ' ' || c == '\t' || c == '\n');
-                self.remember(edit, typing);
-                replace_text(edit, text);
-                if typing {
-                    self.edit_group = edit.caret as i64;
-                }
-                true
+                let (start, stop) = text_selection(edit);
+                self.edit_replacement(edit, start, stop, text, Some(EditRun::Insert))
             }
             Event::KeyPressed(Key::Backspace) => {
                 let target = if line {
@@ -512,7 +730,7 @@ impl Ui {
                 } else {
                     previous_utf8(&edit.text, edit.caret)
                 };
-                self.delete_to(edit, target)
+                self.delete_to(edit, target, EditRun::Backspace)
             }
             Event::KeyPressed(Key::Delete) => {
                 let target = if line {
@@ -522,7 +740,7 @@ impl Ui {
                 } else {
                     next_utf8(&edit.text, edit.caret)
                 };
-                self.delete_to(edit, target)
+                self.delete_to(edit, target, EditRun::Delete)
             }
             Event::KeyPressed(Key::ArrowLeft) => {
                 let target = if line {
@@ -535,6 +753,7 @@ impl Ui {
                     previous_utf8(&edit.text, edit.caret)
                 };
                 move_caret(edit, target, shift);
+                self.end_group_on_move(edit);
                 false
             }
             Event::KeyPressed(Key::ArrowRight) => {
@@ -548,16 +767,19 @@ impl Ui {
                     next_utf8(&edit.text, edit.caret)
                 };
                 move_caret(edit, target, shift);
+                self.end_group_on_move(edit);
                 false
             }
             Event::KeyPressed(Key::Home) => {
                 let t = line_start(&edit.text, edit.caret);
                 move_caret(edit, t, shift);
+                self.end_group_on_move(edit);
                 false
             }
             Event::KeyPressed(Key::End) => {
                 let t = line_end(&edit.text, edit.caret);
                 move_caret(edit, t, shift);
+                self.end_group_on_move(edit);
                 false
             }
             _ => false,
@@ -565,18 +787,13 @@ impl Ui {
     }
 
     /// the selection, else from the caret to `target`
-    fn delete_to(&mut self, edit: &mut TextEdit, target: usize) -> bool {
-        let selected = edit.caret != edit.anchor;
-        if !selected && target == edit.caret {
-            false
+    fn delete_to(&mut self, edit: &mut TextEdit, target: usize, kind: EditRun) -> bool {
+        let (start, stop) = if edit.caret == edit.anchor {
+            (edit.caret.min(target), edit.caret.max(target))
         } else {
-            self.remember(edit, false);
-            if !selected {
-                edit.anchor = target;
-            }
-            replace_text(edit, "");
-            true
-        }
+            text_selection(edit)
+        };
+        self.edit_replacement(edit, start, stop, "", Some(kind))
     }
 }
 
@@ -979,11 +1196,7 @@ impl Ui {
     fn apply_scrub(&mut self, scrubbing: &Scrubbing, on_scrub: &Option<Rc<dyn Fn(ScrubPhase)>>, suggest: &UiBox, on_scrub_edit: &Option<Rc<dyn Fn((i64, i64), &str)>>, edit: &mut TextEdit) {
         if let Some((start, literal, dx, first)) = scrubbing {
             let start = *start;
-            if start <= edit.text.len() && !literal.is_empty() {
-                // the whole drag is one step of the editor's undo
-                if *first {
-                    self.remember(edit, false);
-                }
+            if edit.text.is_char_boundary(start) && !literal.is_empty() {
                 let mut stop = start;
                 let bytes = edit.text.as_bytes();
                 while stop < bytes.len() && numeric_character(bytes[stop] as char) {
@@ -997,9 +1210,14 @@ impl Ui {
                 if let Some(f) = on_scrub_edit {
                     f((start as i64, stop as i64), &next);
                 }
-                edit.text = format!("{}{}{}", &edit.text[..start], next, &edit.text[stop..]);
-                edit.caret = start + next.len();
-                edit.anchor = edit.caret;
+                self.finish_text_change(edit);
+                if *first {
+                    self.edit_serial += 1;
+                }
+                let caret = start + next.len();
+                self.record_text_change(start, &edit.text[start..stop], &next, (edit.caret, edit.anchor), (caret, caret), None, true);
+                edit.text.replace_range(start..stop, &next);
+                (edit.caret, edit.anchor) = (caret, caret);
                 self.set_state(suggest, 0);
                 if let Some(f) = on_scrub {
                     f(ScrubPhase::Live);
@@ -1585,17 +1803,21 @@ fn text_area_submit_body(this: &mut Ui, place: Node, o: &TextAreaOpts, label: &s
             let mut splice = o.splice.clone();
             splice.sort_by(|a, b| b.0.cmp(&a.0));
             for (a, b, by_) in &splice {
-                if 0 <= *a && a <= b && *b as usize <= edit.text.len() {
-                    edit.text = format!("{}{}{}", &edit.text[..*a as usize], by_, &edit.text[*b as usize..]);
+                if 0 <= *a && a <= b && edit.text.get(*a as usize..*b as usize).is_some() {
+                    edit.text.replace_range(*a as usize..*b as usize, by_);
                 }
             }
             st.changed = true;
         }
         if let Some((a, b)) = o.select {
             let n = edit.text.len() as i64;
-            edit.anchor = a.max(0).min(n) as usize;
-            edit.caret = b.max(0).min(n) as usize;
+            edit.anchor = edit.text.floor_char_boundary(a.clamp(0, n) as usize);
+            edit.caret = edit.text.floor_char_boundary(b.clamp(0, n) as usize);
         }
+        edit.caret = edit.text.floor_char_boundary(edit.caret);
+        edit.anchor = edit.text.floor_char_boundary(edit.anchor);
+        this.end_group_on_move(&edit);
+        this.finish_text_change(&edit);
         let page = 1.max((bh / row) as i64 - 1);
         this.handle_keys(&body, cfg, page, &language, &suggest, open, &items, shown, &mut st, &mut edit);
         // a dragged number: the literal at the press follows the pointer (the caret sits after it)
@@ -1620,9 +1842,17 @@ fn text_area_submit_body(this: &mut Ui, place: Node, o: &TextAreaOpts, label: &s
                 if st.changed {
                     let (text2, caret2) = rewrite(&edit.text, edit.caret as i64);
                     let anchor2 = if edit.anchor == edit.caret { caret2 } else { rewrite(&edit.text, edit.anchor as i64).1 };
-                    edit.text = text2;
-                    edit.caret = caret2 as usize;
-                    edit.anchor = anchor2 as usize;
+                    let at = |byte| text2.floor_char_boundary(clamp_pos(byte));
+                    let (caret2, anchor2) = (at(caret2), at(anchor2));
+                    if text2 != edit.text {
+                        let diff = TextDiff::between(&edit.text, &text2);
+                        let run = this.edit_group.map(|(run, _, _)| run);
+                        this.record_text_change(diff.start, &edit.text[diff.start..diff.end], &text2[diff.start..diff.start + diff.inserted],
+                            (edit.caret, edit.anchor), (caret2, anchor2), run, true);
+                        edit.text = text2;
+                    }
+                    edit.caret = caret2;
+                    edit.anchor = anchor2;
                 }
             }
         }
@@ -1883,8 +2113,8 @@ fn handle_keys_body(this: &mut Ui, body: &UiBox, cfg: Wrap, page: i64, language:
                     Some(l) => (l.indent)(&edit.text, text_selection(edit).0 as i64),
                     None => String::new(),
                 };
-                this.change(edit, st);
-                replace_text(edit, &format!("\n{}", indent));
+                let (start, stop) = text_selection(edit);
+                st.changed |= this.edit_replacement(edit, start, stop, &format!("\n{}", indent), Some(EditRun::Insert));
                 if open != 0 {
                     this.set_state(suggest, 0);
                     st.closed = true;
@@ -2087,13 +2317,15 @@ fn handle_keys_body(this: &mut Ui, body: &UiBox, cfg: Wrap, page: i64, language:
             }
             event => {
                 if this.edit_text_event(true, edit, &|_| true, &modifiers, event) {
-                    st.changed = true;
+                    st.changed = !matches!(clipboard_command(command, event), Some('z' | 'y'));
                     if matches!(event, Event::TextInput(_) | Event::KeyPressed(Key::Backspace | Key::Delete)) {
                         st.typed = true;
                     }
                 }
             }
         }
+        this.end_group_on_move(edit);
+        this.finish_text_change(edit);
     }
 }
 
@@ -2115,6 +2347,7 @@ fn numeric_editor_body(this: &mut Ui, p: &NumParams, accept: &dyn Fn(&str) -> bo
             (parse(&text), false)
         }
         Some(text) => {
+            let edit_focus = this.edit_focus;
             let mut edit = this.load_text_edit(row.box_key, &text);
             let mut committed: Option<String> = None;
             let mut state = state;
@@ -2149,6 +2382,9 @@ fn numeric_editor_body(this: &mut Ui, p: &NumParams, accept: &dyn Fn(&str) -> bo
                 this.set_state(row, 1);
                 if this.focused(row) {
                     this.unfocus();
+                } else {
+                    this.save_text_edit(&edit);
+                    this.edit_focus = edit_focus;
                 }
                 (if cancelled { None } else { committed }, false)
             } else {
