@@ -122,6 +122,10 @@ float sd_bezier(vec2 pos, vec2 A, vec2 B, vec2 C) {
 void main() {
   vec2 p = v_pos.xy;
   uint kind = v_kf.x & 255u, flags = v_kf.y & 255u, ramp = v_kf.y >> 8u;
+  if (kind == RECT && flags == 24u && v_misc.x == 0.0) {
+    out_color = texelFetch(sampler2D(color_tex, samp), ivec2(gl_FragCoord.xy), 0);
+    return;
+  }
   bool instance_clip = (v_kf.x & INSTANCE_CLIP) != 0u;
   bool view_clip = (v_kf.x & VIEW_CLIP) != 0u;
   bool rounded_image = kind == IMAGE && dot(v_radii, vec4(1.0)) > 0.0;
@@ -136,7 +140,8 @@ void main() {
     px = max(sqrt(0.5 * (dot(pixel_dx, pixel_dx) + dot(pixel_dy, pixel_dy))), 1e-4);
   }
   if ((v_kf.x & OPAQUE_INTERIOR) != 0u && all(greaterThanEqual(p, v_p0.xy)) && all(lessThanEqual(p, v_p0.zw))) {
-    out_color = v_color; return;
+    out_color = (flags & 8u) != 0u ? vec4(texelFetch(sampler2D(color_tex, samp), ivec2(0), 0).rgb, v_color.a) : v_color;
+    return;
   }
   float clip_cov = 1.0;
   if (instance_clip) {
@@ -186,6 +191,7 @@ void main() {
   } else if (kind == RECT) {
     float d = sd_rect(p, v_rect, v_radii);
     vec4 fill = v_color;
+    if ((flags & 8u) != 0u) fill.rgb = texelFetch(sampler2D(color_tex, samp), ivec2(0), 0).rgb;
     uint grad = flags & 3u;
     if (grad != 0u) {
       vec2 size = max(v_rect.zw - v_rect.xy, vec2(1e-6));

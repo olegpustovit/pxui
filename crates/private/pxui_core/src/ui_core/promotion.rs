@@ -1,5 +1,5 @@
 //! Promotion keeps the original instances available for an in-app capture or a same-frame demotion.
-use super::{EMPTY, IDENTITY_2X2, NO_VIEW, Pose, Rect, Tween, Ui, ViewRec, bounds, union};
+use super::{EMPTY, IDENTITY_2X2, NO_VIEW, Pose, Rect, Ui, ViewRec, bounds, union};
 use crate::ui::Handle;
 use pxui_types::draw::{flags, kind};
 use pxui_types::ffi::{PxuiPromoted, PxuiPromotedKey};
@@ -48,15 +48,6 @@ impl Ui {
     #[inline]
     pub(super) fn promoted_view(&self, index: u16) -> bool {
         self.promotion.current.iter().any(|run| run.view == index)
-    }
-
-    #[inline]
-    pub(super) fn tween_promoted(&self, tween: &Tween) -> bool {
-        if self.promotion.current.is_empty() {
-            return false;
-        }
-        let v = self.slots[tween.slot].view;
-        v != NO_VIEW && self.promoted_view(self.views[v as usize].index)
     }
 
     pub(super) fn update_promotions(&mut self) {

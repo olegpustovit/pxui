@@ -38,7 +38,7 @@ pub fn run() -> Result<(), String> {
         if !window.pump(&mut events) { return Err("Promotion probe window closed".into()); }
         let (ui, graphics, deferred, started) = state.as_mut().ok_or("Promotion probe was not initialized")?;
         if linked && !graphics.test_link_state().1 {
-            if window.time() - *started > 2.0 { return Err("CAMetalDisplayLink did not lend a drawable".into()); }
+            if window.time() - *started > 2.0 { return Err("Metal display link did not lend a drawable".into()); }
             return Ok(Schedule::NextFrame);
         }
         if *deferred {
@@ -52,32 +52,32 @@ pub fn run() -> Result<(), String> {
 }
 
 pub(super) fn present_first(window: &mut Window, ui: &mut Ui, graphics: &mut Graphics, linked: bool) -> Result<(), String> {
-    assert_eq!(graphics.test_link_state(), (linked, linked, None));
+    assert_eq!(graphics.test_link_state(), (linked, linked));
     build(window, ui, 8)?;
-    assert!(graphics.draw(window, ui, None).map_err(|e| e.to_string())?);
-    assert_eq!(graphics.test_link_state(), (linked, false, Some(8.0)));
+    assert!(graphics.draw(window, ui, None).map_err(|e| format!("{e}: {}", ui.last_error()))?);
+    assert_eq!(graphics.test_link_state(), (linked, false));
     build(window, ui, 24)?;
-    let presented = graphics.draw(window, ui, None).map_err(|e| e.to_string())?;
+    let presented = graphics.draw(window, ui, None).map_err(|e| format!("{e}: {}", ui.last_error()))?;
     assert_eq!(presented, !linked);
     if !linked {
-        assert_eq!(graphics.test_link_state(), (false, false, Some(24.0)));
+        assert_eq!(graphics.test_link_state(), (false, false));
         println!("PXUI_DISPLAY_LINK_PROMOTION_OK linked=false");
         return Ok(());
     }
     assert!(graphics.needs_present());
-    assert_eq!(graphics.test_link_state(), (true, false, Some(8.0)));
+    assert_eq!(graphics.test_link_state(), (true, false));
     let (width, _, pixels) = graphics.screenshot(window, ui).map_err(|e| e.to_string())?;
     let scale = window.scale() as usize;
     let at = (9 * scale * width as usize + 25 * scale) * 4;
     assert_eq!(&pixels[at..at + 4], &[255; 4], "linked capture includes the moved bar");
-    assert_eq!(graphics.test_link_state(), (true, false, Some(8.0)));
+    assert_eq!(graphics.test_link_state(), (true, false));
     Ok(())
 }
 
 pub(super) fn present_deferred(window: &mut Window, ui: &Ui, graphics: &mut Graphics) -> Result<(), String> {
-    assert_eq!(graphics.test_link_state(), (true, true, Some(8.0)));
-    assert!(graphics.draw(window, ui, None).map_err(|e| e.to_string())?);
-    assert_eq!(graphics.test_link_state(), (true, false, Some(24.0)));
+    assert_eq!(graphics.test_link_state(), (true, true));
+    assert!(graphics.draw(window, ui, None).map_err(|e| format!("{e}: {}", ui.last_error()))?);
+    assert_eq!(graphics.test_link_state(), (true, false));
     assert!(!graphics.needs_present());
     println!("PXUI_DISPLAY_LINK_PROMOTION_OK linked=true");
     Ok(())

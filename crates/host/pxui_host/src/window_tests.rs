@@ -121,11 +121,12 @@ fn promotion_yields_to_a_popover_and_captures_in_app() {
     build(&mut ui, 0.0, true, false);
     assert_eq!(ui.promoted().len(), 1);
     assert_eq!(ui.promoted()[0].swept, [8.0, 8.0, 2.0, 11.0]);
-    assert!(ui.repaint_at().is_none(), "the compositor runs the only animation");
+    assert!(ui.repaint_at().is_some(), "promoted animation requests a repaint");
     assert!(graphics.draw(&mut window, &ui, None).unwrap());
     assert!(ui.step(0.2));
     assert_eq!(ui.damage_list().count, 0, "an animation pose alone leaves the canvas clean");
-    assert!(!graphics.draw(&mut window, &ui, None).unwrap());
+    assert!(graphics.draw(&mut window, &ui, None).unwrap());
+    assert!(!graphics.draw(&mut window, &ui, None).unwrap(), "an already presented pose is clean");
     let (_, _, captured) = graphics.screenshot(&mut window, &ui).unwrap();
     assert_eq!(captured[(17*160+8)*4], 255, "capture encodes the indicator in-app");
     assert!(graphics.draw(&mut window, &ui, None).unwrap(), "restore normal composition after capture");
@@ -144,73 +145,6 @@ fn promotion_yields_to_a_popover_and_captures_in_app() {
     graphics.close().unwrap();
     window.destroy().unwrap();
 }
-
-#[cfg(target_os = "macos")]
-fn vector_parity(density: u32) {
-    use crate::{Graphics, Window};
-    use pxui::{Fill, FrameIn, Keyframes, Node, Rate, Repeat, Rgba, ThemeHandle, Ui, ui::{Curve, Keyframe}};
-    let mut window = Window::open_with("PXUI compositor parity", 32, 24, false, true, false).unwrap();
-    let mut ui = Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
-    ui.set_theme(&ThemeHandle::parse("tokens.panel = #221936").unwrap()).unwrap();
-    let mut graphics = Graphics::open(&mut window, &mut ui).unwrap();
-    graphics.set_no_layers(&mut ui, false);
-    let curve = Curve::Bezier { duration: 0.45, points: [0.42, 0.0, 0.58, 1.0] };
-    ui.frame(&FrameIn::new(32.0, 24.0).scale(density as f32), &mut |ui| {
-        for (name, x, y, offset, color) in [
-            ("first", 4.0, 4.0, 0.0, Rgba::rgb(255, 255, 255)),
-            ("second", 8.0, 4.1, 0.3, Rgba::rgb(208, 155, 231)),
-            ("third", 12.0, 4.35, 0.6, Rgba::rgb(55, 221, 70)),
-            ("translucent", 16.0, 4.65, 0.2, Rgba::rgba(224, 211, 70, 160)),
-        ] {
-            ui.column(Node::column().w_px(2.0).h_px(11.0).at(x, y), |ui| {
-                let view = ui.view_of(name, &0, |ui| {
-                    let shape = ui.node("rect", Node::column().w_px(2.0).h_px(11.0));
-                    ui.canvas(&shape, move |paint, rect| paint.fill(rect, Fill::new(color).fractional()));
-                });
-                let alpha = if color.a == 255 { [1.0; 2] } else { [0.2, 0.85] };
-                let keys = [
-                    Keyframe::scale(0.0, 1.0, 0.4).anchor(0.5, 1.0).curve(curve),
-                    Keyframe::opacity(0.0, alpha[0]).curve(curve),
-                    Keyframe::scale(0.45, 1.0, 1.0).anchor(0.5, 1.0).curve(curve),
-                    Keyframe::opacity(0.45, alpha[1]).curve(curve),
-                ];
-                ui.animate_keys(&view, &keys, &Keyframes::DEFAULT.repeat(Repeat::Forever)
-                    .autoreverse().offset(offset).rate(Rate::Ambient(20)));
-            });
-        }
-    }).unwrap();
-    assert_eq!(ui.promoted().len(), 4, "{:?}", ui.promoted());
-    let times: [f64; 200] = std::array::from_fn(|i| i as f64 * 0.9 / 200.0);
-    let size = [32 * density, 24 * density];
-    let composited = graphics.test_layers(&ui, size, density, &times);
-    let mut canvas = vec![0; size[0] as usize * size[1] as usize * 4];
-    let mut maximum = 0;
-    for (time, sample) in times.iter().zip(composited.chunks_exact(canvas.len())) {
-        assert!(ui.step(*time));
-        graphics.test_read_canvas(&ui, size, density, false, &[], &mut canvas);
-        let (at, diff) = sample.iter().zip(&canvas).enumerate()
-            .map(|(at, (a, b))| (at, a.abs_diff(*b))).max_by_key(|&(_, diff)| diff).unwrap();
-        assert!(diff <= 2, "{density}x at {time:.4}s byte {at}: canvas {} compositor {}, delta {diff}", canvas[at], sample[at]);
-        maximum = maximum.max(diff);
-    }
-    let bg = ui.theme().tokens.panel;
-    let damage = [[3 * density, 3 * density, 8 * density, 14 * density],
-                  [11 * density, 3 * density, 8 * density, 14 * density]];
-    for rects in [&[][..], &damage[..]] {
-        graphics.test_read_canvas(&ui, size, density, true, rects, &mut canvas);
-        assert!(canvas.chunks_exact(4).all(|pixel| pixel == [bg.b, bg.g, bg.r, 255]),
-            "promoted instances must be absent from the canvas for damage {rects:?}");
-    }
-    eprintln!("vector parity {density}x: 200 samples, maximum {maximum}/channel");
-    graphics.close().unwrap();
-    window.destroy().unwrap();
-}
-
-#[cfg(target_os = "macos")]
-fn vector_parity_1x() { vector_parity(1); }
-
-#[cfg(target_os = "macos")]
-fn vector_parity_2x() { vector_parity(2); }
 
 #[cfg(target_os = "macos")]
 fn explicit_promotion_rejects_overlapping_fills() {
@@ -753,8 +687,6 @@ pub(crate) fn main() {
         ("window_display_link_presents_promoted_layers",window_display_link_presents_promoted_layers),
         ("window_occluded_window_skips_gpu_and_redraws_on_exposure",occluded_window_skips_gpu_and_redraws_on_exposure),
         ("explicit_promotion_rejects_overlapping_fills",explicit_promotion_rejects_overlapping_fills),
-        ("window_vector_parity_1x",vector_parity_1x),
-        ("window_vector_parity_2x",vector_parity_2x),
         ("window_promotion_yields_to_a_popover_and_captures_in_app",promotion_yields_to_a_popover_and_captures_in_app),
         ("window_backdrop_blur_reads_the_canvas_and_preserves_undamaged_pixels",backdrop_blur_reads_the_canvas_and_preserves_undamaged_pixels),
         ("damage_rounds_out_pads_and_clamps_to_the_drawable",crate::graphics::damage_rounds_out_pads_and_clamps_to_the_drawable),

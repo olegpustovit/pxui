@@ -168,6 +168,9 @@ fn main() {
     let cases: &[(&str, fn())] = &[
         ("partial_equals_full_mock", partial_equals_full::mock),
         ("gpu_partial_equals_full", partial_equals_full::native),
+        ("promoted_surface_mock", partial_equals_full::promoted_mock),
+        ("gpu_promoted_parity_1x", partial_equals_full::promoted_parity_1x),
+        ("gpu_promoted_parity_2x", partial_equals_full::promoted_parity_2x),
         ("cull_runs_select_in_paint_order", runs_select_in_paint_order_with_transforms_merging_and_layer_fallback),
         ("gpu_instance_bounds_contain_coverage", gpu_instance_bounds_contain_coverage),
         ("gpu_cull_preserves_texture_breaks", gpu_cull_preserves_texture_breaks),

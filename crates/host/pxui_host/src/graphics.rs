@@ -26,6 +26,7 @@ pub struct Graphics {
     presentation: Option<u64>,
     no_layers: bool,
     present_debt: bool,
+    presented_revision: Option<u64>,
 }
 
 impl Graphics {
@@ -36,8 +37,7 @@ impl Graphics {
     /// Creates a device, queue, frame context and renderer for this surface on the main thread.
     ///
     /// A native startup failure returns `Error::Host` with the operation that failed.
-    /// Renderer creation can return `Error::Gpu`. Use `window.time()` for the UI frame clock so
-    /// Core Animation and the canvas evaluate a promoted animation on the same timeline.
+    /// Renderer creation can return `Error::Gpu`. The compositor uses poses from the UI frame clock.
     pub fn open(window: &mut Window, ui: &mut Ui) -> Result<Self, Error> {
         ogpu_core::impl_::select(ogpu_metal::impl_::implementation());
         let driver = ogpu_core::impl_::create_driver().map_err(|_| Error::Host("could not create graphics driver"))?;
@@ -62,6 +62,7 @@ impl Graphics {
             no_cull: std::env::var_os("PXUI_NO_CULL").as_deref() == Some(std::ffi::OsStr::new("1")),
             no_layers: std::env::var_os("PXUI_NO_LAYERS").as_deref() == Some(std::ffi::OsStr::new("1")),
             present_debt: false,
+            presented_revision: None,
             #[cfg(target_os = "macos")]
             presentation: None,
         };
@@ -133,7 +134,7 @@ impl Graphics {
         self.no_cull = no_cull;
     }
 
-    /// Forces in-app composition or restores platform layers on the associated UI.
+    /// Forces the whole scene into the canvas, or enables cached layer composition.
     pub fn set_no_layers(&mut self, ui: &mut Ui, no_layers: bool) {
         if self.no_layers != no_layers {
             self.no_layers = no_layers;
@@ -224,7 +225,9 @@ impl Graphics {
         if force && self.held.is_none() {
             self.held = Some(DamageList::full(viewport));
         }
-        if self.held.is_none() && !self.present_debt {
+        let composite = !capture && !self.no_layers && !ui.promoted().is_empty();
+        let revision = ui.draw_revision();
+        if self.held.is_none() && !self.present_debt && !(composite && self.presented_revision != Some(revision)) {
             return Ok(false);
         }
         let frames = self.frames.as_mut().expect("Live frame context");
@@ -240,25 +243,29 @@ impl Graphics {
                 return Err(Error::Host("could not begin native frame"));
             }
         }
-        let mut layers = [metal_sys::frames::Layer::default(); metal_sys::frames::MAX_LAYERS];
-        let promoted = if capture || self.no_layers { &[] } else { ui.promoted() };
-        for (out, run) in layers.iter_mut().zip(promoted) {
-            *out = promoted_layer(run);
-        }
-        let now = if promoted.is_empty() { 0.0 } else { window.time() };
-        if !frames.set_layers(&layers[..promoted.len()], now) {
-            frames.cancel();
-            self.blur_extent = (0, 0);
-            self.held = Some(DamageList::full(viewport));
-            return Err(Error::Host("could not stage promoted layers"));
-        }
         let acquired = count();
         let mut prepared = acquired;
         let mut render = || -> Result<_, Error> {
+            let renderer = self.renderer.as_mut().expect("Live graphics renderer");
+            let commands = frames.commands();
+            let scale = window.scale() as f32;
+            let mut pass = Pass {
+                mtl_command_buffer: commands,
+                width_px: size.0,
+                height_px: size.1,
+                scale,
+                ..Pass::default()
+            };
+            if self.held.is_some() || composite {
+                renderer.exclude_promoted(composite)?;
+                renderer.prepare(
+                    &Commands { mtl_command_buffer: commands, ..Commands::default() },
+                    frames.serial(),
+                    frames.completed(),
+                )?;
+                prepared = count();
+            }
             if let Some(held) = self.held {
-                let renderer = self.renderer.as_mut().expect("Live graphics renderer");
-                let commands = frames.commands();
-                let scale = window.scale() as f32;
                 let color = ui.theme().tokens.panel;
                 let mut pixels = [[0; 4]; 8];
                 let mut len = 0;
@@ -272,28 +279,9 @@ impl Graphics {
                     }
                 }
 
-                renderer.exclude_promoted(!promoted.is_empty())?;
-                renderer.prepare(
-                    &Commands {
-                        size: core::mem::size_of::<Commands>() as u32,
-                        mtl_command_buffer: commands,
-                        ..Commands::default()
-                    },
-                    frames.serial(),
-                    frames.completed(),
-                )?;
-                prepared = count();
                 let (encoder, partial) = frames.pass([color.r, color.g, color.b], &pixels[..len])
                     .map_err(|_| Error::Host("could not open native render pass"))?;
-                let mut pass = Pass {
-                    size: core::mem::size_of::<Pass>() as u32,
-                    mtl_command_buffer: commands,
-                    mtl_render_encoder: encoder,
-                    width_px: size.0,
-                    height_px: size.1,
-                    scale,
-                    ..Pass::default()
-                };
+                pass.mtl_render_encoder = encoder;
                 let merged = partial > 1 && !self.no_cull;
                 if merged {
                     for rect in &pixels[1..partial] { frames.scissor(rect); }
@@ -329,8 +317,14 @@ impl Graphics {
                     }
                 }
             }
+            let (drawable, waited) = frames.acquire().map_err(|_| Error::Host("could not acquire native drawable"))?;
+            self.acquire_wall += waited;
+            if drawable {
+                pass.mtl_render_encoder = frames.present_pass()
+                    .ok_or(Error::Host("could not open present pass"))?.as_ptr();
+                if composite { renderer.composite(&pass, None, None)?; }
+            }
             let drawn = count();
-            self.acquire_wall += frames.acquire().map_err(|_| Error::Host("could not acquire native drawable"))?;
             let presented = frames.submit().map_err(|_| Error::Host("could not submit native frame"))?;
             Ok((drawn, presented))
         };
@@ -345,6 +339,7 @@ impl Graphics {
         };
         #[cfg(target_os = "macos")]
         if presented { self.presentation = presentation; }
+        if presented { self.presented_revision = Some(revision); }
         self.present_debt = !presented;
         self.held = None;
         // Suspending iOS may discard the command buffer while waiting for a drawable.
@@ -419,7 +414,7 @@ impl Graphics {
 
     #[cfg(any(test, feature = "test-util"))]
     #[doc(hidden)]
-    pub fn test_link_state(&self) -> (bool, bool, Option<f32>) {
+    pub fn test_link_state(&self) -> (bool, bool) {
         self.frames.as_ref().expect("Live frame context").test_link_state()
     }
 
@@ -533,50 +528,4 @@ pub(crate) fn damage_rounds_out_pads_and_clamps_to_the_drawable() {
     let mut pixels = [[9, 9, 4, 14], [13, 14, 4, 8], [17, 10, 4, 13], [60, 20, 4, 4]];
     let len = merge_pixel_damage(&mut pixels, (100, 80));
     assert_eq!(&pixels[..len], &[[9, 9, 12, 14], [60, 20, 4, 4]]);
-}
-
-fn promoted_layer(run: &pxui::PxuiPromoted) -> metal_sys::frames::Layer {
-    metal_sys::frames::Layer {
-        view: run.view, count: run.count, autoreverse: run.autoreverse, hz: run.hz,
-        revision: run.content_revision, color: run.color, clip: run.clip, start: run.start, offset: run.offset,
-        keys: run.keys.map(|k| metal_sys::frames::LayerKey {
-            time: k.time, rect: k.rect, opacity: k.opacity, curve: k.curve,
-        }),
-    }
-}
-
-#[cfg(all(test, target_os = "macos"))]
-impl Graphics {
-    pub(crate) fn test_layers(&mut self, ui: &Ui, size: [u32; 2], density: u32, times: &[f64]) -> Vec<u8> {
-        let frames = self.frames.as_mut().unwrap();
-        let layers: Vec<_> = ui.promoted().iter().map(promoted_layer).collect();
-        assert!(frames.set_layers(&layers, 0.0));
-        let mut pixels = vec![0; size[0] as usize * size[1] as usize * 4 * times.len()];
-        let color = ui.theme().tokens.panel;
-        assert!(frames.test_layers(size, density, [color.r, color.g, color.b], times, &mut pixels));
-        pixels
-    }
-
-    pub(crate) fn test_read_canvas(&mut self, ui: &Ui, size: [u32; 2], density: u32, exclude: bool, damage: &[[u32; 4]], pixels: &mut [u8]) {
-        let frames = self.frames.as_mut().unwrap();
-        let renderer = self.renderer.as_mut().unwrap();
-        assert!(frames.begin(size[0], size[1]).unwrap());
-        renderer.exclude_promoted(exclude).unwrap();
-        let commands = frames.commands();
-        renderer.prepare(&Commands { mtl_command_buffer: commands, ..Commands::default() },
-            frames.serial(), frames.completed()).unwrap();
-        let color = ui.theme().tokens.panel;
-        let (encoder, _) = frames.pass([color.r, color.g, color.b], &[]).unwrap();
-        let pass = Pass {
-            mtl_command_buffer: commands, mtl_render_encoder: encoder,
-            width_px: size[0], height_px: size[1], scale: density as f32,
-            ..Pass::default()
-        };
-        if damage.is_empty() {
-            renderer.draw(&pass).unwrap();
-        } else {
-            renderer.draw_damage_rects(&pass, damage, &mut |_| unreachable!("no backdrop blur")).unwrap();
-        }
-        assert!(frames.test_read_canvas(pixels));
-    }
 }

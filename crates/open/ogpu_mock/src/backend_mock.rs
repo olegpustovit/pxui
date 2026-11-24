@@ -36,6 +36,7 @@ struct TextureStorage {
 
 struct State {
     next: i64,
+    record_render: bool,
     memory: HashMap<i64, Bytes>,
     texture_storage: HashMap<i64, TextureStorage>,
     lost: bool,
@@ -534,6 +535,9 @@ impl DriverCommands for MockCommands {
         Ok(Box::new(MockBlit(self.ops.clone())))
     }
     fn render_encoder(&self, _: &DriverRenderTarget) -> Result<Box<dyn DriverRenderEncoder>, Error> {
+        if self.c.borrow().record_render {
+            return Ok(Box::new(MockRenderPass { native: NativePass::default() }));
+        }
         Err(fail("Backend_mock.render_encoder", ErrorKind::Unsupported, "mock backend does not rasterize"))
     }
     fn adopt_render_encoder(&self, native: NativePass, _: &DriverRenderTarget) -> Result<Box<dyn DriverRenderEncoder>, Error> {
@@ -614,6 +618,17 @@ impl DriverLibrary for MockLibrary {
     }
 }
 
+struct MockPipeline { c: Shared }
+
+impl DriverPipeline for MockPipeline {
+    fn as_any(&self) -> &dyn std::any::Any { self }
+    fn max_threads(&self) -> i64 { 0 }
+    fn destroy_pipeline(&self) -> Result<(), Error> {
+        self.c.borrow_mut().pipelines -= 1;
+        Ok(())
+    }
+}
+
 struct MockSampler { c: Shared, id: i64 }
 
 impl DriverSampler for MockSampler {
@@ -690,6 +705,10 @@ impl DriverDevice for MockDevice {
         Ok(Box::new(MockSampler { c: self.c.clone(), id }))
     }
     fn create_render_pipeline(&self, _: RenderPipelineOptions, _: &RenderDescriptor, _: &ogpu_core::pipeline::AdmittedRenderPipeline) -> Result<Box<dyn DriverPipeline>, Error> {
+        if self.capabilities.render_pipeline {
+            self.c.borrow_mut().pipelines += 1;
+            return Ok(Box::new(MockPipeline { c: self.c.clone() }));
+        }
         Err(fail("Backend_mock.create_render_pipeline", ErrorKind::Unsupported, "mock backend does not rasterize"))
     }
     fn create_icb(&self, _: &ogpu_core::validation::AdmittedIcb) -> Result<Box<dyn DriverIcb>, Error> {
@@ -723,9 +742,18 @@ pub fn create() -> (Box<dyn Driver>, Control) {
 }
 
 pub fn create_with_lease(lease: Option<(*mut c_void, extern "C" fn(*mut c_void))>) -> (Box<dyn Driver>, Control) {
+    create_configured(lease, false)
+}
+
+/// Validate render recording and resource lifetimes without executing shader draws.
+pub fn create_recording_render() -> (Box<dyn Driver>, Control) {
+    create_configured(None, true)
+}
+
+fn create_configured(lease: Option<(*mut c_void, extern "C" fn(*mut c_void))>, record_render: bool) -> (Box<dyn Driver>, Control) {
     let capabilities = caps::Caps {
         compute_pipeline: false,
-        render_pipeline: false,
+        render_pipeline: record_render,
         ray_tracing: false,
         ray_tracing_curves: false,
         ray_tracing_motion: false,
@@ -734,6 +762,7 @@ pub fn create_with_lease(lease: Option<(*mut c_void, extern "C" fn(*mut c_void))
     };
     let c: Shared = Rc::new(RefCell::new(State {
         next: 1,
+        record_render,
         memory: HashMap::new(),
         texture_storage: HashMap::new(),
         lost: false,

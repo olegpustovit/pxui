@@ -186,11 +186,13 @@ fn main() {
     } else {
         apply_theme(&mut ui, &s, &mut dusk, &theme_path);
     }
+    ui.set_promotion(std::env::var_os("PXUI_NO_LAYERS").as_deref() != Some(std::ffi::OsStr::new("1")));
     let mut renderer = gpu.renderer(&ui).unwrap_or_else(|e| { eprintln!("pxui_gallery: {e}"); std::process::exit(1) });
     s.image = Some(gpu.image(100, 60, &gpu::test_card(100, 60)));
     bodies.art = s.image;
     let mut extent = win.extent();
     let mut target = gpu.target(extent.drawable.0 as u32, extent.drawable.1 as u32);
+    let mut composed = None;
     let mut a11y = host::a11y(&mut win);
     ui.set_a11y(a11y.is_some());
     let mut actions = Vec::with_capacity(16);
@@ -260,12 +262,23 @@ fn main() {
         if win.extent() != extent {
             extent = win.extent();
             if let Some(surface) = &surface { be::configure(surface, configuration(&mut win)).unwrap_or_else(|e| fail(e)); }
+            if let Some(final_target) = composed.take() {
+                gpu.forget_canvas(&mut renderer, &target).unwrap_or_else(|e| { eprintln!("pxui_gallery: {e}"); std::process::exit(1) });
+                be::destroy_texture(&final_target).unwrap_or_else(|e| fail(e));
+            }
             be::destroy_texture(&target).unwrap_or_else(|e| fail(e));
             target = gpu.target(extent.drawable.0 as u32, extent.drawable.1 as u32);
             force = true;
         }
         encode_events(&events, &mut raw_events, &mut event_text,&mut event_touches);
-        let built = force || !raw_events.is_empty() || repaint.is_some_and(|at| now >= at);
+        let due = repaint.is_some_and(|at| now >= at);
+        let stepped = due && !force && raw_events.is_empty() && !ui.promoted().is_empty() && ui.step(now);
+        if stepped {
+            repaint = ui.repaint_at();
+            frames += 1;
+            if started.elapsed().as_secs_f64() > 0.5 { settled += 1; }
+        }
+        let built = !stepped && (force || !raw_events.is_empty() || due);
         if built {
             force = false;
             if ui.output().platform.paste != 0 { host::paste(&mut win, &mut events); }
@@ -325,17 +338,18 @@ fn main() {
             for h in &s.busy { ui.busy_step(h, now); }
         }
         // A changed frame waits for the compositor's invitation (Wayland frame callback) when it presents to a window.
-        let wanted = ui.draw_revision() != drawn_revision && (built || animating || deferred);
+        let wanted = ui.draw_revision() != drawn_revision && (built || stepped || animating || deferred);
         deferred = wanted && surface.is_some() && !host::frame_ready(&win);
         if wanted && !deferred {
             drawn_revision = ui.draw_revision();
             if surface.is_some() { host::request_frame(&mut win); }
-            draw(&mut gpu, &mut ui, &mut renderer, &target, surface.as_ref(), extent, win.scale() as f32);
+            draw(&mut gpu, &ui, &mut renderer, &target, &mut composed, surface.as_ref(), extent, win.scale() as f32);
             draws += 1;
             if label_only && draws == 1 { println!("pxui_gallery: first-frame {:.3}", entered.elapsed().as_secs_f64() * 1e3 - window_ms); }
             if let Some(path) = shot.as_deref().filter(|_| draws >= 3) {
                 let (w, h) = (extent.drawable.0 as u32, extent.drawable.1 as u32);
-                let pixels = be::read_texture(&target, (w * 4) as i64).unwrap_or_else(|e| fail(e));
+                let frame = composed.as_ref().filter(|_| !ui.promoted().is_empty()).unwrap_or(&target);
+                let pixels = be::read_texture(frame, (w * 4) as i64).unwrap_or_else(|e| fail(e));
                 if let Err(e) = std::fs::write(path, png::encode(w, h, &pixels)) { eprintln!("pxui_gallery: {path}: {e}"); }
                 break;
             }
@@ -352,28 +366,65 @@ fn main() {
     if count { println!("pxui_gallery: frames {frames} draws {draws} settled {settled} idle_calls {calls_idle}"); }
     (s.image, bodies.art) = (None, None);
     drop(renderer);
+    if let Some(final_target) = composed { be::destroy_texture(&final_target).unwrap_or_else(|e| fail(e)); }
     be::destroy_texture(&target).unwrap_or_else(|e| fail(e));
     if let Some(surface) = surface { be::destroy_surface(&surface).unwrap_or_else(|e| fail(e)); }
     drop(ui);
     gpu.close();
 }
 
-fn draw(gpu: &mut Gpu, ui: &mut Ui, renderer: &mut Renderer, target: &be::Texture, surface: Option<&Surface>, extent: host::Extent, scale: f32) {
+fn draw(gpu: &mut Gpu, ui: &Ui, renderer: &mut Renderer, canvas: &be::Texture, composed: &mut Option<be::Texture>, surface: Option<&Surface>, extent: host::Extent, scale: f32) {
     let ground = ui.theme().tokens.panel;
     let frame = match surface {
         Some(surface) => match be::acquire_sync(surface).unwrap_or_else(|e| fail(e)) { AcquireResult::Acquired(frame) => Some(frame), _ => return },
         None => None,
     };
+    let size = [extent.drawable.0 as u32, extent.drawable.1 as u32];
+    let promoted = ui.promoted();
+    let has_layers = !promoted.is_empty();
+    let reported = ui.damage_list();
+    let animation_only = has_layers && composed.is_some() && reported.count == 0 && reported.full == 0;
+    let damage = animation_only.then(|| {
+        let viewport = pxui::Rect::new(0.0, 0.0, size[0] as f32, size[1] as f32);
+        let mut damage = pxui::DamageList::default();
+        for run in promoted {
+            let [x, y, w, h] = run.swept;
+            let (left, top, right, bottom) = ((x * scale).floor(), (y * scale).floor(), ((x + w) * scale).ceil(), ((y + h) * scale).ceil());
+            damage.add(pxui::Rect::new(left, top, right - left, bottom - top), viewport);
+        }
+        damage.bounds().map_or([0, 0, size[0], size[1]], |r| [r.x, r.y, r.w, r.h].map(|v| v as u32))
+    });
     let commands = be::begin_commands(&gpu.queue).unwrap_or_else(|e| fail(e));
+    renderer.exclude_promoted(has_layers).unwrap();
     gpu.prepare(renderer, &commands).unwrap_or_else(|e| { eprintln!("pxui_gallery: {e}"); std::process::exit(1) });
-    let encoder = be::render_encoder(&commands, &RenderTarget {
-        colors: vec![ColorAttachment { texture: target.clone(), resolve: None, load: Load::Clear, store: Store::Store, clear: (ground.r as f64 / 255.0, ground.g as f64 / 255.0, ground.b as f64 / 255.0, 1.0) }],
-        depth: None,
-    }).unwrap_or_else(|e| fail(e));
-    gpu.draw(renderer, &commands, &encoder, [extent.drawable.0 as u32, extent.drawable.1 as u32], scale).unwrap_or_else(|e| { eprintln!("pxui_gallery: {e}"); std::process::exit(1) });
-    be::end_render(&encoder).unwrap_or_else(|e| fail(e));
+    let open = |target: &be::Texture, load| {
+        be::render_encoder(&commands, &RenderTarget {
+            colors: vec![ColorAttachment {
+                texture: target.clone(), resolve: None, load, store: Store::Store,
+                clear: (ground.r as f64 / 255.0, ground.g as f64 / 255.0, ground.b as f64 / 255.0, 1.0),
+            }],
+            depth: None,
+        }).unwrap_or_else(|e| fail(e))
+    };
+    if !animation_only {
+        let encoder = open(canvas, Load::Clear);
+        gpu.draw(renderer, &commands, &encoder, size, scale).unwrap_or_else(|e| { eprintln!("pxui_gallery: {e}"); std::process::exit(1) });
+        be::end_render(&encoder).unwrap_or_else(|e| fail(e));
+    }
+    let target = if has_layers {
+        let target = composed.get_or_insert_with(|| gpu.target(size[0], size[1]));
+        let encoder = open(target, if animation_only { Load::Load } else { Load::DontCare });
+        gpu.composite(renderer, &commands, &encoder, size, scale, canvas, damage)
+            .unwrap_or_else(|e| { eprintln!("pxui_gallery: {e}: {}", ui.last_error()); std::process::exit(1) });
+        be::end_render(&encoder).unwrap_or_else(|e| fail(e));
+        target
+    } else { canvas };
+    let damage = damage.map(|r| {
+        let [x, y, width, height] = r.map(i64::from);
+        ogpu_core::render_pass::Rect { x, y, width, height }
+    });
     let receipt = match frame {
-        Some(frame) => be::commit_present(&commands, target, &frame).unwrap_or_else(|e| fail(e)),
+        Some(frame) => be::commit_present_damage(&commands, target, &frame, damage.as_ref().map(std::slice::from_ref)).unwrap_or_else(|e| fail(e)),
         None => be::commit(&commands).unwrap_or_else(|e| fail(e)),
     };
     gpu.complete(&receipt);

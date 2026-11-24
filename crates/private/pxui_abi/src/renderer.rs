@@ -128,7 +128,7 @@ unsafe fn make(ui: &mut PxuiUi, gpu: pxui_types::Gpu, target: PxuiTargetDesc, mu
     };
     let blur_reuse=target.reserved_tail & PxuiTargetDesc::BACKDROP_UI_DAMAGE != 0
         && std::env::var_os("PXUI_NO_BLUR_REUSE").as_deref() != Some(std::ffi::OsStr::new("1"));
-    Ok(PxuiRenderer { painter, queue, device, textures:std::collections::HashMap::new(), blur_sources:std::collections::HashMap::new(), engine:ui.engine, shared:ui.shared, format, samples:i64::from(target.samples), frame_serial:0, view_revision:None, completed:0, atlas_initialized:[false;4], prepared:None, drawn:None, split_points:Vec::new(), breaks:Vec::with_capacity(33), blur_commands:None, exclude_promoted:false, no_cull:std::env::var_os("PXUI_NO_CULL").as_deref()==Some(std::ffi::OsStr::new("1")), blur_reuse, blur_slots:0, blur_cache:Default::default() })
+    Ok(PxuiRenderer { painter, queue, device, textures:std::collections::HashMap::new(), blur_sources:std::collections::HashMap::new(), engine:ui.engine, shared:ui.shared, format, samples:i64::from(target.samples), frame_serial:0, view_revision:None, completed:0, atlas_initialized:[false;4], prepared:None, drawn:None, split_points:Vec::new(), breaks:Vec::with_capacity(33 + 2 * 16), blur_commands:None, exclude_promoted:false, no_cull:std::env::var_os("PXUI_NO_CULL").as_deref()==Some(std::ffi::OsStr::new("1")), blur_reuse, blur_slots:0, blur_cache:Default::default() })
 }
 
 export!(bare pub unsafe fn pxui_renderer_create(ui:*mut PxuiUi, gpu:*const pxui_types::Gpu, target:*const PxuiTargetDesc, out:*mut *mut PxuiRenderer) -> i32 {
@@ -227,6 +227,13 @@ export!(pub unsafe fn pxui_renderer_prepare(renderer:*mut PxuiRenderer, commands
     if renderer.blur_reuse {
         renderer.blur_slots=renderer.painter.prepare_blur_cache(ui.output().blurs.len());
     }
+    if renderer.exclude_promoted && !ui.output().promoted.is_empty() {
+        if renderer.samples != 1 { return renderer.fail(PXUI_ERR_STATE, "composition requires a single-sample target"); }
+        if let Err(e) = renderer.painter.prepare_composition(&commands, &ui.output(), ui.density() as f32, renderer.format) {
+            renderer.painter.invalidate_composition();
+            return renderer.fail_gpu(e);
+        }
+    }
     gpu_backend::settle_commands(&commands);
     renderer.prepared=Some(commands);
     0
@@ -265,6 +272,7 @@ export!(pub unsafe fn pxui_renderer_resize(renderer:*mut PxuiRenderer, width:u32
     // the device's own limit: the blur targets are half this extent, so a larger one is refused here, never allocated
     let maximum=ogpu_core::backend::capabilities(&renderer.device).limits.max_texture_dimension_2d;
     if i64::from(width)>maximum || i64::from(height)>maximum { return renderer.fail(PXUI_ERR_ARGUMENT, "renderer extent exceeds the device's maximum texture dimension"); }
+    renderer.painter.invalidate_composition();
     renderer.blur_cache=Default::default();
     renderer.blur_slots=0;
     match renderer.painter.prepare_blur([width,height]) { Ok(())=>0, Err(e)=>renderer.fail_gpu(e) }
@@ -328,11 +336,11 @@ export!(pub unsafe fn pxui_renderer_exclude_promoted(renderer:*mut PxuiRenderer,
 // Draws layers `pass.first_layer..` (`pass.layer_count` of them, 0 for all) of the last frame into the app's open pass. A layer
 // with a backdrop blur asks the app to end the pass (`pass.split`), records the blur and goes on in the pass the app reopens.
 export!(pub unsafe fn pxui_renderer_draw(renderer:*mut PxuiRenderer, pass:*const pxui_types::Pass) -> i32 {
-    unsafe { draw(renderer, pass, &[]) }
+    unsafe { draw(renderer, pass, &[], PassKind::Canvas) }
 });
 
 export!(pub unsafe fn pxui_renderer_draw_damage(renderer:*mut PxuiRenderer, pass:*const pxui_types::Pass, x:u32, y:u32, width:u32, height:u32) -> i32 {
-    unsafe { draw(renderer, pass, &[[x,y,width,height]]) }
+    unsafe { draw(renderer, pass, &[[x,y,width,height]], PassKind::Canvas) }
 });
 
 export!(pub unsafe fn pxui_renderer_draw_damage_rects(renderer:*mut PxuiRenderer, pass:*const pxui_types::Pass, rects:*const u32, count:u32) -> i32 {
@@ -341,10 +349,32 @@ export!(pub unsafe fn pxui_renderer_draw_damage_rects(renderer:*mut PxuiRenderer
         return unsafe { &mut *renderer }.fail(PXUI_ERR_ARGUMENT, "expected two to eight damage rectangles");
     }
     // SAFETY: the ABI caller provides `count` contiguous four-word records until this call returns.
-    unsafe { draw(renderer, pass, core::slice::from_raw_parts(rects.cast::<[u32;4]>(), count as usize)) }
+    unsafe { draw(renderer, pass, core::slice::from_raw_parts(rects.cast::<[u32;4]>(), count as usize), PassKind::Canvas) }
 });
 
-unsafe fn draw(renderer:*mut PxuiRenderer, pass:*const pxui_types::Pass, scissors:&[[u32;4]]) -> i32 {
+export!(pub unsafe fn pxui_renderer_composite(
+    renderer:*mut PxuiRenderer, pass:*const pxui_types::Pass, image:*const pxui_types::Image, damage:*const u32
+) -> i32 {
+    if renderer.is_null() { return PXUI_ERR_ARGUMENT; }
+    let canvas = if image.is_null() {
+        if !damage.is_null() { return PXUI_ERR_ARGUMENT; }
+        None
+    } else {
+        let Some(image) = read_desc!(image, pxui_types::Image) else { return PXUI_ERR_ARGUMENT };
+        if !crate::image::valid(image) || image.format != pxui_types::Image::FORMAT_RGBA8
+            || (!damage.is_null() && !damage.is_aligned()) { return PXUI_ERR_ARGUMENT; }
+        Some((image, unsafe { damage.cast::<[u32;4]>().as_ref() }.copied().unwrap_or([0, 0, image.width, image.height])))
+    };
+    unsafe { draw(renderer, pass, &[], PassKind::Composite(canvas)) }
+});
+
+#[derive(Clone, Copy)]
+enum PassKind {
+    Canvas,
+    Composite(Option<(pxui_types::Image, [u32; 4])>),
+}
+
+unsafe fn draw(renderer:*mut PxuiRenderer, pass:*const pxui_types::Pass, scissors:&[[u32;4]], kind: PassKind) -> i32 {
     const NEED_SPLIT: &str = "a layer with a backdrop blur needs the pass's split callback";
     if renderer.is_null() { return PXUI_ERR_ARGUMENT; }
     let renderer=unsafe { &mut *renderer };
@@ -355,7 +385,17 @@ unsafe fn draw(renderer:*mut PxuiRenderer, pass:*const pxui_types::Pass, scissor
         return renderer.fail(PXUI_ERR_ARGUMENT, "scissor must be nonempty and inside the target");
     }
     if renderer.frame_serial==0 { return renderer.fail(PXUI_ERR_STATE, "draw needs a prepared frame"); }
+    if matches!(kind, PassKind::Composite(_)) && !renderer.exclude_promoted {
+        return renderer.fail(PXUI_ERR_STATE, "composition requires promotion before prepare");
+    }
     let size_px=[pass.width_px,pass.height_px];
+    if let PassKind::Composite(Some((image, [x,y,w,h]))) = kind {
+        if [image.width, image.height] != size_px || w == 0 || h == 0
+            || u64::from(x) + u64::from(w) > u64::from(image.width)
+            || u64::from(y) + u64::from(h) > u64::from(image.height) {
+            return renderer.fail(PXUI_ERR_ARGUMENT, "canvas and damage must match the target extent");
+        }
+    }
     let commands_native=ogpu_core::backend::NativeCommands { size:core::mem::size_of::<ogpu_core::backend::NativeCommands>() as u32, vk_command_buffer:pass.vk_command_buffer, mtl_command_buffer:pass.mtl_command_buffer, frame_serial:renderer.frame_serial, inside_pass:1 };
     let native_pass=ogpu_core::backend::NativePass { size:core::mem::size_of::<ogpu_core::backend::NativePass>() as u32, vk_command_buffer:pass.vk_command_buffer, mtl_render_encoder:pass.mtl_render_encoder, width_px:pass.width_px, height_px:pass.height_px, scale:pass.scale };
     let (kept_commands,kept_encoder)=renderer.drawn.take().unzip();
@@ -374,6 +414,33 @@ unsafe fn draw(renderer:*mut PxuiRenderer, pass:*const pxui_types::Pass, scissor
             if let Err(e)=renderer.painter.set_view(*index,View { offset:v.offset,opacity:v.opacity,clip:v.clip,scale:v.scale,transform:v.transform,pivot:v.pivot }) { return renderer.fail_gpu(e); }
         }
         renderer.view_revision=Some(revision);
+    }
+    if let PassKind::Composite(source) = kind {
+        let canvas = if let Some((image, damage)) = source {
+            let key = crate::image::image_key(&image);
+            match renderer.blur_sources.entry(key) {
+                std::collections::hash_map::Entry::Occupied(mut entry) => {
+                    entry.get_mut().used = renderer.frame_serial;
+                    Ok(Some((entry.get().texture.clone(), damage)))
+                }
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    gpu_backend::wrap_texture(&renderer.device, gpu_backend::NativeTexture {
+                        size: core::mem::size_of::<gpu_backend::NativeTexture>() as u32,
+                        vk_image_view: image.vk_image_view, mtl_texture: image.mtl_texture,
+                        width: image.width, height: image.height, format: image.format,
+                    }).map(|texture| {
+                        entry.insert(CachedTexture { texture: texture.clone(), used: renderer.frame_serial, image: None });
+                        Some((texture, damage))
+                    })
+                }
+            }
+        } else { Ok(None) };
+        let painted = canvas.and_then(|canvas| renderer.painter.composite(&encoder, size_px, pass.scale, &ui.output(),
+            canvas.as_ref().map(|(texture, rect)| (texture, *rect))));
+        let closed = gpu_backend::end_render(&encoder);
+        gpu_backend::settle_commands(&commands);
+        renderer.drawn = Some((commands, encoder));
+        return match painted.and(closed) { Ok(()) => 0, Err(e) => renderer.fail_gpu(e) };
     }
     let damage=(scissors.len()>1).then(|| pxui_render::DamageClip::new(scissors));
     let damage=damage.as_ref();

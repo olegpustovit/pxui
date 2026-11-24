@@ -106,13 +106,7 @@ impl Gpu {
     }
 
     fn draw_region(&self, renderer: &mut Renderer, commands: &be::Commands, encoder: &RenderEncoder, size_px: [u32; 2], scale: f32, scissor: Option<[u32; 4]>) -> Result<(), String> {
-        let commands = be::native_commands(commands).map_err(|e| error::to_string(&e))?;
-        let native = be::native_pass(encoder).map_err(|e| error::to_string(&e))?;
-        let pass = UiPass {
-            size: core::mem::size_of::<UiPass>() as u32, vk_command_buffer: native.vk_command_buffer,
-            mtl_render_encoder: native.mtl_render_encoder, width_px: size_px[0], height_px: size_px[1], scale,
-            mtl_command_buffer: commands.mtl_command_buffer, ..UiPass::default()
-        };
+        let pass = Self::pass(commands, encoder, size_px, scale)?;
         if let Some([x, y, w, h]) = scissor {
             be::set_scissor(encoder, ogpu_core::render_pass::Rect { x: i64::from(x), y: i64::from(y), width: i64::from(w), height: i64::from(h) })
                 .map_err(|e| error::to_string(&e))?;
@@ -126,6 +120,35 @@ impl Gpu {
         self.draw_allocations.set(allocations() - before);
         drawn.map_err(|code| format!("pxui renderer draw failed ({code})"))?;
         be::invalidate_state(encoder).map_err(|e| error::to_string(&e))
+    }
+
+    fn pass(commands: &be::Commands, encoder: &RenderEncoder, size_px: [u32; 2], scale: f32) -> Result<UiPass, String> {
+        let commands = be::native_commands(commands).map_err(|e| error::to_string(&e))?;
+        let native = be::native_pass(encoder).map_err(|e| error::to_string(&e))?;
+        Ok(UiPass {
+            size: core::mem::size_of::<UiPass>() as u32, vk_command_buffer: native.vk_command_buffer,
+            mtl_render_encoder: native.mtl_render_encoder, width_px: size_px[0], height_px: size_px[1], scale,
+            mtl_command_buffer: commands.mtl_command_buffer, ..UiPass::default()
+        })
+    }
+
+    pub fn composite(
+        &self, renderer: &mut Renderer, commands: &be::Commands, encoder: &RenderEncoder,
+        size_px: [u32; 2], scale: f32, canvas: &Texture, damage: Option<[u32; 4]>,
+    ) -> Result<(), String> {
+        let pass = Self::pass(commands, encoder, size_px, scale)?;
+        let image = Self::canvas_image(canvas)?;
+        renderer.composite(&pass, Some(&image), damage).map_err(|e| e.to_string())?;
+        be::invalidate_state(encoder).map_err(|e| error::to_string(&e))
+    }
+
+    fn canvas_image(canvas: &Texture) -> Result<Image, String> {
+        let native = be::native_texture(canvas).map_err(|e| error::to_string(&e))?;
+        Ok(Image::rgba8(native.width, native.height, native.vk_image_view, native.mtl_texture))
+    }
+
+    pub fn forget_canvas(&self, renderer: &mut Renderer, canvas: &Texture) -> Result<(), String> {
+        renderer.forget_image(&Self::canvas_image(canvas)?, self.completed).map_err(|e| e.to_string())
     }
 
     /// Complete the just-submitted queue work; gallery qualification renders synchronously.

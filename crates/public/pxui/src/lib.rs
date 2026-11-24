@@ -199,6 +199,7 @@ mod sys {
         pub fn pxui_renderer_prepare(renderer:*mut PxuiRenderer,commands:*const pxui_types::Commands,frame:u64,completed:u64)->i32;
         pub fn pxui_renderer_resize(renderer:*mut PxuiRenderer,width:u32,height:u32)->i32;
         pub fn pxui_renderer_exclude_promoted(renderer:*mut PxuiRenderer,exclude:u8)->i32;
+        pub fn pxui_renderer_composite(renderer:*mut PxuiRenderer,pass:*const pxui_types::Pass,image:*const pxui_types::Image,damage:*const u32)->i32;
         pub fn pxui_renderer_draw(renderer:*mut PxuiRenderer,pass:*const pxui_types::Pass)->i32;
         pub fn pxui_renderer_draw_damage(renderer:*mut PxuiRenderer,pass:*const pxui_types::Pass,x:u32,y:u32,width:u32,height:u32)->i32;
         pub fn pxui_renderer_draw_damage_rects(renderer:*mut PxuiRenderer,pass:*const pxui_types::Pass,rects:*const u32,count:u32)->i32;
@@ -312,7 +313,7 @@ impl Renderer {
     }
     /// Omits promoted runs from subsequent draws when the host presents those runs separately.
     ///
-    /// Pass `false` to render the entire scene into the target, including for offscreen capture.
+    /// Set before prepare so the renderer can cache the promoted content. Pass `false` to render the entire scene.
     /// Allocates: never.
     /// Panics: never.
     ///
@@ -322,6 +323,25 @@ impl Renderer {
     /// ```
     pub fn exclude_promoted(&mut self, exclude: bool) -> Result<(), Error> {
         status(unsafe { sys::pxui_renderer_exclude_promoted(self.raw.as_ptr(), exclude.into()) })
+    }
+    /// Composites the prepared layer textures over the canvas.
+    ///
+    /// Set exclusion before preparing the frame. Supply a separate opaque RGBA canvas of the same
+    /// device-pixel extent to restore base pixels under the composite, or pass None when the target
+    /// already contains the canvas. Optional damage is `[x, y, width, height]` in target pixels
+    /// and requires a canvas source. Rebind encoder state after the call, as for draw.
+    /// Allocates: when render storage first grows.
+    /// Panics: never.
+    ///
+    /// ```
+    /// fn example(renderer: &mut pxui::Renderer, pass: &pxui::Pass) -> Result<(), pxui::Error> {
+    ///     renderer.composite(pass, None, None)
+    /// }
+    /// let _ = example;
+    /// ```
+    pub fn composite(&mut self, pass: &pxui_types::Pass, canvas: Option<&Image>, damage: Option<[u32; 4]>) -> Result<(), Error> {
+        status(unsafe { sys::pxui_renderer_composite(self.raw.as_ptr(), pass,
+            canvas.map_or(core::ptr::null(), |image| image), damage.as_ref().map_or(core::ptr::null(), |rect| rect.as_ptr())) })
     }
     /// Records the prepared UI layers into the host’s open render pass.
     ///

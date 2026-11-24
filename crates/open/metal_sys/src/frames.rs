@@ -19,7 +19,7 @@ unsafe extern "C" {
     fn rays_metal_frames_resume_pass(host: *mut c_void) -> *mut c_void;
     fn rays_metal_frames_acquire(host: *mut c_void, wait_ns: *mut u64) -> i32;
     fn rays_metal_frames_submit(host: *mut c_void) -> i32;
-    fn rays_metal_frames_layers(host: *mut c_void, layers: *const Layer, count: usize, now: f64) -> bool;
+    fn rays_metal_frames_present(host: *mut c_void) -> *mut c_void;
     fn rays_metal_frames_capture(host: *mut c_void, on: i32) -> i32;
     fn rays_metal_frames_read(
         host: *mut c_void,
@@ -30,33 +30,6 @@ unsafe extern "C" {
     ) -> i32;
     fn rays_metal_frames_wait(host: *mut c_void) -> i32;
     fn rays_metal_frames_destroy(host: *mut c_void);
-}
-
-/// Maximum number of retained platform layers per surface.
-pub const MAX_LAYERS: usize = 16;
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Default)]
-pub struct LayerKey {
-    pub time: f32,
-    pub rect: [f32; 4],
-    pub opacity: f32,
-    pub curve: [f32; 4],
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Default)]
-pub struct Layer {
-    pub view: u16,
-    pub hz: u16,
-    pub count: u8,
-    pub autoreverse: u8,
-    pub color: [u8; 4],
-    pub revision: u64,
-    pub start: f64,
-    pub offset: f32,
-    pub clip: [f32; 4],
-    pub keys: [LayerKey; 9],
 }
 
 pub struct Frames {
@@ -145,38 +118,19 @@ impl Frames {
     }
 
     /// Ends canvas encoding before waiting for a drawable. A missed drawable still permits a canvas commit.
-    pub fn acquire(&mut self) -> Result<std::time::Duration, String> {
+    pub fn acquire(&mut self) -> Result<(bool, std::time::Duration), String> {
         let mut wait_ns = 0;
         match unsafe { rays_metal_frames_acquire(self.raw, &mut wait_ns) } {
-            0 | 1 => Ok(std::time::Duration::from_nanos(wait_ns)),
+            status @ (0 | 1) => Ok((status == 1, std::time::Duration::from_nanos(wait_ns))),
             _ => Err("Could not acquire Metal drawable".into()),
         }
     }
-    #[cfg(all(feature = "test-util", target_os = "macos"))]
-    pub fn test_read_canvas(&mut self, pixels: &mut [u8]) -> bool {
-        unsafe extern "C" {
-            fn rays_metal_frames_test_read_canvas(raw: *mut c_void, pixels: *mut u8, len: usize) -> bool;
-        }
-        unsafe { rays_metal_frames_test_read_canvas(self.raw, pixels.as_mut_ptr(), pixels.len()) }
+    /// Copies the retained canvas into the acquired drawable and leaves the encoder open.
+    pub fn present_pass(&mut self) -> Option<core::ptr::NonNull<c_void>> {
+        core::ptr::NonNull::new(unsafe { rays_metal_frames_present(self.raw) })
     }
 
-    #[cfg(all(feature = "test-util", target_os = "macos"))]
-    pub fn test_layers(&self, size: [u32; 2], density: u32, background: [u8; 3], times: &[f64], pixels: &mut [u8]) -> bool {
-        unsafe extern "C" {
-            fn rays_metal_frames_test_layers(raw: *mut c_void, width: u32, height: u32, density: u32, background: *const u8,
-                                           times: *const f64, count: usize, pixels: *mut u8, len: usize) -> bool;
-        }
-        unsafe {
-            rays_metal_frames_test_layers(self.raw, size[0], size[1], density, background.as_ptr(), times.as_ptr(), times.len(), pixels.as_mut_ptr(), pixels.len())
-        }
-    }
-
-    /// Stages validated vector layers for the next successful canvas present.
-    pub fn set_layers(&mut self, layers: &[Layer], now: f64) -> bool {
-        unsafe { rays_metal_frames_layers(self.raw, layers.as_ptr(), layers.len(), now) }
-    }
-
-    /// Commits the frame and copies the complete canvas if a drawable was acquired.
+    /// Commits the frame and presents the drawable after its pass ends.
     pub fn submit(&mut self) -> Result<bool, String> {
         match unsafe { rays_metal_frames_submit(self.raw) } {
             1 => Ok(true),
@@ -186,14 +140,13 @@ impl Frames {
     }
 
     #[cfg(feature = "test-util")]
-    pub fn test_link_state(&self) -> (bool, bool, Option<f32>) {
+    pub fn test_link_state(&self) -> (bool, bool) {
         unsafe extern "C" {
-            fn rays_metal_frames_test_link_state(raw: *mut c_void, loan: *mut bool, first_x: *mut f32) -> bool;
+            fn rays_metal_frames_test_link_state(raw: *mut c_void, loan: *mut bool) -> bool;
         }
         let mut loan = false;
-        let mut first_x = f32::NAN;
-        let owned = unsafe { rays_metal_frames_test_link_state(self.raw, &mut loan, &mut first_x) };
-        (owned, loan, first_x.is_finite().then_some(first_x))
+        let owned = unsafe { rays_metal_frames_test_link_state(self.raw, &mut loan) };
+        (owned, loan)
     }
 
     /// While on, copy the presented drawable or the linked surface's canvas for `read_capture`.

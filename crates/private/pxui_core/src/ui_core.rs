@@ -3836,9 +3836,8 @@ impl Ui {
         }
         let mut display = requested || interacting;
         let mut hz = 0;
-        let promoted = !self.promotion.current.is_empty();
         for tween in &self.tweens {
-            if !self.tween_visible(tween) || (promoted && self.tween_promoted(tween)) { continue; }
+            if !self.tween_visible(tween) { continue; }
             let keys = self.keyframes.get(tween.keys as usize);
             match keys.map_or(Rate::Display, |keys| keys.rate) {
                 Rate::Display => {
@@ -8072,7 +8071,6 @@ impl Ui {
     fn keyframe_age(&self, tween: &Tween, keys: &Keys, at: f64) -> f64 {
         let sample = match keys.rate {
             pxui_types::ui::Rate::Display => at,
-            _ if self.tween_promoted(tween) => at,
             pxui_types::ui::Rate::Ambient(_) => at.min(self.ambient_at).max(tween.start),
         };
         sample - tween.start

@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 12
+minor 13
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_remove_surface int32_t pxui_a11y_remove_surface ( PxuiA11y * a11y , uint64_t surface ) ;
@@ -27,6 +27,7 @@ function pxui_paint_selection int32_t pxui_paint_selection ( PxuiPaint * paint ,
 function pxui_paint_span int32_t pxui_paint_span ( PxuiPaint * paint , size_t at_least , PxuiSpan * span ) ;
 function pxui_prepared_destroy void pxui_prepared_destroy ( PxuiPreparedText * record ) ;
 function pxui_renderer_atlas int32_t pxui_renderer_atlas ( PxuiRenderer * renderer , uint32_t kind , PxuiImage * out ) ;
+function pxui_renderer_composite int32_t pxui_renderer_composite ( PxuiRenderer * renderer , const PxuiPass * pass , const PxuiImage * canvas , const uint32_t * damage ) ;
 function pxui_renderer_create int32_t pxui_renderer_create ( PxuiUi * ui , const PxuiGpu * gpu , const PxuiTargetDesc * target , PxuiRenderer * * out ) ;
 function pxui_renderer_destroy void pxui_renderer_destroy ( PxuiRenderer * renderer ) ;
 function pxui_renderer_draw int32_t pxui_renderer_draw ( PxuiRenderer * renderer , const PxuiPass * pass ) ;

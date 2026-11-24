@@ -246,7 +246,7 @@ fuzz!(
     pxui_a11y_fd/1, pxui_a11y_pump/2, pxui_a11y_remove_surface/2, pxui_a11y_update/3, pxui_abi_version/0, pxui_body_register/6, pxui_counter/1, pxui_default_font/0, pxui_frame/5, pxui_last_error/1, pxui_paint_caret_x/5,
     pxui_paint_color/2, pxui_paint_icon/7, pxui_paint_icon_word/1, pxui_paint_image/8, pxui_paint_input_region/6, pxui_paint_label/6, pxui_paint_label_chars/5, pxui_paint_label_measure/6, pxui_paint_label_spans/8,
     pxui_paint_ratio/5, pxui_paint_scroll_y/2, pxui_paint_selection/8, pxui_paint_span/3, pxui_ui_part/4,
-    pxui_ui_part_box/4, pxui_renderer_atlas/3, pxui_renderer_create/4, pxui_renderer_draw/2, pxui_renderer_draw_damage/6, pxui_renderer_draw_damage_rects/4, pxui_renderer_exclude_promoted/2,
+    pxui_ui_part_box/4, pxui_renderer_atlas/3, pxui_renderer_create/4, pxui_renderer_draw/2, pxui_renderer_draw_damage/6, pxui_renderer_draw_damage_rects/4, pxui_renderer_exclude_promoted/2, pxui_renderer_composite/4,
     pxui_renderer_draw_calls/1, pxui_renderer_forget_image/3, pxui_renderer_prepare/4, pxui_renderer_resize/3, pxui_ui_scope/4, pxui_shaper_add_font/2,
     pxui_shaper_prepare/7, pxui_shaper_rasterize_rgba/14, pxui_shaper_system_fonts/1, pxui_shaper_measure/7,
     pxui_ui_slot/3, pxui_supports/1, pxui_text_add_font/2, pxui_text_install/2, pxui_text_system_fonts/1, pxui_theme_animate_swap/2, pxui_theme_density/2, pxui_theme_last_error/1, pxui_theme_parse/2,

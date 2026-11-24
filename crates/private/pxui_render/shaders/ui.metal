@@ -218,6 +218,7 @@ fragment float4 ui_fragment(VOut in [[stage_in]], texture2d<float> mask_tex [[te
                             texture2d<float> mask2_tex [[texture(7)]], texture2d<float> color2_tex [[texture(8)]]) {
   float2 p = in.v_pos.xy;
   uint kind = in.v_kf.x & 255u, flags = in.v_kf.y & 255u, ramp = in.v_kf.y >> 8u;
+  if (kind == RECT && flags == 24u && in.v_misc.x == 0.0) return color_tex.read(uint2(in.position.xy));
   bool instance_clip = (in.v_kf.x & INSTANCE_CLIP) != 0u;
   bool view_clip = (in.v_kf.x & VIEW_CLIP) != 0u;
   bool rounded_image = kind == IMAGE && dot(in.v_radii, float4(1.0)) > 0.0;
@@ -232,7 +233,7 @@ fragment float4 ui_fragment(VOut in [[stage_in]], texture2d<float> mask_tex [[te
     px = max(sqrt(0.5 * (dot(pixel_dx, pixel_dx) + dot(pixel_dy, pixel_dy))), 1e-4);
   }
   if ((in.v_kf.x & OPAQUE_INTERIOR) != 0u && all(p >= in.v_p0.xy) && all(p <= in.v_p0.zw)) {
-    return in.v_color;
+    return (flags & 8u) != 0u ? float4(color_tex.read(uint2(0)).rgb, in.v_color.a) : in.v_color;
   }
   float clip_cov = 1.0;
   if (instance_clip) {
@@ -281,6 +282,7 @@ fragment float4 ui_fragment(VOut in [[stage_in]], texture2d<float> mask_tex [[te
   } else if (kind == RECT) {
     float d = sd_rect(p, in.v_rect, in.v_radii);
     float4 fill = in.v_color;
+    if ((flags & 8u) != 0u) fill.rgb = color_tex.read(uint2(0)).rgb;
     uint grad = flags & 3u;
     if (grad != 0u) {
       float2 size = max(in.v_rect.zw - in.v_rect.xy, float2(1e-6));

@@ -57,6 +57,7 @@ fn promotion_outputs_are_only_borrowed_between_frames() {
     assert_eq!(len, 77);
     assert_eq!(unsafe { pxui_ui_promoted(ui, &mut records, &mut len) }, 0);
     assert_eq!(len, 0);
+    assert_eq!(unsafe { pxui_renderer_composite(core::ptr::null_mut(), core::ptr::null(), core::ptr::null(), core::ptr::null()) }, PXUI_ERR_ARGUMENT);
     assert_eq!(unsafe { pxui_renderer_exclude_promoted(core::ptr::null_mut(), 1) }, PXUI_ERR_ARGUMENT);
     assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
 }

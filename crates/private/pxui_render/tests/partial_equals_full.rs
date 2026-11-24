@@ -301,3 +301,173 @@ pub(super) fn mock() {
         (0, 0, 0, 0, 0)
     );
 }
+
+/// Compare the real composition ABI with normal in-canvas rendering on both native backends.
+pub(super) fn promoted_parity_1x() { promoted_parity(1); }
+pub(super) fn promoted_parity_2x() { promoted_parity(2); }
+
+fn promoted_parity(density: u32) {
+    use pxui::{Fill, FrameIn, Keyframes, Node, Rate, Repeat, Rgba, ui::{Curve, Keyframe}};
+
+    let Some(device) = open() else { return };
+    let queue = ok(be::create_queue(&device));
+    let mut ui = Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
+    let mut full = shared_renderer(&device, &ui);
+    let mut layers = shared_renderer(&device, &ui);
+    let size = [32 * density, 24 * density];
+    let target = texture(&device, size[0], size[1], &[TextureUsage::RenderAttachment, TextureUsage::TextureCopySrc]);
+    let base = texture(&device, size[0], size[1], &[TextureUsage::RenderAttachment, TextureUsage::TextureBinding]);
+    let promoted_target = texture(&device, size[0], size[1], &[TextureUsage::RenderAttachment, TextureUsage::TextureCopySrc]);
+    let native = ok(be::native_texture(&base));
+    let canvas = pxui::Image::rgba8(native.width, native.height, native.vk_image_view, native.mtl_texture);
+
+    ui.set_promotion(true);
+    layers.exclude_promoted(true).unwrap();
+    let curve = Curve::Bezier { duration: 0.45, points: [0.42, 0.0, 0.58, 1.0] };
+    ui.frame(&FrameIn::new(32.0, 24.0).scale(density as f32), &mut |ui| {
+        let marker = ui.node("canvas marker", Node::column().w_px(10.0).h_px(4.0).at(20.0, 16.0));
+        ui.canvas(&marker, move |paint, rect| paint.fill(rect, Fill::new(Rgba::rgb(17, 96, 140))));
+
+        for (name, x, y, offset, color) in [
+            ("first", 4.0, 4.0, 0.0, Rgba::rgb(255, 255, 255)),
+            ("second", 8.0, 4.1, 0.3, Rgba::rgb(208, 155, 231)),
+            ("third", 12.0, 4.35, 0.6, Rgba::rgb(55, 221, 70)),
+            ("translucent", 16.0, 4.65, 0.2, Rgba::rgba(224, 211, 70, 160)),
+        ] {
+            ui.column(Node::column().w_px(2.0).h_px(11.0).at(x, y), |ui| {
+                let view = ui.view_of(name, &0, |ui| {
+                    let shape = ui.node("rect", Node::column().w_px(2.0).h_px(11.0));
+                    ui.canvas(&shape, move |paint, rect| paint.fill(rect, Fill::new(color).fractional()));
+                });
+                let alpha = if color.a == 255 { [1.0; 2] } else { [0.2, 0.85] };
+                let keys = [
+                    Keyframe::scale(0.0, 1.0, 0.4).anchor(0.5, 1.0).curve(curve),
+                    Keyframe::opacity(0.0, alpha[0]).curve(curve),
+                    Keyframe::scale(0.45, 1.0, 1.0).anchor(0.5, 1.0).curve(curve),
+                    Keyframe::opacity(0.45, alpha[1]).curve(curve),
+                ];
+                ui.animate_keys(&view, &keys, &Keyframes::DEFAULT.repeat(Repeat::Forever)
+                    .autoreverse().offset(offset).rate(Rate::Ambient(20)));
+            });
+        }
+    }).unwrap();
+    assert_eq!(ui.promoted().len(), 4, "{:?}", ui.promoted());
+    let render = |renderer: &mut Renderer, serial, composite| {
+        let commands = ok(be::begin_commands(&queue));
+        let native = public_commands(&commands);
+        let before = mem_sys::local_alloc_count();
+        renderer.prepare(&native, serial, serial - 1).unwrap();
+        if composite && serial >= 4 {
+            assert_eq!(mem_sys::local_alloc_count() - before, 0, "warm composition prepare allocations");
+        }
+        let open = |texture: &Texture, load| {
+            ok(be::render_encoder(&commands, &RenderTarget {
+                colors: vec![ColorAttachment {
+                    texture: texture.clone(), load, store: Store::Store, resolve: None,
+                    clear: (0.13, 0.09, 0.21, 1.0),
+                }],
+                depth: None,
+            }))
+        };
+        let finish_pass = |encoder: &be::RenderEncoder| {
+            ok(be::invalidate_state(encoder));
+            ok(be::end_render(encoder));
+        };
+        if !composite || serial == 1 {
+            let encoder = open(if composite { &base } else { &target }, Load::Clear);
+            renderer.draw(&Pass { scale: density as f32, ..pass(&encoder, native) }).unwrap();
+            finish_pass(&encoder);
+        }
+        if composite {
+            let encoder = open(&promoted_target, if serial == 1 { Load::DontCare } else { Load::Load });
+            let opened = Pass { scale: density as f32, ..pass(&encoder, native) };
+            let damage = (serial > 1).then_some([3 * density, 3 * density, 16 * density, 14 * density]);
+            let (allocations, calls) = (mem_sys::local_alloc_count(), renderer.draw_calls());
+            renderer.composite(&opened, Some(&canvas), damage).unwrap();
+            if serial >= 4 {
+                assert_eq!(mem_sys::local_alloc_count() - allocations, 0, "warm native composite allocations");
+                assert_eq!(renderer.draw_calls() - calls, 5, "one base copy and one cached draw per layer");
+            }
+            finish_pass(&encoder);
+        }
+        let receipt = ok(be::commit(&commands));
+        ok(be::complete_through(&queue, receipt.epoch));
+        ok(be::read_texture(if composite { &promoted_target } else { &target }, i64::from(size[0]) * 4))
+    };
+
+    let mut maximum = 0;
+    let mut changes = 0;
+    let mut previous = Vec::new();
+    for frame in 1..=200 {
+        let time = (frame - 1) as f64 * 0.05;
+        assert!(ui.step(time));
+        assert_eq!(ui.output().repaint_hz, 20);
+        let sample = render(&mut layers, frame, true);
+        let reference = render(&mut full, frame, false);
+        let (at, delta) = sample.iter().zip(&reference).enumerate()
+            .map(|(i, (a, b))| (i, a.abs_diff(*b))).max_by_key(|&(_, d)| d).unwrap();
+        assert!(delta <= 2, "{density}x at {time:.4}s, byte {at}: {} vs {}, delta {delta}", sample[at], reference[at]);
+        maximum = maximum.max(delta);
+        changes += usize::from(sample != previous);
+        previous = sample;
+    }
+    assert!(changes > 100, "samples must exercise moving and fading pixels");
+    eprintln!("promotion parity {density}x: 200 samples, maximum {maximum}/channel");
+    drop((layers, full));
+    for texture in [&target, &base, &promoted_target] { ok(be::destroy_texture(texture)); }
+    finish(device, queue);
+}
+
+/// A layer's pose changes while its texture stays resident. A revision repaints once and a
+/// larger sweep replaces its surface; GPU completions bound the old surface's lifetime.
+pub(super) fn promoted_mock() {
+    use ogpu_core::types::TextureFormat;
+    use pxui_core::ui::FrameOut;
+    use pxui_render::{Instance, View, flags};
+    use pxui_types::ffi::PxuiPromoted;
+
+    ogpu_core::impl_::select(ogpu_mock::impl_::implementation());
+    let (driver, control) = ogpu_mock::backend_mock::create_recording_render();
+    let device = ok(be::create_device(driver));
+    let queue = ok(be::create_queue(&device));
+    let mut painter = super::painter(&device);
+    let target = texture(&device, 32, 24, &[TextureUsage::RenderAttachment]);
+    let mut layer = pxui_core::ui_core::Layer::default();
+    let mut rect = Instance::rect([4.0, 4.0, 6.0, 15.0], [120, 90, 45, 170]);
+    rect.flags = flags::rect::AREA;
+    rect.view = 1;
+    layer.instances.push(rect);
+    let layers = [layer];
+    let mut runs = [PxuiPromoted { view: 1, swept: [4.0, 4.0, 2.0, 11.0],
+        color: rect.color, content_revision: 1, ..PxuiPromoted::default() }];
+    ok(painter.set_view(1, View::IDENTITY));
+    let original = ogpu_mock::backend_mock::live_counts(&control).1;
+    for frame in 0..8 {
+        if frame == 2 { runs[0].content_revision += 1; }
+        if frame == 3 { runs[0].swept[3] = 12.0; }
+        let out = FrameOut {
+            draw: &layers, platform: &Default::default(), damage: &Default::default(), views: &[],
+            blurs: &[], promoted: &runs, a11y: &pxui_core::a11y::A11yTree::new(),
+        };
+        painter.begin_frame();
+        let commands = ok(be::begin_commands(&queue));
+        let calls = painter.draw_calls();
+        ok(painter.prepare_composition(&commands, &out, 1.0, TextureFormat::Rgba8Unorm));
+        assert_eq!(painter.draw_calls() - calls, u64::from(matches!(frame, 0 | 2 | 3)));
+        let encoder = ok(be::render_encoder(&commands, &RenderTarget {
+            colors: vec![ColorAttachment { texture: target.clone(), resolve: None, load: Load::Clear,
+                store: Store::Store, clear: (0.0, 0.0, 0.0, 1.0) }],
+            depth: None,
+        }));
+        ok(painter.composite(&encoder, [32, 24], 1.0, &out, None));
+        ok(be::end_render(&encoder));
+        let receipt = ok(be::commit(&commands));
+        ok(be::complete_through(&queue, receipt.epoch));
+        let textures = ogpu_mock::backend_mock::live_counts(&control).1;
+        assert_eq!(textures - original, if (3..6).contains(&frame) { 2 } else { 1 });
+    }
+    drop(painter);
+    ok(be::destroy_texture(&target));
+    finish(device, queue);
+    assert_eq!(ogpu_mock::backend_mock::live_counts(&control), (0, 0, 0, 0, 0));
+}
