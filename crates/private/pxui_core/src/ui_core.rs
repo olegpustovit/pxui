@@ -425,6 +425,8 @@ struct ViewRec {
     palette_paint: bool,
     palette_shape_count: u8,
     viewport_independent: bool,
+    // Exact reads of nodes owned by this view are tracked directly on their slots.
+    hover_reads: std::cell::RefCell<Vec<(i64, bool)>>,
     /// a clean view rebuilt by `verify_views`: its output must equal the kept one
     verify: bool,
     /// Rebuild descendants together when this view's available size changes.
@@ -518,6 +520,7 @@ impl ViewRec {
             palette_paint: false,
             palette_shape_count: 0,
             viewport_independent: false,
+            hover_reads: std::cell::RefCell::default(),
             verify: false,
             reflow: false,
             valid: false,
@@ -792,6 +795,7 @@ struct Slot {
     /// the view that declares the node, and the view the node holds (`NO_VIEW`)
     owner: u32,
     view: u32,
+    hover_read_at: std::cell::Cell<i64>,
     /// the virtual list (box key; 0: none) and row this node is the box of, for the text cache's list ownership
     row_of: (i64, u32),
     /// whether this node's children are a virtual list's rows (`row_of`): only its paint scopes the text cache per child
@@ -854,6 +858,7 @@ impl Slot {
             look_needs_snapshot: false,
             owner: 0,
             view: NO_VIEW,
+            hover_read_at: std::cell::Cell::new(-1),
             row_of: (0, 0),
             holds_rows: false,
             drop_zone: -1,
@@ -1453,6 +1458,8 @@ pub struct Ui {
     /// hot, focus, keyboard focus and carrying as the last frame left them
     seen: (i64, i64, bool, bool),
     marks: Vec<i64>,
+    hover_extra_reads: std::cell::Cell<bool>,
+    hover_chains: [Vec<i64>; 2],
     damage: DamageList,
     view_out: Vec<(u16, ViewEntry)>,
     blur_out: Vec<BlurOut>,
@@ -1770,6 +1777,8 @@ impl Ui {
             stamp: 0,
             seen: (0, 0, false, false),
             marks: Vec::new(),
+            hover_extra_reads: std::cell::Cell::new(false),
+            hover_chains: [Vec::new(), Vec::new()],
             damage: DamageList::default(),
             view_out: Vec::new(),
             blur_out: Vec::new(),
@@ -2123,7 +2132,7 @@ impl Ui {
         // `Response::of(&self.signal(&b), ..)` reading only the parts a response keeps, not the whole signal
         let key = b.box_key;
         let held = key != 0 && self.active == Some(key);
-        let hovered = key != 0 && self.hot == key && !self.touches.using_touch;
+        let hovered = self.hovered_exactly(&b);
         let (clicked, released, pressed, button) = match self.signals.get(&key).filter(|_| key != 0) { Some(v) => (v.clicked, v.released, v.pressed, v.button), None => (false, false, false, None) };
         let button = button.or(if held { Some(self.active_button) } else { None });
         Some(crate::ui_kit::Response { clicked, hovered, held, focused: self.focus == key, activated: clicked && !released, secondary: pressed && button == Some(input::MouseButton::RightButton), handle: b })
@@ -4322,12 +4331,20 @@ impl Ui {
     /// What the pointer and keyboard do to the node now: hovered, pressed (it holds the capture),
     /// focused. A widget adds `checked` and `disabled`.
     pub fn node_state(&self, b: &Handle) -> State {
-        self.key_state(if self.live(b) { b.box_key } else { 0 })
+        let key = if self.live(b) { b.box_key } else { 0 };
+        let hovered = self.read_exact_hover(key, self.slots.get(b.box_slot));
+        self.input_state(key, hovered)
     }
 
     /// `node_state` of the node keyed `key` as the last frame left it: a kit part's state before its body builds it.
     pub(crate) fn key_state(&self, key: i64) -> State {
-        State { hovered: key != 0 && self.hot == key && !self.touches.using_touch, pressed: key != 0 && self.active == Some(key), focused: key != 0 && self.focus == key, ..State::default() }
+        let slot = if self.view_cur == 0 { None } else { self.table.find(key).map(|slot| &self.slots[slot]) };
+        let hovered = self.read_exact_hover(key, slot);
+        self.input_state(key, hovered)
+    }
+
+    fn input_state(&self, key: i64, hovered: bool) -> State {
+        State { hovered, pressed: key != 0 && self.active == Some(key), focused: key != 0 && self.focus == key, ..State::default() }
     }
 
     /// The handle names a slot this `Ui` has: the most a call that only indexes the slot (scroll, state, text) needs of it.
@@ -4536,9 +4553,10 @@ impl Ui {
         let key = if self.live(b) { b.box_key } else { 0 };
         let held = key != 0 && self.active == Some(key);
         let slot = &self.slots[b.box_slot];
+        let hovered = self.read_exact_hover(key, Some(slot));
         match self.signals.get(&key).filter(|_| key != 0) {
             None => Signal {
-                hovered: key != 0 && self.hot == key && !self.touches.using_touch,
+                hovered,
                 pressed: false,
                 subtree_press: None,
                 held,
@@ -4559,7 +4577,7 @@ impl Ui {
                 a11y_select: None,
             },
             Some(value) => Signal {
-                hovered: self.hot == key && !self.touches.using_touch,
+                hovered,
                 pressed: value.pressed,
                 subtree_press: value.subtree_press,
                 held,
@@ -4696,13 +4714,35 @@ impl Ui {
 
     /// The box itself is the topmost under the pointer (none of its children are).
     pub fn hovered_exactly(&self, b: &UiBox) -> bool {
-        b.box_key != 0 && self.hot == b.box_key && !self.touches.using_touch
+        self.read_exact_hover(b.box_key, self.slots.get(b.box_slot))
+    }
+
+    #[inline]
+    fn read_exact_hover(&self, key: i64, slot: Option<&Slot>) -> bool {
+        if self.view_cur != 0 && key != 0 {
+            if let Some(slot) = slot.filter(|slot| slot.owner == self.view_cur && slot.key == key) {
+                slot.hover_read_at.set(self.frame_number);
+            } else {
+                self.read_extra_hover(key, false);
+            }
+        }
+        key != 0 && self.hot == key && !self.touches.using_touch
+    }
+
+    fn read_extra_hover(&self, key: i64, within: bool) {
+        if self.view_cur != 0 && key != 0 {
+            self.hover_extra_reads.set(true);
+            let mut reads = self.views[self.view_cur as usize].hover_reads.borrow_mut();
+            if reads.last() != Some(&(key, within)) {
+                reads.push((key, within));
+            }
+        }
     }
 
     /// The box or a hit descendant owns hover in the shared hit tree.
     pub fn hovered_within(&mut self, b: &UiBox) -> bool {
-        let hot = self.hot;
-        self.hit_within(hot, b.box_key)
+        self.read_extra_hover(b.box_key, true);
+        self.hit_within(self.hot, b.box_key)
     }
 
     // ------------------------------------------------------------- carry
@@ -4802,6 +4842,7 @@ impl Ui {
         if !self.drop_pending() { return None; }
         if self.live(b) { (self.slots[b.box_slot].drop_zone, self.drop_zones) = (self.frame_number, self.frame_number); }
         let hot = self.dropped.as_ref().map_or(self.hot, |(_, hot)| *hot);
+        self.read_extra_hover(b.box_key, true);
         if hot == 0 || !self.hit_within(hot, b.box_key) { return None; }
         if let Some((payload, _)) = &self.dropped { Some((true, payload)) }
         else { self.carrying_ref().map(|payload| (false, payload)) }
@@ -8449,7 +8490,7 @@ impl Ui {
     /// (which a rebuild always rebuilds), and kept views it moves follow through their table entries
     /// (see `specification/pxui.md`, content-sized views). Besides the revision it rebuilds when the theme, the font size, the
     /// density or the window size change; when input reaches one of its nodes (press, release, drag,
-    /// wheel, keys); when the hovered or focused node enters or leaves it, or carrying starts or
+    /// wheel, keys); when a hover read by its build changes, a focused node enters or leaves it, or carrying starts or
     /// stops over it; every frame it holds the keyboard focus or a scroll in motion; when its
     /// laid-out size changes (shown stale for that one frame); and on the frame after a build that
     /// put boxes at the root (popups, tooltips, `to_front`), asked for a frame or ran a hover delay.
@@ -8574,6 +8615,7 @@ impl Ui {
         }
         r.verify = clean;
         r.escapes = false;
+        r.hover_reads.get_mut().clear();
         r.palette_labels = false;
         r.palette_paint = false;
         r.palette_shape_count = 0;
@@ -9239,6 +9281,42 @@ impl Ui {
         }
     }
 
+    fn mark_hover(&mut self, old: i64, new: i64) {
+        let mut exact = [old, new];
+        for key in &mut exact {
+            let Some(slot) = self.table.find(*key).map(|slot| &self.slots[slot]) else { continue };
+            if slot.node.flags.any(Flags::HOVER_FREE) {
+                *key = 0;
+            } else if slot.owner != 0 && slot.hover_read_at.get() == self.views[slot.owner as usize].built {
+                self.mark_view(slot.owner);
+            }
+        }
+        if !self.hover_extra_reads.get() { return; }
+        let mut chains = std::mem::take(&mut self.hover_chains);
+        let mut traced = false;
+        let mut has_readers = false;
+        for v in 1..self.views.len() {
+            let view = &self.views[v];
+            let reads = view.hover_reads.borrow();
+            has_readers |= !reads.is_empty();
+            let dirty = view.valid && !view.dirty && reads.iter().any(|&(key, within)| {
+                if !within { return exact.contains(&key); }
+                if !traced {
+                    for (chain, hot) in chains.iter_mut().zip([old, new]) {
+                        chain.clear();
+                        self.hit_ancestors(hot, &mut |ancestor| chain.push(ancestor));
+                    }
+                    traced = true;
+                }
+                chains[0].contains(&key) != chains[1].contains(&key)
+            });
+            drop(reads);
+            if dirty { self.mark_view(v as u32); }
+        }
+        self.hover_extra_reads.set(has_readers);
+        self.hover_chains = chains;
+    }
+
     /// Dirty the views whose look follows what input changed since the last frame left it.
     fn mark_input(&mut self) {
         let mut marks = std::mem::take(&mut self.marks);
@@ -9256,11 +9334,7 @@ impl Ui {
         if now.3 != carrying {
             marks.extend([hot, now.0]);
         } else if now.0 != hot {
-            for key in [hot, now.0] {
-                if !self.table.find(key).is_some_and(|slot| self.slots[slot].node.flags.any(Flags::HOVER_FREE)) {
-                    marks.push(key);
-                }
-            }
+            self.mark_hover(hot, now.0);
         }
         if now.1 != focus || now.2 != keyboard {
             marks.push(focus);
@@ -9286,7 +9360,9 @@ impl Ui {
         hits.clear();
         nodes.clear();
         prev.clear();
-        *r = ViewRec { name, breaks, hits, nodes, prev, outer: Rect::new(0.0, 0.0, 0.0, 0.0), ..ViewRec::new() };
+        let mut hover_reads = std::mem::take(&mut r.hover_reads);
+        hover_reads.get_mut().clear();
+        *r = ViewRec { name, breaks, hits, nodes, prev, hover_reads, outer: Rect::new(0.0, 0.0, 0.0, 0.0), ..ViewRec::new() };
         self.free_views.push(v);
         self.text_mut().view_freed(v);
     }
