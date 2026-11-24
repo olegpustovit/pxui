@@ -73,14 +73,16 @@ pub fn window_pxui_picker() {
         if *query.borrow() != "del" {
             fail("picker did not paste the search query");
         }
-        pick(&mut ui, true, false, vec![key_down(kc('c'))]);
-        if clipboard::get_text() != Ok("del".to_owned()) {
-            fail("picker did not copy the search query");
+        clipboard::set_text("unchanged clipboard").unwrap();
+        for key in ['c', 'x'] {
+            pick(&mut ui, true, false, vec![key_down(kc(key))]);
+            assert_eq!(&*query.borrow(), "del");
+            assert_eq!(clipboard::get_text().as_deref(), Ok("unchanged clipboard"));
         }
+        pick(&mut ui, true, false, vec![key_down(kc('a')), key_down(kc('c'))]);
+        assert_eq!(clipboard::get_text().as_deref(), Ok("del"));
         pick(&mut ui, true, false, vec![key_down(kc('x'))]);
-        if !query.borrow().is_empty() {
-            fail("picker did not cut the search query");
-        }
+        assert!(query.borrow().is_empty());
         *query.borrow_mut() = "delta".to_owned();
         pick(&mut ui, false, false, vec![]);
         pick(&mut ui, false, false, vec![key_down(Key::ArrowLeft)]);
@@ -370,7 +372,7 @@ pub fn text_area_start(platform: Platform) -> Rig {
     rig.keyed(vec![command_key], vec![key_down(kc('v'))]);
     rig.plain(vec![]);
     rig.expect("paste keeps the newline", "_abX\nc\u{e9}");
-    // copy and cut with no selection take the caret line: of an empty area, nothing
+    // Copy and cut with no selection leave both the text and clipboard alone.
     rig.area = String::new();
     rig.plain(vec![press((150, 12)), release((150, 12))]);
     rig.keyed(vec![command_key], vec![key_down(kc('c'))]);
@@ -378,8 +380,13 @@ pub fn text_area_start(platform: Platform) -> Rig {
     rig.expect("copy and cut of an empty area", "");
     rig.area = "ab\ncd".to_owned();
     rig.plain(vec![press((150, 12)), release((150, 12))]);
-    rig.keyed(vec![command_key], vec![key_down(kc('x'))]);
-    rig.expect("cut with no selection takes the caret's line", "cd");
+    for key in ['c', 'x'] {
+        let sentinel = "unchanged clipboard";
+        clipboard::set_text(sentinel).unwrap();
+        rig.keyed(vec![command_key], vec![key_down(kc(key))]);
+        rig.expect("copy and cut with no selection", "ab\ncd");
+        assert_eq!(clipboard::get_text().as_deref(), Ok(sentinel));
+    }
     if let Ok(text) = previous {
         let _ = clipboard::set_text(&text);
     }

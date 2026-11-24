@@ -462,25 +462,18 @@ impl Ui {
                 edit.caret = edit.text.len();
                 return false;
             }
-            Some('c') => {
+            Some(key @ ('c' | 'x')) => {
                 let (start, stop) = text_selection(edit);
-                let copied = if selected(edit) { &edit.text[start..stop] } else { &edit.text };
-                self.copy(copied);
-                return false;
-            }
-            Some('x') => {
-                let (start, stop) = text_selection(edit);
-                self.copy(if selected(edit) { &edit.text[start..stop] } else { &edit.text });
-                // the cut is one undo step: text the clipboard did not take comes back with Undo
-                self.remember(edit, false);
-                if selected(edit) {
-                    replace_text(edit, "");
-                } else {
-                    edit.text.clear();
-                    edit.caret = 0;
-                    edit.anchor = 0;
+                if start == stop {
+                    return false;
                 }
-                return true;
+                self.copy(&edit.text[start..stop]);
+                if key == 'x' {
+                    self.remember(edit, false);
+                    replace_text(edit, "");
+                    return true;
+                }
+                return false;
             }
             Some('v') => {
                 self.request_paste();
@@ -1959,19 +1952,6 @@ fn handle_keys_body(this: &mut Ui, body: &UiBox, cfg: Wrap, page: i64, language:
                 edit.caret += 1;
                 replace_text(edit, "");
                 st.typed = true;
-            }
-            // Command-X / C with no selection take the caret's whole logical line, newline included
-            Event::KeyPressed(Key::KeyChar(key @ ('x' | 'X' | 'c' | 'C'))) if command && edit.caret == edit.anchor => {
-                let s = line_start(&edit.text, edit.caret);
-                let e = edit.text.len().min(line_end(&edit.text, edit.caret) + 1);
-                this.copy(&edit.text[s..e]);
-                if *key == 'x' || *key == 'X' {
-                    this.change(edit, st);
-                    edit.anchor = s;
-                    edit.caret = e;
-                    replace_text(edit, "");
-                    st.typed = true;
-                }
             }
             Event::KeyPressed(Key::Tab) if !command && edit.caret != edit.anchor => {
                 // Tab and Shift-Tab with a selection indent and dedent every line it touches

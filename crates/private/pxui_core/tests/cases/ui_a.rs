@@ -631,6 +631,12 @@ fn scale_10(scale: f64) {
         if *title.borrow() != "h! two word! pasted" {
             fail(&lab("Command-V did not paste into the focused text field"));
         }
+        for key in ['c', 'x'] {
+            command_step(scale, &mut ui, key, &mut build);
+            assert_eq!(title.borrow().as_str(), "h! two word! pasted");
+            assert_eq!(clipboard::get_text().as_deref(), Ok(" pasted"));
+        }
+        command_step(scale, &mut ui, 'a', &mut build);
         command_step(scale, &mut ui, 'c', &mut build);
         if clipboard::get_text() != Ok(title.borrow().clone()) {
             fail(&lab("Command-C did not copy the focused text field"));
