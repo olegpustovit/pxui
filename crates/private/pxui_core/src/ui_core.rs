@@ -2086,7 +2086,6 @@ impl Ui {
                 self.focus = self.hits[index].key;
                 self.keyboard_focus = true;
                 self.composition.clear();
-                self.edit_focus = 0;
                 return;
             }
             distance += 1;
@@ -3131,8 +3130,13 @@ impl Ui {
         self.focus == b.box_key
     }
 
+    pub(crate) fn focused_by_tab(&self, b: &UiBox) -> bool {
+        self.keyboard_focus && self.focused(b)
+    }
+
     pub fn focus_box(&mut self, b: &UiBox) {
         if self.focus != b.box_key {
+            self.keyboard_focus = false;
             self.composition.clear();
             self.edit_focus = 0;
         }

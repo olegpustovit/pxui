@@ -630,6 +630,12 @@ fn scale_10(scale: f64) {
         if *title.borrow() != "h! two word! pasted" {
             fail(&lab("Command-V did not paste into the focused text field"));
         }
+        for key in ['c', 'x'] {
+            command_step(scale, &mut ui, key, &mut build);
+            assert_eq!(title.borrow().as_str(), "h! two word! pasted");
+            assert_eq!(clipboard::get_text().as_deref(), Ok(" pasted"));
+        }
+        command_step(scale, &mut ui, 'a', &mut build);
         command_step(scale, &mut ui, 'c', &mut build);
         if clipboard::get_text() != Ok(title.borrow().clone()) {
             fail(&lab("Command-C did not copy the focused text field"));
@@ -1043,7 +1049,34 @@ pub fn window_pxui_full_width_retained_state() {
     ui.destroy();
 }
 
+fn value_fields_commit_and_open_on_tab() {
+    let mut ui = field_ui();
+    let mut values = ["1".to_owned(), "3".to_owned()];
+    let mut open = [false; 2];
+    let mut step = |time, keys, events| {
+        ui.frame(&frame_at(keys, 1.0, time, events), &mut |ui| {
+            for (i, label) in ["first", "second"].into_iter().enumerate() {
+                (values[i], open[i]) = ui.value_field(
+                    (20.0, 20.0 + i as f32 * 24.0), 100.0, 21.0,
+                    &ValueFieldOpts::default(), &|text| text.parse::<i64>().is_ok(), label, &values[i],
+                );
+            }
+        });
+        (values.clone(), open)
+    };
+    step(0.0, vec![], vec![]);
+    assert_eq!(step(0.5, vec![], vec![key_down(Key::Tab)]).1, [true, false]);
+    assert_eq!(
+        step(1.0, vec![], vec![Event::TextInput("2".into()), key_down(Key::Tab), Event::TextInput("5".into())]),
+        (["2".into(), "3".into()], [false, true]),
+    );
+    assert_eq!(step(1.5, vec![Key::Shift], vec![key_down(Key::Tab)]), (["2".into(), "5".into()], [true, false]));
+    assert_eq!(step(2.0, vec![], vec![Event::TextInput("7".into()), key_down(Key::Enter)]).0, ["7", "5"]);
+    ui.destroy();
+}
+
 pub const CASES: &[(&str, fn())] = &[
+    ("value_fields_commit_and_open_on_tab", value_fields_commit_and_open_on_tab),
     ("window_pxui_full_width_retained_state", window_pxui_full_width_retained_state),
     ("window_pxui_scale_1x", window_pxui_scale_1x),
     ("window_pxui_scale_2x", window_pxui_scale_2x),
