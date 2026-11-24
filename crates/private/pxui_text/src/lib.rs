@@ -366,6 +366,24 @@ const LABEL_GLYPHS: usize = 32;
 pub const LIST_KEEP_ROWS: u32 = 64;
 /// Lists whose windows are tracked; the least recently built one is replaced by another.
 const LIST_WINDOWS: usize = 8;
+// A jump should leave one return destination warm without retaining an entire continuous scroll.
+const JUMP_KEEP_FRAMES: u32 = 4 * SWEEP_FRAMES;
+
+#[derive(Clone, Copy, Default)]
+struct ListWindow {
+    list: u64,
+    first: u32,
+    last: u32,
+    departed: (u32, u32),
+}
+
+impl ListWindow {
+    fn distance(&self, row: u32) -> u32 {
+        if row < self.first { self.first - row }
+        else if row >= self.last { (row - self.last).saturating_add(1) }
+        else { 0 }
+    }
+}
 
 /// The bundled UI face (the PXUI default theme's font).
 pub const PRAGMASEVKA: &[u8] = include_bytes!("../../../../assets/fonts/Pragmasevka-Regular.ttf");
@@ -843,7 +861,7 @@ pub struct Text {
     recent: Box<[Recent]>,
     frame: u32,
     /// built row windows `(list, first, last)` of up to `LIST_WINDOWS` lists, in build order
-    windows: [(u64, u32, u32); LIST_WINDOWS],
+    windows: [ListWindow; LIST_WINDOWS],
     /// the list and row being built (list 0: none)
     scope: (u64, u32),
     /// the view being painted (0: none)
@@ -913,7 +931,7 @@ impl Text {
             sweep: 0,
             recent: vec![Recent { key: 0, widths: [0.0; 2] }; RECENT_SLOTS].into_boxed_slice(),
             frame: 1,
-            windows: [(0, 0, 0); LIST_WINDOWS],
+            windows: [ListWindow::default(); LIST_WINDOWS],
             scope: (0, 0),
             owner: 0,
             views: Vec::new(),
@@ -1581,17 +1599,25 @@ impl Text {
     /// A virtual list builds rows `first..last` (call each time it builds). Layouts asked for inside
     /// `list_row`..`list_end` are list-owned: while within `LIST_KEEP_ROWS` rows of the window they are
     /// never age-evicted, so frames that do not build keep them; farther ones are dropped first by a
-    /// full cache, and by the sweep once a sweep pass (`SWEEP_FRAMES`) has gone by unused. Windows persist until the list builds again.
+    /// full cache, and by the sweep once a sweep pass (`SWEEP_FRAMES`) has gone by unused.
+    /// The previous window of a jump gets a short return interval before the sweep drops its rows.
+    /// Windows persist until the list builds again.
     /// Allocates: never.
     pub fn list_window(&mut self, list: u64, first: usize, last: usize) {
         let list = list.max(1);
-        let w = (list, first.min(u32::MAX as usize) as u32, last.min(u32::MAX as usize) as u32);
-        match self.windows.iter().position(|x| x.0 == list) {
-            Some(i) => self.windows[i] = w,
+        let first = first.min(u32::MAX as usize) as u32;
+        let last = last.min(u32::MAX as usize) as u32;
+        match self.windows.iter_mut().find(|window| window.list == list) {
+            Some(window) => {
+                if first.saturating_sub(window.last) > LIST_KEEP_ROWS || window.first.saturating_sub(last) > LIST_KEEP_ROWS {
+                    window.departed = (window.first, window.last);
+                }
+                (window.first, window.last) = (first, last);
+            }
             None => {
                 // the first free slot, else drop the oldest (slot 0) and append, keeping build order
-                let at = self.windows.iter().position(|x| x.0 == 0).unwrap_or_else(|| { self.windows.rotate_left(1); LIST_WINDOWS - 1 });
-                self.windows[at] = w;
+                let at = self.windows.iter().position(|window| window.list == 0).unwrap_or_else(|| { self.windows.rotate_left(1); LIST_WINDOWS - 1 });
+                self.windows[at] = ListWindow { list, first, last, ..ListWindow::default() };
             }
         }
     }
@@ -1657,9 +1683,13 @@ impl Text {
 
     /// Rows between an entry's row and its list's window (0 inside it); `None` when not list-owned or its list is untracked.
     fn list_distance(&self, e: &Entry) -> Option<u32> {
+        let w = self.list_tracking(e)?;
+        Some(w.distance(e.row))
+    }
+
+    fn list_tracking(&self, e: &Entry) -> Option<&ListWindow> {
         if e.list == 0 { return None; }
-        let &(_, first, last) = self.windows.iter().find(|w| w.0 == e.list)?;
-        Some(if e.row < first { first - e.row } else if e.row >= last { e.row - last + 1 } else { 0 })
+        self.windows.iter().find(|w| w.list == e.list)
     }
 
     /// The index in `keys` to evict from a full cache: of the next 64 entries from the sweep, the
@@ -1705,11 +1735,16 @@ impl Text {
                 self.sweep = 0;
             }
             let key = self.keys[self.sweep];
-            let stale = self.entries.get(&key).is_none_or(|e| match self.list_distance(e) {
-                // a far row's layout may hold text a nearer row shows next (content keys are shared): it
-                // goes once a sweep pass has gone by without a row asking for it
-                Some(d) => d > LIST_KEEP_ROWS && frame.wrapping_sub(e.frame) >= SWEEP_FRAMES,
-                None => frame.wrapping_sub(e.frame) >= KEEP_FRAMES && !self.view_owned(e),
+            let stale = self.entries.get(&key).is_none_or(|e| {
+                let age = frame.wrapping_sub(e.frame);
+                if let Some(w) = self.list_tracking(e) {
+                    let distance = w.distance(e.row);
+                    let (first, last) = w.departed;
+                    let jumped_from = first < last && (first.saturating_sub(LIST_KEEP_ROWS)..last.saturating_add(LIST_KEEP_ROWS)).contains(&e.row);
+                    distance > LIST_KEEP_ROWS && age >= if jumped_from { JUMP_KEEP_FRAMES } else { SWEEP_FRAMES }
+                } else {
+                    age >= KEEP_FRAMES && !self.view_owned(e)
+                }
             });
             if !stale {
                 self.sweep += 1;
@@ -1895,6 +1930,24 @@ mod layout_cache_tests {
             text.end_frame();
         }
         assert!(!text.entries.contains_key(&1217));
+    }
+
+    #[test]
+    fn revisiting_the_previous_jump_window_does_not_shape_again() {
+        let mut text = Text::new(&[PRAGMASEVKA]);
+        for first in [0, 500] {
+            text.list_window(7, first, first + 20);
+            row(&mut text, first);
+        }
+        let layouts = text.layouts;
+        for first in [0, 500, 0] {
+            for _ in 0..120 { text.end_frame(); }
+            text.list_window(7, first, first + 20);
+            mem_sys::local_reset();
+            row(&mut text, first);
+            assert_eq!(text.layouts, layouts);
+            assert_eq!(mem_sys::local_alloc_count(), 0);
+        }
     }
 
     #[test]
