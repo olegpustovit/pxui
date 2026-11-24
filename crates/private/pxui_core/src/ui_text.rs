@@ -2103,8 +2103,9 @@ fn numeric_editor_body(this: &mut Ui, p: &NumParams, accept: &dyn Fn(&str) -> bo
     let inside_control = |point: (f32, f32)| floats(control).contains(point);
     let editing = this.text_state(row);
     let state = this.state(row, 1);
+    let losing_focus = !this.focused(row) || (signal.pressed && !inside_control(signal.press_point));
     match editing {
-        Some(text) if !this.focused(row) || (signal.pressed && !inside_control(signal.press_point)) => {
+        Some(text) if losing_focus && keys.is_empty() => {
             // Focus moved away: commit a valid value, drop an invalid one.
             this.set_text_state(row, None);
             this.set_state(row, 1);
@@ -2140,16 +2141,16 @@ fn numeric_editor_body(this: &mut Ui, p: &NumParams, accept: &dyn Fn(&str) -> bo
                     }
                 }
             }
-            if cancelled {
+            if losing_focus && !cancelled && committed.is_none() {
+                committed = parse(&edit.text);
+            }
+            if cancelled || losing_focus || committed.is_some() {
                 this.set_text_state(row, None);
                 this.set_state(row, 1);
-                this.unfocus();
-                (None, false)
-            } else if let Some(value) = committed {
-                this.set_text_state(row, None);
-                this.set_state(row, 1);
-                this.unfocus();
-                (Some(value), false)
+                if this.focused(row) {
+                    this.unfocus();
+                }
+                (if cancelled { None } else { committed }, false)
             } else {
                 this.save_text_edit(&edit);
                 this.set_text_state(row, Some(edit.text.clone()));
@@ -2166,26 +2167,24 @@ fn numeric_editor_body(this: &mut Ui, p: &NumParams, accept: &dyn Fn(&str) -> bo
             let enter = move |(event, modifiers): &(Event, Vec<Key>)| {
                 matches!(event, Event::KeyPressed(Key::Enter)) && !input::command_held(platform, modifiers)
             };
-            let enter_pressed = keys.iter().any(|k| enter(k));
+            let enter_pressed = keys.iter().position(enter);
+            let tabbed = this.focused_by_tab(row);
             if p.edit_request
                 || (p.alt_to_edit && signal.clicked && this.press_keys(row).contains(&Key::Alt))
                 || click
                 || (signal.double_clicked && !inside_control(signal.press_point))
-                || (this.focused(row) && enter_pressed)
+                || tabbed
+                || (this.focused(row) && enter_pressed.is_some())
             {
                 let text = current();
                 this.set_text_state(row, Some(text.clone()));
                 this.set_state(row, 1);
                 this.focus_box(row);
                 this.reset_edit(row.box_key, &text, 0);
-                let keys: Vec<(Event, Vec<Key>)> = if signal.double_clicked || signal.clicked {
-                    keys.to_vec()
+                let keys = if signal.double_clicked || signal.clicked || tabbed {
+                    keys
                 } else {
-                    // after_enter: what follows the first Enter
-                    match keys.iter().position(|k| enter(k)) {
-                        Some(at) => keys[at + 1..].to_vec(),
-                        None => Vec::new(),
-                    }
+                    enter_pressed.map_or(&keys[..0], |at| &keys[at + 1..])
                 };
                 let mut again = signal.clone();
                 again.keys = keys.iter().map(|(e, _)| e.clone()).collect();
@@ -2193,7 +2192,7 @@ fn numeric_editor_body(this: &mut Ui, p: &NumParams, accept: &dyn Fn(&str) -> bo
                 again.clicked = false;
                 again.double_clicked = false;
                 let np = NumParams { size: p.size, control: Some(control), click_to_edit: p.click_to_edit, edit_request: false, alt_to_edit: false, align_right: p.align_right };
-                this.numeric_editor(&np, accept, row, &again, &keys, current, parse)
+                this.numeric_editor(&np, accept, row, &again, keys, current, parse)
             } else {
                 (None, false)
             }

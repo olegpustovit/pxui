@@ -1203,7 +1203,36 @@ fn removing_colliding_slots_preserves_live_handles_without_warm_allocations() {
     ui.destroy();
 }
 
+fn value_fields_commit_and_open_on_tab() {
+    let mut ui = field_ui();
+    let mut values = ["1".to_owned(), "3".to_owned()];
+    let mut open = [false; 2];
+    let mut step = |time, keys, events| {
+        ui.frame(&frame_at(keys, 1.0, time, events), &mut |ui| {
+            for (i, label) in ["first", "second"].into_iter().enumerate() {
+                let (changed, editing) = ui.value_field(
+                    (20.0, 20.0 + i as f32 * 24.0), 100.0, 21.0,
+                    &ValueFieldOpts::default(), &|text| text.parse::<i64>().is_ok(), None, None, label, &values[i],
+                );
+                if let Some(changed) = changed { values[i] = changed.to_owned(); }
+                open[i] = editing;
+            }
+        });
+        (values.clone(), open)
+    };
+    step(0.0, vec![], vec![]);
+    assert_eq!(step(0.5, vec![], vec![key_down(Key::Tab)]).1, [true, false]);
+    assert_eq!(
+        step(1.0, vec![], vec![Event::TextInput("2".into()), key_down(Key::Tab), Event::TextInput("5".into())]),
+        (["2".into(), "3".into()], [false, true]),
+    );
+    assert_eq!(step(1.5, vec![Key::Shift], vec![key_down(Key::Tab)]), (["2".into(), "5".into()], [true, false]));
+    assert_eq!(step(2.0, vec![], vec![Event::TextInput("7".into()), key_down(Key::Enter)]).0, ["7", "5"]);
+    ui.destroy();
+}
+
 pub const CASES: &[(&str, fn())] = &[
+    ("value_fields_commit_and_open_on_tab", value_fields_commit_and_open_on_tab),
     ("removing_colliding_slots_preserves_live_handles_without_warm_allocations", removing_colliding_slots_preserves_live_handles_without_warm_allocations),
     ("window_focused_key_reuses_a_warmed_key_list", window_focused_key_reuses_a_warmed_key_list),
     ("window_fitted_paint_matches_legacy_ellipsis_and_ascii_caps", window_fitted_paint_matches_legacy_ellipsis_and_ascii_caps),
