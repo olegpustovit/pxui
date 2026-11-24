@@ -217,6 +217,7 @@ struct Blur {
     textures: [Texture; 3],
     targets: [backend::PreparedRenderTarget; 3],
     size: (u32, u32),
+    limit: (u32, u32),
     box_size: (u32, u32),
     cached: [Option<(Texture, backend::PreparedRenderTarget)>; BLUR_CACHE_SLOTS],
 }
@@ -610,7 +611,8 @@ impl Painter {
 
     /// Prepare the scratch textures for any blur region within `max_region_px` at startup/resize.
     /// Call outside frame recording; drawing never creates or resizes textures. Old textures retire
-    /// after the existing frames-in-flight window. Repeating the same capacity is a no-op.
+    /// after the existing frames-in-flight window. Smaller requests keep the storage and update
+    /// the limit for later blur calls.
     pub fn prepare_blur(&mut self, max_region_px: [u32; 2]) -> Result<(), Error> {
         if max_region_px.contains(&0) { return Err(invalid("Painter.prepare_blur", "blur extent must be nonzero")); }
         let maximum = backend::capabilities(&self.device).limits.max_texture_dimension_2d;
@@ -618,7 +620,13 @@ impl Painter {
         let size = ((max_region_px[0] / 2).max(1), (max_region_px[1] / 2).max(1));
         // At sigma >= 6 the blur has at most 32 four-pixel taps to either side.
         let box_size = ((max_region_px[0] + 2 * 32 * 4 + 3).min(maximum as u32), (max_region_px[1] / 4).max(1));
-        if self.blur.as_ref().is_some_and(|b| b.size == size && b.box_size == box_size) { return Ok(()); }
+        if let Some(blur) = &mut self.blur
+            && size.0 <= blur.size.0 && size.1 <= blur.size.1
+            && box_size.0 <= blur.box_size.0 && box_size.1 <= blur.box_size.1
+        {
+            blur.limit = size;
+            return Ok(());
+        }
         let mut created = Vec::with_capacity(3);
         for (label, size) in [("pxui_render.blur.box", box_size), ("pxui_render.blur.a", size), ("pxui_render.blur.b", size)] {
             match blur_texture(&self.device, label, size) {
@@ -644,6 +652,7 @@ impl Painter {
             drop(std::mem::replace(&mut blur.targets,targets));
             self.retired_textures.extend(std::mem::replace(&mut blur.textures, textures).map(|texture| (texture, FRAMES)));
             blur.size = size;
+            blur.limit = size;
             blur.box_size = box_size;
             for entry in &mut blur.cached {
                 if let Some((texture, target)) = entry.take() {
@@ -671,7 +680,7 @@ impl Painter {
                     return Err(e);
                 }
             };
-            self.blur = Some(Blur { pipeline, sampler, textures, targets, size, box_size, cached: Default::default() });
+            self.blur = Some(Blur { pipeline, sampler, textures, targets, size, limit: size, box_size, cached: Default::default() });
         }
         Ok(())
     }
@@ -724,7 +733,7 @@ impl Painter {
         let size = (((x1 - x0) / down).max(1), ((y1 - y0) / down).max(1));
         let (sigma, radius) = (sigma_px / down as f32, (sigma_px / down as f32 * 3.0).ceil().clamp(1.0, 32.0));
         let Some(blur) = &self.blur else { return Err(error::make(OP, ErrorKind::InvalidState, "prepare blur targets before recording")); };
-        if size.0 > blur.size.0 || size.1 > blur.size.1 { return Err(invalid(OP, "blur region exceeds prepared capacity")); }
+        if size.0 > blur.limit.0 || size.1 > blur.limit.1 { return Err(invalid(OP, "blur region exceeds prepared capacity")); }
         let (cw, ch) = (blur.size.0 as f32, blur.size.1 as f32);
         let uv = [0.0, 0.0, size.0 as f32 / cw, size.1 as f32 / ch];
         // The halo includes every clamped source block the horizontal taps can sample.

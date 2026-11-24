@@ -998,7 +998,11 @@ fn gpu_blur_prepared_targets() {
     let native = ok(be::native_texture(&next.texture));
     assert_eq!((native.width, native.height), (256, 192));
     assert_ne!(Some((native.mtl_texture, native.vk_image_view)), identity, "resize replaces the targets");
-    ok(painter.prepare_blur([16, 16]));
+    mem_sys::local_reset();
+    for extent in [[128, 384], [512, 192], [512, 384], [16, 16]] {
+        ok(painter.prepare_blur(extent));
+        assert_eq!(mem_sys::local_alloc_count(), 0, "revisiting extent {extent:?} retains blur capacity");
+    }
     let commands = ok(be::begin_commands(&queue));
     assert!(painter.blur_in(&commands, &source, [0, 0, 256, 192], 3.0).is_err(), "oversized regions require a resize");
     ok(be::abandon(&commands));
