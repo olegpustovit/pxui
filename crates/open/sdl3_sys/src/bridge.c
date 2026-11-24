@@ -482,8 +482,8 @@ static bool take_scroll_event(pxui_sdl3_event *event)
   return true;
 }
 
-static unsigned int poll_depth;
-static bool in_live_redraw;
+static _Thread_local unsigned int pump_depth;
+static _Thread_local bool in_live_redraw;
 static bool live_watch_installed;
 static _Atomic(pxui_sdl3_live_resize_callback) live_resize_callback;
 static bool test_resize_next_poll;
@@ -493,10 +493,10 @@ static bool SDLCALL live_resize_watch(void *userdata, SDL_Event *event)
   pxui_sdl3_live_resize_callback callback;
   (void)userdata;
   callback = atomic_load_explicit(&live_resize_callback, memory_order_acquire);
-  /* poll_depth is only nonzero inside pxui_sdl3_poll_event, which the Rust layer
-     calls only on the main thread; no thread check here, so test threads can run it. */
-  if (poll_depth == 0 || in_live_redraw
-      || event->type != SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED
+  /* Watches can run on the thread that pushed an event. Redraw only inside the
+     host's window event pump, which the Rust layer restricts to the main thread. */
+  if (pump_depth == 0 || in_live_redraw
+      || (event->type != SDL_EVENT_WINDOW_RESIZED && event->type != SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED)
       || callback == NULL) return true;
   in_live_redraw = true;
   callback(event->window.windowID);
@@ -514,16 +514,13 @@ void pxui_sdl3_set_live_resize_callback(pxui_sdl3_live_resize_callback callback)
   atomic_store_explicit(&live_resize_callback, callback, memory_order_release);
 }
 
-bool pxui_sdl3_test_polling_event_queue(void) { return poll_depth != 0; }
+bool pxui_sdl3_test_polling_event_queue(void) { return pump_depth != 0; }
 void pxui_sdl3_test_queue_resize_during_poll(void) { test_resize_next_poll = true; }
 
-bool pxui_sdl3_poll_event(pxui_sdl3_event *event)
+static void begin_pump(void)
 {
-  static SDL_Event native_event;
-  if (take_dialog_event(event)) return true;
-  if (take_scroll_event(event)) return true;
   live_resize_install();
-  poll_depth++;
+  pump_depth++;
   if (test_resize_next_poll) {
     SDL_Event resize_event;
     test_resize_next_poll = false;
@@ -534,19 +531,31 @@ bool pxui_sdl3_poll_event(pxui_sdl3_event *event)
     SDL_SetEventEnabled(resize_event.type, true);
     SDL_PushEvent(&resize_event);
   }
+}
+
+bool pxui_sdl3_poll_event(pxui_sdl3_event *event)
+{
+  SDL_Event native_event;
+  if (take_dialog_event(event)) return true;
+  if (take_scroll_event(event)) return true;
+  begin_pump();
   while (SDL_PollEvent(&native_event)) {
     if (translate_event(&native_event, event)) {
-      poll_depth--;
+      pump_depth--;
       return true;
     }
   }
-  poll_depth--;
+  pump_depth--;
   return take_scroll_event(event);
 }
 
 bool pxui_sdl3_wait_event_timeout(int timeout_ms)
 {
-  return SDL_WaitEventTimeout(NULL, timeout_ms);
+  bool ready;
+  begin_pump();
+  ready = SDL_WaitEventTimeout(NULL, timeout_ms);
+  pump_depth--;
+  return ready;
 }
 
 bool pxui_sdl3_wake(void)

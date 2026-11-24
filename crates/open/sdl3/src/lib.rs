@@ -584,6 +584,8 @@ pub mod event {
 
     /// One process callback (SDL's queue is per process), run inside the event pump on the initial thread
     /// with the SDL window id being resized (0: a synthetic event naming none); dispatch by that id.
+    /// Redraw on the main thread while SDL pumps a window during a poll or wait.
+    /// The callback receives SDL's window ID and can query the current window size.
     pub fn set_live_resize_callback(callback: Option<Box<dyn FnMut(u32) -> std::result::Result<(), Error>>>) -> std::result::Result<(), Error> {
         const OPERATION: &str = "SDL3.Event.set_live_resize_callback";
         before_main(OPERATION)?;
@@ -675,7 +677,9 @@ pub mod event {
     pub fn wait(timeout_ms: i32) -> std::result::Result<bool, Error> {
         const OPERATION: &str = "SDL3.Event.wait";
         before_main(OPERATION)?;
-        Ok(sys::wait_event_timeout(timeout_ms.max(0)))
+        let ready = sys::wait_event_timeout(timeout_ms.max(0));
+        take_live_resize_failure()?;
+        Ok(ready)
     }
 
     #[cfg(test)]
