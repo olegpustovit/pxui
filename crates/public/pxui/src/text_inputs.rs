@@ -226,7 +226,7 @@ impl Ui {
         TextEdit { text: lent_string(out), caret: caret as usize, anchor: anchor as usize }
     }
 
-    /// Snapshots `edit` for undo; `typing` joins consecutive typing into one step.
+    /// Stages `edit` for undo before the next replacement. Consecutive typing can share a step.
     #[track_caller]
     pub fn remember(&mut self, edit: &TextEdit, typing: bool) {
         check(self, unsafe { lib::pxui_ui_remember(self.0.as_ptr(), as_str(&edit.text), edit.caret as u64, edit.anchor as u64, typing as u8) })

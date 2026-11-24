@@ -68,6 +68,8 @@ impl Ui {
     #[inline] pub fn inspector_width(&self) -> f32 { unsafe { lib::pxui_ui_inspector_width(self.0.as_ptr()) } }
     #[inline] pub fn inspector_label_x(&self) -> f32 { unsafe { lib::pxui_ui_inspector_label_x(self.0.as_ptr()) } }
     #[inline] pub fn platform(&self) -> Platform { if unsafe { lib::pxui_ui_platform(self.0.as_ptr()) } == 1 { Platform::Apple } else { Platform::Other } }
+    /// A focused text editor exhausted its local history this frame. A host with unapplied
+    /// text should consume this request without changing its document history.
     #[inline]
     pub fn passed_undo(&self) -> Option<UndoKind> {
         match unsafe { lib::pxui_ui_passed_undo(self.0.as_ptr()) } { 1 => Some(UndoKind::Undo), 2 => Some(UndoKind::Redo), _ => None }

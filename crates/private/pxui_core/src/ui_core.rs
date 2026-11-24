@@ -19,7 +19,8 @@ pub use crate::geom::Edges;
 use std::any::Any;
 use pxui_text::{Metrics, Style, Text};
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
+use crate::ui_text::{EditDelta, EditRun, ShelfEntry, TextEdit};
 use std::rc::Rc;
 
 pub use pxui_types::{Flags, Size};
@@ -930,15 +931,17 @@ pub struct Ui {
     gesture_time: f64,
     /// the fingers' release velocity, down and sideways
     gesture_velocity: (f64, f64),
-    pub edit_undo: Vec<(String, usize, usize)>,
+    pub(crate) edit_undo: VecDeque<EditDelta>,
     pub(crate) text_undo_held: i64,
     /// What the host last charged to its memory ledger for this UI; PXUI never reads it.
     pub charged: Bytes,
     pub(crate) text_rows_seen: Vec<(Option<usize>, String, Rc<Vec<(usize, usize, usize)>>)>,
     pub(crate) text_panes: usize,
     pub(crate) text_colors_seen: Vec<(Tokens, String, Rc<Vec<(i64, i64, Color)>>)>,
-    pub(crate) edit_redo: Vec<(String, usize, usize)>,
-    pub(crate) edit_group: i64,
+    pub(crate) edit_redo: VecDeque<EditDelta>,
+    pub(crate) edit_group: Option<(EditRun, usize, f64)>,
+    pub(crate) edit_serial: u64,
+    pub(crate) edit_pending: Option<(TextEdit, bool)>,
     pub(crate) edit_shelf: Vec<ShelfEntry>,
     /// the picker's rows, kept between frames so `picker_filled` reuses their strings
     pub(crate) picker_rows: Vec<(String, String)>,
@@ -1058,7 +1061,6 @@ pub struct Bytes {
 }
 
 /// One text left behind: its key, value and its undo and redo stacks.
-pub type ShelfEntry = (i64, String, Vec<(String, usize, usize)>, Vec<(String, usize, usize)>);
 
 
 
@@ -1155,14 +1157,16 @@ impl Ui {
             gesture_key: 0,
             gesture_time: f64::NAN,
             gesture_velocity: (0.0, 0.0),
-            edit_undo: Vec::new(),
+            edit_undo: VecDeque::new(),
             text_undo_held: 0,
             charged: Bytes::default(),
             text_rows_seen: Vec::new(),
             text_panes: 8,
             text_colors_seen: Vec::new(),
-            edit_redo: Vec::new(),
-            edit_group: -1,
+            edit_redo: VecDeque::new(),
+            edit_group: None,
+            edit_serial: 0,
+            edit_pending: None,
             edit_shelf: Vec::new(),
             picker_rows: Vec::new(),
             table_stops: Vec::new(),
@@ -1872,7 +1876,7 @@ impl Ui {
         if self.focus == key {
             self.focus = 0;
             self.composition.clear();
-            self.edit_focus = 0;
+            self.edit_group = None;
         }
         if self.active == Some(key) {
             self.cancelled.insert(0, self.active_button);
@@ -2086,6 +2090,7 @@ impl Ui {
                 self.focus = self.hits[index].key;
                 self.keyboard_focus = true;
                 self.composition.clear();
+                self.edit_group = None;
                 return;
             }
             distance += 1;
@@ -2262,7 +2267,7 @@ impl Ui {
                         };
                         if focus != self.focus {
                             self.composition.clear();
-                            self.edit_focus = 0;
+                            self.edit_group = None;
                         }
                         self.focus = focus;
                         self.keyboard_focus = false;
@@ -2410,7 +2415,7 @@ impl Ui {
                     self.focus = 0;
                     self.hot = 0;
                     self.composition.clear();
-                    self.edit_focus = 0;
+                    self.edit_group = None;
                     self.keyboard_focus = false;
                 }
                 Event::KeyPressed(_) | Event::KeyReleased(_) | Event::TextInput(_) | Event::TextEditing { .. } | Event::Paste(_) => {
@@ -2430,7 +2435,7 @@ impl Ui {
                             Event::KeyPressed(Key::Escape) if self.flags_of_key(self.focus) & TAB_ONLY != 0 => {
                                 self.focus = 0;
                                 self.keyboard_focus = false;
-                                self.edit_focus = 0;
+                                self.edit_group = None;
                             }
                             _ => {}
                         }
@@ -2489,7 +2494,7 @@ impl Ui {
     pub fn unfocus(&mut self) {
         self.focus = 0;
         self.composition.clear();
-        self.edit_focus = 0;
+        self.edit_group = None;
         self.keyboard_focus = false;
     }
 
@@ -3138,7 +3143,7 @@ impl Ui {
         if self.focus != b.box_key {
             self.keyboard_focus = false;
             self.composition.clear();
-            self.edit_focus = 0;
+            self.edit_group = None;
         }
         self.focus = b.box_key;
     }
@@ -5506,7 +5511,7 @@ impl Ui {
         self.prune();
         if self.focus != 0 && self.table.find(self.focus).is_none() {
             self.focus = 0;
-            self.edit_focus = 0;
+            self.edit_group = None;
         }
         // the build moved the focus: views already kept this frame show it next frame
         if (self.focus, self.keyboard_focus) != (self.seen.1, self.seen.2) {
