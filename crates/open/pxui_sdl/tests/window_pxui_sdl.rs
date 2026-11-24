@@ -152,21 +152,21 @@ fn window_dialog_capabilities_are_taken_once_and_expire_on_the_next_pump() {
     let mut window = Window::open_with("dialog capabilities", 32, 24, false, true, true).unwrap();
     let mut events = Vec::with_capacity(32);
     assert!(window.pump(&mut events));
-    let id = sdl3_sys::test_util::dialog_reserve();
+    let id = sdl3_sys::test_util::dialog_reserve_for(window.id());
     assert!(id > 0);
     assert!(sdl3_sys::test_util::dialog_finish(id, Some(&["/tmp/名前.flac", "/tmp/Björk.mp3"])));
+    let expired = sdl3_sys::test_util::dialog_reserve_for(window.id());
+    assert!(expired > 0);
+    assert!(sdl3_sys::test_util::dialog_finish(expired, Some(&["/tmp/unused"])));
     events.clear();
     assert!(window.pump(&mut events));
     assert!(events.iter().any(|event| matches!(event, input::Event::FileDialog {id: chosen, result: Ok(paths)} if *chosen == i64::from(id) && paths.len() == 2)));
+    assert!(events.iter().any(|event| matches!(event, input::Event::FileDialog {id: chosen, result: Ok(paths)} if *chosen == i64::from(expired) && paths.len() == 1)));
     assert!(window.take_dialog_selection(-1).is_err());
     let selected = window.take_dialog_selection(i64::from(id)).unwrap();
     assert_eq!(selected[0].path(), std::path::Path::new("/tmp/名前.flac"));
     assert!(selected[0].bookmark().unwrap().is_none());
     assert!(window.take_dialog_selection(i64::from(id)).is_err());
-    let expired = sdl3_sys::test_util::dialog_reserve();
-    assert!(sdl3_sys::test_util::dialog_finish(expired, Some(&["/tmp/unused"])));
-    events.clear();
-    assert!(window.pump(&mut events));
     events.clear();
     assert!(window.pump(&mut events));
     assert!(window.take_dialog_selection(i64::from(expired)).is_err());
@@ -337,7 +337,6 @@ fn app_loop_opens_a_point_sized_drawable_when_requested() {
             assert_eq!(extent.logical, (320, 240));
             assert_eq!(extent.drawable, extent.logical);
             assert_eq!(window.scale(), 1.0);
-            return Ok(Schedule::NextFrame);
         }
         Ok(Schedule::Exit)
     })).unwrap();
@@ -349,14 +348,27 @@ fn app_loop_cleans_up_callbacks_before_the_window_on_success_and_errors() {
     struct Guard {
         token: Option<pxui_sdl::Token>,
         stages: Rc<RefCell<Vec<Signal>>>,
+        exposure_deadline: f64,
     }
     impl Guard {
         fn signal(&mut self, window: &mut Window, signal: Signal, failure: u8) -> Result<Schedule, String> {
+            if signal == Signal::Control {
+                assert_eq!(self.stages.borrow().as_slice(), &[Signal::Initialize]);
+                // AppKit reports exposure asynchronously, and the app loop owns its wait.
+                assert!(window.pump(&mut Vec::new()));
+                if window.time() >= self.exposure_deadline {
+                    return Err("AppKit did not expose the window".into());
+                }
+                return Ok(Schedule::WaitUntil(Some(self.exposure_deadline)));
+            }
             self.stages.borrow_mut().push(signal);
             if signal == Signal::Initialize {
                 let token = window.token()?;
                 #[cfg(target_os = "macos")]
-                wait_for_exposure(window, &token);
+                if failure != 1 && failure != 4 {
+                    sdl3_sys::pacing::test_order_front(&token, false);
+                    self.exposure_deadline = window.time() + 0.45;
+                }
                 self.token = Some(token);
             }
             if (failure == 1 && signal == Signal::Initialize) || (failure == 2 && signal == Signal::Frame) {
@@ -378,7 +390,7 @@ fn app_loop_cleans_up_callbacks_before_the_window_on_success_and_errors() {
     }
     for failure in 0..5 {
         let stages = Rc::new(RefCell::new(Vec::with_capacity(3)));
-        let mut guard = Guard { token: None, stages: stages.clone() };
+        let mut guard = Guard { token: None, stages: stages.clone(), exposure_deadline: 0.0 };
         let result = pxui_sdl::app::run("app callback cleanup", 32, 24, Box::new(move |window, signal| guard.signal(window, signal, failure)));
         assert_eq!(result.is_err(), failure != 0);
         let expected = if failure == 1 || failure == 4 { &[Signal::Initialize, Signal::Finish][..] } else { &[Signal::Initialize, Signal::Frame, Signal::Finish][..] };
