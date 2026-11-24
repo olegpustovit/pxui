@@ -27,7 +27,6 @@ unsafe extern "C" {
         maximum_drawables: u64,
         allows_timeout: u8,
         display_sync: u8,
-        presents_with_transaction: u8,
         message: *mut *const c_char,
     ) -> i32;
     #[link_name = "rays_metal_drawable_texture"]
@@ -63,7 +62,7 @@ pub fn configure_layer(layer: &Handle, configuration: &ogpu_core::surface::Admit
         let c = configuration;
         let status = unsafe { layer_configure(layer.as_native_ptr()?, c.width as u64, c.height as u64,
             super::pixel_format_code(c.format) as i64, u8::from(c.framebuffer_only), c.maximum_drawables as u64,
-            u8::from(c.allows_timeout), u8::from(c.display_sync), u8::from(c.presents_with_transaction), &mut message) };
+            u8::from(c.allows_timeout), u8::from(c.display_sync), &mut message) };
         if status == 0 { Ok(()) } else { Err(unsafe { Error::from_native(status, message) }) }
     }
     #[cfg(not(target_vendor = "apple"))]

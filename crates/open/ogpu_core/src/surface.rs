@@ -52,12 +52,11 @@ pub struct LayerProfile {
     pub maximum_drawables: usize,
     pub allows_timeout: bool,
     pub display_sync: bool,
-    pub presents_with_transaction: bool,
 }
 impl LayerProfile {
     pub fn default(width: usize, height: usize) -> Self {
         Self { width, height, format: crate::types::TextureFormat::Bgra8Unorm, framebuffer_only: false,
-            maximum_drawables: 3, allows_timeout: true, display_sync: false, presents_with_transaction: false }
+            maximum_drawables: 3, allows_timeout: true, display_sync: false }
     }
 }
 #[derive(Clone, Copy, Debug)]
@@ -88,7 +87,7 @@ impl AdmittedConfiguration {
         // capacity of one still needs CAMetalLayer's physical minimum of two drawables.
         Ok(AdmittedLayer(LayerProfile { width: self.physical_width as usize, height: self.physical_height as usize,
             format, framebuffer_only, maximum_drawables: self.max_acquired.max(2) as usize,
-            allows_timeout: true, display_sync: self.present_mode == PresentMode::Fifo, presents_with_transaction: false }))
+            allows_timeout: true, display_sync: self.present_mode == PresentMode::Fifo }))
     }
 }
 

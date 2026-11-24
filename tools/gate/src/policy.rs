@@ -225,3 +225,62 @@ pub fn shim_allows(path: &str, generics: &[&str], inline: bool, body: &[&str]) -
     shaped && body.len() <= 40 && body.last() == Some(&")")
         && !body.iter().any(|token| matches!(*token, ";" | "{" | "}" | "let" | "if" | "match" | "for" | "while" | "loop" | "unsafe" | "return" | "?"))
 }
+
+/// pxui may reach the window surface and its pacing primitives in these platform files.
+const METAL_SURFACE: &[&str] = &[
+    "crates/open/metal_sys/src/native/frames.mm",
+    "crates/open/metal_sys/src/native/generated_metal.mm",
+    "crates/open/metal_sys/src/native/surface.mm",
+    "crates/open/ogpu_core/src/surface.rs",
+    "crates/open/sdl3_sys/src/chrome.m",
+    "crates/open/sdl3_sys/src/ios.m",
+    "crates/open/sdl3_sys/src/metal_link.h",
+    "crates/open/sdl3_sys/src/metal_link.m",
+    "crates/open/sdl3_sys/src/pacing_mac.m",
+];
+
+pub fn platform_compositor_symbol<'a>(path: &str, code: &'a str) -> Option<&'a str> {
+    let code = code.trim_start();
+    if code.starts_with("//") || code.starts_with("/*") || code.starts_with("* ") { return None; }
+    if (path.ends_with(".m") || path.ends_with(".mm"))
+        && [".layer.", ".layer =", ".layer;", " layer];", " layer] "].iter().any(|item| code.contains(item))
+        && !code.contains("[CAMetalLayer layer]")
+    {
+        return Some("NSView layer access");
+    }
+    code.split(|c: char| !c.is_ascii_alphanumeric() && c != '_').find(|symbol| {
+        match *symbol {
+            "CAMetalLayer" | "CAMetalDrawable" | "CAMetalDisplayLink" | "CAMetalDisplayLinkUpdate"
+            | "CAMetalDisplayLinkDelegate" | "CADisplayLink" | "CAFrameRateRange" | "CAFrameRateRangeMake"
+            | "CACurrentMediaTime" => !METAL_SURFACE.contains(&path),
+            "setLayer" | "makeBackingLayer" | "wantsLayer" | "setWantsLayer" | "layerContentsRedrawPolicy"
+            | "sublayers" | "setSublayers" | "addSublayer" | "insertSublayer" | "replaceSublayer"
+            | "removeFromSuperlayer" | "presentationLayer" | "modelLayer" | "addAnimation"
+            | "removeAnimationForKey" | "removeAllAnimations" | "presentsWithTransaction"
+            | "CAPropertyAnimation" | "CATransition" | "CAMediaTimingFunction" | "CAAnimationGroup"
+            | "CAAnimation" | "CAKeyframeAnimation" | "CASpringAnimation" | "CABasicAnimation"
+            | "CALayer" | "CATransaction" | "CARenderer" | "CAShapeLayer" | "CAGradientLayer"
+            | "CATextLayer" | "CATiledLayer" | "CAReplicatorLayer" | "CATransformLayer" | "CAEmitterLayer" => true,
+            _ => ["wl_subsurface", "wl_subcompositor", "wp_alpha_modifier"].iter().any(|prefix| symbol.starts_with(prefix))
+                || (symbol.contains("animation") && ["wp_", "zwp_", "zwlr_", "weston_", "ext_", "zcosmic_", "org_kde_"]
+                    .iter().any(|prefix| symbol.starts_with(prefix))),
+        }
+    })
+}
+
+#[cfg(test)]
+mod compositor_tests {
+    use super::platform_compositor_symbol as check;
+
+    #[test]
+    fn surface_symbols_are_scoped_and_compositor_symbols_are_forbidden() {
+        let surface = "crates/open/metal_sys/src/native/frames.mm";
+        assert_eq!(check(surface, "id<CAMetalDrawable> drawable;"), None);
+        assert_eq!(check("unlisted.mm", "CAMetalLayer *target;"), Some("CAMetalLayer"));
+        assert_eq!(check(surface, "[CATransaction commit];"), Some("CATransaction"));
+        assert_eq!(check(surface, "view.layer.sublayers = nil;"), Some("NSView layer access"));
+        assert_eq!(check("shim.c", "wl_subsurface_set_position(a, x, y);"), Some("wl_subsurface_set_position"));
+        assert_eq!(check("shim.c", "ext_surface_animation_v1;"), Some("ext_surface_animation_v1"));
+        assert_eq!(check("shim.c", "wl_surface_frame(surface);"), None);
+    }
+}

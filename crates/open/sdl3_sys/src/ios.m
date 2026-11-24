@@ -1,6 +1,5 @@
 #import <UIKit/UIKit.h>
 #import <QuartzCore/CADisplayLink.h>
-#import <QuartzCore/QuartzCore.h>
 #include <stdatomic.h>
 #include <pthread.h>
 #include <math.h>
@@ -142,17 +141,15 @@ static void ios_source(void *context);
         [NSLayoutConstraint activateConstraints:keyboardConstraints];
         [view layoutIfNeeded];
     }
-    CALayer *presentation = keyboardGeometry.layer.presentationLayer;
-    CGRect current = presentation ? presentation.frame : keyboardGeometry.frame;
-    CGRect target = keyboardGeometry.frame;
+    CGRect current = keyboardGeometry.frame;
     float c[4] = {(float)current.origin.x,(float)current.origin.y,(float)current.size.width,(float)current.size.height};
+    BOOL animating = [keyboardScreen isEqual:window.screen]
+        && out->timestamp < keyboardStarted + keyboardDuration;
     BOOL valid = true;
     for (unsigned i = 0; i < 4; ++i) valid = valid && isfinite(c[i]);
     if (valid && c[2] >= 0 && c[3] >= 0) {
         memcpy(out->keyboard_current, c, sizeof(c));
-        BOOL moving = fabs(current.origin.x-target.origin.x)>0.015625 || fabs(current.origin.y-target.origin.y)>0.015625 ||
-            fabs(current.size.width-target.size.width)>0.015625 || fabs(current.size.height-target.size.height)>0.015625;
-        out->keyboard_flags = 1 | (moving || CACurrentMediaTime() < keyboardStarted+keyboardDuration ? 2 : 0);
+        out->keyboard_flags = animating ? 3 : 1;
     }
     if (![keyboardScreen isEqual:window.screen]) return;
     CGRect from = [keyboardScreen.coordinateSpace convertRect:keyboardFrom toCoordinateSpace:view];
@@ -194,7 +191,7 @@ static void ios_source(void *context);
     if (@available(iOS 17.0, *)) {
         const char *timerPacing = getenv("PXUI_TIMER_PACING");
         if (!timerPacing || strcmp(timerPacing, "1") != 0) {
-            metalLink = [[PXUISDLMetalLink alloc] initWithLayer:(__bridge CAMetalLayer *)initial.layer frame:^BOOL(double lead) { [weak tick:lead]; return NO; }];
+            metalLink = [[PXUISDLMetalLink alloc] initWithLayer:(__bridge CAMetalLayer *)initial.surface frame:^BOOL(double lead) { [weak tick:lead]; return NO; }];
         }
     }
     if (!metalLink) {

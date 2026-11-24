@@ -5,6 +5,10 @@
 #import <objc/runtime.h>
 #include <math.h>
 
+static inline id pxui_metal_surface_delegate(void *surface) {
+    return ((__bridge CAMetalLayer *)surface).delegate;
+}
+
 // The display update lends this layer's drawable to one host frame. metal_sys consumes it at most once.
 static inline const void *pxui_metal_drawable_key(void) {
     return (const void *)sel_registerName("pxuiDisplayLinkDrawable");

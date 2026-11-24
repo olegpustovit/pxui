@@ -118,7 +118,9 @@ mod ios {
             })
         }
         fn sample_keyboard(&mut self, window: &pxui_sdl::Window) -> Result<sdl3_sys::ios::Environment, String> {
-            let value = pxui_sdl::ios::environment(window)?;
+            let mut value = pxui_sdl::ios::environment(window)?;
+            let keyboard = self.platform.keyboard();
+            (value.keyboard_current, value.keyboard_flags) = (keyboard.frame, keyboard.flags);
             if value.keyboard_flags & 1 == 0 { return Err("Native keyboard guide is missing".into()); }
             let bottom = window.extent().logical.1 as f32 - value.safe_area[2];
             let from = value.keyboard_from[1].min(bottom);

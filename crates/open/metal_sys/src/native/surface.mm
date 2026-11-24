@@ -40,7 +40,7 @@ extern "C" int32_t rays_metal_layer_adopt_borrowed(
 extern "C" int32_t rays_metal_layer_configure(
     MetalHandle *layer_handle, uint64_t width, uint64_t height, int64_t format,
     uint8_t framebuffer_only, uint64_t maximum_drawables, uint8_t allows_timeout,
-    uint8_t display_sync, uint8_t presents_with_transaction,
+    uint8_t display_sync,
     const char **message) {
   if (message != nullptr) *message = nullptr;
   @try {
@@ -66,7 +66,6 @@ extern "C" int32_t rays_metal_layer_configure(
 #else
         (void)display_sync;
 #endif
-        layer.presentsWithTransaction = presents_with_transaction != 0;
       } else {
         return rays_metal_set_unavailable(
             message, "CAMetalLayer drawable configuration is unavailable");

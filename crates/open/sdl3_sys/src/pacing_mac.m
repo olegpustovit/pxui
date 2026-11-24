@@ -1,5 +1,4 @@
 #import <AppKit/AppKit.h>
-#import <QuartzCore/CAAnimation.h>
 #include "metal_link.h"
 #include "bridge.h"
 

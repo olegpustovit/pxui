@@ -1,5 +1,4 @@
 #import <QuartzCore/CAMetalDisplayLink.h>
-#import <QuartzCore/CAAnimation.h>
 #import <objc/runtime.h>
 #include "metal_link.h"
 

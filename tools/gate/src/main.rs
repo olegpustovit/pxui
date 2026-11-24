@@ -532,6 +532,10 @@ fn hashmap_output_issues(path: &str, tokens: &[Token]) -> Vec<String> {
 }
 
 fn rust_sources(dir: &Path, files: &mut Vec<PathBuf>) -> std::io::Result<()> {
+    source_files(dir, files, &["rs"])
+}
+
+fn source_files(dir: &Path, files: &mut Vec<PathBuf>, extensions: &[&str]) -> std::io::Result<()> {
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
@@ -540,8 +544,8 @@ fn rust_sources(dir: &Path, files: &mut Vec<PathBuf>) -> std::io::Result<()> {
             if matches!(name.to_str(), Some("target" | "_build" | ".git")) {
                 continue;
             }
-            rust_sources(&path, files)?;
-        } else if path.extension().is_some_and(|extension| extension == "rs") {
+            source_files(&path, files, extensions)?;
+        } else if path.extension().and_then(|s| s.to_str()).is_some_and(|ext| extensions.contains(&ext)) {
             files.push(path);
         }
     }
@@ -1188,6 +1192,27 @@ fn ogpu_selection_errors(
     errors
 }
 
+fn compositor_policy(workspace: &Path) -> Result<Vec<String>, String> {
+    let mut files = Vec::new();
+    for directory in ["crates", "tools"] {
+        source_files(&workspace.join(directory), &mut files, &["rs", "c", "cpp", "h", "hpp", "m", "mm", "xml"])
+            .map_err(|e| format!("cannot scan {directory}: {e}"))?;
+    }
+    files.sort();
+    let mut errors = Vec::new();
+    for file in files {
+        let path = file.strip_prefix(workspace).unwrap_or(&file).to_string_lossy().replace('\\', "/");
+        if path.starts_with("tools/gate/") { continue; }
+        let source = fs::read_to_string(&file).map_err(|e| format!("cannot read {path}: {e}"))?;
+        for (line, code) in source.lines().enumerate() {
+            if let Some(symbol) = policy::platform_compositor_symbol(&path, code) {
+                errors.push(format!("{path}:{}: platform compositor API {symbol}; pxui owns composition", line + 1));
+            }
+        }
+    }
+    Ok(errors)
+}
+
 fn deps(workspace: &Path) -> Result<Vec<String>, String> {
     let workspace_path = fs::canonicalize(workspace).map_err(|error| format!("cannot locate workspace {}: {error}", workspace.display()))?;
     let workspace = workspace_path.as_path();
@@ -1201,7 +1226,7 @@ fn deps(workspace: &Path) -> Result<Vec<String>, String> {
     manifests.sort();
 
     let mut packages = Vec::new();
-    let mut errors = Vec::new();
+    let mut errors = compositor_policy(workspace)?;
     for manifest_path in manifests {
         let manifest_path = fs::canonicalize(&manifest_path).map_err(|error| format!("cannot resolve {}: {error}", manifest_path.display()))?;
         let parsed = parse_manifest(&manifest_path)?;

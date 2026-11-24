@@ -28,14 +28,14 @@ pub struct Step {
     window: u32,
     action: i32,
     delay: f64,
-    layer: *mut c_void,
+    surface: *mut c_void,
     hz: u32,
 }
 impl Step {
     pub fn initialize(window: u32, layer: &Token) -> Self {
         Self {
             window,
-            layer: layer.borrow_raw(layer.owner_id(), layer.generation()).map_or(ptr::null_mut(), |pointer| pointer.as_ptr()),
+            surface: layer.borrow_raw(layer.owner_id(), layer.generation()).map_or(ptr::null_mut(), |pointer| pointer.as_ptr()),
             ..Self::next()
         }
     }
@@ -44,7 +44,7 @@ impl Step {
             window: 0,
             action: 0,
             delay: 0.0,
-            layer: ptr::null_mut(),
+            surface: ptr::null_mut(),
             hz: 0,
         }
     }

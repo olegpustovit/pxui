@@ -38,6 +38,23 @@ impl Platform {
             value.keyboard_visible = raw.keyboard_visible;
             let mut keyboard = pxui::Keyboard::default();
             (keyboard.frame, keyboard.flags) = (raw.keyboard_current, raw.keyboard_flags);
+            if keyboard.flags & pxui::Keyboard::ANIMATING != 0 && raw.keyboard_duration > 0.0 {
+                let points = match raw.keyboard_curve {
+                    1 => [0.42, 0.0, 1.0, 1.0],
+                    2 => [0.0, 0.0, 0.58, 1.0],
+                    3 => [0.0, 0.0, 1.0, 1.0],
+                    _ => [0.42, 0.0, 0.58, 1.0],
+                };
+                let curve = pxui::ui::Curve::Bezier { duration: raw.keyboard_duration as f32, points };
+                let t = curve.at((raw.timestamp - raw.keyboard_started) as f32);
+                let bottom = window.extent().logical.1 as f32 - raw.safe_area[2];
+                let mut start = raw.keyboard_from;
+                let mut end = raw.keyboard_frame;
+                // The layout guide rests on the safe-area edge when the keyboard is offscreen.
+                start[1] = start[1].min(bottom);
+                end[1] = end[1].min(bottom);
+                keyboard.frame = std::array::from_fn(|i| start[i] + (end[i] - start[i]) * t);
+            }
             if value != self.environment || keyboard != self.keyboard {
                 self.keyboard = keyboard;
                 self.environment = value;
@@ -50,7 +67,7 @@ impl Platform {
     pub fn environment(&self) -> pxui::Environment {
         self.environment
     }
-    /// Current native geometry; pass to FrameIn::keyboard with the environment.
+    /// Current keyboard geometry sampled by pxui; pass to FrameIn::keyboard with the environment.
     pub fn keyboard(&self) -> pxui::Keyboard { self.keyboard }
     /// Applies the UI's text input, cursor, background and clipboard output to its window.
     ///

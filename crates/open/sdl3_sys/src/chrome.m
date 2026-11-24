@@ -1,14 +1,13 @@
 #import <AppKit/AppKit.h>
-#import <QuartzCore/CALayer.h>
-#import <QuartzCore/CAMetalLayer.h>
+#include "metal_link.h"
 #import <objc/runtime.h>
 #include <math.h>
 #include "chrome.h"
 
 static char backgroundKey;
 
-static void installBackground(NSWindow *window, CALayer *layer) {
-    if (!layer.opaque || ![layer isKindOfClass:CAMetalLayer.class] || objc_getAssociatedObject(window, &backgroundKey)) return;
+static void installBackground(NSWindow *window, id layer) {
+    if (![layer isKindOfClass:CAMetalLayer.class] || !((CAMetalLayer *)layer).opaque || objc_getAssociatedObject(window, &backgroundKey)) return;
     NSLock *lock = [NSLock new];
     __block NSColor *current = window.backgroundColor ?: NSColor.windowBackgroundColor;
     void (^update)(NSColor *) = ^(NSColor *color) { [lock lock]; current = color; [lock unlock]; };
@@ -33,8 +32,13 @@ int pxui_sdl3_chrome_update_background(void *rawWindow, void *rawColor) {
 
 static NSView *windowView(void *raw) {
     if (!NSThread.isMainThread || !raw) return nil;
-    id delegate = ((__bridge CALayer *)raw).delegate;
+    id delegate = pxui_metal_surface_delegate(raw);
     return [delegate isKindOfClass:NSView.class] ? delegate : nil;
+}
+
+static BOOL coversContent(NSView *view, NSWindow *window) {
+    return (view == window.contentView || view.superview == window.contentView)
+        && NSContainsRect([view convertRect:view.bounds toView:window.contentView], window.contentView.bounds);
 }
 
 int pxui_sdl3_chrome_configure(void *raw, double minimum_width, double minimum_height) {
@@ -48,11 +52,7 @@ int pxui_sdl3_chrome_configure(void *raw, double minimum_width, double minimum_h
         window.titlebarSeparatorStyle = NSTitlebarSeparatorStyleNone;
         window.collectionBehavior = (window.collectionBehavior & ~NSWindowCollectionBehaviorFullScreenAuxiliary) | NSWindowCollectionBehaviorFullScreenPrimary;
         window.contentMinSize = NSMakeSize(minimum_width, minimum_height);
-        if (view.layer == (__bridge CALayer *)raw
-            && (view == window.contentView || view.superview == window.contentView)
-            && NSContainsRect([view convertRect:view.bounds toView:window.contentView], window.contentView.bounds)) {
-            installBackground(window, (__bridge CALayer *)raw);
-        }
+        if (coversContent(view, window)) installBackground(window, (__bridge id)raw);
         return 1;
     }
 }
@@ -125,19 +125,13 @@ int pxui_sdl3_chrome_background_check(uint64_t (*clock)(void), uint64_t times[2]
         layer.opaque = NO;
         installBackground(window, layer);
         if (objc_getAssociatedObject(window, &backgroundKey)) return 0;
-        CALayer *ordinary = [CALayer layer];
-        ordinary.opaque = YES;
-        installBackground(window, ordinary);
+        installBackground(window, [NSObject new]);
         if (objc_getAssociatedObject(window, &backgroundKey)) return 0;
         layer.opaque = YES;
         NSView *partial = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 10, 10)];
-        partial.wantsLayer = YES;
-        partial.layer = layer;
         [window.contentView addSubview:partial];
-        pxui_sdl3_chrome_configure((__bridge void *)layer, 10, 10);
-        if (objc_getAssociatedObject(window, &backgroundKey)) return 0;
+        if (coversContent(partial, window)) return 0;
         [partial removeFromSuperview];
-        partial.layer = nil;
         installBackground(window, layer);
         id installed = window.backgroundColor;
         id update = objc_getAssociatedObject(window, &backgroundKey);

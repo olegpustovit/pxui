@@ -1,7 +1,7 @@
 // NSAccessibility tree for one SDL content view: one element per pxui node, kept by node id and
 // updated only when pxui's accessibility revision changes. Everything runs on the main thread.
 #import <AppKit/AppKit.h>
-#import <QuartzCore/CALayer.h>
+#include "metal_link.h"
 #include <math.h>
 #include "ax.h"
 
@@ -163,7 +163,7 @@ static NSAccessibilityRole roleOf(uint32_t role, NSAccessibilitySubrole *subrole
 
 static NSView *windowView(void *raw) {
     if (!NSThread.isMainThread || !raw) return nil;
-    id delegate = ((__bridge CALayer *)raw).delegate;
+    id delegate = pxui_metal_surface_delegate(raw);
     return [delegate isKindOfClass:NSView.class] ? delegate : nil;
 }
 
