@@ -96,25 +96,30 @@ wait for input or its next deadline without drawing.
   next changed frame. When the compositor withholds callbacks for a hidden or minimized surface, drawing stops
   after any already invited frame. `frame_stats()` reports callbacks and presentation feedback.
 
-## Apple compositor promotion
+## Compositor promotion
 
-Promotion is restricted to content with verified coverage and timing parity. The [eligibility
-check](../crates/private/pxui_core/src/ui_core/promotion.rs) accepts a single plain rectangular fill from a
-static hinted view or an eligible repeating view-only keyframe animation. The current vector `CALayer` path is
-qualified at 1× and 2×, with pixel-aligned fixed left and right edges, a pixel-aligned clip and motion of at
-most one of the top and bottom edges. It maps the supported Bézier segments to Core Animation on a shared
-clock. Unsupported geometry or motion and animated ancestors keep the content on the canvas. Backdrop blur
-disables promotion. The native parity test compares 200 samples per density with a maximum difference of one
-level per channel.
+Pxui composites eligible retained views on Metal and Vulkan through ogpu. The core currently
+qualifies a single solid fractional fill at 1× and 2×. It accepts static promotion hints and
+repeating view-only keyframes with fixed, pixel-aligned sides, a pixel-aligned clip and at most
+one moving vertical edge. Animated ancestors, later content overlapping the swept bounds,
+and backdrop blur leave the run on the canvas. When eligibility changes, the core damages the
+old and new swept regions and updates the canvas and layer list in the same frame.
 
-Compare the entire clipped swept region against conservatively padded later canvas geometry. Any intersection
-can change z-order because the native layers sit above the canvas. Overlapping promoted candidates also reject
-the earlier candidate. When a candidate loses eligibility, damage its swept coverage and restore its retained
-instances to the canvas in the same update that removes its native layer. A newly promoted layer likewise
-damages its canvas coverage. Ordinary canvas draws skip promoted instances, and a capture can replay those
-retained instances through the in-app renderer. Layer changes and canvas presentation use the same
-transaction. With display-link pacing, both wait for a drawable loan. Eligible loops run in Core Animation
-without requesting app frames for their own motion.
+`Renderer::prepare` paints each qualified view into a pooled GPU texture at device scale when
+the content revision or the required extent changes. The draw pass excludes those runs.
+`Renderer::composite` draws them in retained z order in the same command buffer. The view table
+contains the same evaluated transforms, opacity and clip used by in-canvas rendering. The
+compositor applies pixel-area coverage at the output scale, retaining fractional edges through
+changes in pose. Ambient loops keep the UI's repaint rate and an idle frame submits no work.
+
+The retained canvas is reused on animation-only frames. The compositor scissors each promoted
+draw to its swept bounds. A retained final target can restore base pixels and composite within
+the swept damage in a single pass, then pass the damage to incremental presentation. Metal
+copies the canvas into the acquired drawable and draws the promoted layers in that encoder.
+
+`PXUI_NO_LAYERS=1` restores in-canvas rendering. `cargo run -p gate -- deps` restricts native
+window-surface, drawable and vsync symbols to the platform glue. It rejects native layer-tree
+composition and compositor-side animation protocols, including in that glue.
 
 ## Kill switches
 

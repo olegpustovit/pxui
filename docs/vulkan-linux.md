@@ -63,14 +63,16 @@ long-lived weston with `--idle-time=0`: its desktop shell locks the screen after
 FIFO presents (and frame-paced hosts) stop. Weston 13 offers no `wp_fractional_scale_v1`, so the fractional path (with
 `wp_viewporter`) still needs another compositor.
 
-Design hooks, not built: (1) Promoted views (R7: `Ui::promoted()`, the frame's `PxuiPromoted` runs with their
-layer/instance ordinals, rect and keyframes, which macOS composites as CALayers) map to desynchronized `wl_subsurface`s, one per
-promoted run, each with its own swapchain (or a dmabuf `wl_buffer`) and its own damage history. The canvas leaves them out
-(`Renderer::exclude_promoted(true)`), their position and opacity animate through `wl_subsurface.set_position` (and
-`wp_alpha_modifier_v1` where offered) on the parent's commit, and their content commits independently. (2) A DRM/KMS host
-presents the same canvas through an atomic commit with `FB_DAMAGE_CLIPS` (a blob of `drm_mode_rect`, x1/y1/x2/y2 in
-framebuffer pixels) filled by `ogpu_core::damage::drm_clips` from the same per-buffer `damage::History`: each scanout buffer owes its debt the same way a
-swapchain image does. KMS and real-display energy are pending hardware; WSL has no `/dev/dri`.
+The Wayland gallery uses pxui's ogpu compositor for eligible promoted runs. Its retained canvas
+supplies the base pixels. For an animation-only sample the gallery restores the swept damage,
+composites the current poses and passes the same damage to the swapchain's per-image history.
+
+Optional scanout hand-off remains a future optimisation, off by default. An eligible opaque
+layer could supply a dmabuf for a Wayland subsurface or a DRM/KMS overlay plane after pxui
+evaluates its pose. Pxui remains responsible for composition and animation. A DRM/KMS host
+can populate `FB_DAMAGE_CLIPS` for atomic commits using `ogpu_core::damage::drm_clips` and the
+same `damage::History` used by the swapchain. KMS and real-display energy require hardware with
+a DRM device. WSL has no `/dev/dri`.
 
 `pxui_atspi` (the AT-SPI2 accessibility bridge) links `libdbus-1` (`libdbus-1-dev`). Its bus test starts a private
 `dbus-daemon` and, when `at-spi2-core` is installed, `at-spi-bus-launcher` with the registry; it skips without
