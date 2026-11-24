@@ -1464,7 +1464,6 @@ pub struct Ui {
     seen: (i64, i64, bool, bool),
     marks: Vec<i64>,
     hover_extra_reads: std::cell::Cell<bool>,
-    hover_chains: [Vec<i64>; 2],
     damage: DamageList,
     view_out: Vec<(u16, ViewEntry)>,
     blur_out: Vec<BlurOut>,
@@ -1783,7 +1782,6 @@ impl Ui {
             seen: (0, 0, false, false),
             marks: Vec::new(),
             hover_extra_reads: std::cell::Cell::new(false),
-            hover_chains: [Vec::new(), Vec::new()],
             damage: DamageList::default(),
             view_out: Vec::new(),
             blur_out: Vec::new(),
@@ -9335,8 +9333,7 @@ impl Ui {
             }
         }
         if !self.hover_extra_reads.get() { return; }
-        let mut chains = std::mem::take(&mut self.hover_chains);
-        let mut traced = false;
+        let mut chains = None;
         let mut has_readers = false;
         for v in 1..self.views.len() {
             let view = &self.views[v];
@@ -9344,20 +9341,29 @@ impl Ui {
             has_readers |= !reads.is_empty();
             let dirty = view.valid && !view.dirty && reads.iter().any(|&(key, within)| {
                 if !within { return exact.contains(&key); }
-                if !traced {
-                    for (chain, hot) in chains.iter_mut().zip([old, new]) {
-                        chain.clear();
-                        self.hit_ancestors(hot, &mut |ancestor| chain.push(ancestor));
-                    }
-                    traced = true;
-                }
-                chains[0].contains(&key) != chains[1].contains(&key)
+                let chains = chains.get_or_insert_with(|| [old, new].map(|hot| {
+                    let mut chain = [0; 32];
+                    let mut len = 0;
+                    self.hit_ancestors(hot, &mut |ancestor| {
+                        if let Some(slot) = chain.get_mut(len) { *slot = ancestor; }
+                        len += 1;
+                    });
+                    (chain, len)
+                }));
+                let contains = |i: usize, hot| {
+                    let (chain, len) = &chains[i];
+                    if let Some(keys) = chain.get(..*len) { return keys.contains(&key); }
+                    // Deep trees keep the same hit ancestry semantics without allocating scratch.
+                    let mut found = false;
+                    self.hit_ancestors(hot, &mut |ancestor| found |= ancestor == key);
+                    found
+                };
+                contains(0, old) != contains(1, new)
             });
             drop(reads);
             if dirty { self.mark_view(v as u32); }
         }
         self.hover_extra_reads.set(has_readers);
-        self.hover_chains = chains;
     }
 
     /// Dirty the views whose look follows what input changed since the last frame left it.

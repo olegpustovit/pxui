@@ -134,7 +134,7 @@ fn inspector_row_view_keeps_the_lead_gap() {
     // the panels and rows, kept from the frame that built them (a kept view's build does not run)
     let boxes: std::cell::RefCell<std::collections::HashMap<String, Handle>> = Default::default();
     let rows = |ui: &mut Ui, lead: bool, viewed: bool| {
-        let panel = ui.node((if viewed { "viewed" } else { "plain" }).into(), Node { w: Size::Px(300.0), h: Size::Fit, ..Node::DEFAULT });
+        let panel = ui.node((if viewed { "viewed" } else { "plain" }).into(), Node::DEFAULT.w_px(300.0).h(Size::Fit));
         boxes.borrow_mut().insert(format!("{viewed}"), panel);
         ui.within(&panel, &mut |ui| {
             if lead {
@@ -177,9 +177,9 @@ fn hover_only_rebuilds_views_that_read_it() {
                 chip(ui, "plain node", RED, Flags::CLICKABLE);
             });
             ui.view("hover", 1, Size::Px(100.0), Size::Px(20.0), &mut |ui| {
-                let row = ui.node("row".into(), Node { flags: Flags::CLICKABLE, h: Size::Px(20.0), axis: Axis::Row, ..Node::DEFAULT });
+                let row = ui.node("row".into(), Node::row().flags(Flags::CLICKABLE).h_px(20.0));
                 let hovering = ui.hovered_within(&row);
-                ui.set_look(&row, Look { fill: if hovering { RED } else { BLUE }, ..Look::NONE }, State::default());
+                ui.set_look(&row, Look::NONE.fill(if hovering { RED } else { BLUE }), State::default());
                 ui.within(&row, &mut |ui| {
                     chip(ui, "left", BLUE, Flags::CLICKABLE);
                     chip(ui, "right", BLUE, Flags::CLICKABLE);
@@ -188,7 +188,11 @@ fn hover_only_rebuilds_views_that_read_it() {
         });
     };
     ui.frame(&at(0.0, vec![move_to((300, 230))]), &mut build);
-    ui.frame(&at(0.1, vec![move_to((10, 10))]), &mut build);
+    ui.frame(&at(0.05, vec![move_to((300, 230))]), &mut build);
+    let motion = at(0.1, vec![move_to((10, 10))]);
+    let allocated = mem_sys::local_alloc_count();
+    ui.frame(&motion, &mut build);
+    assert_eq!(mem_sys::local_alloc_count(), allocated, "the first hover transition has no scratch allocations");
     assert_eq!(ui.rebuilt_views(), 0, "a hit with no hover reader keeps its view and outer view");
     ui.frame(&at(0.2, vec![move_to((10, 25))]), &mut build);
     assert_eq!(ui.rebuilt_views(), 2, "the outer callback declares the dirty hover-reading view");
