@@ -1371,6 +1371,8 @@ pub struct Ui {
     pub(crate) edit_redo: std::collections::VecDeque<crate::ui_text::EditDelta>,
     pub(crate) edit_group: Option<(crate::ui_text::EditRun, usize, f64)>,
     pub(crate) edit_serial: u64,
+    pub(crate) edit_revision: u64,
+    pub(crate) edit_diff: Option<crate::ui_text::TextDiff>,
     pub(crate) edit_pending: Option<(crate::ui_text::TextEdit, bool)>,
     pub(crate) edit_shelf: Vec<crate::ui_text::ShelfEntry>,
     /// the picker's rows, kept between frames so `picker_filled` reuses their strings
@@ -1705,6 +1707,8 @@ impl Ui {
             edit_redo: std::collections::VecDeque::new(),
             edit_group: None,
             edit_serial: 0,
+            edit_revision: 0,
+            edit_diff: None,
             edit_pending: None,
             edit_shelf: Vec::new(),
             picker_rows: pxui_types::ui::PickRows::new(),

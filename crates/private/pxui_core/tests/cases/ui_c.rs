@@ -554,6 +554,34 @@ fn text_edit_typing_runs_break_on_pause_and_navigation() {
     rig.ui.destroy();
 }
 
+fn incremental_text_rows_match_full() {
+    let mut rig = empty_text_area(Platform::Apple);
+    let mut full = ui11();
+    let source = format!("á首\n{}✨last\n", "foobar".repeat(12));
+    let shown = rig.ui.text_width(None, "0");
+    rig.step(AreaStep { select: Some((0, 0)), ..AreaStep::default() }, vec![]);
+    for wrap in [false, true] {
+        rig.wrapped = wrap;
+        let cols = wrap.then(|| ((300.0 - 36.0 - 16.0) / shown.max(1.0)).floor() as usize);
+        for (at, ch) in source.char_indices().filter(|(_, c)| !c.is_ascii() || *c == '\n') {
+            for (start, stop, inserted, event) in [
+                (at, at, "β", Event::TextInput("β".into())),
+                (at, at, "\n", key_down(Key::Enter)),
+                (at, at + ch.len_utf8(), "", key_down(Key::Delete)),
+            ] {
+                let mut expected = source.clone();
+                expected.replace_range(start..stop, inserted);
+                rig.area.clone_from(&source);
+                rig.step(AreaStep { select: Some((at as i64, at as i64)), ..AreaStep::default() }, vec![event]);
+                assert_eq!(rig.area, expected);
+                assert_eq!(rig.ui.text_rows(cols, &expected), full.text_rows(cols, &expected));
+            }
+        }
+    }
+    full.destroy();
+    rig.ui.destroy();
+}
+
 fn ui11() -> Ui {
     new_ui(Some(11))
 }
@@ -1021,6 +1049,7 @@ pub fn window_pxui_text_memory() {
 }
 
 pub const CASES: &[(&str, fn())] = &[
+    ("incremental_text_rows_match_full", incremental_text_rows_match_full),
     ("text_edit_external_change_keeps_selection_and_history", text_edit_external_change_keeps_selection_and_history),
     ("text_edit_typing_runs_break_on_pause_and_navigation", text_edit_typing_runs_break_on_pause_and_navigation),
     ("window_pxui_text_area", window_pxui_text_area),

@@ -92,7 +92,7 @@ pub(crate) struct ShelfEntry {
 }
 
 #[derive(Clone, Copy)]
-struct TextDiff {
+pub(crate) struct TextDiff {
     start: usize,
     end: usize,
     inserted: usize,
@@ -532,6 +532,8 @@ impl Ui {
             self.enforce_text_undo();
             return;
         }
+        self.edit_revision = self.edit_revision.wrapping_add(1);
+        self.edit_diff = Some(TextDiff { start, end: start + removed.len(), inserted: inserted.len() });
         let time = self.input_frame_time().unwrap_or(0.0);
         let join = join || self.edit_group.is_some_and(|(kind, caret, last)| {
             Some(kind) == run && before == (caret, caret) && time >= last && time - last < 1.0
@@ -579,6 +581,8 @@ impl Ui {
         self.edit_group = None;
         let (stack, other) = if redo { (&mut self.edit_redo, &mut self.edit_undo) } else { (&mut self.edit_undo, &mut self.edit_redo) };
         let Some(group) = stack.back().map(|d| d.group) else { return false };
+        self.edit_revision = self.edit_revision.wrapping_add(1);
+        self.edit_diff = None;
         while stack.back().is_some_and(|d| d.group == group) {
             let d = stack.pop_back().unwrap();
             let (from, to, selection) = if redo { (&d.removed, &d.inserted, d.after) } else { (&d.inserted, &d.removed, d.before) };
@@ -1073,6 +1077,55 @@ struct Wrap {
     char_w: f32,
 }
 
+fn area_cols(cfg: Wrap, lines: usize) -> Option<usize> {
+    cfg.wrap.then(|| {
+        let gutter = gutter_of(cfg.char_w, lines);
+        ((cfg.w - gutter - 16.0).max(1.0) / cfg.char_w.max(1.0)).floor() as usize
+    })
+}
+
+fn newlines(text: &str) -> usize {
+    text.bytes().filter(|&byte| byte == b'\n').count()
+}
+
+fn push_text_rows(rows: &mut Vec<(usize, usize, usize)>, cols: Option<usize>, text: &str, base: usize, first_line: usize) {
+    let n = text.len();
+    let mut start = 0usize;
+    let mut logical = first_line;
+    loop {
+        let stop = text[start..].find('\n').map(|i| start + i).unwrap_or(n);
+        let mut from = start;
+        loop {
+            match cols {
+                None => {
+                    rows.push((base + from, base + stop, logical));
+                    break;
+                }
+                Some(cols) => {
+                    let mut i = from;
+                    let mut k = 1.max(cols);
+                    while k > 0 && i < stop {
+                        i += text[i..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+                        k -= 1;
+                    }
+                    if i >= stop {
+                        rows.push((base + from, base + stop, logical));
+                        break;
+                    }
+                    rows.push((base + from, base + i, logical));
+                    from = i;
+                }
+            }
+        }
+        if stop < n {
+            start = stop + 1;
+            logical += 1;
+        } else {
+            break;
+        }
+    }
+}
+
 #[derive(Default)]
 struct AreaState {
     selected: usize,
@@ -1081,6 +1134,7 @@ struct AreaState {
     submitted: bool,
     changed: bool,
     typed: bool,
+    pasted: bool,
 }
 
 type Scrubbing = Option<(usize, String, f32, bool)>;
@@ -1095,42 +1149,16 @@ impl Ui {
             self.text_rows_seen[..=k].rotate_right(1);
             return self.text_rows_seen[0].2.clone();
         }
-        let n = text.len();
-        let mut rows: Vec<(usize, usize, usize)> = Vec::new();
-        let mut start = 0usize;
-        let mut logical = 0usize;
-        loop {
-            let stop = text[start..].find('\n').map(|i| start + i).unwrap_or(n);
-            let mut from = start;
-            loop {
-                match cols {
-                    None => {
-                        rows.push((from, stop, logical));
-                        break;
-                    }
-                    Some(cols) => {
-                        let mut i = from;
-                        let mut k = 1.max(cols);
-                        while k > 0 && i < stop {
-                            i += text[i..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
-                            k -= 1;
-                        }
-                        if i >= stop {
-                            rows.push((from, stop, logical));
-                            break;
-                        }
-                        rows.push((from, i, logical));
-                        from = i;
-                    }
-                }
-            }
-            if stop < n {
-                start = stop + 1;
-                logical += 1;
-            } else {
-                break;
-            }
-        }
+        self.build_text_rows(cols, text)
+    }
+
+    fn build_text_rows(&mut self, cols: Option<usize>, text: &str) -> Rows {
+        let mut rows = Vec::new();
+        push_text_rows(&mut rows, cols, text, 0, 0);
+        self.cache_text_rows(cols, text, rows)
+    }
+
+    fn cache_text_rows(&mut self, cols: Option<usize>, text: &str, rows: Vec<(usize, usize, usize)>) -> Rows {
         let rows = Rc::new(rows);
         self.text_rows_seen.insert(0, (cols, Rc::from(text), rows.clone()));
         self.text_rows_seen.truncate(self.text_panes);
@@ -1146,14 +1174,50 @@ impl Ui {
     }
 
     fn area_rows(&mut self, cfg: Wrap, text: &str) -> Rows {
-        let logical = 1 + text.bytes().filter(|c| *c == b'\n').count();
-        let cols = if !cfg.wrap {
-            None
-        } else {
-            let gutter = gutter_of(cfg.char_w, logical);
-            Some(((cfg.w - gutter - 16.0).max(1.0) / cfg.char_w.max(1.0)).floor() as usize)
-        };
-        self.text_rows(cols, text)
+        if !cfg.wrap {
+            return self.text_rows(None, text);
+        }
+        let mut lines = None;
+        if let Some(k) = self.text_rows_seen.iter().position(|(cols, known, rows)| {
+            if &**known != text { return false; }
+            let count = rows[rows.len() - 1].2 + 1;
+            lines = Some(count);
+            *cols == area_cols(cfg, count)
+        }) {
+            self.text_rows_seen[..=k].rotate_right(1);
+            return self.text_rows_seen[0].2.clone();
+        }
+        self.build_text_rows(area_cols(cfg, lines.unwrap_or_else(|| 1 + newlines(text))), text)
+    }
+
+    fn update_area_rows(&mut self, cfg: Wrap, old: &str, rows: Rows, text: &str, diff: TextDiff) -> Rows {
+        let old_lines = rows[rows.len() - 1].2 + 1;
+        let lines = old_lines - newlines(&old[diff.start..diff.end]) + newlines(&text[diff.start..diff.start + diff.inserted]);
+        let cols = area_cols(cfg, lines);
+        if cols != area_cols(cfg, old_lines) {
+            return self.text_rows(cols, text);
+        }
+        if let Some(k) = self.text_rows_seen.iter().position(|(c, t, _)| *c == cols && &**t == text) {
+            self.text_rows_seen[..=k].rotate_right(1);
+            return self.text_rows_seen[0].2.clone();
+        }
+
+        let first_line = rows[row_at(&rows, diff.start)].2;
+        let last_line = rows[row_at(&rows, diff.end)].2;
+        let first = rows.partition_point(|&(_, _, line)| line < first_line);
+        let last = rows.partition_point(|&(_, _, line)| line <= last_line);
+        let shift = |byte: usize| byte - (diff.end - diff.start) + diff.inserted;
+        let start = rows[first].0;
+        let end = shift(rows[last - 1].1);
+        let mut next = Vec::with_capacity(rows.len() + lines.saturating_sub(old_lines));
+        next.extend_from_slice(&rows[..first]);
+        push_text_rows(&mut next, cols, &text[start..end], start, first_line);
+        // ponytail: stored absolute offsets still shift each following row. Use a segmented
+        // index if copying its entries dominates real large-document edits.
+        next.extend(rows[last..].iter().map(|&(a, b, line)| {
+            (shift(a), shift(b), line + lines - old_lines)
+        }));
+        self.cache_text_rows(cols, text, next)
     }
 
     /// A language's colours for a text, kept like its rows: one list a pane on screen. A theme is
@@ -1669,6 +1733,7 @@ fn text_area_submit_body(this: &mut Ui, place: Node, o: &TextAreaOpts, label: &s
         // nothing reads an unfocused area's edit text: the painted text is `final_text`
         TextEdit { text: String::new(), caret: text.len(), anchor: text.len() }
     };
+    let revision = this.edit_revision;
     let mut moved = false;
     let mut st = AreaState::default();
     if let Some(f) = &o.on_context {
@@ -1860,12 +1925,6 @@ fn text_area_submit_body(this: &mut Ui, place: Node, o: &TextAreaOpts, label: &s
         moved = edit.caret != caret0 || edit.text != text || signal.pressed;
     }
     // scrolling: the wheel, then whatever keeps the caret (or `reveal`) in view
-    // unchanged text is the one the rows cache holds (most recently used first), shared without a copy
-    let final_text: Rc<str> = if !focused || edit.text == text {
-        this.text_rows_seen.first().filter(|seen| &*seen.1 == text).map_or_else(|| Rc::from(text), |seen| seen.1.clone())
-    } else {
-        Rc::from(edit.text.as_str())
-    };
     if focused {
         if let Some(f) = &o.on_caret {
             f(edit.caret as i64);
@@ -1896,7 +1955,19 @@ fn text_area_submit_body(this: &mut Ui, place: Node, o: &TextAreaOpts, label: &s
             }
         }
     }
-    let rows = if &*final_text == text { rows } else { this.area_rows(cfg, &final_text) };
+    let changed = focused && edit.text != text;
+    let displayed = if changed { edit.text.as_str() } else { text };
+    let rows = if !changed {
+        rows
+    } else if st.pasted {
+        this.area_rows(cfg, displayed)
+    } else {
+        let diff = this.edit_diff.filter(|_| this.edit_revision == revision.wrapping_add(1))
+            .unwrap_or_else(|| TextDiff::between(text, displayed));
+        this.update_area_rows(cfg, text, rows, displayed, diff)
+    };
+    let final_text = this.text_rows_seen.iter().find(|(_, _, cached)| Rc::ptr_eq(cached, &rows))
+        .map_or_else(|| Rc::<str>::from(displayed), |(_, text, _)| Rc::clone(text));
     let count = rows.len();
     let notes = this.area_notes(area_key, &o.messages, &rows);
     // `reveal` scrolls once per (offset, length, nonce): the content box remembers it, and
@@ -2065,8 +2136,6 @@ fn text_area_submit_body(this: &mut Ui, place: Node, o: &TextAreaOpts, label: &s
         look: area_look,
     };
     this.draw(&body, move |paint, rect| painted.paint(paint, rect));
-    // an unfocused area's edit holds no text and nothing changed
-    let changed = focused && edit.text != text;
     if changed {
         this.returned = edit.text;
     }
@@ -2077,9 +2146,7 @@ fn handle_keys_body(this: &mut Ui, body: &UiBox, cfg: Wrap, page: i64, language:
     for (event, modifiers) in this.key_events(body) {
         let command = this.command_modifiers(&modifiers);
         let shift = modifiers.contains(&Key::Shift);
-        let rows = this.area_rows(cfg, &edit.text);
-        let count = rows.len();
-        let line = row_at(&rows, edit.caret);
+        st.pasted |= matches!(event, Event::Paste(_));
         // Up and Down keep the column they started from across shorter rows
         match &event {
             Event::KeyPressed(Key::ArrowUp) | Event::KeyPressed(Key::ArrowDown) if !command => {}
@@ -2301,19 +2368,23 @@ fn handle_keys_body(this: &mut Ui, body: &UiBox, cfg: Wrap, page: i64, language:
             }
             Event::KeyPressed(Key::ArrowUp) if command => move_caret(edit, 0, shift),
             Event::KeyPressed(Key::ArrowDown) if command => move_caret(edit, edit.text.len(), shift),
-            Event::KeyPressed(Key::ArrowUp) => this.vertical(edit, &rows, count, line, -1, shift),
-            Event::KeyPressed(Key::ArrowDown) => this.vertical(edit, &rows, count, line, 1, shift),
-            Event::KeyPressed(Key::PageUp) => this.vertical(edit, &rows, count, line, -page, shift),
-            Event::KeyPressed(Key::PageDown) => this.vertical(edit, &rows, count, line, page, shift),
-            Event::KeyPressed(Key::Home | Key::ArrowLeft)
-                if this.line_modifiers(&modifiers) || event == Event::KeyPressed(Key::Home) =>
-            {
-                move_caret(edit, start_of(&rows, line), shift)
+            Event::KeyPressed(key @ (Key::ArrowUp | Key::ArrowDown | Key::PageUp | Key::PageDown)) => {
+                let rows = this.area_rows(cfg, &edit.text);
+                let step = match key {
+                    Key::ArrowUp => -1,
+                    Key::ArrowDown => 1,
+                    Key::PageUp => -page,
+                    _ => page,
+                };
+                this.vertical(edit, &rows, rows.len(), row_at(&rows, edit.caret), step, shift);
             }
-            Event::KeyPressed(Key::End | Key::ArrowRight)
-                if this.line_modifiers(&modifiers) || event == Event::KeyPressed(Key::End) =>
+            Event::KeyPressed(key @ (Key::Home | Key::End | Key::ArrowLeft | Key::ArrowRight))
+                if this.line_modifiers(&modifiers) || matches!(key, Key::Home | Key::End) =>
             {
-                move_caret(edit, stop_of(&rows, line), shift)
+                let rows = this.area_rows(cfg, &edit.text);
+                let line = row_at(&rows, edit.caret);
+                let target = if matches!(key, Key::Home | Key::ArrowLeft) { start_of(&rows, line) } else { stop_of(&rows, line) };
+                move_caret(edit, target, shift);
             }
             event => {
                 if this.edit_text_event(true, edit, &|_| true, &modifiers, event) {
