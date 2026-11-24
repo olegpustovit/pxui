@@ -242,9 +242,12 @@ const METAL_SURFACE: &[&str] = &[
 pub fn platform_compositor_symbol<'a>(path: &str, code: &'a str) -> Option<&'a str> {
     let code = code.trim_start();
     if code.starts_with("//") || code.starts_with("/*") || code.starts_with("* ") { return None; }
-    if (path.ends_with(".m") || path.ends_with(".mm"))
-        && [".layer.", ".layer =", ".layer;", " layer];", " layer] "].iter().any(|item| code.contains(item))
-        && !code.contains("[CAMetalLayer layer]")
+    if (path.ends_with(".m") || path.ends_with(".mm") || path.ends_with(".h"))
+        && code.split("[CAMetalLayer layer]").any(|part| {
+            part.split('.').skip(1).any(|property| {
+                property.trim_start().split(|c: char| !c.is_ascii_alphanumeric() && c != '_').next() == Some("layer")
+            }) || part.contains(" layer]")
+        })
     {
         return Some("NSView layer access");
     }
@@ -279,6 +282,7 @@ mod compositor_tests {
         assert_eq!(check("unlisted.mm", "CAMetalLayer *target;"), Some("CAMetalLayer"));
         assert_eq!(check(surface, "[CATransaction commit];"), Some("CATransaction"));
         assert_eq!(check(surface, "view.layer.sublayers = nil;"), Some("NSView layer access"));
+        assert_eq!(check(surface, "view.layer=[CAMetalLayer layer];"), Some("NSView layer access"));
         assert_eq!(check("shim.c", "wl_subsurface_set_position(a, x, y);"), Some("wl_subsurface_set_position"));
         assert_eq!(check("shim.c", "ext_surface_animation_v1;"), Some("ext_surface_animation_v1"));
         assert_eq!(check("shim.c", "wl_surface_frame(surface);"), None);

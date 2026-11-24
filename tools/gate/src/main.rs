@@ -1194,7 +1194,7 @@ fn ogpu_selection_errors(
 
 fn compositor_policy(workspace: &Path) -> Result<Vec<String>, String> {
     let mut files = Vec::new();
-    for directory in ["crates", "tools"] {
+    for directory in ["crates", "include", "packaging", "tools"] {
         source_files(&workspace.join(directory), &mut files, &["rs", "c", "cpp", "h", "hpp", "m", "mm", "xml"])
             .map_err(|e| format!("cannot scan {directory}: {e}"))?;
     }
