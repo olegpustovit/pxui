@@ -507,14 +507,23 @@ fn run_tests(
         return report_whole_timeout(run_started);
     }
     if !editor.is_empty() {
-        let mut shards = vec![Vec::new(); workers.min(editor.len())];
-        let count = shards.len();
-        for (index, case) in editor.into_iter().enumerate() {
-            shards[index % count].push(case);
+        let mut shards = vec![(Duration::ZERO, Vec::new()); workers.min(editor.len())];
+        let mut weighted: Vec<_> = editor.into_iter().map(|case| {
+            let prior = baselines.get(&(case.crate_name.clone(), case.name.clone())).copied();
+            (prior.unwrap_or(Duration::from_millis(50)), case)
+        }).collect();
+        // Put the expensive cases on different workers and preserve harness order inside each shard.
+        weighted.sort_by_key(|(elapsed, _)| std::cmp::Reverse(*elapsed));
+        for (elapsed, case) in weighted {
+            let (total, cases) = shards.iter_mut().min_by_key(|(total, _)| *total).unwrap();
+            *total = total.saturating_add(elapsed);
+            cases.push(case);
         }
         let outcomes = thread::scope(|scope| {
-            let jobs: Vec<_> = shards.into_iter().map(|cases| {
-                scope.spawn(move || run_case_groups(&cases, args, run_started, timeout))
+            let jobs: Vec<_> = shards.into_iter().filter_map(|(_, mut cases)| {
+                if cases.is_empty() { return None; }
+                cases.sort_unstable_by_key(|case| case.order);
+                Some(scope.spawn(move || run_case_groups(&cases, args, run_started, timeout)))
             }).collect();
             jobs.into_iter().flat_map(|job| job.join().unwrap()).collect::<Vec<_>>()
         });
