@@ -353,6 +353,28 @@ fn live_resize_callback_runs_during_the_window_event_pump() {
     crate::init::quit_subsystems(&[crate::init::Subsystem::Video, crate::init::Subsystem::Events]).unwrap();
 }
 #[test]
+fn live_resize_callback_runs_during_the_window_event_wait() {
+    claim_dummy_main();
+    crate::init::init(&[crate::init::Subsystem::Video, crate::init::Subsystem::Events]).unwrap();
+    crate::event::poll_coalesced().unwrap();
+    let observed = std::rc::Rc::new(std::cell::Cell::new(false));
+    let redraw = observed.clone();
+    crate::event::set_live_resize_callback(Some(Box::new(move |window| {
+        assert_eq!(window, 0);
+        redraw.set(sdl3_sys::test_util::polling_event_queue());
+        Ok(())
+    }))).unwrap();
+    sdl3_sys::test_util::queue_resize_during_poll();
+    crate::event::wait(20).unwrap();
+    assert!(observed.get(), "a wait must redraw before returning to the window loop");
+    assert!(crate::event::poll_coalesced().unwrap().contains(
+        &(0, crate::Event::Window(crate::WindowChange::PixelSizeChanged(640, 480))),
+    ));
+    crate::event::set_live_resize_callback(None).unwrap();
+    crate::init::quit_subsystems(&[crate::init::Subsystem::Video, crate::init::Subsystem::Events]).unwrap();
+}
+
+#[test]
 fn injected_video_startup_failure_is_captured_immediately() {
     // The body needs a missing video driver, which the parent gate cannot set for this process, so it runs in a child.
     let status = std::process::Command::new(std::env::current_exe().unwrap())
