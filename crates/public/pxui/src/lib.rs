@@ -193,6 +193,7 @@ mod sys {
         pub fn pxui_last_error(ui: *const PxuiUi) -> Str;
         pub fn pxui_ui_add_surface(ui:*mut PxuiUi,surface:u64)->i32;
         pub fn pxui_ui_remove_surface(ui:*mut PxuiUi,surface:u64)->i32;
+        pub fn pxui_ui_input(ui: *mut PxuiUi, has_owner: u8, owner: i64, out: *mut pxui_types::ffi::Input) -> i32;
         pub fn pxui_frame(ui:*mut PxuiUi,input:*const FrameIn,build:pxui_types::ffi::UiBuild,user:*mut c_void,out:*mut FrameOut)->i32;
         pub fn pxui_ui_within(ui:*mut PxuiUi,box_:*const PxuiBox,build:pxui_types::ffi::UiBuild,user:*mut c_void)->i32;
         pub fn pxui_ui_scope(ui:*mut PxuiUi,label:Str,build:pxui_types::ffi::UiBuild,user:*mut c_void)->i32;
@@ -582,6 +583,44 @@ pub fn event_text(event: &Event) -> &str {
     core::str::from_utf8(unsafe { core::slice::from_raw_parts(event.text.ptr, event.text.len) }).unwrap_or("")
 }
 
+/// The latest frame's input for one application owner. Reading another owner may replace
+/// the library's backing storage, so this snapshot exclusively borrows its UI.
+pub struct RoutedInput<'a> {
+    raw: Input,
+    _ui: PhantomData<&'a mut Ui>,
+}
+
+impl RoutedInput<'_> {
+    /// The frame's timing, geometry and raw spans.
+    pub fn input(&self) -> &Input { &self.raw }
+
+    /// Key codes currently held for this owner.
+    pub fn keys(&self) -> &[u32] {
+        let span = self.raw.keys;
+        if span.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(span.ptr, span.len) } }
+    }
+
+    /// Button codes currently held for this owner.
+    pub fn buttons(&self) -> &[u32] {
+        let span = self.raw.buttons;
+        if span.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(span.ptr, span.len) } }
+    }
+
+    /// Events in arrival order, borrowing their payloads from the library.
+    pub fn events(&self) -> impl ExactSizeIterator<Item = &Event> + '_ {
+        (0..self.raw.events.len).map(move |index| unsafe { self.raw.events.at(index) })
+    }
+
+    /// The numeric payload of a touch event at the supplied index.
+    pub fn touch(&self, index: usize) -> Option<Touch> {
+        let event = self.events().nth(index)?;
+        if event.kind != Event::TOUCH || event.text.ptr.is_null() || event.text.len != core::mem::size_of::<Touch>() {
+            return None;
+        }
+        Some(unsafe { event.text.ptr.cast::<Touch>().read_unaligned() })
+    }
+}
+
 /// One built frame: the draw output and damage of `pxui_frame`. It borrows the `Ui` it came from, so the
 /// layer pointers it holds cannot be read after the next frame invalidates them.
 pub struct Frame<'a> {
@@ -792,6 +831,44 @@ impl Ui {
         };
         composite::resume_deferred();
         if rc==0 { Ok(Frame { out, _ui:PhantomData }) } else { Err(Error::from_code(rc)) }
+    }
+
+    /// Reads the latest frame as routed to a viewport's resolved root key, or to the
+    /// application if `owner` is `None`. Returns `Error::State` before the first frame.
+    ///
+    /// Allocates: when the library's retained routing buffers grow.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let mut ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
+    /// assert!(matches!(ui.routed_input(None), Err(pxui::Error::State)));
+    /// let dropped = "/tmp/a.flac\0/tmp/b.flac";
+    /// let event = pxui::Event {
+    ///     x: 10.0, y: 20.0, text: pxui::Str { ptr: dropped.as_ptr(), len: dropped.len() },
+    ///     ..pxui::Event::new(pxui::Event::FILES_DROPPED)
+    /// };
+    /// ui.frame(&pxui::FrameIn::new(320.0, 240.0).events(&[event]), &mut |_| {}).unwrap();
+    /// let snapshot = ui.routed_input(Some(123)).unwrap();
+    /// let mut events = snapshot.events();
+    /// assert_eq!(pxui::event_text(events.next().unwrap()), dropped);
+    /// assert!(events.next().is_none());
+    /// drop(events);
+    /// let mut owner = 0;
+    /// let mut build = |ui: &mut pxui::Ui| {
+    ///     owner = ui.node("viewport", pxui::Node::DEFAULT.flags(pxui::Flags::CLICKABLE)
+    ///         .w_px(200.0).h_px(100.0)).box_key;
+    /// };
+    /// ui.frame(&pxui::FrameIn::new(320.0, 240.0).time(1.0), &mut build).unwrap();
+    /// let press = pxui::Event::pointer(pxui::Event::POINTER_PRESSED, 0, 10.0, 20.0);
+    /// ui.frame(&pxui::FrameIn::new(320.0, 240.0).time(2.0).events(&[press]), &mut build).unwrap();
+    /// assert!(ui.routed_input(Some(owner)).unwrap().events().any(|e| e.kind == press.kind));
+    /// assert!(!ui.routed_input(None).unwrap().events().any(|e| e.kind == press.kind));
+    /// ```
+    pub fn routed_input(&mut self, owner: Option<i64>) -> Result<RoutedInput<'_>, Error> {
+        let mut raw = Input::default();
+        status(unsafe { sys::pxui_ui_input(self.0.as_ptr(), u8::from(owner.is_some()), owner.unwrap_or_default(), &mut raw) })?;
+        if !raw.events.is_valid() { return Err(Error::Engine); }
+        Ok(RoutedInput { raw, _ui: PhantomData })
     }
 
     /// Registers a surface on this `Ui` (`Ui::new` registered `FrameIn::MAIN`).
