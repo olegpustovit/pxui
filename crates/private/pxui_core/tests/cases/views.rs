@@ -127,6 +127,34 @@ pub fn window_pxui_view_input() {
     ui.destroy();
 }
 
+fn hover_only_rebuilds_views_that_read_it() {
+    let mut ui = new_ui(None);
+    let mut build = |ui: &mut Ui| {
+        ui.view("outer", 1, Size::Px(100.0), Size::Px(80.0), &mut |ui| {
+            ui.view("plain", 1, Size::Px(100.0), Size::Px(20.0), &mut |ui| {
+                chip(ui, "plain node", RED, CLICKABLE);
+            });
+            ui.view("hover", 1, Size::Px(100.0), Size::Px(20.0), &mut |ui| {
+                let row = ui.node("row", Node { flags: CLICKABLE, h: Size::Px(20.0), axis: Axis::Row, ..Node::DEFAULT });
+                let hovering = ui.hovered_within(&row);
+                ui.set_look(&row, Look { fill: if hovering { RED } else { BLUE }, ..Look::NONE }, State::default());
+                ui.within(&row, &mut |ui| {
+                    chip(ui, "left", BLUE, CLICKABLE);
+                    chip(ui, "right", BLUE, CLICKABLE);
+                });
+            });
+        });
+    };
+    ui.frame(&at(0.0, vec![move_to((300, 230))]), &mut build);
+    ui.frame(&at(0.1, vec![move_to((10, 10))]), &mut build);
+    assert_eq!(ui.rebuilt_views(), 0, "a hit with no hover reader keeps its view and outer view");
+    ui.frame(&at(0.2, vec![move_to((10, 25))]), &mut build);
+    assert_eq!(ui.rebuilt_views(), 2, "the outer callback declares the dirty hover-reading view");
+    ui.frame(&at(0.3, vec![move_to((50, 25))]), &mut build);
+    assert_eq!(ui.rebuilt_views(), 0, "hover still belongs to the same subtree");
+    ui.destroy();
+}
+
 /// Offset and opacity change one table entry: no instance rewritten, damage reported, hit testing
 /// and `rect` follow.
 pub fn window_pxui_view_offset() {
@@ -156,7 +184,7 @@ pub fn window_pxui_view_offset() {
     ui.frame(&at(0.2, vec![move_to((5, 5))]), &mut build);
     check(!ui.signal(&n).hovered, "the node hit at its old place");
     ui.frame(&at(0.3, vec![move_to((35, 15))]), &mut build);
-    check(ui.signal(&n).hovered && runs.get() == 2, "the node missed at its offset place");
+    check(ui.signal(&n).hovered && runs.get() == 1, "the offset node must receive hover without rebuilding its view");
     check(ui.output().views.iter().any(|(_, e)| e.offset == [30.0, 10.0]), "a frame dropped the offset");
     ui.destroy();
 }
@@ -693,6 +721,7 @@ pub fn window_pxui_field_kept_drag() {
 }
 
 pub const CASES: &[(&str, fn())] = &[
+    ("hover_only_rebuilds_views_that_read_it", hover_only_rebuilds_views_that_read_it),
     ("window_pxui_field_kept_drag", window_pxui_field_kept_drag),
     ("window_pxui_budget_counts", window_pxui_budget_counts),
     ("window_pxui_budget_cached_per_view", window_pxui_budget_cached_per_view),
