@@ -1194,7 +1194,7 @@ impl Ui {
     /// animated nodes, not the window. Returns false, changing nothing, when the next frame needs a build: before the
     /// first frame, while input, a gesture, a frame request, a timer, a hover delay or settling layout is due by `time`,
     /// or when time runs backwards. A host with no events and nothing new to show calls it instead of `frame` when
-    /// `repaint_at` is due; `output().damage` and `draw_revision` report what changed.
+    /// `repaint_at` is due. Read `damage_list()` for the changed regions and `draw_revision` for draw-list changes.
     ///
     /// Allocates: never once warm (the patch scratch grows on first use).
     /// Panics: when the UI is poisoned.

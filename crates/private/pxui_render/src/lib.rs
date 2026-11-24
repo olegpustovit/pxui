@@ -791,7 +791,7 @@ impl Painter {
     /// drawn from its own storage. Before the segment that starts at each instance in `splits` (each must also be some break's
     /// `at_instance`; one at the end is ignored) it stops where the caller must end the pass and calls `split(self, at)`. The
     /// callback may record other passes and returns the pass the rest draws into, or `None` to go on in the same one.
-    /// `cull` supplies the encoder's active pixel scissor and the same layers as `parts`, in order.
+    /// `cull` supplies the damage scissors in target pixels and the same layers as `parts`, in order.
     pub fn draw_retained_split(&mut self, pass: &RenderEncoder, size_px: [u32; 2], scale: f32, parts: &[(u32, &[Instance], &[(u32, u32)])], breaks: &[Break], splits: &[u32], excluded: &[u32], cull: Option<(&[[u32; 4]], &[Layer])>, damage: Option<&DamageClip>, split: &mut dyn FnMut(&mut Painter, u32) -> Result<Option<RenderEncoder>, Error>) -> Result<(), Error> {
         const OP: &str = "Painter.draw_retained";
         let mut pass = pass.clone();
