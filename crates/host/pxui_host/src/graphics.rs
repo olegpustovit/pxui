@@ -498,13 +498,11 @@ impl Graphics {
     }
 
     /// Compares the last rendered canvas with a full redraw of the same UI into a separate Metal texture.
+    /// The reference uses the same promoted-layer exclusion as the last draw.
     /// Call after a successful in-app draw and before changing the UI or viewport. This waits for
     /// readback without acquiring or presenting another drawable. First use or an extent change
     /// can allocate scratch storage.
     pub fn verify_canvas(&mut self, ui: &Ui, scale: f32) -> Result<bool, Error> {
-        if !self.no_layers && !ui.promoted().is_empty() {
-            return Err(Error::Host("canvas verification requires in-app composition"));
-        }
         let (width, height) = self.blur_extent;
         let frames = self.frames.as_mut().expect("Live frame context");
         let renderer = self.renderer.as_mut().expect("Live graphics renderer");
@@ -514,6 +512,7 @@ impl Graphics {
         let check = (|| {
             // Clear the backdrop cache so the reference also checks pixels from reused blur results.
             renderer.resize(width, height)?;
+            renderer.exclude_promoted(self.presenting_layers)?;
             let commands = frames.commands();
             renderer.prepare(&Commands {
                 size: core::mem::size_of::<Commands>() as u32,

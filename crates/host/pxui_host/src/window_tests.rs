@@ -202,6 +202,7 @@ fn window_promoted_drawable_damage_keeps_canvas_and_clears_old_poses() {
     } else {
         assert!(partials > 2, "drawable reuse must exercise scissored presentation");
     }
+    assert!(graphics.verify_canvas(&ui, window.scale() as f32).unwrap(), "full redraw of the composited base canvas");
     graphics.test_capture_drawables(false).unwrap();
     graphics.close().unwrap();
     window.destroy().unwrap();
