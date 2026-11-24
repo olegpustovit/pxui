@@ -2261,18 +2261,6 @@ fn library_code(source: &str) -> String {
     code
 }
 
-/// Recorded records whose field types changed other than by growth at the end, each reviewed when it landed, pinned to the field types
-/// it was reviewed with (a later change fails again): a field in padding the library reads only while it agrees with an older one, and
-/// a grown record kept at its recorded size with its larger layout recorded as a row of its own.
-const REVIEWED_FIELD_CHANGES: &[(&str, &str)] = &[
-    // 1.79 `size_points` in the padding at 4, read only while within half a point of `size` (U1b)
-    ("PxuiFontDesc", "uint16_t; uint16_t; float; int64_t; float; uint8_t; uint8_t[3]"),
-    // 1.78 `padding_points` in the padding at 20, read only while it agrees with `padding` within half a point (U1b)
-    ("PxuiPanel", "uint32_t; float; float; float; float; float; int64_t; uint8_t; uint8_t; uint8_t; uint8_t; uint8_t; uint8_t[3]; float; PxuiColor; PxuiLookDesc"),
-    // 1.60 `abi_built`, recorded as the row `PxuiUiDescV1_60`
-    ("PxuiUiDesc", "uint32_t; uint32_t; int32_t; uint32_t"),
-];
-
 /// What decides whether a recorded layout row may grow (docs/abi.md, Append-only rules): the record fields of the header the old
 /// manifest was made with and of the current one (`header_records`), the records the library writes (the config each `body_kinds!` line
 /// names, and every record an export returns as `const T *`) and the earlier sizes the library reads each caller record at (`read_desc!`).
@@ -2362,13 +2350,12 @@ impl Growth {
     }
 }
 
-/// The major of the manifest `abi/pxui.v1.txt`. The growth rule (append-only rows) holds from major 2; before the 2.0 cut the 1.x ABI
-/// is not frozen (D28) and `abi-snapshot` only detects changes.
+/// The major of `abi/pxui.v1.txt` and the first minor with immutable stable layouts.
 const ABI_MAJOR: u32 = 2;
+const ABI_FREEZE_MINOR: u32 = 13;
 
-/// `old` against the current rows. Any new, removed or changed row needs a later minor. From `major` 2 the manifest is append-only: a
-/// row removed or changed fails, except a layout row grown at its end as `Growth::refuse` allows, and any other change of a recorded
-/// record's field types fails. Before 2 (D28) rows may change or go freely, behind the minor bump.
+/// Stable rows from the freeze onward are immutable. Historical major 2 fixtures allow checked trailing growth to account for
+/// changes made before the freeze. Every addition needs a later minor.
 fn compare_abi_snapshot(old: &str, major: u32, minor: u32, current: &BTreeMap<String, String>, growth: &Growth) -> Vec<String> {
     let mut issues = Vec::new();
     let (old_minor, old_lines) = snapshot_rows(old);
@@ -2385,6 +2372,8 @@ fn compare_abi_snapshot(old: &str, major: u32, minor: u32, current: &BTreeMap<St
     for (key, old_line) in &old_lines {
         match current.get(key) {
             None => issues.push(format!("abi-snapshot: removed {old_line}")),
+            Some(new_line) if new_line != old_line && old_minor >= ABI_FREEZE_MINOR =>
+                issues.push(format!("abi-snapshot: changed frozen row `{old_line}` to `{new_line}`")),
             Some(new_line) if new_line != old_line => match growth.refuse(old_line, new_line, &mut nested) {
                 None => grown.extend(growth.record(&key[7..])),
                 Some(why) => issues.push(format!("abi-snapshot: changed `{old_line}` to `{new_line}` ({why})")),
@@ -2399,7 +2388,7 @@ fn compare_abi_snapshot(old: &str, major: u32, minor: u32, current: &BTreeMap<St
     for (name, was) in growth.old.iter().filter(|(name, _)| recorded.contains(*name)) {
         let Some(now) = growth.new.get(name) else { continue };
         let types = |fields: &[(String, String)]| fields.iter().map(|f| f.0.as_str()).collect::<Vec<_>>().join("; ");
-        if types(now) != types(was) && !grown.contains(name) && !nested.contains(name) && !REVIEWED_FIELD_CHANGES.contains(&(name.as_str(), types(now).as_str())) {
+        if types(now) != types(was) && !grown.contains(name) && !nested.contains(name) {
             issues.push(format!("abi-snapshot: the field types of {name} changed from `{}` to `{}`", types(was), types(now)));
         }
     }
@@ -2446,13 +2435,9 @@ fn abi_snapshot(workspace: &Path, write: bool) -> Result<Vec<String>, String> {
         if !out.status.success() { return Err(format!("abi-snapshot: git show HEAD:{file} failed: {}", String::from_utf8_lossy(&out.stderr).trim())); }
         Ok(String::from_utf8_lossy(&out.stdout).into_owned())
     };
-    let base = if old.is_empty() { String::new() } else { committed("abi/pxui.v1.txt")? };
-    // a row that moved to the extension manifest leaves the frozen one; every other old row still has to be there
-    let frozen: String = base.lines().filter(|line| {
-        let mut words = line.split_whitespace();
-        !matches!((words.next(), words.next()), (Some(kind), Some(name)) if ext.contains_key(&format!("{kind} {name}")))
-    }).map(|line| format!("{line}\n")).collect();
-    let issues = if old.is_empty() { Vec::new() } else { compare_abi_snapshot(&frozen, ABI_MAJOR, minor, &lines, &growth(workspace, &committed("include/pxui.h")?, &lines)?) };
+    let issues = if old.is_empty() { Vec::new() } else {
+        compare_abi_snapshot(&committed("abi/pxui.v1.txt")?, ABI_MAJOR, minor, &lines, &growth(workspace, &committed("include/pxui.h")?, &lines)?)
+    };
     if !issues.is_empty() { return Ok(issues); }
     let mut snapshot = format!("# Append-only PXUI ABI snapshot.\nminor {minor}\n");
     for line in lines.values() { snapshot.push_str(line); snapshot.push('\n'); }
@@ -2473,35 +2458,35 @@ fn abi_snapshot(workspace: &Path, write: bool) -> Result<Vec<String>, String> {
     }
 }
 
-/// The release directories under `fixtures/abi/` (`2.0`, ...), oldest first. The 1.x fixtures were retired with the 1.x freeze (D28);
-/// none exist until U5 re-baselines at 2.0, and the frozen and compat checks pass with nothing to check until then.
-fn abi_fixtures(workspace: &Path) -> Result<Vec<PathBuf>, String> {
+/// Release fixtures in minor order. Both gates require the R9 freeze baseline.
+fn abi_fixtures(workspace: &Path) -> Result<Vec<(u32, PathBuf)>, String> {
     let root = workspace.join("fixtures/abi");
+    let baseline = root.join(format!("{ABI_MAJOR}.{ABI_FREEZE_MINOR}"));
+    if !baseline.is_dir() { return Err(format!("missing ABI freeze baseline: {}", baseline.display())); }
     let mut dirs: Vec<(u32, PathBuf)> = Vec::new();
-    let Ok(entries) = fs::read_dir(&root) else { return Ok(Vec::new()) };
+    let entries = fs::read_dir(&root).map_err(|error| format!("{}: {error}", root.display()))?;
     for entry in entries {
         let path = entry.map_err(|error| error.to_string())?.path();
         let minor = path.file_name().and_then(|n| n.to_str()).and_then(|n| n.strip_prefix("2.")).and_then(|n| n.parse().ok());
         if let (true, Some(minor)) = (path.is_dir(), minor) { dirs.push((minor, path)); }
     }
     dirs.sort();
-    Ok(dirs.into_iter().map(|(_, path)| path).collect())
+    Ok(dirs)
 }
 
-/// Every row a released 2.x minor froze is still in the current manifest, unchanged (a record may have grown at its end behind its size
-/// prefix, its frozen offsets in place), and anything new came with a later minor. The check is
-/// against the copy kept in `fixtures/abi/2.N/`, which editing the manifest to match changed code does not touch. Before the 2.0
-/// baseline there is nothing to check (D28).
+/// Checks the saved stable rows from the freeze and the compatible prefix of the historical baseline.
+/// A later minor is required for additions.
 fn abi_frozen(workspace: &Path) -> Result<Vec<String>, String> {
     let current_path = workspace.join("abi/pxui.v1.txt");
     let current = fs::read_to_string(&current_path).map_err(|error| format!("{}: {error}", current_path.display()))?;
     let (Some(minor), rows) = snapshot_rows(&current) else { return Ok(vec!["abi-frozen: abi/pxui.v1.txt has no valid `minor N` line".to_owned()]) };
     let mut issues = Vec::new();
-    let fixtures = abi_fixtures(workspace)?;
-    if fixtures.is_empty() { println!("abi-frozen: no 2.x baseline yet (the 1.x ABI is not frozen, D28)"); }
-    for dir in fixtures {
+    for (fixture_minor, dir) in abi_fixtures(workspace)? {
         let path = dir.join("pxui.v1.txt");
         let frozen = fs::read_to_string(&path).map_err(|error| format!("{}: {error}", path.display()))?;
+        if snapshot_rows(&frozen).0 != Some(fixture_minor) {
+            return Err(format!("{}: expected minor {fixture_minor}", path.display()));
+        }
         let header_path = dir.join("pxui.h");
         let header = fs::read_to_string(&header_path).map_err(|error| format!("{}: {error}", header_path.display()))?;
         issues.extend(compare_abi_snapshot(&frozen, 2, minor, &rows, &growth(workspace, &header, &rows)?).into_iter().map(|issue| issue.replacen("abi-snapshot", &format!("abi-frozen ({})", dir.display()), 1)));
@@ -2509,13 +2494,9 @@ fn abi_frozen(workspace: &Path) -> Result<Vec<String>, String> {
     Ok(issues)
 }
 
-/// Each kept 2.x old-app binary for this platform runs against the library built from this tree and exits 0; before the 2.0 baseline
-/// there is none (D28).
+/// Each frozen old app for this platform runs against the library built from this tree and exits 0.
 fn abi_compat(workspace: &Path) -> Result<Vec<String>, String> {
-    if abi_fixtures(workspace)?.is_empty() {
-        println!("abi-compat: no 2.x baseline yet (the 1.x ABI is not frozen, D28)");
-        return Ok(Vec::new());
-    }
+    let fixtures = abi_fixtures(workspace)?;
     if cfg!(windows) {
         println!("abi-compat: skipped on Windows (the old-app fixtures are macOS and Linux binaries)");
         return Ok(Vec::new());
@@ -2529,11 +2510,15 @@ fn abi_compat(workspace: &Path) -> Result<Vec<String>, String> {
     fs::create_dir_all(&lib_dir).map_err(|error| format!("{}: {error}", lib_dir.display()))?;
     fs::copy(target_dir.join("debug").join(library), lib_dir.join(installed)).map_err(|error| format!("cannot stage {library}: {error}"))?;
     let suffix = format!("old_app-{}-{}", if cfg!(target_os = "macos") { "Darwin" } else { "Linux" }, env::consts::ARCH.replace("aarch64", "arm64"));
-    let (mut issues, mut ran) = (Vec::new(), 0);
-    for dir in abi_fixtures(workspace)? {
+    let mut issues = Vec::new();
+    for (minor, dir) in fixtures {
         let app = dir.join(&suffix);
-        if !app.exists() { continue; }
-        ran += 1;
+        if !app.is_file() {
+            if minor >= ABI_FREEZE_MINOR {
+                issues.push(format!("abi-compat: missing {}; run tools/abi-fixture.sh {minor} on this platform at the release commit", app.display()));
+            }
+            continue;
+        }
         let output = std::process::Command::new(&app).env(path_var, &lib_dir).output().map_err(|error| format!("cannot run {}: {error}", app.display()))?;
         if output.status.success() {
             print!("{}", String::from_utf8_lossy(&output.stdout));
@@ -2541,11 +2526,10 @@ fn abi_compat(workspace: &Path) -> Result<Vec<String>, String> {
             issues.push(format!("abi-compat: {} failed ({}): {}{}", app.display(), output.status, String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr)));
         }
     }
-    if ran == 0 { issues.push(format!("abi-compat: no fixtures/abi/2.N/{suffix} for this platform; run tools/abi-fixture.sh on it")); }
     Ok(issues)
 }
 
-const EXTENSION_HEADER: &str = "# PXUI extension set: no stability guarantee (docs/abi.md, Extension set). Rows may change or disappear between minors.\n# The set is the names listed here; add a name to move a call out of the frozen manifest, then run `cargo run -p gate -- abi-snapshot --write`.\n";
+const EXTENSION_HEADER: &str = "# PXUI extension set: no stability guarantee (docs/abi.md, Extension set). Rows may change or disappear between minors.\n# The set is the names listed here. Stable rows cannot move here. Regenerate with `cargo run -p gate -- abi-snapshot --write`.\n";
 
 fn workspace_root() -> Result<PathBuf, String> {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -2820,6 +2804,21 @@ mod abi_tests {
     fn none() -> Growth { Growth::new("", "", &BTreeMap::new(), &[]) }
 
     #[test]
+    fn the_historical_fixture_alone_does_not_satisfy_the_freeze() {
+        let workspace = std::env::temp_dir().join(format!("pxui-abi-freeze-{}", std::process::id()));
+        std::fs::create_dir(&workspace).unwrap();
+        let root = workspace.join("fixtures/abi");
+        std::fs::create_dir_all(root.join("2.0")).unwrap();
+        let missing = super::abi_fixtures(&workspace);
+        let baseline = root.join(format!("2.{}", super::ABI_FREEZE_MINOR));
+        std::fs::create_dir(&baseline).unwrap();
+        let fixtures = super::abi_fixtures(&workspace);
+        std::fs::remove_dir_all(&workspace).unwrap();
+        assert!(missing.unwrap_err().contains(baseline.to_str().unwrap()));
+        assert_eq!(fixtures.unwrap().last(), Some(&(super::ABI_FREEZE_MINOR, baseline)));
+    }
+
+    #[test]
     fn snapshot_is_append_only_and_additions_bump_minor() {
         let old = "minor 2\nfunction pxui_a int32_t pxui_a ( void ) ;\nlayout Rect 16 4 0 4 8 12\n";
         let current = BTreeMap::from([
@@ -2858,6 +2857,20 @@ mod abi_tests {
 
     /// The `body_kinds!` line that makes `PxuiTabsConfig` a body config.
     const KINDS: &str = "macro_rules! body_kinds {\n    tabs register_tabs_body TabBody PxuiTabsConfig TabsConfig,\n};";
+
+    #[test]
+    fn frozen_layouts_refuse_even_compatible_trailing_growth() {
+        let minor = super::ABI_FREEZE_MINOR;
+        let row = "layout PxuiTabsConfig 16 8 0 8";
+        let old = format!("minor {minor}\n{row}\n");
+        let current = BTreeMap::from([("layout PxuiTabsConfig".to_owned(), "layout PxuiTabsConfig 24 8 0 8 16".to_owned())]);
+        let old_header = record("PxuiTabsConfig", "uint32_t size; int64_t index;");
+        let new_header = record("PxuiTabsConfig", "uint32_t size; int64_t index; int64_t extra;");
+        let growth = Growth::new(&old_header, &new_header, &current, &[KINDS.to_owned()]);
+        assert!(compare_abi_snapshot(&old, 2, minor + 1, &current, &growth).iter().any(|issue| issue.contains("changed frozen row")));
+        let legacy = format!("minor 0\n{row}\n");
+        assert!(compare_abi_snapshot(&legacy, 2, minor, &current, &growth).is_empty());
+    }
 
     /// A recorded layout row grows only by trailing fields under a later minor, its recorded offsets and field types unchanged, and only
     /// for a record the library writes (a body config, a returned snapshot) or a caller-written record with a `uint32_t size` prefix the

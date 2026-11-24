@@ -1,9 +1,8 @@
 #ifndef PXUI_H
 #define PXUI_H
 
-/* ABI 2.0. The functions (abi/pxui.v1.txt) and layouts (abi/layout.v1.txt) are append-only from this baseline (docs/abi.md): a layout is never
-   altered, a descriptor grows by new trailing fields (its leading `size` says how much the caller wrote), and a change that needs more is a
-   new function. An app states the version it was built for (PxuiUiDesc.abi_built, PXUI_ABI_BUILT); the library refuses another major, or a
+/* The stable ABI (abi/pxui.v1.txt and abi/layout.v1.txt) is frozen at 2.13 (docs/abi.md). Later minors can add functions and records.
+   Frozen record layouts are immutable. An app states the version it was built for (PxuiUiDesc.abi_built, PXUI_ABI_BUILT); the library refuses another major, or a
    newer minor than its own, at pxui_ui_create (PXUI_ERR_VERSION). Every call that can fail returns int32_t, 0 on success; the reason is
    pxui_last_error(ui). */
 

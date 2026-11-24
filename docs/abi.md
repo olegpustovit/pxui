@@ -1,23 +1,23 @@
 # ABI
 
 The wire contract is [pxui.v1.txt](../abi/pxui.v1.txt) (file names keep `v1`: the manifest format); numeric layouts are in
-[layout.v1.txt](../abi/layout.v1.txt); the extension set is [pxui.ext.txt](../abi/pxui.ext.txt). Change the exports, header, wrapper,
-snapshots and C layout assertions together; rebuild app and dylib together. Static/dynamic validation, pixel and warm-allocation checks
+[layout.v1.txt](../abi/layout.v1.txt). The extension set is [pxui.ext.txt](../abi/pxui.ext.txt). For an ABI addition, update exports,
+the header, wrapper, snapshots and C layout assertions together. Static and dynamic validation, pixel checks and warm-allocation checks
 remain required.
 
 ## Policy
 
-**Baseline.** This is ABI 2.0, a clean cut (owner D28; the 1.x interface, its history and its fixtures are gone). From here the C
-interface is stable: an export is never removed, renamed or re-signatured, a record's layout is never altered except by growing at its
-end, and an enum or flag value is never reused. `abi-snapshot` records the manifests, `abi-frozen` compares them with the copy kept in
-`fixtures/abi/2.N/` and `abi-compat` runs the old-app binary kept there against the library built from the tree.
+**Baseline.** The clean cut to ABI major 2 introduced version 2.0 and retired the 1.x interface and fixtures (owner D28). R9 freezes
+the stable C interface at the current 2.13 minor. Keeping that minor preserves version ordering for consumers built before the freeze.
+The original 2.0 fixture remains a compatibility check. Tier B runs `abi-frozen` against the release manifests and `abi-compat`
+against the old consumer binaries. Both gates require the 2.13 fixture.
 
 **Version.** `pxui_abi_version()` returns `major << 16 | minor` (`ABI_VERSION` in `pxui_abi`, the `minor N` line of `abi/pxui.v1.txt`,
 `pxui_types::ABI_BUILT` and `PXUI_ABI_BUILT` in `pxui.h`, kept equal by tests). The shared library is `libpxui.2` (`libpxui.2.dylib`,
-install name `@rpath/libpxui.2.dylib`, compatibility version 2.0.0 and current version 2.3.0; ELF soname `libpxui.so.2`). Minor grows by one for each
+install name `@rpath/libpxui.2.dylib`, compatibility version 2.0.0 and current version 2.N.0, where N is the ABI minor; ELF soname `libpxui.so.2`). Minor grows by one for each
 additive change.
 
-**Promise.** An app built against 2.N runs unchanged against any later 2.M library (M >= N): every export with its signature, every
+**Promise.** From 2.13 onward, an app built against 2.N runs unchanged against any later 2.M library (M >= N): every export with its signature, every
 record layout and field offset, every flag, enum and code value, the behaviour of existing calls on inputs they accepted, and identity
 hashes once a released minor has frozen them. **Minimum library:** an app states the version it was built for
 (`PxuiUiDesc.abi_built`, `PXUI_ABI_BUILT`) and `pxui_ui_create` refuses another major (a 1.x app), an unstated version (0) and a newer
@@ -28,21 +28,13 @@ library did not write at that size.
 **Append-only rules.**
 
 - Exports are never removed, renamed or re-signatured. A different shape is a new export.
-- Records are `repr(C)` with `size: u32` first and one size each at 2.0 (no earlier layout is read). **Growth (enforced by `abi-snapshot`
-  and `abi-frozen`):** a recorded layout row changes only by growing at its end, under a minor bump: the same name and alignment, a larger
-  size, every recorded field offset in place and every recorded field's type unchanged, the new fields appended at or past the recorded
-  size. Only two kinds of record may grow: (a) a record the library writes and the app reads (the config a `body_kinds!` line names, a
-  borrowed snapshot an export returns as `const T *`); a reader built against the smaller layout reads its prefix, and a reader built against
-  the larger one reads a grown field only when the record's `size` covers it or after checking the library's minor; (b) a record the caller
-  writes whose first field is `size` and that the library reads at the minimum size it has had: a caller record is read from `size` bytes
-  when `size` covers the 2.0 layout (`read_desc!`), copies no more than it knows, and treats every grown field as zero (the DX7.4
-  minimum-size rule, tested by `sized_records`). Any other change of a recorded row is refused. An output record is written only up to the
-  caller's `size`.
-- Spans cross as `{ptr, len, stride}` with the stride at least the record's size; elements may grow.
+- Frozen records keep their size, alignment and field types and offsets. Add a new record and entry point when a different shape is
+  needed. The gates still recognize the trailing growth that happened before the freeze so the historical 2.0 output prefix remains
+  usable. A size-prefixed output is written only up to the caller's declared size.
+- Spans cross as `{ptr, len, stride}` with the stride at least the record's size.
 - Enum and flag values are never reused or renumbered. A retired value stays reserved.
-- `abi/pxui.v1.txt` and `abi/layout.v1.txt` change only by appending lines or by a row grown under the growth rule; each change takes a
-  minor bump and a row in the history table below. The manifests are written by the gates (`abi-snapshot --write`,
-  `PXUI_LAYOUT_WRITE=1`), never by hand.
+- Additions to `abi/pxui.v1.txt` and `abi/layout.v1.txt` require a minor bump and a history row. Regenerate the manifests with
+  `abi-snapshot --write` and `PXUI_LAYOUT_WRITE=1`.
 - One minor bump per additive change, made in the same commit as the export, header, snapshots and docs row.
 
 **Reserved flag bits.** Node flags (`Flags`, `u64`) use bits 0-21 today (highest is `FIT_TEXT_PIXEL`, 1 << 21). Bits 22-62 are
@@ -99,15 +91,15 @@ older library.
 `line_field`, `patch_field`, `value_field`, `picker`, `pxui_ui_diagnostics` and `pxui_counter`, with the records only they use. They are
 listed in `abi/pxui.ext.txt`, which carries no stability guarantee: they may change or disappear between minors, and an app pins the commit
 if it uses them (`PXUI_FEATURE_EXTENSION_SET`). The calls stay exported and declared in `include/pxui.h`. The set is the names in that file;
-the `abi-snapshot` gate keeps its rows current (`cargo run -p gate -- abi-snapshot --write`) and `abi/pxui.v1.txt` and `abi/layout.v1.txt`
-carry none of them. Moving a call into the set is an edit of that file, reviewed as one; a row left in the frozen manifest is frozen.
+the `abi-snapshot` gate keeps its rows current (`cargo run -p gate -- abi-snapshot --write`). The stable ABI snapshot excludes those
+extension rows. Stable exports and layouts stay in the stable manifest.
 *Extension body kinds:* the body kinds `inspector_row`, `footer`, `grip`, `line_field`, `value_field`, `picker` and
 `picker_field` build the Rays vocabulary; their numbers in `PxuiBodyKind` and their slots in `PxuiBodies` are fixed like every kind's, but
 their `Pxui*Config` records (in the extension layout rows) carry no stability promise. `inspector_section` is also the body of the generic
 `pxui_ui_disclosure`, so its record stays frozen.
 
 
-**Handle head.** `PxuiUi` is opaque except its first field, `const PxuiThemeSnapshot *theme` at offset 0, frozen at 2.0 (owner ruling, 21 Nov 2026): read-only for the app, NULL until a theme read on the handle (`pxui_ui_theme`) fills it, then valid for as long as the handle is and not rewritten while the handle is usable (a theme swap is refused inside a frame; a themed scope builds through a handle of its own). The snapshot record behind it follows the growth rule (its parts are last, `size` and `part_count` say how much was written). Nothing else of `PxuiUi` is part of the interface.
+**Handle head.** `PxuiUi` is opaque except its first field, `const PxuiThemeSnapshot *theme` at offset 0, frozen at 2.0 (owner ruling, 21 Nov 2026): read-only for the app, NULL until a theme read on the handle (`pxui_ui_theme`) fills it, then valid for as long as the handle is and not rewritten while the handle is usable (a theme swap is refused inside a frame; a themed scope builds through a handle of its own). The snapshot record behind it has a fixed layout from the freeze onward. Its `size` and `part_count` say how much was written. Nothing else of `PxuiUi` is part of the interface.
 
 **Contracts.** The header states the error model, the thread and lifetime contract, the raw-handle exception (D16: worker, shaper,
 prepared-text, accessibility and renderer pointers are not validated), per-Ui body names and the GPU-device decision (OS-6, D24: a renderer
@@ -119,12 +111,12 @@ owns its device; sharing one across windows is a host concern deferred past 2.0)
 a closed surface's tree (unknown nonzero ids are ignored). Owner approved this correction and regeneration of the unreleased 2.0 baseline
 on 21 Nov 2026, before the U6 release freeze.
 
-**Old-app fixture.** At each release `tools/abi-fixture.sh <minor>` (on macOS and on Linux) keeps the release's header, its manifest and a C
-app built against it (`tools/abi-old-app.c`) in `fixtures/abi/2.<minor>/`. `cargo run -p gate -- abi-compat` runs every kept binary against
-the library built from the tree, and `abi-frozen` fails when a row the fixture's manifest froze is missing or changed in `abi/pxui.v1.txt`
-(a layout row may only grow at its end behind its size prefix), or when the manifest gained a row without a later minor: editing
-`abi/pxui.v1.txt` to match changed code does not touch the fixture's copy. `pxui_abi`'s `the_library_checks_the_version_the_app_was_built_against_once_at_create`
-tests that a 1.x app, an unstated one and a newer minor are refused cleanly.
+**Old-app fixture.** At each release run `tools/abi-fixture.sh <minor>` on macOS and Linux. It saves the release's header, stable
+manifest and C consumer source, plus a native binary linked against that release, in `fixtures/abi/2.<minor>/`. Preserve the release
+files when updating the current ABI. `cargo run -p gate -- abi-compat` runs the saved binaries for the current platform against the
+library built from the tree. The historical 2.0 app is kept for macOS arm64. `abi-frozen` rejects removed or changed rows in the
+freeze baseline and requires a later minor for additions. `pxui_abi`'s `the_library_checks_the_version_the_app_was_built_against_once_at_create` tests rejection of a 1.x app, an
+unstated version and a newer minor.
 
 **Adding a call.** In one commit: the `pxui_abi` export; the wrapper method in `pxui`; the declaration in `include/pxui.h`; the appended
 row in `abi/pxui.v1.txt` (and `abi/layout.v1.txt` for a new record); the history row below; the `ABI_VERSION` and `ABI_BUILT` bump with
@@ -148,5 +140,6 @@ and name the replacement; nothing is removed from the manifest.
 | 2.8 | Added `pxui_renderer_draw_damage` to cull retained geometry against a host scissor. |
 | 2.9 | `PxuiOutput.repaint_hz` reports the active ambient rate in the former reserved word. The record size and offsets stay the same. |
 | 2.10 | Defined bit 0 of `PxuiTargetDesc.reserved_tail` (`PXUI_TARGET_BACKDROP_UI_DAMAGE`). The host guarantees backdrop pixels change only through Ui damage, uses one target and ordered queue per renderer, and leaves damage acknowledgement to that renderer. Call `pxui_renderer_resize` on canvas replacement, frame cancellation or GPU errors to invalidate reuse. Default renderers recompute. `PXUI_NO_BLUR_REUSE=1` disables reuse. The record layout is unchanged. |
+| 2.11 | Added `pxui_renderer_draw_damage_rects` to replay retained geometry under multiple device-pixel scissors. |
 | 2.12 | Added `pxui_ui_promote`, `pxui_ui_set_promotion`, `pxui_ui_promoted` and `pxui_renderer_exclude_promoted`. Apple hosts composite qualified vector fills separately and retain the instances for capture and demotion. |
-| 2.13 | Added `pxui_renderer_composite`. With exclusion enabled, prepare caches promoted content and composite blends it in a host-owned pass at the UI density. |
+| 2.13 | Added `pxui_renderer_composite`. With exclusion enabled, prepare caches promoted content and composite blends it in a host-owned pass at the UI density. R9 froze the stable ABI and restored `abi-frozen` and `abi-compat` to Tier B. |

@@ -21,6 +21,7 @@ static void build(void *user, PxuiUi *ui) {
 int main(void) {
     uint32_t version = pxui_abi_version();
     if ((version >> 16) != 2 || (version & 0xffff) < PXUI_FIXTURE_MINOR) FAIL("the library is older than the release this app was built against");
+    if (pxui_renderer_composite(NULL, NULL, NULL, NULL) != PXUI_ERR_ARGUMENT) FAIL("pxui_renderer_composite");
     PxuiUiDesc desc = { sizeof desc, 0, 13, PXUI_ABI_BUILT };
     int32_t status = 0;
     PxuiUi *ui = pxui_ui_create(&desc, NULL, 0, &status);
@@ -39,7 +40,17 @@ int main(void) {
         memset(&out, 0, sizeof out);
         out.size = sizeof out;
         if (pxui_frame(ui, &in, build, NULL, &out) != 0) FAIL("pxui_frame refused the release's input");
+        const PxuiOutput *output = pxui_ui_output(ui);
+        if (!output || output->size < sizeof *output) FAIL("pxui_ui_output omitted the release's fields");
+        PxuiDamageList damage = {0};
+        if (pxui_ui_damage_list(ui, &damage) != 0 ||
+            damage.count != output->damage_list.count || damage.full != output->damage_list.full) {
+            FAIL("the damage list disagrees with the release's output layout");
+        }
     }
+    const PxuiPromoted *promoted = NULL;
+    size_t count = 1;
+    if (pxui_ui_promoted(ui, &promoted, &count) != 0 || count != 0) FAIL("pxui_ui_promoted");
     if (clicked_calls == 0) FAIL("the button call never succeeded");
     if (pxui_ui_destroy(ui) != 0) FAIL("pxui_ui_destroy");
     printf("old app ok: built for 2.%d, running on %u.%u\n", PXUI_FIXTURE_MINOR, version >> 16, version & 0xffff);

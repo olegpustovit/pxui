@@ -27,14 +27,12 @@ nothing may reach outside this repository (no `../../..` paths past the root).
 - A focused warm run should finish under 30 seconds. Never raise deadlines to hide regressions or
   weaken assertions. Leave one small runnable regression for nontrivial logic.
 - Run `git diff --check` and `cargo run -p gate -- deps` before committing; commit completed stages.
-- Owner sign-offs (2026-11-17, pxui Unification Plan in LocalWave's AGENTS.md): (4) build-time measurement scripts
+- Owner sign-off (2026-11-17, pxui Unification Plan in LocalWave's AGENTS.md): build-time measurement scripts
   (LocalWave `tools/dx/buildtime.sh`) may use their own target directories and a temporary worktree, removed when they
-  finish; the shared-`target/` rule above holds for everything else. (5) Breaking API and ABI changes are welcome until
-  the 2.0 freeze, with no compat layers, twins or shims; only performance, build speed and zero warm allocations
-  constrain a change (ABI minors still bump and manifests are regenerated, never hand-edited). D28 (2026-11-18): the
-  1.x C ABI is not frozen either: exports and records change in place, a superseded export is deleted in the step that
-  supersedes it, and `abi-snapshot` is a change detector only. The 1.x frozen fixtures and the 1.57 old-consumer check are
-  retired; `abi-frozen`/`abi-compat` and the growth rule return at 2.0 against re-baselined manifests (docs/abi.md).
+  finish. The shared-`target/` rule above holds for everything else.
+- Tier B includes `cargo run -p gate -- abi-frozen` and `cargo run -p gate -- abi-compat` (also run by `gate -- all`).
+  R9 freezes stable ABI major 2 at minor 13. Follow the append-only and deprecation rules in [docs/abi.md](docs/abi.md).
+  Regenerate the current manifests with the ABI tools and preserve the release fixtures. The D28 retirement of 1.x fixtures stands.
 
 ## Contracts
 
