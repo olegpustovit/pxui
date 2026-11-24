@@ -602,12 +602,15 @@ pub unsafe fn button_plain(ui: *mut PxuiUi, key: &str, text: &str, out: &mut Eng
 /// `button_plain`.
 #[inline(always)]
 pub unsafe fn icon_button_plain(ui: *mut PxuiUi, key: &str, glyph: &str, name: &str, out: &mut EngineResponse) -> i32 {
+    unsafe { icon_button_plain_checked(ui, key, clip(glyph), clip(name), bad_key(key), out) }
+}
+
+/// The C export checks the key and all string lengths before this call.
+#[inline(always)]
+pub(crate) unsafe fn icon_button_plain_checked(ui: *mut PxuiUi, key: &str, glyph: &str, name: &str, bad: bool, out: &mut EngineResponse) -> i32 {
     enter!(ui);
-    let glyph = clip(glyph);
-    let name = clip(name);
-    if bad_key(key) { return unsafe { fail(ui, "invalid icon button text") }; }
-    let r = unsafe { engine(ui) }.icon_button_text(key, glyph, None, name, &pxui_core::ui::IconButton::DEFAULT, None, None);
-    *out = r;
+    if bad { return unsafe { fail(ui, "invalid icon button text") }; }
+    *out = unsafe { engine(ui) }.icon_button_text(key, glyph, None, name, &pxui_core::ui::IconButton::DEFAULT, None, None);
     0
 }
 
@@ -791,15 +794,17 @@ fn overlay_ok(overlay: &Overlay) -> bool {
 
 /// A panel keyed by `key`, placed, dressed and named by `overlay`.
 #[inline]
-pub unsafe fn panel(ui: *mut PxuiUi, key: &str, overlay: &Overlay, f: Inner, root: &mut PxuiBox) -> i32 { unsafe { panel_keyed(ui, key, bad_key(key), overlay, f, root) } }
+pub unsafe fn panel(ui: *mut PxuiUi, key: &str, overlay: &Overlay, f: Inner, root: &mut PxuiBox) -> i32 {
+    let mut clipped = None;
+    let overlay = clipped_overlay(overlay, &mut clipped);
+    unsafe { panel_keyed(ui, key, bad_key(key), overlay, f, root) }
+}
 
-/// `panel` whose key the caller checked (`bad`: refused): `pxui_ui_panel`, whose `read_keyed` has checked the key's length, passes
-/// `unusable`. Always inline, the export is one body (24 instructions a call fewer, dynamic abi_bench probe).
+/// Build a panel whose name is already within the display text limit and whose key the caller checked (`bad`: refused).
+/// The C export's `read_keyed` checks both limits before this call. Always inline, the export is one body.
 #[inline(always)]
 pub(crate) unsafe fn panel_keyed(ui: *mut PxuiUi, key: &str, bad: bool, overlay: &Overlay, f: Inner, root: &mut PxuiBox) -> i32 {
     enter!(ui);
-    let mut clipped = None;
-    let overlay = clipped_overlay(overlay, &mut clipped);
     if bad || !overlay_ok(overlay) { return unsafe { fail(ui, "invalid panel descriptor") }; }
     *root = to_abi_box(unsafe { engine(ui) }.panel_root(key, overlay, f));
     0
