@@ -1068,7 +1068,24 @@ int32_t rv_texture_write(void *texture, const void *bytes, const rv_blit_desc *a
 // The same staged write recorded into `commands` (an adopted app command buffer outside a pass).
 int32_t rv_cmd_write_texture(void *commands, void *texture, const void *bytes, const rv_blit_desc *a) {
   auto *c = static_cast<Command *>(commands); if (c->rendering) return VK_ERROR_INITIALIZATION_FAILED;
-  return record_texture_write(c, static_cast<Texture *>(texture), bytes, a);
+  auto *t = static_cast<Texture *>(texture);
+  int32_t result = record_texture_write(c, t, bytes, a);
+  if (result != VK_SUCCESS) return result;
+  // The next pass can sample the uploaded atlas in this command buffer, before its closing barrier.
+  VkImageMemoryBarrier2 ready{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+  ready.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+  ready.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+  ready.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+  ready.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
+  ready.oldLayout = ready.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+  ready.srcQueueFamilyIndex = ready.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  ready.image = t->image;
+  ready.subresourceRange = {t->aspect, a->mip, 1, 0, 1};
+  VkDependencyInfo info{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+  info.imageMemoryBarrierCount = 1;
+  info.pImageMemoryBarriers = &ready;
+  vkCmdPipelineBarrier2(c->cb, &info);
+  return VK_SUCCESS;
 }
 void rv_blit_buffer_to_texture(void *commands, void *buffer, void *texture, const rv_blit_desc *a) {
   auto *c = static_cast<Command *>(commands); auto *t = static_cast<Texture *>(texture);
