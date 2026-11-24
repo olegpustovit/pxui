@@ -4,6 +4,7 @@ pub mod acceleration;
 pub mod backend;
 pub mod binding;
 pub mod caps;
+pub mod damage;
 #[cfg(unix)]
 pub mod dmabuf;
 pub mod error;
