@@ -216,6 +216,7 @@ fn main() {
     let mut force = true;
     // a changed frame not drawn yet because no frame callback had arrived
     let mut deferred = false;
+    let mut canvas_pending = false;
     let started = Instant::now();
     mem_sys::local_reset();
     loop {
@@ -271,8 +272,9 @@ fn main() {
             force = true;
         }
         encode_events(&events, &mut raw_events, &mut event_text,&mut event_touches);
-        let due = repaint.is_some_and(|at| now >= at);
-        let stepped = due && !deferred && !force && raw_events.is_empty() && !ui.promoted().is_empty() && ui.step(now);
+        let invited = surface.is_none() || host::frame_ready(&win);
+        let due = (!deferred || invited) && repaint.is_some_and(|at| now >= at);
+        let stepped = due && !force && raw_events.is_empty() && !ui.promoted().is_empty() && ui.step(now);
         if stepped {
             repaint = ui.repaint_at();
             frames += 1;
@@ -339,11 +341,15 @@ fn main() {
         }
         // A changed frame waits for the compositor's invitation (Wayland frame callback) when it presents to a window.
         let wanted = ui.draw_revision() != drawn_revision && (built || stepped || animating || deferred);
-        let invited = surface.is_none() || host::frame_ready(&win);
+        if wanted && (built || stepped || animating) {
+            let damage = ui.damage_list();
+            canvas_pending |= !stepped || damage.count != 0 || damage.full != 0;
+        }
         deferred = wanted;
-        if wanted && invited && draw(&mut gpu, &ui, &mut renderer, &target, &mut composed, surface.as_ref(), &mut win, stepped) {
+        if wanted && invited && draw(&mut gpu, &ui, &mut renderer, &target, &mut composed, surface.as_ref(), &mut win, canvas_pending) {
             drawn_revision = ui.draw_revision();
             deferred = false;
+            canvas_pending = false;
             draws += 1;
             if label_only && draws == 1 { println!("pxui_gallery: first-frame {:.3}", entered.elapsed().as_secs_f64() * 1e3 - window_ms); }
             if let Some(path) = shot.as_deref().filter(|_| draws >= 3) {
@@ -355,7 +361,7 @@ fn main() {
             }
         }
         if exit_after.is_some_and(|secs| now >= secs) { break; }
-        let mut wake = repaint.unwrap_or(f64::INFINITY).min(next_theme_poll);
+        let mut wake = if deferred && !invited { next_theme_poll } else { repaint.unwrap_or(f64::INFINITY).min(next_theme_poll) };
         if animating || (deferred && invited) { wake = wake.min(now + 1.0 / 60.0); }
         if shot.is_some() && draws < 3 { (wake, force) = (now, true); }
         if let Some(secs) = exit_after { wake = wake.min(secs); }
@@ -373,7 +379,7 @@ fn main() {
     gpu.close();
 }
 
-fn draw(gpu: &mut Gpu, ui: &Ui, renderer: &mut Renderer, canvas: &be::Texture, composed: &mut Option<be::Texture>, surface: Option<&Surface>, window: &mut host::Window, stepped: bool) -> bool {
+fn draw(gpu: &mut Gpu, ui: &Ui, renderer: &mut Renderer, canvas: &be::Texture, composed: &mut Option<be::Texture>, surface: Option<&Surface>, window: &mut host::Window, canvas_pending: bool) -> bool {
     let extent = window.extent();
     let scale = window.scale() as f32;
     let ground = ui.theme().tokens.panel;
@@ -384,8 +390,7 @@ fn draw(gpu: &mut Gpu, ui: &Ui, renderer: &mut Renderer, canvas: &be::Texture, c
     let size = [extent.drawable.0 as u32, extent.drawable.1 as u32];
     let promoted = ui.promoted();
     let has_layers = !promoted.is_empty();
-    let reported = ui.damage_list();
-    let animation_only = stepped && has_layers && composed.is_some() && reported.count == 0 && reported.full == 0;
+    let animation_only = !canvas_pending && has_layers && composed.is_some();
     let damage = animation_only.then(|| {
         let viewport = pxui::Rect::new(0.0, 0.0, size[0] as f32, size[1] as f32);
         let mut damage = pxui::DamageList::default();
