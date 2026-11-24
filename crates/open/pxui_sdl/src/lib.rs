@@ -619,6 +619,13 @@ impl Window {
         if self.offscreen { Some(0) } else { self.pacing.as_ref().map_or(Some(1), sdl3::pacing::Pacing::presentation) }
     }
 
+    /// Drives one native callback and holds its drawable until the returned tick is dropped.
+    #[cfg(all(target_os = "macos", feature = "test-util"))]
+    #[doc(hidden)]
+    pub fn test_display_link_tick(&self) -> Option<sdl3::pacing::Tick> {
+        self.pacing.as_ref()?.tick(0)
+    }
+
     /// Monotonic time for the current frame's intended presentation, in seconds on the window clock.
     pub fn frame_time(&self) -> f64 {
         self.time().max(self.frame_time)

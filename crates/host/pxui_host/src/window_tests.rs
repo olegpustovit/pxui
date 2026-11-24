@@ -15,7 +15,32 @@ mod link_promotion;
 
 #[cfg(target_os = "macos")]
 fn window_display_link_presents_promoted_layers() {
-    link_promotion::run().unwrap();
+    use crate::Window;
+
+    let mut window = Window::open_with("PXUI display-link promotion", 160, 100, true, false, false).unwrap();
+    pxui_sdl::test_order_front(&window.token().unwrap(), false);
+    let (mut ui, mut graphics) = link_promotion::open(&mut window).unwrap();
+    let mut events = Vec::new();
+    let deadline = window.time() + 0.35;
+    loop {
+        assert!(window.pump(&mut events));
+        if window.presentation().is_some() { break; }
+        assert!(window.time() < deadline, "promotion probe window must be exposed");
+        events.clear();
+        window.wait(Some(deadline));
+    }
+
+    let linked = link_promotion::expects_display_link();
+    {
+        let _tick = linked.then(|| window.test_display_link_tick().expect("first display-link drawable"));
+        link_promotion::present_first(&mut window, &mut ui, &mut graphics, linked).unwrap();
+    }
+    if linked {
+        let _tick = window.test_display_link_tick().expect("display-link drawable for the deferred present");
+        link_promotion::present_deferred(&mut window, &ui, &mut graphics).unwrap();
+    }
+    graphics.close().unwrap();
+    window.destroy().unwrap();
 }
 
 #[cfg(target_os = "macos")]
