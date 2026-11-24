@@ -185,7 +185,11 @@ fn window_promoted_drawable_damage_keeps_canvas_and_clears_old_poses() {
             assert_eq!(pixel(left + 1, 9), &expected, "frame {frame}, x={left}, partial={partial}");
         }
     }
-    assert!(partials > 2, "drawable reuse must exercise scissored presentation");
+    if std::env::var_os("PXUI_FULL_DAMAGE").is_some_and(|value| value == "1") {
+        assert_eq!(partials, 0, "full damage must present the whole drawable");
+    } else {
+        assert!(partials > 2, "drawable reuse must exercise scissored presentation");
+    }
     graphics.test_capture_drawables(false).unwrap();
     graphics.close().unwrap();
     window.destroy().unwrap();
