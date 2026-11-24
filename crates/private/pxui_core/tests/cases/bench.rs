@@ -128,8 +128,8 @@ fn cpu_phase_clock_counts_settling_and_rejects_failed_or_regressing_reads() {
     }
     let mut ui = new_ui(None);
     let frame = frame_at(vec![], 1.0, 0.0, vec![]);
-    assert_eq!(ui.phase_cpu_times(), None);
-    ui.set_cpu_clock(Some(clock));
+    assert_eq!(ui.phase_counts(), None);
+    ui.set_phase_counter(Some(clock));
     let mut calls = 0;
     ui.frame(&frame, &mut |ui| {
         calls += 1;
@@ -147,7 +147,7 @@ fn cpu_phase_clock_counts_settling_and_rejects_failed_or_regressing_reads() {
     });
     assert!(calls > 1, "exercise settling passes");
     assert_eq!(
-        ui.phase_cpu_times(),
+        ui.phase_counts(),
         Some([
             100 * calls,
             1100 * calls,
@@ -164,7 +164,7 @@ fn cpu_phase_clock_counts_settling_and_rejects_failed_or_regressing_reads() {
     mem_sys::local_reset();
     ui.frame(&frame, &mut |_| {});
     assert_eq!(
-        ui.phase_cpu_times(),
+        ui.phase_counts(),
         Some([100; 7]),
         "reset at each outer frame"
     );
@@ -180,24 +180,24 @@ fn cpu_phase_clock_counts_settling_and_rejects_failed_or_regressing_reads() {
         fn regressing_clock() -> Option<u64> {
             CLOCK.with(|value| Some(100 - value.replace(1)))
         }
-        ui.set_cpu_clock(Some(if bad.is_none() {
+        ui.set_phase_counter(Some(if bad.is_none() {
             bad_clock
         } else {
             regressing_clock
         }));
         ui.frame(&frame, &mut |_| {});
-        assert_eq!(ui.phase_cpu_times(), None);
+        assert_eq!(ui.phase_counts(), None);
     }
-    ui.set_cpu_clock(None);
+    ui.set_phase_counter(None);
     ui.frame(&frame, &mut |_| {});
-    assert_eq!(ui.phase_cpu_times(), None);
+    assert_eq!(ui.phase_counts(), None);
     ui.destroy();
 }
 
 fn cached_glyph_paint_keeps_instance_bytes_without_warm_allocations() {
     let mut ui = new_ui(None);
     #[cfg(target_os = "macos")]
-    ui.set_cpu_clock(Some(|| mem_sys::profile::thread_cpu_time_ns().ok()));
+    ui.set_phase_counter(Some(|| mem_sys::profile::thread_cpu_time_ns().ok()));
     let mut frame = frame_at(vec![], 2.0, 0.0, vec![]);
     frame.input.size = (1000, 1400);
     let mut expected = Vec::new();
@@ -219,7 +219,7 @@ fn cached_glyph_paint_keeps_instance_bytes_without_warm_allocations() {
             assert_eq!(mem_sys::local_alloc_count(), 0);
             assert_eq!(ui.output().draw[0].instances, expected);
             assert!(expected.len() > 2500, "exercise a full page of glyph instances");
-            if let Some(phases) = ui.phase_cpu_times() { paint_ns += phases[4]; }
+            if let Some(phases) = ui.phase_counts() { paint_ns += phases[4]; }
         }
     }
     #[cfg(target_os = "macos")]
@@ -231,7 +231,7 @@ fn cached_glyph_paint_keeps_instance_bytes_without_warm_allocations() {
 fn covered_glyph_damage_preserves_instances_and_uploads() {
     let mut ui = new_ui(None);
     #[cfg(target_os = "macos")]
-    ui.set_cpu_clock(Some(|| mem_sys::profile::thread_cpu_time_ns().ok()));
+    ui.set_phase_counter(Some(|| mem_sys::profile::thread_cpu_time_ns().ok()));
     let mut frame = frame_at(vec![], 2.0, 0.0, vec![]);
     frame.input.size = (1000, 1400);
     let mut expected = [Vec::new(), Vec::new()];
@@ -259,7 +259,7 @@ fn covered_glyph_damage_preserves_instances_and_uploads() {
             assert_eq!(ui.output().damage.bounds(), Some(Rect::new(0.0, 0.0, 1000.0, 1400.0)));
             let layer = &ui.output().draw[0];
             assert_eq!(layer.dirty.as_slice(), &[(0, layer.instances.len() as u32)]);
-            if let Some(phases) = ui.phase_cpu_times() { paint_ns += phases[4]; }
+            if let Some(phases) = ui.phase_counts() { paint_ns += phases[4]; }
         }
         ui.drawn(0);
     }

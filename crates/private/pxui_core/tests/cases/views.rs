@@ -1378,7 +1378,7 @@ pub fn window_pxui_streaming_rows_reuse_retained_gaps() {
     for (step, fresh) in [(3, false), (19, false), (0, true)] {
         let mut ui = new_ui(None);
         #[cfg(target_os = "macos")]
-        ui.set_cpu_clock(Some(|| mem_sys::profile::thread_cpu_time_ns().ok()));
+        ui.set_phase_counter(Some(|| mem_sys::profile::thread_cpu_time_ns().ok()));
         let mut frame = at(0.0, vec![]);
         frame.input.size = (800, 600);
         let mut compactions = 0;
@@ -1414,7 +1414,7 @@ pub fn window_pxui_streaming_rows_reuse_retained_gaps() {
                 assert_eq!(mem_sys::local_alloc_count(), 0, "tick {tick}");
                 compactions += ui.layer_rewrites().1 - before;
                 if fresh { assert!(ui.output().draw[0].dirty.is_empty(), "unchanged fresh tiles must not upload"); }
-                if let Some(phases) = ui.phase_cpu_times() { paint_ns += phases[4]; }
+                if let Some(phases) = ui.phase_counts() { paint_ns += phases[4]; }
             }
             let layer = &ui.output().draw[0];
             largest = largest.max(layer.instances.len());

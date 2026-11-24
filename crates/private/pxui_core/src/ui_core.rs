@@ -1291,9 +1291,9 @@ pub struct Ui {
     layout_time: std::time::Duration,
     phases: [std::time::Duration; PHASES],
     phase_at: Option<std::time::Instant>,
-    cpu_clock: Option<fn() -> Option<u64>>,
-    cpu_phases: Option<[u64; PHASES]>,
-    cpu_at: Option<u64>,
+    phase_counter: Option<fn() -> Option<u64>>,
+    phase_counts: Option<[u64; PHASES]>,
+    counter_at: Option<u64>,
     /// `order_stack`'s scratch: (z, build position, box)
     z_order: Vec<(i16, u32, usize)>,
     // build state
@@ -1626,9 +1626,9 @@ impl Ui {
             layout_time: std::time::Duration::ZERO,
             phases: [std::time::Duration::ZERO; PHASES],
             phase_at: None,
-            cpu_clock: None,
-            cpu_phases: None,
-            cpu_at: None,
+            phase_counter: None,
+            phase_counts: None,
+            counter_at: None,
             a11y: A11yTree::new(),
             a11y_next: A11yTree::new(),
             a11y_map: Vec::new(),
@@ -2618,17 +2618,17 @@ impl Ui {
         self.phases
     }
 
-    /// Optional thread CPU clock supplied by the platform layer, in nanoseconds. No wall fallback.
-    pub fn set_cpu_clock(&mut self, clock: Option<fn() -> Option<u64>>) {
-        self.cpu_clock = clock;
-        self.cpu_phases = None;
-        self.cpu_at = None;
+    /// Optional monotonic counter sampled at frame phase boundaries. The caller chooses the unit.
+    pub fn set_phase_counter(&mut self, counter: Option<fn() -> Option<u64>>) {
+        self.phase_counter = counter;
+        self.phase_counts = None;
+        self.counter_at = None;
     }
 
-    /// CPU nanoseconds in PHASE_NAMES order, summed over every settling pass of the last frame.
-    /// None before a timed frame or if any clock read failed or regressed.
-    pub fn phase_cpu_times(&self) -> Option<[u64; PHASES]> {
-        self.cpu_phases
+    /// Counter deltas in PHASE_NAMES order, summed over every settling pass of the last frame.
+    /// None before a timed frame or if any counter sample failed or regressed.
+    pub fn phase_counts(&self) -> Option<[u64; PHASES]> {
+        self.phase_counts
     }
 
     fn phase(&mut self, i: usize) {
@@ -2637,17 +2637,17 @@ impl Ui {
             self.phases[i] = now - at;
             self.phase_at = Some(now);
         }
-        if let Some(at) = self.cpu_at {
-            let now = self.cpu_clock.and_then(|clock| clock());
+        if let Some(at) = self.counter_at {
+            let now = self.phase_counter.and_then(|clock| clock());
             if let (Some(elapsed), Some(phases)) = (
                 now.and_then(|now| now.checked_sub(at)),
-                self.cpu_phases.as_mut(),
+                self.phase_counts.as_mut(),
             ) {
                 phases[i] = phases[i].saturating_add(elapsed);
             } else {
-                self.cpu_phases = None;
+                self.phase_counts = None;
             }
-            self.cpu_at = now;
+            self.counter_at = now;
         }
     }
 
@@ -7591,7 +7591,7 @@ impl Ui {
     }
 
     fn build_frame(&mut self, frame: &rframe::Frame, f: &mut dyn FnMut(&mut Ui)) {
-        self.cpu_phases = self.cpu_clock.map(|_| [0; PHASES]);
+        self.phase_counts = self.phase_counter.map(|_| [0; PHASES]);
         self.first_build = self.frame_number + 1;
         self.begin_frame(frame);
         f(self);
@@ -7645,10 +7645,10 @@ impl Ui {
             panic!("Ui.frame: time must be finite");
         }
         self.phase_at = self.timing.then(std::time::Instant::now);
-        self.cpu_at = self.cpu_clock.and_then(|clock| clock());
+        self.counter_at = self.phase_counter.and_then(|clock| clock());
         // text the prepare queue delivered since the last frame: this frame draws it
         if let Some(text) = &mut self.text { text.install_queued(); }
-        if self.cpu_at.is_none() { self.cpu_phases = None; }
+        if self.counter_at.is_none() { self.phase_counts = None; }
         let (scale_x, scale_y) = frame.pixel_scale;
         let density = 1.max(scale_x.max(scale_y).round() as i64);
         let size = (frame.input.size.0 as f32, frame.input.size.1 as f32);

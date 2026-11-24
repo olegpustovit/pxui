@@ -218,13 +218,13 @@ export!(trusted pub unsafe fn pxui_ui_diagnostics(ui: *mut PxuiUi, io: *mut pxui
     let e = unsafe { &mut *state.engine };
     if d.timing != 0 {
         e.set_timing(d.timing == 1);
-        e.set_cpu_clock(if d.timing == 1 { Some(thread_cpu_clock) } else { None });
+        e.set_phase_counter(if d.timing == 1 { Some(thread_cpu_clock) } else { None });
     }
     d.calls = state.shared().calls;
     (d.has_text_layouts, d.text_layouts) = e.text_layout_count().map_or((0, 0), |count| (1, count));
     d.rebuilt = e.rebuilt_named(prefix) as u64;
     for (out, time) in d.phase_nanos.iter_mut().zip(e.phase_times()) { *out = time.as_nanos() as u64; }
-    (d.has_cpu, d.phase_cpu_nanos) = e.phase_cpu_times().map_or((0, [0; 7]), |times| (1, times));
+    (d.has_cpu, d.phase_cpu_nanos) = e.phase_counts().map_or((0, [0; 7]), |times| (1, times));
     0
 });
 
