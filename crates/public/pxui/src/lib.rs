@@ -68,6 +68,7 @@ pub mod ui {
         signal.released && signal.button == Some(1) && (px - rx) * (px - rx) + (py - ry) * (py - ry) < 16.0
     }
     pub use crate::{Dialog, DialogButton, DismissOpts, Fill, GestureOpts, GestureState, Handle, ImageStyle, Language, Paint, ScrubPhase, Scroll, Segment, Signal, Stroke, SwipeActions, TextArea, TreeNode, Ui, ValueField, ViewTransform};
+    pub use pxui_types::ui::ellipsis;
     pub use pxui_types::text_edit::{scrubbed, fuzzy_match, fuzzy_score, line_end, line_start};
     pub use pxui_types::ui::{
         Checkbox, Chosen, CodeContext, Completion, Cursor, Dropdown, Head, HeadAction, Key, Keyframe, Keyframes,
