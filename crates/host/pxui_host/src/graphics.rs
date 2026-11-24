@@ -320,7 +320,7 @@ impl Graphics {
             let (drawable, waited) = frames.acquire().map_err(|_| Error::Host("could not acquire native drawable"))?;
             self.acquire_wall += waited;
             if drawable {
-                pass.mtl_render_encoder = frames.present_pass()
+                pass.mtl_render_encoder = frames.present_pass(composite && self.held.is_none())
                     .ok_or(Error::Host("could not open present pass"))?.as_ptr();
                 if composite { renderer.composite(&pass, None, None)?; }
             }

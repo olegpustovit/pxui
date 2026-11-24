@@ -267,7 +267,7 @@ int rays_metal_frames_acquire(void *raw, uint64_t *wait_ns) {
 
 // Begin with the retained canvas. The portable renderer can append the promoted runs in this
 // same encoder before submit, so no intermediate full-size composite target is necessary.
-void *rays_metal_frames_present(void *raw) {
+void *rays_metal_frames_present(void *raw, bool compositeOnly) {
     @autoreleasepool {
         auto *frames = static_cast<PXUIMetalFrames *>(raw);
         if (!NSThread.isMainThread || !frames->commands || !frames->drawable || frames->encoder) return NULL;
@@ -275,7 +275,7 @@ void *rays_metal_frames_present(void *raw) {
         color.texture = frames->drawable.texture;
         frames->encoder = [frames->commands renderCommandEncoderWithDescriptor:frames->present];
         color.texture = nil;
-        frames->encoder.label = @"Render Command 1 pxui present full";
+        frames->encoder.label = compositeOnly ? @"Render Command 1 pxui composite only" : @"Render Command 1 pxui present full";
         [frames->encoder setRenderPipelineState:frames->copy];
         [frames->encoder setFragmentTexture:frames->canvas atIndex:0];
         [frames->encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
