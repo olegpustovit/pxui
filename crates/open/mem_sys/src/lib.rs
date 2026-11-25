@@ -365,3 +365,10 @@ pub fn raise_stack_limit(bytes: u64) -> bool {
     }
     false
 }
+
+/// Process-wide malloc stack capture. Present only with the `trace` feature on Apple; elsewhere use [`TRACE`].
+#[cfg(all(feature = "trace", any(target_os = "macos", target_os = "ios")))]
+pub mod trace;
+
+/// Whether the `trace` feature is compiled in (Apple malloc logger). Always false in the default build.
+pub const TRACE: bool = cfg!(all(feature = "trace", any(target_os = "macos", target_os = "ios")));

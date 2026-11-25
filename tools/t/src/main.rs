@@ -598,6 +598,7 @@ fn group_native_case(case: &TestCase) -> bool {
         return !name.starts_with("alloc_budget_")
             && !name.starts_with("click_budget_")
             && !name.starts_with("graph_budget_")
+            && !name.starts_with("zero_alloc_")
             && !matches!(name, "typing_budget" | "images_native_geometry_captures" | "workspace_capture_budget");
     }
     target.starts_with("gpu_flow_integration-") || target.starts_with("window_rays_graph-")

@@ -10,6 +10,8 @@ test = false
 [features]
 # Installs `CountingAllocator` as the process's global allocator: test and performance builds only, never a production library.
 counting = []
+# Process-wide malloc stack capture (Apple malloc_logger). Off by default; default builds and A7 gates stay unchanged.
+trace = []
 
 [build-dependencies]
 cc = "1"
