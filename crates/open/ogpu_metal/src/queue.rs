@@ -31,6 +31,8 @@ struct QueueInner {
     pending: RefCell<Vec<Pending>>,
     /// Completed command-buffer wrappers recycled on the next begin (after GPU completion only).
     free_commands: RefCell<Vec<native::CommandBuffer>>,
+    /// Empty retained shells recycled across submits (avoids `Vec::with_capacity` every frame).
+    free_retained: RefCell<Vec<Vec<Retained>>>,
     /// Durations of completed epochs the core has not yet asked for.
     durations: RefCell<Vec<(i64, f64)>>,
     dead: Cell<bool>,
@@ -53,6 +55,7 @@ pub fn create(device: &Device) -> Result<Queue, Error> {
         next_epoch: Cell::new(1),
         pending: RefCell::new(Vec::with_capacity(4)),
         free_commands: RefCell::new(Vec::with_capacity(4)),
+        free_retained: RefCell::new(Vec::with_capacity(4)),
         durations: RefCell::new(Vec::new()),
         dead: Cell::new(false),
     })))
@@ -67,6 +70,7 @@ pub(crate) fn adopt_raw(device: &Device, pointer: *mut std::ffi::c_void) -> Resu
         next_epoch: Cell::new(1),
         pending: RefCell::new(Vec::with_capacity(4)),
         free_commands: RefCell::new(Vec::with_capacity(4)),
+        free_retained: RefCell::new(Vec::with_capacity(4)),
         durations: RefCell::new(Vec::new()),
         dead: Cell::new(false),
     })))
@@ -111,14 +115,10 @@ impl Queue {
             Err(e) => Err(e),
             Ok(()) => {
                 value.next_epoch.set(epoch + 1);
-                // `append` moves entries and keeps `retained`'s capacity for the next encode.
-                let held = if retained.is_empty() {
-                    Vec::new()
-                } else {
-                    let mut v = Vec::with_capacity(retained.len());
-                    v.append(retained);
-                    v
-                };
+                // Move entries into a recycled shell; `retained` keeps its capacity for the next encode.
+                let mut held = value.free_retained.borrow_mut().pop().unwrap_or_else(|| Vec::with_capacity(retained.len().max(16)));
+                held.clear();
+                held.append(retained);
                 value.pending.borrow_mut().push(Pending { epoch, command: native.clone(), retained: held });
                 Ok(Receipt { epoch })
             }
@@ -147,7 +147,11 @@ impl Queue {
                     Ok(())
                 }
             };
-            drop(done.retained);
+            let mut held = done.retained;
+            held.clear();
+            if value.free_retained.borrow().len() < 4 {
+                value.free_retained.borrow_mut().push(held);
+            }
             if value.free_commands.borrow().len() < 4 {
                 value.free_commands.borrow_mut().push(done.command);
             } else {
@@ -186,6 +190,7 @@ impl Queue {
         } else if !value.pending.borrow().is_empty() {
             Err(fail(op, ErrorKind::InvalidState, "queue has commands in flight"))
         } else {
+            value.free_retained.borrow_mut().clear();
             for command in value.free_commands.borrow_mut().drain(..) {
                 let _ = command.destroy();
             }
