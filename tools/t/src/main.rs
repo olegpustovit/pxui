@@ -537,14 +537,13 @@ fn run_tests(
         if remaining(run_started, timeout).is_some_and(|remaining| remaining.is_zero()) {
             return report_whole_timeout(run_started);
         }
-        let grouped = case.executable.file_name().and_then(|name| name.to_str())
-            .is_some_and(|name| name.starts_with("gpu_all-") || (case.crate_name == "rays_editor"
-                && (name.starts_with("gpu_editor-") || name.starts_with("gpu_flow_integration-")
-                    || name.starts_with("window_rays_graph-"))));
+        let grouped = group_native_case(&case);
         let outcomes = if grouped {
             let executable = case.executable.clone();
             let mut group = vec![case];
-            while gpu.front().is_some_and(|next| next.executable == executable) { group.push(gpu.pop_front().unwrap()); }
+            while gpu.front().is_some_and(|next| next.executable == executable && group_native_case(next)) {
+                group.push(gpu.pop_front().unwrap());
+            }
             run_case_groups(&group, args, run_started, timeout)
         } else { vec![run_test_case(case, args, run_started, timeout)] };
         if record_outcomes(outcomes, timings, &mut failure_code) {
@@ -556,6 +555,20 @@ fn run_tests(
     } else {
         failure_code
     }
+}
+
+fn group_native_case(case: &TestCase) -> bool {
+    let target = case.executable.file_name().and_then(|name| name.to_str()).unwrap_or("");
+    if target.starts_with("gpu_all-") { return true; }
+    if case.crate_name != "rays_editor" { return false; }
+    if target.starts_with("gpu_editor-") {
+        // Allocation budgets need a fresh process, including when bracketed by grouped cases.
+        return !case.name.starts_with("alloc_budget_")
+            && !case.name.starts_with("click_budget_")
+            && !case.name.starts_with("graph_budget_")
+            && case.name != "typing_budget";
+    }
+    target.starts_with("gpu_flow_integration-") || target.starts_with("window_rays_graph-")
 }
 
 
@@ -1423,6 +1436,21 @@ mod tests {
         ]);
         assert_eq!(cases.iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>(),
             ["unique", "first::same", "second::same"]);
+    }
+
+    #[test]
+    fn native_allocation_budgets_use_fresh_processes() {
+        let mut case = TestCase {
+            order: 0,
+            executable: "gpu_editor-hash".into(),
+            crate_name: "rays_editor".into(),
+            name: "workspace_capture_budget".into(),
+        };
+        assert!(group_native_case(&case));
+        for name in ["alloc_budget_basic", "click_budget_long", "graph_budget_isogrid", "typing_budget"] {
+            case.name = name.into();
+            assert!(!group_native_case(&case), "{name}");
+        }
     }
 
     #[test]
