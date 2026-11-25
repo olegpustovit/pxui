@@ -21,3 +21,21 @@ extern "C" int32_t rays_metal_render_encoder_restart(MetalHandle *commands,
     }
   } @catch (NSException *exception) { return rays_metal_set_error(message, exception.reason.UTF8String); }
 }
+
+/// New MTLCommandBuffer into an existing MetalHandle: no C++ `new MetalHandle`.
+extern "C" int32_t rays_metal_command_buffer_renew(MetalHandle *queue, MetalHandle *existing,
+    const char **message) {
+  if (message) *message = nullptr;
+  @try {
+    @autoreleasepool {
+      id<MTLCommandQueue> q = (__bridge id<MTLCommandQueue>)rays_metal_handle_object(queue, KIND_COMMAND_QUEUE);
+      if (!q || !existing || existing->kind != KIND_COMMAND_BUFFER)
+        return rays_metal_set_invalid_argument(message, "invalid command buffer renew");
+      id<MTLCommandBuffer> next = [q commandBuffer];
+      if (!next) return rays_metal_set_error(message, "Metal returned no command buffer");
+      if (rays_metal_handle_rebind(existing, (__bridge void *)next, KIND_COMMAND_BUFFER) != 0)
+        return rays_metal_set_invalid_argument(message, "command buffer could not be rebound");
+      return 0;
+    }
+  } @catch (NSException *exception) { return rays_metal_set_error(message, exception.reason.UTF8String); }
+}

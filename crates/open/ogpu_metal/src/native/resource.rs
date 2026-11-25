@@ -44,7 +44,15 @@ impl Lifetime {
     pub(crate) fn dependent_counter(&self) -> Arc<AtomicUsize> { self.dependents.clone() }
 }
 
-pub(crate) struct DeviceInner { raw: metal_sys::Handle, lifetime: Lifetime, registry_id: u64, capabilities: std::sync::OnceLock<ogpu_core::caps::Caps>, uploads: std::cell::RefCell<Option<metal_sys::uploads::Uploads>> }
+pub(crate) struct DeviceInner {
+    raw: metal_sys::Handle,
+    lifetime: Lifetime,
+    registry_id: u64,
+    capabilities: std::sync::OnceLock<ogpu_core::caps::Caps>,
+    /// Device name (and the NSString query behind it) is fixed for the adapter; cache once.
+    name: std::sync::OnceLock<String>,
+    uploads: std::cell::RefCell<Option<metal_sys::uploads::Uploads>>,
+}
 impl Drop for DeviceInner { fn drop(&mut self) { self.uploads.get_mut().take(); self.lifetime.destroyed.store(true, Ordering::Release); } }
 #[derive(Clone)]
 pub struct Device(pub(crate) Arc<DeviceInner>);
@@ -60,13 +68,23 @@ pub struct DeviceInfo {
 }
 
 impl Device {
+    fn new_inner(raw: metal_sys::Handle, registry_id: u64) -> Self {
+        Self(Arc::new(DeviceInner {
+            raw,
+            lifetime: Lifetime::new(),
+            registry_id,
+            capabilities: std::sync::OnceLock::new(),
+            name: std::sync::OnceLock::new(),
+            uploads: std::cell::RefCell::new(None),
+        }))
+    }
     pub(crate) fn adopt_raw(pointer: *mut std::ffi::c_void) -> Result<Self, Error> {
         enter_main("Metal.Device.adopt_raw")?;
         let raw = unsafe { metal_sys::native::retain_object(pointer, metal_sys::native::KIND_DEVICE) }
             .map_err(|failure| sys_error("Metal.Device.adopt_raw", failure))?;
         let registry_id = metal_sys::registry::device_registry_id(&raw)
             .map_err(|failure| sys_error("Metal.Device.adopt_raw", failure))?;
-        Ok(Self(Arc::new(DeviceInner { raw, lifetime: Lifetime::new(), registry_id, capabilities: std::sync::OnceLock::new(), uploads: std::cell::RefCell::new(None) })))
+        Ok(Self::new_inner(raw, registry_id))
     }
     pub(crate) fn native_ptr(&self) -> Result<*mut std::ffi::c_void, Error> {
         self.0.raw.object_ptr(metal_sys::native::KIND_DEVICE).map_err(|failure| sys_error("Metal.Device.native_ptr", failure))
@@ -78,7 +96,7 @@ impl Device {
             other => sys_error("Metal.Device.system_default", other),
         })?;
         let registry_id = metal_sys::registry::device_registry_id(&raw).map_err(|failure| sys_error("Metal.Device.registry_id", failure))?;
-        Ok(Self(Arc::new(DeviceInner { raw, lifetime: Lifetime::new(), registry_id, capabilities: std::sync::OnceLock::new(), uploads: std::cell::RefCell::new(None) })))
+        Ok(Self::new_inner(raw, registry_id))
     }
     pub fn capabilities(&self) -> Result<ogpu_core::caps::Caps, Error> {
         if let Some(caps) = self.0.capabilities.get() { return Ok(*caps); }
@@ -108,13 +126,33 @@ impl Device {
         Ok(caps)
     }
     pub fn same(&self, other: &Self) -> bool { self.0.registry_id == other.0.registry_id }
+    fn cached_name(&self, operation: &str) -> Result<&str, Error> {
+        if let Some(name) = self.0.name.get() {
+            return Ok(name.as_str());
+        }
+        let name = metal_sys::registry::device_name(&self.0.raw).map_err(|failure| sys_error(operation, failure))?;
+        let name = if name.is_empty() { "Unnamed Metal device".to_owned() } else { name };
+        let _ = self.0.name.set(name);
+        Ok(self.0.name.get().expect("name set").as_str())
+    }
+    /// Working-set / allocated bytes without re-querying the device name.
+    pub fn current_allocated_size(&self) -> Result<u64, Error> {
+        let operation = "Metal.Device.current_allocated_size";
+        self.0.lifetime.ensure_live(operation)?;
+        metal_sys::registry::device_current_allocated_size(&self.0.raw).map_err(|failure| sys_error(operation, failure))
+    }
+    pub fn recommended_max_working_set_size(&self) -> Result<u64, Error> {
+        let operation = "Metal.Device.recommended_max_working_set_size";
+        self.0.lifetime.ensure_live(operation)?;
+        metal_sys::registry::device_recommended_max_working_set_size(&self.0.raw).map_err(|failure| sys_error(operation, failure))
+    }
     pub fn info(&self) -> Result<DeviceInfo, Error> {
         let operation = "Metal.Device.info";
         self.0.lifetime.ensure_live(operation)?;
         let raw = &self.0.raw;
-        let name = metal_sys::registry::device_name(raw).map_err(|failure| sys_error(operation, failure))?;
+        let name = self.cached_name(operation)?.to_owned();
         Ok(DeviceInfo {
-            name: if name.is_empty() { "Unnamed Metal device".to_owned() } else { name },
+            name,
             registry_id: self.0.registry_id,
             low_power: metal_sys::registry::device_is_low_power(raw).map_err(|failure| sys_error(operation, failure))?,
             removable: metal_sys::registry::device_is_removable(raw).map_err(|failure| sys_error(operation, failure))?,
@@ -504,6 +542,7 @@ impl CommandQueue {
     }
     pub(crate) fn raw(&self) -> &metal_sys::Handle { &self.0.raw }
     pub(crate) fn device(&self) -> &Device { &self.0.device }
+    pub(crate) fn same(&self, other: &CommandQueue) -> bool { Arc::ptr_eq(&self.0, &other.0) }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -708,6 +747,19 @@ impl CommandBuffer {
         enter_main(operation)?;
         self.0.lifetime.ensure_live(operation)?;
         unsafe { self.0.raw.rebind(pointer, metal_sys::native::KIND_COMMAND_BUFFER) }.map_err(|failure| sys_error(operation, failure))?;
+        self.0.resources.borrow_mut().clear();
+        Ok(())
+    }
+    /// New MTLCommandBuffer from `queue` into this wrapper (no new MetalHandle / Arc / Lifetime).
+    pub(crate) fn renew(&self, queue: &CommandQueue) -> Result<(), Error> {
+        self.end_texture_uploads();
+        let operation = "Metal.Command_buffer.renew";
+        enter_main(operation)?;
+        self.0.lifetime.ensure_live(operation)?;
+        if !self.0.queue.same(queue) {
+            return Err(error(operation, ErrorKind::CrossDevice, "command buffer belongs to another queue"));
+        }
+        metal_sys::native::pipeline::renew_command_buffer(queue.raw(), &self.0.raw).map_err(|failure| sys_error(operation, failure))?;
         self.0.resources.borrow_mut().clear();
         Ok(())
     }

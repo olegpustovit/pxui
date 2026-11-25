@@ -80,10 +80,17 @@ pub fn set_render_pass_actions(pass:&Handle,actions:&ogpu_core::render_pass::Adm
 
 // ogpu_metal: the resolve target of colour attachment 0.
 #[cfg(target_vendor="apple")]
-unsafe extern "C" { fn rays_metal_render_pass_set_resolve(pass:*mut NativeHandle,texture:*mut NativeHandle,message:*mut *const c_char)->i32; }
+unsafe extern "C" {
+    fn rays_metal_render_pass_set_resolve(pass:*mut NativeHandle,texture:*mut NativeHandle,message:*mut *const c_char)->i32;
+    fn rays_metal_render_pass_clear_attachments(pass:*mut NativeHandle,message:*mut *const c_char)->i32;
+}
 pub fn set_render_pass_resolve(pass:&Handle,texture:Option<&Handle>)->Result<(),Error>{
  #[cfg(target_vendor="apple")] {let mut msg=std::ptr::null();let status=unsafe{rays_metal_render_pass_set_resolve(pass.as_native_ptr()?,match texture{Some(v)=>v.as_native_ptr()?,None=>std::ptr::null_mut()},&mut msg)};if status==0{Ok(())}else{Err(unsafe{Error::from_native(status,msg)})}}
  #[cfg(not(target_vendor="apple"))] {let _=(pass,texture);Err(Error::Unavailable)}
+}
+pub fn clear_render_pass_attachments(pass:&Handle)->Result<(),Error>{
+ #[cfg(target_vendor="apple")] {let mut msg=std::ptr::null();let status=unsafe{rays_metal_render_pass_clear_attachments(pass.as_native_ptr()?,&mut msg)};if status==0{Ok(())}else{Err(unsafe{Error::from_native(status,msg)})}}
+ #[cfg(not(target_vendor="apple"))] {let _=pass;Err(Error::Unavailable)}
 }
 
 #[cfg(target_vendor="apple")]

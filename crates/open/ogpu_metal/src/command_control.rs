@@ -33,6 +33,8 @@ pub struct Tables {
     /// by write or not. Made lazily they would outlive the first owner that drew with them.
     pub depth_states: RefCell<Vec<(DepthState, DepthStencil)>>,
     pub next: Cell<i64>,
+    /// MTLRenderPassDescriptor wrappers recycled after each pass ends (CPU-side; safe immediately).
+    pub pass_spare: RefCell<Vec<native::RenderPassDescriptor>>,
 }
 
 impl Tables {
@@ -40,6 +42,7 @@ impl Tables {
         Tables {
             depth_states: RefCell::new(Vec::new()),
             next: Cell::new(1),
+            pass_spare: RefCell::new(Vec::with_capacity(4)),
         }
     }
 
@@ -82,6 +85,14 @@ impl Default for Tables {
     }
 }
 
+impl Drop for Tables {
+    fn drop(&mut self) {
+        for pass in self.pass_spare.get_mut().drain(..) {
+            let _ = pass.destroy();
+        }
+    }
+}
+
 /// The encoder a recording command buffer has open; `abandon` ends it.
 pub enum OpenEncoder {
     Compute(native::ComputeEncoder),
@@ -99,6 +110,7 @@ impl OpenEncoder {
             OpenEncoder::Blit(e) => drop(e.end_encoding()),
             OpenEncoder::Render(e, pass) => {
                 let _ = e.end_encoding();
+                // Abandoned passes are not recycled: their attachments may still be mid-frame.
                 let _ = pass.destroy();
             }
             OpenEncoder::AdoptedRender(e) => { let _ = e.end_encoding(); }

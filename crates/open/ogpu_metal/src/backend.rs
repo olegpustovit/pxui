@@ -608,7 +608,7 @@ impl DriverCommands for MetalCommands {
 
 fn begin_commands(dev: &Rc<Dev>, queue: &Queue, active: &Rc<Vec<PendingPresentation>>) -> Result<Box<dyn DriverCommands>, Error> {
     let operation = "Ogpu_metal.Backend.begin_commands";
-    let native = native::CommandBuffer::create(queue.metal())?;
+    let native = queue.obtain_command_buffer()?;
     let context = Rc::new(CommandContext {
         operation,
         device: dev.device.clone(),
@@ -742,6 +742,9 @@ fn destroy_device(dev: &Rc<Dev>) -> Result<(), Error> {
         return Err(fail("Ogpu_metal.Backend.destroy_device", ErrorKind::InvalidState, "device has active queues"));
     }
     if let Some(queue) = dev.adopted_queue.borrow_mut().take() { queue.destroy()?; }
+    for pass in std::mem::take(&mut *dev.t.pass_spare.borrow_mut()) {
+        dev.record_cleanup(pass.destroy().err());
+    }
     for (_, state) in std::mem::take(&mut *dev.t.depth_states.borrow_mut()) {
         dev.record_cleanup(state.destroy().err());
     }
@@ -757,11 +760,11 @@ fn destroy_device(dev: &Rc<Dev>) -> Result<(), Error> {
     }
 }
 
-fn metal_size(device: &Device, project: fn(&native::DeviceInfo) -> u64) -> i64 {
-    match device.metal().info() {
-        Ok(info) => project(&info) as i64,
-        Err(_) => 0,
-    }
+fn metal_allocated(device: &Device) -> i64 {
+    device.metal().current_allocated_size().map(|n| n as i64).unwrap_or(0)
+}
+fn metal_working_set(device: &Device) -> i64 {
+    device.metal().recommended_max_working_set_size().map(|n| n as i64).unwrap_or(0)
 }
 
 struct MetalDevice {
@@ -809,10 +812,10 @@ impl DriverDevice for MetalDevice {
         Ok(Box::new(MetalTexture { value: Texture::from_native(self.dev.device.clone(), value), id }))
     }
     fn allocated_size(&self) -> i64 {
-        metal_size(&self.dev.device, |i| i.current_allocated_size)
+        metal_allocated(&self.dev.device)
     }
     fn recommended_working_set(&self) -> i64 {
-        metal_size(&self.dev.device, |i| i.recommended_max_working_set_size)
+        metal_working_set(&self.dev.device)
     }
     fn create_buffer(&self, descriptor: &AdmittedBuffer) -> Result<Box<dyn DriverResource>, Error> {
         create_buffer(&self.dev, descriptor)

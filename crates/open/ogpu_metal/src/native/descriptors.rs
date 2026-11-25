@@ -45,7 +45,17 @@ impl DepthStencil {
     pub(crate) fn lifetime(&self) -> &Lifetime { &self.0.lifetime }
 }
 
-struct RenderPassInner { raw: metal_sys::Handle, lifetime: Lifetime, device: Device, device_attached: AtomicBool, width: u64, height: u64, samples: u64, attachments: std::sync::Mutex<(Option<Texture>, Option<Texture>, Option<Texture>)>, resolve: std::sync::Mutex<Option<Texture>> }
+struct RenderPassInner {
+    raw: metal_sys::Handle,
+    lifetime: Lifetime,
+    device: Device,
+    device_attached: AtomicBool,
+    width: std::cell::Cell<u64>,
+    height: std::cell::Cell<u64>,
+    samples: std::cell::Cell<u64>,
+    attachments: std::sync::Mutex<(Option<Texture>, Option<Texture>, Option<Texture>)>,
+    resolve: std::sync::Mutex<Option<Texture>>,
+}
 impl RenderPassInner {
     fn detach_device(&self) { if self.device_attached.swap(false, Ordering::AcqRel) { self.device.lifetime().detach(); } }
     fn release_attachments(&self) {
@@ -66,7 +76,42 @@ impl RenderPassDescriptor {
     pub fn create(device: &Device, extent: &ogpu_core::validation::AdmittedTexture) -> Result<Self, Error> {
         let op = "Metal.RenderPassDescriptor.create";
         let (width,height,sample_count) = (extent.width as u64,extent.height as u64,extent.sample_count as u64);
-        enter_main(op)?; device.ensure_live(op)?; let raw = sys::create_render_pass().map_err(|failure| sys_error(op, failure))?; if let Err(failure) = sys::set_render_pass_sizes(&raw, extent).map_err(|failure| sys_error(op, failure)) { drop(raw); return Err(failure); } device.lifetime().attach(); Ok(Self(Arc::new(RenderPassInner { raw, lifetime: Lifetime::new(), device: device.clone(), device_attached: AtomicBool::new(true), width, height, samples: sample_count, attachments: std::sync::Mutex::new((None,None,None)), resolve: std::sync::Mutex::new(None) })))
+        enter_main(op)?; device.ensure_live(op)?; let raw = sys::create_render_pass().map_err(|failure| sys_error(op, failure))?; if let Err(failure) = sys::set_render_pass_sizes(&raw, extent).map_err(|failure| sys_error(op, failure)) { drop(raw); return Err(failure); } device.lifetime().attach(); Ok(Self(Arc::new(RenderPassInner { raw, lifetime: Lifetime::new(), device: device.clone(), device_attached: AtomicBool::new(true), width: std::cell::Cell::new(width), height: std::cell::Cell::new(height), samples: std::cell::Cell::new(sample_count), attachments: std::sync::Mutex::new((None,None,None)), resolve: std::sync::Mutex::new(None) })))
+    }
+    /// Resize a recycled descriptor for another pass shape; attachments must already be cleared.
+    pub fn reconfigure(&self, extent: &ogpu_core::validation::AdmittedTexture) -> Result<(), Error> {
+        let op = "Metal.RenderPassDescriptor.reconfigure";
+        self.0.lifetime.ensure_live(op)?;
+        enter_main(op)?;
+        sys::set_render_pass_sizes(&self.0.raw, extent).map_err(|failure| sys_error(op, failure))?;
+        self.0.width.set(extent.width as u64);
+        self.0.height.set(extent.height as u64);
+        self.0.samples.set(extent.sample_count as u64);
+        Ok(())
+    }
+    /// Return this descriptor to `spare` after the encoder that used it has ended (CPU-only; no GPU wait).
+    pub fn recycle(self, spare: &mut Vec<RenderPassDescriptor>) {
+        if self.0.lifetime.dependents.load(Ordering::Acquire) != 0 || spare.len() >= 4 {
+            let _ = self.destroy();
+            return;
+        }
+        self.0.release_attachments();
+        let _ = sys::clear_render_pass_attachments(&self.0.raw);
+        spare.push(self);
+    }
+    /// Take a recycled descriptor or create one.
+    pub fn obtain(device: &Device, extent: &ogpu_core::validation::AdmittedTexture, spare: &mut Vec<RenderPassDescriptor>) -> Result<Self, Error> {
+        while let Some(pass) = spare.pop() {
+            if pass.device().same(device) && !pass.0.lifetime.destroyed.load(Ordering::Acquire) {
+                match pass.reconfigure(extent) {
+                    Ok(()) => return Ok(pass),
+                    Err(_) => { let _ = pass.destroy(); }
+                }
+            } else {
+                let _ = pass.destroy();
+            }
+        }
+        Self::create(device, extent)
     }
     pub fn set_attachments(&self, color: &Texture, depth: Option<&Texture>, stencil: Option<&Texture>, clear: &ogpu_core::render_pass::ClearColor) -> Result<(), Error> {
         let op = "Metal.RenderPassDescriptor.set_attachments";
@@ -83,9 +128,9 @@ impl RenderPassDescriptor {
     }
 
     pub fn destroy(&self) -> Result<(), Error> { self.0.lifetime.destroy_parent("Metal.RenderPassDescriptor.destroy")?; self.0.release_attachments(); self.0.detach_device(); Ok(()) }
-    pub fn width(&self) -> u64 { self.0.width }
-    pub fn height(&self) -> u64 { self.0.height }
-    pub fn sample_count(&self) -> u64 { self.0.samples }
+    pub fn width(&self) -> u64 { self.0.width.get() }
+    pub fn height(&self) -> u64 { self.0.height.get() }
+    pub fn sample_count(&self) -> u64 { self.0.samples.get() }
     pub fn raw(&self) -> &metal_sys::Handle { &self.0.raw }
     pub fn device(&self) -> &Device { &self.0.device }
     pub(crate) fn lifetime(&self) -> &Lifetime { &self.0.lifetime }

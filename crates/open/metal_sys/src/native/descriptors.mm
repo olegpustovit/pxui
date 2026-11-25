@@ -130,9 +130,10 @@ extern "C" int32_t rays_metal_render_pass_descriptor_set_attachments(MetalHandle
         (visibility && visibility.device.registryID != color.device.registryID))
       return rays_metal_set_error(message, "invalid or incompatible render-pass attachment");
     pass.colorAttachments[0].texture = color; pass.colorAttachments[0].clearColor = MTLClearColorMake(clear[0],clear[1],clear[2],clear[3]);
-    if (depth) pass.depthAttachment.texture = depth;
-    if (stencil) pass.stencilAttachment.texture = stencil;
-    if (visibility) pass.visibilityResultBuffer = visibility;
+    // Always assign (including nil) so a recycled descriptor cannot keep a prior depth/stencil.
+    pass.depthAttachment.texture = depth;
+    pass.stencilAttachment.texture = stencil;
+    pass.visibilityResultBuffer = visibility;
     return 0;
   }} @catch (NSException *exception) { return rays_metal_set_error(message, exception.reason.UTF8String); }
 }
@@ -151,6 +152,20 @@ extern "C" int32_t rays_metal_render_pass_set_actions(MetalHandle *pass_handle, 
     pass.stencilAttachment.loadAction = static_cast<MTLLoadAction>(stencil_load);
     pass.stencilAttachment.storeAction = static_cast<MTLStoreAction>(stencil_store);
     pass.stencilAttachment.clearStencil = clear_stencil;
+    return 0;
+  }} @catch (NSException *exception) { return rays_metal_set_error(message, exception.reason.UTF8String); }
+}
+/// Drop every attachment texture on a recycled descriptor (nil keeps no Metal retain).
+extern "C" int32_t rays_metal_render_pass_clear_attachments(MetalHandle *pass_handle, const char **message) {
+  if (message) *message = nullptr;
+  @try { @autoreleasepool {
+    MTLRenderPassDescriptor *pass = (__bridge MTLRenderPassDescriptor *)rays_metal_handle_object(pass_handle, KIND_RENDER_PASS_DESCRIPTOR);
+    if (!pass) return rays_metal_set_error(message, "invalid render-pass handle");
+    pass.colorAttachments[0].texture = nil;
+    pass.colorAttachments[0].resolveTexture = nil;
+    pass.depthAttachment.texture = nil;
+    pass.stencilAttachment.texture = nil;
+    pass.visibilityResultBuffer = nil;
     return 0;
   }} @catch (NSException *exception) { return rays_metal_set_error(message, exception.reason.UTF8String); }
 }

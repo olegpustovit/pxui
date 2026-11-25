@@ -14,6 +14,22 @@ pub fn restart_render_encoder(commands: &Handle, pass: &Handle, encoder: &Handle
     #[cfg(not(target_vendor = "apple"))]
     { let _=(commands,pass,encoder); Err(Error::Unavailable) }
 }
+
+/// Allocate a new MTLCommandBuffer into `existing` (no new MetalHandle).
+pub fn renew_command_buffer(queue: &Handle, existing: &Handle) -> Result<(), Error> {
+    #[cfg(target_vendor = "apple")]
+    {
+        unsafe extern "C" {
+            fn rays_metal_command_buffer_renew(queue: *mut super::NativeHandle, existing: *mut super::NativeHandle, message: *mut *const std::ffi::c_char) -> i32;
+        }
+        let mut message = std::ptr::null();
+        let status = unsafe { rays_metal_command_buffer_renew(queue.as_native_ptr()?, existing.as_native_ptr()?, &mut message) };
+        if status != 0 { return Err(unsafe { Error::from_native(status, message) }); }
+        Ok(())
+    }
+    #[cfg(not(target_vendor = "apple"))]
+    { let _ = (queue, existing); Err(Error::Unavailable) }
+}
 #[cfg(target_vendor = "apple")]
 use super::NativeHandle;
 #[cfg(target_vendor = "apple")]

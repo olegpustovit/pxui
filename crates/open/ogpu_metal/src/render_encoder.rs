@@ -128,7 +128,10 @@ pub fn create(context: &Rc<CommandContext>, target: &DriverRenderTarget) -> Resu
     for texture in resolve.iter().chain(depth.iter()) {
         context.keep_texture(texture)?;
     }
-    let pass = RenderPassDescriptor::create(context.device.metal(), color_texture.metal().admitted_descriptor())?;
+    let pass = {
+        let mut spare = context.tables.pass_spare.borrow_mut();
+        RenderPassDescriptor::obtain(context.device.metal(), color_texture.metal().admitted_descriptor(), &mut spare)?
+    };
     let fail_pass = |e: native::Error| {
         let _ = pass.destroy();
         e
@@ -140,7 +143,8 @@ pub fn create(context: &Rc<CommandContext>, target: &DriverRenderTarget) -> Resu
     pass.set_actions(target.actions()).map_err(&fail_pass)?;
     let encoder = RenderEncoder::create(&context.native, &pass).map_err(&fail_pass)?;
     *context.open_encoder.borrow_mut() = Some(OpenEncoder::Render(encoder.clone(), pass.clone()));
-    Ok(Box::new(Render { context: context.clone(), encoder, pass: Some(pass), width_px: target.target_width as u32, height_px: target.target_height as u32, scale: 1.0, declared: std::cell::RefCell::new(Vec::new()), reusable:false }))
+    // Residency tokens: reuse a small buffer; declare only pushes on cold passes.
+    Ok(Box::new(Render { context: context.clone(), encoder, pass: Some(pass), width_px: target.target_width as u32, height_px: target.target_height as u32, scale: 1.0, declared: std::cell::RefCell::new(Vec::with_capacity(16)), reusable:false }))
 }
 
 pub fn adopt(context: &Rc<CommandContext>, native: ogpu_core::backend::NativePass) -> Result<Box<dyn DriverRenderEncoder>, Error> {
@@ -149,7 +153,7 @@ pub fn adopt(context: &Rc<CommandContext>, native: ogpu_core::backend::NativePas
     }
     let encoder = RenderEncoder::adopt_raw(&context.native, native.mtl_render_encoder)?;
     *context.open_encoder.borrow_mut() = Some(OpenEncoder::AdoptedRender(encoder.clone()));
-    Ok(Box::new(Render { context: context.clone(), encoder, pass: None, width_px: native.width_px, height_px: native.height_px, scale: native.scale, declared: std::cell::RefCell::new(Vec::new()), reusable:false }))
+    Ok(Box::new(Render { context: context.clone(), encoder, pass: None, width_px: native.width_px, height_px: native.height_px, scale: native.scale, declared: std::cell::RefCell::new(Vec::with_capacity(16)), reusable:false }))
 }
 
 impl DriverRenderEncoder for Render {
@@ -268,9 +272,8 @@ impl DriverRenderEncoder for Render {
 
     fn end_render(&self) -> Result<(), Error> {
         *self.context.open_encoder.borrow_mut() = None;
-        let ended = self.encoder.end_encoding();
-        if !self.reusable { if let Some(pass) = &self.pass { let _ = pass.destroy(); } }
-        ended
+        // Pass returns to the spare pool in Drop, after this encoder has detached.
+        self.encoder.end_encoding()
     }
     fn retain_for_reuse(&mut self) -> bool { self.reusable=self.pass.is_some(); self.reusable }
     fn restart(&mut self) -> Result<bool, Error> {
@@ -309,9 +312,11 @@ impl DriverRenderEncoder for Render {
 
 impl Drop for Render {
     fn drop(&mut self) {
-        if self.reusable {
-            if !self.encoder.destroyed() { let _=self.encoder.end_encoding(); }
-            if let Some(pass)=&self.pass { let _=pass.destroy(); }
+        if self.reusable && !self.encoder.destroyed() {
+            let _ = self.encoder.end_encoding();
+        }
+        if let Some(pass) = self.pass.take() {
+            pass.recycle(&mut self.context.tables.pass_spare.borrow_mut());
         }
     }
 }

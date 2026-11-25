@@ -29,6 +29,8 @@ struct QueueInner {
     metal: native::CommandQueue,
     next_epoch: Cell<i64>,
     pending: RefCell<Vec<Pending>>,
+    /// Completed command-buffer wrappers recycled on the next begin (after GPU completion only).
+    free_commands: RefCell<Vec<native::CommandBuffer>>,
     /// Durations of completed epochs the core has not yet asked for.
     durations: RefCell<Vec<(i64, f64)>>,
     dead: Cell<bool>,
@@ -49,7 +51,8 @@ pub fn create(device: &Device) -> Result<Queue, Error> {
         device: device.clone(),
         metal,
         next_epoch: Cell::new(1),
-        pending: RefCell::new(Vec::new()),
+        pending: RefCell::new(Vec::with_capacity(4)),
+        free_commands: RefCell::new(Vec::with_capacity(4)),
         durations: RefCell::new(Vec::new()),
         dead: Cell::new(false),
     })))
@@ -58,12 +61,34 @@ pub fn create(device: &Device) -> Result<Queue, Error> {
 pub(crate) fn adopt_raw(device: &Device, pointer: *mut std::ffi::c_void) -> Result<Queue, Error> {
     let metal = native::CommandQueue::adopt_raw(device.metal(), pointer)?;
     device.attach_resource();
-    Ok(Queue(Rc::new(QueueInner { device: device.clone(), metal, next_epoch: Cell::new(1), pending: RefCell::new(Vec::new()), durations: RefCell::new(Vec::new()), dead: Cell::new(false) })))
+    Ok(Queue(Rc::new(QueueInner {
+        device: device.clone(),
+        metal,
+        next_epoch: Cell::new(1),
+        pending: RefCell::new(Vec::with_capacity(4)),
+        free_commands: RefCell::new(Vec::with_capacity(4)),
+        durations: RefCell::new(Vec::new()),
+        dead: Cell::new(false),
+    })))
 }
 
 impl Queue {
     pub fn metal(&self) -> &native::CommandQueue {
         &self.0.metal
+    }
+
+    /// A command buffer wrapper: recycled after GPU completion when possible, otherwise created.
+    pub fn obtain_command_buffer(&self) -> Result<native::CommandBuffer, Error> {
+        let value = &self.0;
+        if let Some(command) = value.free_commands.borrow_mut().pop() {
+            match command.renew(&value.metal) {
+                Ok(()) => return Ok(command),
+                Err(_) => {
+                    let _ = command.destroy();
+                }
+            }
+        }
+        native::CommandBuffer::create(&value.metal)
     }
 
     /// The GPU seconds of a completed epoch, handed over once.
@@ -95,7 +120,10 @@ impl Queue {
     pub fn wait_through(&self, epoch: i64) -> Result<(), Error> {
         let op = "Ogpu_metal.Queue.wait_through";
         let value = &self.0;
-        let (ready, later): (Vec<Pending>, Vec<Pending>) = std::mem::take(&mut *value.pending.borrow_mut()).into_iter().partition(|p| p.epoch <= epoch);
+        let mut pending = std::mem::take(&mut *value.pending.borrow_mut());
+        let split = pending.iter().position(|p| p.epoch > epoch).unwrap_or(pending.len());
+        let later = pending.split_off(split);
+        let ready = pending;
         if ready.is_empty() {
             *value.pending.borrow_mut() = later;
             return Err(fail(op, ErrorKind::InvalidArgument, "epoch was not submitted"));
@@ -113,10 +141,13 @@ impl Queue {
                     Ok(())
                 }
             };
-            // `wait_until_completed` returns only after a terminal native status, including its
-            // error result, so the handle and all submission-owned cleanup are safe to release.
-            let _ = pending.command.destroy();
+            // GPU done: recycle the wrapper (renew on next begin) instead of destroying it.
             drop(pending.retained);
+            if value.free_commands.borrow().len() < 4 {
+                value.free_commands.borrow_mut().push(pending.command);
+            } else {
+                let _ = pending.command.destroy();
+            }
             if let (None, Err(failure)) = (&first_error, outcome) {
                 first_error = Some(failure);
             }
@@ -151,6 +182,9 @@ impl Queue {
         } else if !value.pending.borrow().is_empty() {
             Err(fail(op, ErrorKind::InvalidState, "queue has commands in flight"))
         } else {
+            for command in value.free_commands.borrow_mut().drain(..) {
+                let _ = command.destroy();
+            }
             value.metal.destroy()?;
             value.dead.set(true);
             value.device.detach_resource();
