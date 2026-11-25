@@ -1113,6 +1113,54 @@ fn gpu_conformance_render() {
     finish(device);
 }
 
+fn gpu_owned_rebegin_prepared_target_uses_current_buffer() {
+    let device = open();
+    let queue = be::create_queue(&device).unwrap_or_else(|e| die(e));
+    let texture = be::create_texture(&device, texture_descriptor("rebegin clear", 4, &[
+        TextureUsage::RenderAttachment, TextureUsage::TextureCopySrc, TextureUsage::TextureCopyDst,
+    ])).unwrap_or_else(|e| die(e));
+    let mut target = be::prepare_render_target(
+        &device, render_target(&texture, Load::Clear, Store::Store, (1., 0., 0., 1.)),
+    ).unwrap_or_else(|e| die(e));
+    let commands = be::begin_commands(&queue).unwrap_or_else(|e| die(e));
+    let cycle = |target: &mut be::PreparedRenderTarget, pixels: &mut [u8]| {
+        let pass = be::render_prepared(&commands, target).unwrap_or_else(|e| die(e));
+        be::end_render(&pass).unwrap_or_else(|e| die(e));
+        let receipt = be::commit(&commands).unwrap_or_else(|e| die(e));
+        be::complete_through(&queue, receipt.epoch).unwrap_or_else(|e| die(e));
+        be::read_texture_into(&texture, 16, pixels).unwrap_or_else(|e| die(e));
+    };
+    let mut original = [0; 64];
+    cycle(&mut target, &mut original);
+    assert!(original.chunks_exact(4).all(|pixel| pixel == [255, 0, 0, 255]));
+
+    // Take the previously completed driver's recycled wrapper out of the pool and leave it
+    // recording. Rebegin has to use another buffer. The reserved one is never submitted.
+    let reserved = be::begin_commands(&queue).unwrap_or_else(|e| die(e));
+    let reserved_native = be::native_commands(&reserved).unwrap_or_else(|e| die(e));
+    be::write_texture(
+        &texture, None, Origin { x: 0, y: 0, z: 0 },
+        Extent { width: 4, height: 4, depth: 1 }, 16, &[0; 64],
+    ).unwrap_or_else(|e| die(e));
+
+    let mut after = [0; 64];
+    mem_sys::local_reset();
+    be::rebegin_commands(&commands).unwrap_or_else(|e| die(e));
+    let active = be::native_commands(&commands).unwrap_or_else(|e| die(e));
+    assert_ne!(active.mtl_command_buffer, reserved_native.mtl_command_buffer);
+    cycle(&mut target, &mut after);
+    let allocations = mem_sys::local_alloc_count();
+    assert_eq!(be::completed_epoch(&queue), 2);
+    drop(target);
+    be::abandon(&reserved).unwrap_or_else(|e| die(e));
+    drop((reserved, commands));
+    be::destroy_texture(&texture).unwrap_or_else(|e| die(e));
+    be::destroy_queue(&queue).unwrap_or_else(|e| die(e));
+    finish(device);
+    eprintln!("owned rebegin + prepared clear + completion + readback: {allocations} caller-thread Rust allocations");
+    assert_eq!(after, original, "second epoch did not execute the prepared clear");
+}
+
 /// A standalone painter's three primitives, no window or surface anywhere: an offscreen render target read
 /// back from the GPU, an R8 sub-rectangle written in place, and a persistently mapped instance ring.
 fn gpu_painter_primitives() {
@@ -1582,4 +1630,5 @@ pub const CASES: &[(&str, fn())] = &[
         ("gpu_conformance_ray_tracing", gpu_conformance_ray_tracing),
         ("gpu_conformance_render", gpu_conformance_render),
         ("gpu_painter_primitives", gpu_painter_primitives),
+        ("gpu_owned_rebegin_prepared_target_uses_current_buffer", gpu_owned_rebegin_prepared_target_uses_current_buffer),
     ];

@@ -80,6 +80,50 @@ fn adopted_mock_commands_end_pass_without_submitting_and_release_owner_once() {
 }
 
 #[test]
+fn owned_rebegin_prepared_pass_follows_current_driver_generation() {
+    use ogpu_core::render_pass::{Load, Store};
+
+    let (driver, _) = crate::backend_mock::create_recording_render();
+    let device = backend::create_device(driver).unwrap();
+    let queue = backend::create_queue(&device).unwrap();
+    let texture = backend::create_texture(&device, TextureDescriptor {
+        label: None, width: 4, height: 4, depth: 1, mip_levels: 1, sample_count: 1,
+        format: TextureFormat::Rgba8Unorm, usage: vec![TextureUsage::RenderAttachment],
+    }).unwrap();
+    let mut target = backend::prepare_render_target(&device, backend::RenderTarget {
+        colors: vec![backend::ColorAttachment {
+            texture: texture.clone(), resolve: None, load: Load::Clear, store: Store::Store,
+            clear: (1., 0., 0., 1.),
+        }],
+        depth: None,
+    }).unwrap();
+    let commands = backend::begin_commands(&queue).unwrap();
+    let cycle = |target: &mut backend::PreparedRenderTarget| {
+        let recording = backend::native_commands(&commands).unwrap().vk_command_buffer;
+        let pass = backend::render_prepared(&commands, target).unwrap();
+        let recorded = backend::native_pass(&pass).unwrap().vk_command_buffer;
+        backend::end_render(&pass).unwrap();
+        let receipt = backend::commit(&commands).unwrap();
+        backend::complete_through(&queue, receipt.epoch).unwrap();
+        (recording, recorded, receipt.epoch)
+    };
+    let first = cycle(&mut target);
+    backend::rebegin_commands(&commands).unwrap();
+    let second = cycle(&mut target);
+    assert_eq!(backend::completed_epoch(&queue), 2);
+
+    drop(target);
+    drop(commands);
+    backend::destroy_texture(&texture).unwrap();
+    backend::destroy_queue(&queue).unwrap();
+    backend::destroy_device(&device).unwrap();
+
+    assert_eq!(first.0, first.1, "first pass belongs to its recording");
+    assert_ne!(first.0, second.0, "two different driver command buffers");
+    assert_eq!(second.0, second.1, "epoch {} pass remained on epoch {}'s driver buffer", second.2, first.2);
+}
+
+#[test]
 fn mock_refuses_what_it_cannot_run() {
     select();
     let device = backend::create_device(virtual_impl::create_driver().unwrap()).unwrap();

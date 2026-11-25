@@ -489,6 +489,9 @@ impl DriverRenderEncoder for MockRenderPass {
     fn use_resources(&self, _: &[Rc<dyn DriverResource>]) -> Result<(), Error> { Ok(()) }
     fn execute_icb(&self, _: &dyn DriverIcb, _: i64, _: i64) -> Result<(), Error> { Ok(()) }
     fn end_render(&self) -> Result<(), Error> { Ok(()) }
+    // For the generation probe, mirror Metal's retained pass with its original command identity.
+    fn retain_for_reuse(&mut self) -> bool { !self.native.vk_command_buffer.is_null() }
+    fn restart(&mut self) -> Result<bool, Error> { Ok(!self.native.vk_command_buffer.is_null()) }
     fn native_pass(&self) -> Result<NativePass, Error> { Ok(self.native) }
 }
 
@@ -536,7 +539,10 @@ impl DriverCommands for MockCommands {
     }
     fn render_encoder(&self, _: &DriverRenderTarget) -> Result<Box<dyn DriverRenderEncoder>, Error> {
         if self.c.borrow().record_render {
-            return Ok(Box::new(MockRenderPass { native: NativePass::default() }));
+            return Ok(Box::new(MockRenderPass { native: NativePass {
+                vk_command_buffer: self.id as usize as *mut c_void,
+                ..Default::default()
+            } }));
         }
         Err(fail("Backend_mock.render_encoder", ErrorKind::Unsupported, "mock backend does not rasterize"))
     }
