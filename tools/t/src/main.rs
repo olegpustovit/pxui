@@ -586,7 +586,7 @@ fn group_native_case(case: &TestCase) -> bool {
         return !name.starts_with("alloc_budget_")
             && !name.starts_with("click_budget_")
             && !name.starts_with("graph_budget_")
-            && !matches!(name, "typing_budget" | "images_native_geometry_captures");
+            && !matches!(name, "typing_budget" | "images_native_geometry_captures" | "workspace_capture_budget");
     }
     target.starts_with("gpu_flow_integration-") || target.starts_with("window_rays_graph-")
 }
@@ -1579,10 +1579,10 @@ mod tests {
             order: 0,
             executable: "gpu_editor-hash".into(),
             crate_name: "rays_editor".into(),
-            name: "workspace_capture_budget".into(),
+            name: "workspace_capture".into(),
         };
         assert!(group_native_case(&case));
-        for name in ["alloc_budget_basic", "click_budget_long", "graph_budget_isogrid", "typing_budget", "group::typing_budget", "images_native_geometry_captures"] {
+        for name in ["alloc_budget_basic", "click_budget_long", "graph_budget_isogrid", "typing_budget", "group::typing_budget", "images_native_geometry_captures", "workspace_capture_budget"] {
             case.name = name.into();
             assert!(!group_native_case(&case), "{name}");
         }
