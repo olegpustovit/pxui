@@ -412,7 +412,7 @@ pub fn button_pill_body() {
         if ui.button("Go") {
             v.set(v.get() + 1);
         }
-        if ui.button_opts("Bare", "Bare", None, &ButtonOpts { bare: true, justify: Justify::End, ..ButtonOpts::DEFAULT }, [""; 3], None, None).clicked {
+        if ui.button_opts("Bare", "Bare", None, &ButtonOpts { bare: true, justify: Justify::End, ..ButtonOpts::DEFAULT }, &[""; 3], None, None).clicked {
             v.set(v.get() + 100);
         }
     };
@@ -445,7 +445,7 @@ pub fn button_opts_uses_a_registered_body() {
     pick(&mut ui, &|t, id| t.body.button = id, &|ui| ui.register_button_body("recording", recording_button));
     let opts = ButtonOpts { w: Size::Px(50.0), h: Size::Px(30.0), justify: Justify::Center, padding: Edges::ZERO.l(3.0), centered: true, ..ButtonOpts::DEFAULT };
     for k in 0..2 {
-        ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| { ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { ui.button_opts("Go", "Go", None, &opts, [""; 3], None, None); }); });
+        ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| { ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { ui.button_opts("Go", "Go", None, &opts, &[""; 3], None, None); }); });
     }
     check(SEEN.with(|s| s.get()) == (50.0, 30.0, 1, 3.0, true), &format!("the body's config is {:?}", SEEN.with(|s| s.get())));
     let row = key_of(key_of(0x2c1b3c6d, "panel"), "Go");
@@ -461,7 +461,7 @@ pub fn button_icon_size_stacks_over_the_text() {
     let mut ui = new_ui(None);
     let opts = ButtonOpts { w: Size::Px(64.0), h: Size::Px(52.0), centered: true, axis: Some(pxui_core::ui::Axis::Column), content_align: Some(pxui_core::layout::Along::Center), icon_size: 24.0, ..ButtonOpts::DEFAULT };
     for k in 0..3 {
-        ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| { ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { ui.button_opts("Add", "Add", None, &opts, ["+", "", ""], None, None); }); });
+        ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| { ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { ui.button_opts("Add", "Add", None, &opts, &["+", "", ""], None, None); }); });
     }
     let row = key_of(key_of(0x2c1b3c6d, "panel"), "Add");
     let (Some(b), Some(icon), Some(text)) = (ui.box_of_key(row), ui.box_of_key(int_key(row, 2)), ui.box_of_key(int_key(row, 1))) else { return check(false, "the button, its icon and its text") };
@@ -486,7 +486,7 @@ pub fn duplicate_key_buttons_own_their_parts() {
     let mut rows = [0i64; 2];
     for k in 0..2 {
         ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| { ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| {
-            for (i, text) in ["One", "Two"].into_iter().enumerate() { rows[i] = ui.button_opts("button", text, None, &ButtonOpts::DEFAULT, [""; 3], None, None).handle.box_key; }
+            for (i, text) in ["One", "Two"].into_iter().enumerate() { rows[i] = ui.button_opts("button", text, None, &ButtonOpts::DEFAULT, &[""; 3], None, None).handle.box_key; }
         }); });
     }
     check(rows[0] != rows[1], "the two buttons share a key");

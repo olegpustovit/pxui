@@ -194,7 +194,7 @@ pub mod shapes {
         }
         pub fn icon_button(&mut self, key: &str, icon: pxui_core::ui::Icon, name: &str, button: &pxui_core::ui::IconButton) -> pxui_core::ui::Response { self.0.icon_button(key, icon, name, button, None) }
         pub fn button(&mut self, key: &str, text: &str, _: &Button) -> pxui_core::ui::Response {
-            self.0.button_opts(key, text, None, &pxui_core::ui_kit::ButtonOpts::DEFAULT, [""; 3], None, None)
+            self.0.button_opts(key, text, None, &pxui_core::ui_kit::ButtonOpts::DEFAULT, &[""; 3], None, None)
         }
         pub fn toggle(&mut self, key: &str, text: &str, on: bool, _: &Toggle) -> Toggled {
             let r = self.0.toggle_opts(key, text, on, &pxui_core::ui::ToggleOpts::DEFAULT);

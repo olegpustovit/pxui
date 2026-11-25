@@ -101,7 +101,7 @@ pub(crate) unsafe fn keyed_node(ui: *mut PxuiUi, key: i64, reserved: bool, desc:
     enter!(ui);
     if reserved { return unsafe { fail(ui, "reserved node key; derive integer keys with int_key") }; }
     if let pxui_types::node::OptTransition::Some(curve) = &desc.transition { if !valid_curve(curve) { return unsafe { fail(ui, "invalid transition curve") }; } }
-    unsafe { declare(engine(ui), None, key, desc, out, false) };
+    unsafe { declare(engine(ui), None, key, desc, out, true) };
     0
 }
 
@@ -611,10 +611,10 @@ pub unsafe fn button_with(ui: *mut PxuiUi, key: &str, text: &str, name: Option<&
     if let Some(label) = label { opts.label = Some(*label); }
     let body = content;
     let r = match signal {
-        None => e.button_opts(key, text, name, &opts, parts, body, None),
+        None => e.button_opts(key, text, name, &opts, &parts, body, None),
         Some(signal) => {
             let mut read = pxui_core::ui::Signal::default();
-            let r = e.button_opts(key, text, name, &opts, parts, body, Some(&mut read));
+            let r = e.button_opts(key, text, name, &opts, &parts, body, Some(&mut read));
             crate::interaction::write_borrowed_signal(unsafe { &*ui }, &read, unsafe { engine(ui) }.key_events_ref(&r.handle), signal);
             r
         }
@@ -635,7 +635,7 @@ pub unsafe fn button_plain(ui: *mut PxuiUi, key: &str, text: &str, out: &mut Eng
 pub(crate) unsafe fn button_plain_checked(ui: *mut PxuiUi, key: &str, text: &str, bad: bool, out: &mut EngineResponse) -> i32 {
     enter!(ui);
     if bad { return unsafe { fail(ui, "invalid button text") }; }
-    let r = unsafe { engine(ui) }.button_opts(key, text, None, &pxui_core::ui::ButtonOpts::DEFAULT, [""; 3], None, None);
+    let r = unsafe { engine(ui) }.button_opts(key, text, None, &pxui_core::ui::ButtonOpts::DEFAULT, &[""; 3], None, None);
     *out = r;
     0
 }

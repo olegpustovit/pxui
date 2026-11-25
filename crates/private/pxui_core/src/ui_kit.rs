@@ -969,7 +969,7 @@ impl Ui {
 
     /// `true` on the frame a press and release both land inside the button.
     pub fn button(&mut self, text: &str) -> bool {
-        self.button_opts(text, text, None, &ButtonOpts::DEFAULT, [""; 3], None, None).clicked
+        self.button_opts(text, text, None, &ButtonOpts::DEFAULT, &[""; 3], None, None).clicked
     }
 
     /// A button is its text on a 20-point box (6 points of padding in a transparent 1-point edge):
@@ -979,7 +979,7 @@ impl Ui {
     /// given, receives the box's signal as it was read for it, without its key events (`key_events_ref`): the C ABI's signal
     /// without a second read.
     #[allow(clippy::too_many_arguments)]
-    pub fn button_opts(&mut self, key: &str, text: &str, name: Option<&str>, opts: &ButtonOpts, parts: [&str; 3], content: Option<&mut dyn FnMut(&mut Ui, State)>, signal_out: Option<&mut Signal>) -> Response {
+    pub fn button_opts(&mut self, key: &str, text: &str, name: Option<&str>, opts: &ButtonOpts, parts: &[&str; 3], content: Option<&mut dyn FnMut(&mut Ui, State)>, signal_out: Option<&mut Signal>) -> Response {
         // the row lays the box out: 5 in from the start (8 from the end at the end), the control
         // centred in the row's height; the box is the button (its key, its hit area)
         // the box's key is resolved first (one key on several buttons, as `button(text)` gives, takes its duplicates), so the line's,
@@ -1006,12 +1006,12 @@ impl Ui {
             }
         }
         // the caller's contents replace the text and its parts: the leading icon, detail and accessory are not drawn or given to a body
-        let (parts, lead_draw) = if content.is_some() { ([""; 3], None) } else { (parts, opts.lead_draw) };
+        let (parts, lead_draw) = if content.is_some() { (&[""; 3], None) } else { (parts, opts.lead_draw) };
         let config = ButtonConfig { state, bare: opts.bare, icon: opts.icon, at_end: matches!(opts.justify, Justify::End), w: opts.w, h: opts.h, justify: opts.justify, pad: opts.padding, centered: opts.centered, danger: opts.danger, line, row,
             label: opts.label, axis: opts.axis, gap: opts.gap, content_align: opts.content_align, lead_draw, icon_size: opts.icon_size,
             detail_label: opts.detail_label, accessory_label: opts.accessory_label };
         let shown_text = if content.is_some() { "" } else { text };
-        in_body!(flat; self, row.box_key, row, button, default_button(&config, &states, shown_text, parts));
+        in_body!(flat; self, row.box_key, row, button, default_button(&config, &states, shown_text, *parts));
         // size, placement and padding went to the body in its config; the accessible states are the engine's
         let n = self.node_new(&row);
         n.state.disabled = !enabled;

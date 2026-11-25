@@ -397,6 +397,14 @@ fn valid_touches(events:&Strided<pxui_types::Event>)->bool {
     (0..events.len).all(|i| { let e = unsafe { events.at(i) }; e.kind!=pxui_types::Event::TOUCH || touch_event(e).is_some() })
 }
 
+/// Pointer motion has no code or text payload.
+#[inline(always)]
+fn pointer_motion(raw: &pxui_types::Event, surface: u64) -> Option<(f64, f64)> {
+    (raw.kind == pxui_types::Event::POINTER_MOVED && raw.size as usize >= core::mem::size_of::<pxui_types::Event>()
+        && raw.surface == surface && raw.x.is_finite() && raw.y.is_finite() && raw.value.is_finite())
+        .then_some((raw.x, raw.y))
+}
+
 /// Decode the whole batch before any edge changes retained input.
 #[inline(always)]
 fn decode_events(out: &mut Vec<Event>, events: &Strided<pxui_types::Event>, surface: u64) -> bool {
@@ -405,7 +413,7 @@ fn decode_events(out: &mut Vec<Event>, events: &Strided<pxui_types::Event>, surf
     for i in 0..events.len {
         let raw = unsafe { events.at(i) };
         // the commonest event of a frame, decoded in line (`translate_event` decodes it the same)
-        if raw.kind == pxui_types::Event::POINTER_MOVED && raw.size as usize >= core::mem::size_of::<pxui_types::Event>() && raw.surface == surface && raw.x.is_finite() && raw.y.is_finite() && raw.value.is_finite() { out.push(Event::PointerMoved((raw.x, raw.y))); continue; }
+        if let Some(point) = pointer_motion(raw, surface) { out.push(Event::PointerMoved(point)); continue; }
         let Some(event) = translate_event(raw, surface, &mut budget) else { return false };
         out.push(event);
     }
@@ -606,7 +614,12 @@ unsafe fn frame_body_impl(ui: *mut PxuiUi, input: &FrameIn, snapshot: Option<&Px
     };
     let mut base = unsafe { take_input(ui, input.time) };
     let events = &input.events;
-    if !decode_events(&mut base.input.events, events, registered) {
+    let motion = if snapshot.is_none() && events.len == 1 {
+        pointer_motion(unsafe { events.at(0) }, registered)
+    } else { None };
+    if let Some(point) = motion {
+        base.input.events.push(Event::PointerMoved(point));
+    } else if !decode_events(&mut base.input.events, events, registered) {
         let message=if valid_touches(events) { "invalid event kind, code, or UTF-8 payload" } else { "invalid touch payload" };
         base.input.events.clear();
         unsafe { restore_input(ui, base); }
@@ -627,10 +640,10 @@ unsafe fn frame_body_impl(ui: *mut PxuiUi, input: &FrameIn, snapshot: Option<&Px
         base.mouse_delta = (snapshot.mouse_delta[0], snapshot.mouse_delta[1]);
     } else {
         (frame.dt, frame.frame, frame.tick) = (0.0, input.time.to_bits() as i64, 0);
-        fold_input_edges(frame);
+        if let Some(point) = motion { frame.pointer = point; } else { fold_input_edges(frame); }
         (base.pixel_scale, base.fps, base.mouse_delta) = ((input.scale as f64, input.scale as f64), 60.0, (0.0, 0.0));
     }
-    unsafe { &mut *(*ui).engine }.set_system_preferences(appearance,reduced!=0);
+    engine.set_system_preferences(appearance, reduced != 0);
     if environment_changed { set_environment(engine, environment); }
     if keyboard_changed { set_keyboard(engine, keyboard); }
     let rc = unsafe { run_frame(ui, &base, snapshot.is_some(), build, out) };

@@ -2044,24 +2044,31 @@ impl Ui {
     }
 
     /// Host facts stay separate from authored themes; turning the OS preference off restores them.
-    pub fn set_system_preferences(&mut self,appearance:u32,reduced_motion:bool) {
+    #[inline]
+    pub fn set_system_preferences(&mut self, appearance: u32, reduced_motion: bool) {
         if (appearance, reduced_motion) != (self.system_appearance, self.system_reduced_motion) {
-            let previous = self.epoch;
-            self.epoch += 1;
-            if reduced_motion == self.system_reduced_motion {
-                if let Some((_, target)) = self.repaint_palette.as_mut() && *target == previous {
-                    *target = self.epoch;
-                }
-                for view in &mut self.views[1..] {
-                    if (view.palette_labels || view.palette_paint) && view.epoch == previous {
-                        view.epoch = self.epoch;
-                    }
+            self.change_system_preferences(appearance, reduced_motion);
+        }
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn change_system_preferences(&mut self, appearance: u32, reduced_motion: bool) {
+        let previous = self.epoch;
+        self.epoch += 1;
+        if reduced_motion == self.system_reduced_motion {
+            if let Some((_, target)) = self.repaint_palette.as_mut() && *target == previous {
+                *target = self.epoch;
+            }
+            for view in &mut self.views[1..] {
+                if (view.palette_labels || view.palette_paint) && view.epoch == previous {
+                    view.epoch = self.epoch;
                 }
             }
         }
         if reduced_motion && !self.system_reduced_motion { self.snap_motion(); }
-        (self.system_appearance,self.system_reduced_motion)=(appearance,reduced_motion);
-        self.theme.tokens.reduced_motion=self.theme_reduced_motion||reduced_motion;
+        (self.system_appearance, self.system_reduced_motion) = (appearance, reduced_motion);
+        self.theme.tokens.reduced_motion = self.theme_reduced_motion || reduced_motion;
     }
 
     /// Installs the app's colour tokens: entry `i` of `light`/`dark` is token `i`; the rest read transparent. An entry that itself

@@ -98,9 +98,14 @@ unsafe fn node_ok(p: *const Node) -> bool {
     let mark = tag(offset_of!(Node, mark));
     if over || (optional | flags) & !1 != 0 || mark > 2 || !unsafe { size_ok(p, offset_of!(Node, w)) && size_ok(p, offset_of!(Node, h)) } { return false; }
     // the common node sets none of the optional values whose contents are checked: one branch
-    if optional | mark == 0 { return true; }
+    optional | mark == 0 || unsafe { node_optional_ok(p) }
+}
+
+#[cold]
+#[inline(never)]
+unsafe fn node_optional_ok(p: *const u8) -> bool {
     let value = |at: usize, align: usize| at + payload(1, align);
-    let set = |at: usize| tag(at) == 1;
+    let set = |at: usize| unsafe { byte(p, at) == 1 };
     let anchor = value(offset_of!(Node, anchor), align_of::<OptAnchor>());
     !(set(offset_of!(Node, align_self)) && unsafe { byte(p, value(offset_of!(Node, align_self), align_of::<OptAlign>())) } > Align::Baseline as u8)
         && !(set(offset_of!(Node, anchor)) && unsafe { byte(p, anchor + offset_of!(Anchor, placement.side)) > Side::Left as u8

@@ -838,7 +838,7 @@ impl Ui {
         for look in [&mut states.idle, &mut states.hover, &mut states.pressed, &mut states.focus, &mut states.disabled, &mut states.checked] { look.ring = Ring::NONE; }
         let opts = ButtonOpts { states: Some(states), w: Size::Px(tw + 12.0), h: Size::Px(h), centered: true, ..ButtonOpts::DEFAULT };
         let saved = self.enter(&row);
-        let response = self.button_opts("button", label, None, &opts, ["", "", ""], None, None);
+        let response = self.button_opts("button", label, None, &opts, &["", "", ""], None, None);
         self.leave(saved);
         response.clicked
     }
