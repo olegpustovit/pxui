@@ -1595,7 +1595,7 @@ mod tests {
             name: "workspace_capture".into(),
         };
         assert!(group_native_case(&case));
-        for name in ["alloc_budget_basic", "click_budget_long", "graph_budget_isogrid", "typing_budget", "group::typing_budget", "images_native_geometry_captures", "workspace_capture_budget"] {
+        for name in ["alloc_budget_basic", "click_budget_long", "graph_budget_isogrid", "zero_alloc_a_basic", "typing_budget", "group::typing_budget", "images_native_geometry_captures", "workspace_capture_budget"] {
             case.name = name.into();
             assert!(!group_native_case(&case), "{name}");
         }
