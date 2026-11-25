@@ -1576,10 +1576,25 @@ fn render(device: &Device) {
     be::destroy_queue(&queue).unwrap_or_else(|failure| die(failure));
 }
 
+fn gpu_rebegin_commands() {
+    let device = open();
+    let queue = be::create_queue(&device).unwrap_or_else(|failure| die(failure));
+    let commands = be::begin_commands(&queue).unwrap_or_else(|failure| die(failure));
+    refused(be::rebegin_commands(&commands).err(), ErrorKind::InvalidState, "rebegin while recording was accepted");
+    let receipt = be::commit(&commands).unwrap_or_else(|failure| die(failure));
+    be::complete_through(&queue, receipt.epoch).unwrap_or_else(|failure| die(failure));
+    be::rebegin_commands(&commands).unwrap_or_else(|failure| die(failure));
+    let receipt = be::commit(&commands).unwrap_or_else(|failure| die(failure));
+    be::complete_through(&queue, receipt.epoch).unwrap_or_else(|failure| die(failure));
+    be::destroy_queue(&queue).unwrap_or_else(|failure| die(failure));
+    finish(device);
+}
+
 pub const CASES: &[(&str, fn())] = &[
         ("gpu_implementation_tag_and_handles", gpu_implementation_tag_and_handles),
         ("gpu_conformance_transfer_and_compute", gpu_conformance_transfer_and_compute),
         ("gpu_conformance_ray_tracing", gpu_conformance_ray_tracing),
         ("gpu_conformance_render", gpu_conformance_render),
         ("gpu_painter_primitives", gpu_painter_primitives),
+        ("gpu_rebegin_commands", gpu_rebegin_commands),
     ];
