@@ -292,10 +292,12 @@ fn is_noise_frame(f: &Frame) -> bool {
         || is_trace_frame(f)
         || {
             let n = f.function.as_str();
-            n.starts_with("alloc::")
-                || n.starts_with("hashbrown::")
+            // Demangled forms may be `<alloc::sync::Arc<…>>::…` — match the crate path inside.
+            n.contains("alloc::")
+                || n.contains("hashbrown::")
                 || n.starts_with("std::")
                 || n.starts_with("core::")
+                || n.contains("core::")
                 || n.starts_with("_malloc")
                 || n.starts_with("malloc")
                 || n.starts_with("calloc")
