@@ -462,7 +462,7 @@ struct AccelRecorder {
 }
 
 fn accel_encoder(context: &Rc<CommandContext>) -> Result<Box<dyn DriverAccelEncoder>, Error> {
-    let encoder = native::AccelerationEncoder::create(context.cb())?;
+    let encoder = native::AccelerationEncoder::create(&context.cb())?;
     *context.open_encoder.borrow_mut() = Some(OpenEncoder::Accel(encoder.clone()));
     Ok(Box::new(AccelRecorder { context: context.clone(), encoder }))
 }
@@ -520,19 +520,16 @@ struct MetalCommands {
 
 impl Drop for MetalCommands {
     fn drop(&mut self) {
-        let Some(mut ctx) = self.context.take() else { return };
-        if Rc::strong_count(&ctx) != 1 { return; }
+        let Some(ctx) = self.context.take() else { return };
+        // Always drop the CB Arc (RefCell): a reusable Render may still hold this Rc.
+        *ctx.native.borrow_mut() = None;
+        *ctx.open_encoder.borrow_mut() = None;
         {
-            let c = Rc::get_mut(&mut ctx).expect("unique CommandContext");
-            // Drop the CB Arc here so spare holds no queue dependents (pending/free_commands keep theirs).
-            c.native = None;
-            {
-                let retained = c.retained.get_mut();
-                retained.clear();
-                retained.reserve(16);
-            }
-            *c.open_encoder.get_mut() = None;
+            let mut retained = ctx.retained.borrow_mut();
+            retained.clear();
+            retained.reserve(16);
         }
+        if Rc::strong_count(&ctx) != 1 { return; }
         if self.spare.ctx_spare.borrow().len() < 2 {
             self.spare.ctx_spare.borrow_mut().push(ctx);
         }
@@ -590,7 +587,7 @@ impl DriverCommands for MetalCommands {
         let context = self.ctx();
         // Leave a capacity-16 shell: mem::take would drop capacity and spare reuse would realloc mid-draw.
         let mut retained = std::mem::replace(&mut *context.retained.borrow_mut(), Vec::with_capacity(16));
-        match self.queue.submit_native(context.cb(), &mut retained) {
+        match self.queue.submit_native(&context.cb(), &mut retained) {
             Err(e) => {
                 *context.retained.borrow_mut() = retained;
                 Err(e)
@@ -608,12 +605,12 @@ impl DriverCommands for MetalCommands {
             return Err(fail(context.operation, ErrorKind::Capacity, "bounded presentation slots are all in flight"));
         };
         pending.prepare_present(surface, native_frame, source)?;
-        if let Err(e) = pending.presentation_encoder(context.cb()) {
+        if let Err(e) = pending.presentation_encoder(&context.cb()) {
             pending.rollback_present();
             return Err(e);
         }
         let mut retained = std::mem::replace(&mut *context.retained.borrow_mut(), Vec::with_capacity(16));
-        match self.queue.submit_native(context.cb(), &mut retained) {
+        match self.queue.submit_native(&context.cb(), &mut retained) {
             Err(e) => {
                 *context.retained.borrow_mut() = retained;
                 pending.rollback_present();
@@ -633,7 +630,7 @@ impl DriverCommands for MetalCommands {
         }
         context.retained.borrow_mut().clear();
         // Destroyed buffers are not returned to ctx_spare (Drop sees native already taken).
-        let Some(native) = context.native.as_ref() else {
+        let Some(native) = context.native.borrow_mut().take() else {
             return Ok(());
         };
         native.destroy()
@@ -647,6 +644,21 @@ impl DriverCommands for MetalCommands {
         context.cb().end_texture_uploads();
         render_encoder::adopt(context, native)
     }
+    fn rebegin(&mut self) -> Result<(), Error> {
+        let native = self.queue.obtain_command_buffer()?;
+        let ctx = self.ctx();
+        // Shared with a reusable Render: RefCell renews the CB in place (no fresh context).
+        *ctx.native.borrow_mut() = Some(native);
+        ctx.commands_token.set(self.spare.t.token());
+        *ctx.open_encoder.borrow_mut() = None;
+        {
+            let mut retained = ctx.retained.borrow_mut();
+            retained.clear();
+            retained.reserve(16);
+        }
+        self.frame_serial = 0;
+        Ok(())
+    }
 }
 
 fn begin_commands(dev: &Rc<Dev>, queue: &Queue, active: &Rc<Vec<PendingPresentation>>) -> Result<Box<dyn DriverCommands>, Error> {
@@ -657,7 +669,7 @@ fn begin_commands(dev: &Rc<Dev>, queue: &Queue, active: &Rc<Vec<PendingPresentat
             {
                 let c = Rc::get_mut(&mut ctx).expect("unique spare context");
                 c.operation = operation;
-                c.native = Some(native);
+                *c.native.get_mut() = Some(native);
                 c.commands_token.set(dev.t.token());
                 *c.open_encoder.get_mut() = None;
                 let retained = c.retained.get_mut();
@@ -669,7 +681,7 @@ fn begin_commands(dev: &Rc<Dev>, queue: &Queue, active: &Rc<Vec<PendingPresentat
         Some(_) | None => Rc::new(CommandContext {
             operation,
             device: dev.device.clone(),
-            native: Some(native),
+            native: RefCell::new(Some(native)),
             tables: dev.t.clone(),
             commands_token: std::cell::Cell::new(dev.t.token()),
             open_encoder: RefCell::new(None),
@@ -715,7 +727,7 @@ impl DriverQueue for MetalQueue {
             return Err(fail("Ogpu_metal.Backend.adopt_commands", ErrorKind::InvalidArgument, "invalid native command buffer descriptor"));
         }
         let command = native::CommandBuffer::adopt_raw(self.queue.metal(), native.mtl_command_buffer)?;
-        let context = Rc::new(CommandContext { operation: "Ogpu_metal.Backend.adopt_commands", device: self.dev.device.clone(), native: Some(command),
+        let context = Rc::new(CommandContext { operation: "Ogpu_metal.Backend.adopt_commands", device: self.dev.device.clone(), native: RefCell::new(Some(command)),
             tables: self.dev.t.clone(), commands_token: std::cell::Cell::new(self.dev.t.token()), open_encoder: RefCell::new(None), retained: RefCell::new(Vec::with_capacity(16)) });
         Ok(Box::new(MetalCommands { queue: self.queue.clone(), active: self.active.clone(), context: Some(context), spare: self.dev.clone(), frame_serial: native.frame_serial }))
     }

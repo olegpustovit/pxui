@@ -1599,6 +1599,15 @@ impl DriverCommands for CommandsHandle {
         *self.cmds.commands.borrow_mut() = None;
         Ok(())
     }
+    fn rebegin(&mut self) -> Result<(), Error> {
+        let native = self.cmds.queue.native(QUEUE_OP)?.begin().map_err(|failure| of_vk(QUEUE_OP, failure))?;
+        *self.cmds.commands.borrow_mut() = Some(native);
+        Ok(())
+    }
+    fn spent(&mut self) {
+        // commit already took the native slot; shell (Cmds Rc) stays for rebegin.
+        *self.cmds.commands.borrow_mut() = None;
+    }
 }
 
 fn begin_commands(dev: &Rc<Dev>, queue: &Rc<QueueState>) -> Result<Box<dyn DriverCommands>, Error> {

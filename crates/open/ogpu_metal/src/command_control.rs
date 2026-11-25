@@ -128,7 +128,8 @@ pub struct CommandContext {
     pub operation: &'static str,
     pub device: Device,
     /// None while the shell sits in Dev::ctx_spare (no queue dependents).
-    pub native: Option<native::CommandBuffer>,
+    /// RefCell: rebegin renews the CB while a reusable Render still holds this Rc.
+    pub native: RefCell<Option<native::CommandBuffer>>,
     pub tables: Rc<Tables>,
     /// names this command buffer to the resources it retains (one retain each); a new one for each command buffer readopted
     pub commands_token: std::cell::Cell<i64>,
@@ -137,8 +138,8 @@ pub struct CommandContext {
 }
 
 impl CommandContext {
-    pub fn cb(&self) -> &native::CommandBuffer {
-        self.native.as_ref().expect("command context has no buffer")
+    pub fn cb(&self) -> native::CommandBuffer {
+        self.native.borrow().as_ref().expect("command context has no buffer").clone()
     }
 
     /// One retain per buffer per command buffer, however many bindings reference it.

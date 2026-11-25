@@ -382,6 +382,14 @@ pub trait DriverCommands {
     /// Adopted commands the app is about to carry on with: whatever this driver still owes the app's command buffer (Vulkan's
     /// barrier after staged writes) is recorded now, while it records, not when these are replaced or dropped a frame later.
     fn settle(&mut self) {}
+    /// Fresh native command buffer into this driver shell after commit/abandon (no new `Box<dyn DriverCommands>`).
+    /// Caller must have completed the previous buffer's GPU work.
+    fn rebegin(&mut self) -> Result<(), Error> {
+        Err(error::make("Backend.rebegin", ErrorKind::Unsupported, "command rebegin is unavailable"))
+    }
+    /// After a successful commit: release native buffer handles from this shell so the queue can destroy;
+    /// the `Box` stays for `rebegin`.
+    fn spent(&mut self) {}
 }
 
 pub trait DriverQueue {
@@ -552,7 +560,15 @@ struct AccelInner { raw: RefCell<Option<Rc<dyn DriverAccel>>>, sizes: AccelSizes
 enum CommandsState { Recording, Encoding, Committed, Abandoned }
 #[derive(Clone)]
 pub struct Commands(Rc<CommandsInner>);
-struct CommandsInner { raw: RefCell<Option<Box<dyn DriverCommands>>>, queue: Queue, state: Cell<CommandsState>, encoder: RefCell<Option<ActiveEncoder>>, borrowed: Cell<bool> }
+struct CommandsInner {
+    raw: RefCell<Option<Box<dyn DriverCommands>>>,
+    queue: Queue,
+    state: Cell<CommandsState>,
+    encoder: RefCell<Option<ActiveEncoder>>,
+    borrowed: Cell<bool>,
+    /// Advances on each successful owned `rebegin_commands`; prepared passes must match.
+    generation: Cell<u64>,
+}
 enum ActiveEncoder { Compute(Weak<ComputeInner>), Accel(Weak<AccelEncoderInner>), Blit(Weak<BlitInner>), Render(Weak<RenderInner>) }
 #[derive(Clone)]
 pub struct ComputeEncoder(Rc<ComputeInner>);
@@ -574,7 +590,18 @@ pub struct Argument(Rc<ArgumentInner>);
 struct ArgumentInner { raw: RefCell<Option<Box<dyn DriverArgument>>>, length: i64, alignment: i64, device: Device, dead: Cell<bool> }
 #[derive(Clone)]
 pub struct RenderEncoder(Rc<RenderInner>);
-struct RenderInner { raw: RefCell<Option<Box<dyn DriverRenderEncoder>>>, commands: Commands, open: Cell<bool>, pipeline_set: Cell<bool>, indirect: Cell<bool>, target: (TextureFormat, u8), extent: Cell<(i64, i64)>, reusable: bool }
+struct RenderInner {
+    raw: RefCell<Option<Box<dyn DriverRenderEncoder>>>,
+    commands: Commands,
+    open: Cell<bool>,
+    pipeline_set: Cell<bool>,
+    indirect: Cell<bool>,
+    target: (TextureFormat, u8),
+    extent: Cell<(i64, i64)>,
+    reusable: bool,
+    /// `CommandsInner::generation` when this pass was opened or last rebound.
+    generation: Cell<u64>,
+}
 
 // A dead wrapper keeps identity and validation metadata, never driver callbacks/native owners.
 // Access follows the existing liveness/state guards; failed transitions retain the payload.
@@ -1628,10 +1655,14 @@ pub fn begin_commands(queue: &Queue) -> Result<Commands, Error> {
     if q.device.0.dead.get() { return Err(make_error(OP, ErrorKind::StaleHandle, "device is destroyed")); }
     if q.dead { return Err(make_error(OP, ErrorKind::StaleHandle, "queue is destroyed")); }
     let raw = q.raw().begin_commands()?;
-    Ok(Commands(Rc::new(CommandsInner { raw: RefCell::new(Some(raw)), queue: queue.clone(), state: Cell::new(CommandsState::Recording), encoder: RefCell::new(None), borrowed: Cell::new(false) })))
+    Ok(Commands(Rc::new(CommandsInner {
+        raw: RefCell::new(Some(raw)), queue: queue.clone(), state: Cell::new(CommandsState::Recording),
+        encoder: RefCell::new(None), borrowed: Cell::new(false), generation: Cell::new(0),
+    })))
 }
 
 /// Fresh driver command buffer into a committed/abandoned `commands` shell (no new CommandsInner Rc).
+/// Prefer renewing the held driver shell (no new `Box`); falls back to a fresh begin when the shell was taken.
 /// Caller must have completed the previous buffer's GPU work (`settle` / `complete_through`).
 pub fn rebegin_commands(commands: &Commands) -> Result<(), Error> {
     const OP: &str = "Backend.rebegin_commands";
@@ -1644,17 +1675,35 @@ pub fn rebegin_commands(commands: &Commands) -> Result<(), Error> {
             return Err(make_error(OP, ErrorKind::InvalidState, "commands are still recording"));
         }
     }
-    if commands.0.raw.borrow().is_some() {
-        return Err(make_error(OP, ErrorKind::InvalidState, "commands still hold a driver buffer"));
-    }
     let q = commands.0.queue.0.borrow();
     if q.device.0.dead.get() || q.dead {
         return Err(make_error(OP, ErrorKind::StaleHandle, "queue or device is destroyed"));
     }
+    drop(q);
+    let mut held = commands.0.raw.borrow_mut();
+    if let Some(raw) = held.as_mut() {
+        match raw.rebegin() {
+            Ok(()) => {
+                drop(held);
+                *commands.0.encoder.borrow_mut() = None;
+                commands.0.generation.set(commands.0.generation.get().wrapping_add(1));
+                commands.0.state.set(CommandsState::Recording);
+                return Ok(());
+            }
+            Err(e) if e.kind == ErrorKind::Unsupported => {
+                // Driver has no renew path: drop the spent shell and begin fresh below.
+                held.take();
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    drop(held);
+    let q = commands.0.queue.0.borrow();
     let raw = q.raw().begin_commands()?;
     drop(q);
     *commands.0.raw.borrow_mut() = Some(raw);
     *commands.0.encoder.borrow_mut() = None;
+    commands.0.generation.set(commands.0.generation.get().wrapping_add(1));
     commands.0.state.set(CommandsState::Recording);
     Ok(())
 }
@@ -1677,7 +1726,7 @@ pub fn adopt_commands(queue: &Queue, native: NativeCommands) -> Result<Commands,
     drop(q);
     Ok(Commands(Rc::new(CommandsInner {
         raw: RefCell::new(Some(raw)), queue: queue.clone(), state: Cell::new(CommandsState::Recording),
-        encoder: RefCell::new(None), borrowed: Cell::new(true),
+        encoder: RefCell::new(None), borrowed: Cell::new(true), generation: Cell::new(0),
     })))
 }
 pub fn compute_encoder(commands: &Commands) -> Result<ComputeEncoder, Error> {
@@ -1919,6 +1968,8 @@ pub fn commit(commands: &Commands) -> Result<Receipt, Error> {
     let receipt = commands.0.raw().commit()?;
     commands.0.queue.0.borrow_mut().submitted = receipt.epoch;
     commands.0.state.set(CommandsState::Committed);
+    // Release the driver payload (natives via Drop). `rebegin_commands` begins a fresh shell into the
+    // same CommandsInner; prepared passes key on `generation` so they cannot restart across it.
     commands.0.raw.borrow_mut().take();
     Ok(receipt)
 }
@@ -2173,6 +2224,33 @@ impl Drop for PreparedRenderTarget {
         }
     }
 }
+impl PreparedRenderTarget {
+    /// Same attachments and load/store/clear: `render_prepared` can restart the owned pass.
+    pub fn compatible(&self, target: &RenderTarget) -> bool {
+        fn same_tex(a: &Texture, b: &Texture) -> bool { Rc::ptr_eq(&a.resource.0, &b.resource.0) }
+        if self.target.colors.len() != target.colors.len() { return false; }
+        for (a, b) in self.target.colors.iter().zip(target.colors.iter()) {
+            if !same_tex(&a.texture, &b.texture) || a.load != b.load || a.store != b.store || a.clear != b.clear {
+                return false;
+            }
+            match (&a.resolve, &b.resolve) {
+                (None, None) => {}
+                (Some(x), Some(y)) if same_tex(x, y) => {}
+                _ => return false,
+            }
+        }
+        match (&self.target.depth, &target.depth) {
+            (None, None) => true,
+            (Some(a), Some(b)) => {
+                same_tex(&a.depth_texture, &b.depth_texture)
+                    && a.depth_load == b.depth_load
+                    && a.depth_store == b.depth_store
+                    && a.depth_clear == b.depth_clear
+            }
+            _ => false,
+        }
+    }
+}
 
 fn lower_render_target(device: &Device, target: &RenderTarget) -> Result<DriverRenderTarget, Error> {
     const OP: &str = "Backend.render_encoder";
@@ -2248,9 +2326,11 @@ fn open_target(commands: &Commands, target: &DriverRenderTarget, format: Texture
     let mut raw=commands.0.raw().render_encoder(target)?;
     let reusable=reusable && raw.retain_for_reuse();
     commands.0.state.set(CommandsState::Encoding);
+    let generation = commands.0.generation.get();
     let encoder=RenderEncoder(Rc::new(RenderInner {
         raw:RefCell::new(Some(raw)), commands:commands.clone(), open:Cell::new(true), pipeline_set:Cell::new(false), indirect:Cell::new(false),
         target:(format,target.target_samples.ilog2() as u8), extent:Cell::new((target.target_width,target.target_height)), reusable,
+        generation: Cell::new(generation),
     }));
     *commands.0.encoder.borrow_mut()=Some(ActiveEncoder::Render(Rc::downgrade(&encoder.0)));
     Ok(encoder)
@@ -2280,7 +2360,12 @@ pub fn render_prepared(commands: &Commands, prepared: &mut PreparedRenderTarget)
     if let Some(depth)=&prepared.target.depth { attachment_check(OP,&prepared.device,&depth.depth_texture)?; }
     if let Some(encoder)=&prepared.encoder {
         if encoder.0.open.get() { return Err(make_error(OP,ErrorKind::InvalidState,"prepared render pass is still open")); }
-        if encoder.0.reusable && Rc::ptr_eq(&encoder.0.commands.0,&commands.0) {
+        // Same outer Commands Rc after owned rebegin is a new driver generation: only restart when
+        // the pass tag matches (within-buffer / readopt). Cross-generation must open a fresh pass.
+        if encoder.0.reusable
+            && Rc::ptr_eq(&encoder.0.commands.0,&commands.0)
+            && encoder.0.generation.get() == commands.0.generation.get()
+        {
             let restarted=match encoder.0.raw.borrow_mut().as_mut() { Some(raw)=>raw.restart()?, None=>false };
             if restarted {
                 encoder.0.open.set(true);
@@ -2325,6 +2410,7 @@ pub fn adopt_render_encoder(
         raw: RefCell::new(Some(raw)), commands: commands.clone(), open: Cell::new(true),
         pipeline_set: Cell::new(false), indirect: Cell::new(false), target: (format, samples.ilog2() as u8),
         extent: Cell::new((i64::from(native.width_px), i64::from(native.height_px))), reusable:false,
+        generation: Cell::new(commands.0.generation.get()),
     }));
     *commands.0.encoder.borrow_mut() = Some(ActiveEncoder::Render(Rc::downgrade(&encoder.0)));
     Ok(encoder)
@@ -2809,7 +2895,8 @@ mod ownership_tests {
         #[cfg(target_pointer_width = "64")]
         {
             assert_eq!(std::mem::size_of::<ComputeInner>(), 40);
-            assert_eq!(std::mem::size_of::<RenderInner>(), 56);
+            // +8: generation Cell for owned-rebegin prepared-pass tagging
+            assert_eq!(std::mem::size_of::<RenderInner>(), 64);
         }
         assert!(valid_draw("test", Primitive::LineStrip, 0, 1, 1).is_err());
         valid_draw("test", Primitive::LineStrip, 0, 2, 1).unwrap();
@@ -2821,7 +2908,8 @@ mod ownership_tests {
             gpu_timing: GpuTiming { gpu_seconds: 0. },
         })));
         let commands = Commands(Rc::new(CommandsInner {
-            raw: RefCell::new(None), queue, state: Cell::new(CommandsState::Encoding), encoder: RefCell::new(None), borrowed: Cell::new(false),
+            raw: RefCell::new(None), queue, state: Cell::new(CommandsState::Encoding), encoder: RefCell::new(None),
+            borrowed: Cell::new(false), generation: Cell::new(0),
         }));
         let encoder = ComputeEncoder(Rc::new(ComputeInner {
             raw: RefCell::new(Some(Box::new(payload()))), commands: commands.clone(), max_threads: Cell::new(-1),
@@ -2890,6 +2978,7 @@ mod ownership_tests {
         let pass = RenderEncoder(Rc::new(RenderInner {
             raw: RefCell::new(None), commands, open: Cell::new(true), pipeline_set: Cell::new(false),
             indirect: Cell::new(false), target: (TextureFormat::Rgba8Unorm, 0), extent: Cell::new((4, 4)), reusable:false,
+            generation: Cell::new(0),
         }));
         pass.0.commands.0.state.set(CommandsState::Encoding);
         render_compatible("test", &pass, &render).unwrap();
@@ -2954,7 +3043,7 @@ mod ownership_tests {
         let queue = Queue(Rc::new(RefCell::new(QueueInner { raw: RefCell::new(None), device: device.clone(), dead: false,
             submitted: 0, durations: Vec::new(), completed_epoch: 0, external_retirement: Cell::new(false), retired_epoch: Cell::new(0), gpu_timing: GpuTiming { gpu_seconds: 0. } })));
         let commands = Commands(Rc::new(CommandsInner { raw: RefCell::new(None), queue,
-            state: Cell::new(CommandsState::Recording), encoder: RefCell::new(None), borrowed: Cell::new(false) }));
+            state: Cell::new(CommandsState::Recording), encoder: RefCell::new(None), borrowed: Cell::new(false), generation: Cell::new(0) }));
         let blit = BlitEncoder(Rc::new(BlitInner { raw: RefCell::new(None), commands: commands.clone(), open: Cell::new(false) }));
         assert_eq!(buffer_to_texture(&blit, &buffer, None, 256, 1024, &texture, None, None, Extent { width: 4, height: 4, depth: 1 }).unwrap_err().kind, ErrorKind::InvalidState);
         assert_eq!(end_blit(&blit).unwrap_err().kind, ErrorKind::InvalidState);
@@ -3035,7 +3124,8 @@ mod ownership_tests {
             raw: RefCell::new(None),device:device.clone(),dead:false,submitted: 0, durations: Vec::new(), completed_epoch: 0, external_retirement: Cell::new(false), retired_epoch: Cell::new(0),gpu_timing:GpuTiming {gpu_seconds:0.},
         })));
         let commands=Commands(Rc::new(CommandsInner {
-            raw:RefCell::new(None),queue,state:Cell::new(CommandsState::Encoding),encoder:RefCell::new(None),borrowed:Cell::new(false),
+            raw:RefCell::new(None),queue,state:Cell::new(CommandsState::Encoding),encoder:RefCell::new(None),
+            borrowed:Cell::new(false),generation:Cell::new(0),
         }));
         let fail=Rc::new(Cell::new(true));
         let encoder=AccelEncoder(Rc::new(AccelEncoderInner {
@@ -3151,7 +3241,8 @@ mod ownership_tests {
         let make_commands = |owner: Rc<()>, fail: Rc<Cell<bool>>| {
             Commands(Rc::new(CommandsInner {
                 raw: RefCell::new(Some(Box::new(Payload { _owner: owner, fail }))),
-                queue: queue.clone(), state: Cell::new(CommandsState::Recording), encoder: RefCell::new(None), borrowed: Cell::new(false),
+                queue: queue.clone(), state: Cell::new(CommandsState::Recording), encoder: RefCell::new(None),
+                borrowed: Cell::new(false), generation: Cell::new(0),
             }))
         };
         let make_encoder = |commands: &Commands, owner: Rc<()>, fail: Rc<Cell<bool>>| {

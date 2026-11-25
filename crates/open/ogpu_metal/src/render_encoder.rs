@@ -161,7 +161,7 @@ pub fn create(context: &Rc<CommandContext>, target: &DriverRenderTarget) -> Resu
     pass.set_actions(target.actions()).map_err(&fail_pass)?;
     let encoder = {
         let mut spare = context.tables.encoder_spare.borrow_mut();
-        RenderEncoder::obtain(context.cb(), &pass, &mut spare).map_err(&fail_pass)?
+        RenderEncoder::obtain(&context.cb(), &pass, &mut spare).map_err(&fail_pass)?
     };
     *context.open_encoder.borrow_mut() = Some(OpenEncoder::Render(encoder.clone(), pass.clone()));
     // Residency tokens: reuse a small buffer; declare only pushes on cold passes.
@@ -172,7 +172,7 @@ pub fn adopt(context: &Rc<CommandContext>, native: ogpu_core::backend::NativePas
     if native.mtl_render_encoder.is_null() {
         return Err(fail(context.operation, ErrorKind::InvalidArgument, "native render encoder is null"));
     }
-    let encoder = RenderEncoder::adopt_raw(context.cb(), native.mtl_render_encoder)?;
+    let encoder = RenderEncoder::adopt_raw(&context.cb(), native.mtl_render_encoder)?;
     *context.open_encoder.borrow_mut() = Some(OpenEncoder::AdoptedRender(encoder.clone()));
     Ok(Box::new(Render { context: context.clone(), encoder: Some(encoder), pass: None, width_px: native.width_px, height_px: native.height_px, scale: native.scale, declared: std::cell::RefCell::new(take_declared()), reusable:false }))
 }
@@ -299,8 +299,11 @@ impl DriverRenderEncoder for Render {
     fn retain_for_reuse(&mut self) -> bool { self.reusable=self.pass.is_some(); self.reusable }
     fn restart(&mut self) -> Result<bool, Error> {
         if !self.reusable || self.context.open_encoder.borrow().is_some() { return Ok(false); }
+        // After owned rebegin the prior MetalCommands Drop clears native; generation mismatch also
+        // skips restart in the core — refuse here if the shared context has no live buffer.
+        if self.context.native.borrow().is_none() { return Ok(false); }
         let enc = self.encoder.as_mut().expect("render encoder");
-        if !enc.restart(self.context.cb())? { return Ok(false); }
+        if !enc.restart(&self.context.cb())? { return Ok(false); }
         let pass=self.pass.as_ref().expect("reusable owned pass");
         *self.context.open_encoder.borrow_mut()=Some(OpenEncoder::Render(enc.clone(),pass.clone()));
         self.declared.get_mut().clear();
@@ -310,7 +313,7 @@ impl DriverRenderEncoder for Render {
     fn readopt(&mut self, native: ogpu_core::backend::NativePass) -> Result<bool, Error> {
         if native.mtl_render_encoder.is_null() || self.pass.is_some() || self.context.open_encoder.borrow().is_some() { return Ok(false); }
         let enc = self.encoder.as_mut().expect("render encoder");
-        if !enc.readopt(self.context.cb(), native.mtl_render_encoder)? { return Ok(false); }
+        if !enc.readopt(&self.context.cb(), native.mtl_render_encoder)? { return Ok(false); }
         *self.context.open_encoder.borrow_mut() = Some(OpenEncoder::AdoptedRender(enc.clone()));
         (self.width_px, self.height_px, self.scale) = (native.width_px, native.height_px, native.scale);
         self.declared.get_mut().clear();

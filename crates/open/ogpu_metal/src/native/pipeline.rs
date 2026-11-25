@@ -201,16 +201,18 @@ impl RenderEncoderInner {
 }
 impl Drop for RenderEncoderInner { fn drop(&mut self) { self.finish(true); } }
 impl RenderEncoder {
-    pub(crate) fn restart(&self, command_buffer: &CommandBuffer) -> Result<bool, Error> {
+    /// Restart an ended owned pass on `command_buffer` (same buffer, or a new generation after rebegin).
+    pub(crate) fn restart(&mut self, command_buffer: &CommandBuffer) -> Result<bool, Error> {
         const OP: &str="Metal.RenderEncoder.restart";
+        let Some(inner) = Arc::get_mut(&mut self.0) else { return Ok(false); };
+        let Some(pass)=inner.pass.clone() else { return Ok(false); };
+        if inner.command_buffer.is_none() || !inner.end_native || !inner.ended.load(Ordering::Acquire) { return Ok(false); }
         enter_main(OP)?;
-        let inner=&self.0;
-        let Some(pass)=&inner.pass else { return Ok(false); };
-        let Some(held)=&inner.command_buffer else { return Ok(false); };
-        if !inner.end_native || !inner.ended.load(Ordering::Acquire) || !held.same(command_buffer) { return Ok(false); }
         command_buffer.lifetime().ensure_live(OP)?;
         pass.ensure_live(OP)?;
         metal_sys::native::pipeline::restart_render_encoder(command_buffer.raw(),pass.raw(),&inner.raw).map_err(|failure| sys_error(OP,failure))?;
+        // Cross-generation rebegin: rebind the shell onto the current buffer (same path as renew).
+        inner.command_buffer = Some(command_buffer.clone());
         command_buffer.lifetime().attach();
         pass.lifetime().attach();
         for texture in [pass.color_attachment(),pass.depth_attachment(),pass.stencil_attachment(),pass.resolve_texture()].into_iter().flatten() {
