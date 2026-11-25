@@ -45,6 +45,7 @@ fn parse_atos_line_extracts_function_and_file() {
 }
 
 /// Named site the report must surface (not `trace_log`).
+#[cfg(all(feature = "trace", any(target_os = "macos", target_os = "ios")))]
 #[inline(never)]
 fn allocate_here_for_trace() {
     let mut v = Vec::new();
