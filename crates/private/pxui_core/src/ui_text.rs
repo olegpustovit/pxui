@@ -440,7 +440,8 @@ impl Ui {
                 if self.edit_owner == key { None } else { self.edit_shelf.iter().position(|entry| entry.key == key) }
             }).map(|i| self.edit_shelf.remove(i));
             if self.edit_owner != key || restored.is_some() {
-                self.shelve_text_edit();
+                // reset_edit shelves on owner changes. Only a restore within the same field needs to shelve here.
+                if self.edit_owner == key { self.shelve_text_edit(); }
                 self.reset_edit(key, text, text.len());
                 if let Some(entry) = restored {
                     self.edit_value = entry.value;

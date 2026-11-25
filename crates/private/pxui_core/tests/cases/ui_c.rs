@@ -534,6 +534,16 @@ fn text_edit_external_change_keeps_selection_and_history() {
     rig.ui.destroy();
 }
 
+fn reopening_an_empty_edit_clears_the_previous_selection() {
+    let mut ui = ui11();
+    let first = ui.load_text_edit(2, "café");
+    ui.remember(&first, false);
+    ui.load_text_edit(3, "");
+    let cleared = ui.load_text_edit(2, "");
+    assert_eq!((cleared.text.as_str(), cleared.caret, cleared.anchor), ("", 0, 0));
+    ui.destroy();
+}
+
 fn text_edit_typing_runs_break_on_pause_and_navigation() {
     let mut rig = empty_text_area(Platform::Apple);
     rig.plain(vec![press((150, 12)), release((150, 12))]);
@@ -1052,6 +1062,7 @@ pub const CASES: &[(&str, fn())] = &[
     ("incremental_text_rows_match_full", incremental_text_rows_match_full),
     ("text_edit_external_change_keeps_selection_and_history", text_edit_external_change_keeps_selection_and_history),
     ("text_edit_typing_runs_break_on_pause_and_navigation", text_edit_typing_runs_break_on_pause_and_navigation),
+    ("reopening_an_empty_edit_clears_the_previous_selection", reopening_an_empty_edit_clears_the_previous_selection),
     ("window_pxui_text_area", window_pxui_text_area),
     ("window_pxui_text_area_windows", window_pxui_text_area_windows),
     ("window_pxui_modal_1", window_pxui_modal_1),
