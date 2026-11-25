@@ -1889,6 +1889,12 @@ mod layout_cache_tests {
         assert_eq!(text.cache_bytes, 0);
     }
 
+    fn is_shaping_allocation(report: &str) -> bool {
+        // Line-table backtraces can show a source path instead of a crate-qualified symbol.
+        ["cosmic_text", "unicode_bidi", "harfrust", "swash", "/cosmic-text-", "/unicode-bidi-"]
+            .iter().any(|name| report.contains(name))
+    }
+
     /// A label that is new every frame (a fresh key and text) lays out into evicted layouts' storage:
     /// once the sweep has returned some, frames allocate nothing, and the pool stays bounded.
     #[test]
@@ -1913,7 +1919,7 @@ mod layout_cache_tests {
         // shaping a string the engine has never seen allocates inside cosmic-text (the named fling
         // exception); everything the engine itself allocates for a fresh layout must be reused storage
         let reports = mem_sys::take_reports();
-        let ours: Vec<_> = reports.iter().filter(|r| !["cosmic_text", "unicode_bidi", "harfrust", "swash"].iter().any(|lib| r.contains(lib))).collect();
+        let ours: Vec<_> = reports.iter().filter(|r| !is_shaping_allocation(r)).collect();
         assert!(!reports.is_empty(), "the shaping exception disappeared: tighten this test");
         assert!(ours.is_empty(), "{} of {} warm allocations are not the shaping library's, first:\n{}", ours.len(), reports.len(), ours[0]);
         assert!(text.spare.len() <= SPARE_LAYOUTS && text.spare.capacity() <= 2 * SPARE_LAYOUTS);
@@ -1945,7 +1951,7 @@ mod layout_cache_tests {
         drop(scope);
         assert_eq!(text.entries.len(), before, "a stable slot must keep one entry across reshapes");
         let reports = mem_sys::take_reports();
-        let ours: Vec<_> = reports.iter().filter(|r| !["cosmic_text", "unicode_bidi", "harfrust", "swash"].iter().any(|lib| r.contains(lib))).collect();
+        let ours: Vec<_> = reports.iter().filter(|r| !is_shaping_allocation(r)).collect();
         assert!(ours.is_empty(), "{} engine allocations on a warm slot reshape, first:\n{}", ours.len(), ours.first().map(|s| s.as_str()).unwrap_or(""));
     }
 

@@ -260,6 +260,16 @@ impl Ui {
         let mut id_label = [0u8; 17];
         let label = key.label(&mut id_label);
         let lang = cb.language.as_ref();
+        #[cfg(feature = "static")]
+        if !o.wrap && o.reveal.is_none() && o.select.is_none()
+            && o.errors.is_empty() && o.notes.is_empty() && o.spans.is_empty()
+            && o.splices.is_empty() && o.chips.is_empty()
+            && lang.is_none() && cb.on_context.is_none() && cb.on_scrub.is_none()
+            && cb.on_scrub_edit.is_none() && cb.on_click.is_none() && cb.on_caret.is_none()
+            && cb.on_caret_move.is_none() && cb.on_select.is_none() && cb.on_drop.is_none()
+        {
+            return self.text_area_static(label, value, &node, o.name, None);
+        }
         // the data crosses in fixed stack buffers (no heap per call): at most `AREA_DATA` of each kind, `AREA_DATA / 2` bracket pairs
         assert!(o.errors.len() <= AREA_DATA && o.notes.len() <= AREA_DATA && o.spans.len() <= AREA_DATA && o.splices.len() <= AREA_DATA && o.chips.len() <= AREA_DATA
             && lang.is_none_or(|l| l.pairs.len() <= AREA_DATA / 2), "pxui: a text area takes at most {AREA_DATA} errors, notes, spans, splices and chips and {} bracket pairs", AREA_DATA / 2);
@@ -325,11 +335,7 @@ impl Ui {
         };
         // linked statically, the library's trusted entry takes the descriptor as Rust values
         #[cfg(feature = "static")]
-        let response = {
-            let (mut changed, mut submitted, mut response) = (None, false, PxuiResponse::EMPTY);
-            check(self, unsafe { pxui_abi_link::trusted::text_area(self.0.as_ptr(), &desc, &node, &cbs, o.name, &mut changed, &mut submitted, &mut response) });
-            TextAreaResponse { response: input_response(&response, changed.is_some()), changed: changed.map(lent_str), submitted }
-        };
+        let response = self.text_area_static(label, value, &node, o.name, Some((&desc, &cbs)));
         #[cfg(not(feature = "static"))]
         let response = {
             let (mut out, mut changed, mut submitted, mut response) = (Str::default(), 0, 0, PxuiResponse::EMPTY);
@@ -345,6 +351,16 @@ impl Ui {
             b.4 = std::mem::take(&mut ctx.produced);
         });
         response
+    }
+
+    #[cfg(feature = "static")]
+    #[track_caller]
+    fn text_area_static(&mut self, label: &str, value: &str, node: &pxui_types::Node, name: &str,
+        opts: Option<(&PxuiTextAreaDesc, &PxuiAreaCallbacks)>,
+    ) -> TextAreaResponse<'_> {
+        let (mut changed, mut submitted, mut response) = (None, false, PxuiResponse::EMPTY);
+        check(self, unsafe { pxui_abi_link::trusted::text_area(self.0.as_ptr(), label, value, node, opts, name, &mut changed, &mut submitted, &mut response) });
+        TextAreaResponse { response: input_response(&response, changed.is_some()), changed: changed.map(lent_str), submitted }
     }
 
     /// The one body of `value_field`.

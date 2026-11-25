@@ -285,22 +285,33 @@ fn bad_label(label: &str) -> bool { label.len() > MAX_LABEL_BYTES || crate::stat
 /// engine's, borrowed until the next call on the `Ui`), `submitted` whether it was submitted, `out` what happened to the area's box.
 #[allow(clippy::too_many_arguments)]
 #[inline]
-pub unsafe fn text_area(ui: *mut PxuiUi, d: &pxui_types::ffi::PxuiTextAreaDesc, node: &Node, cbs: &pxui_types::ffi::PxuiAreaCallbacks, name: &str,
-    changed: &mut Option<Str>, submitted: &mut bool, out: &mut PxuiResponse) -> i32 {
+pub unsafe fn text_area(ui: *mut PxuiUi, label: &str, value: &str, node: &Node,
+    options: Option<(&pxui_types::ffi::PxuiTextAreaDesc, &pxui_types::ffi::PxuiAreaCallbacks)>,
+    name: &str, changed: &mut Option<Str>, submitted: &mut bool, out: &mut PxuiResponse,
+) -> i32 {
     enter!(ui);
-    let (label, value) = unsafe { (lent(d.label), lent(d.value)) };
     let bad_curve = matches!(&node.transition, pxui_types::node::OptTransition::Some(curve) if !curve.valid());
-    if bad_label(label) || value.len() > MAX_TEXT_BYTES || node.grid.is_some() || bad_curve || d.flags & !pxui_types::ffi::PxuiTextAreaDesc::KNOWN != 0 {
+    if bad_label(label) || value.len() > MAX_TEXT_BYTES || node.grid.is_some() || bad_curve {
         return unsafe { fail(ui, "invalid text area arguments") };
     }
-    let shared = unsafe { (*ui).shared() };
-    let (opts, ad) = (&mut shared.area, shared.area_ad.get_or_insert_with(crate::text_inputs::area_adapters));
-    if unsafe { crate::text_inputs::area_opts(d, Some(cbs), opts, ad) }.is_none() { return unsafe { fail(ui, "invalid text area options") }; }
-    let (text, done) = unsafe { engine(ui) }.text_area_submit(*node, opts, label, value);
+    let (text, done) = match options {
+        Some((d, cbs)) => {
+            if d.flags & !pxui_types::ffi::PxuiTextAreaDesc::KNOWN != 0 {
+                return unsafe { fail(ui, "invalid text area arguments") };
+            }
+            let shared = unsafe { (*ui).shared() };
+            let (opts, ad) = (&mut shared.area, shared.area_ad.get_or_insert_with(crate::text_inputs::area_adapters));
+            if unsafe { crate::text_inputs::area_opts(d, Some(cbs), opts, ad) }.is_none() {
+                return unsafe { fail(ui, "invalid text area options") };
+            }
+            let result = unsafe { engine(ui) }.text_area_submit(*node, opts, label, value);
+            if let Some(lang) = opts.language.take() { ad.language = Some(lang); }
+            result
+        }
+        None => unsafe { engine(ui) }.text_area_submit(*node, &pxui_core::ui_text::TextAreaOpts::default(), label, value),
+    };
     *changed = text.map(|t| Str { ptr: t.as_ptr(), len: t.len() });
     *submitted = done;
-    // the language goes back to its adapters for the next call
-    if let Some(lang) = opts.language.take() { ad.language = Some(lang); }
     unsafe { input_response(ui, Some(clip(name)), out) }
 }
 
