@@ -1231,8 +1231,41 @@ fn value_fields_commit_and_open_on_tab() {
     ui.destroy();
 }
 
+/// A focused value field (and its numeric editor) allocates nothing on idle frames while the caret blinks.
+fn value_field_focused_idle_zero_alloc() {
+    let mut ui = field_ui();
+    let editing = Cell::new(false);
+    // Fixed caller value: idle editing keeps its buffer in the slot, so the harness copies nothing.
+    let mut build = |ui: &mut Ui| {
+        let (_, open) = ui.value_field(
+            (20.0, 20.0), 100.0, 21.0,
+            &ValueFieldOpts::default(), &|text| text.parse::<i64>().is_ok(), None, None, "count", "42",
+        );
+        editing.set(open);
+    };
+    // Open the editor (click-to-edit), then warm a few idle frames before counting.
+    ui.frame(&frame_at(vec![], 1.0, 0.0, vec![]), &mut build);
+    ui.frame(&frame_at(vec![], 1.0, 0.1, vec![press((50, 30)), release((50, 30))]), &mut build);
+    check(editing.get(), "value field did not open on click");
+    for t in 0..12 {
+        ui.frame(&frame_at(vec![], 1.0, 0.2 + t as f64 * (1.0 / 60.0), vec![]), &mut build);
+        check(editing.get(), "value field lost focus while warming");
+    }
+    mem_sys::local_reset();
+    let before = mem_sys::local_alloc_count();
+    for t in 0..60 {
+        // Time advances so a blinking caret crosses on/off; no events.
+        ui.frame(&frame_at(vec![], 1.0, 1.0 + t as f64 * (1.0 / 60.0), vec![]), &mut build);
+        check(editing.get(), "value field lost focus on an idle frame");
+    }
+    let allocs = mem_sys::local_alloc_count() - before;
+    check(allocs == 0, &format!("focused value field allocated {allocs} times across 60 idle frames"));
+    ui.destroy();
+}
+
 pub const CASES: &[(&str, fn())] = &[
     ("value_fields_commit_and_open_on_tab", value_fields_commit_and_open_on_tab),
+    ("value_field_focused_idle_zero_alloc", value_field_focused_idle_zero_alloc),
     ("removing_colliding_slots_preserves_live_handles_without_warm_allocations", removing_colliding_slots_preserves_live_handles_without_warm_allocations),
     ("window_focused_key_reuses_a_warmed_key_list", window_focused_key_reuses_a_warmed_key_list),
     ("window_fitted_paint_matches_legacy_ellipsis_and_ascii_caps", window_fitted_paint_matches_legacy_ellipsis_and_ascii_caps),

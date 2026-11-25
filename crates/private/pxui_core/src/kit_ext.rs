@@ -449,9 +449,10 @@ fn value_field_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &ValueFiel
         this.scrub_origin = None;
     }
     let focused_now = this.focused(&bx);
-    let edit = if editing && focused_now {
-        let buffer = this.text_state(&bx);
-        Some((this.load_text_edit(bx.box_key, buffer.as_deref().unwrap_or(value)), this.composition().to_owned()))
+    // numeric_editor already loaded/saved the edit: stage its text for paint (no second load, no composition clone).
+    let edit_paint = if editing && focused_now {
+        let range = this.stage_edit_paint_state(&bx, value);
+        Some((range, this.edit_caret, this.edit_anchor))
     } else {
         None
     };
@@ -460,12 +461,13 @@ fn value_field_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &ValueFiel
     let field = value_field_look(this.theme(), invalid, editing);
     let config = ValueFieldConfig { state: State { focused: editing, ..State::default() }, invalid, w, h, field: bx };
     in_body!(this, bx.box_key, bx, value_field, default_value_field(&config, o, shown));
-    if let Some((edit, composition)) = edit {
+    if let Some((range, caret, anchor)) = edit_paint {
         let (size, fs) = (o.size, this.font_px());
         let ty = 0.max((h as i64 - size.unwrap_or(fs)) / 2);
-        let (selection, caret) = (field.selection, field.caret);
+        let marks = Some((field.selection, field.caret));
+        let key = bx.box_key;
         this.canvas(&bx, move |paint, rect| {
-            paint_text_edit(paint, size, false, 2.0, Some((selection, caret)), ints(rect), rect.y as i64 + ty, &composition, &edit);
+            paint_staged_edit(paint, key, range.clone(), size, 2.0, marks, ints(rect), rect.y as i64 + ty, caret, anchor);
         });
     }
     if let Some(text) = changed {

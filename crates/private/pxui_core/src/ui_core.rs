@@ -4994,6 +4994,11 @@ impl Ui {
         self.slots[b.box_slot].text_value.clone()
     }
 
+    /// Take the slot's text buffer without cloning (caller puts it back or drops it).
+    pub(crate) fn take_text_state(&mut self, b: &UiBox) -> Option<String> {
+        self.slots[b.box_slot].text_value.take()
+    }
+
     pub fn set_text_state(&mut self, b: &UiBox, value: Option<String>) {
         self.slots[b.box_slot].text_value = value;
     }
@@ -5001,6 +5006,16 @@ impl Ui {
     pub(crate) fn stage_edit_paint(&mut self, text: &str) -> std::ops::Range<usize> {
         let start = self.edit_paint_text.len();
         self.edit_paint_text.push_str(text);
+        start..self.edit_paint_text.len()
+    }
+
+    /// Stage the slot's text-state (or `fallback`) without cloning it out of the slot.
+    pub(crate) fn stage_edit_paint_state(&mut self, b: &UiBox, fallback: &str) -> std::ops::Range<usize> {
+        let start = self.edit_paint_text.len();
+        match self.slots[b.box_slot].text_value.as_deref() {
+            Some(text) => self.edit_paint_text.push_str(text),
+            None => self.edit_paint_text.push_str(fallback),
+        }
         start..self.edit_paint_text.len()
     }
 

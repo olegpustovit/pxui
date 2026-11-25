@@ -2460,13 +2460,13 @@ fn numeric_editor_body(this: &mut Ui, p: &NumParams, accept: &dyn Fn(&str) -> bo
     let bounds = ints(this.rect(row));
     let control = p.control.unwrap_or_else(|| value_control_at(bounds, this.space(2) as i64));
     let inside_control = |point: (f32, f32)| floats(control).contains(point);
-    let editing = this.text_state(row);
+    // Take the slot's buffer: idle frames put it back unchanged (no String clone).
+    let editing = this.take_text_state(row);
     let state = this.state(row, 1);
     let losing_focus = !this.focused(row) || (signal.pressed && !inside_control(signal.press_point));
     match editing {
         Some(text) if losing_focus && keys.is_empty() => {
             // Focus moved away: commit a valid value, drop an invalid one.
-            this.set_text_state(row, None);
             this.set_state(row, 1);
             if this.focused(row) {
                 this.unfocus();
@@ -2475,7 +2475,8 @@ fn numeric_editor_body(this: &mut Ui, p: &NumParams, accept: &dyn Fn(&str) -> bo
         }
         Some(text) => {
             let edit_focus = this.edit_focus;
-            let mut edit = this.load_text_edit(row.box_key, &text);
+            let buffer = std::mem::take(&mut this.edit_work);
+            let mut edit = this.load_text_edit_into(row.box_key, &text, buffer);
             let mut committed: Option<String> = None;
             let mut state = state;
             let mut cancelled = false;
@@ -2505,7 +2506,6 @@ fn numeric_editor_body(this: &mut Ui, p: &NumParams, accept: &dyn Fn(&str) -> bo
                 committed = parse(&edit.text);
             }
             if cancelled || losing_focus || committed.is_some() {
-                this.set_text_state(row, None);
                 this.set_state(row, 1);
                 if this.focused(row) {
                     this.unfocus();
@@ -2513,10 +2513,18 @@ fn numeric_editor_body(this: &mut Ui, p: &NumParams, accept: &dyn Fn(&str) -> bo
                     this.save_text_edit(&edit);
                     this.edit_focus = edit_focus;
                 }
+                this.edit_work = edit.text;
                 (if cancelled { None } else { committed }, false)
             } else {
                 this.save_text_edit(&edit);
-                this.set_text_state(row, Some(edit.text.clone()));
+                // Unchanged edit: move the original slot String back. Changed: store edit.text, recycle the old buffer into edit_work.
+                if text == edit.text {
+                    this.set_text_state(row, Some(text));
+                    this.edit_work = edit.text;
+                } else {
+                    this.set_text_state(row, Some(edit.text));
+                    this.edit_work = text;
+                }
                 this.set_state(row, if state & 1 != 0 { 1 } else { 0 });
                 (None, true)
             }
