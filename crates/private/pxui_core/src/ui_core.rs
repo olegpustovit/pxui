@@ -4172,7 +4172,17 @@ impl Ui {
         let s = &mut self.slots[slot];
         *s.node = *node;
         self.clear_box_text(slot);
-        if let Some(look) = self.resolve_look(&node.look) { self.slots[slot].node.look = look; }
+        if names_token(&node.look) {
+            self.resolve_slot_look(slot);
+        }
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn resolve_slot_look(&mut self, slot: usize) {
+        let mut look = self.slots[slot].node.look;
+        resolve_with(&mut look, self.palette(), self.theme().tokens.accent);
+        self.slots[slot].node.look = look;
     }
 
     fn reset_box(&mut self, index: usize) -> usize {
