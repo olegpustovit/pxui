@@ -377,7 +377,7 @@ pub fn text_area_4(rig: &mut Rig) {
     rig.expect("a sideways drag from above the underline selects, it does not scrub", "0.6 y");
     // the language's rewrite runs after each edited frame and maps the caret
     let mut l = rig.language.clone().unwrap_or_else(plain_language);
-    l.rewrite = Some(Rc::new(|text, caret| (format!("{}!", text), caret)));
+    l.rewrite = Some(Rc::new(|text, caret| (Some(format!("{}!", text)), caret)));
     rig.language = Some(l);
     rig.area = String::new();
     rig.plain(vec![press((150, 12)), release((150, 12)), Event::TextInput("a".into())]);

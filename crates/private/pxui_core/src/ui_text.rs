@@ -433,7 +433,11 @@ impl Ui {
         self.load_text_edit_into(key, text, String::new())
     }
 
-    pub(crate) fn load_text_edit_into(&mut self, key: i64, text: &str, mut buffer: String) -> TextEdit {
+    pub(crate)     fn load_text_edit_into(&mut self, key: i64, text: &str, mut buffer: String) -> TextEdit {
+        // Headroom so a typed character does not realloc the recycled edit_work buffer.
+        if buffer.capacity() < text.len() + 64 {
+            buffer.reserve(text.len() + 64 - buffer.capacity());
+        }
         if self.edit_owner != key || self.edit_value != text {
             let matching = self.edit_shelf.iter().position(|entry| entry.key == key && entry.value == text);
             let restored = matching.or_else(|| {
@@ -574,8 +578,13 @@ impl Ui {
             true
         });
         if !merged {
+            // Typing runs grow `inserted` via push_str; reserve a line's worth so warm keys don't realloc.
+            let mut ins = String::with_capacity(inserted.len().max(if run == Some(EditRun::Insert) { 64 } else { inserted.len() }));
+            ins.push_str(inserted);
+            let mut rem = String::with_capacity(removed.len().max(8));
+            rem.push_str(removed);
             self.edit_undo.push_back(EditDelta {
-                start, removed: removed.to_owned(), inserted: inserted.to_owned(),
+                start, removed: rem, inserted: ins,
                 before, after, group: self.edit_serial,
             });
         }
@@ -1959,18 +1968,22 @@ fn text_area_submit_body(this: &mut Ui, place: Node, o: &TextAreaOpts, label: &s
             if let Some(rewrite) = &l.rewrite {
                 if st.changed {
                     let (text2, caret2) = rewrite(&edit.text, edit.caret as i64);
-                    let anchor2 = if edit.anchor == edit.caret { caret2 } else { rewrite(&edit.text, edit.anchor as i64).1 };
-                    let at = |byte| text2.floor_char_boundary(clamp_pos(byte));
-                    let (caret2, anchor2) = (at(caret2), at(anchor2));
-                    if text2 != edit.text {
+                    if let Some(text2) = text2 {
+                        let anchor2 = if edit.anchor == edit.caret {
+                            caret2
+                        } else {
+                            rewrite(&edit.text, edit.anchor as i64).1
+                        };
+                        let at = |byte| text2.floor_char_boundary(clamp_pos(byte));
+                        let (caret2, anchor2) = (at(caret2), at(anchor2));
                         let diff = TextDiff::between(&edit.text, &text2);
                         let run = this.edit_group.map(|(run, _, _)| run);
                         this.record_text_change(diff.start, &edit.text[diff.start..diff.end], &text2[diff.start..diff.start + diff.inserted],
                             (edit.caret, edit.anchor), (caret2, anchor2), run, true);
                         edit.text = text2;
+                        edit.caret = caret2;
+                        edit.anchor = anchor2;
                     }
-                    edit.caret = caret2;
-                    edit.anchor = anchor2;
                 }
             }
         }

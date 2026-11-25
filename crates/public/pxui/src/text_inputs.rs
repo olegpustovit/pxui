@@ -180,10 +180,21 @@ extern "C" fn context_at(user: *mut c_void, value: Str, caret: i64) -> u32 {
 extern "C" fn rewrite(user: *mut c_void, value: Str, caret: i64, out: *mut PxuiRewrite) {
     let a = area(user);
     let Some(f) = a.cb.language.as_ref().and_then(|l| l.rewrite) else { return };
+    let input = value;
     let value = utf8(value);
-    let (text, caret) = { let mut out = (value.to_owned(), caret); guarded(&mut || out = { let (text, at) = f(value, offset(caret)); (text, engine(at)) }); out };
-    a.produced = text;
-    unsafe { *out = PxuiRewrite { text: lend(&a.produced), caret }; }
+    let (text, caret) = {
+        let mut out: (Option<String>, i64) = (None, caret);
+        guarded(&mut || out = { let (text, at) = f(value, offset(caret)); (text, engine(at)) });
+        out
+    };
+    match text {
+        Some(text) => {
+            a.produced = text;
+            unsafe { *out = PxuiRewrite { text: lend(&a.produced), caret }; }
+        }
+        // Unchanged: lend the caller's own bytes so the engine skips a copy.
+        None => unsafe { *out = PxuiRewrite { text: input, caret }; },
+    }
 }
 
 /// A text input's response as its call reported it, `changed` as the call's text said.

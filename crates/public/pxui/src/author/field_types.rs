@@ -575,8 +575,9 @@ pub type DescribeFn<'a> = dyn Fn(&str, usize, &mut String) -> Option<(usize, usi
 pub type NumberAtFn<'a> = dyn Fn(&str, usize) -> Option<(usize, usize)> + 'a;
 /// What a character typed lands in: `context_at(text, caret)`.
 pub type ContextAtFn<'a> = dyn Fn(&str, usize) -> CodeContext + 'a;
-/// What a language rewrites after every frame that edited the text: `rewrite(text, caret)` returns the text as the language keeps it and where `caret` lands in it.
-pub type RewriteFn<'a> = dyn Fn(&str, usize) -> (String, usize) + 'a;
+/// What a language rewrites after every frame that edited the text: `rewrite(text, caret)` returns
+/// `None` when the text is unchanged (no allocation), or the kept text and where `caret` lands.
+pub type RewriteFn<'a> = dyn Fn(&str, usize) -> (Option<String>, usize) + 'a;
 
 /// What a code editor knows about its text, as call-scoped borrowed closures (see `AreaCallbacks`). A host supplies one; the text area itself is language-free. Every hook answers nothing by default.
 #[derive(Clone, Copy)]

@@ -93,7 +93,7 @@ pub(crate) struct AreaAdapters {
     on_caret_move: Rc<dyn Fn(i64)>,
     on_select: Rc<dyn Fn((i64, i64))>,
     on_drop: Rc<dyn Fn(i64, Drop)>,
-    rewrite: Rc<dyn Fn(&str, i64) -> (String, i64)>,
+    rewrite: Rc<dyn Fn(&str, i64) -> (Option<String>, i64)>,
     pub(crate) language: Option<Language>,
 }
 
@@ -136,7 +136,19 @@ pub(crate) fn area_adapters() -> AreaAdapters {
         on_caret_move: Rc::new(move |p| { let cb = x6.cb.get(); if let Some(f) = cb.on_caret_move { f(cb.user, p) } }),
         on_select: Rc::new(move |(a, b)| { let cb = x7.cb.get(); if let Some(f) = cb.on_select { f(cb.user, a, b) } }),
         on_drop: Rc::new(move |p, drop: Drop| { let cb = x8.cb.get(); if let Some(f) = cb.on_drop { let (dropped, payload) = match &drop { Drop::Hover(x) => (0, x), Drop::Dropped(x) => (1, x) }; f(cb.user, p, dropped, str_of(&payload.kind), str_of(&payload.value)) } }),
-        rewrite: Rc::new(move |t: &str, caret| { let cb = x9.cb.get(); let Some(f) = cb.rewrite else { return (t.to_owned(), caret) }; let mut out = PxuiRewrite { text: Str::default(), caret }; f(cb.user, str_of(t), caret, &mut out); (unsafe { checked_text(out.text) }.unwrap_or(t).to_owned(), out.caret) }),
+        rewrite: Rc::new(move |t: &str, caret| {
+            let cb = x9.cb.get();
+            let Some(f) = cb.rewrite else { return (None, caret) };
+            let mut out = PxuiRewrite { text: Str::default(), caret };
+            f(cb.user, str_of(t), caret, &mut out);
+            let result = unsafe { checked_text(out.text) }.unwrap_or(t);
+            // Same pointer as the input: the host reported no change (lend of the caller's value).
+            if result.as_ptr() == t.as_ptr() && result.len() == t.len() {
+                (None, out.caret)
+            } else {
+                (Some(result.to_owned()), out.caret)
+            }
+        }),
         language: Some(language),
         ctx,
     }

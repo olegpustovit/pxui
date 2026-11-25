@@ -117,9 +117,9 @@ pub struct Language {
     pub context_at: Rc<dyn Fn(&str, i64) -> CodeContext>,
     /// what starts a line comment: Command-/ comments or uncomments the lines the selection touches
     pub comment: String,
-    /// `rewrite text caret`, run after every frame that edited the text: the text as the language
-    /// keeps it and where `caret` lands in it
-    pub rewrite: Option<Rc<dyn Fn(&str, i64) -> (String, i64)>>,
+    /// `rewrite text caret`, run after every frame that edited the text: `None` when unchanged
+    /// (no allocation), else the kept text and where `caret` lands in it
+    pub rewrite: Option<Rc<dyn Fn(&str, i64) -> (Option<String>, i64)>>,
 }
 
 /// Options of `text_area_submit` (see there).
