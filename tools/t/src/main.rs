@@ -581,12 +581,12 @@ fn group_native_case(case: &TestCase) -> bool {
         return false;
     }
     if target.starts_with("gpu_editor-") {
-        // Allocation budgets need a fresh process, including when bracketed by grouped cases.
+        // Allocation budgets and the global GPU handle count need a fresh process.
         let name = case.name.rsplit("::").next().unwrap_or(&case.name);
         return !name.starts_with("alloc_budget_")
             && !name.starts_with("click_budget_")
             && !name.starts_with("graph_budget_")
-            && name != "typing_budget";
+            && !matches!(name, "typing_budget" | "images_native_geometry_captures");
     }
     target.starts_with("gpu_flow_integration-") || target.starts_with("window_rays_graph-")
 }
@@ -1582,7 +1582,7 @@ mod tests {
             name: "workspace_capture_budget".into(),
         };
         assert!(group_native_case(&case));
-        for name in ["alloc_budget_basic", "click_budget_long", "graph_budget_isogrid", "typing_budget", "group::typing_budget"] {
+        for name in ["alloc_budget_basic", "click_budget_long", "graph_budget_isogrid", "typing_budget", "group::typing_budget", "images_native_geometry_captures"] {
             case.name = name.into();
             assert!(!group_native_case(&case), "{name}");
         }
