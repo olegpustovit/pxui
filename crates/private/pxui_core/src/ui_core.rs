@@ -322,6 +322,9 @@ struct ViewRec {
     patched: bool,
     /// a clean view rebuilt by `verify_views`: its output must equal the kept one
     verify: bool,
+    /// built as the first child of its parent: a kit element first inside it takes the lead gap a
+    /// box in its place would (`Ui::lead_gap`)
+    first: bool,
     /// `run` in layer `layer` holds its output
     valid: bool,
     layer: i64,
@@ -403,6 +406,7 @@ impl ViewRec {
             escapes: false,
             patched: false,
             verify: false,
+            first: false,
             valid: false,
             layer: 0,
             run: (0, 0),
@@ -3373,6 +3377,16 @@ impl Ui {
         self.boxes[self.current_parent()].last
     }
 
+    /// Nothing is built in the parent yet, and, the parent being a view, the view is first in its own
+    /// parent: a view's content lays out as it would in the view's place.
+    pub(crate) fn first_in_parent(&self) -> bool {
+        let parent = self.current_parent();
+        self.boxes[parent].last == NONE && match self.boxes[parent].view {
+            NO_VIEW => true,
+            v => self.views[v as usize].first,
+        }
+    }
+
     pub(crate) fn box_w_px(&self, index: usize) -> Option<f32> {
         match self.nd(index).w {
             Size::Px(w) => Some(w),
@@ -5955,6 +5969,7 @@ impl Ui {
     }
 
     fn view_entry(&mut self, label: &str, revision: u64, w: Size, h: Size, entry: bool, f: &mut dyn FnMut(&mut Ui)) -> Handle {
+        let first = self.last_child_of_parent() == NONE;
         let b = self.node(label, Node { w, h, ..Node::DEFAULT });
         let parent = self.view_cur;
         let v = match self.slots[b.box_slot].view {
@@ -5992,7 +6007,7 @@ impl Ui {
         let xf = if self.views[v as usize].index != 0 { v } else { self.views[parent as usize].xf };
         let r = &mut self.views[v as usize];
         (r.parent, r.xf) = (parent, xf);
-        let clean = r.built >= 0 && r.valid && !r.dirty && !r.escapes && r.revision == revision && r.epoch == self.epoch && r.theme == self.theme_id;
+        let clean = r.built >= 0 && r.valid && !r.dirty && !r.escapes && r.revision == revision && r.first == first && r.epoch == self.epoch && r.theme == self.theme_id;
         if clean && !self.verify {
             r.kept = self.frame_number;
             self.boxes[b.index].kept = true;
@@ -6003,6 +6018,7 @@ impl Ui {
         r.hover_reads.get_mut().clear();
         self.rebuilt += 1;
         r.wake = f64::INFINITY;
+        r.first = first;
         std::mem::swap(&mut r.nodes, &mut r.prev);
         r.nodes.clear();
         self.a11y_dirty = true;
