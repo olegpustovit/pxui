@@ -127,6 +127,48 @@ pub fn window_pxui_view_input() {
     ui.destroy();
 }
 
+/// An inspector row in a content-sized view lays out as it would in the view's place: the 4-point lead
+/// gap only when the view is first in its parent, and a kept view follows its place changing.
+fn inspector_row_view_keeps_the_lead_gap() {
+    let mut ui = new_ui(None);
+    // the panels and rows, kept from the frame that built them (a kept view's build does not run)
+    let boxes: std::cell::RefCell<std::collections::HashMap<String, Handle>> = Default::default();
+    let rows = |ui: &mut Ui, lead: bool, viewed: bool| {
+        let panel = ui.node((if viewed { "viewed" } else { "plain" }).into(), Node { w: Size::Px(300.0), h: Size::Fit, ..Node::DEFAULT });
+        boxes.borrow_mut().insert(format!("{viewed}"), panel);
+        ui.within(&panel, &mut |ui| {
+            if lead {
+                ui.inspector_button("lead", "Lead");
+            }
+            for key in ["r0", "r1"] {
+                let name = format!("{viewed}{key}");
+                if viewed {
+                    ui.view(&format!("view-{key}"), 1, Size::Px(300.0), Size::Fit, &mut |ui| {
+                        ui.view("one more level", 1, Size::Px(300.0), Size::Fit, &mut |ui| {
+                            boxes.borrow_mut().insert(name.clone(), ui.inspector_row(Some(300.0), None, key, key).0);
+                        });
+                    });
+                } else {
+                    boxes.borrow_mut().insert(name, ui.inspector_row(Some(300.0), None, key, key).0);
+                }
+            }
+        });
+    };
+    for (t, lead) in [(0.0, true), (0.2, false), (0.4, true)] {
+        for step in 0..3 {
+            ui.frame(&at(t + step as f64 * 0.05, vec![]), &mut |ui| {
+                rows(ui, lead, false);
+                rows(ui, lead, true);
+            });
+        }
+        let boxes = boxes.borrow();
+        let ys = |viewed: bool| ["r0", "r1"].map(|key| ui.rect(&boxes[&format!("{viewed}{key}")]).y - ui.rect(&boxes[&format!("{viewed}")]).y);
+        let (plain, viewed) = (ys(false), ys(true));
+        check(plain == viewed, &format!("rows in views at {viewed:?}, in place at {plain:?} (lead {lead})"));
+    }
+    ui.destroy();
+}
+
 fn hover_only_rebuilds_views_that_read_it() {
     let mut ui = new_ui(None);
     let mut build = |ui: &mut Ui| {
@@ -1510,6 +1552,7 @@ pub fn window_pxui_streaming_rows_reuse_retained_gaps() {
 }
 
 pub const CASES: &[(&str, fn())] = &[
+    ("inspector_row_view_keeps_the_lead_gap", inspector_row_view_keeps_the_lead_gap),
     ("hover_only_rebuilds_views_that_read_it", hover_only_rebuilds_views_that_read_it),
     ("window_pxui_view_newcomer_keeps_warm_buffers", window_pxui_view_newcomer_keeps_warm_buffers),
     ("window_pxui_streaming_rows_reuse_retained_gaps", window_pxui_streaming_rows_reuse_retained_gaps),

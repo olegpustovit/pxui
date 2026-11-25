@@ -401,6 +401,9 @@ struct RowHeights {
 }
 
 /// A cached subtree (`Ui::view`): when it was built, where its output lives and how it is shown.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum KitLead { Opaque, Unread, First, Later }
+
 struct ViewRec {
     name: String,
     slot: usize,
@@ -425,6 +428,7 @@ struct ViewRec {
     palette_paint: bool,
     palette_shape_count: u8,
     viewport_independent: bool,
+    kit_lead: KitLead,
     // Exact reads of nodes owned by this view are tracked directly on their slots.
     hover_reads: std::cell::RefCell<Vec<(i64, bool)>>,
     /// a clean view rebuilt by `verify_views`: its output must equal the kept one
@@ -520,6 +524,7 @@ impl ViewRec {
             palette_paint: false,
             palette_shape_count: 0,
             viewport_independent: false,
+            kit_lead: KitLead::Opaque,
             hover_reads: std::cell::RefCell::default(),
             verify: false,
             reflow: false,
@@ -4979,6 +4984,38 @@ impl Ui {
         self.boxes[self.current_parent()].last
     }
 
+    /// A leading kit row in a view inherits where the view itself sits in the flow.
+    pub(crate) fn first_kit_child(&mut self) -> bool {
+        let parent = self.current_parent();
+        if self.boxes[parent].last != NONE { return false; }
+        let view = self.boxes[parent].view;
+        if view == NO_VIEW || self.views[view as usize].kit_lead == KitLead::Opaque { return true; }
+        let (lead, last) = self.kit_lead_placement(parent);
+        self.remember_kit_lead(parent, last, lead);
+        lead == KitLead::First
+    }
+
+    fn kit_lead_placement(&self, mut index: usize) -> (KitLead, usize) {
+        loop {
+            let parent = self.boxes[index].parent;
+            if parent == NONE { return (KitLead::First, index); }
+            let b = &self.boxes[parent];
+            if b.first != index { return (KitLead::Later, index); }
+            if b.view == NO_VIEW || self.views[b.view as usize].kit_lead == KitLead::Opaque {
+                return (KitLead::First, index);
+            }
+            index = parent;
+        }
+    }
+
+    fn remember_kit_lead(&mut self, mut index: usize, last: usize, lead: KitLead) {
+        loop {
+            self.views[self.boxes[index].view as usize].kit_lead = lead;
+            if index == last { return; }
+            index = self.boxes[index].parent;
+        }
+    }
+
     pub(crate) fn box_w_px(&self, index: usize) -> Option<f32> {
         match self.nd(index).w {
             Size::Px(w) => Some(w),
@@ -8601,21 +8638,27 @@ impl Ui {
         self.boxes[b.index].view = v;
         let xf = if self.views[v as usize].index != 0 { v } else { self.views[parent as usize].xf };
         let parent_reflow = self.views[parent as usize].reflow;
+        let lead = self.views[v as usize].kit_lead;
+        let placement = matches!(lead, KitLead::First | KitLead::Later).then(|| self.kit_lead_placement(b.index));
         let r = &mut self.views[v as usize];
         (r.parent, r.xf) = (parent, xf);
         r.reflow |= parent_reflow;
         // a view culled since its build has no run: kept while it stays out of view (a wrong guess rebuilds it on the settling
         // build, as a kept view with no run in its layer)
         let shown = r.valid || (self.out_of_view && r.index != 0);
-        let clean = !r.reflow && r.built >= 0 && shown && !r.dirty && !r.escapes && r.revision == revision && r.epoch == self.epoch && r.theme == self.theme_id;
+        let clean = !r.reflow && r.built >= 0 && shown && !r.dirty && !r.escapes && r.revision == revision && r.epoch == self.epoch && r.theme == self.theme_id && placement.is_none_or(|(new, _)| lead == new);
         if clean && !self.verify {
             r.kept = self.frame_number;
             self.boxes[b.index].kept = true;
+            if let Some((lead, last)) = placement {
+                self.remember_kit_lead(b.index, last, lead);
+            }
             return b;
         }
         r.verify = clean;
         r.escapes = false;
         r.hover_reads.get_mut().clear();
+        r.kit_lead = if entered { KitLead::Opaque } else { KitLead::Unread };
         r.palette_labels = false;
         r.palette_paint = false;
         r.palette_shape_count = 0;

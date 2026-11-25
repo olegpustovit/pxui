@@ -735,7 +735,7 @@ impl Ui {
     /// The 4 points between a head's rule and the first element of the body, when it is not a
     /// section.
     fn lead_gap(&mut self) {
-        if self.last_child_of_parent() == NONE {
+        if self.first_kit_child() {
             self.box_("lead-gap", BoxOpts::default().w(Size::Grow).h(Size::Px(4.0)));
         }
     }
