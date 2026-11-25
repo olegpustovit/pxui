@@ -205,7 +205,8 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, (mark, off_fn, image_fn): crate::o
     let body = body_of!(this, picker);
     let rows_ref = &rows;
     let section = pxui_types::ui::SectionList::new(rows.len()).row_h(row_height).measured();
-    let list = this.section_list("rows", &section, None, false, &mut |this, index, _| {
+    let max_height = o.limit as f32 * row_height;
+    let list = this.section_rows_measured("rows", &section, None, false, max_height, &mut |this, index, _| {
         let Some(pick) = rows_ref.get(index) else { return };
         let index = index as i64;
         // the section's row holds the heading and the pick: a plain column (the pick is the list item)
@@ -245,7 +246,7 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, (mark, off_fn, image_fn): crate::o
         in_item!(this, body, row.box_key, row, default_picker_row(&config, text, detail, &query));
     });
     let n = this.node_mut(&list);
-    (n.h, n.max_h) = (Size::Fit, o.limit as f32 * row_height);
+    (n.h, n.max_h) = (Size::Fit, max_height);
     this.set_role(&list, Role::List, 0);
     this.leave(saved);
     let config = PickerFieldConfig { state, empty: edit.text.is_empty(), slash, prefix: prefix as f32, inset, search, list };

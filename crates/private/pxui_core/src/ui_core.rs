@@ -8810,8 +8810,8 @@ impl Ui {
     /// follows its item when the items reorder; without it, by its index. With `trailer`, the space after the last row is built too
     /// (`usize::MAX - 2`); without it (the 1.x C contract: every other index is a row) it stays empty.
     pub fn section_list(&mut self,label:&str,section:&pxui_types::ui::SectionList,row_key:Option<&dyn Fn(usize)->i64>,trailer:bool,f:&mut dyn FnMut(&mut Ui,usize,f32))->Handle {
+        if section.measured { return self.section_rows_measured(label,section,row_key,trailer,f32::INFINITY,f); }
         (self.list_drop,self.list_moved)=(None,None);
-        if section.measured { return self.section_rows_measured(label,section,row_key,trailer,f); }
         let y=|index:usize| match index { usize::MAX=>0.0, i if i==usize::MAX-1=>section.leading_height, i if i==usize::MAX-2=>section.leading_height+section.header_height+section.count as f32*section.row_height, i=>section.leading_height+section.header_height+i as f32*section.row_height };
         self.section_rows_fixed(label,section,row_key,trailer,&mut |ui,index| f(ui,index,y(index)))
     }
@@ -8991,7 +8991,8 @@ impl Ui {
         }
     }
 
-    fn section_rows_measured(&mut self,label:&str,section:&pxui_types::ui::SectionList,row_key:Option<&dyn Fn(usize)->i64>,trailer:bool,f:&mut dyn FnMut(&mut Ui,usize,f32))->Handle {
+    pub(crate) fn section_rows_measured(&mut self,label:&str,section:&pxui_types::ui::SectionList,row_key:Option<&dyn Fn(usize)->i64>,trailer:bool,max_height:f32,f:&mut dyn FnMut(&mut Ui,usize,f32))->Handle {
+        (self.list_drop,self.list_moved)=(None,None);
         let key=key_of(self.current_seed(),label);
         let padding=self.list_padding(key);
         let mut cache=self.list_heights.remove(&key).unwrap_or_default();
@@ -9009,7 +9010,7 @@ impl Ui {
             && [section.leading_height,section.header_height,section.trailing_height].iter().all(|v|v.is_finite() && *v>=0.0),"Ui.section_list: invalid section geometry");
         let flags=Flags::SCROLL|Flags::CLIP|if section.overlay_scrollbar {Flags::OVER_THUMB} else {Flags::NONE};
         let body=self.node_ref(label, &Node {flags,w:Size::Grow,h:Size::Grow,scroll_step:section.row_height,role:Role::List,..Node::DEFAULT});
-        let height = self.section_height(&body);
+        let height = self.section_height(&body).min(max_height);
         self.expect(body.box_slot,f32::NAN,height);
         self.set_l_h(&body,height);
         self.set_l_content(&body,total+padding.t+padding.b);
@@ -9017,8 +9018,13 @@ impl Ui {
         let offset=self.scroll_position(&body);
         let top=cache.tops.partition_point(|y| *y<=offset-before).saturating_sub(1).min(section.count);
         let bottom=cache.tops.partition_point(|y| *y<offset+height-before).min(section.count);
-        let first=top.saturating_sub(OVERSCAN).min(section.count);
-        let last=bottom.saturating_add(OVERSCAN+1).min(section.count);
+        // A picker is a short, capped popover. Shape its visible rows as the cursor or scroll
+        // reveals them. The full-height measured lists still prepare rows outside the viewport.
+        let (first, last) = if max_height.is_finite() {
+            (top, bottom)
+        } else {
+            (top.saturating_sub(OVERSCAN), bottom.saturating_add(OVERSCAN + 1).min(section.count))
+        };
         let saved=self.enter(&body);
         for (key,h,flags,index) in [("leading",section.leading_height,Flags::NONE,usize::MAX),("header",section.header_height,Flags::STICKY|Flags::BLOCKING,usize::MAX-1)] {
             if h>0.0 {

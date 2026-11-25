@@ -177,6 +177,19 @@ mod tests {
         ui.modal("confirm", &Overlay::DEFAULT.name("Delete?"), |ui| { ui.label("in modal", crate::Label::BODY); });
     }
 
+    #[test]
+    fn first_picker_build_only_visits_rows_near_its_viewport() {
+        let last = core::cell::Cell::new(0);
+        let off = |index| { last.set(last.get().max(index)); false };
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+        ui.frame(&FrameIn::new(1280.0, 900.0), &mut |ui| {
+            ui.picker("find", "Find", "", &Picker::DEFAULT.limit(6).off(&off), &mut |_, rows| {
+                for _ in 0..100 { rows.push(crate::PickRow::new("Item")); }
+            });
+        }).unwrap();
+        assert_eq!(last.get(), 5, "only the six visible rows should build");
+    }
+
     /// Every container of the overlay family is built through its body: with a registered body for each kind, the custom structure is in
     /// the tree, the caller's content runs through the body's slot, and a sheet's body is given its name (never its key).
     #[test]

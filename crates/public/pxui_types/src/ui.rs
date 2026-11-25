@@ -555,34 +555,31 @@ impl<'a> PickRow<'a> {
     pub const fn heading(mut self, heading: &'a str) -> PickRow<'a> { self.heading = heading; self }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct RowText {
-    label: String,
-    detail: String,
-    heading: String,
+    bounds: [usize; 4],
     art: Option<PickArt>,
 }
 
-/// The rows a `Ui::picker` fill writes: `PickRow`s pushed in order, kept between frames so a settled picker's row strings are reused,
-/// not allocated again.
+/// The rows a `Ui::picker` fill writes: `PickRow`s pushed in order, with their strings in one buffer reused between fills.
 #[derive(Debug, Default)]
 pub struct PickRows {
     rows: Vec<RowText>,
-    len: usize,
+    text: String,
 }
 
 impl PickRows {
     /// No rows.
-    /// Allocates: never (the first rows allocate their strings).
+    /// Allocates: never (the first rows grow the buffers).
     /// Panics: never.
     ///
     /// ```
     /// assert!(pxui_types::ui::PickRows::new().is_empty());
     /// ```
-    pub const fn new() -> PickRows { PickRows { rows: Vec::new(), len: 0 } }
+    pub const fn new() -> PickRows { PickRows { rows: Vec::new(), text: String::new() } }
 
     /// Appends `row`: its label, detail, artwork and the heading of the group it starts.
-    /// Allocates: only past the most rows or the longest texts so far (the row strings are reused).
+    /// Allocates: only when the row metadata or shared text buffer grows.
     /// Identity: none; rows are keyed by their index in the picker (headings are not rows).
     /// Panics: never.
     ///
@@ -593,17 +590,15 @@ impl PickRows {
     /// assert_eq!(rows.get(0), Some(PickRow::new("Song").detail("Artist").heading("Songs")));
     /// ```
     pub fn push(&mut self, row: PickRow<'_>) {
-        if self.len == self.rows.len() { self.rows.push(RowText::default()); }
-        let at = &mut self.rows[self.len];
-        for (to, from) in [(&mut at.label, row.label), (&mut at.detail, row.detail), (&mut at.heading, row.heading)] {
-            to.clear();
-            to.push_str(from);
-        }
-        at.art = row.art;
-        self.len += 1;
+        let start = self.text.len();
+        let [label, detail, heading] = [row.label, row.detail, row.heading].map(|part| {
+            self.text.push_str(part);
+            self.text.len()
+        });
+        self.rows.push(RowText { bounds: [start, label, detail, heading], art: row.art });
     }
 
-    /// Forgets the rows, keeping their strings for the next fill.
+    /// Forgets the rows and text, keeping their storage for the next fill.
     /// Allocates: never.
     /// Panics: never.
     ///
@@ -613,7 +608,7 @@ impl PickRows {
     /// rows.clear();
     /// assert!(rows.is_empty());
     /// ```
-    pub fn clear(&mut self) { self.len = 0; }
+    pub fn clear(&mut self) { self.rows.clear(); self.text.clear(); }
 
     /// The number of rows.
     /// Allocates: never.
@@ -622,7 +617,7 @@ impl PickRows {
     /// ```
     /// assert_eq!(pxui_types::ui::PickRows::new().len(), 0);
     /// ```
-    pub fn len(&self) -> usize { self.len }
+    pub fn len(&self) -> usize { self.rows.len() }
 
     /// Whether there are no rows.
     /// Allocates: never.
@@ -631,7 +626,7 @@ impl PickRows {
     /// ```
     /// assert!(pxui_types::ui::PickRows::new().is_empty());
     /// ```
-    pub fn is_empty(&self) -> bool { self.len == 0 }
+    pub fn is_empty(&self) -> bool { self.rows.is_empty() }
 
     /// Row `i` as it was pushed, borrowed from the rows; `None` past them.
     /// Allocates: never.
@@ -641,8 +636,9 @@ impl PickRows {
     /// assert_eq!(pxui_types::ui::PickRows::new().get(0), None);
     /// ```
     pub fn get(&self, i: usize) -> Option<PickRow<'_>> {
-        let r = self.rows.get(i).filter(|_| i < self.len)?;
-        Some(PickRow { label: &r.label, detail: &r.detail, art: r.art, heading: &r.heading })
+        let row = self.rows.get(i)?;
+        let [start, label, detail, end] = row.bounds;
+        Some(PickRow { label: &self.text[start..label], detail: &self.text[label..detail], art: row.art, heading: &self.text[detail..end] })
     }
 }
 
