@@ -113,6 +113,18 @@ struct Render {
     reusable: bool,
 }
 
+thread_local! {
+    // Capacity-16 shells so create does not heap-allocate the residency token list on a warm pass.
+    static DECLARED_SPARE: std::cell::RefCell<Vec<Vec<i64>>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+fn take_declared() -> Vec<i64> {
+    let mut v = DECLARED_SPARE.with(|s| s.borrow_mut().pop()).unwrap_or_else(|| Vec::with_capacity(16));
+    v.clear();
+    v.reserve(16);
+    v
+}
+
 pub fn create(context: &Rc<CommandContext>, target: &DriverRenderTarget) -> Result<Box<dyn DriverRenderEncoder>, Error> {
     let color = &target.target_colors[0];
     let color_texture = context.find_texture(&*color.color)?;
@@ -141,19 +153,19 @@ pub fn create(context: &Rc<CommandContext>, target: &DriverRenderTarget) -> Resu
         pass.set_resolve_texture(Some(resolve.metal())).map_err(&fail_pass)?;
     }
     pass.set_actions(target.actions()).map_err(&fail_pass)?;
-    let encoder = RenderEncoder::create(&context.native, &pass).map_err(&fail_pass)?;
+    let encoder = RenderEncoder::create(context.cb(), &pass).map_err(&fail_pass)?;
     *context.open_encoder.borrow_mut() = Some(OpenEncoder::Render(encoder.clone(), pass.clone()));
     // Residency tokens: reuse a small buffer; declare only pushes on cold passes.
-    Ok(Box::new(Render { context: context.clone(), encoder, pass: Some(pass), width_px: target.target_width as u32, height_px: target.target_height as u32, scale: 1.0, declared: std::cell::RefCell::new(Vec::with_capacity(16)), reusable:false }))
+    Ok(Box::new(Render { context: context.clone(), encoder, pass: Some(pass), width_px: target.target_width as u32, height_px: target.target_height as u32, scale: 1.0, declared: std::cell::RefCell::new(take_declared()), reusable:false }))
 }
 
 pub fn adopt(context: &Rc<CommandContext>, native: ogpu_core::backend::NativePass) -> Result<Box<dyn DriverRenderEncoder>, Error> {
     if native.mtl_render_encoder.is_null() {
         return Err(fail(context.operation, ErrorKind::InvalidArgument, "native render encoder is null"));
     }
-    let encoder = RenderEncoder::adopt_raw(&context.native, native.mtl_render_encoder)?;
+    let encoder = RenderEncoder::adopt_raw(context.cb(), native.mtl_render_encoder)?;
     *context.open_encoder.borrow_mut() = Some(OpenEncoder::AdoptedRender(encoder.clone()));
-    Ok(Box::new(Render { context: context.clone(), encoder, pass: None, width_px: native.width_px, height_px: native.height_px, scale: native.scale, declared: std::cell::RefCell::new(Vec::with_capacity(16)), reusable:false }))
+    Ok(Box::new(Render { context: context.clone(), encoder, pass: None, width_px: native.width_px, height_px: native.height_px, scale: native.scale, declared: std::cell::RefCell::new(take_declared()), reusable:false }))
 }
 
 impl DriverRenderEncoder for Render {
@@ -278,7 +290,7 @@ impl DriverRenderEncoder for Render {
     fn retain_for_reuse(&mut self) -> bool { self.reusable=self.pass.is_some(); self.reusable }
     fn restart(&mut self) -> Result<bool, Error> {
         if !self.reusable || self.context.open_encoder.borrow().is_some() { return Ok(false); }
-        if !self.encoder.restart(&self.context.native)? { return Ok(false); }
+        if !self.encoder.restart(self.context.cb())? { return Ok(false); }
         let pass=self.pass.as_ref().expect("reusable owned pass");
         *self.context.open_encoder.borrow_mut()=Some(OpenEncoder::Render(self.encoder.clone(),pass.clone()));
         self.declared.get_mut().clear();
@@ -287,7 +299,7 @@ impl DriverRenderEncoder for Render {
     /// The app's next pass on the same (readopted) command buffer, in this ended adopted encoder's objects.
     fn readopt(&mut self, native: ogpu_core::backend::NativePass) -> Result<bool, Error> {
         if native.mtl_render_encoder.is_null() || self.pass.is_some() || self.context.open_encoder.borrow().is_some() { return Ok(false); }
-        if !self.encoder.readopt(&self.context.native, native.mtl_render_encoder)? { return Ok(false); }
+        if !self.encoder.readopt(self.context.cb(), native.mtl_render_encoder)? { return Ok(false); }
         *self.context.open_encoder.borrow_mut() = Some(OpenEncoder::AdoptedRender(self.encoder.clone()));
         (self.width_px, self.height_px, self.scale) = (native.width_px, native.height_px, native.scale);
         self.declared.get_mut().clear();
@@ -317,6 +329,16 @@ impl Drop for Render {
         }
         if let Some(pass) = self.pass.take() {
             pass.recycle(&mut self.context.tables.pass_spare.borrow_mut());
+        }
+        let mut declared = std::mem::take(self.declared.get_mut());
+        declared.clear();
+        if declared.capacity() > 0 {
+            DECLARED_SPARE.with(|s| {
+                let mut s = s.borrow_mut();
+                if s.len() < 4 {
+                    s.push(declared);
+                }
+            });
         }
     }
 }

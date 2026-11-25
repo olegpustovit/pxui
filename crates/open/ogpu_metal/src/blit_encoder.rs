@@ -11,7 +11,7 @@ struct Blit {
 }
 
 pub fn create(context: &Rc<CommandContext>) -> Result<Box<dyn DriverBlitEncoder>, Error> {
-    let encoder = native::BlitEncoder::create(&context.native)?;
+    let encoder = native::BlitEncoder::create(context.cb())?;
     *context.open_encoder.borrow_mut() = Some(OpenEncoder::Blit(encoder.clone()));
     Ok(Box::new(Blit { context: context.clone(), encoder }))
 }

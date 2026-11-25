@@ -19,7 +19,7 @@ struct Compute {
 }
 
 pub fn create(context: &Rc<CommandContext>) -> Result<Box<dyn DriverComputeEncoder>, Error> {
-    let encoder = native::ComputeEncoder::create(&context.native)?;
+    let encoder = native::ComputeEncoder::create(context.cb())?;
     *context.open_encoder.borrow_mut() = Some(OpenEncoder::Compute(encoder.clone()));
     Ok(Box::new(Compute { context: context.clone(), encoder }))
 }

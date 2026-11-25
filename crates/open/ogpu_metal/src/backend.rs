@@ -47,6 +47,8 @@ struct Dev {
     cleanup_error: RefCell<Option<Error>>,
     device_live: Rc<Cell<bool>>,
     adopted_queue: RefCell<Option<Queue>>,
+    /// CommandContext shells with native=None; recycled after MetalCommands drops.
+    ctx_spare: RefCell<Vec<Rc<CommandContext>>>,
     _owner: Option<OwnerLease>,
 }
 
@@ -460,7 +462,7 @@ struct AccelRecorder {
 }
 
 fn accel_encoder(context: &Rc<CommandContext>) -> Result<Box<dyn DriverAccelEncoder>, Error> {
-    let encoder = native::AccelerationEncoder::create(&context.native)?;
+    let encoder = native::AccelerationEncoder::create(context.cb())?;
     *context.open_encoder.borrow_mut() = Some(OpenEncoder::Accel(encoder.clone()));
     Ok(Box::new(AccelRecorder { context: context.clone(), encoder }))
 }
@@ -511,48 +513,84 @@ impl DriverAccelEncoder for AccelRecorder {
 struct MetalCommands {
     queue: Queue,
     active: Rc<Vec<PendingPresentation>>,
-    context: Rc<CommandContext>,
+    context: Option<Rc<CommandContext>>,
+    spare: Rc<Dev>,
     frame_serial: u64,
+}
+
+impl Drop for MetalCommands {
+    fn drop(&mut self) {
+        let Some(mut ctx) = self.context.take() else { return };
+        if Rc::strong_count(&ctx) != 1 { return; }
+        {
+            let c = Rc::get_mut(&mut ctx).expect("unique CommandContext");
+            // Drop the CB Arc here so spare holds no queue dependents (pending/free_commands keep theirs).
+            c.native = None;
+            {
+                let retained = c.retained.get_mut();
+                retained.clear();
+                retained.reserve(16);
+            }
+            *c.open_encoder.get_mut() = None;
+        }
+        if self.spare.ctx_spare.borrow().len() < 2 {
+            self.spare.ctx_spare.borrow_mut().push(ctx);
+        }
+    }
+}
+
+impl MetalCommands {
+    fn ctx(&self) -> &Rc<CommandContext> { self.context.as_ref().expect("commands context") }
 }
 
 impl DriverCommands for MetalCommands {
     /// The app's next command buffer, in this adopted one's objects: rebound, its retained resources let go, a new token.
     fn readopt(&mut self, native: ogpu_core::backend::NativeCommands) -> Result<bool, Error> {
-        let context = &self.context;
+        let context = self.ctx();
         if native.mtl_command_buffer.is_null() || context.open_encoder.borrow().is_some() { return Ok(false); }
-        context.native.readopt(native.mtl_command_buffer)?;
-        context.retained.borrow_mut().clear();
+        context.cb().readopt(native.mtl_command_buffer)?;
+        {
+            let mut retained = context.retained.borrow_mut();
+            retained.clear();
+            retained.reserve(16);
+        }
         context.commands_token.set(context.tables.token());
         self.frame_serial = native.frame_serial;
         Ok(true)
     }
     fn compute_encoder(&self) -> Result<Box<dyn DriverComputeEncoder>, Error> {
-        self.context.native.end_texture_uploads();
-        compute_encoder::create(&self.context)
+        let context = self.ctx();
+        context.cb().end_texture_uploads();
+        compute_encoder::create(context)
     }
     fn accel_encoder(&self) -> Result<Box<dyn DriverAccelEncoder>, Error> {
-        self.context.native.end_texture_uploads();
-        accel_encoder(&self.context)
+        let context = self.ctx();
+        context.cb().end_texture_uploads();
+        accel_encoder(context)
     }
     fn blit_encoder(&self) -> Result<Box<dyn DriverBlitEncoder>, Error> {
-        self.context.native.end_texture_uploads();
-        blit_encoder::create(&self.context)
+        let context = self.ctx();
+        context.cb().end_texture_uploads();
+        blit_encoder::create(context)
     }
     fn render_encoder(&self, target: &DriverRenderTarget) -> Result<Box<dyn DriverRenderEncoder>, Error> {
-        self.context.native.end_texture_uploads();
-        render_encoder::create(&self.context, target)
+        let context = self.ctx();
+        context.cb().end_texture_uploads();
+        render_encoder::create(context, target)
     }
-    fn settle(&mut self) { self.context.native.end_texture_uploads(); }
+    fn settle(&mut self) { self.ctx().cb().end_texture_uploads(); }
     fn write_texture(&self, texture: &dyn DriverResource, write: &TextureRead, bytes: &[u8]) -> Result<(), Error> {
-        if self.context.open_encoder.borrow().is_some() {
-            return Err(fail(self.context.operation, ErrorKind::InvalidState, "texture uploads require commands outside an encoder"));
+        let context = self.ctx();
+        if context.open_encoder.borrow().is_some() {
+            return Err(fail(context.operation, ErrorKind::InvalidState, "texture uploads require commands outside an encoder"));
         }
-        self.context.native.write_texture(self.context.find_texture(texture)?.metal(), write, bytes)
+        context.cb().write_texture(context.find_texture(texture)?.metal(), write, bytes)
     }
     fn commit(&self) -> Result<Receipt, Error> {
-        let context = &self.context;
-        let mut retained = std::mem::take(&mut *context.retained.borrow_mut());
-        match self.queue.submit_native(&context.native, &mut retained) {
+        let context = self.ctx();
+        // Leave a capacity-16 shell: mem::take would drop capacity and spare reuse would realloc mid-draw.
+        let mut retained = std::mem::replace(&mut *context.retained.borrow_mut(), Vec::with_capacity(16));
+        match self.queue.submit_native(context.cb(), &mut retained) {
             Err(e) => {
                 *context.retained.borrow_mut() = retained;
                 Err(e)
@@ -561,7 +599,7 @@ impl DriverCommands for MetalCommands {
         }
     }
     fn commit_present(&self, source: &dyn DriverResource, frame: DriverFrame) -> Result<Receipt, Error> {
-        let context = &self.context;
+        let context = self.ctx();
         let source = context.find_texture(source)?;
         let Some(AcquiredFrame { surface, frame: native_frame }) = frame.0.downcast_ref::<AcquiredFrame>() else {
             return Err(fail(context.operation, ErrorKind::InvalidState, "frame is not this driver's"));
@@ -570,12 +608,12 @@ impl DriverCommands for MetalCommands {
             return Err(fail(context.operation, ErrorKind::Capacity, "bounded presentation slots are all in flight"));
         };
         pending.prepare_present(surface, native_frame, source)?;
-        if let Err(e) = pending.presentation_encoder(&context.native) {
+        if let Err(e) = pending.presentation_encoder(context.cb()) {
             pending.rollback_present();
             return Err(e);
         }
-        let mut retained = std::mem::take(&mut *context.retained.borrow_mut());
-        match self.queue.submit_native(&context.native, &mut retained) {
+        let mut retained = std::mem::replace(&mut *context.retained.borrow_mut(), Vec::with_capacity(16));
+        match self.queue.submit_native(context.cb(), &mut retained) {
             Err(e) => {
                 *context.retained.borrow_mut() = retained;
                 pending.rollback_present();
@@ -588,39 +626,65 @@ impl DriverCommands for MetalCommands {
         }
     }
     fn abandon(&self) -> Result<(), Error> {
-        let context = &self.context;
+        let context = self.ctx();
         let open = context.open_encoder.borrow_mut().take();
         if let Some(open) = open {
             open.end();
         }
         context.retained.borrow_mut().clear();
-        context.native.destroy()
+        // Destroyed buffers are not returned to ctx_spare (Drop sees native already taken).
+        let Some(native) = context.native.as_ref() else {
+            return Ok(());
+        };
+        native.destroy()
     }
     fn native_commands(&self) -> Result<ogpu_core::backend::NativeCommands, Error> {
         Ok(ogpu_core::backend::NativeCommands { size: std::mem::size_of::<ogpu_core::backend::NativeCommands>() as u32,
-            mtl_command_buffer: self.context.native.native_ptr()?, frame_serial: self.frame_serial, ..Default::default() })
+            mtl_command_buffer: self.ctx().cb().native_ptr()?, frame_serial: self.frame_serial, ..Default::default() })
     }
     fn adopt_render_encoder(&self, native: ogpu_core::backend::NativePass, _target: &DriverRenderTarget) -> Result<Box<dyn DriverRenderEncoder>, Error> {
-        self.context.native.end_texture_uploads();
-        render_encoder::adopt(&self.context, native)
+        let context = self.ctx();
+        context.cb().end_texture_uploads();
+        render_encoder::adopt(context, native)
     }
 }
 
 fn begin_commands(dev: &Rc<Dev>, queue: &Queue, active: &Rc<Vec<PendingPresentation>>) -> Result<Box<dyn DriverCommands>, Error> {
     let operation = "Ogpu_metal.Backend.begin_commands";
     let native = queue.obtain_command_buffer()?;
-    let context = Rc::new(CommandContext {
-        operation,
-        device: dev.device.clone(),
-        native,
-        tables: dev.t.clone(),
-        commands_token: std::cell::Cell::new(dev.t.token()),
-        open_encoder: RefCell::new(None),
-        // Sized up front (here and in the native command buffer) so binding a pass's resources does not
-        // reallocate mid-encode; pxui_render asserts an allocation-free draw.
-        retained: RefCell::new(Vec::with_capacity(16)),
-    });
-    Ok(Box::new(MetalCommands { queue: queue.clone(), active: active.clone(), context, frame_serial: 0 }))
+    let context = match dev.ctx_spare.borrow_mut().pop() {
+        Some(mut ctx) if Rc::strong_count(&ctx) == 1 => {
+            {
+                let c = Rc::get_mut(&mut ctx).expect("unique spare context");
+                c.operation = operation;
+                c.native = Some(native);
+                c.commands_token.set(dev.t.token());
+                *c.open_encoder.get_mut() = None;
+                let retained = c.retained.get_mut();
+                retained.clear();
+                retained.reserve(16);
+            }
+            ctx
+        }
+        Some(_) | None => Rc::new(CommandContext {
+            operation,
+            device: dev.device.clone(),
+            native: Some(native),
+            tables: dev.t.clone(),
+            commands_token: std::cell::Cell::new(dev.t.token()),
+            open_encoder: RefCell::new(None),
+            // Sized up front (here and in the native command buffer) so binding a pass's resources does not
+            // reallocate mid-encode; pxui_render asserts an allocation-free draw.
+            retained: RefCell::new(Vec::with_capacity(16)),
+        }),
+    };
+    Ok(Box::new(MetalCommands {
+        queue: queue.clone(),
+        active: active.clone(),
+        context: Some(context),
+        spare: dev.clone(),
+        frame_serial: 0,
+    }))
 }
 
 struct MetalQueue {
@@ -651,9 +715,9 @@ impl DriverQueue for MetalQueue {
             return Err(fail("Ogpu_metal.Backend.adopt_commands", ErrorKind::InvalidArgument, "invalid native command buffer descriptor"));
         }
         let command = native::CommandBuffer::adopt_raw(self.queue.metal(), native.mtl_command_buffer)?;
-        let context = Rc::new(CommandContext { operation: "Ogpu_metal.Backend.adopt_commands", device: self.dev.device.clone(), native: command,
+        let context = Rc::new(CommandContext { operation: "Ogpu_metal.Backend.adopt_commands", device: self.dev.device.clone(), native: Some(command),
             tables: self.dev.t.clone(), commands_token: std::cell::Cell::new(self.dev.t.token()), open_encoder: RefCell::new(None), retained: RefCell::new(Vec::with_capacity(16)) });
-        Ok(Box::new(MetalCommands { queue: self.queue.clone(), active: self.active.clone(), context, frame_serial: native.frame_serial }))
+        Ok(Box::new(MetalCommands { queue: self.queue.clone(), active: self.active.clone(), context: Some(context), spare: self.dev.clone(), frame_serial: native.frame_serial }))
     }
     fn retire(&self, _completed: u64) -> Result<(), Error> { Ok(()) }
     fn gpu_duration(&self, epoch: i64) -> Option<f64> {
@@ -663,6 +727,7 @@ impl DriverQueue for MetalQueue {
         if !self.active.iter().all(|p| p.available()) {
             return Err(fail("Ogpu_metal.Backend.destroy_queue", ErrorKind::InvalidState, "queue has presentations in flight"));
         }
+        self.dev.ctx_spare.borrow_mut().clear();
         self.queue.destroy()?;
         surface::clear_pending_presentations(&self.active);
         self.dev.queues.set(self.dev.queues.get() - 1);
@@ -741,6 +806,7 @@ fn destroy_device(dev: &Rc<Dev>) -> Result<(), Error> {
     if dev.queues.get() != 0 {
         return Err(fail("Ogpu_metal.Backend.destroy_device", ErrorKind::InvalidState, "device has active queues"));
     }
+    dev.ctx_spare.borrow_mut().clear();
     if let Some(queue) = dev.adopted_queue.borrow_mut().take() { queue.destroy()?; }
     for pass in std::mem::take(&mut *dev.t.pass_spare.borrow_mut()) {
         dev.record_cleanup(pass.destroy().err());
@@ -886,7 +952,7 @@ impl Driver for MetalDriver {
             let handle = native_device.handle().clone();
             let caps = native_device.capabilities();
             device_live.set(true);
-            let dev = Rc::new(Dev { device: native_device, t: Rc::new(Tables::new()), queues: Cell::new(0), cleanup_error: RefCell::new(None), device_live: device_live.clone(), adopted_queue: RefCell::new(Some(queue)), _owner: Some(adopted.owner) });
+            let dev = Rc::new(Dev { device: native_device, t: Rc::new(Tables::new()), queues: Cell::new(0), cleanup_error: RefCell::new(None), device_live: device_live.clone(), adopted_queue: RefCell::new(Some(queue)), ctx_spare: RefCell::new(Vec::with_capacity(2)), _owner: Some(adopted.owner) });
             if let Err(e) = dev.t.create_depth_states(&dev.device) { let _ = destroy_device(&dev); return Err(e); }
             return Ok(Box::new(MetalDevice { dev, handle, caps, mtl_device: adopted.descriptor.mtl_device }));
         }
@@ -901,6 +967,7 @@ impl Driver for MetalDriver {
             cleanup_error: RefCell::new(None),
             device_live: device_live.clone(),
             adopted_queue: RefCell::new(None),
+            ctx_spare: RefCell::new(Vec::with_capacity(2)),
             _owner: None,
         });
         if let Err(e) = dev.t.create_depth_states(&dev.device) {

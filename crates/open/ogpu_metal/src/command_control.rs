@@ -123,7 +123,8 @@ impl OpenEncoder {
 pub struct CommandContext {
     pub operation: &'static str,
     pub device: Device,
-    pub native: native::CommandBuffer,
+    /// None while the shell sits in Dev::ctx_spare (no queue dependents).
+    pub native: Option<native::CommandBuffer>,
     pub tables: Rc<Tables>,
     /// names this command buffer to the resources it retains (one retain each); a new one for each command buffer readopted
     pub commands_token: std::cell::Cell<i64>,
@@ -132,6 +133,10 @@ pub struct CommandContext {
 }
 
 impl CommandContext {
+    pub fn cb(&self) -> &native::CommandBuffer {
+        self.native.as_ref().expect("command context has no buffer")
+    }
+
     /// One retain per buffer per command buffer, however many bindings reference it.
     pub fn keep_buffer(&self, buffer: &Buffer) -> Result<(), Error> {
         if buffer.retain_for(self.commands_token.get())? {
