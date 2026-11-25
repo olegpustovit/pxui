@@ -593,15 +593,9 @@ impl DriverCommands for MetalCommands {
     }
     fn commit(&self) -> Result<Receipt, Error> {
         let context = self.ctx();
-        // Leave a capacity-16 shell: mem::take would drop capacity and spare reuse would realloc mid-draw.
-        let mut retained = std::mem::replace(&mut *context.retained.borrow_mut(), Vec::with_capacity(16));
-        match self.queue.submit_native(&context.cb(), &mut retained) {
-            Err(e) => {
-                *context.retained.borrow_mut() = retained;
-                Err(e)
-            }
-            Ok(receipt) => Ok(Receipt { epoch: receipt.epoch }),
-        }
+        // `submit_native` appends out of this Vec and leaves its capacity for the next encode.
+        let mut retained = context.retained.borrow_mut();
+        self.queue.submit_native(&context.cb(), &mut retained).map(|receipt| Receipt { epoch: receipt.epoch })
     }
     fn commit_present(&self, source: &dyn DriverResource, frame: DriverFrame) -> Result<Receipt, Error> {
         let context = self.ctx();
@@ -617,14 +611,15 @@ impl DriverCommands for MetalCommands {
             pending.rollback_present();
             return Err(e);
         }
-        let mut retained = std::mem::replace(&mut *context.retained.borrow_mut(), Vec::with_capacity(16));
+        let mut retained = context.retained.borrow_mut();
         match self.queue.submit_native(&context.cb(), &mut retained) {
             Err(e) => {
-                *context.retained.borrow_mut() = retained;
+                drop(retained);
                 pending.rollback_present();
                 Err(e)
             }
             Ok(receipt) => {
+                drop(retained);
                 pending.commit_present(receipt.epoch);
                 Ok(Receipt { epoch: receipt.epoch })
             }

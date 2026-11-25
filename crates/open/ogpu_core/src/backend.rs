@@ -1161,11 +1161,15 @@ fn bound_epoch(operation: &str, queue: &Queue, epoch: i64) -> Result<bool, Error
 /// Records the epochs finished through `epoch` and their GPU durations.
 fn completed(queue: &Queue, epoch: i64) {
     let mut q = queue.0.borrow_mut();
-    let found: Vec<(i64, f64)> = (q.completed_epoch + 1..=epoch).filter_map(|e| q.raw().gpu_duration(e).map(|d| (e, d))).collect();
+    let start = q.completed_epoch + 1;
     q.completed_epoch = epoch;
-    for (e, d) in found {
-        q.gpu_timing.gpu_seconds += d;
-        q.durations.insert(0, (e, d));
+    // No intermediate Vec: one gpu_duration lookup per newly completed epoch (usually one).
+    for e in start..=epoch {
+        let duration = q.raw().gpu_duration(e);
+        if let Some(d) = duration {
+            q.gpu_timing.gpu_seconds += d;
+            q.durations.insert(0, (e, d));
+        }
     }
     q.durations.truncate(DURATION_CAPACITY);
 }

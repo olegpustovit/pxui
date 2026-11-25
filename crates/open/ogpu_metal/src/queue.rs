@@ -111,7 +111,15 @@ impl Queue {
             Err(e) => Err(e),
             Ok(()) => {
                 value.next_epoch.set(epoch + 1);
-                value.pending.borrow_mut().push(Pending { epoch, command: native.clone(), retained: std::mem::take(retained) });
+                // `append` moves entries and keeps `retained`'s capacity for the next encode.
+                let held = if retained.is_empty() {
+                    Vec::new()
+                } else {
+                    let mut v = Vec::with_capacity(retained.len());
+                    v.append(retained);
+                    v
+                };
+                value.pending.borrow_mut().push(Pending { epoch, command: native.clone(), retained: held });
                 Ok(Receipt { epoch })
             }
         }
@@ -120,39 +128,35 @@ impl Queue {
     pub fn wait_through(&self, epoch: i64) -> Result<(), Error> {
         let op = "Ogpu_metal.Queue.wait_through";
         let value = &self.0;
-        let mut pending = std::mem::take(&mut *value.pending.borrow_mut());
-        let split = pending.iter().position(|p| p.epoch > epoch).unwrap_or(pending.len());
-        let later = pending.split_off(split);
-        let ready = pending;
-        if ready.is_empty() {
-            *value.pending.borrow_mut() = later;
+        let mut pending = value.pending.borrow_mut();
+        if pending.first().map(|p| p.epoch > epoch).unwrap_or(true) {
             return Err(fail(op, ErrorKind::InvalidArgument, "epoch was not submitted"));
         }
         let mut first_error: Option<Error> = None;
-        for pending in ready {
-            let outcome = match pending.command.wait_until_completed() {
+        // `remove(0)` keeps the Vec capacity; pending is bounded (≤4).
+        while pending.first().is_some_and(|p| p.epoch <= epoch) {
+            let done = pending.remove(0);
+            let outcome = match done.command.wait_until_completed() {
                 Err(e) => Err(e),
                 Ok(()) => {
-                    if let Ok(d) = pending.command.diagnostics() {
+                    if let Ok(d) = done.command.diagnostics() {
                         if d.gpu_end_time >= d.gpu_start_time {
-                            value.durations.borrow_mut().push((pending.epoch, d.gpu_end_time - d.gpu_start_time));
+                            value.durations.borrow_mut().push((done.epoch, d.gpu_end_time - d.gpu_start_time));
                         }
                     }
                     Ok(())
                 }
             };
-            // GPU done: recycle the wrapper (renew on next begin) instead of destroying it.
-            drop(pending.retained);
+            drop(done.retained);
             if value.free_commands.borrow().len() < 4 {
-                value.free_commands.borrow_mut().push(pending.command);
+                value.free_commands.borrow_mut().push(done.command);
             } else {
-                let _ = pending.command.destroy();
+                let _ = done.command.destroy();
             }
             if let (None, Err(failure)) = (&first_error, outcome) {
                 first_error = Some(failure);
             }
         }
-        *value.pending.borrow_mut() = later;
         match first_error {
             Some(failure) => Err(failure),
             None => Ok(()),
