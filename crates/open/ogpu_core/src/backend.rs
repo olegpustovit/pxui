@@ -1630,6 +1630,34 @@ pub fn begin_commands(queue: &Queue) -> Result<Commands, Error> {
     let raw = q.raw().begin_commands()?;
     Ok(Commands(Rc::new(CommandsInner { raw: RefCell::new(Some(raw)), queue: queue.clone(), state: Cell::new(CommandsState::Recording), encoder: RefCell::new(None), borrowed: Cell::new(false) })))
 }
+
+/// Fresh driver command buffer into a committed/abandoned `commands` shell (no new CommandsInner Rc).
+/// Caller must have completed the previous buffer's GPU work (`settle` / `complete_through`).
+pub fn rebegin_commands(commands: &Commands) -> Result<(), Error> {
+    const OP: &str = "Backend.rebegin_commands";
+    if commands.0.borrowed.get() {
+        return Err(make_error(OP, ErrorKind::InvalidState, "adopted commands cannot rebegin"));
+    }
+    match commands.0.state.get() {
+        CommandsState::Committed | CommandsState::Abandoned => {}
+        CommandsState::Recording | CommandsState::Encoding => {
+            return Err(make_error(OP, ErrorKind::InvalidState, "commands are still recording"));
+        }
+    }
+    if commands.0.raw.borrow().is_some() {
+        return Err(make_error(OP, ErrorKind::InvalidState, "commands still hold a driver buffer"));
+    }
+    let q = commands.0.queue.0.borrow();
+    if q.device.0.dead.get() || q.dead {
+        return Err(make_error(OP, ErrorKind::StaleHandle, "queue or device is destroyed"));
+    }
+    let raw = q.raw().begin_commands()?;
+    drop(q);
+    *commands.0.raw.borrow_mut() = Some(raw);
+    *commands.0.encoder.borrow_mut() = None;
+    commands.0.state.set(CommandsState::Recording);
+    Ok(())
+}
 /// The native command buffer, also while a pass is open on it (the app hands both to PXUI).
 pub fn native_commands(commands: &Commands) -> Result<NativeCommands, Error> {
     if !matches!(commands.0.state.get(), CommandsState::Recording | CommandsState::Encoding) {
