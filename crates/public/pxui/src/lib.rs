@@ -608,8 +608,9 @@ impl RoutedInput<'_> {
     }
 
     /// Events in arrival order, borrowing their payloads from the library.
-    pub fn events(&self) -> impl ExactSizeIterator<Item = &Event> + '_ {
-        (0..self.raw.events.len).map(move |index| unsafe { self.raw.events.at(index) })
+    pub fn events(&self) -> core::slice::Iter<'_, Event> {
+        // pxui_ui_input lends a dense span owned by the UI borrowed by this snapshot.
+        unsafe { self.raw.events.as_slice() }.unwrap_or(&[]).iter()
     }
 
     /// The numeric payload of a touch event at the supplied index.
