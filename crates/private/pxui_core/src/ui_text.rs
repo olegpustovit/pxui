@@ -1028,6 +1028,11 @@ impl Ui {
         &mut self.area_cache[at]
     }
 
+    /// Caret x for a text-area row: the kit face is monospace, so one `char_w` per character (no reshape).
+    fn caret_x_mono(char_w: f32, text: &str, index: usize) -> f32 {
+        text.get(..index.min(text.len())).map_or(0.0, |s| s.chars().count() as f32 * char_w)
+    }
+
     /// The area's data as shared lists: the lists of the last frame when `o` holds the same data, else new ones.
     fn area_data(&mut self, key: i64, o: &TextAreaOpts) -> AreaData {
         let e = self.area_entry(key);
@@ -1464,8 +1469,10 @@ impl AreaPaint {
         let selected = self.focused && edit.caret != edit.anchor;
         let (s0, s1) = text_selection(edit);
         let width = |paint: &mut Paint, t: &str| paint.text_width(None, t);
-        // where the caret before byte `i` of the row `ls..le` sits, from the row's start
-        let at = |paint: &mut Paint, ls: usize, le: usize, i: usize| paint.caret_x(None, &final_text[ls..le], i.min(le) - ls);
+        // Kit face is monospace: caret x is character count × char_w (no per-keystroke reshape).
+        let at = |_paint: &mut Paint, ls: usize, le: usize, i: usize| {
+            Ui::caret_x_mono(char_w, &final_text[ls..le], i.min(le) - ls)
+        };
         let clip = |paint: &mut Paint, x: f32, w: f32| paint.clip_rect = previous.intersect(Rect::new(x, by, w, bh));
         let band = |paint: &mut Paint, line: usize, start: usize, stop: usize, color: Rgba, y: f32| {
             let ls = start_of(rows, line);
@@ -2048,7 +2055,7 @@ fn text_area_submit_body(this: &mut Ui, place: Node, o: &TextAreaOpts, label: &s
             vertical = top + row - bh;
         }
         let (ls, le) = (start_of(&rows, line), stop_of(&rows, line));
-        let x = this.caret_x(None, &final_text[ls..le], index.min(le) - ls);
+        let x = Ui::caret_x_mono(char_w, &final_text[ls..le], index.min(le) - ls);
         if x < horizontal {
             horizontal = x;
         } else if x - horizontal > visible {
@@ -2120,7 +2127,7 @@ fn text_area_submit_body(this: &mut Ui, place: Node, o: &TextAreaOpts, label: &s
         let index = clamp_pos(items[st.selected].replace.0 as i64);
         let line = row_at(&rows, index);
         let (ls, le) = (start_of(&rows, line), stop_of(&rows, line));
-        let anchor = text_x0 + this.caret_x(None, &final_text[ls..le], index.min(le) - ls);
+        let anchor = text_x0 + Ui::caret_x_mono(char_w, &final_text[ls..le], index.min(le) - ls);
         let (view_w, view_h) = this.view_size();
         let line_top = by - offset + pad + slot_of(&notes, caret_line) as f32 * row;
         let placement = Placement { side: Side::Below, align: Along::Start, gap: 0.0, margin: 8.0, flip: true };

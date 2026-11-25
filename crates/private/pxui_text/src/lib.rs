@@ -876,6 +876,8 @@ pub struct Text {
     font_generation: Arc<()>,
     /// The prepare queue's lane (`attach`): text shaped ahead of need on a worker.
     queue: Option<Box<queue::Queue>>,
+    /// Stable layout slots (`fresh_slot`) for text that changes in place (a text area's caret line, a retained label).
+    slot_serial: u64,
     /// Debug builds: (text hash, key, style, width) of the last installed prepared layouts, to name a draw that asks for another style.
     #[cfg(debug_assertions)]
     installed: Vec<(u64, u64, Style, f32)>,
@@ -941,6 +943,7 @@ impl Text {
             cache_bytes: 0,
             font_generation: Arc::new(()),
             queue: None,
+            slot_serial: 0,
             #[cfg(debug_assertions)]
             installed: Vec::new(),
             #[cfg(debug_assertions)]
@@ -1032,6 +1035,11 @@ impl Text {
         }
     }
 
+    /// Whether a layout entry is already retained under `key` (e.g. prepared by the queue).
+    pub fn has_layout(&self, key: u64) -> bool {
+        self.entries.contains_key(&key)
+    }
+
     pub fn has_text(&self, key: u64, text: &str) -> bool {
         self.entries.get(&key).is_some_and(|entry| entry.text == text)
     }
@@ -1082,6 +1090,38 @@ impl Text {
     pub fn layout_spans(&mut self,key:u64,text:&str,style:&Style,max_width:f32,spans:&[TextSpan])->Option<Metrics> {
         if !valid_spans(text,spans) { return None; }
         Some(self.layout_inner(key,text,style,max_width,spans))
+    }
+
+    /// A layout key that never collides with `content_key` / `layout_key` (bit 63 set).
+    /// A text area or retained label keeps one and reshapes into it when its text changes.
+    pub fn fresh_slot(&mut self) -> u64 {
+        self.slot_serial = self.slot_serial.wrapping_add(1);
+        (1u64 << 63) | self.slot_serial
+    }
+
+    /// Move the entry at `from` onto `to` so a later `layout(to, …)` reshapes the same cosmic-text `Buffer` in place.
+    /// No-op when `from == to` or `from` is missing. A live `to` is retired into the spare pool.
+    pub fn rekey(&mut self, from: u64, to: u64) {
+        if from == to { return; }
+        let Some(entry) = self.entries.remove(&from) else { return };
+        if let Some(at) = self.keys.iter().position(|k| *k == from) { self.keys.swap_remove(at); }
+        if let Some(old) = self.entries.insert(to, entry) {
+            self.retire(old);
+        } else {
+            self.keys.push(to);
+        }
+    }
+
+    /// `layout`, after moving any previous entry at `from` onto `key` so changed text reshapes in place.
+    pub fn layout_from(&mut self, from: Option<u64>, key: u64, text: &str, style: &Style, max_width: f32) -> Metrics {
+        if let Some(from) = from { self.rekey(from, key); }
+        self.layout(key, text, style, max_width)
+    }
+
+    /// `layout_spans` with the same in-place move as `layout_from`.
+    pub fn layout_spans_from(&mut self, from: Option<u64>, key: u64, text: &str, style: &Style, max_width: f32, spans: &[TextSpan]) -> Option<Metrics> {
+        if let Some(from) = from { self.rekey(from, key); }
+        self.layout_spans(key, text, style, max_width, spans)
     }
 
     fn layout_inner(&mut self, key: u64, text: &str, style: &Style, max_width: f32, spans:&[TextSpan]) -> Metrics {
@@ -1878,6 +1918,35 @@ mod layout_cache_tests {
         assert!(ours.is_empty(), "{} of {} warm allocations are not the shaping library's, first:\n{}", ours.len(), reports.len(), ours[0]);
         assert!(text.spare.len() <= SPARE_LAYOUTS && text.spare.capacity() <= 2 * SPARE_LAYOUTS);
         assert!(text.entries.len() < 2 * KEEP_FRAMES as usize + 8);
+    }
+
+    /// A stable slot reuses the Entry/Buffer for changed text: the engine allocates nothing of its own;
+    /// cosmic-text may still allocate inside shaping (same named fling exception as fresh layouts).
+    #[test]
+    fn stable_slot_reuses_entry_storage_for_changed_text() {
+        let style = Style::default();
+        let mut text = Text::new(&[PRAGMASEVKA]);
+        let slot = text.fresh_slot();
+        let mut line = String::from("(workspace isogrid");
+        text.layout(slot, &line, &style, 0.0);
+        text.end_frame();
+        for ch in [" ", "(", "g", "r", "a", "p", "h", " ", "p"] {
+            line.push_str(ch);
+            text.layout(slot, &line, &style, 0.0);
+            text.end_frame();
+        }
+        let before = text.entries.len();
+        let scope = mem_sys::warm_scope();
+        for ch in ["i", "c", " ", "x", "y", "x", "y"] {
+            line.push_str(ch);
+            text.layout(slot, &line, &style, 0.0);
+            text.end_frame();
+        }
+        drop(scope);
+        assert_eq!(text.entries.len(), before, "a stable slot must keep one entry across reshapes");
+        let reports = mem_sys::take_reports();
+        let ours: Vec<_> = reports.iter().filter(|r| !["cosmic_text", "unicode_bidi", "harfrust", "swash"].iter().any(|lib| r.contains(lib))).collect();
+        assert!(ours.is_empty(), "{} engine allocations on a warm slot reshape, first:\n{}", ours.len(), ours.first().map(|s| s.as_str()).unwrap_or(""));
     }
 
     fn row(text: &mut Text, row: usize) {
