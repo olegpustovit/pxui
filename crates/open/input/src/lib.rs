@@ -497,7 +497,9 @@ pub mod gate {
         pub pointer_on_picture: bool,
         pub window_key: bool,
         pub pressed: bool,
-        pub previous: Frame,
+        /// Prior frame pointer; only this and `previous_held` are read (avoids cloning a Frame).
+        pub previous_pointer: (f64, f64),
+        pub previous_held: bool,
         pub blocked: Vec<Key>,
     }
 
@@ -513,8 +515,8 @@ pub mod gate {
 
     pub fn gate(g: &Gate, mut live: Frame) -> (Frame, Vec<Key>) {
         let on_picture = !g.prompt && !g.menu && g.pointer_on_picture && g.window_key;
-        if !( !g.previous.buttons.is_empty() || ((live.buttons.is_empty() || g.pressed) && on_picture) ) {
-            live.pointer = g.previous.pointer;
+        if !( g.previous_held || ((live.buttons.is_empty() || g.pressed) && on_picture) ) {
+            live.pointer = g.previous_pointer;
             live.buttons.clear();
             live.events.retain(|event| !pointer_event(event));
         }
@@ -545,7 +547,7 @@ mod tests {
         gate::Gate {
             prompt: false, menu: false, leader: false, text_focus: false,
             focus_on_picture: true, pointer_on_picture: true, window_key: true,
-            pressed: false, previous: input(vec![], vec![], (10.0, 10.0), vec![]), blocked: vec![],
+            pressed: false, previous_pointer: (10.0, 10.0), previous_held: false, blocked: vec![],
         }
     }
     fn presses(key: Key) -> Frame {
@@ -591,7 +593,7 @@ mod tests {
         assert!(sees(&seen, Key::Escape), "a fresh press after the release did not reach the sketch");
 
         let moved = input(vec![], vec![], (50.0, 50.0), vec![Event::PointerMoved((50.0, 50.0))]);
-        let away = gate::Gate { pointer_on_picture: false, previous: input(vec![], vec![], (5.0, 5.0), vec![]), ..open };
+        let away = gate::Gate { pointer_on_picture: false, previous_pointer: (5.0, 5.0), previous_held: false, ..open };
         let (seen, _) = gate::gate(&away, moved.clone());
         assert!(seen.pointer == (5.0, 5.0) && seen.events.is_empty(), "the pointer left the picture and the sketch followed");
         let (seen, _) = gate::gate(&gate::Gate { pointer_on_picture: true, ..away.clone() }, moved.clone());
@@ -601,7 +603,7 @@ mod tests {
         let (seen, _) = gate::gate(&gate::Gate { prompt: true, pointer_on_picture: true, ..away.clone() }, moved);
         assert!(seen.pointer == (5.0, 5.0), "a prompt did not hold the pointer");
         let drag = input(vec![], vec![MouseButton::LeftButton], (50.0, 50.0), vec![Event::PointerMoved((50.0, 50.0))]);
-        let (seen, _) = gate::gate(&gate::Gate { previous: input(vec![], vec![MouseButton::LeftButton], (5.0, 5.0), vec![]), ..away.clone() }, drag.clone());
+        let (seen, _) = gate::gate(&gate::Gate { previous_pointer: (5.0, 5.0), previous_held: true, ..away.clone() }, drag.clone());
         assert!(seen.pointer == (50.0, 50.0), "a drag that began on the picture was cut off");
         let (seen, _) = gate::gate(&away, drag.clone());
         assert!(seen.buttons.is_empty() && seen.pointer == (5.0, 5.0), "a drag that began elsewhere became the sketch's");

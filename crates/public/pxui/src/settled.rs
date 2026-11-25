@@ -116,3 +116,70 @@ fn a_settled_frame_through_the_wrapper_allocates_nothing() {
     }
     assert!(state.seen > 0);
 }
+
+/// Pointer moves that change no widget state (hover over an inert label) allocate nothing once warm.
+#[test]
+fn pointer_moves_over_a_static_ui_allocate_nothing() {
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
+    let mut state = State {
+        clicks: 0, night: false, check: false, volume: 0.5, mode: 0, seen: 0, list: crate::ListState::new(), table: crate::TableState::new(),
+    };
+    let build = |ui: &mut Ui, state: &mut State| {
+        ui.frame(&FrameIn::new(320.0, 240.0), &mut |ui| panel(ui, state)).expect("frame");
+    };
+    for _ in 0..4 {
+        build(&mut ui, &mut state);
+    }
+    let mut worst = 0u64;
+    for i in 0..8 {
+        let event = crate::Event::pointer(crate::Event::POINTER_MOVED, 0, 40.0 + i as f64, 20.0);
+        mem_sys::local_reset();
+        ui.frame(&{
+            let mut frame = FrameIn::new(320.0, 240.0).time(0.1 * i as f64);
+            frame.events = core::slice::from_ref(&event);
+            frame
+        }, &mut |ui| panel(ui, &mut state)).expect("frame");
+        worst = worst.max(mem_sys::local_alloc_count());
+    }
+    assert_eq!(worst, 0, "pointer moves over a static UI allocate nothing");
+    assert!(state.seen > 0 || state.clicks == 0);
+}
+
+/// Key presses that no focused control consumes allocate nothing once warm.
+#[test]
+fn key_presses_over_a_static_ui_allocate_nothing() {
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
+    let mut state = State {
+        clicks: 0, night: false, check: false, volume: 0.5, mode: 0, seen: 0, list: crate::ListState::new(), table: crate::TableState::new(),
+    };
+    for _ in 0..4 {
+        ui.frame(&FrameIn::new(320.0, 240.0), &mut |ui| panel(ui, &mut state)).expect("frame");
+    }
+    let keys = [
+        crate::KeyCode::ArrowUp, crate::KeyCode::ArrowDown, crate::KeyCode::ArrowLeft, crate::KeyCode::ArrowRight,
+        crate::KeyCode::Char('a'), crate::KeyCode::Char('b'),
+    ];
+    // First press of each code may grow spare key/modifier lists; warm them before counting.
+    for (i, code) in keys.into_iter().enumerate() {
+        let warm = crate::Event::key(crate::Event::KEY_PRESSED, code.wire());
+        ui.frame(&{
+            let mut frame = FrameIn::new(320.0, 240.0).time(0.01 * i as f64);
+            frame.events = core::slice::from_ref(&warm);
+            frame
+        }, &mut |ui| panel(ui, &mut state)).expect("frame");
+    }
+    let mut worst = 0u64;
+    for (i, code) in keys.into_iter().enumerate() {
+        let event = crate::Event::key(crate::Event::KEY_PRESSED, code.wire());
+        mem_sys::local_reset();
+        ui.frame(&{
+            let mut frame = FrameIn::new(320.0, 240.0).time(1.0 + 0.1 * i as f64);
+            frame.events = core::slice::from_ref(&event);
+            frame
+        }, &mut |ui| panel(ui, &mut state)).expect("frame");
+        worst = worst.max(mem_sys::local_alloc_count());
+    }
+    assert_eq!(worst, 0, "key presses over a static UI allocate nothing");
+}
