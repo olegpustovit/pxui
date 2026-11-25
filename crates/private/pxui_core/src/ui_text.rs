@@ -1761,7 +1761,7 @@ fn text_area_submit_body(this: &mut Ui, place: Node, o: &TextAreaOpts, label: &s
         TextEdit { text: String::new(), caret: text.len(), anchor: text.len() }
     };
     let revision = this.edit_revision;
-    let mut moved = false;
+    let (mut moved, mut changed) = (false, false);
     let mut st = AreaState::default();
     if let Some(f) = &o.on_context {
         if context_clicked(&signal) {
@@ -1949,7 +1949,8 @@ fn text_area_submit_body(this: &mut Ui, place: Node, o: &TextAreaOpts, label: &s
             }
         }
         this.save_text_edit(&edit);
-        moved = edit.caret != caret0 || edit.text != text || signal.pressed;
+        changed = edit.text != text;
+        moved = edit.caret != caret0 || changed || signal.pressed;
     }
     // scrolling: the wheel, then whatever keeps the caret (or `reveal`) in view
     if focused {
@@ -1982,7 +1983,6 @@ fn text_area_submit_body(this: &mut Ui, place: Node, o: &TextAreaOpts, label: &s
             }
         }
     }
-    let changed = focused && edit.text != text;
     let displayed = if changed { edit.text.as_str() } else { text };
     let rows = if !changed {
         rows

@@ -345,8 +345,13 @@ pub unsafe fn scope(ui: *mut PxuiUi, label: &str, f: Inner) -> i32 {
 /// The body of `pxui_ui_view`: the engine's `view_of` (sized by its parent).
 #[inline]
 pub unsafe fn view_of(ui: *mut PxuiUi, key: &str, revision: u64, f: Inner, out: *mut PxuiBox) -> i32 {
+    unsafe { view_of_checked(ui, key, bad_key(key), revision, f, out) }
+}
+
+#[inline]
+pub(crate) unsafe fn view_of_checked(ui: *mut PxuiUi, key: &str, bad: bool, revision: u64, f: Inner, out: *mut PxuiBox) -> i32 {
     enter!(ui);
-    if bad_key(key) { return unsafe { fail(ui, "invalid view arguments") }; }
+    if bad { return unsafe { fail(ui, "invalid view arguments") }; }
     let handle = unsafe { engine(ui) }.view_of(key, &revision, f);
     unsafe { *out = to_abi_box(handle); }
     0

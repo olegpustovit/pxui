@@ -3174,11 +3174,18 @@ impl Ui {
         }
     }
 
-    fn pointer_target(&mut self, point: (f32, f32)) -> i64 {
+    fn pointer_target(&mut self, point: (f32, f32), hit: &mut Option<((f32, f32), i64)>) -> i64 {
         match self.active {
             Some(target) => target,
             None => {
-                let top = self.topmost(point);
+                let top = match *hit {
+                    Some((at, top)) if at == point => top,
+                    _ => {
+                        let top = self.topmost(point);
+                        *hit = Some((point, top));
+                        top
+                    }
+                };
                 self.modal_target(top)
             }
         }
@@ -3255,6 +3262,9 @@ impl Ui {
             _ => false,
         });
         self.touches.clock = frame.input.t;
+        // The hit tree stays fixed until the builder runs. The last pointer event can supply
+        // the raw hit for hover even when symbolic ownership was redirected by a modal.
+        let mut pointer_hit = None;
         for (event_index, original) in frame.input.events.iter().enumerate() {
             let touch_owner = self.touch_owner(original);
             let actions = self.touch_events(original);
@@ -3268,7 +3278,7 @@ impl Ui {
                 }
                 let (owner, delta): (i64, (f64, f64)) = match event {
                     Event::PointerMoved(point) => {
-                        let owner = self.pointer_target(p32(*point));
+                        let owner = self.pointer_target(p32(*point), &mut pointer_hit);
                         let delta = if self.pointer.0.is_finite() {
                             (point.0 - self.pointer.0 as f64, point.1 - self.pointer.1 as f64)
                         } else {
@@ -3276,9 +3286,9 @@ impl Ui {
                         };
                         (owner, delta)
                     }
-                    Event::Touch(t)=>(touch_owner.unwrap_or_else(|| self.pointer_target(p32(t.point))),(0.0,0.0)),
+                    Event::Touch(t)=>(touch_owner.unwrap_or_else(|| self.pointer_target(p32(t.point), &mut pointer_hit)),(0.0,0.0)),
                     Event::PointerPressed(_, point) | Event::PointerReleased(_, point) => {
-                        (self.pointer_target(p32(*point)), (0.0, 0.0))
+                        (self.pointer_target(p32(*point), &mut pointer_hit), (0.0, 0.0))
                     }
                     Event::Scrolled(_) | Event::Pinched(_) => {
                         let target = match self.active {
@@ -3590,6 +3600,8 @@ impl Ui {
         }
         self.hot = if frame.input.events.iter().any(|e| matches!(e, Event::FocusLost)) {
             0
+        } else if let Some((_, top)) = pointer_hit.filter(|(at, _)| *at == self.pointer) {
+            top
         } else {
             self.topmost(self.pointer)
         };

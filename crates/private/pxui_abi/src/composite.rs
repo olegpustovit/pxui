@@ -82,7 +82,7 @@ export!(trusted pub unsafe fn pxui_ui_view(ui: *mut PxuiUi, keyed: *const PxuiKe
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if out.is_null() { return unsafe { fail(ui, "null view output") }; }
     let Some((key, "")) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
-    unsafe { crate::trusted::view_of(ui, key, revision, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, callback, user), out) }
+    unsafe { crate::trusted::view_of_checked(ui, key, crate::state::unusable(key), revision, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, callback, user), out) }
 });
 
 /// `anchor`'s placement, or `None` for an invalid descriptor. `align` is Start, Center or End (0 to 2): PXUI_ALIGN_STRETCH and
