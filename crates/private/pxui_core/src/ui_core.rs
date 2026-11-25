@@ -818,7 +818,8 @@ struct Slot {
     ry: f32,
     rw: f32,
     rh: f32,
-    state_value: Option<i64>,
+    state_value: i64,
+    has_state_value: bool,
     reveal: usize,
     text_value: Option<String>,
     labels: Vec<Rc<str>>,
@@ -876,7 +877,8 @@ impl Slot {
             ry: 0.0,
             rw: 0.0,
             rh: 0.0,
-            state_value: None,
+            state_value: 0,
+            has_state_value: false,
             reveal: usize::MAX,
             text_value: None,
             labels: Vec::new(),
@@ -4938,13 +4940,18 @@ impl Ui {
     /// The value `set_state` stored in `b`'s slot, else `default`; a gone node's handle (its slot reused or freed) reads `default`.
     pub fn state(&self, b: &UiBox, default: i64) -> i64 {
         if !self.live(b) { return default; }
-        self.slots[b.box_slot].state_value.unwrap_or(default)
+        let slot = &self.slots[b.box_slot];
+        if slot.has_state_value { slot.state_value } else { default }
     }
 
     /// Stores `value` in `b`'s slot while the node lives; a gone node's handle stores nothing (it never reaches the node that took
     /// its slot).
     pub fn set_state(&mut self, b: &UiBox, value: i64) {
-        if self.live(b) { self.slots[b.box_slot].state_value = Some(value); }
+        if self.live(b) {
+            let slot = &mut self.slots[b.box_slot];
+            slot.state_value = value;
+            slot.has_state_value = true;
+        }
     }
 
     /// Stable paint text follows its existing retained box key and is discarded with that slot.
@@ -5117,7 +5124,8 @@ impl Ui {
     }
 
     pub(crate) fn slot_state(&self, slot: usize) -> Option<i64> {
-        self.slots[slot].state_value
+        let slot = &self.slots[slot];
+        slot.has_state_value.then_some(slot.state_value)
     }
 
     // ------------------------------------------------------------- layout
