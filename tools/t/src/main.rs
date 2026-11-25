@@ -407,6 +407,7 @@ fn run_tests(
     let run_started = Instant::now();
 
     let mut ordinary = Vec::new();
+    let mut editor = Vec::new();
     let mut serial = Vec::new();
     let mut gpu = Vec::new();
     let mut order = 0;
@@ -492,13 +493,14 @@ fn run_tests(
                 name: test,
             };
             order += 1;
-            // GPU and window cases each get their own process and deadline.
-            // Serialize native work so GPU contention cannot consume another case's budget.
+            // Serialize GPU and window cases so GPU contention cannot consume another case's deadline.
             let target = case.executable.file_name().and_then(|name| name.to_str()).unwrap_or("");
             if target.starts_with("gpu_") {
                 gpu.push(case);
             } else if target.starts_with("window_") || is_serial_test(&case.name) {
                 serial.push(case);
+            } else if case.crate_name == "rays_editor" && target.starts_with("editor-") {
+                editor.push(case);
             } else {
                 ordinary.push(case);
             }
@@ -513,19 +515,52 @@ fn run_tests(
     if record_outcomes(outcomes, timings, &mut failure_code) {
         return report_whole_timeout(run_started);
     }
+    if !editor.is_empty() {
+        let mut shards = vec![(Duration::ZERO, Vec::new()); workers.min(editor.len())];
+        let mut weighted: Vec<_> = editor
+            .into_iter()
+            .map(|case| {
+                let prior = baselines.get(&(case.crate_name.clone(), case.name.clone())).copied();
+                (prior.unwrap_or(Duration::from_millis(50)), case)
+            })
+            .collect();
+        // Put the expensive cases on different workers and preserve harness order inside each shard.
+        weighted.sort_by_key(|(elapsed, _)| std::cmp::Reverse(*elapsed));
+        for (elapsed, case) in weighted {
+            let (total, cases) = shards.iter_mut().min_by_key(|(total, _)| *total).unwrap();
+            *total = total.saturating_add(elapsed);
+            cases.push(case);
+        }
+        let outcomes = thread::scope(|scope| {
+            let jobs: Vec<_> = shards
+                .into_iter()
+                .map(|(_, mut cases)| {
+                    cases.sort_unstable_by_key(|case| case.order);
+                    scope.spawn(move || run_case_groups(&cases, args, run_started, timeout))
+                })
+                .collect();
+            jobs.into_iter().flat_map(|job| job.join().unwrap()).collect::<Vec<_>>()
+        });
+        if record_outcomes(outcomes, timings, &mut failure_code) {
+            return report_whole_timeout(run_started);
+        }
+    }
     gpu.extend(serial);
     let mut gpu = VecDeque::from(gpu);
     while let Some(case) = gpu.pop_front() {
         if remaining(run_started, timeout).is_some_and(|remaining| remaining.is_zero()) {
             return report_whole_timeout(run_started);
         }
-        let grouped = case.executable.file_name().and_then(|name| name.to_str()).is_some_and(|name| name.starts_with("gpu_all-"));
-        let outcomes = if grouped {
+        let outcomes = if group_native_case(&case) {
             let executable = case.executable.clone();
             let mut group = vec![case];
-            while gpu.front().is_some_and(|next| next.executable == executable) { group.push(gpu.pop_front().unwrap()); }
-            run_gpu_group(group, args, run_started, timeout)
-        } else { vec![run_test_case(case, args, run_started, timeout)] };
+            while gpu.front().is_some_and(|next| next.executable == executable && group_native_case(next)) {
+                group.push(gpu.pop_front().unwrap());
+            }
+            run_case_groups(&group, args, run_started, timeout)
+        } else {
+            vec![run_test_case(case, args, run_started, timeout)]
+        };
         if record_outcomes(outcomes, timings, &mut failure_code) {
             return report_whole_timeout(run_started);
         }
@@ -535,6 +570,25 @@ fn run_tests(
     } else {
         failure_code
     }
+}
+
+fn group_native_case(case: &TestCase) -> bool {
+    let target = case.executable.file_name().and_then(|name| name.to_str()).unwrap_or("");
+    if target.starts_with("gpu_all-") {
+        return true;
+    }
+    if case.crate_name != "rays_editor" {
+        return false;
+    }
+    if target.starts_with("gpu_editor-") {
+        // Allocation budgets need a fresh process, including when bracketed by grouped cases.
+        let name = case.name.rsplit("::").next().unwrap_or(&case.name);
+        return !name.starts_with("alloc_budget_")
+            && !name.starts_with("click_budget_")
+            && !name.starts_with("graph_budget_")
+            && name != "typing_budget";
+    }
+    target.starts_with("gpu_flow_integration-") || target.starts_with("window_rays_graph-")
 }
 
 
@@ -756,7 +810,22 @@ fn run_test_case(
     }
 }
 
-fn run_gpu_group(cases: Vec<TestCase>, args: &Args, run_started: Instant, timeout: Option<Duration>) -> Vec<TestOutcome> {
+fn run_case_groups(cases: &[TestCase], args: &Args, run_started: Instant, timeout: Option<Duration>) -> Vec<TestOutcome> {
+    let mut outcomes = Vec::with_capacity(cases.len());
+    while outcomes.len() < cases.len() {
+        // A failing child may have left native state behind. Start a fresh process for the
+        // remaining cases, retaining the failing result and the original whole-run deadline.
+        let batch = run_case_group(&cases[outcomes.len()..], args, run_started, timeout);
+        let whole_timeout = batch.iter().any(|outcome| outcome.whole_timeout);
+        outcomes.extend(batch);
+        if whole_timeout {
+            break;
+        }
+    }
+    outcomes
+}
+
+fn run_case_group(cases: &[TestCase], args: &Args, run_started: Instant, timeout: Option<Duration>) -> Vec<TestOutcome> {
     use std::io::BufRead;
     let mut command = Command::new(&cases[0].executable);
     command.arg("--rays-group").args(cases.iter().map(|case| &case.name)).env("SDL_AUDIODRIVER", "dummy");
@@ -784,58 +853,87 @@ fn run_gpu_group(cases: Vec<TestCase>, args: &Args, run_started: Instant, timeou
     let status;
     let mut whole_timeout;
     let mut timed_out = false;
+    let mut stdout_closed = false;
     loop {
-        whole_timeout = remaining(run_started, timeout).is_some_and(|left| left.is_zero());
-        if whole_timeout || started.elapsed() >= args.test_timeout {
+        let whole_left = remaining(run_started, timeout);
+        let case_left = args.test_timeout.saturating_sub(started.elapsed());
+        whole_timeout = whole_left.is_some_and(|left| left.is_zero());
+        if whole_timeout || case_left.is_zero() {
             timed_out = true;
-            status = terminate_tree(&mut child, #[cfg(windows)] &job).ok();
+            status = None;
             break;
         }
-        match receiver.recv_timeout(POLL_INTERVAL) {
-            Ok(line) => {
-                println!("{line}");
-                if let Some(name) = line.strip_prefix("RAYS_CASE_START:") {
-                    active = cases.iter().position(|case| case.name == name);
-                    started = Instant::now();
-                    skipped = false;
-                } else if line.contains("RAYS_TEST_SKIP:") { skipped = true; }
-                else if let Some(value) = line.strip_prefix("RAYS_CASE_END:") {
-                    if let Some((name, seconds)) = value.split_once('\t') {
-                        if let Some(case) = cases.iter().find(|case| case.name == name) {
-                            let elapsed = seconds.parse::<f64>().ok().and_then(|value| Duration::try_from_secs_f64(value).ok()).unwrap_or_else(|| started.elapsed());
-                            outcomes.push(TestOutcome { order: case.order,
-                                timing: TestTiming { crate_name: case.crate_name.clone(), test: case.name.clone(), elapsed, status: if skipped { "skip" } else { "pass" }, retried: false },
-                                failure_code: if skipped && env::var("RAYS_ALLOW_SKIP").as_deref() != Ok("1") { 1 } else { 0 },
-                                whole_timeout: false, retry: false });
-                            active = None;
-                            started = Instant::now();
-                        }
+        let delay = whole_left.unwrap_or(POLL_INTERVAL).min(case_left).min(POLL_INTERVAL);
+        // A closed pipe does not mean the child exited. Keep polling within both deadlines.
+        let line = if stdout_closed {
+            thread::sleep(delay);
+            None
+        } else {
+            match receiver.recv_timeout(delay) {
+                Ok(line) => Some(line),
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    stdout_closed = true;
+                    None
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => None,
+            }
+        };
+        if let Some(line) = line {
+            println!("{line}");
+            if let Some(name) = line.strip_prefix("RAYS_CASE_START:") {
+                active = cases.iter().position(|case| case.name == name);
+                started = Instant::now();
+                skipped = false;
+            } else if line.contains("RAYS_TEST_SKIP:") { skipped = true; }
+            else if let Some(value) = line.strip_prefix("RAYS_CASE_END:") {
+                if let Some((name, seconds)) = value.split_once('\t') {
+                    if let Some(case) = cases.iter().find(|case| case.name == name) {
+                        let elapsed = seconds.parse::<f64>().ok().and_then(|value| Duration::try_from_secs_f64(value).ok()).unwrap_or_else(|| started.elapsed());
+                        outcomes.push(TestOutcome { order: case.order,
+                            timing: TestTiming { crate_name: case.crate_name.clone(), test: case.name.clone(), elapsed, status: if skipped { "skip" } else { "pass" }, retried: false },
+                            failure_code: if skipped && env::var("RAYS_ALLOW_SKIP").as_deref() != Ok("1") { 1 } else { 0 },
+                            whole_timeout: false, retry: false });
+                        active = None;
+                        started = Instant::now();
                     }
                 }
-            },
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => { status = child.wait().ok(); break; },
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                if let Ok(Some(exit)) = child.try_wait() { status = Some(exit); break; }
             }
+            continue;
+        }
+        match child.try_wait() {
+            Ok(Some(exit)) if !exit.success()
+                || (stdout_closed && stderr.as_ref().is_none_or(|reader| reader.is_finished())) =>
+            {
+                status = Some(exit);
+                break;
+            }
+            Err(_) => {
+                status = None;
+                break;
+            }
+            _ => {}
         }
     }
     // Reap readers after the process group is gone, including descendants that held a pipe open.
-    if timed_out || status.is_some_and(|exit| !exit.success()) {
+    if status.is_none_or(|exit| !exit.success()) {
         let _ = terminate_tree(&mut child, #[cfg(windows)] &job);
     }
     let _ = reader.join();
     if let Ok(output) = join_pipe(stderr) { print_bytes(io::stderr(), &output); }
+    let failure_code = if timed_out { 124 } else { status.map_or(1, status_code) };
     if let Some(index) = active.or_else(|| (outcomes.len() < cases.len()).then_some(outcomes.len())) {
         let case = &cases[index];
         outcomes.push(TestOutcome { order: case.order,
             timing: TestTiming { crate_name: case.crate_name.clone(), test: case.name.clone(), elapsed: started.elapsed(), status: if skipped { "skip" } else if timed_out { "timeout" } else { "fail" }, retried: false },
-            failure_code: if timed_out { 124 } else { status.map_or(1, status_code).max(1) }, whole_timeout, retry: false });
+            failure_code: failure_code.max(1), whole_timeout, retry: false });
         eprintln!("rays-t: grouped case {}::{} failed", case.crate_name, case.name);
-    }
-    if !timed_out && status.is_some_and(|exit| !exit.success()) && outcomes.len() == cases.len() {
+    } else if failure_code != 0 {
         if let Some(last) = outcomes.last_mut() {
-            last.failure_code = status.map_or(1, status_code);
-            if last.timing.status == "pass" { last.timing.status = "fail"; }
+            last.failure_code = failure_code;
+            last.whole_timeout = whole_timeout;
+            if last.timing.status == "pass" {
+                last.timing.status = if timed_out { "timeout" } else { "fail" };
+            }
         }
     }
     outcomes
@@ -1476,6 +1574,27 @@ mod tests {
     }
 
     #[test]
+    fn editor_native_groups_keep_budgets_and_smoke_isolated() {
+        let mut case = TestCase {
+            order: 0,
+            executable: "gpu_editor-hash".into(),
+            crate_name: "rays_editor".into(),
+            name: "workspace_capture_budget".into(),
+        };
+        assert!(group_native_case(&case));
+        for name in ["alloc_budget_basic", "click_budget_long", "graph_budget_isogrid", "typing_budget", "group::typing_budget"] {
+            case.name = name.into();
+            assert!(!group_native_case(&case), "{name}");
+        }
+        for target in ["gpu_flow_integration-hash", "window_rays_graph-hash"] {
+            case.executable = target.into();
+            assert!(group_native_case(&case), "{target}");
+        }
+        case.executable = "window_editor_smoke-hash".into();
+        assert!(!group_native_case(&case));
+    }
+
+    #[test]
     fn pxui_packages_run_in_the_checkout_only_when_named_alone() {
         let root = std::env::temp_dir().join(format!("rays-t-pxui-{}", process::id()));
         for dir in ["pxui/crates/private/pxui_core", "pxui/tools/pxui_gallery", "crates/rays", "tools/gate"] { fs::create_dir_all(root.join(dir)).unwrap(); }
@@ -1554,19 +1673,43 @@ mod tests {
         let root = temp_path("group");
         fs::create_dir_all(&root).unwrap();
         let fixture = root.join("gpu_all-fixture");
-        fs::write(&fixture, "#!/bin/sh\nprintf 'RAYS_CASE_START:first\\nRAYS_CASE_END:first\\t0.001000\\nRAYS_CASE_START:second\\n'\nsleep 2\n").unwrap();
+        fs::write(&fixture, "#!/bin/sh\nprintf 'RAYS_CASE_START:first\\nRAYS_CASE_END:first\\t0.001000\\nRAYS_CASE_START:second\\n'\nexec 1>&-\nsleep 2\n").unwrap();
         fs::set_permissions(&fixture, fs::Permissions::from_mode(0o755)).unwrap();
-        let cases = ["first", "second"].into_iter().enumerate().map(|(order, name)| TestCase {
+        let cases: Vec<_> = ["first", "second"].into_iter().enumerate().map(|(order, name)| TestCase {
             order, executable: fixture.clone(), crate_name: "fixture".into(), name: name.into(),
         }).collect();
         let mut args = parse_args(std::iter::empty()).unwrap();
         args.test_timeout = Duration::from_millis(500);
-        let outcomes = run_gpu_group(cases, &args, Instant::now(), Some(Duration::from_secs(1)));
+        let outcomes = run_case_group(&cases, &args, Instant::now(), Some(Duration::from_secs(1)));
         assert_eq!(outcomes.len(), 2);
         assert_eq!(outcomes[0].failure_code, 0);
         assert_eq!(outcomes[0].timing.elapsed, Duration::from_millis(1));
         assert_eq!(outcomes[1].failure_code, 124);
+        assert!(!outcomes[1].whole_timeout);
         assert!(outcomes[1].timing.elapsed < Duration::from_secs(1));
+        let outcomes = run_case_groups(&cases, &args, Instant::now(), Some(Duration::from_millis(250)));
+        assert_eq!(outcomes.len(), 2);
+        assert_eq!(outcomes[1].failure_code, 124);
+        assert!(outcomes[1].whole_timeout);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn grouped_gpu_cases_resume_after_a_failed_child() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = temp_path("group-resume");
+        fs::create_dir_all(&root).unwrap();
+        let fixture = root.join("gpu_editor-fixture");
+        fs::write(&fixture, "#!/bin/sh\nshift\nfor name do\n  printf 'RAYS_CASE_START:%s\\n' \"$name\"\n  [ \"$name\" != broken ] || exit 101\n  printf 'RAYS_CASE_END:%s\\t0.001000\\n' \"$name\"\ndone\n").unwrap();
+        fs::set_permissions(&fixture, fs::Permissions::from_mode(0o755)).unwrap();
+        let cases: Vec<_> = ["first", "broken", "last"].into_iter().enumerate().map(|(order, name)| TestCase {
+            order, executable: fixture.clone(), crate_name: "fixture".into(), name: name.into(),
+        }).collect();
+        let args = parse_args(std::iter::empty()).unwrap();
+        let outcomes = run_case_groups(&cases, &args, Instant::now(), Some(Duration::from_secs(2)));
+        assert_eq!(outcomes.iter().map(|outcome| (outcome.order, outcome.failure_code)).collect::<Vec<_>>(),
+            [(0, 0), (1, 101), (2, 0)]);
         fs::remove_dir_all(root).unwrap();
     }
 
