@@ -1472,6 +1472,11 @@ pub fn search_field_icon_clear_body() {
             step(&mut ui, e);
         }
         check(text_of(&cells).is_empty(), &format!("search_field custom {custom}: the clear button left {:?}", text_of(&cells)));
+        // Escape clears through the edit's undo stack: Command-Z brings the text back (it panicked)
+        for e in click_on_at(mid(tree_node(&ui, Role::TextField, "Find").rect, 4.0)).into_iter().chain([vec![Event::TextInput("abc".into())], vec![], vec![key_down(Key::Escape)], vec![], command('z'), vec![]]) {
+            step(&mut ui, e);
+        }
+        check(text_of(&cells) == "abc", &format!("search_field custom {custom}: undo after Escape left {:?}", text_of(&cells)));
         ui.destroy();
     }
     idle_allocs("search_field", &install, &search_build);

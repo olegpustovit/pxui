@@ -503,7 +503,7 @@ impl Ui {
         self.enforce_text_undo();
     }
 
-    fn edit_replacement(&mut self, edit: &mut TextEdit, start: usize, stop: usize, inserted: &str, run: Option<EditRun>) -> bool {
+    pub(crate) fn edit_replacement(&mut self, edit: &mut TextEdit, start: usize, stop: usize, inserted: &str, run: Option<EditRun>) -> bool {
         self.finish_text_change(edit);
         let caret = start + inserted.len();
         let changed = edit.text[start..stop] != *inserted;
@@ -524,7 +524,13 @@ impl Ui {
             let d = stack.pop_back().unwrap();
             let (from, to, selection) = if redo { (&d.removed, &d.inserted, d.after) } else { (&d.inserted, &d.removed, d.before) };
             let range = d.start..d.start + from.len();
-            debug_assert_eq!(edit.text.get(range.clone()), Some(from.as_str()));
+            if edit.text.get(range.clone()) != Some(from.as_str()) {
+                // a change that bypassed the history: the stacks no longer describe the text
+                eprintln!("pxui: text undo out of step with the text, history dropped");
+                self.edit_undo.clear();
+                self.edit_redo.clear();
+                return false;
+            }
             edit.text.replace_range(range, to);
             (edit.caret, edit.anchor) = selection;
             other.push_back(d);

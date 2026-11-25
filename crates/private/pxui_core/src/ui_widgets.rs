@@ -1052,8 +1052,8 @@ fn search_field_body(this: &mut Ui, label: &str, icon: &str, value: &str, placeh
             ui.point_text_caret(None, &mut e, &s, shift, r.x + 2.0, r.x + r.w - 2.0);
             for (event, modifiers) in ui.key_events(&field) {
                 if event == Event::KeyPressed(Key::Escape) {
-                    e.text.clear();
-                    (e.caret, e.anchor) = (0, 0);
+                    let n = e.text.len();
+                    ui.edit_replacement(&mut e, 0, n, "", None);
                 } else {
                     ui.edit_text_event(false, &mut e, &|_| true, &modifiers, &event);
                 }
