@@ -2,7 +2,9 @@ use crate::Handle;
 use crate::{check, Ui};
 #[cfg(not(feature = "static"))]
 use {crate::composite::{defer_callback_panic, deferred}, core::panic::AssertUnwindSafe};
-use core::{ffi::c_void, mem::ManuallyDrop, ptr::NonNull};
+use core::{ffi::c_void, mem::ManuallyDrop};
+#[cfg(not(feature = "static"))]
+use core::ptr::NonNull;
 use pxui_types::{ui::Target, Axis, Look, Str, ffi::{PxuiCurveDesc, PxuiLookDesc, Slice}};
 use pxui_types::ui::{Key, SectionList, SectionPart};
 
@@ -205,14 +207,12 @@ impl Ui {
         let mut out = pxui_types::ffi::PxuiListResult::EMPTY;
         #[cfg(feature = "static")]
         {
-            let outer = self.0.as_ptr();
-            let mut invoke = |engine: &mut pxui_abi_link::trusted::Engine, index, c: &pxui_abi_link::trusted::ListCell| {
-                let mut slot = None;
-                let handle = unsafe { pxui_abi_link::trusted::Borrowed::handle(engine, outer, &mut slot) };
-                let mut ui = ManuallyDrop::new(unsafe { Ui(NonNull::new_unchecked(handle)) });
-                build(&mut ui, crate::collections::part_of(index), crate::collections::cell_from(c))
+            // Structural section rows call the builder directly on the current engine.
+            let outer = self.0;
+            let mut invoke = |_: &mut pxui_abi_link::trusted::Engine, index, c: &pxui_abi_link::trusted::ListCell| {
+                build(&mut ManuallyDrop::new(Ui(outer)), crate::collections::part_of(index), crate::collections::cell_from(c))
             };
-            check(self, unsafe { pxui_abi_link::trusted::section_list(outer, label, &desc, Some(id), &mut invoke, &mut out) });
+            check(self, unsafe { pxui_abi_link::trusted::section_list(outer.as_ptr(), label, &desc, Some(id), &mut invoke, &mut out) });
         }
         #[cfg(not(feature = "static"))]
         self.section_list_c(label, &desc, id, build, &mut out);

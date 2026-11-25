@@ -81,7 +81,11 @@ export!(build pub unsafe fn pxui_ui_retain_view_on_resize(ui: *mut PxuiUi) -> i3
 export!(trusted pub unsafe fn pxui_ui_view(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, revision: u64, callback: Build, user: *mut c_void, out: *mut PxuiBox) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if out.is_null() { return unsafe { fail(ui, "null view output") }; }
-    let Some((key, "")) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
+    let Some(desc) = sized!(keyed) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
+    if desc.reserved != 0 || desc.name.len != 0 || desc.key.len > crate::state::MAX_KEY_BYTES {
+        return unsafe { fail(ui, "invalid keyed descriptor") };
+    }
+    let Some(key) = (unsafe { crate::state::text(desc.key) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
     unsafe { crate::trusted::view_of_checked(ui, key, crate::state::unusable(key), revision, &mut |engine: &mut pxui_core::ui::Ui| crate::state::call_build((*ui).shared, engine, callback, user), out) }
 });
 
