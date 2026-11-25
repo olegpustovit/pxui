@@ -23,6 +23,10 @@ overflow-checks = true
 [profile.dev.package.mem_sys]
 opt-level = 3
 
+# Test binaries need line tables so mem_sys TRACE / atos can print file:line (dev stays debug=0).
+[profile.test]
+debug = "line-tables-only"
+
 [profile.release]
 codegen-units = 16
 lto = "thin"

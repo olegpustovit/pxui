@@ -420,7 +420,29 @@ fn enrich_atos(sites: &mut [Site]) {
                     frame.location = path.clone();
                 }
             }
+            // atos may leave Rust v0 linkage names; demangle for the report.
+            frame.function = demangle(&frame.function);
         }
+    }
+}
+
+/// Demangle Rust v0 / Itanium names via `c++filt` (Apple's c++filt understands `_R…`).
+fn demangle(name: &str) -> String {
+    if !(name.starts_with("_R") || name.starts_with("_ZN") || name.starts_with("__Z")) {
+        return name.to_owned();
+    }
+    let Ok(output) = Command::new("c++filt").arg("-n").arg(name).output() else {
+        return name.to_owned();
+    };
+    if !output.status.success() {
+        return name.to_owned();
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let demangled = text.trim();
+    if demangled.is_empty() || demangled == name {
+        name.to_owned()
+    } else {
+        demangled.to_owned()
     }
 }
 
