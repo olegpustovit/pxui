@@ -1421,8 +1421,8 @@ fn search_field_body(this: &mut Ui, label: &str, icon: &str, value: &str, placeh
             ui.with_key_events(&field, &mut |ui, keys| {
                 for (event, modifiers) in keys {
                     if *event == Event::KeyPressed(Key::Escape) {
-                        e.text.clear();
-                        (e.caret, e.anchor) = (0, 0);
+                        let end = e.text.len();
+                        ui.edit_replacement(&mut e, 0, end, "", None);
                     } else {
                         ui.edit_text_event(false, &mut e, &|_| true, modifiers, event);
                         // Done ends editing, as a text field's does

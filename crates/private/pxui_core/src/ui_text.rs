@@ -82,6 +82,23 @@ pub(crate) struct EditDelta {
     group: u64,
 }
 
+impl EditDelta {
+    fn replay(&self, edit: &mut TextEdit, redo: bool) -> bool {
+        let (from, to, (caret, anchor)) = if redo {
+            (&self.removed, &self.inserted, self.after)
+        } else {
+            (&self.inserted, &self.removed, self.before)
+        };
+        let range = self.start..self.start.saturating_add(from.len());
+        if edit.text.get(range.clone()) != Some(from.as_str()) {
+            return false;
+        }
+        edit.text.replace_range(range, to);
+        (edit.caret, edit.anchor) = (edit.text.floor_char_boundary(caret), edit.text.floor_char_boundary(anchor));
+        true
+    }
+}
+
 pub(crate) struct ShelfEntry {
     key: i64,
     value: String,
@@ -566,7 +583,7 @@ impl Ui {
         self.enforce_text_undo();
     }
 
-    fn edit_replacement(&mut self, edit: &mut TextEdit, start: usize, stop: usize, inserted: &str, run: Option<EditRun>) -> bool {
+    pub(crate) fn edit_replacement(&mut self, edit: &mut TextEdit, start: usize, stop: usize, inserted: &str, run: Option<EditRun>) -> bool {
         self.finish_text_change(edit);
         let caret = start + inserted.len();
         let changed = edit.text[start..stop] != *inserted;
@@ -583,14 +600,23 @@ impl Ui {
         let Some(group) = stack.back().map(|d| d.group) else { return false };
         self.edit_revision = self.edit_revision.wrapping_add(1);
         self.edit_diff = None;
+        let before = (edit.caret, edit.anchor);
+        let already_replayed = other.len();
         while stack.back().is_some_and(|d| d.group == group) {
-            let d = stack.pop_back().unwrap();
-            let (from, to, selection) = if redo { (&d.removed, &d.inserted, d.after) } else { (&d.inserted, &d.removed, d.before) };
-            let range = d.start..d.start + from.len();
-            debug_assert_eq!(edit.text.get(range.clone()), Some(from.as_str()));
-            edit.text.replace_range(range, to);
-            (edit.caret, edit.anchor) = selection;
-            other.push_back(d);
+            let delta = stack.pop_back().unwrap();
+            if !delta.replay(edit, redo) {
+                // If a stale range breaks a group, unwind the earlier deltas before dropping history.
+                while other.len() > already_replayed {
+                    let delta = other.pop_back().unwrap();
+                    delta.replay(edit, !redo);
+                }
+                (edit.caret, edit.anchor) = before;
+                stack.clear();
+                other.clear();
+                self.enforce_text_undo();
+                return false;
+            }
+            other.push_back(delta);
         }
         self.enforce_text_undo();
         true
