@@ -1146,6 +1146,8 @@ fn gpu_painter_primitives() {
     refused(be::host_ptr(&local).err(), ErrorKind::Unsupported, "a device-local buffer was host mapped");
     for texture in [&target, &atlas] { be::destroy_texture(texture).unwrap_or_else(|failure| die(failure)); }
     for buffer in [&ring, &local] { be::destroy_buffer(buffer).unwrap_or_else(|failure| die(failure)); }
+    drop(encoder);
+    drop(commands);
     be::destroy_queue(&queue).unwrap_or_else(|failure| die(failure));
     finish(device);
 }

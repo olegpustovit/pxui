@@ -538,6 +538,14 @@ impl Drop for MetalCommands {
 
 impl MetalCommands {
     fn ctx(&self) -> &Rc<CommandContext> { self.context.as_ref().expect("commands context") }
+    fn release_native(&mut self) {
+        let Some(ctx) = self.context.as_ref() else { return };
+        *ctx.native.borrow_mut() = None;
+        *ctx.open_encoder.borrow_mut() = None;
+        let mut retained = ctx.retained.borrow_mut();
+        retained.clear();
+        retained.reserve(16);
+    }
 }
 
 impl DriverCommands for MetalCommands {
@@ -658,6 +666,9 @@ impl DriverCommands for MetalCommands {
         }
         self.frame_serial = 0;
         Ok(())
+    }
+    fn spent(&mut self) {
+        self.release_native();
     }
 }
 

@@ -217,6 +217,11 @@ fn gpu_destroy_releases_retained_driver_payloads() {
     assert!(be::max_total_threads(&pipeline) > 0);
     expect(ErrorKind::StaleHandle, be::read_buffer(&mapped_clone, 0, 8).err());
     expect(ErrorKind::InvalidState, be::commit(&commands).err());
+    // Keep-Box: driver shell lives until the last Commands Rc drops (encoders hold one).
+    drop(blit);
+    drop(encoder);
+    drop(abandoned);
+    drop(commands);
     assert_eq!(live(), device_only, "dead wrappers retained native driver payloads");
     be::destroy_device(&device).unwrap_or_else(|failure| die(failure));
     be::destroy_device(&device).unwrap_or_else(|failure| die(failure));

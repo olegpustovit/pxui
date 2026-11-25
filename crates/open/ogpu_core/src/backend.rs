@@ -1968,9 +1968,11 @@ pub fn commit(commands: &Commands) -> Result<Receipt, Error> {
     let receipt = commands.0.raw().commit()?;
     commands.0.queue.0.borrow_mut().submitted = receipt.epoch;
     commands.0.state.set(CommandsState::Committed);
-    // Release the driver payload (natives via Drop). `rebegin_commands` begins a fresh shell into the
-    // same CommandsInner; prepared passes key on `generation` so they cannot restart across it.
-    commands.0.raw.borrow_mut().take();
+    // Keep the driver Box for `rebegin_commands` (no per-frame alloc). `spent` drops native handles
+    // so the queue can destroy; prepared passes retag `generation` on a successful driver restart.
+    if let Some(raw) = commands.0.raw.borrow_mut().as_mut() {
+        raw.spent();
+    }
     Ok(receipt)
 }
 pub fn abandon(commands: &Commands) -> Result<(), Error> {
@@ -2360,14 +2362,13 @@ pub fn render_prepared(commands: &Commands, prepared: &mut PreparedRenderTarget)
     if let Some(depth)=&prepared.target.depth { attachment_check(OP,&prepared.device,&depth.depth_texture)?; }
     if let Some(encoder)=&prepared.encoder {
         if encoder.0.open.get() { return Err(make_error(OP,ErrorKind::InvalidState,"prepared render pass is still open")); }
-        // Same outer Commands Rc after owned rebegin is a new driver generation: only restart when
-        // the pass tag matches (within-buffer / readopt). Cross-generation must open a fresh pass.
-        if encoder.0.reusable
-            && Rc::ptr_eq(&encoder.0.commands.0,&commands.0)
-            && encoder.0.generation.get() == commands.0.generation.get()
-        {
+        // Same Commands shell: restart in place. Cross-generation requires the driver to rebind
+        // (Metal renews the shared CommandContext CB on rebegin); dishonest restart must return false.
+        // On success the pass generation tag advances to the current owned generation.
+        if encoder.0.reusable && Rc::ptr_eq(&encoder.0.commands.0,&commands.0) {
             let restarted=match encoder.0.raw.borrow_mut().as_mut() { Some(raw)=>raw.restart()?, None=>false };
             if restarted {
+                encoder.0.generation.set(commands.0.generation.get());
                 encoder.0.open.set(true);
                 encoder.0.pipeline_set.set(false);
                 encoder.0.indirect.set(false);
@@ -2813,7 +2814,9 @@ pub fn commit_present_damage(commands: &Commands, source: &Texture, frame: &Fram
     let receipt = commands.0.raw().commit_present_damage(&*source.resource.0.raw(), frame.0.raw.clone(), damage)?;
     commands.0.queue.0.borrow_mut().submitted = receipt.epoch;
     commands.0.state.set(CommandsState::Committed);
-    commands.0.raw.borrow_mut().take();
+    if let Some(raw) = commands.0.raw.borrow_mut().as_mut() {
+        raw.spent();
+    }
     frame.0.consumed.set(true);
     frame.0.surface.0.frames.set(frame.0.surface.0.frames.get() - 1);
     Ok(receipt)
@@ -3271,8 +3274,12 @@ mod ownership_tests {
         assert!(weak.upgrade().is_some());
         fail.set(false);
         assert_eq!(commit(&commands).unwrap().epoch, 1);
-        assert!(weak.upgrade().is_none());
+        // Driver Box retained for rebegin; natives released via spent(). Drop with Commands.
+        assert!(weak.upgrade().is_some());
         assert_eq!(commit(&commands).unwrap_err().kind, ErrorKind::InvalidState);
+        drop(encoder);
+        drop(commands);
+        assert!(weak.upgrade().is_none());
 
         let owner = Rc::new(());
         let weak = Rc::downgrade(&owner);
