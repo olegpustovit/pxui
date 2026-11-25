@@ -423,10 +423,8 @@ fn value_field_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &ValueFiel
         this.scrub_origin = Some((bx.box_key, value.to_owned()));
     }
     let press_keys = this.press_keys(&bx);
-    let typed_is_some = typed.is_some();
-    let given = value;
-    let value: std::borrow::Cow<str> = match typed {
-        Some(text) => std::borrow::Cow::Owned(text),
+    let changed = match typed {
+        Some(text) => Some(text),
         None if !editing
             && (signal.pressed || signal.held || signal.released)
             && signal.button == Some(MouseButton::LeftButton)
@@ -434,30 +432,30 @@ fn value_field_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &ValueFiel
         {
             let pointer = if signal.released { signal.release_point } else { signal.pointer };
             match (slide, scrub) {
-                (Some(slide), _) => std::borrow::Cow::Owned(slide(fraction_at(bounds, pointer.0))),
+                (Some(slide), _) => Some(slide(fraction_at(bounds, pointer.0))),
                 (None, Some(scrub)) => {
                     let origin = match &this.scrub_origin {
                         Some((key, origin)) if *key == bx.box_key => origin.clone(),
                         _ => value.to_owned(),
                     };
-                    std::borrow::Cow::Owned(scrub(&origin, pointer.0 - signal.press_point.0, press_keys.contains(&Key::Shift)))
+                    Some(scrub(&origin, pointer.0 - signal.press_point.0, press_keys.contains(&Key::Shift)))
                 }
-                (None, None) => std::borrow::Cow::Borrowed(value),
+                (None, None) => None,
             }
         }
-        None => std::borrow::Cow::Borrowed(value),
-    };
+        None => None,
+    }.filter(|text| text != value);
     if !signal.held && this.scrub_origin.as_ref().is_some_and(|(key, _)| *key == bx.box_key) {
         this.scrub_origin = None;
     }
     let focused_now = this.focused(&bx);
     let edit = if editing && focused_now {
         let buffer = this.text_state(&bx);
-        Some((this.load_text_edit(bx.box_key, buffer.as_deref().unwrap_or(&value)), this.composition().to_owned()))
+        Some((this.load_text_edit(bx.box_key, buffer.as_deref().unwrap_or(value)), this.composition().to_owned()))
     } else {
         None
     };
-    let shown: &str = if typed_is_some || signal.held || signal.released { &value } else { o.display.as_deref().unwrap_or(&value) };
+    let shown = changed.as_deref().unwrap_or_else(|| if editing { value } else { o.display.as_deref().unwrap_or(value) });
     let invalid = this.state(&bx, 1) & 1 == 0;
     let field = value_field_look(this.theme(), invalid, editing);
     let config = ValueFieldConfig { state: State { focused: editing, ..State::default() }, invalid, w, h, field: bx };
@@ -470,14 +468,17 @@ fn value_field_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &ValueFiel
             paint_text_edit(paint, size, false, 2.0, Some((selection, caret)), ints(rect), rect.y as i64 + ty, &composition, &edit);
         });
     }
-    let changed = match value {
-        std::borrow::Cow::Owned(text) if text != given => {
-            this.returned = text;
-            true
+    if let Some(text) = changed {
+        // The owner patches a kept drag until release. Otherwise rebuild after this preview
+        // so the caller's value and display take over.
+        if !o.kept_drag || !signal.held {
+            this.request_frame();
         }
-        _ => false,
-    };
-    (changed, editing)
+        this.returned = text;
+        (true, editing)
+    } else {
+        (false, editing)
+    }
 }
 
 /// The look a value field's box takes: the invalid one, the focused field's while editing, else the field's own.

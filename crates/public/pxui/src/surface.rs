@@ -1557,6 +1557,45 @@ fn value_fields_take_their_options_and_text_edits_are_kept() {
 }
 
 #[test]
+fn cached_value_field_keeps_its_display_on_a_click() {
+    use crate::{Event, ValueCallbacks, ValueField};
+
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+    ui.verify_views(true);
+    let scrub = |origin: &str, dx, _| if dx == 0.0 { origin.to_owned() } else { "2".to_owned() };
+    let changed = std::cell::Cell::new(false);
+    let mut build = |ui: &mut Ui| {
+        ui.view_of("inspector", &0, |ui| {
+            let field = crate::ext::value_field(ui, "amount", "1.23456", Rect::new(10.0, 10.0, 120.0, 20.0),
+                &ValueField::DEFAULT.display("1.23"), &ValueCallbacks::DEFAULT.scrub(&scrub));
+            assert!(!field.editing);
+            changed.set(field.changed.is_some());
+        });
+    };
+    let snapshot = |ui: &Ui| ui.layers().flat_map(|layer| layer.instances.iter())
+        .filter(|instance| **instance != crate::draw::Instance::DEFAULT).copied().collect::<Vec<_>>();
+
+    ui.frame(&input(), &mut build).unwrap();
+    let idle = snapshot(&ui);
+    let down = Event::pointer(Event::POINTER_PRESSED, 0, 20.0, 20.0);
+    let up = Event::pointer(Event::POINTER_RELEASED, 0, 20.0, 20.0);
+    ui.frame(&input().time(1.0).events(&[down, up]), &mut build).unwrap();
+    assert!(!changed.get());
+    let clicked = snapshot(&ui);
+    ui.frame(&input().time(1.1), &mut build).unwrap();
+    assert_eq!(clicked, idle, "a click preserves the formatted display");
+    assert_eq!(snapshot(&ui), idle);
+
+    let up = Event::pointer(Event::POINTER_RELEASED, 0, 30.0, 20.0);
+    ui.frame(&input().time(2.0).events(&[down, up]), &mut build).unwrap();
+    assert!(changed.get());
+    assert_ne!(snapshot(&ui), idle, "the scrub result is visible immediately");
+    assert!(ui.repaint_at().is_some(), "a transient result schedules a rebuild");
+    ui.frame(&input().time(2.1), &mut build).unwrap();
+    assert_eq!(snapshot(&ui), idle, "the caller's unchanged display returns");
+}
+
+#[test]
 fn a_shaper_of_its_own_measures_and_rasterizes_off_the_ui() {
     let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
     let style = ui.resolve(&crate::Label::BODY);

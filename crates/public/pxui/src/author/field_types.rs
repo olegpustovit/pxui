@@ -226,7 +226,8 @@ impl<'a> ValueField<'a> {
     /// let _ = STYLE;
     /// ```
     pub const fn size(mut self, points: usize) -> ValueField<'a> { self.size = Some(points); self }
-    /// Sets the text shown in place of the value while the field is not edited (the value itself by default).
+    /// Sets the text shown in place of the value at rest (the value itself by default).
+    /// A click that leaves the value unchanged keeps this display. Editing uses the value itself.
     /// Allocates: never.
     /// Panics: never.
     ///

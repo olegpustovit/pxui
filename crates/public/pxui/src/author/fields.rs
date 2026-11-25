@@ -152,6 +152,8 @@ impl Ui {
 pub fn line_field<'a, K: Into<Key>>(ui: &'a mut Ui, key: K, value: &str, rect: Rect, field: &LineField<'_>) -> LineFieldResponse<'a> { ui.line_field_key(key.into(), value, rect, field) }
 /// A compact field at `rect`: its response, the new text when it changed (else none) and whether a text editor is open. Only text the
 /// `callbacks` accept commits. The text is borrowed from the library, valid until the next call on `ui`.
+/// A changed value is shown immediately. The field requests a frame to display the value supplied by the caller, with
+/// kept drags deferring that request until release.
 ///
 /// Placement: absolute, at `rect` in the parent's space (the caller-painted inspector value; no flow node).
 /// Allocates: nothing on an idle warm frame; editing, sliding or scrubbing allocates the text.
