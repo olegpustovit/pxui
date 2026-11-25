@@ -1,9 +1,15 @@
 //! Opt-in process-wide malloc stack capture (`trace` feature, Apple malloc_logger).
 //! Zero cost in the default build: the C hook is not compiled and this module is absent.
+//!
+//! Capture stores raw return addresses only (allocation-free). Symbolisation runs at
+//! [`report`] time: `dladdr` for image/load base, then `atos -p <pid>` against the live
+//! process slides for demangled names and `file:line`. Allocator and trace_log frames are
+//! skipped when naming a site.
 
 use std::collections::HashMap;
 use std::ffi::{CStr, c_char};
 use std::fmt;
+use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 const DEPTH: usize = 64;
@@ -61,7 +67,7 @@ pub struct Frame {
     pub load_base: usize,
     pub function: String,
     pub image: String,
-    /// `file:line` when `atos` resolved it; empty otherwise.
+    /// `file:line` when resolved; empty otherwise.
     pub location: String,
 }
 
@@ -129,20 +135,14 @@ pub fn capturing() -> bool {
 }
 
 /// Symbolise and classify captured sites, sorted by count descending. Stops capture first.
-/// `top` keeps that many sites (0 = all). File:line resolution (`atos`) runs only for kept sites.
+/// `top` keeps that many sites (0 = all).
 pub fn report(top: usize) -> Report {
     let (mut sites, totals, dropped) = collect();
     sites.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| b.bytes.cmp(&a.bytes)));
     if top > 0 && sites.len() > top {
         sites.truncate(top);
     }
-    for site in &mut sites {
-        for frame in &mut site.frames {
-            if frame.location.is_empty() {
-                frame.location = resolve_location(frame);
-            }
-        }
-    }
+    enrich_atos(&mut sites);
     Report { sites, totals, dropped }
 }
 
@@ -180,7 +180,7 @@ fn collect() -> (Vec<Site>, Totals, u64) {
             if pc == 0 {
                 continue;
             }
-            let frame = cache.entry(pc).or_insert_with(|| resolve(pc)).clone();
+            let frame = cache.entry(pc).or_insert_with(|| resolve_dladdr(pc)).clone();
             frames.push(frame);
         }
         let bucket = classify(&frames);
@@ -217,6 +217,7 @@ pub fn format_sites(sites: &[Site], limit: usize) -> String {
             .frames
             .iter()
             .find(|f| is_app_frame(f))
+            .or_else(|| site.frames.iter().find(|f| !is_noise_frame(f)))
             .or_else(|| site.frames.first());
         let via = site
             .frames
@@ -276,29 +277,51 @@ fn is_alloc_frame(f: &Frame) -> bool {
         || n.contains("GlobalAlloc12alloc_zeroed")
 }
 
-fn is_app_frame(f: &Frame) -> bool {
-    if is_alloc_frame(f) {
-        return false;
-    }
+fn is_trace_frame(f: &Frame) -> bool {
     let n = f.function.as_str();
-    if n.starts_with("alloc::")
-        || n.starts_with("hashbrown::")
-        || n.starts_with("std::")
-        || n.starts_with("core::")
-        || n.starts_with("_malloc")
-        || n.starts_with("malloc")
-        || n == "?"
-    {
+    n == "trace_log"
+        || n.starts_with("mem_sys_trace_")
+        || n == "capture_stack"
+        || n == "unwind_fill"
+        || n.contains("_Unwind_")
+        || n.contains("malloc_logger")
+}
+
+fn is_noise_frame(f: &Frame) -> bool {
+    is_alloc_frame(f)
+        || is_trace_frame(f)
+        || {
+            let n = f.function.as_str();
+            n.starts_with("alloc::")
+                || n.starts_with("hashbrown::")
+                || n.starts_with("std::")
+                || n.starts_with("core::")
+                || n.starts_with("_malloc")
+                || n.starts_with("malloc")
+                || n.starts_with("calloc")
+                || n.starts_with("realloc")
+                || n == "?"
+                || n.starts_with("0x")
+        }
+}
+
+fn is_app_frame(f: &Frame) -> bool {
+    if is_noise_frame(f) {
         return false;
     }
     let img = f.image.as_str();
+    // mem_sys itself is the tracer; never pick it as the site head.
+    if img.contains("mem_sys") {
+        return false;
+    }
     img.contains("rays")
         || img.contains("libpxui")
-        || img.contains("mem_sys")
+        || img.contains("gpu_editor")
+        || img.contains("ogpu_")
         || (!img.contains("/usr/") && !img.contains("/System/") && !img.is_empty() && img != "?")
 }
 
-fn resolve(pc: usize) -> Frame {
+fn resolve_dladdr(pc: usize) -> Frame {
     #[repr(C)]
     struct DlInfo {
         fname: *const c_char,
@@ -315,7 +338,9 @@ fn resolve(pc: usize) -> Frame {
         sname: std::ptr::null(),
         saddr: std::ptr::null_mut(),
     };
-    let ok = unsafe { dladdr(pc as *const u8, &mut info) } != 0;
+    // Return addresses point one past the call; step back for the call site when resolving.
+    let addr = pc.saturating_sub(1);
+    let ok = unsafe { dladdr(addr as *const u8, &mut info) } != 0;
     let function = if ok && !info.sname.is_null() {
         unsafe { CStr::from_ptr(info.sname) }.to_string_lossy().into_owned()
     } else {
@@ -336,32 +361,91 @@ fn resolve(pc: usize) -> Frame {
     }
 }
 
-fn resolve_location(frame: &Frame) -> String {
-    if frame.image.is_empty() || frame.image == "?" || frame.load_base == 0 {
-        return String::new();
-    }
-    let output = std::process::Command::new("atos")
-        .args([
-            "-o",
-            &frame.image,
-            "-l",
-            &format!("{:#x}", frame.load_base),
-            &format!("{:#x}", frame.address),
-        ])
-        .output();
-    let Ok(output) = output else {
-        return String::new();
-    };
-    if !output.status.success() {
-        return String::new();
-    }
-    let text = String::from_utf8_lossy(&output.stdout);
-    let line = text.lines().next().unwrap_or("").trim();
-    if let Some(start) = line.rfind('(') {
-        let inside = line[start + 1..].trim_end_matches(')');
-        if inside.contains(':') && (inside.contains('/') || inside.contains('.')) {
-            return inside.to_owned();
+/// Resolve demangled names and file:line via `atos -p` against this process's loaded slides.
+fn enrich_atos(sites: &mut [Site]) {
+    let mut order: Vec<usize> = Vec::new();
+    let mut index: HashMap<usize, usize> = HashMap::new();
+    for site in sites.iter() {
+        for frame in &site.frames {
+            if frame.address == 0 {
+                continue;
+            }
+            index.entry(frame.address).or_insert_with(|| {
+                let i = order.len();
+                order.push(frame.address);
+                i
+            });
         }
     }
-    String::new()
+    if order.is_empty() {
+        return;
+    }
+    let pid = std::process::id().to_string();
+    let mut resolved: Vec<(Option<String>, Option<String>)> = vec![(None, None); order.len()];
+    for (chunk_i, chunk) in order.chunks(64).enumerate() {
+        let mut cmd = Command::new("atos");
+        cmd.arg("-p").arg(&pid);
+        for &pc in chunk {
+            // Call-site address (return address minus one).
+            cmd.arg(format!("{:#x}", pc.saturating_sub(1)));
+        }
+        let Ok(output) = cmd.output() else {
+            continue;
+        };
+        if !output.status.success() {
+            continue;
+        }
+        let text = String::from_utf8_lossy(&output.stdout);
+        for (line_i, line) in text.lines().enumerate() {
+            let at = chunk_i * 64 + line_i;
+            if at >= resolved.len() {
+                break;
+            }
+            resolved[at] = parse_atos_line(line);
+        }
+    }
+    for site in sites.iter_mut() {
+        for frame in &mut site.frames {
+            let Some(&i) = index.get(&frame.address) else {
+                continue;
+            };
+            let (func, loc) = &resolved[i];
+            if let Some(name) = func {
+                if !name.is_empty() && !name.starts_with("0x") {
+                    frame.function = name.clone();
+                }
+            }
+            if let Some(path) = loc {
+                if !path.is_empty() {
+                    frame.location = path.clone();
+                }
+            }
+        }
+    }
+}
+
+/// `function (in image) (file:line)` or `function (in image)` or bare `0x…`.
+pub fn parse_atos_line(line: &str) -> (Option<String>, Option<String>) {
+    let line = line.trim();
+    if line.is_empty() || line == "-" || line.starts_with("0x") || line.starts_with("0X") {
+        return (None, None);
+    }
+    let func = line
+        .split(" (in ")
+        .next()
+        .unwrap_or(line)
+        .trim()
+        .to_owned();
+    let location = line.rfind('(').and_then(|start| {
+        let inside = line[start + 1..].trim_end_matches(')');
+        if inside.starts_with("in ") {
+            return None;
+        }
+        if inside.contains(':') {
+            Some(inside.to_owned())
+        } else {
+            None
+        }
+    });
+    (Some(func), location)
 }
