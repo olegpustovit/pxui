@@ -6780,6 +6780,31 @@ impl Paint {
         Some(self.text_laid(at,metrics.baseline,style,color,key,metrics,1.0,!spans.is_empty()))
     }
 
+    /// Kit monospace: one cached layout per codepoint (key bit 62). A warm text-area line paints with
+    /// zero cosmic reshape — only glyph draws at `char_w` advances (same rule as `caret_x_mono`).
+    pub(crate) fn text_mono_runs(&mut self, at: (f32, f32), char_w: f32, text: &str, default: Rgba, runs: &[(usize, usize, Rgba)]) {
+        if text.is_empty() { return; }
+        let style = kit_style(self.font_size, 0.0);
+        let below = self.text.ascent(style.font) * style.size;
+        let mut x = at.0;
+        let mut byte = 0usize;
+        let mut run_i = 0usize;
+        for ch in text.chars() {
+            let len = ch.len_utf8();
+            while run_i < runs.len() && runs[run_i].1 <= byte { run_i += 1; }
+            let color = runs.get(run_i).filter(|r| r.0 <= byte && byte < r.1).map_or(default, |r| r.2);
+            let key = (1u64 << 62) ^ ((self.font_size as u64) << 21) ^ (ch as u32 as u64);
+            if !self.text.has_layout(key) {
+                let mut tmp = [0u8; 4];
+                let s = ch.encode_utf8(&mut tmp);
+                let _ = self.text.layout(key, s, &style, 0.0);
+            }
+            let _ = self.text_laid((x, at.1), below, &style, Some(color), key, Metrics::default(), 1.0, false);
+            x += char_w;
+            byte += len;
+        }
+    }
+
     /// Draws a layout already made (`lay_out`'s key and metrics) with its first baseline `below` points under `at.1`, on a device pixel:
     /// the font's ascent for text placed by its em box (`text_em`, node text), `Metrics::baseline` for text placed by its layout top.
     fn text_laid(&mut self, at: (f32, f32), below: f32, style: &Style, color: Option<Rgba>, key: u64, m: Metrics, opacity:f32, decorated:bool) -> Metrics {

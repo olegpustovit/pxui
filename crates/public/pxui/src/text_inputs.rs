@@ -129,16 +129,31 @@ extern "C" fn on_drop(user: *mut c_void, at: i64, dropped: u8, kind: Str, value:
 }
 extern "C" fn colorize(user: *mut c_void, value: Str, out: *mut Slice<PxuiColorSpan>) {
     let a = area(user);
-    let Some(l) = &a.cb.language else { return };
+    if a.cb.language.is_none() { return; }
     let value = utf8(value);
-    a.colors = { let mut out = Vec::new(); guarded(&mut || out = (l.colorize)(value).into_iter().map(|(start, end, color)| PxuiColorSpan { start: engine(start), end: engine(end), color, reserved: 0 }).collect()); out };
+    // Scratch spans reuse capacity; mapped into `a.colors` which also keeps capacity.
+    thread_local!(static SPANS: std::cell::RefCell<Vec<(usize, usize, pxui_types::geom::Rgba)>> =
+        const { std::cell::RefCell::new(Vec::new()) });
+    let mut spans = SPANS.with(|cell| std::mem::take(&mut *cell.borrow_mut()));
+    spans.clear();
+    guarded(&mut || {
+        if let Some(l) = &a.cb.language {
+            (l.colorize)(value, &mut spans);
+        }
+    });
+    a.colors.clear();
+    a.colors.extend(spans.iter().map(|&(start, end, color)| PxuiColorSpan { start: engine(start), end: engine(end), color, reserved: 0 }));
+    SPANS.with(|cell| *cell.borrow_mut() = spans);
     unsafe { *out = Slice { ptr: a.colors.as_ptr(), len: a.colors.len() }; }
 }
 extern "C" fn brackets(user: *mut c_void, value: Str, out: *mut Slice<PxuiRange>) {
     let a = area(user);
     let Some(l) = &a.cb.language else { return };
     let value = utf8(value);
-    a.ranges = { let mut out = Vec::new(); guarded(&mut || out = (l.brackets)(value).into_iter().map(|(start, end)| PxuiRange { start: engine(start), end: engine(end) }).collect()); out };
+    let mut pairs = Vec::new();
+    guarded(&mut || pairs = (l.brackets)(value));
+    a.ranges.clear();
+    a.ranges.extend(pairs.into_iter().map(|(start, end)| PxuiRange { start: engine(start), end: engine(end) }));
     unsafe { *out = Slice { ptr: a.ranges.as_ptr(), len: a.ranges.len() }; }
 }
 extern "C" fn indent(user: *mut c_void, value: Str, caret: i64, out: *mut Str) {
@@ -275,7 +290,19 @@ impl Ui {
             spans: Slice { ptr: spans.as_ptr().cast(), len: o.spans.len() }, splice: Slice { ptr: splice.as_ptr().cast(), len: o.splices.len() }, chips: Slice { ptr: chips.as_ptr().cast(), len: o.chips.len() },
             comment: as_str(lang.map_or("", |l| l.comment)), pairs: Slice { ptr: pairs.as_ptr().cast(), len: pair_count * 2 },
         };
-        let mut ctx = Area { cb, colors: Vec::new(), ranges: Vec::new(), completions: Vec::new(), completion_texts: Vec::new(), produced: String::new(), description: None };
+        // ponytail: keep Area callback buffers across text_area calls (warm typing).
+        thread_local!(static AREA_BUF: std::cell::RefCell<(Vec<PxuiColorSpan>, Vec<PxuiRange>, Vec<PxuiCompletion>, Vec<pxui_types::ui::Completion>, String)> =
+            const { std::cell::RefCell::new((Vec::new(), Vec::new(), Vec::new(), Vec::new(), String::new())) });
+        let (colors, ranges, completions, completion_texts, produced) = AREA_BUF.with(|b| {
+            let mut b = b.borrow_mut();
+            b.0.clear();
+            b.1.clear();
+            b.2.clear();
+            b.3.clear();
+            b.4.clear();
+            (std::mem::take(&mut b.0), std::mem::take(&mut b.1), std::mem::take(&mut b.2), std::mem::take(&mut b.3), std::mem::take(&mut b.4))
+        });
+        let mut ctx = Area { cb, colors, ranges, completions, completion_texts, produced, description: None };
 
         let cbs = PxuiAreaCallbacks {
             size: core::mem::size_of::<PxuiAreaCallbacks>() as u32, reserved: 0, user: &mut ctx as *mut Area as *mut c_void,
@@ -298,17 +325,26 @@ impl Ui {
         };
         // linked statically, the library's trusted entry takes the descriptor as Rust values
         #[cfg(feature = "static")]
-        {
+        let response = {
             let (mut changed, mut submitted, mut response) = (None, false, PxuiResponse::EMPTY);
             check(self, unsafe { pxui_abi_link::trusted::text_area(self.0.as_ptr(), &desc, &node, &cbs, o.name, &mut changed, &mut submitted, &mut response) });
-            return TextAreaResponse { response: input_response(&response, changed.is_some()), changed: changed.map(lent_str), submitted };
-        }
+            TextAreaResponse { response: input_response(&response, changed.is_some()), changed: changed.map(lent_str), submitted }
+        };
         #[cfg(not(feature = "static"))]
-        let (mut out, mut changed, mut submitted, mut response) = (Str::default(), 0, 0, PxuiResponse::EMPTY);
-        #[cfg(not(feature = "static"))]
-        check(self, unsafe { lib::pxui_ui_text_area(self.0.as_ptr(), &desc, &node, &cbs, as_str(o.name), &mut out, &mut changed, &mut submitted, &mut response) });
-        #[cfg(not(feature = "static"))]
-        TextAreaResponse { response: input_response(&response, changed != 0), changed: (changed != 0).then(|| lent_str(out)), submitted: submitted != 0 }
+        let response = {
+            let (mut out, mut changed, mut submitted, mut response) = (Str::default(), 0, 0, PxuiResponse::EMPTY);
+            check(self, unsafe { lib::pxui_ui_text_area(self.0.as_ptr(), &desc, &node, &cbs, as_str(o.name), &mut out, &mut changed, &mut submitted, &mut response) });
+            TextAreaResponse { response: input_response(&response, changed != 0), changed: (changed != 0).then(|| lent_str(out)), submitted: submitted != 0 }
+        };
+        AREA_BUF.with(|b| {
+            let mut b = b.borrow_mut();
+            b.0 = std::mem::take(&mut ctx.colors);
+            b.1 = std::mem::take(&mut ctx.ranges);
+            b.2 = std::mem::take(&mut ctx.completions);
+            b.3 = std::mem::take(&mut ctx.completion_texts);
+            b.4 = std::mem::take(&mut ctx.produced);
+        });
+        response
     }
 
     /// The one body of `value_field`.

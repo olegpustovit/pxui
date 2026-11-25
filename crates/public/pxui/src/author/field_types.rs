@@ -561,7 +561,8 @@ impl<'a> TextArea<'a> {
 }
 
 /// What a language colours: sorted, non-overlapping byte spans and their colour; the rest is the foreground.
-pub type ColorizeFn<'a> = dyn Fn(&str) -> Vec<(usize, usize, Rgba)> + 'a;
+/// Fills `out` with colour spans (cleared by the callee). Warm calls reuse `out`'s capacity.
+pub type ColorizeFn<'a> = dyn Fn(&str, &mut Vec<(usize, usize, Rgba)>) + 'a;
 /// What a language matches: the bracket pairs as (open, close) byte positions; the pair at the caret is lit.
 pub type BracketsFn<'a> = dyn Fn(&str) -> Vec<(usize, usize)> + 'a;
 /// What a language indents: `indent(text, caret)` returns the indentation Enter puts after the line break at `caret`.
@@ -596,14 +597,17 @@ pub struct Language<'a> {
 
 impl<'a> Language<'a> {
     /// A language that colours, matches, indents, suggests and describes nothing.
-    pub const DEFAULT: Language<'a> = Language { colorize: &|_| Vec::new(), brackets: &|_| Vec::new(), indent: &|_, _| String::new(), pairs: &[], complete: &|_, _| Vec::new(), describe: &|_, _, _| None, number_at: &|_, _| None, context_at: &|_, _| CodeContext::Code, comment: "", rewrite: None };
+    pub const DEFAULT: Language<'a> = Language { colorize: &|_, out| { out.clear(); }, brackets: &|_| Vec::new(), indent: &|_, _| String::new(), pairs: &[], complete: &|_, _| Vec::new(), describe: &|_, _, _| None, number_at: &|_, _| None, context_at: &|_, _| CodeContext::Code, comment: "", rewrite: None };
     /// Sets what the language colours.
     /// Allocates: never.
     /// Panics: never.
     ///
     /// ```
     /// let ink = pxui::ui::Rgba::rgb(200, 200, 200);
-    /// let f = |text: &str| if text.is_empty() { Vec::new() } else { vec![(0, text.len(), ink)] };
+    /// let f = |text: &str, out: &mut Vec<(usize, usize, pxui::Rgba)>| {
+    ///     out.clear();
+    ///     if !text.is_empty() { out.push((0, text.len(), ink)); }
+    /// };
     /// let _ = pxui::Language::DEFAULT.colorize(&f);
     /// ```
     pub const fn colorize(mut self, f: &'a ColorizeFn<'a>) -> Language<'a> { self.colorize = f; self }

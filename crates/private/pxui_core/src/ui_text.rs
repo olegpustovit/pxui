@@ -1521,18 +1521,19 @@ impl AreaPaint {
                 if wrong {
                     paint.fill(number_x - 10.0, y + row / 2.0 - 3.0, 6.0, 6.0, theme.invalid);
                 }
-                paint.text_s(
-                    (number_x, text_y + 1.0),
-                    small,
-                    if wrong {
-                        theme.invalid
-                    } else if current {
-                        theme.foreground
-                    } else {
-                        theme.ink_3()
-                    },
-                    number,
-                );
+                // Digits are kit mono: cached per-codepoint (no reshape of the gutter each frame).
+                let digit_w = paint.text_width(Some(small), "0");
+                let ink = if wrong {
+                    theme.invalid
+                } else if current {
+                    theme.foreground
+                } else {
+                    theme.ink_3()
+                };
+                let saved_size = paint.font_size;
+                paint.font_size = small;
+                paint.text_mono_runs((number_x, text_y + 1.0), digit_w, number, ink, &[]);
+                paint.font_size = saved_size;
             }
             clip(paint, bx + gutter, bw - gutter);
             for (a, b) in self.spans.iter() {
@@ -1597,39 +1598,34 @@ impl AreaPaint {
             if self.focused && lu == caret_line && !self.composition.is_empty() {
                 let before = &final_text[ls..edit.caret];
                 let caret_x = text_x + at(paint, ls, le, edit.caret);
-                paint.text_c((text_x, text_y), theme.foreground, before);
+                paint.text_mono_runs((text_x, text_y), char_w, before, theme.foreground, &[]);
                 paint.text_c((caret_x, text_y), theme.foreground, &self.composition);
                 let cw = width(paint, &self.composition);
-                paint.text_c((caret_x + cw, text_y), theme.foreground, &line_str[before.len()..]);
+                paint.text_mono_runs((caret_x + cw, text_y), char_w, &line_str[before.len()..], theme.foreground, &[]);
             } else if colors.is_empty() {
-                paint.text_c((text_x, text_y), theme.foreground, line_str);
+                // Kit face is monospace: cached per-codepoint glyphs (no cosmic reshape per key).
+                paint.text_mono_runs((text_x, text_y), char_w, line_str, theme.foreground, &[]);
             } else {
-                // the row in coloured runs, the gaps in the foreground colour
                 while colors_ahead < colors.len() && (colors[colors_ahead].1 as usize) <= ls {
                     colors_ahead += 1;
                 }
-                let mut pos = ls;
-                let mut k = colors_ahead;
-                let run = |paint: &mut Paint, a: usize, b: usize, c: Rgba| {
-                    if a < b {
-                        let ax = text_x + at(paint, ls, le, a);
-                        paint.text_c((ax, text_y), c, &final_text[a..b]);
-                    }
-                };
-                while k < colors.len() && (colors[k].0 as usize) < le {
-                    let (a, b, c) = colors[k];
-                    let a = (a as usize).max(ls);
-                    let b = (b as usize).min(le);
-                    if a >= b || a < pos {
+                thread_local!(static LINE_RUNS: std::cell::RefCell<Vec<(usize, usize, Rgba)>> =
+                    const { std::cell::RefCell::new(Vec::new()) });
+                LINE_RUNS.with(|cell| {
+                    let mut runs = cell.borrow_mut();
+                    runs.clear();
+                    let mut k = colors_ahead;
+                    while k < colors.len() && (colors[k].0 as usize) < le {
+                        let (a, b, c) = colors[k];
+                        let a = (a as usize).max(ls);
+                        let b = (b as usize).min(le);
+                        if a < b {
+                            runs.push((a - ls, b - ls, c));
+                        }
                         k += 1;
-                        continue;
                     }
-                    run(paint, pos, a, theme.foreground);
-                    run(paint, a, b, c);
-                    pos = b;
-                    k += 1;
-                }
-                run(paint, pos, le, theme.foreground);
+                    paint.text_mono_runs((text_x, text_y), char_w, line_str, theme.foreground, &runs);
+                });
             }
             line += 1;
         }
