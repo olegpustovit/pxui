@@ -3199,7 +3199,7 @@ impl Ui {
         for (_, mut value) in self.signals.drain() {
             for (_, modifiers) in value.keys.drain(..) { self.spare_modifiers.push(modifiers); }
             if value.keys.capacity() > 0 { self.spare_key_lists.push(std::mem::take(&mut value.keys)); }
-            self.spare_signals.push(value);
+            if value.press_keys.capacity() > 0 { self.spare_signals.push(value); }
         }
         self.out.cursor = None;
         self.frame_events.clone_from(&frame.input.events);
@@ -10363,7 +10363,7 @@ impl Ui {
         for (_, mut value) in signals.extract_if(|target, _| !self.belongs(*target, key, related)) {
             for (_, modifiers) in value.keys.drain(..) { spare_modifiers.push(modifiers); }
             if value.keys.capacity() > 0 { spare_key_lists.push(std::mem::take(&mut value.keys)); }
-            spare_signals.push(value);
+            if value.press_keys.capacity() > 0 { spare_signals.push(value); }
         }
         self.spare_key_lists = spare_key_lists;
         self.spare_signals = spare_signals;

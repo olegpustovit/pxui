@@ -1666,6 +1666,25 @@ fn settling_keeps_routed_edges_and_event_mode_holds() {
 }
 
 #[test]
+fn first_held_pan_does_not_allocate_signal_scratch() {
+    use crate::{Event, Flags};
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+    let mut build = |ui: &mut Ui| {
+        ui.node("pan", Node::DEFAULT.flags(Flags::CLICKABLE | Flags::DRAG_FREE).w_px(160.0).h_px(120.0));
+    };
+    for t in 0..4 {
+        ui.frame(&input().time(t as f64), &mut build).unwrap();
+    }
+    let press = Event::pointer(Event::POINTER_PRESSED, 1, 10.0, 12.0);
+    ui.frame(&input().time(4.0).events(&[press]), &mut build).unwrap();
+    let motion = Event::pointer(Event::POINTER_MOVED, 0, 20.0, 22.0);
+    mem_sys::local_reset();
+    ui.frame(&input().time(5.0).events(&[motion]), &mut build).unwrap();
+    assert_eq!(mem_sys::local_alloc_count(), 0);
+}
+
+#[test]
 fn a_stale_field_patches_nothing_and_whole_source_files_round_trip() {
     use pxui_types::ui::TextEdit;
     let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
