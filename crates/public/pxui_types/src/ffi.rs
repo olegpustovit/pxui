@@ -116,6 +116,32 @@ impl Default for Input {
     }
 }
 
+/// Authoritative host input at the end of the events in a frame.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct PxuiInputSnapshot {
+    /// Size of this record in bytes.
+    pub size: u32,
+    /// Held key codes.
+    pub keys: Slice<u32>,
+    /// Held pointer button codes.
+    pub buttons: Slice<u32>,
+    /// Pointer position in logical points.
+    pub pointer: [f64; 2],
+    /// Pointer movement since the previous frame in logical points.
+    pub mouse_delta: [f64; 2],
+    /// Drawable pixels per logical point on each axis.
+    pub pixel_scale: [f64; 2],
+    /// Elapsed seconds since the previous frame.
+    pub dt: f64,
+    /// Frame serial.
+    pub frame: i64,
+    /// Input update serial.
+    pub tick: i64,
+    /// Frame rate in frames per second.
+    pub fps: f64,
+}
+
 /// Requests to apply to the native window, input method and clipboard.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -3300,6 +3326,18 @@ pub(crate) mod layout {
         check("Slice", size_of::<Slice<u32>>(), align_of::<Slice<u32>>(), &[("ptr", core::mem::offset_of!(Slice<u32>, ptr)), ("len", core::mem::offset_of!(Slice<u32>, len))]);
         check("Strided", size_of::<Strided<u32>>(), align_of::<Strided<u32>>(), &[("ptr", core::mem::offset_of!(Strided<u32>, ptr)), ("len", core::mem::offset_of!(Strided<u32>, len)), ("stride", core::mem::offset_of!(Strided<u32>, stride))]);
         check("Input", size_of::<Input>(), align_of::<Input>(), &[("size", core::mem::offset_of!(Input, size)), ("time", core::mem::offset_of!(Input, time)), ("dt", core::mem::offset_of!(Input, dt)), ("frame", core::mem::offset_of!(Input, frame)), ("tick", core::mem::offset_of!(Input, tick)), ("logical_size", core::mem::offset_of!(Input, logical_size)), ("pointer", core::mem::offset_of!(Input, pointer)), ("keys", core::mem::offset_of!(Input, keys)), ("buttons", core::mem::offset_of!(Input, buttons)), ("events", core::mem::offset_of!(Input, events)), ("pixel_scale", core::mem::offset_of!(Input, pixel_scale)), ("mouse_delta", core::mem::offset_of!(Input, mouse_delta)), ("fps", core::mem::offset_of!(Input, fps))]);
+        check("PxuiInputSnapshot", size_of::<PxuiInputSnapshot>(), align_of::<PxuiInputSnapshot>(), &[
+            ("size", core::mem::offset_of!(PxuiInputSnapshot, size)),
+            ("keys", core::mem::offset_of!(PxuiInputSnapshot, keys)),
+            ("buttons", core::mem::offset_of!(PxuiInputSnapshot, buttons)),
+            ("pointer", core::mem::offset_of!(PxuiInputSnapshot, pointer)),
+            ("mouse_delta", core::mem::offset_of!(PxuiInputSnapshot, mouse_delta)),
+            ("pixel_scale", core::mem::offset_of!(PxuiInputSnapshot, pixel_scale)),
+            ("dt", core::mem::offset_of!(PxuiInputSnapshot, dt)),
+            ("frame", core::mem::offset_of!(PxuiInputSnapshot, frame)),
+            ("tick", core::mem::offset_of!(PxuiInputSnapshot, tick)),
+            ("fps", core::mem::offset_of!(PxuiInputSnapshot, fps)),
+        ]);
         check("PlatformOut", size_of::<PlatformOut>(), align_of::<PlatformOut>(), &[("size", core::mem::offset_of!(PlatformOut, size)), ("cursor", core::mem::offset_of!(PlatformOut, cursor)), ("has_cursor", core::mem::offset_of!(PlatformOut, has_cursor)), ("has_ime", core::mem::offset_of!(PlatformOut, has_ime)), ("has_background", core::mem::offset_of!(PlatformOut, has_background)), ("has_clipboard", core::mem::offset_of!(PlatformOut, has_clipboard)), ("ime_rect", core::mem::offset_of!(PlatformOut, ime_rect)), ("ime_caret", core::mem::offset_of!(PlatformOut, ime_caret)), ("clipboard", core::mem::offset_of!(PlatformOut, clipboard)), ("background", core::mem::offset_of!(PlatformOut, background)), ("paste", core::mem::offset_of!(PlatformOut, paste)), ("reserved", core::mem::offset_of!(PlatformOut, reserved))]);
         check("PxuiPromotedKey", size_of::<PxuiPromotedKey>(), align_of::<PxuiPromotedKey>(), &[
             ("time", core::mem::offset_of!(PxuiPromotedKey, time)),

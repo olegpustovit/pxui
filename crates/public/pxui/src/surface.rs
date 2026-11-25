@@ -1571,6 +1571,101 @@ fn a_shaper_of_its_own_measures_and_rasterizes_off_the_ui() {
 }
 
 #[test]
+fn authoritative_snapshot_routes_held_input_and_ordered_edges() {
+    use crate::{Event, InputSnapshot, KeyCode};
+
+    let shift = KeyCode::Shift.wire();
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+    let (viewport, press_uses_shift) = (std::cell::Cell::new(None), std::cell::Cell::new(false));
+    let mut build = |ui: &mut Ui| {
+        let node = ui.node("viewport", Node::DEFAULT.flags(crate::Flags::CLICKABLE).w_px(120.0).h_px(80.0));
+        viewport.set(Some(node.box_key));
+        if ui.signal(&node).pressed {
+            press_uses_shift.set(ui.press_keys(&node).contains(&shift));
+        }
+    };
+    ui.frame(&input(), &mut build).unwrap();
+    let press = Event::pointer(Event::POINTER_PRESSED, 0, 10.0, 12.0);
+    let motion = Event::pointer(Event::POINTER_MOVED, 0, 18.0, 14.0);
+    let snapshot = InputSnapshot {
+        keys: &[shift], buttons: &[0], pointer: [18.0, 14.0], mouse_delta: [8.0, 2.0],
+        pixel_scale: [2.0, 1.5], dt: 0.02, frame: 23, tick: 37, fps: 50.0,
+    };
+    ui.frame_with_snapshot(&input().time(1.0).events(&[press, motion]), &snapshot, &mut build).unwrap();
+    assert!(press_uses_shift.get(), "a host-held Shift modifies a press without a Shift edge");
+    {
+        let out = ui.routed_input(viewport.get()).unwrap();
+        assert_eq!(out.keys(), &[shift]);
+        assert_eq!(out.buttons(), &[0]);
+        assert_eq!(out.events().map(|e| e.kind).collect::<Vec<_>>(), [Event::POINTER_PRESSED, Event::POINTER_MOVED]);
+        let raw = out.input();
+        assert_eq!((raw.time, raw.dt, raw.frame, raw.tick, raw.fps), (1.0, 0.02, 23, 37, 50.0));
+        assert_eq!((raw.pointer, raw.mouse_delta, raw.pixel_scale), ([18.0, 14.0], [8.0, 2.0], [2.0, 1.5]));
+    }
+    let idle = InputSnapshot { pointer: [25.0, 17.0], mouse_delta: [7.0, 3.0], frame: 24, ..snapshot };
+    ui.frame_with_snapshot(&input().time(1.02), &idle, &mut build).unwrap();
+    let out = ui.routed_input(viewport.get()).unwrap();
+    assert_eq!(out.events().len(), 0);
+    assert_eq!((out.keys(), out.buttons()), (&[shift][..], &[0][..]));
+    assert_eq!((out.input().pointer, out.input().mouse_delta), ([25.0, 17.0], [7.0, 3.0]));
+
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+    ui.frame(&input(), &mut build).unwrap();
+    press_uses_shift.set(false);
+    let release_shift = Event::key(Event::KEY_RELEASED, shift);
+    let released = InputSnapshot { keys: &[], ..snapshot };
+    ui.frame_with_snapshot(&input().time(1.0).events(&[press, release_shift]), &released, &mut build).unwrap();
+    assert!(press_uses_shift.get(), "a release later in the batch implies the key was held at the press");
+    assert!(ui.routed_input(viewport.get()).unwrap().keys().is_empty());
+    let bad = InputSnapshot { dt: f64::NAN, ..released };
+    assert_eq!(ui.frame_with_snapshot(&input().time(2.0), &bad, &mut build).err(), Some(crate::Error::InvalidInput));
+    assert_eq!(ui.routed_input(viewport.get()).unwrap().input().time, 1.0);
+
+}
+
+#[test]
+fn settling_keeps_routed_edges_and_event_mode_holds() {
+    use crate::Event;
+
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+    ui.verify_views(false);
+    let (height, builds, viewport, releases) = (
+        std::cell::Cell::new(120.0), std::cell::Cell::new(0), std::cell::Cell::new(None), std::cell::Cell::new(0),
+    );
+    let mut build = |ui: &mut Ui| {
+        builds.set(builds.get() + 1);
+        let view = ui.node("viewport", Node::DEFAULT.flags(crate::Flags::CLICKABLE).at(0.0, 0.0).w_px(100.0).h_px(80.0));
+        viewport.set(Some(view.box_key));
+        if ui.signal(&view).released { releases.set(releases.get() + 1); }
+        ui.column(Node::DEFAULT.at(110.0, 0.0).w_px(120.0).h_px(height.get()), |ui| {
+            ui.view_of("height-dependent", &0, |ui| {
+                ui.node("fill", Node::DEFAULT.h(crate::Size::Grow).look(crate::theme::Look::NONE.fill(crate::Rgba::rgb(10, 20, 30))));
+            });
+        });
+    };
+    ui.frame(&input(), &mut build).unwrap();
+    let press = Event::pointer(Event::POINTER_PRESSED, 0, 12.0, 14.0);
+    ui.frame(&input().time(1.0).events(&[press]), &mut build).unwrap();
+    ui.frame(&input().time(2.0), &mut build).unwrap();
+    {
+        let held = ui.routed_input(viewport.get()).unwrap();
+        assert_eq!(held.buttons(), &[0]);
+        assert_eq!(held.input().pointer, [12.0, 14.0]);
+        assert_eq!(held.events().len(), 0);
+    }
+    let release = Event::pointer(Event::POINTER_RELEASED, 0, 13.0, 15.0);
+    height.set(60.0);
+    let before = builds.get();
+    ui.frame(&input().time(3.0).events(&[release]), &mut build).unwrap();
+    assert!(builds.get() > before + 1, "the changed viewport height must settle");
+    assert_eq!(releases.get(), 1, "the quiet build must not replay the release");
+    let routed = ui.routed_input(viewport.get()).unwrap();
+    assert_eq!(routed.events().map(|e| e.kind).collect::<Vec<_>>(), [Event::POINTER_RELEASED]);
+    assert_eq!(routed.input().pointer, [13.0, 15.0]);
+    assert!(routed.buttons().is_empty());
+}
+
+#[test]
 fn a_stale_field_patches_nothing_and_whole_source_files_round_trip() {
     use pxui_types::ui::TextEdit;
     let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");

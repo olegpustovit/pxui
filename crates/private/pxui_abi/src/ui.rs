@@ -10,7 +10,7 @@ use crate::{PXUI_ERR_ARGUMENT, PXUI_ERR_PANIC, PXUI_ERR_STATE, FrameIn, FrameOut
 use core::ffi::c_void;
 use input::{Event, Key, MouseButton, Platform, frame};
 use pxui_core::ui::Ui;
-use pxui_types::ffi::{A11yNode, A11yTree, Damage, Input, Output, PlatformOut, PxuiDamageList, Slice, Strided};
+use pxui_types::ffi::{A11yNode, A11yTree, Damage, Input, Output, PlatformOut, PxuiDamageList, PxuiInputSnapshot, Slice, Strided};
 
 fn platform() -> Platform {
     #[cfg(any(target_os = "macos", target_os = "ios"))] { Platform::Apple }
@@ -492,7 +492,7 @@ fn set_keyboard(engine: &mut Ui, keyboard: &pxui_types::Keyboard) { engine.set_k
 
 /// Runs one frame of `ui` over `frame`. Both frame entry points call it after decoding their input (inline: one frame call fewer).
 #[inline(always)]
-unsafe fn run_frame(ui: *mut PxuiUi, frame: &frame::Frame, build: Inner, out: &mut FrameOut) -> i32 {
+unsafe fn run_frame(ui: *mut PxuiUi, frame: &frame::Frame, authoritative: bool, build: Inner, out: &mut FrameOut) -> i32 {
     // The callbacks reach the shared state through `shared`, so no `&mut Shared` is held across the build.
     let (engine, shared) = unsafe { ((*ui).engine, (*ui).shared) };
     unsafe {
@@ -513,7 +513,10 @@ unsafe fn run_frame(ui: *mut PxuiUi, frame: &frame::Frame, build: Inner, out: &m
     impl Drop for Leave { fn drop(&mut self) { unsafe { (*self.0).in_frame = false; (*self.0).current = self.1; (*self.0).building = core::ptr::null_mut(); } } }
     let _leave = Leave(shared, ui);
     // a panic of the build (the static wrapper's callbacks run without a catch) leaves the engine mid-frame: it is reset, then the panic goes on
-    let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe { (&mut *engine).frame(frame, build) }));
+    let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
+        if authoritative { (&mut *engine).frame_with_snapshot(frame, build) }
+        else { (&mut *engine).frame(frame, build) }
+    }));
     let output = match built { Ok(output) => output, Err(panic) => {
         unsafe { (&mut *engine).abandon_frame(); (*shared).frame_ended = true; }
         std::panic::resume_unwind(panic)
@@ -537,8 +540,44 @@ unsafe fn enter_frame(ui: *mut PxuiUi) -> Result<(), i32> {
     Ok(())
 }
 
-/// The frame entries' bodies, shared by the exports (which decode and check the C descriptor first) and the static wrapper.
+/// Decode an event-mode frame for the C and trusted Rust entry points.
 pub(crate) unsafe fn frame_body(ui: *mut PxuiUi, input: &FrameIn, build: Inner, out: &mut FrameOut) -> i32 {
+    unsafe { frame_body_impl(ui, input, None, build, out) }
+}
+
+/// Decode a frame with an authoritative input snapshot.
+pub(crate) unsafe fn snapshot_frame_body(ui: *mut PxuiUi, input: &FrameIn, snapshot: &PxuiInputSnapshot, build: Inner, out: &mut FrameOut) -> i32 {
+    unsafe { frame_body_impl(ui, input, Some(snapshot), build, out) }
+}
+
+unsafe fn held_codes(span: &Slice<u32>, max: usize) -> Option<&[u32]> {
+    if span.len == 0 { return Some(&[]); }
+    if span.len > max || span.ptr.is_null() || !span.ptr.is_aligned() { return None; }
+    Some(unsafe { core::slice::from_raw_parts(span.ptr, span.len) })
+}
+
+fn snapshot_codes(snapshot: &PxuiInputSnapshot) -> Option<(&[u32], &[u32])> {
+    let point = |value: f64| (value as f32).is_finite();
+    let nonnegative = |value: f64| value >= 0.0 && value.is_finite();
+    if (snapshot.size as usize) < core::mem::size_of::<PxuiInputSnapshot>()
+        || !snapshot.pointer.into_iter().chain(snapshot.mouse_delta).all(point)
+        || !snapshot.pixel_scale.into_iter().all(|scale| scale > 0.0 && (scale as f32).is_finite())
+        || !nonnegative(snapshot.dt) || !nonnegative(snapshot.fps) || snapshot.frame < 0 || snapshot.tick < 0
+    {
+        return None;
+    }
+    let keys = unsafe { held_codes(&snapshot.keys, 4096)? };
+    let buttons = unsafe { held_codes(&snapshot.buttons, 5)? };
+    if !keys.iter().all(|&code| input::Key::from_code(code).is_some())
+        || !buttons.iter().all(|&code| input::MouseButton::from_code(code).is_some()) {
+        return None;
+    }
+    Some((keys, buttons))
+}
+
+// Inline the mode selection so the event-only entry does not decode or inspect snapshot fields.
+#[inline(always)]
+unsafe fn frame_body_impl(ui: *mut PxuiUi, input: &FrameIn, snapshot: Option<&PxuiInputSnapshot>, build: Inner, out: &mut FrameOut) -> i32 {
     if !ui.is_null() { unsafe { crate::state::note_call((*ui).shared) }; }
     if let Err(code) = unsafe { enter_frame(ui) } { return code; }
     // the frame's surface is one registered on this Ui (the one compare); every event must carry it too (`decode_events`)
@@ -558,6 +597,13 @@ pub(crate) unsafe fn frame_body(ui: *mut PxuiUi, input: &FrameIn, build: Inner, 
     let keyboard_changed=!same_keyboard(keyboard,engine.keyboard_ref());
     if keyboard_changed && !keyboard.valid() { return unsafe { fail(ui,"invalid keyboard geometry") }; }
     if appearance>FrameIn::APPEARANCE_DARK || reduced>1 { return unsafe { fail(ui,"invalid system preferences") }; }
+    let snapshot = match snapshot {
+        Some(snapshot) => {
+            let Some((keys, buttons)) = snapshot_codes(snapshot) else { return unsafe { fail(ui, "invalid input snapshot") }; };
+            Some((snapshot, keys, buttons))
+        }
+        None => None,
+    };
     let mut base = unsafe { take_input(ui, input.time) };
     let events = &input.events;
     if !decode_events(&mut base.input.events, events, registered) {
@@ -567,15 +613,27 @@ pub(crate) unsafe fn frame_body(ui: *mut PxuiUi, input: &FrameIn, build: Inner, 
         return unsafe { fail(ui, message) };
     }
     let frame = &mut base.input;
-    (frame.t, frame.dt, frame.frame, frame.tick) = (input.time, 0.0, input.time.to_bits() as i64, 0);
-    (frame.size, frame.pointer) = ((input.width as i64, input.height as i64), (0.0, 0.0));
-    frame.buttons.clear();
-    fold_input_edges(frame);
+    frame.t = input.time;
+    frame.size = (input.width as i64, input.height as i64);
+    if let Some((snapshot, keys, buttons)) = snapshot {
+        (frame.dt, frame.frame, frame.tick) = (snapshot.dt, snapshot.frame, snapshot.tick);
+        frame.pointer = (snapshot.pointer[0], snapshot.pointer[1]);
+        frame.keys.clear();
+        frame.keys.extend(keys.iter().filter_map(|&code| input::Key::from_code(code)));
+        frame.buttons.clear();
+        frame.buttons.extend(buttons.iter().filter_map(|&code| input::MouseButton::from_code(code)));
+        base.pixel_scale = (snapshot.pixel_scale[0], snapshot.pixel_scale[1]);
+        base.fps = snapshot.fps;
+        base.mouse_delta = (snapshot.mouse_delta[0], snapshot.mouse_delta[1]);
+    } else {
+        (frame.dt, frame.frame, frame.tick) = (0.0, input.time.to_bits() as i64, 0);
+        fold_input_edges(frame);
+        (base.pixel_scale, base.fps, base.mouse_delta) = ((input.scale as f64, input.scale as f64), 60.0, (0.0, 0.0));
+    }
     unsafe { &mut *(*ui).engine }.set_system_preferences(appearance,reduced!=0);
     if environment_changed { set_environment(engine, environment); }
     if keyboard_changed { set_keyboard(engine, keyboard); }
-    (base.pixel_scale, base.fps, base.mouse_delta) = ((input.scale as f64, input.scale as f64), 60.0, (0.0, 0.0));
-    let rc = unsafe { run_frame(ui, &base, build, out) };
+    let rc = unsafe { run_frame(ui, &base, snapshot.is_some(), build, out) };
     unsafe { restore_input(ui, base); }
     rc
 }
@@ -597,6 +655,20 @@ export!(trusted frame pub unsafe fn pxui_frame(ui: *mut PxuiUi, input: *const Fr
     // engine): its size covers `FrameIn`, else it is refused (there are no older sizes)
     if (unsafe { input.cast::<u32>().read_unaligned() } as usize) < core::mem::size_of::<FrameIn>() { return unsafe { fail(ui, "invalid frame descriptor") }; }
     unsafe { frame_body(ui, &*input, &mut build, &mut *out) }
+});
+
+export!(trusted frame pub unsafe fn pxui_frame_with_snapshot(ui: *mut PxuiUi, input: *const FrameIn, snapshot: *const PxuiInputSnapshot, build: Build, user: *mut c_void, out: *mut FrameOut) -> i32 {
+    if input.is_null() || snapshot.is_null() || out.is_null() || !snapshot.is_aligned() || !input.is_aligned() || !out.is_aligned() {
+        return unsafe { fail(ui, "invalid snapshot frame argument") };
+    }
+    if (unsafe { input.cast::<u32>().read_unaligned() } as usize) < core::mem::size_of::<FrameIn>()
+        || (unsafe { snapshot.cast::<u32>().read_unaligned() } as usize) < core::mem::size_of::<PxuiInputSnapshot>() {
+        return unsafe { fail(ui, "invalid snapshot frame descriptor") };
+    }
+    let shared = <*mut PxuiUi as crate::state::Handle>::shared(ui);
+    let theme = if ui.is_null() { core::ptr::null() } else { unsafe { (*ui).theme } };
+    let mut build = |engine: &mut Ui| unsafe { crate::state::call_build_seeing(shared, engine, theme, build, user) };
+    unsafe { snapshot_frame_body(ui, &*input, &*snapshot, &mut build, &mut *out) }
 });
 
 // The frame's input as the engine routed it to `owner` (a viewport's root key; none: the app's), for the app's own content: the

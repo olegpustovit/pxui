@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 13
+minor 14
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_remove_surface int32_t pxui_a11y_remove_surface ( PxuiA11y * a11y , uint64_t surface ) ;
@@ -10,6 +10,7 @@ function pxui_abi_version uint32_t pxui_abi_version ( void ) ;
 function pxui_body_register int32_t pxui_body_register ( PxuiUi * ui , uint32_t kind , PxuiStr name , PxuiBodyFn body , void * user , uint16_t * out ) ;
 function pxui_default_font PxuiStr pxui_default_font ( void ) ;
 function pxui_frame int32_t pxui_frame ( PxuiUi * ui , const PxuiFrameIn * in , PxuiBuild build , void * user , PxuiFrameOut * out ) ;
+function pxui_frame_with_snapshot int32_t pxui_frame_with_snapshot ( PxuiUi * ui , const PxuiFrameIn * in , const PxuiInputSnapshot * snapshot , PxuiBuild build , void * user , PxuiFrameOut * out ) ;
 function pxui_last_error PxuiStr pxui_last_error ( const PxuiUi * ui ) ;
 function pxui_paint_caret_x float pxui_paint_caret_x ( PxuiPaint * paint , uint8_t has_size , int64_t size , PxuiStr text , size_t index ) ;
 function pxui_paint_color PxuiColor pxui_paint_color ( PxuiPaint * paint , uint16_t token ) ;
@@ -293,6 +294,7 @@ layout PxuiHeadActionDesc 40 8 0 4 5 6 8 24
 layout PxuiHeadResult 56 8 0 4 5 6 7 8 16
 layout PxuiIconButtonConfig 152 8 0 4 16 48 64 80 88 89 90 92 96 100 104 112 120 124 128 136 144
 layout PxuiIconButtonDesc 112 8 0 4 5 6 7 8 12 16 24 32 48 64 80 88 96 104 105 106 108
+layout PxuiInputSnapshot 120 8 0 8 24 40 56 72 88 96 104 112
 layout PxuiKeyedDesc 40 8 0 4 6 8 24
 layout PxuiKeyframeDesc 360 8 0 4 8 12 16 32 192
 layout PxuiLabelBox 16 4 0 4 8 12 13 14

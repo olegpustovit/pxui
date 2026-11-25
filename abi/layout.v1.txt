@@ -177,3 +177,4 @@ PxuiFrameReasons 264 8 0 8 16 24 32 40 48 56 64 72 80 88 96 260
 PxuiDamageList 136 4 0 1 2 8
 PxuiPromotedKey 40 4 0 4 20 24
 PxuiPromoted 432 8 0 4 8 10 11 12 14 16 24 32 36 40 56 72
+PxuiInputSnapshot 120 8 0 8 24 40 56 72 88 96 104 112

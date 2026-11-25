@@ -286,6 +286,10 @@ const CLEAR_INK: Rgba = Rgba { r: 0, g: 0, b: 0, a: 0 };
 
 /// No view: a box that holds none, a fresh piece of a layer.
 const NO_VIEW: u32 = u32::MAX;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FrameRouting { Events, Snapshot, Settle }
+
 /// The clip inside a view with a table entry: its outer clip is the entry's.
 const UNBOUNDED: Rect = Rect::new(-1.0e7, -1.0e7, 2.0e7, 2.0e7);
 /// Instances that fill the room left before a kept view's run: they draw nothing.
@@ -1343,7 +1347,6 @@ pub struct Ui {
     keyboard_focus: bool,
     composition: String,
     composition_selection: (i64, i64),
-    previous_keys: Vec<Key>,
     route_keys: Vec<Key>,
     frame_modifiers: u32,
     pub(crate) edit_focus: i64,
@@ -1410,6 +1413,7 @@ pub struct Ui {
     /// one flag a `frame_events` entry: a focused widget handled that key, so `key_pressed` no longer reports it
     taken: Vec<std::cell::Cell<bool>>,
     input_frame: Option<rframe::Frame>,
+    snapshot_input: bool,
     routed_events: Vec<(i64, Event, (f64, f64))>,
     cancelled: Vec<MouseButton>,
     modal_key: Option<i64>,
@@ -1687,7 +1691,6 @@ impl Ui {
             keyboard_focus: false,
             composition: String::new(),
             composition_selection: (0, 0),
-            previous_keys: Vec::new(),
             route_keys: Vec::new(),
             frame_modifiers: 0,
             edit_focus: 0,
@@ -1739,6 +1742,7 @@ impl Ui {
             frame_events: Vec::with_capacity(input::EVENT_RESERVE),
             taken: Vec::with_capacity(input::EVENT_RESERVE),
             input_frame: None,
+            snapshot_input: false,
             routed_events: Vec::with_capacity(input::EVENT_RESERVE),
             cancelled: Vec::new(),
             modal_key: None,
@@ -3191,7 +3195,7 @@ impl Ui {
         self.gesture_key = 0;
     }
 
-    fn route(&mut self, frame: &rframe::Frame) {
+    fn route(&mut self, frame: &rframe::Frame, routing: FrameRouting) {
         for (_, mut value) in self.signals.drain() {
             for (_, modifiers) in value.keys.drain(..) { self.spare_modifiers.push(modifiers); }
             if value.keys.capacity() > 0 { self.spare_key_lists.push(std::mem::take(&mut value.keys)); }
@@ -3203,9 +3207,14 @@ impl Ui {
         let default_focus = std::mem::take(&mut self.default_focus);
         self.taken.clear();
         self.taken.resize(self.frame_events.len(), std::cell::Cell::new(false));
-        keep_frame(&mut self.input_frame, frame);
-        self.routed_events.clear();
-        self.cancelled.clear();
+        if routing != FrameRouting::Settle {
+            self.routed_events.clear();
+            self.cancelled.clear();
+            self.passed_undo = None;
+            self.modal_in_frame = self.modal_key.is_some();
+            self.routed_modal = self.modal_key;
+            self.snapshot_input = routing == FrameRouting::Snapshot;
+        }
         if let Some((payload, _)) = self.dropped.take() { self.spare_payload = Some(payload); }
         // a carry lives with the press that holds it: capture taken away since (a popup, a host
         // dismissal) takes the payload too, so no later release puts it
@@ -3215,13 +3224,28 @@ impl Ui {
             }
         }
         let mut released_carry = false;
-        self.passed_undo = None;
-        self.modal_in_frame = self.modal_key.is_some();
-        self.routed_modal = self.modal_key;
         let mut modifiers = std::mem::take(&mut self.route_keys);
-        input::keys_before_into(&self.previous_keys, &frame.input.keys, &frame.input.events, &mut modifiers);
+        let previous = self.input_frame.as_ref().map_or(&[][..], |previous| previous.input.keys.as_slice());
+        input::keys_before_into(previous, &frame.input.keys, &frame.input.events, &mut modifiers);
+        if routing != FrameRouting::Settle {
+            keep_frame(&mut self.input_frame, frame);
+        }
+        if routing == FrameRouting::Snapshot {
+            // A release can be the first thing we hear about a host-held key.
+            for (i, event) in frame.input.events.iter().enumerate() {
+                if *event == Event::FocusLost { break; }
+                if let Event::KeyReleased(key) = event
+                    && !modifiers.contains(key)
+                    && !frame.input.events[..i].iter().any(|e| matches!(e, Event::KeyPressed(k) | Event::KeyReleased(k) if k == key))
+                {
+                    modifiers.push(*key);
+                }
+            }
+            if !self.pointer.0.is_finite() {
+                self.pointer = p32((frame.input.pointer.0 - frame.mouse_delta.0, frame.input.pointer.1 - frame.mouse_delta.1));
+            }
+        }
         self.frame_modifiers = modifiers.iter().fold(0, |mask, &key| mask | modifier_bit(key));
-        self.previous_keys.clone_from(&frame.input.keys);
         self.view_w = frame.input.size.0 as f32;
         self.view_h = frame.input.size.1 as f32;
         // a trackpad's motion also arrives as wheel steps: in such a frame those only feed
@@ -3561,7 +3585,7 @@ impl Ui {
         self.gesture_tick(frame.input.t);
         let (mouse_x, mouse_y) = p32(frame.input.pointer);
         self.route_keys = modifiers;
-        if !self.pointer.0.is_finite() {
+        if routing == FrameRouting::Snapshot || !self.pointer.0.is_finite() {
             self.pointer = (mouse_x, mouse_y);
         }
         self.hot = if frame.input.events.iter().any(|e| matches!(e, Event::FocusLost)) {
@@ -3745,7 +3769,8 @@ impl Ui {
                 }
             }
         }
-        let held = self.active.is_some_and(|a| accepts_pointer(a));
+        let held = self.active.is_some_and(accepts_pointer)
+            || (self.snapshot_input && self.active.is_none() && accepts_pointer(self.hot));
         let pointer = held || (self.active.is_none() && frame.input.buttons.is_empty() && accepts_pointer(self.hot));
         for button in &self.cancelled {events.push(Event::PointerCancelled(*button));}
         if self.modal_in_frame {for button in &frame.input.buttons {events.push(Event::PointerCancelled(*button));}}
@@ -4717,13 +4742,14 @@ impl Ui {
 
     /// The box itself is the topmost under the pointer (none of its children are).
     pub fn hovered_exactly(&self, b: &UiBox) -> bool {
-        self.read_exact_hover(b.box_key, self.slots.get(b.box_slot))
+        let key = if self.live(b) { b.box_key } else { 0 };
+        self.read_exact_hover(key, self.slots.get(b.box_slot))
     }
 
     #[inline]
     fn read_exact_hover(&self, key: i64, slot: Option<&Slot>) -> bool {
         if self.view_cur != 0 && key != 0 {
-            if let Some(slot) = slot.filter(|slot| slot.owner == self.view_cur && slot.key == key) {
+            if let Some(slot) = slot.filter(|slot| slot.owner == self.view_cur) {
                 slot.hover_read_at.set(self.frame_number);
             } else {
                 self.read_extra_hover(key, false);
@@ -6070,21 +6096,17 @@ impl Ui {
     }
 }
 
-/// `v` held to `[min, max]`; the minimum wins.
-/// `kept` becomes a copy of `f` in the storage it already has (a frame with input allocated twice).
+/// Retain input metadata and held state. The ordered events are already in `routed_events`.
 fn keep_frame(kept: &mut Option<rframe::Frame>, f: &rframe::Frame) {
-    let k = kept.get_or_insert_with(|| {
-        let mut input=input::at_time(0.0);
-        input.events.reserve(input::EVENT_RESERVE);
-        rframe::Frame { input, pixel_scale:(1.0,1.0),fps:0.0,mouse_delta:(0.0,0.0) }
+    let k = kept.get_or_insert_with(|| rframe::Frame {
+        input: input::at_time(0.0), pixel_scale: (1.0, 1.0), fps: 0.0, mouse_delta: (0.0, 0.0),
     });
     let rframe::Frame { input, pixel_scale, fps, mouse_delta } = f;
-    let input::Frame { t, dt, frame, tick, size, pointer, buttons, keys, events } = input;
+    let input::Frame { t, dt, frame, tick, size, pointer, buttons, keys, .. } = input;
     let i = &mut k.input;
     (i.t, i.dt, i.frame, i.tick, i.size, i.pointer) = (*t, *dt, *frame, *tick, *size, *pointer);
     i.buttons.clone_from(buttons);
     i.keys.clone_from(keys);
-    i.events.clone_from(events);
     (k.pixel_scale, k.fps, k.mouse_delta) = (*pixel_scale, *fps, *mouse_delta);
 }
 
@@ -7694,14 +7716,20 @@ impl Ui {
     /// click or key is seen twice), at most twice, so no stale frame is shown.
     #[inline]
     pub fn frame(&mut self, frame: &rframe::Frame, f: &mut dyn FnMut(&mut Ui)) -> FrameOut<'_> {
-        self.build_frame(frame, f);
+        self.build_frame(frame, f, FrameRouting::Events);
         self.output()
     }
 
-    fn build_frame(&mut self, frame: &rframe::Frame, f: &mut dyn FnMut(&mut Ui)) {
+    /// A frame with the host's authoritative held input and pointer.
+    pub fn frame_with_snapshot(&mut self, frame: &rframe::Frame, f: &mut dyn FnMut(&mut Ui)) -> FrameOut<'_> {
+        self.build_frame(frame, f, FrameRouting::Snapshot);
+        self.output()
+    }
+
+    fn build_frame(&mut self, frame: &rframe::Frame, f: &mut dyn FnMut(&mut Ui), routing: FrameRouting) {
         self.phase_counts = self.phase_counter.map(|_| [0; PHASES]);
         self.first_build = self.frame_number + 1;
-        self.begin_frame(frame);
+        self.begin_frame_with_routing(frame, routing);
         f(self);
         self.end_frame(frame);
         for _ in 0..2 {
@@ -7718,7 +7746,7 @@ impl Ui {
             (quiet.pixel_scale, quiet.fps, quiet.mouse_delta) = (frame.pixel_scale, frame.fps, (0.0, 0.0));
             // a copy or paste the first build asked for is this frame's: the quiet build sees no key to ask again
             let (paste, clipboard) = (self.out.paste, self.out.clipboard.take());
-            self.begin_frame(&quiet);
+            self.begin_frame_with_routing(&quiet, FrameRouting::Settle);
             f(self);
             self.end_frame(&quiet);
             self.out.paste |= paste;
@@ -7743,6 +7771,10 @@ impl Ui {
     }
 
     pub fn begin_frame(&mut self, frame: &rframe::Frame) {
+        self.begin_frame_with_routing(frame, FrameRouting::Events);
+    }
+
+    fn begin_frame_with_routing(&mut self, frame: &rframe::Frame, routing: FrameRouting) {
         if self.destroyed {
             panic!("Ui.frame: the UI was destroyed");
         }
@@ -7796,7 +7828,7 @@ impl Ui {
         }
         let previous_input = (self.hot, self.active, self.focus, self.keyboard_focus);
         let accessible_input = !self.a11y_pending.is_empty();
-        self.route(frame);
+        self.route(frame, routing);
         self.dismissed_popups.clear();
         self.apply_a11y();
         if accessible_input || (!frame.input.events.is_empty()

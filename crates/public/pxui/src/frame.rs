@@ -1,7 +1,6 @@
 use crate::{Appearance, Environment, Event, Keyboard, WireFrame};
 
-/// The input to one UI frame: the surface it is for, its ordered events and the host's geometry and preferences. There is one frame
-/// call and one record; a host that tracks held keys itself sends the key events.
+/// The surface, events, geometry and preferences for a UI frame.
 #[derive(Clone, Copy, Debug)]
 pub struct FrameIn<'a> {
     /// The event-mode record. Keep all of its event records and their payloads alive
@@ -121,4 +120,28 @@ impl<'a> FrameIn<'a> {
     /// assert_eq!(FrameIn::new(20.0, 20.0).keyboard(keyboard).wire.keyboard, keyboard);
     /// ```
     pub const fn keyboard(mut self, keyboard: Keyboard) -> FrameIn<'a> { self.wire.keyboard = keyboard; self }
+}
+
+
+/// Authoritative host state after the ordered events supplied in [FrameIn].
+#[derive(Clone, Copy, Debug)]
+pub struct InputSnapshot<'a> {
+    /// Held key codes.
+    pub keys: &'a [u32],
+    /// Held pointer button codes.
+    pub buttons: &'a [u32],
+    /// Pointer position in logical points.
+    pub pointer: [f64; 2],
+    /// Pointer movement since the previous frame in logical points.
+    pub mouse_delta: [f64; 2],
+    /// Drawable pixels per logical point on each axis.
+    pub pixel_scale: [f64; 2],
+    /// Elapsed seconds since the previous frame.
+    pub dt: f64,
+    /// Frame serial.
+    pub frame: i64,
+    /// Input update serial.
+    pub tick: i64,
+    /// Frame rate in frames per second.
+    pub fps: f64,
 }

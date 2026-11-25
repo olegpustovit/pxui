@@ -104,7 +104,7 @@ pub use image::ImageStyle;
 mod text_inputs;
 pub use text_inputs::ScrubPhase;
 mod frame;
-pub use frame::FrameIn;
+pub use frame::{FrameIn, InputSnapshot};
 mod kit;
 pub use pxui_types::ui::{Keyframes, Rate, Repeat};
 #[path = "a11y.rs"]
@@ -196,6 +196,7 @@ mod sys {
         pub fn pxui_ui_remove_surface(ui:*mut PxuiUi,surface:u64)->i32;
         pub fn pxui_ui_input(ui: *mut PxuiUi, has_owner: u8, owner: i64, out: *mut pxui_types::ffi::Input) -> i32;
         pub fn pxui_frame(ui:*mut PxuiUi,input:*const FrameIn,build:pxui_types::ffi::UiBuild,user:*mut c_void,out:*mut FrameOut)->i32;
+        pub fn pxui_frame_with_snapshot(ui: *mut PxuiUi, input: *const FrameIn, snapshot: *const pxui_types::ffi::PxuiInputSnapshot, build: pxui_types::ffi::UiBuild, user: *mut c_void, out: *mut FrameOut) -> i32;
         pub fn pxui_ui_within(ui:*mut PxuiUi,box_:*const PxuiBox,build:pxui_types::ffi::UiBuild,user:*mut c_void)->i32;
         pub fn pxui_ui_scope(ui:*mut PxuiUi,label:Str,build:pxui_types::ffi::UiBuild,user:*mut c_void)->i32;
         pub fn pxui_renderer_prepare(renderer:*mut PxuiRenderer,commands:*const pxui_types::Commands,frame:u64,completed:u64)->i32;
@@ -591,29 +592,95 @@ pub struct RoutedInput<'a> {
     _ui: PhantomData<&'a mut Ui>,
 }
 
+/// Iterates the routed snapshot's events in arrival order.
+pub struct RoutedEvents<'a> {
+    input: &'a Input,
+    indices: core::ops::Range<usize>,
+}
+
+impl<'a> Iterator for RoutedEvents<'a> {
+    type Item = &'a Event;
+
+    fn next(&mut self) -> Option<Self::Item> { self.nth(0) }
+
+    fn nth(&mut self, n: usize) -> Option<Self::Item> {
+        let index = self.indices.nth(n)?;
+        // The snapshot validated the span and retains its exclusive UI borrow.
+        Some(unsafe { self.input.events.at(index) })
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) { self.indices.size_hint() }
+}
+
+impl ExactSizeIterator for RoutedEvents<'_> {}
+
 impl RoutedInput<'_> {
     /// The frame's timing, geometry and raw spans.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let mut ui = pxui::doc::frames(1, &mut |_| {});
+    /// let routed = ui.routed_input(None).unwrap();
+    /// assert!(routed.input().logical_size[0] > 0);
+    /// ```
     pub fn input(&self) -> &Input { &self.raw }
 
     /// Key codes currently held for this owner.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let mut ui = pxui::doc::frames(1, &mut |_| {});
+    /// let routed = ui.routed_input(None).unwrap();
+    /// assert!(routed.keys().is_empty());
+    /// ```
     pub fn keys(&self) -> &[u32] {
         let span = self.raw.keys;
         if span.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(span.ptr, span.len) } }
     }
 
     /// Button codes currently held for this owner.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let mut ui = pxui::doc::frames(1, &mut |_| {});
+    /// let routed = ui.routed_input(None).unwrap();
+    /// assert!(routed.buttons().is_empty());
+    /// ```
     pub fn buttons(&self) -> &[u32] {
         let span = self.raw.buttons;
         if span.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(span.ptr, span.len) } }
     }
 
     /// Events in arrival order, borrowing their payloads from the library.
-    pub fn events(&self) -> core::slice::Iter<'_, Event> {
-        // pxui_ui_input lends a dense span owned by the UI borrowed by this snapshot.
-        unsafe { self.raw.events.as_slice() }.unwrap_or(&[]).iter()
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let mut ui = pxui::doc::frames(1, &mut |_| {});
+    /// let routed = ui.routed_input(None).unwrap();
+    /// assert_eq!(routed.events().len(), 0);
+    /// ```
+    pub fn events(&self) -> RoutedEvents<'_> {
+        RoutedEvents { input: &self.raw, indices: 0..self.raw.events.len }
     }
 
     /// The numeric payload of a touch event at the supplied index.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let mut ui = pxui::doc::frames(1, &mut |_| {});
+    /// let routed = ui.routed_input(None).unwrap();
+    /// assert!(routed.touch(0).is_none());
+    /// ```
     pub fn touch(&self, index: usize) -> Option<Touch> {
         let event = self.events().nth(index)?;
         if event.kind != Event::TOUCH || event.text.ptr.is_null() || event.text.len != core::mem::size_of::<Touch>() {
@@ -794,8 +861,8 @@ impl Ui {
 
     /// Routes the frame's input and builds its draw and platform output.
     ///
-    /// The host supplies logical points and a monotonic time in seconds. A frame can carry
-    /// event edges or an authoritative host snapshot. The returned draw output borrows the Ui.
+    /// The host supplies ordered event edges, logical points and a monotonic time in seconds.
+    /// Use [Ui::frame_with_snapshot] if the host owns the held input state. The draw output borrows the Ui.
     /// Malformed input returns `Error::InvalidInput`. Calling inside a frame callback returns
     /// `Error::State`. A panic caught inside the library returns `Error::Panic`.
     /// Allocates: when input or retained build storage grows.
@@ -835,6 +902,58 @@ impl Ui {
         if rc==0 { Ok(Frame { out, _ui:PhantomData }) } else { Err(Error::from_code(rc)) }
     }
 
+    /// Routes ordered events using a host's authoritative held input.
+    ///
+    /// The snapshot describes the end of the event batch. Held state never creates an edge.
+    /// The snapshot supplies drawable scale and timing metadata. The frame supplies the
+    /// surface, event edges, clock time and logical size. Invalid records return `Error::InvalidInput`.
+    /// Allocates: when input or retained build storage grows.
+    /// Panics: a panic in the builder or its callbacks resumes after the library returns.
+    ///
+    /// ```
+    /// let mut ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
+    /// let snapshot = pxui::InputSnapshot {
+    ///     keys: &[], buttons: &[], pointer: [10.0, 12.0], mouse_delta: [0.0; 2],
+    ///     pixel_scale: [2.0; 2], dt: 0.016, frame: 1, tick: 1, fps: 60.0,
+    /// };
+    /// ui.frame_with_snapshot(&pxui::FrameIn::new(320.0, 240.0), &snapshot, &mut |_| {}).unwrap();
+    /// assert_eq!(ui.routed_input(None).unwrap().input().pointer, [10.0, 12.0]);
+    /// ```
+    pub fn frame_with_snapshot(&mut self, input: &FrameIn<'_>, snapshot: &InputSnapshot<'_>, mut build: &mut dyn FnMut(&mut Ui)) -> Result<Frame<'_>, Error> {
+        let mut out = FrameOut::default();
+        // the wire record points at the borrowed events for this call only, whatever `input.wire.events` held
+        let mut wire = input.wire;
+        wire.events = pxui_types::ffi::Strided::of(input.events);
+        // the records' sizes are the library's own, whatever the caller's `wire` holds
+        wire.size = core::mem::size_of::<WireFrame>() as u32;
+        wire.environment.size = core::mem::size_of::<Environment>() as u32;
+        wire.keyboard.size = core::mem::size_of::<Keyboard>() as u32;
+        let snapshot = pxui_types::ffi::PxuiInputSnapshot {
+            size: core::mem::size_of::<pxui_types::ffi::PxuiInputSnapshot>() as u32,
+            keys: Slice { ptr: snapshot.keys.as_ptr(), len: snapshot.keys.len() },
+            buttons: Slice { ptr: snapshot.buttons.as_ptr(), len: snapshot.buttons.len() },
+            pointer: snapshot.pointer, mouse_delta: snapshot.mouse_delta, pixel_scale: snapshot.pixel_scale,
+            dt: snapshot.dt, frame: snapshot.frame, tick: snapshot.tick, fps: snapshot.fps,
+        };
+        #[cfg(feature = "static")]
+        let rc = unsafe {
+            let outer = self.0.as_ptr();
+            let mut invoke = |engine: &mut pxui_abi_link::trusted::Engine| {
+                let mut borrowed = pxui_abi_link::trusted::Borrowed::new(engine, outer);
+                build(&mut core::mem::ManuallyDrop::new(Ui(core::ptr::NonNull::new_unchecked(borrowed.enter()))));
+            };
+            pxui_abi_link::trusted::frame_with_snapshot(outer, &wire, &snapshot, &mut invoke, &mut out)
+        };
+        #[cfg(not(feature = "static"))]
+        let rc = unsafe {
+            let call: pxui_types::ffi::UiBuild = Some(composite::call);
+            let user = (&mut build as *mut &mut dyn FnMut(&mut Ui)).cast::<c_void>();
+            sys::pxui_frame_with_snapshot(self.0.as_ptr(), &wire, &snapshot, call, user, &mut out)
+        };
+        composite::resume_deferred();
+        if rc==0 { Ok(Frame { out, _ui:PhantomData }) } else { Err(Error::from_code(rc)) }
+    }
+
     /// Reads the latest frame as routed to a viewport's resolved root key, or to the
     /// application if `owner` is `None`. Returns `Error::State` before the first frame.
     ///
@@ -845,10 +964,8 @@ impl Ui {
     /// let mut ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
     /// assert!(matches!(ui.routed_input(None), Err(pxui::Error::State)));
     /// let dropped = "/tmp/a.flac\0/tmp/b.flac";
-    /// let event = pxui::Event {
-    ///     x: 10.0, y: 20.0, text: pxui::Str { ptr: dropped.as_ptr(), len: dropped.len() },
-    ///     ..pxui::Event::new(pxui::Event::FILES_DROPPED)
-    /// };
+    /// let mut event = pxui::Event::pointer(pxui::Event::FILES_DROPPED, 0, 10.0, 20.0);
+    /// event.text = pxui::Str::from(dropped);
     /// ui.frame(&pxui::FrameIn::new(320.0, 240.0).events(&[event]), &mut |_| {}).unwrap();
     /// let snapshot = ui.routed_input(Some(123)).unwrap();
     /// let mut events = snapshot.events();

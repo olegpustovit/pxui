@@ -143,3 +143,4 @@ and name the replacement; nothing is removed from the manifest.
 | 2.11 | Added `pxui_renderer_draw_damage_rects` to replay retained geometry under multiple device-pixel scissors. |
 | 2.12 | Added `pxui_ui_promote`, `pxui_ui_set_promotion`, `pxui_ui_promoted` and `pxui_renderer_exclude_promoted`. Apple hosts composite qualified vector fills separately and retain the instances for capture and demotion. |
 | 2.13 | Added `pxui_renderer_composite`. With exclusion enabled, prepare caches promoted content and composite blends it in a host-owned pass at the UI density. R9 froze the stable ABI and restored `abi-frozen` and `abi-compat` to Tier B. |
+| 2.14 | Added `pxui_frame_with_snapshot` and `PxuiInputSnapshot` for host-owned held input, pointer, drawable scale and timing. Ordered edges stay in `PxuiFrameIn`. |

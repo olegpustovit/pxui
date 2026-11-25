@@ -51,7 +51,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built: the version the app was built against, PXUI_ABI_BUILT (major << 16 | minor); pxui_ui_create refuses 0, another major and a newer minor (PXUI_ERR_VERSION). */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((2u << 16) | 13u)
+#define PXUI_ABI_BUILT ((2u << 16) | 14u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 /* size-prefixed (16 bytes); pxui_ui_text_input_options needs the caller's size to cover it. */
@@ -92,6 +92,14 @@ typedef struct { uint8_t *ptr; size_t len; } PxuiU8MutSpan;
 typedef struct { float *ptr; size_t len; } PxuiF32MutSpan;
 typedef struct { uint32_t *ptr; size_t len; } PxuiU32MutSpan;
 typedef struct { uint32_t size; double time,dt; int64_t frame,tick; int64_t logical_size[2]; double pointer[2]; PxuiU32Span keys,buttons; PxuiEventSpan events; double pixel_scale[2],mouse_delta[2],fps; } PxuiInput;
+/* ABI 2.14. Authoritative held state after the ordered events in PxuiFrameIn. */
+typedef struct {
+    uint32_t size;
+    PxuiU32Span keys, buttons;
+    double pointer[2], mouse_delta[2], pixel_scale[2], dt;
+    int64_t frame, tick;
+    double fps;
+} PxuiInputSnapshot;
 typedef struct { float x,y,w,h; } PxuiRect;
 typedef struct { float x,y; } PxuiPoint;
 typedef struct { uint8_t r,g,b,a; } PxuiColor;
@@ -608,6 +616,9 @@ int32_t pxui_ui_keyboard(PxuiUi *ui, PxuiKeyboard *out);
 int32_t pxui_ui_text_input_options(PxuiUi *ui, PxuiTextInputOptions *out);
 int32_t pxui_ui_content_rect(PxuiUi *ui, PxuiRect *out);
 int32_t pxui_frame(PxuiUi *ui, const PxuiFrameIn *in, PxuiBuild build, void *user, PxuiFrameOut *out);
+/* Like pxui_frame, with authoritative held keys, buttons, pointer and timing. Held state creates no edge.
+   The events retain their order and surface. The snapshot supplies the drawable scale on each axis. */
+int32_t pxui_frame_with_snapshot(PxuiUi *ui, const PxuiFrameIn *in, const PxuiInputSnapshot *snapshot, PxuiBuild build, void *user, PxuiFrameOut *out);
 /* register / remove the surface of a Ui (a nonzero id). A Ui is created with none: register one before the first frame (an unregistered
    surface is PXUI_ERR_ARGUMENT there). Adding while one is registered (a second id, or the same twice) is PXUI_ERR_STATE (shortcut: one surface per Ui,
    upgrade when the engine keeps per-surface focus/a11y/IME state); removing an id that is not registered is PXUI_ERR_ARGUMENT; both are refused in a frame. */
@@ -1404,6 +1415,7 @@ _Static_assert(sizeof(PxuiFrameReasons) == 264 && offsetof(PxuiFrameReasons, req
 _Static_assert(sizeof(PxuiDamageList) == 136 && offsetof(PxuiDamageList, count) == 0 && offsetof(PxuiDamageList, full) == 1 && offsetof(PxuiDamageList, reserved) == 2 && offsetof(PxuiDamageList, rects) == 8, "PxuiDamageList layout");
 _Static_assert(sizeof(PxuiPromotedKey) == 40 && offsetof(PxuiPromotedKey, time) == 0 && offsetof(PxuiPromotedKey, rect) == 4 && offsetof(PxuiPromotedKey, opacity) == 20 && offsetof(PxuiPromotedKey, curve) == 24, "PxuiPromotedKey layout");
 _Static_assert(sizeof(PxuiPromoted) == 432 && offsetof(PxuiPromoted, layer) == 0 && offsetof(PxuiPromoted, instance) == 4 && offsetof(PxuiPromoted, view) == 8 && offsetof(PxuiPromoted, count) == 10 && offsetof(PxuiPromoted, autoreverse) == 11 && offsetof(PxuiPromoted, hz) == 12 && offsetof(PxuiPromoted, reserved) == 14 && offsetof(PxuiPromoted, content_revision) == 16 && offsetof(PxuiPromoted, start) == 24 && offsetof(PxuiPromoted, offset) == 32 && offsetof(PxuiPromoted, color) == 36 && offsetof(PxuiPromoted, swept) == 40 && offsetof(PxuiPromoted, clip) == 56 && offsetof(PxuiPromoted, keys) == 72, "PxuiPromoted layout");
+_Static_assert(sizeof(PxuiInputSnapshot) == 120 && offsetof(PxuiInputSnapshot, size) == 0 && offsetof(PxuiInputSnapshot, keys) == 8 && offsetof(PxuiInputSnapshot, buttons) == 24 && offsetof(PxuiInputSnapshot, pointer) == 40 && offsetof(PxuiInputSnapshot, mouse_delta) == 56 && offsetof(PxuiInputSnapshot, pixel_scale) == 72 && offsetof(PxuiInputSnapshot, dt) == 88 && offsetof(PxuiInputSnapshot, frame) == 96 && offsetof(PxuiInputSnapshot, tick) == 104 && offsetof(PxuiInputSnapshot, fps) == 112, "PxuiInputSnapshot layout");
 _Static_assert(sizeof(PxuiDiagnostics) == 160 && offsetof(PxuiDiagnostics, size) == 0 && offsetof(PxuiDiagnostics, timing) == 4 && offsetof(PxuiDiagnostics, has_text_layouts) == 5 && offsetof(PxuiDiagnostics, has_cpu) == 6 && offsetof(PxuiDiagnostics, reserved) == 7 && offsetof(PxuiDiagnostics, rebuilt_prefix) == 8 && offsetof(PxuiDiagnostics, calls) == 24 && offsetof(PxuiDiagnostics, text_layouts) == 32 && offsetof(PxuiDiagnostics, rebuilt) == 40 && offsetof(PxuiDiagnostics, phase_nanos) == 48 && offsetof(PxuiDiagnostics, phase_cpu_nanos) == 104, "PxuiDiagnostics layout");
 _Static_assert(sizeof(PxuiFooterConfig) == 88 && offsetof(PxuiFooterConfig, size) == 0 && offsetof(PxuiFooterConfig, row) == 8 && offsetof(PxuiFooterConfig, has_right) == 40 && offsetof(PxuiFooterConfig, right) == 48 && offsetof(PxuiFooterConfig, hints) == 64 && offsetof(PxuiFooterConfig, variant) == 80, "PxuiFooterConfig layout");
 _Static_assert(sizeof(PxuiFooterDesc) == 40 && offsetof(PxuiFooterDesc, size) == 0 && offsetof(PxuiFooterDesc, has_right) == 4 && offsetof(PxuiFooterDesc, reserved) == 5 && offsetof(PxuiFooterDesc, right) == 8 && offsetof(PxuiFooterDesc, ptr) == 24, "PxuiFooterDesc layout");

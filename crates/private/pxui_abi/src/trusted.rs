@@ -359,6 +359,12 @@ fn finite(size: Size) -> bool { !matches!(size, Size::Px(v) | Size::Pct(v) if !v
 #[inline]
 pub unsafe fn frame(ui: *mut PxuiUi, input: &FrameIn, f: Inner, out: &mut FrameOut) -> i32 { unsafe { crate::ui::frame_body(ui, input, f, out) } }
 
+/// One frame with the host's authoritative input snapshot.
+#[inline]
+pub unsafe fn frame_with_snapshot(ui: *mut PxuiUi, input: &FrameIn, snapshot: &pxui_types::ffi::PxuiInputSnapshot, f: Inner, out: &mut FrameOut) -> i32 {
+    unsafe { crate::ui::snapshot_frame_body(ui, input, snapshot, f, out) }
+}
+
 // ---- widgets: Rust types in, so the wrapper passes its own `&str` and slices (no `Str` span to build, nothing to decode)
 
 pub(crate) const MAX_OPTIONS: usize = 4096;
