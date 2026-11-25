@@ -1593,6 +1593,49 @@ fn gpu_rebegin_commands() {
     finish(device);
 }
 
+/// Warm owned submit with nonempty held resources: `submit_native`'s retained shell is recycled
+/// (`free_retained`), so commit + complete allocate 0 after a cold seed frame.
+fn gpu_warm_owned_submit_held_resources_alloc_free() {
+    assert!(mem_sys::COUNTING, "needs counting allocator");
+    let device = open();
+    let queue = be::create_queue(&device).unwrap_or_else(|e| die(e));
+    let texture = be::create_texture(
+        &device,
+        texture_descriptor("warm submit held", 4, &[
+            TextureUsage::RenderAttachment, TextureUsage::TextureCopySrc, TextureUsage::TextureCopyDst,
+        ]),
+    )
+    .unwrap_or_else(|e| die(e));
+    let mut target = be::prepare_render_target(
+        &device,
+        render_target(&texture, Load::Clear, Store::Store, (0., 1., 0., 1.)),
+    )
+    .unwrap_or_else(|e| die(e));
+    let commands = be::begin_commands(&queue).unwrap_or_else(|e| die(e));
+    let encode = |target: &mut be::PreparedRenderTarget| {
+        let pass = be::render_prepared(&commands, target).unwrap_or_else(|e| die(e));
+        be::end_render(&pass).unwrap_or_else(|e| die(e));
+    };
+    // Cold seed: fills free_retained after complete (render keeps the color texture).
+    encode(&mut target);
+    let receipt = be::commit(&commands).unwrap_or_else(|e| die(e));
+    be::complete_through(&queue, receipt.epoch).unwrap_or_else(|e| die(e));
+
+    be::rebegin_commands(&commands).unwrap_or_else(|e| die(e));
+    encode(&mut target);
+    mem_sys::local_reset();
+    let receipt = be::commit(&commands).unwrap_or_else(|e| die(e));
+    be::complete_through(&queue, receipt.epoch).unwrap_or_else(|e| die(e));
+    let allocations = mem_sys::local_alloc_count();
+
+    drop(target);
+    drop(commands);
+    be::destroy_texture(&texture).unwrap_or_else(|e| die(e));
+    be::destroy_queue(&queue).unwrap_or_else(|e| die(e));
+    finish(device);
+    assert_eq!(allocations, 0, "warm owned submit with held resources allocated {allocations}");
+}
+
 fn gpu_owned_rebegin_prepared_target_uses_current_buffer() {
     let device = open();
     let queue = be::create_queue(&device).unwrap_or_else(|e| die(e));
@@ -1648,5 +1691,6 @@ pub const CASES: &[(&str, fn())] = &[
         ("gpu_conformance_render", gpu_conformance_render),
         ("gpu_painter_primitives", gpu_painter_primitives),
         ("gpu_rebegin_commands", gpu_rebegin_commands),
+        ("gpu_warm_owned_submit_held_resources_alloc_free", gpu_warm_owned_submit_held_resources_alloc_free),
         ("gpu_owned_rebegin_prepared_target_uses_current_buffer", gpu_owned_rebegin_prepared_target_uses_current_buffer),
     ];
