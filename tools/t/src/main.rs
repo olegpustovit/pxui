@@ -515,8 +515,17 @@ fn run_tests(
     if record_outcomes(outcomes, timings, &mut failure_code) {
         return report_whole_timeout(run_started);
     }
-    if !editor.is_empty() {
-        let mut shards = vec![(Duration::ZERO, Vec::new()); workers.min(editor.len())];
+    gpu.extend(serial);
+    let gpu_worker = workers > 1 && !editor.is_empty() && gpu.iter().any(group_native_case);
+    let (grouped, isolated) = if gpu_worker {
+        // Only grouped native cases overlap the device-free shards. Isolated budget cases
+        // start after those shards finish, so their timings are free of runner contention.
+        gpu.into_iter().partition(group_native_case)
+    } else {
+        (Vec::new(), gpu)
+    };
+    let mut shards = vec![(Duration::ZERO, Vec::new()); (workers - usize::from(gpu_worker)).min(editor.len())];
+    if !shards.is_empty() {
         let mut weighted: Vec<_> = editor
             .into_iter()
             .map(|case| {
@@ -531,25 +540,32 @@ fn run_tests(
             *total = total.saturating_add(elapsed);
             cases.push(case);
         }
-        let outcomes = thread::scope(|scope| {
-            let jobs: Vec<_> = shards
-                .into_iter()
-                .map(|(_, mut cases)| {
-                    cases.sort_unstable_by_key(|case| case.order);
-                    scope.spawn(move || run_case_groups(&cases, args, run_started, timeout))
-                })
-                .collect();
-            jobs.into_iter().flat_map(|job| job.join().unwrap()).collect::<Vec<_>>()
-        });
-        if record_outcomes(outcomes, timings, &mut failure_code) {
-            return report_whole_timeout(run_started);
-        }
     }
-    gpu.extend(serial);
-    let mut gpu = VecDeque::from(gpu);
+    let timed_out = thread::scope(|scope| {
+        let jobs: Vec<_> = shards
+            .into_iter()
+            .map(|(_, mut cases)| {
+                cases.sort_unstable_by_key(|case| case.order);
+                scope.spawn(move || run_case_groups(&cases, args, run_started, timeout))
+            })
+            .collect();
+        let native_timeout = run_native_cases(grouped, args, run_started, timeout, timings, &mut failure_code);
+        let outcomes = jobs.into_iter().flat_map(|job| job.join().unwrap());
+        record_outcomes(outcomes, timings, &mut failure_code) || native_timeout
+    });
+    if timed_out || run_native_cases(isolated, args, run_started, timeout, timings, &mut failure_code) {
+        return report_whole_timeout(run_started);
+    }
+    failure_code
+}
+
+fn run_native_cases(
+    cases: Vec<TestCase>, args: &Args, run_started: Instant, timeout: Option<Duration>, timings: &mut Vec<TestTiming>, failure_code: &mut i32,
+) -> bool {
+    let mut gpu = VecDeque::from(cases);
     while let Some(case) = gpu.pop_front() {
         if remaining(run_started, timeout).is_some_and(|remaining| remaining.is_zero()) {
-            return report_whole_timeout(run_started);
+            return true;
         }
         let outcomes = if group_native_case(&case) {
             let executable = case.executable.clone();
@@ -561,15 +577,11 @@ fn run_tests(
         } else {
             vec![run_test_case(case, args, run_started, timeout)]
         };
-        if record_outcomes(outcomes, timings, &mut failure_code) {
-            return report_whole_timeout(run_started);
+        if record_outcomes(outcomes, timings, failure_code) {
+            return true;
         }
     }
-    if remaining(run_started, timeout).is_some_and(|remaining| remaining.is_zero()) {
-        report_whole_timeout(run_started)
-    } else {
-        failure_code
-    }
+    remaining(run_started, timeout).is_some_and(|remaining| remaining.is_zero())
 }
 
 fn group_native_case(case: &TestCase) -> bool {
