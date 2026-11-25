@@ -143,10 +143,14 @@ pub(crate) unsafe fn declare(engine: &mut Ui, label: Option<&str>, key: i64, des
     else { unsafe { out.write(crate::state::to_abi_box(b)) } }
 }
 
-/// The ABI checked the resolved-key encoding already. Any `###` in a short label spans byte 1.
+/// The ABI checked the resolved-key encoding already. Labels shorter than its 17 bytes only need
+/// the marker check, and any `###` in up to four bytes spans byte 1.
 #[inline]
 fn checked_label_key(seed: i64, label: &str) -> i64 {
-    if label.len() <= 4 && label.as_bytes().get(1) != Some(&b'#') {
+    let bytes = label.as_bytes();
+    let plain = if bytes.len() <= 4 { bytes.get(1) != Some(&b'#') }
+        else { bytes.len() < 17 && !bytes.contains(&b'#') };
+    if plain {
         pxui_types::ui::hash_range(seed, label, 0, label.len())
     } else {
         pxui_types::ui::key_of(seed, label)
