@@ -1844,6 +1844,31 @@ pub fn search_field_icon_clear_body() {
     idle_allocs("search_field", &install, &search_build);
 }
 
+pub fn focused_search_keeps_its_paint_text_after_another_editor() {
+    let mut ui = new_ui(None);
+    ui.set_a11y(true);
+    let mut build = |ui: &mut Ui| {
+        ui.panel("p", &Overlay::DEFAULT.name("p"), &mut |ui| {
+            ui.search_field("Find", "?", "café", "search", pxui_types::TextTraits::SEARCH);
+            ui.picker("Other", "Other", "", &PickerOpts::default(), (None, None, None), &mut |_, _| {});
+        });
+    };
+    ui.frame(&frame(0.0, vec![]), &mut build);
+    let point = mid(tree_node(&ui, Role::TextField, "Find").rect, 4.0);
+    for e in click_on_at(point) {
+        ui.frame(&frame(0.1, e), &mut build);
+    }
+    ui.frame(&frame(0.2, vec![key_down(Key::End)]), &mut build);
+    let ime = ui.output().platform.ime;
+    let search = tree_node(&ui, Role::TextField, "Find").rect;
+    let ((_, y, _, _), caret) = ime.expect("search field has the keyboard");
+    assert_eq!(y, search.y as i64);
+    assert!(caret > 2, "the caret is at the end of café");
+    ui.frame(&frame(0.3, vec![]), &mut build);
+    assert_eq!(ui.output().platform.ime, ime);
+    ui.destroy();
+}
+
 /// A text field whose editor is a 100-point ink box at the row's start, the label after it.
 fn leading_field(ui: &mut Ui, c: &TextFieldConfig, text: &str, value: &str) {
     ui.set_look(&c.row, Look::NONE, c.state);
@@ -2035,6 +2060,7 @@ pub const CASES: &[(&str, fn())] = &[
     ("picker_label_body", picker_label_body),
     ("kept_view_runs_no_item_body", kept_view_runs_no_item_body),
     ("search_field_icon_clear_body", search_field_icon_clear_body),
+    ("focused_search_keeps_its_paint_text_after_another_editor", focused_search_keeps_its_paint_text_after_another_editor),
     ("text_field_leading_body", text_field_leading_body),
     ("line_field_inked_body", line_field_inked_body),
     ("value_field_topped_body", value_field_topped_body),

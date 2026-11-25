@@ -647,6 +647,16 @@ pub fn window_pxui_compaction_only_damages_changed_paint() {
     };
     ui.frame(&at(0.0, vec![]), &mut |ui| build(ui, 1));
     ui.drawn(0);
+    let old = ui.output().draw[0].instances.to_vec();
+    ui.frame(&at(0.05, vec![]), &mut |ui| build(ui, 0));
+    let layer = &ui.output().draw[0];
+    assert!(!layer.dirty.is_empty());
+    for (a, b) in layer.dirty.iter().copied() {
+        for i in a as usize..b as usize {
+            assert_ne!(old[i], layer.instances[i], "unchanged gap instance {i} was marked dirty");
+        }
+    }
+    ui.drawn(0);
     let before = ui.layer_rewrites().1;
     ui.frame(&at(0.1, vec![]), &mut |ui| build(ui, 80));
     assert!(ui.layer_rewrites().1 > before);

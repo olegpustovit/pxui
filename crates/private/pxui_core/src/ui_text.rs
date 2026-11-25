@@ -850,7 +850,25 @@ pub fn paint_text_edit(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn paint_text_edit_ref(paint:&mut Paint,size:Option<i64>,right:bool,inset:f32,marks:Option<(Rgba,Rgba)>,control:IRect,y:i64,composition:&str,text:&str,caret:usize,anchor:usize) {
+pub(crate) fn paint_staged_edit(
+    paint: &mut Paint, key: i64, range: std::ops::Range<usize>, size: Option<i64>, inset: f32,
+    marks: Option<(Rgba, Rgba)>, control: IRect, y: i64, caret: usize, anchor: usize,
+) {
+    let text = std::mem::take(&mut paint.edit_text);
+    if paint.edit_focus == key {
+        let composition = std::mem::take(&mut paint.composition);
+        paint_text_edit_ref(paint, size, false, inset, marks, control, y, &composition, &text[range], caret, anchor);
+        paint.composition = composition;
+    } else {
+        let (ime, scroll) = (paint.ime, paint.edit_scroll_x);
+        paint_text_edit_ref(paint, size, false, inset, marks, control, y, "", &text[range], caret, anchor);
+        (paint.ime, paint.edit_scroll_x) = (ime, scroll);
+    }
+    paint.edit_text = text;
+}
+
+#[allow(clippy::too_many_arguments)]
+fn paint_text_edit_ref(paint:&mut Paint,size:Option<i64>,right:bool,inset:f32,marks:Option<(Rgba,Rgba)>,control:IRect,y:i64,composition:&str,text:&str,caret:usize,anchor:usize) {
     let (cx, cy, cw, ch) = control;
     // the selection and caret colours (the field look's); `None` hides the caret
     let (tint, caret_color) = match marks {
@@ -2662,7 +2680,7 @@ fn text_field_body(this: &mut Ui, key: &str, text: &str, value: &str, options: p
     };
     {
         let shown_value = changed.as_deref().unwrap_or(value);
-        let chars = |at: usize| shown_value[..at.min(shown_value.len())].chars().count() as u32;
+        let chars = |at: usize| shown_value[..shown_value.floor_char_boundary(at)].chars().count() as u32;
         let selection = edit.as_ref().map_or((0, 0), |e| (chars(e.anchor), chars(e.caret)));
         this.set_role(&row, Role::TextField, crate::a11y::state::EDITABLE);
         this.a11y_name(&row, text);
@@ -2688,12 +2706,11 @@ fn text_field_body(this: &mut Ui, key: &str, text: &str, value: &str, options: p
             let font_size = size.unwrap_or(this.font_px());
             let marks = Some((field.selection, field.caret));
             let (caret, anchor) = (edit.caret, edit.anchor);
+            let key = row.box_key;
+            let range = this.stage_edit_paint(&edit.text);
             this.canvas(&control, move |paint, rect| {
                 let (x, y, w, h) = ints(rect);
-                // the frame's edit text and composition travel in the painter (`paint_begin`): moved out and back, no copy
-                let (text, composition) = (std::mem::take(&mut paint.edit_text), std::mem::take(&mut paint.composition));
-                paint_text_edit_ref(paint,size,false,2.0,marks,(x,y,w,h),label_y(font_size,y-2,h+4),&composition,&text,caret,anchor);
-                (paint.edit_text, paint.composition) = (text, composition);
+                paint_staged_edit(paint, key, range.clone(), size, 2.0, marks, (x, y, w, h), label_y(font_size, y - 2, h + 4), caret, anchor);
             });
         }
         this.edit_work = edit.text;
@@ -2758,8 +2775,7 @@ fn menu_body(this: &mut Ui, key: NodeKey, at: (f32, f32), items: &[MenuItem], me
         // beside the sheet as laid out (a panel's 180 points at least, as the sheet and the submenu are), overlapping it by a point,
         // level with its row; left when no room right
         let beside = Placement { side: Side::Right, align: Along::Start, gap: -1.0, margin: 0.0, flip: true };
-        let at = place_anchored(Rect::new(x, row_top(row) - pad - 1.0, width.max(180.0), 0.0), (sub_width.max(180.0), sub_height), beside, bounds);
-        Rect { w: sub_width, ..at }
+        place_anchored(Rect::new(x, row_top(row) - pad - 1.0, width.max(180.0), 0.0), (sub_width.max(180.0), sub_height), beside, bounds)
     };
     // the rows of the submenus are numbered after those of this menu, in order
     let base_of = |row: usize| items.len() + items[..row].iter().map(|i| i.submenu.len()).sum::<usize>();

@@ -254,9 +254,8 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, (mark, off_fn, image_fn): crate::o
         // the caret shows while the field has the keyboard, empty or not, unless it sits at rest (`at_rest`, nothing typed)
         let marks = (!resting && (this.focused(&search) || !edit.text.is_empty())).then_some((field.selection, field.caret));
         let (caret, anchor) = (edit.caret, edit.anchor);
-        // the focused search's edit text and composition travel in the painter (`paint_begin`), as a text field's do: no copy. An
-        // unfocused search (another node took the focus) paints a copy of its own.
-        let own = (!this.focused(&search)).then(|| (edit.text.clone(), this.composition().to_owned()));
+        let key = search.box_key;
+        let range = this.stage_edit_paint(&edit.text);
         // a body's own `Part::EDITOR` is the editing surface: the query painted on it, 2 points in, in its look's font (U2b.4.15)
         let editor = this.part_built(search.box_key, crate::theme::Part::EDITOR).map(|part| {
             let font = this.node_at(part.index).look.font;
@@ -268,14 +267,7 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, (mark, off_fn, image_fn): crate::o
             let (cx, cy, cw, ch) = ints(rect);
             let control = (cx + prefix, cy, 1.max(cw - prefix), ch);
             let y = label_y(line, cy, ch);
-            match &own {
-                Some((text, composition)) => paint_text_edit_ref(paint, size, false, inset, marks, control, y, composition, text, caret, anchor),
-                None => {
-                    let (text, composition) = (std::mem::take(&mut paint.edit_text), std::mem::take(&mut paint.composition));
-                    paint_text_edit_ref(paint, size, false, inset, marks, control, y, &composition, &text, caret, anchor);
-                    (paint.edit_text, paint.composition) = (text, composition);
-                }
-            }
+            paint_staged_edit(paint, key, range.clone(), size, inset, marks, control, y, caret, anchor);
         });
         this.edit_work = edit.text;
     }

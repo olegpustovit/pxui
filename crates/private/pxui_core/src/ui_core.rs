@@ -1356,6 +1356,7 @@ pub struct Ui {
     pub(crate) text_input_options: pxui_types::TextTraits,
     pub edit_value: String,
     pub(crate) edit_work: String,
+    edit_paint_text: String,
     /// the text `search_field`, `value_field` and `text_area_submit` return borrowed: valid until the next call on the Ui
     pub(crate) returned: String,
     /// The box of the text input widget (text field, line field, search field, text area, value field) built last.
@@ -1699,6 +1700,7 @@ impl Ui {
             text_input_options: pxui_types::TextTraits::default(),
             edit_value: String::new(),
             edit_work: String::new(),
+            edit_paint_text: String::new(),
             returned: String::new(),
             input_box: None,
             area_cache: Vec::new(),
@@ -4972,6 +4974,12 @@ impl Ui {
         self.slots[b.box_slot].text_value = value;
     }
 
+    pub(crate) fn stage_edit_paint(&mut self, text: &str) -> std::ops::Range<usize> {
+        let start = self.edit_paint_text.len();
+        self.edit_paint_text.push_str(text);
+        start..self.edit_paint_text.len()
+    }
+
     /// Free-form drawing with the node's final laid-out rectangle, after its look and before its
     /// children. The closure lives in the frame arena: it runs once after layout and is dropped when
     /// painting ends.
@@ -6256,8 +6264,9 @@ pub struct Paint {
     /// the focused text's input area and caret offset
     pub ime: Option<((i64, i64, i64, i64), i64)>,
     label: String,
-    /// the focused text field's value and the IME composition this frame's edit canvas paints, lent by `Ui`
+    /// Text staged together with each deferred edit canvas's selection.
     pub(crate) edit_text: String,
+    pub(crate) edit_focus: i64,
     pub(crate) composition: String,
     /// the horizontal scroll of the focused text; painters adjust it
     pub edit_scroll_x: f32,
@@ -7337,7 +7346,8 @@ impl Ui {
             glyph_light_memo: [([0; 2], [0; 2]); 2],
             ime: None,
             label: std::mem::take(&mut self.label),
-            edit_text: std::mem::take(&mut self.edit_work),
+            edit_text: std::mem::take(&mut self.edit_paint_text),
+            edit_focus: self.focus,
             composition: std::mem::take(&mut self.composition),
             edit_scroll_x: self.edit_scroll_x,
             composition_selection: self.composition_selection,
@@ -7371,7 +7381,7 @@ impl Ui {
         self.thumb_shown = shown;
         self.text = Some(text);
         self.label = label;
-        self.edit_work = edit_text;
+        self.edit_paint_text = edit_text;
         self.composition = composition;
         self.l_content = l_content;
         self.scroll_y = scroll_y;
@@ -7670,6 +7680,7 @@ impl Ui {
             b.over = arena::EMPTY;
         }
         self.arena.reset();
+        self.edit_paint_text.clear();
     }
 
     /// Advance the running transitions to `t` without building, laying out or painting: each
@@ -10011,7 +10022,7 @@ impl Ui {
 
     fn clear_piece_gap(&mut self, layer: &mut Layer, start: u32, end: u32, damage_tracked: bool) -> bool {
         let gap = &mut layer.instances[start as usize..end as usize];
-        if self.full_damage || damage_tracked {
+        if self.full_damage {
             if gap.iter().all(|i| *i == EMPTY) { return false; }
             gap.fill(EMPTY);
             layer.bounds[start as usize..end as usize].fill(EMPTY_BOUNDS);
@@ -10021,7 +10032,7 @@ impl Ui {
         let mut changed = false;
         for (offset, instance) in gap.iter_mut().enumerate() {
             if *instance != EMPTY {
-                self.damage_instance(instance);
+                if !damage_tracked { self.damage_instance(instance); }
                 *instance = EMPTY;
                 let i = start + offset as u32;
                 layer.bounds[i as usize] = EMPTY_BOUNDS;

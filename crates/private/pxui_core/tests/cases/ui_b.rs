@@ -205,14 +205,14 @@ pub fn window_pxui_submenu() {
     submenu(&mut ui, vec![]);
     submenu(&mut ui, vec![move_to((60, 38))]);
     // the submenu sits beside the 180-point sheet (20..200), overlapping it by a point
-    submenu(&mut ui, vec![move_to((250, 62))]);
-    if submenu(&mut ui, vec![press((250, 62))]) != Chosen::default() {
+    submenu(&mut ui, vec![move_to((360, 62))]);
+    if submenu(&mut ui, vec![press((360, 62))]) != Chosen::default() {
         fail("submenu committed on press");
     }
     if submenu(&mut ui, vec![]) != Chosen::default() {
         fail("submenu lost capture between frames");
     }
-    if submenu(&mut ui, vec![release((250, 62))]).chosen != Some(3) {
+    if submenu(&mut ui, vec![release((360, 62))]).chosen != Some(3) {
         fail("submenu did not commit on release");
     }
     if !submenu(&mut ui, vec![press((500, 300))]).dismissed {

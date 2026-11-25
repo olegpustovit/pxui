@@ -1464,12 +1464,11 @@ fn search_field_body(this: &mut Ui, label: &str, icon: &str, value: &str, placeh
                 let font_size = size.unwrap_or(ui.font_px());
                 let marks = Some((look.selection, look.caret));
                 let (caret, anchor) = (edit.caret, edit.anchor);
-                // the edit text and composition travel in the painter (`paint_begin`), as a text field's do: no copy
+                let key = field.box_key;
+                let range = ui.stage_edit_paint(&edit.text);
                 ui.canvas(&field, move |paint, rect| {
                     let r = crate::ui_kit::ints(rect);
-                    let (text, composition) = (std::mem::take(&mut paint.edit_text), std::mem::take(&mut paint.composition));
-                    crate::ui_text::paint_text_edit_ref(paint, size, false, 2.0, marks, r, crate::ui_kit::label_y(font_size, r.1, r.3), &composition, &text, caret, anchor);
-                    (paint.edit_text, paint.composition) = (text, composition);
+                    crate::ui_text::paint_staged_edit(paint, key, range.clone(), size, 2.0, marks, r, crate::ui_kit::label_y(font_size, r.1, r.3), caret, anchor);
                 });
                 ui.edit_work = edit.text;
             }
