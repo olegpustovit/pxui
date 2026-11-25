@@ -104,13 +104,19 @@ fn declare(context: &CommandContext, encoder: &RenderEncoder, resources: &[Rc<dy
 /// One render pass: the context it records into and the native encoder and pass descriptor.
 struct Render {
     context: Rc<CommandContext>,
-    encoder: RenderEncoder,
+    encoder: Option<RenderEncoder>,
     pass: Option<RenderPassDescriptor>,
     width_px: u32,
     height_px: u32,
     scale: f32,
     declared: std::cell::RefCell<Vec<i64>>,
     reusable: bool,
+}
+
+impl Render {
+    fn encoder(&self) -> &RenderEncoder {
+        self.encoder.as_ref().expect("render encoder")
+    }
 }
 
 thread_local! {
@@ -153,10 +159,13 @@ pub fn create(context: &Rc<CommandContext>, target: &DriverRenderTarget) -> Resu
         pass.set_resolve_texture(Some(resolve.metal())).map_err(&fail_pass)?;
     }
     pass.set_actions(target.actions()).map_err(&fail_pass)?;
-    let encoder = RenderEncoder::create(context.cb(), &pass).map_err(&fail_pass)?;
+    let encoder = {
+        let mut spare = context.tables.encoder_spare.borrow_mut();
+        RenderEncoder::obtain(context.cb(), &pass, &mut spare).map_err(&fail_pass)?
+    };
     *context.open_encoder.borrow_mut() = Some(OpenEncoder::Render(encoder.clone(), pass.clone()));
     // Residency tokens: reuse a small buffer; declare only pushes on cold passes.
-    Ok(Box::new(Render { context: context.clone(), encoder, pass: Some(pass), width_px: target.target_width as u32, height_px: target.target_height as u32, scale: 1.0, declared: std::cell::RefCell::new(take_declared()), reusable:false }))
+    Ok(Box::new(Render { context: context.clone(), encoder: Some(encoder), pass: Some(pass), width_px: target.target_width as u32, height_px: target.target_height as u32, scale: 1.0, declared: std::cell::RefCell::new(take_declared()), reusable:false }))
 }
 
 pub fn adopt(context: &Rc<CommandContext>, native: ogpu_core::backend::NativePass) -> Result<Box<dyn DriverRenderEncoder>, Error> {
@@ -165,13 +174,13 @@ pub fn adopt(context: &Rc<CommandContext>, native: ogpu_core::backend::NativePas
     }
     let encoder = RenderEncoder::adopt_raw(context.cb(), native.mtl_render_encoder)?;
     *context.open_encoder.borrow_mut() = Some(OpenEncoder::AdoptedRender(encoder.clone()));
-    Ok(Box::new(Render { context: context.clone(), encoder, pass: None, width_px: native.width_px, height_px: native.height_px, scale: native.scale, declared: std::cell::RefCell::new(take_declared()), reusable:false }))
+    Ok(Box::new(Render { context: context.clone(), encoder: Some(encoder), pass: None, width_px: native.width_px, height_px: native.height_px, scale: native.scale, declared: std::cell::RefCell::new(take_declared()), reusable:false }))
 }
 
 impl DriverRenderEncoder for Render {
     fn render_set_pipeline(&self, pipeline: &dyn DriverPipeline) -> Result<(), Error> {
         let native = render_pipeline(&self.context, pipeline)?;
-        self.encoder.set_pipeline(&native)
+        self.encoder().set_pipeline(&native)
     }
 
     fn set_stage_buffer(&self, stage: ShaderStage, index: i64, offset: i64, resource: &dyn DriverResource) -> Result<(), Error> {
@@ -179,8 +188,8 @@ impl DriverRenderEncoder for Render {
         let buffer = c.find_buffer(resource)?;
         c.keep_buffer(buffer)?;
         match stage {
-            ShaderStage::Vertex => self.encoder.set_vertex_buffer(index as usize, offset as u64, buffer.metal()),
-            ShaderStage::Fragment => self.encoder.set_fragment_buffer(index as usize, offset as u64, buffer.metal()),
+            ShaderStage::Vertex => self.encoder().set_vertex_buffer(index as usize, offset as u64, buffer.metal()),
+            ShaderStage::Fragment => self.encoder().set_fragment_buffer(index as usize, offset as u64, buffer.metal()),
         }
     }
 
@@ -189,8 +198,8 @@ impl DriverRenderEncoder for Render {
         let texture = c.find_texture(resource)?;
         c.keep_texture(texture)?;
         match stage {
-            ShaderStage::Vertex => self.encoder.set_vertex_texture(index as usize, texture.metal()),
-            ShaderStage::Fragment => self.encoder.set_fragment_texture(index as usize, texture.metal()),
+            ShaderStage::Vertex => self.encoder().set_vertex_texture(index as usize, texture.metal()),
+            ShaderStage::Fragment => self.encoder().set_fragment_texture(index as usize, texture.metal()),
         }
     }
 
@@ -201,47 +210,47 @@ impl DriverRenderEncoder for Render {
         };
         c.keep_sampler(sampler)?;
         match stage {
-            ShaderStage::Vertex => self.encoder.set_vertex_sampler(index as usize, sampler.metal()),
-            ShaderStage::Fragment => self.encoder.set_fragment_sampler(index as usize, sampler.metal()),
+            ShaderStage::Vertex => self.encoder().set_vertex_sampler(index as usize, sampler.metal()),
+            ShaderStage::Fragment => self.encoder().set_fragment_sampler(index as usize, sampler.metal()),
         }
     }
 
     fn set_viewport(&self, rect: ogpu_core::render_pass::AdmittedViewport) -> Result<(), Error> {
-        self.encoder.set_viewport(rect)
+        self.encoder().set_viewport(rect)
     }
 
     fn set_scissor(&self, rect: Rect) -> Result<(), Error> {
-        self.encoder.set_scissor(Scissor { x: rect.x as usize, y: rect.y as usize, width: rect.width as usize, height: rect.height as usize })
+        self.encoder().set_scissor(Scissor { x: rect.x as usize, y: rect.y as usize, width: rect.width as usize, height: rect.height as usize })
     }
 
     fn set_cull(&self, cull: Cull) -> Result<(), Error> {
-        self.encoder.set_cull_mode(cull)
+        self.encoder().set_cull_mode(cull)
     }
 
     fn set_winding(&self, winding: OgpuWinding) -> Result<(), Error> {
-        self.encoder.set_winding(winding)
+        self.encoder().set_winding(winding)
     }
 
     fn set_depth_state(&self, state: Option<DepthState>) -> Result<(), Error> {
         let c = &self.context;
         match state {
-            None => self.encoder.set_depth_stencil_state(None),
+            None => self.encoder().set_depth_stencil_state(None),
             Some(state) => {
                 let native = c.depth_state(state)?;
-                self.encoder.set_depth_stencil_state(Some(&native))
+                self.encoder().set_depth_stencil_state(Some(&native))
             }
         }
     }
 
     fn draw(&self, primitive: OgpuPrimitive, first: i64, count: i64, instances: i64) -> Result<(), Error> {
-        self.encoder.draw_primitives(primitive, first as usize, count as usize, instances as usize)
+        self.encoder().draw_primitives(primitive, first as usize, count as usize, instances as usize)
     }
 
     fn draw_indexed(&self, primitive: OgpuPrimitive, index_type: OgpuIndex, resource: &dyn DriverResource, offset: i64, count: i64, instances: i64) -> Result<(), Error> {
         let c = &self.context;
         let buffer = c.find_buffer(resource)?;
         c.keep_buffer(buffer)?;
-        self.encoder.draw_indexed(
+        self.encoder().draw_indexed(
             primitive,
             index_type,
             buffer.metal(),
@@ -257,7 +266,7 @@ impl DriverRenderEncoder for Render {
         let arguments = c.find_buffer(arguments)?;
         c.keep_buffer(buffer)?;
         c.keep_buffer(arguments)?;
-        self.encoder.draw_indexed_indirect(
+        self.encoder().draw_indexed_indirect(
             primitive,
             index_type,
             buffer.metal(),
@@ -268,67 +277,76 @@ impl DriverRenderEncoder for Render {
     }
 
     fn draw_batch(&self, draws: &[DriverBatchDraw]) -> Result<(), Error> {
-        draw_batch(&self.context, &self.encoder, draws)
+        draw_batch(&self.context, self.encoder(), draws)
     }
 
     fn use_resources(&self, resources: &[Rc<dyn DriverResource>]) -> Result<(), Error> {
-        use_resources(&self.context, &self.encoder, resources, &mut self.declared.borrow_mut())
+        use_resources(&self.context, self.encoder(), resources, &mut self.declared.borrow_mut())
     }
 
     fn execute_icb(&self, icb: &dyn DriverIcb, location: i64, length: i64) -> Result<(), Error> {
         match icb.as_any().downcast_ref::<crate::backend::MetalIcb>() {
             None => Err(fail(self.context.operation, ErrorKind::InvalidArgument, "indirect command buffer graph is incomplete")),
-            Some(icb) => self.encoder.execute_indirect_commands(&icb.entry.icb, location as usize, length as usize),
+            Some(icb) => self.encoder().execute_indirect_commands(&icb.entry.icb, location as usize, length as usize),
         }
     }
 
     fn end_render(&self) -> Result<(), Error> {
         *self.context.open_encoder.borrow_mut() = None;
         // Pass returns to the spare pool in Drop, after this encoder has detached.
-        self.encoder.end_encoding()
+        self.encoder().end_encoding()
     }
     fn retain_for_reuse(&mut self) -> bool { self.reusable=self.pass.is_some(); self.reusable }
     fn restart(&mut self) -> Result<bool, Error> {
         if !self.reusable || self.context.open_encoder.borrow().is_some() { return Ok(false); }
-        if !self.encoder.restart(self.context.cb())? { return Ok(false); }
+        let enc = self.encoder.as_mut().expect("render encoder");
+        if !enc.restart(self.context.cb())? { return Ok(false); }
         let pass=self.pass.as_ref().expect("reusable owned pass");
-        *self.context.open_encoder.borrow_mut()=Some(OpenEncoder::Render(self.encoder.clone(),pass.clone()));
+        *self.context.open_encoder.borrow_mut()=Some(OpenEncoder::Render(enc.clone(),pass.clone()));
         self.declared.get_mut().clear();
         Ok(true)
     }
     /// The app's next pass on the same (readopted) command buffer, in this ended adopted encoder's objects.
     fn readopt(&mut self, native: ogpu_core::backend::NativePass) -> Result<bool, Error> {
         if native.mtl_render_encoder.is_null() || self.pass.is_some() || self.context.open_encoder.borrow().is_some() { return Ok(false); }
-        if !self.encoder.readopt(self.context.cb(), native.mtl_render_encoder)? { return Ok(false); }
-        *self.context.open_encoder.borrow_mut() = Some(OpenEncoder::AdoptedRender(self.encoder.clone()));
+        let enc = self.encoder.as_mut().expect("render encoder");
+        if !enc.readopt(self.context.cb(), native.mtl_render_encoder)? { return Ok(false); }
+        *self.context.open_encoder.borrow_mut() = Some(OpenEncoder::AdoptedRender(enc.clone()));
         (self.width_px, self.height_px, self.scale) = (native.width_px, native.height_px, native.scale);
         self.declared.get_mut().clear();
         Ok(true)
     }
     fn native_pass(&self) -> Result<ogpu_core::backend::NativePass, Error> {
         Ok(ogpu_core::backend::NativePass { size: std::mem::size_of::<ogpu_core::backend::NativePass>() as u32,
-            mtl_render_encoder: self.encoder.native_ptr()?, width_px: self.width_px, height_px: self.height_px, scale: self.scale, ..Default::default() })
+            mtl_render_encoder: self.encoder().native_ptr()?, width_px: self.width_px, height_px: self.height_px, scale: self.scale, ..Default::default() })
     }
     /// Another OGPU copy drew into this pass: put back the state a new encoder starts with (Metal keeps no
     /// cached bindings here; the core makes the caller set its pipeline again).
     fn invalidate_state(&self) -> Result<(), Error> {
         let (w, h) = (self.width_px as f64, self.height_px as f64);
-        self.encoder.set_viewport(ogpu_core::render_pass::admit_viewport(ogpu_core::render_pass::Viewport { x: 0.0, y: 0.0, width: w, height: h, znear: 0.0, zfar: 1.0 })?)?;
-        self.encoder.set_scissor(Scissor { x: 0, y: 0, width: self.width_px as usize, height: self.height_px as usize })?;
-        self.encoder.set_cull_mode(Cull::CullNone)?;
+        self.encoder().set_viewport(ogpu_core::render_pass::admit_viewport(ogpu_core::render_pass::Viewport { x: 0.0, y: 0.0, width: w, height: h, znear: 0.0, zfar: 1.0 })?)?;
+        self.encoder().set_scissor(Scissor { x: 0, y: 0, width: self.width_px as usize, height: self.height_px as usize })?;
+        self.encoder().set_cull_mode(Cull::CullNone)?;
         // The depth-stencil state stays as it is: Metal has no way to unset one (the validation layer refuses nil), and a pass the UI
         // draws into has no depth attachment for it to matter.
-        self.encoder.set_winding(OgpuWinding::Clockwise)
+        self.encoder().set_winding(OgpuWinding::Clockwise)
     }
 }
 
 impl Drop for Render {
     fn drop(&mut self) {
-        if self.reusable && !self.encoder.destroyed() {
-            let _ = self.encoder.end_encoding();
+        if self.reusable {
+            if let Some(enc) = self.encoder.as_ref() {
+                if !enc.destroyed() {
+                    let _ = enc.end_encoding();
+                }
+            }
         }
         if let Some(pass) = self.pass.take() {
             pass.recycle(&mut self.context.tables.pass_spare.borrow_mut());
+        }
+        if let Some(enc) = self.encoder.take() {
+            enc.recycle(&mut self.context.tables.encoder_spare.borrow_mut());
         }
         let mut declared = std::mem::take(self.declared.get_mut());
         declared.clear();

@@ -35,6 +35,8 @@ pub struct Tables {
     pub next: Cell<i64>,
     /// MTLRenderPassDescriptor wrappers recycled after each pass ends (CPU-side; safe immediately).
     pub pass_spare: RefCell<Vec<native::RenderPassDescriptor>>,
+    /// Ended owned render encoders (MetalHandle kept); renewed into the next pass.
+    pub encoder_spare: RefCell<Vec<native::RenderEncoder>>,
 }
 
 impl Tables {
@@ -43,6 +45,7 @@ impl Tables {
             depth_states: RefCell::new(Vec::new()),
             next: Cell::new(1),
             pass_spare: RefCell::new(Vec::with_capacity(4)),
+            encoder_spare: RefCell::new(Vec::with_capacity(4)),
         }
     }
 
@@ -90,6 +93,7 @@ impl Drop for Tables {
         for pass in self.pass_spare.get_mut().drain(..) {
             let _ = pass.destroy();
         }
+        self.encoder_spare.get_mut().clear();
     }
 }
 

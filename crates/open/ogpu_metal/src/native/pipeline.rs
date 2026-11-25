@@ -180,7 +180,8 @@ pub enum RenderResource { Buffer(Buffer), Texture(Texture) }
 struct RenderEncoderInner {
     raw: metal_sys::Handle,
     lifetime: Lifetime,
-    command_buffer: CommandBuffer,
+    /// None while the shell sits in Tables::encoder_spare (no queue dependents).
+    command_buffer: Option<CommandBuffer>,
     pass: Option<RenderPassDescriptor>,
     end_native: bool,
     ended: AtomicBool,
@@ -190,9 +191,12 @@ impl RenderEncoderInner {
         if !self.ended.swap(true, Ordering::AcqRel) {
             if end_native && self.end_native { let _ = metal_sys::registry::render_encoder_end(&self.raw); }
             self.lifetime.destroyed.store(true, Ordering::Release);
-            self.command_buffer.lifetime().detach();
+            if let Some(cb) = &self.command_buffer { cb.lifetime().detach(); }
             if let Some(pass) = &self.pass { pass.lifetime().detach(); }
         }
+    }
+    fn cb(&self) -> &CommandBuffer {
+        self.command_buffer.as_ref().expect("render encoder has no command buffer")
     }
 }
 impl Drop for RenderEncoderInner { fn drop(&mut self) { self.finish(true); } }
@@ -202,7 +206,8 @@ impl RenderEncoder {
         enter_main(OP)?;
         let inner=&self.0;
         let Some(pass)=&inner.pass else { return Ok(false); };
-        if !inner.end_native || !inner.ended.load(Ordering::Acquire) || !inner.command_buffer.same(command_buffer) { return Ok(false); }
+        let Some(held)=&inner.command_buffer else { return Ok(false); };
+        if !inner.end_native || !inner.ended.load(Ordering::Acquire) || !held.same(command_buffer) { return Ok(false); }
         command_buffer.lifetime().ensure_live(OP)?;
         pass.ensure_live(OP)?;
         metal_sys::native::pipeline::restart_render_encoder(command_buffer.raw(),pass.raw(),&inner.raw).map_err(|failure| sys_error(OP,failure))?;
@@ -221,7 +226,8 @@ impl RenderEncoder {
         let operation = "Metal.RenderEncoder.readopt";
         enter_main(operation)?;
         let inner = &self.0;
-        if inner.end_native || inner.pass.is_some() || !inner.ended.load(Ordering::Acquire) || !inner.command_buffer.same(command_buffer) { return Ok(false); }
+        let Some(held)=&inner.command_buffer else { return Ok(false); };
+        if inner.end_native || inner.pass.is_some() || !inner.ended.load(Ordering::Acquire) || !held.same(command_buffer) { return Ok(false); }
         command_buffer.lifetime().ensure_live(operation)?;
         unsafe { inner.raw.rebind(pointer, metal_sys::native::KIND_RENDER_ENCODER) }.map_err(|failure| sys_error(operation, failure))?;
         command_buffer.lifetime().attach();
@@ -233,6 +239,53 @@ impl RenderEncoder {
 #[derive(Clone)]
 pub struct RenderEncoder(Arc<RenderEncoderInner>);
 impl RenderEncoder {
+    /// Pop an ended owned encoder and rebind a new MTLRenderCommandEncoder into its MetalHandle, or create.
+    pub fn obtain(command_buffer: &CommandBuffer, pass: &RenderPassDescriptor, spare: &mut Vec<Self>) -> Result<Self, Error> {
+        while let Some(mut enc) = spare.pop() {
+            if Arc::strong_count(&enc.0) != 1 {
+                continue;
+            }
+            if enc.renew(command_buffer, pass)? {
+                return Ok(enc);
+            }
+        }
+        Self::create(command_buffer, pass)
+    }
+
+    /// Rebind a new encoder from `pass` into this ended owned shell (no new MetalHandle / Arc).
+    fn renew(&mut self, command_buffer: &CommandBuffer, pass: &RenderPassDescriptor) -> Result<bool, Error> {
+        const OP: &str = "Metal.RenderEncoder.renew";
+        let Some(inner) = Arc::get_mut(&mut self.0) else { return Ok(false); };
+        if !inner.end_native || !inner.ended.load(Ordering::Acquire) { return Ok(false); }
+        enter_main(OP)?;
+        command_buffer.lifetime().ensure_live(OP)?;
+        pass.ensure_live(OP)?;
+        metal_sys::native::pipeline::restart_render_encoder(command_buffer.raw(), pass.raw(), &inner.raw)
+            .map_err(|failure| sys_error(OP, failure))?;
+        inner.command_buffer = Some(command_buffer.clone());
+        inner.pass = Some(pass.clone());
+        command_buffer.lifetime().attach();
+        pass.lifetime().attach();
+        for texture in [pass.color_attachment(), pass.depth_attachment(), pass.stencil_attachment(), pass.resolve_texture()].into_iter().flatten() {
+            command_buffer.retain_texture(&texture);
+        }
+        inner.lifetime.destroyed.store(false, Ordering::Release);
+        inner.ended.store(false, Ordering::Release);
+        Ok(true)
+    }
+
+    pub fn recycle(mut self, spare: &mut Vec<Self>) {
+        if Arc::strong_count(&self.0) != 1 || !self.0.end_native || !self.0.ended.load(Ordering::Acquire) || spare.len() >= 4 {
+            return;
+        }
+        if let Some(inner) = Arc::get_mut(&mut self.0) {
+            // Drop CB/pass Arcs so spare holds no queue or descriptor dependents.
+            inner.command_buffer = None;
+            inner.pass = None;
+        }
+        spare.push(self);
+    }
+
     pub fn create(command_buffer: &CommandBuffer, pass: &RenderPassDescriptor) -> Result<Self, Error> {
         const OP: &str = "Metal.RenderEncoder.create";
         let color_target = pass.color_attachment();
@@ -245,7 +298,7 @@ impl RenderEncoder {
             command_buffer.retain_texture(&texture);
         }
         Ok(Self(Arc::new(RenderEncoderInner {
-            raw, lifetime: Lifetime::new(), command_buffer: command_buffer.clone(), pass: Some(pass.clone()), end_native: true,
+            raw, lifetime: Lifetime::new(), command_buffer: Some(command_buffer.clone()), pass: Some(pass.clone()), end_native: true,
             ended: AtomicBool::new(false),
         })))
     }
@@ -256,7 +309,7 @@ impl RenderEncoder {
         let raw = unsafe { metal_sys::native::retain_object(pointer, metal_sys::native::KIND_RENDER_ENCODER) }
             .map_err(|failure| sys_error(operation, failure))?;
         command_buffer.lifetime().attach();
-        Ok(Self(Arc::new(RenderEncoderInner { raw, lifetime: Lifetime::new(), command_buffer: command_buffer.clone(), pass: None, end_native: false, ended: AtomicBool::new(false) })))
+        Ok(Self(Arc::new(RenderEncoderInner { raw, lifetime: Lifetime::new(), command_buffer: Some(command_buffer.clone()), pass: None, end_native: false, ended: AtomicBool::new(false) })))
     }
     pub(crate) fn native_ptr(&self) -> Result<*mut std::ffi::c_void, Error> {
         self.0.raw.object_ptr(metal_sys::native::KIND_RENDER_ENCODER).map_err(|failure| sys_error("Metal.RenderEncoder.native_ptr", failure))
@@ -264,7 +317,7 @@ impl RenderEncoder {
     pub fn set_pipeline(&self, pipeline: &RenderPipeline) -> Result<(), Error> {
         const OP: &str = "Metal.RenderEncoder.set_pipeline";
         metal_sys::registry::render_encoder_set_pipeline(&self.0.raw, pipeline.raw()).map_err(|failure| sys_error(OP, failure))?;
-        self.0.command_buffer.retain_render_pipeline(pipeline);
+        self.0.cb().retain_render_pipeline(pipeline);
         Ok(())
     }
     pub fn set_vertex_buffer(&self, index: usize, offset: u64, buffer: &Buffer) -> Result<(), Error> { self.set_buffer("Metal.RenderEncoder.set_vertex_buffer", index, offset, buffer, true) }
@@ -272,21 +325,21 @@ impl RenderEncoder {
     fn set_buffer(&self, operation: &str, index: usize, offset: u64, buffer: &Buffer, vertex: bool) -> Result<(), Error> {
         let index = u64::try_from(index).map_err(|_| error(operation, ErrorKind::InvalidArgument, "buffer index exceeds native bounds"))?;
         let call = if vertex { metal_sys::registry::render_encoder_set_vertex_buffer(&self.0.raw, buffer.raw(), offset, index) } else { metal_sys::registry::render_encoder_set_fragment_buffer(&self.0.raw, buffer.raw(), offset, index) };
-        call.map_err(|failure| sys_error(operation, failure))?; self.0.command_buffer.retain_buffer(buffer); Ok(())
+        call.map_err(|failure| sys_error(operation, failure))?; self.0.cb().retain_buffer(buffer); Ok(())
     }
     pub fn set_vertex_texture(&self, index: usize, texture: &Texture) -> Result<(), Error> { self.set_texture("Metal.RenderEncoder.set_vertex_texture", index, texture, true) }
     pub fn set_fragment_texture(&self, index: usize, texture: &Texture) -> Result<(), Error> { self.set_texture("Metal.RenderEncoder.set_fragment_texture", index, texture, false) }
     fn set_texture(&self, operation: &str, index: usize, texture: &Texture, vertex: bool) -> Result<(), Error> {
         let index = u64::try_from(index).map_err(|_| error(operation, ErrorKind::InvalidArgument, "texture index exceeds native bounds"))?;
         let call = if vertex { metal_sys::registry::render_encoder_set_vertex_texture(&self.0.raw, texture.raw(), index) } else { metal_sys::registry::render_encoder_set_fragment_texture(&self.0.raw, texture.raw(), index) };
-        call.map_err(|failure| sys_error(operation, failure))?; self.0.command_buffer.retain_texture(texture); Ok(())
+        call.map_err(|failure| sys_error(operation, failure))?; self.0.cb().retain_texture(texture); Ok(())
     }
     pub fn set_vertex_sampler(&self, index: usize, sampler: &Sampler) -> Result<(), Error> { self.set_sampler("Metal.RenderEncoder.set_vertex_sampler", index, sampler, true) }
     pub fn set_fragment_sampler(&self, index: usize, sampler: &Sampler) -> Result<(), Error> { self.set_sampler("Metal.RenderEncoder.set_fragment_sampler", index, sampler, false) }
     fn set_sampler(&self, operation: &str, index: usize, sampler: &Sampler, vertex: bool) -> Result<(), Error> {
         let index = u64::try_from(index).map_err(|_| error(operation, ErrorKind::InvalidArgument, "sampler index exceeds native bounds"))?;
         let call = if vertex { metal_sys::registry::render_encoder_set_vertex_sampler(&self.0.raw, sampler.raw(), index) } else { metal_sys::registry::render_encoder_set_fragment_sampler(&self.0.raw, sampler.raw(), index) };
-        call.map_err(|failure| sys_error(operation, failure))?; self.0.command_buffer.retain_sampler(sampler); Ok(())
+        call.map_err(|failure| sys_error(operation, failure))?; self.0.cb().retain_sampler(sampler); Ok(())
     }
     pub fn set_depth_stencil_state(&self, state: Option<&DepthStencil>) -> Result<(), Error> {
         const OP: &str = "Metal.RenderEncoder.set_depth_stencil_state";
@@ -294,7 +347,7 @@ impl RenderEncoder {
             state.lifetime().ensure_live(OP)?;
         }
         metal_sys::registry::render_depth_stencil(&self.0.raw, state.map(DepthStencil::raw)).map_err(|failure| sys_error(OP, failure))?;
-        if let Some(state) = state { self.0.command_buffer.retain_depth_stencil(state); }
+        if let Some(state) = state { self.0.cb().retain_depth_stencil(state); }
         Ok(())
     }
     pub fn set_viewport(&self, viewport: ogpu_core::render_pass::AdmittedViewport) -> Result<(), Error> {
@@ -345,8 +398,8 @@ impl RenderEncoder {
         }
         for resource in resources {
             match resource {
-                RenderResource::Buffer(value) => self.0.command_buffer.retain_buffer(value),
-                RenderResource::Texture(value) => self.0.command_buffer.retain_texture(value),
+                RenderResource::Buffer(value) => self.0.cb().retain_buffer(value),
+                RenderResource::Texture(value) => self.0.cb().retain_texture(value),
             }
         }
         Ok(())
@@ -370,7 +423,7 @@ impl RenderEncoder {
         } else {
             metal_sys::registry::render_draw_indexed_basic(&self.0.raw, primitive, index_count, index_type, index_buffer.raw(), index_offset)
         };
-        call.map_err(|failure| sys_error(OP, failure))?; self.0.command_buffer.retain_buffer(index_buffer); Ok(())
+        call.map_err(|failure| sys_error(OP, failure))?; self.0.cb().retain_buffer(index_buffer); Ok(())
     }
     pub fn draw_indexed_indirect(&self, primitive: Primitive, index_type: IndexType, index_buffer: &Buffer, index_offset: u64, arguments: &Buffer, arguments_offset: u64) -> Result<(), Error> {
         const OP: &str = "Metal.RenderEncoder.draw_indexed_indirect";
@@ -378,8 +431,8 @@ impl RenderEncoder {
         metal_sys::registry::render_draw_indexed_indirect(
             &self.0.raw, primitive_code(primitive), index_type, index_buffer.raw(), index_offset, arguments.raw(), arguments_offset,
         ).map_err(|failure| sys_error(OP, failure))?;
-        self.0.command_buffer.retain_buffer(index_buffer);
-        self.0.command_buffer.retain_buffer(arguments);
+        self.0.cb().retain_buffer(index_buffer);
+        self.0.cb().retain_buffer(arguments);
         Ok(())
     }
     pub fn end_encoding(&self) -> Result<(), Error> {
@@ -438,7 +491,7 @@ impl RenderEncoder {
     pub fn execute_indirect_commands(&self, commands: &crate::native::indirect::IndirectCommandBuffer, location: usize, length: usize) -> Result<(), Error> {
         const OP: &str = "Metal.RenderEncoder.execute_indirect_commands";
         metal_sys::native::indirect::execute_icb_range(&self.0.raw, commands.raw(), location as u64, length as u64).map_err(|failure| sys_error(OP, failure))?;
-        self.0.command_buffer.retain_indirect(commands);
+        self.0.cb().retain_indirect(commands);
         Ok(())
     }
 }
