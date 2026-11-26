@@ -9,8 +9,8 @@ use std::rc::Rc;
 
 fn plain_language() -> Language {
     Language {
-        colorize: Rc::new(|_| Vec::new()),
-        brackets: Rc::new(|_| Vec::new()),
+        colorize: Rc::new(|_, _| {}),
+        brackets: Rc::new(|_, _| {}),
         indent: Rc::new(|text, caret| if text[..caret as usize].contains('(') { "  ".to_owned() } else { String::new() }),
         pairs: vec![('(', ')'), ('"', '"')],
         complete: Rc::new(|_, _| Vec::new()),
@@ -242,7 +242,7 @@ pub fn text_area_3(rig: &mut Rig) {
     }
     // line and form edits: comment toggle, move and duplicate lines, enclosing form, bracket jump
     let mut l = saved.clone().unwrap();
-    l.brackets = Rc::new(|t| pairs_of(t));
+    l.brackets = Rc::new(|t, out| out.extend(pairs_of(t)));
     l.complete = Rc::new(|_, _| Vec::new());
     rig.language = Some(l);
     let alt = vec![Key::Alt];

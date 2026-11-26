@@ -565,6 +565,8 @@ impl<'a> TextArea<'a> {
 pub type ColorizeFn<'a> = dyn Fn(&str, &mut Vec<(usize, usize, Rgba)>) + 'a;
 /// What a language matches: the bracket pairs as (open, close) byte positions; the pair at the caret is lit.
 pub type BracketsFn<'a> = dyn Fn(&str) -> Vec<(usize, usize)> + 'a;
+/// Writes the bracket pairs as (open, close) byte positions into a cleared buffer.
+pub type BracketsIntoFn<'a> = dyn Fn(&str, &mut Vec<(usize, usize)>) + 'a;
 /// What a language indents: `indent(text, caret)` returns the indentation Enter puts after the line break at `caret`.
 pub type IndentFn<'a> = dyn Fn(&str, usize) -> String + 'a;
 /// What a language suggests: `complete(text, caret)` returns the ranked suggestions for the token ending at `caret`, best first.
@@ -585,6 +587,7 @@ pub type RewriteFn<'a> = dyn Fn(&str, usize) -> (Option<String>, usize) + 'a;
 pub struct Language<'a> {
     pub(crate) colorize: &'a ColorizeFn<'a>,
     pub(crate) brackets: &'a BracketsFn<'a>,
+    pub(crate) brackets_into: Option<&'a BracketsIntoFn<'a>>,
     pub(crate) indent: &'a IndentFn<'a>,
     pub(crate) pairs: &'a [(char, char)],
     pub(crate) complete: &'a CompleteFn<'a>,
@@ -597,7 +600,7 @@ pub struct Language<'a> {
 
 impl<'a> Language<'a> {
     /// A language that colours, matches, indents, suggests and describes nothing.
-    pub const DEFAULT: Language<'a> = Language { colorize: &|_, out| { out.clear(); }, brackets: &|_| Vec::new(), indent: &|_, _| String::new(), pairs: &[], complete: &|_, _| Vec::new(), describe: &|_, _, _| None, number_at: &|_, _| None, context_at: &|_, _| CodeContext::Code, comment: "", rewrite: None };
+    pub const DEFAULT: Language<'a> = Language { colorize: &|_, out| { out.clear(); }, brackets: &|_| Vec::new(), brackets_into: None, indent: &|_, _| String::new(), pairs: &[], complete: &|_, _| Vec::new(), describe: &|_, _, _| None, number_at: &|_, _| None, context_at: &|_, _| CodeContext::Code, comment: "", rewrite: None };
     /// Sets what the language colours.
     /// Allocates: never.
     /// Panics: never.
@@ -619,7 +622,21 @@ impl<'a> Language<'a> {
     /// let f = |_: &str| Vec::new();
     /// let _ = pxui::Language::DEFAULT.brackets(&f);
     /// ```
-    pub const fn brackets(mut self, f: &'a BracketsFn<'a>) -> Language<'a> { self.brackets = f; self }
+    pub const fn brackets(mut self, f: &'a BracketsFn<'a>) -> Language<'a> { self.brackets = f; self.brackets_into = None; self }
+
+    /// Sets the bracket matcher that writes pairs into a reusable buffer.
+    /// The callback receives an empty buffer and appends (open, close) byte offsets.
+    /// Calling this or `brackets` replaces the earlier matcher.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let f = |text: &str, out: &mut Vec<(usize, usize)>| {
+    ///     if text == "()" { out.push((0, 1)); }
+    /// };
+    /// let _ = pxui::Language::DEFAULT.brackets_into(&f);
+    /// ```
+    pub const fn brackets_into(mut self, f: &'a BracketsIntoFn<'a>) -> Language<'a> { self.brackets_into = Some(f); self }
     /// Sets what the language indents.
     /// Allocates: never.
     /// Panics: never.

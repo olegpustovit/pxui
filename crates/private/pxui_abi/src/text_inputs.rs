@@ -104,8 +104,24 @@ pub(crate) fn area_adapters() -> AreaAdapters {
     let c = |ctx: &Rc<AreaCtx>| Rc::clone(ctx);
     let (x1, x2, x3, x4, x5, x6, x7, x8, x9) = (c(&ctx), c(&ctx), c(&ctx), c(&ctx), c(&ctx), c(&ctx), c(&ctx), c(&ctx), c(&ctx));
     let language = Language {
-        colorize: { let ctx = c(&ctx); Rc::new(move |t: &str| { let cb = ctx.cb.get(); let Some(f) = cb.colorize else { return Vec::new() }; let mut out = Slice::default(); f(cb.user, str_of(t), &mut out); unsafe { span_of(out, 1 << 20) }.map_or_else(Vec::new, |v| v.iter().map(|c| (c.start, c.end, c.color)).collect()) }) },
-        brackets: { let ctx = c(&ctx); Rc::new(move |t: &str| { let cb = ctx.cb.get(); let Some(f) = cb.brackets else { return Vec::new() }; let mut out = Slice::default(); f(cb.user, str_of(t), &mut out); unsafe { span_of(out, 1 << 20) }.map_or_else(Vec::new, |v| v.iter().map(|r| (r.start, r.end)).collect()) }) },
+        colorize: { let ctx = c(&ctx); Rc::new(move |t: &str, spans| {
+            let cb = ctx.cb.get();
+            let Some(f) = cb.colorize else { return };
+            let mut out = Slice::default();
+            f(cb.user, str_of(t), &mut out);
+            if let Some(values) = unsafe { span_of(out, 1 << 20) } {
+                spans.extend(values.iter().map(|c| (c.start, c.end, c.color)));
+            }
+        }) },
+        brackets: { let ctx = c(&ctx); Rc::new(move |t: &str, pairs| {
+            let cb = ctx.cb.get();
+            let Some(f) = cb.brackets else { return };
+            let mut out = Slice::default();
+            f(cb.user, str_of(t), &mut out);
+            if let Some(values) = unsafe { span_of(out, 1 << 20) } {
+                pairs.extend(values.iter().map(|r| (r.start, r.end)));
+            }
+        }) },
         indent: { let ctx = c(&ctx); Rc::new(move |t: &str, caret| { let cb = ctx.cb.get(); let Some(f) = cb.indent else { return String::new() }; let mut out = Str::default(); f(cb.user, str_of(t), caret, &mut out); unsafe { checked_text(out) }.unwrap_or("").to_owned() }) },
         pairs: Vec::new(),
         complete: { let ctx = c(&ctx); Rc::new(move |t: &str, caret| {

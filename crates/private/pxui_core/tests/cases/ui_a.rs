@@ -95,11 +95,11 @@ fn scale_3(scale: f64) {
     let coloured = Rc::new(Cell::new(0));
     let counter = coloured.clone();
     let counting = Language {
-        colorize: Rc::new(move |_| {
+        colorize: Rc::new(move |text, spans| {
             counter.set(counter.get() + 1);
-            Vec::new()
+            spans.push((0, text.len() as i64, pxui_core::geom::Rgba::WHITE));
         }),
-        brackets: Rc::new(|_| Vec::new()),
+        brackets: Rc::new(|_, _| {}),
         indent: Rc::new(|_, _| String::new()),
         pairs: Vec::new(),
         complete: Rc::new(|_, _| Vec::new()),
@@ -116,6 +116,18 @@ fn scale_3(scale: f64) {
     if coloured.get() != 2 {
         fail(&lab("a text a pane shows again was coloured again"));
     }
+    // The newest two entries keep their results. Later revisions reuse the retired buffers.
+    ui.set_text_panes(2);
+    for text in ["text\na", "text\nb"] {
+        ui.text_rows(None, text);
+        ui.text_colors(&counting, text);
+    }
+    mem_sys::local_reset();
+    for text in ["text\nc", "text\nd", "text\ne"] {
+        assert_eq!(ui.text_rows(None, text).len(), 2);
+        assert_eq!(ui.text_colors(&counting, text)[0].1, text.len() as i64);
+    }
+    assert_eq!(mem_sys::local_alloc_count(), 0);
     ui.frame(&frame_at(vec![], scale, 0.5, vec![press((70, 30)), release((70, 30))]), &mut build);
     if (parse(&compact.borrow()).unwrap() - 0.5).abs() > 0.02 || ui.text_input_focused() {
         fail(&lab("compact slider click did not jump to the pointer"));

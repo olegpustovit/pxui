@@ -99,9 +99,9 @@ pub struct ValueFieldOpts {
 #[derive(Clone)]
 pub struct Language {
     /// sorted, non-overlapping byte spans and their colour; the rest is the foreground
-    pub colorize: Rc<dyn Fn(&str) -> Vec<(i64, i64, Rgba)>>,
+    pub colorize: Rc<dyn Fn(&str, &mut Vec<(i64, i64, Rgba)>)>,
     /// the matched bracket pairs as (open, close) byte positions: the pair at the caret is lit
-    pub brackets: Rc<dyn Fn(&str) -> Vec<(i64, i64)>>,
+    pub brackets: Rc<dyn Fn(&str, &mut Vec<(i64, i64)>)>,
     /// `indent text caret`: the indentation Enter puts after the line break at `caret`
     pub indent: Rc<dyn Fn(&str, i64) -> String>,
     /// brackets typed in pairs: the opener wraps the selection or inserts both, the closer typed

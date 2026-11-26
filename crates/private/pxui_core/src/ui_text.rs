@@ -1212,15 +1212,27 @@ impl Ui {
     }
 
     fn build_text_rows(&mut self, cols: Option<usize>, text: &str) -> Rows {
-        let mut rows = Vec::new();
-        push_text_rows(&mut rows, cols, text, 0, 0);
-        self.cache_text_rows(cols, text, rows)
+        let (key, mut rows) = self.text_row_storage();
+        let entries = Rc::get_mut(&mut rows).expect("unique text row storage");
+        push_text_rows(entries, cols, text, 0, 0);
+        self.cache_text_rows(cols, text, key, rows)
     }
 
-    fn cache_text_rows(&mut self, cols: Option<usize>, text: &str, rows: Vec<(usize, usize, usize)>) -> Rows {
-        let rows = Rc::new(rows);
-        self.text_rows_seen.insert(0, (cols, Rc::from(text), rows.clone()));
-        self.text_rows_seen.truncate(self.text_panes);
+    fn text_row_storage(&mut self) -> (Rc<String>, Rows) {
+        let (mut key, mut rows) = if self.text_rows_seen.len() >= self.text_panes {
+            let (_, key, rows) = self.text_rows_seen.pop().expect("full text row cache");
+            (key, rows)
+        } else {
+            Default::default()
+        };
+        if let Some(text) = Rc::get_mut(&mut key) { text.clear(); } else { key = Rc::default(); }
+        if let Some(rows) = Rc::get_mut(&mut rows) { rows.clear(); } else { rows = Rc::default(); }
+        (key, rows)
+    }
+
+    fn cache_text_rows(&mut self, cols: Option<usize>, text: &str, mut key: Rc<String>, rows: Rows) -> Rows {
+        Rc::get_mut(&mut key).expect("unique text key storage").push_str(text);
+        self.text_rows_seen.insert(0, (cols, key, rows.clone()));
         rows
     }
 
@@ -1268,15 +1280,16 @@ impl Ui {
         let shift = |byte: usize| byte - (diff.end - diff.start) + diff.inserted;
         let start = rows[first].0;
         let end = shift(rows[last - 1].1);
-        let mut next = Vec::with_capacity(rows.len() + lines.saturating_sub(old_lines));
-        next.extend_from_slice(&rows[..first]);
-        push_text_rows(&mut next, cols, &text[start..end], start, first_line);
+        let (key, mut next) = self.text_row_storage();
+        let entries = Rc::get_mut(&mut next).expect("unique text row storage");
+        entries.extend_from_slice(&rows[..first]);
+        push_text_rows(entries, cols, &text[start..end], start, first_line);
         // ponytail: stored absolute offsets still shift each following row. Use a segmented
         // index if copying its entries dominates real large-document edits.
-        next.extend(rows[last..].iter().map(|&(a, b, line)| {
+        entries.extend(rows[last..].iter().map(|&(a, b, line)| {
             (shift(a), shift(b), line + lines - old_lines)
         }));
-        self.cache_text_rows(cols, text, next)
+        self.cache_text_rows(cols, text, key, next)
     }
 
     /// A language's colours for a text, kept like its rows: one list a pane on screen. A theme is
@@ -1287,9 +1300,19 @@ impl Ui {
             self.text_colors_seen[..=k].rotate_right(1);
             return self.text_colors_seen[0].2.clone();
         }
-        let colors = Rc::new((language.colorize)(text));
-        self.text_colors_seen.insert(0, (theme, text.to_owned(), colors.clone()));
-        self.text_colors_seen.truncate(self.text_panes);
+        let (mut key, mut colors) = if self.text_colors_seen.len() >= self.text_panes {
+            let (_, key, colors) = self.text_colors_seen.pop().expect("full text color cache");
+            (key, colors)
+        } else {
+            Default::default()
+        };
+        key.clear();
+        key.push_str(text);
+        if Rc::get_mut(&mut colors).is_none() { colors = Rc::default(); }
+        let spans = Rc::get_mut(&mut colors).expect("unique text color storage");
+        spans.clear();
+        (language.colorize)(text, spans);
+        self.text_colors_seen.insert(0, (theme, key, colors.clone()));
         colors
     }
 
@@ -1430,7 +1453,7 @@ struct AreaPaint {
     errors: Rc<Vec<i64>>,
     notes: Rc<Notes>,
     char_w: f32,
-    final_text: Rc<str>,
+    final_text: Rc<String>,
     rows: Rows,
     count: usize,
     focused: bool,
@@ -1460,7 +1483,7 @@ fn decimal(buf: &mut [u8; 20], mut n: usize) -> &str {
 impl AreaPaint {
     fn paint(&self, paint: &mut Paint, Rect { x: bx, y: by, w: bw, h: bh }: Rect) {
         let theme = self.theme;
-        let final_text = &*self.final_text;
+        let final_text = self.final_text.as_str();
         let rows = &self.rows;
         let row = self.row;
         let char_w = self.char_w;
@@ -2029,7 +2052,7 @@ fn text_area_submit_body(this: &mut Ui, place: Node, o: &TextAreaOpts, label: &s
         this.update_area_rows(cfg, text, rows, displayed, diff)
     };
     let final_text = this.text_rows_seen.iter().find(|(_, _, cached)| Rc::ptr_eq(cached, &rows))
-        .map_or_else(|| Rc::<str>::from(displayed), |(_, text, _)| Rc::clone(text));
+        .map_or_else(|| Rc::new(displayed.to_owned()), |(_, text, _)| Rc::clone(text));
     let count = rows.len();
     let notes = this.area_notes(area_key, &o.messages, &rows);
     // `reveal` scrolls once per (offset, length, nonce): the content box remembers it, and
@@ -2088,7 +2111,9 @@ fn text_area_submit_body(this: &mut Ui, place: Node, o: &TextAreaOpts, label: &s
     let matched: Option<(usize, usize)> = match &language {
         Some(l) if focused => {
             let c = edit.caret as i64;
-            (l.brackets)(&final_text).into_iter().find(|(o, k)| *o == c - 1 || *k == c - 1 || *o == c || *k == c).map(|(a, b)| (clamp_pos(a), clamp_pos(b)))
+            this.text_brackets.clear();
+            (l.brackets)(&final_text, &mut this.text_brackets);
+            this.text_brackets.iter().copied().find(|(o, k)| *o == c - 1 || *k == c - 1 || *o == c || *k == c).map(|(a, b)| (clamp_pos(a), clamp_pos(b)))
         }
         _ => None,
     };
@@ -2416,7 +2441,9 @@ fn handle_keys_body(this: &mut Ui, body: &UiBox, cfg: Wrap, page: i64, language:
             Event::KeyPressed(Key::ArrowUp) if command && modifiers.contains(&Key::Alt) => {
                 let (a, b) = text_selection(edit);
                 if let Some(l) = language {
-                    let pairs: Vec<(usize, usize)> = (l.brackets)(&edit.text).iter().map(|(o, c)| (clamp_pos(*o), clamp_pos(*c))).collect();
+                    this.text_brackets.clear();
+                    (l.brackets)(&edit.text, &mut this.text_brackets);
+                    let pairs: Vec<(usize, usize)> = this.text_brackets.iter().map(|(o, c)| (clamp_pos(*o), clamp_pos(*c))).collect();
                     if let Some((o, c)) = enclosing_pair(&pairs, a, b) {
                         edit.anchor = o;
                         edit.caret = c;
@@ -2425,7 +2452,9 @@ fn handle_keys_body(this: &mut Ui, body: &UiBox, cfg: Wrap, page: i64, language:
             }
             Event::KeyPressed(Key::KeyChar('\\')) if command && shift && language.is_some() => {
                 let l = language.as_ref().unwrap();
-                let pairs: Vec<(usize, usize)> = (l.brackets)(&edit.text).iter().map(|(o, c)| (clamp_pos(*o), clamp_pos(*c))).collect();
+                this.text_brackets.clear();
+                (l.brackets)(&edit.text, &mut this.text_brackets);
+                let pairs: Vec<(usize, usize)> = this.text_brackets.iter().map(|(o, c)| (clamp_pos(*o), clamp_pos(*c))).collect();
                 if let Some(at) = bracket_jump(&pairs, edit.caret) {
                     edit.caret = at;
                     edit.anchor = at;

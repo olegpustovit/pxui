@@ -1381,8 +1381,9 @@ pub struct Ui {
     pub(crate) text_undo_held: i64,
     /// What the host last charged to its memory ledger for this UI; PXUI never reads it.
     pub charged: Bytes,
-    pub(crate) text_rows_seen: Vec<(Option<usize>, Rc<str>, Rc<Vec<(usize, usize, usize)>>)>,
+    pub(crate) text_rows_seen: Vec<(Option<usize>, Rc<String>, Rc<Vec<(usize, usize, usize)>>)>,
     pub(crate) text_panes: usize,
+    pub(crate) text_brackets: Vec<(i64, i64)>,
     pub(crate) text_colors_seen: Vec<(Tokens, String, Rc<Vec<(i64, i64, Rgba)>>)>,
     pub(crate) edit_redo: std::collections::VecDeque<crate::ui_text::EditDelta>,
     pub(crate) edit_group: Option<(crate::ui_text::EditRun, usize, f64)>,
@@ -1722,6 +1723,7 @@ impl Ui {
             text_rows_seen: Vec::new(),
             text_panes: 8,
             text_colors_seen: Vec::new(),
+            text_brackets: Vec::new(),
             edit_redo: std::collections::VecDeque::new(),
             edit_group: None,
             edit_serial: 0,

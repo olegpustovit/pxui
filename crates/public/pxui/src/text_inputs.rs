@@ -150,10 +150,21 @@ extern "C" fn brackets(user: *mut c_void, value: Str, out: *mut Slice<PxuiRange>
     let a = area(user);
     let Some(l) = &a.cb.language else { return };
     let value = utf8(value);
-    let mut pairs = Vec::new();
-    guarded(&mut || pairs = (l.brackets)(value));
+    thread_local!(static PAIRS: std::cell::RefCell<Vec<(usize, usize)>> =
+        const { std::cell::RefCell::new(Vec::new()) });
     a.ranges.clear();
-    a.ranges.extend(pairs.into_iter().map(|(start, end)| PxuiRange { start: engine(start), end: engine(end) }));
+    let wire = |&(start, end): &(usize, usize)| PxuiRange { start: engine(start), end: engine(end) };
+    if let Some(f) = l.brackets_into {
+        let mut pairs = PAIRS.take();
+        pairs.clear();
+        guarded(&mut || f(value, &mut pairs));
+        a.ranges.extend(pairs.iter().map(wire));
+        PAIRS.set(pairs);
+    } else {
+        let mut pairs = Vec::new();
+        guarded(&mut || pairs = (l.brackets)(value));
+        a.ranges.extend(pairs.iter().map(wire));
+    }
     unsafe { *out = Slice { ptr: a.ranges.as_ptr(), len: a.ranges.len() }; }
 }
 extern "C" fn indent(user: *mut c_void, value: Str, caret: i64, out: *mut Str) {
