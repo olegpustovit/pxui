@@ -85,7 +85,11 @@ pub fn run_with_density(title: &str, width: i64, height: i64, high_density: bool
                     }
                     next = callback(&mut window, if visible { Signal::Frame } else { Signal::Control })?;
                     if next == Schedule::Exit { return Ok(()); }
-                    if !visible && matches!(next, Schedule::NextFrame) {
+                    // A Control callback may pump events and drain the wake a visibility change posted: draw now
+                    // rather than sleep until some later event (a launch could stay black until the mouse moved).
+                    if !visible && window.presentation().is_some() {
+                        next = Schedule::NextFrame;
+                    } else if !visible && matches!(next, Schedule::NextFrame) {
                         next = Schedule::WaitUntil(None);
                     }
                 }

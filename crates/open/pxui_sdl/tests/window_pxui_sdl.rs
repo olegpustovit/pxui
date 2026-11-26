@@ -342,6 +342,61 @@ fn app_loop_opens_a_point_sized_drawable_when_requested() {
     })).unwrap();
 }
 
+/// A Control callback that pumps events can drain the wake its window's visibility change posted (LocalWave does,
+/// to keep its workers moving): the loop must still draw the now visible window, not sleep until another event.
+#[cfg(target_os = "macos")]
+fn app_loop_draws_a_window_that_became_visible_during_a_control_callback() {
+    use pxui_sdl::app::{Schedule, Signal, run_with_density};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static RESCUED: AtomicBool = AtomicBool::new(false);
+    let (mut controls, mut drained, mut drawn_after) = (0, false, f64::NAN);
+    let mut returned_at = 0.0;
+    run_with_density("visibility wake", 64, 48, false, Box::new(move |window, signal| {
+        match signal {
+            Signal::Initialize => {
+                // Only the first callback can see the window hidden; any later Control is the hidden-start path.
+                sdl3_sys::pacing::test_order_front(&window.token()?, false);
+                Ok(Schedule::NextFrame)
+            }
+            Signal::Control if !drained => {
+                controls += 1;
+                // Pump until AppKit reports the window visible, consuming its wake as an app's own pump would.
+                let deadline = window.time() + 2.0;
+                while window.presentation().is_none() && window.time() < deadline {
+                    window.pump(&mut Vec::new());
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+                if window.presentation().is_none() {
+                    return Err("AppKit did not expose the window".into());
+                }
+                drained = true;
+                returned_at = window.time();
+                // A lost wake would sleep here forever; this thread ends the wait after 3 s so the test fails instead.
+                std::thread::spawn(|| {
+                    std::thread::sleep(std::time::Duration::from_secs(3));
+                    RESCUED.store(true, Ordering::SeqCst);
+                    pxui_sdl::wake();
+                });
+                Ok(Schedule::WaitUntil(None))
+            }
+            Signal::Control => Ok(Schedule::WaitUntil(None)),
+            Signal::Frame => {
+                drawn_after = window.time() - returned_at;
+                Ok(Schedule::Exit)
+            }
+            Signal::Paused | Signal::Resumed | Signal::LowMemory => Ok(Schedule::WaitUntil(None)),
+            Signal::Finish => {
+                if controls == 0 {
+                    println!("visibility wake: the window was visible at once; the hidden start did not occur this run");
+                    return Ok(Schedule::Exit);
+                }
+                assert!(!RESCUED.load(Ordering::SeqCst) && drawn_after < 1.0, "drew {drawn_after} s after the window became visible");
+                Ok(Schedule::Exit)
+            }
+        }
+    })).unwrap();
+}
+
 fn app_loop_cleans_up_callbacks_before_the_window_on_success_and_errors() {
     use pxui_sdl::app::{Schedule, Signal};
     use std::{cell::RefCell, rc::Rc};
@@ -454,5 +509,7 @@ fn main() {
         #[cfg(target_os = "macos")]
         ("app_loop_opens_a_point_sized_drawable_when_requested", app_loop_opens_a_point_sized_drawable_when_requested),
         ("app_loop_cleans_up_callbacks_before_the_window_on_success_and_errors", app_loop_cleans_up_callbacks_before_the_window_on_success_and_errors),
+        #[cfg(target_os = "macos")]
+        ("app_loop_draws_a_window_that_became_visible_during_a_control_callback", app_loop_draws_a_window_that_became_visible_during_a_control_callback),
     ]);
 }
