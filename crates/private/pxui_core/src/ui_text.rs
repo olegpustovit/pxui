@@ -1014,6 +1014,7 @@ pub(crate) struct AreaCacheEntry {
     errors: Rc<Vec<i64>>,
     rows: Option<Rows>,
     notes: Rc<Notes>,
+    brackets: Vec<(i64, i64)>,
 }
 const AREA_CACHE: usize = 16;
 
@@ -1030,7 +1031,7 @@ impl Ui {
         let at = match self.area_cache.iter().position(|e| e.key == key) {
             Some(at) => at,
             None => {
-                let fresh = AreaCacheEntry { key, messages: Rc::default(), chips: Rc::default(), spans: Rc::default(), errors: Rc::default(), rows: None, notes: Rc::default() };
+                let fresh = AreaCacheEntry { key, messages: Rc::default(), chips: Rc::default(), spans: Rc::default(), errors: Rc::default(), rows: None, notes: Rc::default(), brackets: Vec::new() };
                 if self.area_cache.len() < AREA_CACHE { self.area_cache.push(fresh); self.area_cache.len() - 1 } else { let at = key.unsigned_abs() as usize % AREA_CACHE; self.area_cache[at] = fresh; at }
             }
         };
@@ -2120,9 +2121,10 @@ fn text_area_submit_body(this: &mut Ui, place: Node, o: &TextAreaOpts, label: &s
     let matched: Option<(usize, usize)> = match &language {
         Some(l) if focused => {
             let c = edit.caret as i64;
-            this.text_brackets.clear();
-            (l.brackets)(&final_text, &mut this.text_brackets);
-            this.text_brackets.iter().copied().find(|(o, k)| *o == c - 1 || *k == c - 1 || *o == c || *k == c).map(|(a, b)| (clamp_pos(a), clamp_pos(b)))
+            let brackets = &mut this.area_entry(area_key).brackets;
+            brackets.clear();
+            (l.brackets)(&final_text, brackets);
+            brackets.iter().copied().find(|(o, k)| *o == c - 1 || *k == c - 1 || *o == c || *k == c).map(|(a, b)| (clamp_pos(a), clamp_pos(b)))
         }
         _ => None,
     };
@@ -2450,9 +2452,10 @@ fn handle_keys_body(this: &mut Ui, body: &UiBox, cfg: Wrap, page: i64, language:
             Event::KeyPressed(Key::ArrowUp) if command && modifiers.contains(&Key::Alt) => {
                 let (a, b) = text_selection(edit);
                 if let Some(l) = language {
-                    this.text_brackets.clear();
-                    (l.brackets)(&edit.text, &mut this.text_brackets);
-                    let pairs: Vec<(usize, usize)> = this.text_brackets.iter().map(|(o, c)| (clamp_pos(*o), clamp_pos(*c))).collect();
+                    let brackets = &mut this.area_entry(body.box_key).brackets;
+                    brackets.clear();
+                    (l.brackets)(&edit.text, brackets);
+                    let pairs: Vec<(usize, usize)> = brackets.iter().map(|(o, c)| (clamp_pos(*o), clamp_pos(*c))).collect();
                     if let Some((o, c)) = enclosing_pair(&pairs, a, b) {
                         edit.anchor = o;
                         edit.caret = c;
@@ -2461,9 +2464,10 @@ fn handle_keys_body(this: &mut Ui, body: &UiBox, cfg: Wrap, page: i64, language:
             }
             Event::KeyPressed(Key::KeyChar('\\')) if command && shift && language.is_some() => {
                 let l = language.as_ref().unwrap();
-                this.text_brackets.clear();
-                (l.brackets)(&edit.text, &mut this.text_brackets);
-                let pairs: Vec<(usize, usize)> = this.text_brackets.iter().map(|(o, c)| (clamp_pos(*o), clamp_pos(*c))).collect();
+                let brackets = &mut this.area_entry(body.box_key).brackets;
+                brackets.clear();
+                (l.brackets)(&edit.text, brackets);
+                let pairs: Vec<(usize, usize)> = brackets.iter().map(|(o, c)| (clamp_pos(*o), clamp_pos(*c))).collect();
                 if let Some(at) = bracket_jump(&pairs, edit.caret) {
                     edit.caret = at;
                     edit.anchor = at;
