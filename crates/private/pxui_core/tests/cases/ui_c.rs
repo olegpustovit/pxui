@@ -564,6 +564,19 @@ fn text_edit_typing_runs_break_on_pause_and_navigation() {
     rig.ui.destroy();
 }
 
+fn mono_caret_hit_uses_the_painted_cells_and_utf8_boundaries() {
+    let mut rig = empty_text_area(Platform::Apple);
+    rig.plain(vec![press((150, 12)), release((150, 12))]);
+    let cell = rig.ui.text_width(None, "0");
+    let x = rig.region().1 + (2.0 * cell).round() as i64;
+
+    rig.area = "a漢🦊".into();
+    rig.plain(vec![]);
+    rig.plain(vec![press((x, 12)), release((x, 12)), Event::TextInput("!".into())]);
+    rig.expect("pointer hit after the second painted cell", "a漢!🦊");
+    rig.ui.destroy();
+}
+
 fn incremental_text_rows_match_full() {
     let mut rig = empty_text_area(Platform::Apple);
     let mut full = ui11();
@@ -1059,6 +1072,7 @@ pub fn window_pxui_text_memory() {
 }
 
 pub const CASES: &[(&str, fn())] = &[
+    ("mono_caret_hit_uses_the_painted_cells_and_utf8_boundaries", mono_caret_hit_uses_the_painted_cells_and_utf8_boundaries),
     ("incremental_text_rows_match_full", incremental_text_rows_match_full),
     ("text_edit_external_change_keeps_selection_and_history", text_edit_external_change_keeps_selection_and_history),
     ("text_edit_typing_runs_break_on_pause_and_navigation", text_edit_typing_runs_break_on_pause_and_navigation),

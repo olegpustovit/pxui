@@ -1042,6 +1042,11 @@ impl Ui {
         text.get(..index.min(text.len())).map_or(0.0, |s| s.chars().count() as f32 * char_w)
     }
 
+    fn caret_at_mono(char_w: f32, text: &str, x: f32) -> usize {
+        let column = (x.max(0.0) / char_w).round() as usize;
+        text.char_indices().nth(column).map_or(text.len(), |(byte, _)| byte)
+    }
+
     /// The area's data as shared lists: the lists of the last frame when `o` holds the same data, else new ones.
     fn area_data(&mut self, key: i64, o: &TextAreaOpts) -> AreaData {
         let e = self.area_entry(key);
@@ -1057,6 +1062,10 @@ impl Ui {
     fn area_notes(&mut self, key: i64, messages: &[AreaMessage], rows: &Rows) -> Rc<Notes> {
         let e = self.area_entry(key);
         if e.messages.as_slice() != messages { e.messages = Rc::new(messages.to_vec()); e.rows = None; }
+        if messages.is_empty() {
+            if !e.notes.is_empty() { e.notes = Rc::default(); }
+            return Rc::clone(&e.notes);
+        }
         if e.rows.as_ref().is_some_and(|r| Rc::ptr_eq(r, rows) || **r == **rows) { return Rc::clone(&e.notes); }
         let mut found: Notes = Vec::new();
         for (line, span, message) in messages {
@@ -1795,10 +1804,10 @@ fn text_area_submit_body(this: &mut Ui, place: Node, o: &TextAreaOpts, label: &s
         let line = row_at_slot(&notes, count, ((py - by + scroll_pos - pad) / row).floor() as i64);
         let x = px - bx - gutter + horizontal0;
         let line_text = row_text(text, rows, line);
-        if strict && (x < 0.0 || x > ui.text_width(None, line_text) || py < by || py > by + bh) {
+        if strict && (x < 0.0 || py < by || py > by + bh || x > Ui::caret_x_mono(char_w, line_text, line_text.len())) {
             None
         } else {
-            Some(start_of(rows, line) + ui.text_caret_at(None, line_text, 0.0f32.max(x)))
+            Some(start_of(rows, line) + Ui::caret_at_mono(char_w, line_text, x))
         }
     };
     // a number is dragged by its underline: the lowest 9 points of its row, so a drag that
