@@ -264,6 +264,72 @@ pub fn window_pxui_view_damage() {
     ui.destroy();
 }
 
+/// A kept view that moved is damaged although a view nested in it reuses an earlier record, which composes it first.
+pub fn window_pxui_moved_view_under_an_earlier_record_is_damaged() {
+    let mut ui = new_ui(None);
+    let (mode, gap) = (Cell::new(0), Cell::new(0.0));
+    let child = |ui: &mut Ui| {
+        ui.view("child", 1, Size::Px(100.0), Size::Px(20.0), &mut |ui| {
+            chip(ui, "inner", RED, Flags::NONE);
+        });
+    };
+    let mut build = |ui: &mut Ui| match mode.get() {
+        // records in this order: child, then parent
+        0 => {
+            child(ui);
+            ui.view("parent", 1, Size::Px(100.0), Size::Px(40.0), &mut |ui| {
+                chip(ui, "own", BLUE, Flags::NONE);
+            });
+        }
+        1 => {}
+        _ => {
+            ui.node("gap".into(), Node::DEFAULT.w(Size::Px(10.0)).h(Size::Px(gap.get())));
+            ui.view("parent", 2, Size::Px(100.0), Size::Px(40.0), &mut |ui| {
+                chip(ui, "own", BLUE, Flags::NONE);
+                child(ui);
+            });
+        }
+    };
+    for (tick, next) in [0, 0, 1, 1, 2, 2].into_iter().enumerate() {
+        mode.set(next);
+        ui.frame(&at(tick as f64 / 10.0, vec![]), &mut build);
+    }
+    ui.drawn(0);
+    gap.set(100.0);
+    ui.frame(&at(1.0, vec![]), &mut build);
+    let damage = ui.output().damage;
+    for own in [Rect::new(0.0, 0.0, 40.0, 20.0), Rect::new(0.0, 100.0, 40.0, 20.0)] {
+        check(damage.covers(own), &format!("the moved view's {own:?} is not repainted: {damage:?}"));
+    }
+    ui.destroy();
+}
+
+/// A kept view that changed size makes the frame settle (build again): the frame's damage still covers what the earlier build
+/// changed, as no draw happens between the two.
+pub fn window_pxui_settle_keeps_the_earlier_builds_damage() {
+    let mut ui = new_ui(None);
+    let (fill, width, builds) = (Cell::new(RED), Cell::new(100.0), Cell::new(0));
+    let mut build = |ui: &mut Ui| {
+        builds.set(builds.get() + 1);
+        chip(ui, "mark", fill.get(), Flags::NONE);
+        let pane = ui.node("pane".into(), Node::DEFAULT.w(Size::Px(width.get())).h(Size::Px(60.0)));
+        ui.within(&pane, &mut |ui| {
+            ui.view("v", 1, Size::Grow, Size::Grow, &mut |ui| {
+                chip(ui, "kept", BLUE, Flags::NONE);
+            });
+        });
+    };
+    ui.frame(&at(0.0, vec![]), &mut build);
+    ui.frame(&at(0.1, vec![]), &mut build);
+    ui.drawn(0);
+    (fill.set(BLUE), width.set(140.0), builds.set(0));
+    ui.frame(&at(0.2, vec![]), &mut build);
+    check(builds.get() == 2, "the resized view did not settle the frame");
+    let damage = ui.output().damage;
+    check(damage.covers(Rect::new(0.0, 0.0, 40.0, 20.0)), &format!("the settling build dropped the first build's damage: {damage:?}"));
+    ui.destroy();
+}
+
 fn window_pxui_full_damage_uploads_changed_instances() {
     let mut ui = new_ui(None);
     let mut theme = Theme::default();
@@ -1516,6 +1582,8 @@ pub const CASES: &[(&str, fn())] = &[
     ("window_pxui_full_damage_uploads_changed_instances", window_pxui_full_damage_uploads_changed_instances),
     ("window_pxui_full_damage_uploads_fresh_and_relocated_kept_ranges", window_pxui_full_damage_uploads_fresh_and_relocated_kept_ranges),
     ("window_pxui_view_damage", window_pxui_view_damage),
+    ("window_pxui_moved_view_under_an_earlier_record_is_damaged", window_pxui_moved_view_under_an_earlier_record_is_damaged),
+    ("window_pxui_settle_keeps_the_earlier_builds_damage", window_pxui_settle_keeps_the_earlier_builds_damage),
     ("window_pxui_view_kit_cached", window_pxui_view_kit_cached),
     ("window_pxui_list", window_pxui_list),
     ("window_pxui_view_verify", window_pxui_view_verify),

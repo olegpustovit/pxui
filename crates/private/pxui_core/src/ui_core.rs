@@ -7163,8 +7163,10 @@ impl Ui {
         self.paint_xf = 0;
         let clip = Rect::new(0.0, 0.0, frame.input.size.0 as f32, frame.input.size.1 as f32);
         // a frame reports its own damage, plus what changed between frames (patches, steps) and was not drawn yet:
-        // the build re-declares a patched look, so its own comparison would not see that the screen still lacks it
-        let between = if self.damage != self.frame_damage { self.damage } else { DamageList::default() };
+        // the build re-declares a patched look, so its own comparison would not see that the screen still lacks it.
+        // A settling build adds to the earlier builds': nothing was drawn between them.
+        let settling = self.frame_number > self.first_build;
+        let between = if settling || self.damage != self.frame_damage { self.damage } else { DamageList::default() };
         self.damage = if self.full_damage { DamageList::full(clip) } else { between };
         let scratch = std::mem::take(&mut self.spare);
         let mut paint = self.paint_begin(scratch, clip);
@@ -9298,6 +9300,13 @@ impl Ui {
         }
         let parent = self.views[v as usize].parent;
         self.compose(parent);
+        // Compare and damage here: a child with a lower record composes its parent before `refresh_views` reaches it.
+        let shown = self.shown(v);
+        let promoted = !self.promotion.current.is_empty();
+        let r = &self.views[v as usize];
+        let tracked = r.index != 0 && r.slot != NONE;
+        let old_entry = r.entry();
+        let old_cover = (tracked && shown && !self.full_damage && (!promoted || !self.promoted_view(r.index))).then(|| r.cover(r.screen));
         let pxf = self.views[parent as usize].xf;
         let p = &self.views[pxf as usize];
         let (pshift, palpha, pouter) = (p.shift, p.alpha, p.outer);
@@ -9336,6 +9345,14 @@ impl Ui {
         r.flat = r.plain() && r.parent_plain();
         let b = r.built_rect;
         r.screen = Rect::new(b.x + r.shift.0, b.y + r.shift.1, b.w, b.h).intersect(r.outer);
+        if tracked && r.entry() != old_entry {
+            if let Some(old_cover) = old_cover {
+                let cover = if r.flat { r.screen } else { r.cover(r.screen) };
+                self.add_damage(old_cover);
+                self.add_damage(cover);
+            }
+            self.invalidate_a11y_view(v);
+        }
     }
 
     /// Recompose every shown view's entry into `view_out`; the damage gets each moved view's old
@@ -9345,28 +9362,15 @@ impl Ui {
         self.stamp += 1;
         let mut out = std::mem::take(&mut self.view_prev);
         out.clear();
-        let promoted = !self.promotion.current.is_empty();
         for v in 1..self.views.len() as u32 {
             if self.views[v as usize].index == 0 || self.views[v as usize].slot == NONE {
                 continue;
             }
-            let shown = self.shown(v);
-            let r = &self.views[v as usize];
-            let old_entry = r.entry();
-            let old_cover = (shown && !self.full_damage && (!promoted || !self.promoted_view(r.index))).then(|| r.cover(r.screen));
             // Culled views still place rect/accessibility queries, without retaining draw runs.
             self.compose(v);
             let r = &self.views[v as usize];
             let (index, entry) = (r.index, r.entry());
-            if entry != old_entry {
-                if let Some(old_cover) = old_cover {
-                    let cover = if r.flat { r.screen } else { r.cover(r.screen) };
-                    self.add_damage(old_cover);
-                    self.add_damage(cover);
-                }
-                self.invalidate_a11y_view(v);
-            }
-            if shown {
+            if self.shown(v) {
                 out.push((index, entry));
             }
         }
