@@ -75,24 +75,7 @@ impl BoxOpts {
     }
 }
 
-/// Options of `value_field` beyond its place and key. Its `slide` and `scrub` callbacks are the call's arguments (borrowed for it).
-#[derive(Clone, Default)]
-pub struct ValueFieldOpts {
-    pub size: Option<i64>,
-    pub display: Option<String>,
-    pub fraction: Option<f32>,
-    pub left: bool,
-    pub edit: bool,
-    pub lead: Option<(String, Rgba)>,
-    pub trail: Option<(String, Rgba)>,
-    pub line: Option<Rgba>,
-    pub bare: bool,
-    pub placeholder: Option<String>,
-    pub tracking: Option<f32>,
-    /// the owner follows a drag of the slider between builds (`field_drag`, `patch_field`): the
-    /// drag dirties no view (`DRAG_FREE`)
-    pub kept_drag: bool,
-}
+pub use pxui_types::text::ValueFieldOpts;
 
 /// What a code editor knows about its text. A host supplies one (the editor's Lisp); the text area
 /// itself is language-free. Byte positions are byte offsets into the text.

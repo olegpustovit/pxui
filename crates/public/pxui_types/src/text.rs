@@ -1,5 +1,5 @@
 //! Stable text inputs and outputs shared with libpxui.
-use crate::{a11y::Role, theme::ColorToken, Size};
+use crate::{a11y::Role, geom::Rgba, theme::ColorToken, Size};
 
 /// How a style's lines break inside its width (`ffi::PxuiTextStyle::wrap` carries its number).
 #[repr(u32)]
@@ -614,4 +614,33 @@ impl<'a> TextSpans<'a> {
     pub const fn new(spans: &'a [TextSpan]) -> Self {
         Self { size: core::mem::size_of::<TextSpans>() as u32, reserved: 0, spans: crate::ffi::Strided::of(spans), borrowed: core::marker::PhantomData }
     }
+}
+
+/// A value field's options borrowed for its build or a patch to its value.
+#[derive(Clone, Default)]
+pub struct ValueFieldOpts<'a> {
+    /// Text size in logical points, or the theme default.
+    pub size: Option<i64>,
+    /// Alternate display text while the field is idle.
+    pub display: Option<&'a str>,
+    /// Soft-range line length as a fraction of the field's width.
+    pub fraction: Option<f32>,
+    /// Align the value with the leading edge.
+    pub left: bool,
+    /// Open the text editor on this build.
+    pub edit: bool,
+    /// Leading text and its ink.
+    pub lead: Option<(&'a str, Rgba)>,
+    /// Trailing text and its ink.
+    pub trail: Option<(&'a str, Rgba)>,
+    /// Override the idle hairline color.
+    pub line: Option<Rgba>,
+    /// Hide the idle hairline.
+    pub bare: bool,
+    /// Text shown in an empty field.
+    pub placeholder: Option<&'a str>,
+    /// Additional spacing between glyphs, in logical points.
+    pub tracking: Option<f32>,
+    /// Keep the field's view during a scrub while its owner patches the value.
+    pub kept_drag: bool,
 }

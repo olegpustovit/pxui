@@ -297,7 +297,7 @@ mod tramps {
     });
     tramp!(text_field, |ui, sh, c: &TextFieldConfig, label: &str, value: &str| PxuiTextFieldConfig { state: st(c.state), row: bx(c.row), label: pair(label), value: pair(value) });
     tramp!(line_field, |ui, sh, c: &LineFieldConfig, text: &str| PxuiLineFieldConfig { state: st(c.state), empty: c.empty as u8, field: bx(c.field), text: pair(text) });
-    tramp!(value_field, |ui, sh, c: &ValueFieldConfig, opts: &ValueFieldOpts, text: &str| PxuiValueFieldConfig {
+    tramp!(value_field, |ui, sh, c: &ValueFieldConfig, opts: &ValueFieldOpts<'_>, text: &str| PxuiValueFieldConfig {
         state: st(c.state), invalid: c.invalid as u8, w: c.w, h: c.h, field: bx(c.field), opts: value_opts(opts), text: pair(text)
     });
     tramp!(picker_field, |ui, sh, c: &PickerFieldConfig, placeholder: &str| PxuiPickerFieldConfig {
@@ -306,7 +306,7 @@ mod tramps {
 }
 
 /// The caller's `ValueFieldOpts` as the descriptor `pxui_ui_value_field` takes (its strings borrowed; place, label and value unset).
-fn value_opts(o: &pxui_core::ui_text::ValueFieldOpts) -> PxuiValueFieldDesc {
+fn value_opts(o: &pxui_core::ui_text::ValueFieldOpts<'_>) -> PxuiValueFieldDesc {
     let flags = [(PxuiValueFieldDesc::LEFT, o.left), (PxuiValueFieldDesc::EDIT, o.edit), (PxuiValueFieldDesc::BARE, o.bare), (PxuiValueFieldDesc::KEPT_DRAG, o.kept_drag),
         (PxuiValueFieldDesc::HAS_SIZE, o.size.is_some()), (PxuiValueFieldDesc::HAS_FRACTION, o.fraction.is_some()), (PxuiValueFieldDesc::HAS_TRACKING, o.tracking.is_some()),
         (PxuiValueFieldDesc::HAS_LINE, o.line.is_some()), (PxuiValueFieldDesc::HAS_LEAD, o.lead.is_some()), (PxuiValueFieldDesc::HAS_TRAIL, o.trail.is_some()),
@@ -315,8 +315,8 @@ fn value_opts(o: &pxui_core::ui_text::ValueFieldOpts) -> PxuiValueFieldDesc {
     PxuiValueFieldDesc {
         size: core::mem::size_of::<PxuiValueFieldDesc>() as u32, flags, font_size: o.size.unwrap_or(0), fraction: o.fraction.unwrap_or(0.0), tracking: o.tracking.unwrap_or(0.0),
         line: o.line.unwrap_or_default(), lead_color: o.lead.as_ref().map_or_else(Default::default, |l| l.1), trail_color: o.trail.as_ref().map_or_else(Default::default, |l| l.1), reserved: [0; 4],
-        x: 0.0, y: 0.0, width: 0.0, height: 0.0, display: opt(o.display.as_deref()), placeholder: opt(o.placeholder.as_deref()),
-        lead: opt(o.lead.as_ref().map(|l| l.0.as_str())), trail: opt(o.trail.as_ref().map(|l| l.0.as_str())), label: Str::default(), value: Str::default(),
+        x: 0.0, y: 0.0, width: 0.0, height: 0.0, display: opt(o.display), placeholder: opt(o.placeholder),
+        lead: opt(o.lead.map(|l| l.0)), trail: opt(o.trail.map(|l| l.0)), label: Str::default(), value: Str::default(),
     }
 }
 

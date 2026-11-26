@@ -1813,6 +1813,8 @@ fn a_text_area_with_data_callbacks_and_a_language_and_a_value_field_with_callbac
     let accept = |t: &str| t.parse::<f32>().is_ok();
     let slide = |f: f32| format!("{f:.2}");
     let value_callbacks = ValueCallbacks::DEFAULT.valid(&accept).slide(&slide);
+    let ink = pxui_types::geom::Rgba::WHITE;
+    let value = ValueField::DEFAULT.fraction(0.5).display("0.25").lead("x", ink).trail("mm", ink).placeholder("value");
     for tick in 0..12 {
         mem_sys::local_reset();
         let scope = (tick >= 8).then(mem_sys::warm_scope);
@@ -1820,7 +1822,7 @@ fn a_text_area_with_data_callbacks_and_a_language_and_a_value_field_with_callbac
             ui.panel("data", &crate::Overlay::DEFAULT, &mut |ui: &mut Ui| {
                 let r = ui.text_area("area", source, pxui_types::Node::DEFAULT.at(0.0, 0.0).w_px(100.0).h_px(100.0), &area, &callbacks);
                 assert_eq!((r.changed, r.submitted), (None, false));
-                let v = crate::ext::value_field(ui, "amount", "0.25", pxui_types::geom::Rect::new(0.0, 110.0, 100.0, 20.0), &ValueField::DEFAULT.fraction(0.5), &value_callbacks);
+                let v = crate::ext::value_field(ui, "amount", "0.25", pxui_types::geom::Rect::new(0.0, 110.0, 100.0, 20.0), &value, &value_callbacks);
                 assert_eq!((v.changed, v.editing), (None, false));
             });
         }).expect("frame");

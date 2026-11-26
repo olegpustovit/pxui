@@ -386,7 +386,7 @@ pub(crate) fn default_picker_row(this: &mut Ui, c: &PickerRowConfig, text: &str,
 
 /// Whether the text changed (the new one is in `returned`) and whether a text editor is open.
 #[allow(clippy::too_many_arguments)]
-fn value_field_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &ValueFieldOpts, valid: &dyn Fn(&str) -> bool, slide: Option<&dyn Fn(f32) -> String>,
+fn value_field_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &ValueFieldOpts<'_>, valid: &dyn Fn(&str) -> bool, slide: Option<&dyn Fn(f32) -> String>,
     scrub: Option<&dyn Fn(&str, f32, bool) -> String>, label: &str, value: &str) -> (bool, bool) {
     let slider = slide.is_some() || scrub.is_some();
     let drag = if slider && o.kept_drag { Flags::DRAG_FREE } else { Flags::NONE };
@@ -456,7 +456,7 @@ fn value_field_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &ValueFiel
     } else {
         None
     };
-    let shown = changed.as_deref().unwrap_or_else(|| if editing { value } else { o.display.as_deref().unwrap_or(value) });
+    let shown = changed.as_deref().unwrap_or_else(|| if editing { value } else { o.display.unwrap_or(value) });
     let invalid = this.state(&bx, 1) & 1 == 0;
     let field = value_field_look(this.theme(), invalid, editing);
     let config = ValueFieldConfig { state: State { focused: editing, ..State::default() }, invalid, w, h, field: bx };
@@ -490,7 +490,7 @@ fn value_field_look(t: &Theme, invalid: bool, editing: bool) -> Look {
 
 /// The built-in value field: the hairline (invalid, editing, or `line`; left out when `bare`) and, unless it is being edited, the
 /// fraction line under the value, the placeholder or the value with its lead and trail.
-pub(crate) fn default_value_field(this: &mut Ui, c: &ValueFieldConfig, o: &ValueFieldOpts, shown: &str) {
+pub(crate) fn default_value_field(this: &mut Ui, c: &ValueFieldConfig, o: &ValueFieldOpts<'_>, shown: &str) {
     let (bx, w, h, invalid, editing) = (c.field, c.w, c.h, c.invalid, c.state.focused);
     let t = this.theme();
     let field = value_field_look(t, invalid, editing);
@@ -524,7 +524,7 @@ pub(crate) fn default_value_field(this: &mut Ui, c: &ValueFieldConfig, o: &Value
     let text_w = |ui: &mut Ui, t: &str| ui.text_width(size, t);
     match (&o.lead, &o.trail) {
         (None, None) if shown.is_empty() && o.placeholder.is_some() => {
-            let p = o.placeholder.as_deref().unwrap_or("");
+            let p = o.placeholder.unwrap_or("");
             let pw = text_w(this, p);
             this.text_part(k(1), (2.0, text_y), pw, ink(placeholder), p);
         }
@@ -927,7 +927,7 @@ impl Ui {
     /// frames it differs from `value` (borrowed until the next call on the Ui) and whether a text
     /// editor is open.
     #[allow(clippy::too_many_arguments)]
-    pub fn value_field(&mut self, at: (f32, f32), w: f32, h: f32, o: &ValueFieldOpts, valid: &dyn Fn(&str) -> bool, slide: Option<&dyn Fn(f32) -> String>,
+    pub fn value_field(&mut self, at: (f32, f32), w: f32, h: f32, o: &ValueFieldOpts<'_>, valid: &dyn Fn(&str) -> bool, slide: Option<&dyn Fn(f32) -> String>,
         scrub: Option<&dyn Fn(&str, f32, bool) -> String>, label: &str, value: &str) -> (Option<&str>, bool) {
         let (changed, editing) = value_field_body(self, at, w, h, o, valid, slide, scrub, label, value);
         (changed.then_some(self.returned.as_str()), editing)
@@ -951,7 +951,7 @@ impl Ui {
     /// build lays them out without a lead (`o.left`, `o.size`, `o.trail`). False when a patch cannot
     /// show it (a lead, a value too wide beside its trail, the line had no width when built, the
     /// handle is stale): build the field's view.
-    pub fn patch_field(&mut self, field: &UiBox, o: &ValueFieldOpts, text: &str) -> bool {
+    pub fn patch_field(&mut self, field: &UiBox, o: &ValueFieldOpts<'_>, text: &str) -> bool {
         let (Some(value), true, None) = (self.box_of_key(int_key(field.box_key, 1)), self.live(field), &o.lead) else { return false };
         let at = self.local_rect(field);
         let mut ok = true;

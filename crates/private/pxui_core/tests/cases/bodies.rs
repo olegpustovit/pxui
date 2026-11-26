@@ -1923,7 +1923,7 @@ pub fn line_field_inked_body() {
 }
 
 /// A value field with its fraction line on top and the value at the start.
-fn topped_value(ui: &mut Ui, c: &ValueFieldConfig, o: &ValueFieldOpts, shown: &str) {
+fn topped_value(ui: &mut Ui, c: &ValueFieldConfig, o: &ValueFieldOpts<'_>, shown: &str) {
     ui.set_look(&c.field, if c.state.focused { Look::NONE } else { ink_look() }, c.state);
     if !c.state.focused {
         let n = ui.node("top".into(), Node::DEFAULT.at(0.0, 0.0).w(Size::Px(c.w * o.fraction.unwrap_or(0.0))).h(Size::Px(2.0)).look(ink_look()));

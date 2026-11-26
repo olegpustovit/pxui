@@ -1316,7 +1316,7 @@ pub fn window_pxui_field_kept_drag() {
     let opts = |current: &str| ValueFieldOpts {
         fraction: current.parse::<f32>().ok(),
         kept_drag: true,
-        trail: Some(("mm".to_owned(), pxui_core::geom::Rgba::WHITE)),
+        trail: Some(("mm", pxui_core::geom::Rgba::WHITE)),
         ..ValueFieldOpts::default()
     };
     let mut build = |ui: &mut Ui| {

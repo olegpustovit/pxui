@@ -202,18 +202,18 @@ pub type SlideText = Option<extern "C" fn(*mut c_void, f32, *mut Str)>;
 pub type ScrubText = Option<extern "C" fn(*mut c_void, Str, f32, u8, *mut Str)>;
 
 /// The options a value field descriptor names (its callbacks are the call's arguments).
-pub(crate) fn field_opts(d: &PxuiValueFieldDesc, display: &str, placeholder: &str, lead: &str, trail: &str) -> ValueFieldOpts {
+pub(crate) fn field_opts<'a>(d: &PxuiValueFieldDesc, display: &'a str, placeholder: &'a str, lead: &'a str, trail: &'a str) -> ValueFieldOpts<'a> {
     let has = |flag: u32| d.flags & flag != 0;
     ValueFieldOpts {
         size: has(PxuiValueFieldDesc::HAS_SIZE).then_some(d.font_size),
-        display: has(PxuiValueFieldDesc::HAS_DISPLAY).then(|| display.to_owned()),
+        display: has(PxuiValueFieldDesc::HAS_DISPLAY).then_some(display),
         fraction: has(PxuiValueFieldDesc::HAS_FRACTION).then_some(d.fraction),
         left: has(PxuiValueFieldDesc::LEFT), edit: has(PxuiValueFieldDesc::EDIT),
-        lead: has(PxuiValueFieldDesc::HAS_LEAD).then(|| (lead.to_owned(), d.lead_color)),
-        trail: has(PxuiValueFieldDesc::HAS_TRAIL).then(|| (trail.to_owned(), d.trail_color)),
+        lead: has(PxuiValueFieldDesc::HAS_LEAD).then_some((lead, d.lead_color)),
+        trail: has(PxuiValueFieldDesc::HAS_TRAIL).then_some((trail, d.trail_color)),
         line: has(PxuiValueFieldDesc::HAS_LINE).then_some(d.line),
         bare: has(PxuiValueFieldDesc::BARE),
-        placeholder: has(PxuiValueFieldDesc::HAS_PLACEHOLDER).then(|| placeholder.to_owned()),
+        placeholder: has(PxuiValueFieldDesc::HAS_PLACEHOLDER).then_some(placeholder),
         tracking: has(PxuiValueFieldDesc::HAS_TRACKING).then_some(d.tracking),
         kept_drag: has(PxuiValueFieldDesc::KEPT_DRAG),
     }

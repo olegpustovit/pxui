@@ -514,7 +514,7 @@ pub struct ValueFieldConfig {
     pub field: Handle,
 }
 
-pub type ValueFieldBody = fn(&mut Ui, &ValueFieldConfig, &ValueFieldOpts, &str);
+pub type ValueFieldBody = fn(&mut Ui, &ValueFieldConfig, &ValueFieldOpts<'_>, &str);
 
 /// What a picker's search field body is given (its placeholder beside it). It runs with the `search` entered, the box that takes
 /// presses and keys and is the editing surface: the body gives it its look for `state` (`focused`; a field `resting` has the hairline
