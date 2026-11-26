@@ -180,7 +180,7 @@ pub enum RenderResource { Buffer(Buffer), Texture(Texture) }
 struct RenderEncoderInner {
     raw: metal_sys::Handle,
     lifetime: Lifetime,
-    /// None while the shell sits in Tables::encoder_spare (no queue dependents).
+    /// None while the shell is pooled with its queue.
     command_buffer: Option<CommandBuffer>,
     pass: Option<RenderPassDescriptor>,
     end_native: bool,

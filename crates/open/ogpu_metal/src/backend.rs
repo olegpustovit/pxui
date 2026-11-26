@@ -581,7 +581,7 @@ impl DriverCommands for MetalCommands {
     fn render_encoder(&self, target: &DriverRenderTarget) -> Result<Box<dyn DriverRenderEncoder>, Error> {
         let context = self.ctx();
         context.cb().end_texture_uploads();
-        render_encoder::create(context, target)
+        render_encoder::create(context, &self.queue, target)
     }
     fn settle(&mut self) { self.ctx().cb().end_texture_uploads(); }
     fn write_texture(&self, texture: &dyn DriverResource, write: &TextureRead, bytes: &[u8]) -> Result<(), Error> {
@@ -645,7 +645,7 @@ impl DriverCommands for MetalCommands {
     fn adopt_render_encoder(&self, native: ogpu_core::backend::NativePass, _target: &DriverRenderTarget) -> Result<Box<dyn DriverRenderEncoder>, Error> {
         let context = self.ctx();
         context.cb().end_texture_uploads();
-        render_encoder::adopt(context, native)
+        render_encoder::adopt(context, &self.queue, native)
     }
     fn rebegin(&mut self) -> Result<(), Error> {
         let native = self.queue.obtain_command_buffer()?;
@@ -826,9 +826,6 @@ fn destroy_device(dev: &Rc<Dev>) -> Result<(), Error> {
     }
     dev.ctx_spare.borrow_mut().clear();
     if let Some(queue) = dev.adopted_queue.borrow_mut().take() { queue.destroy()?; }
-    for pass in std::mem::take(&mut *dev.t.pass_spare.borrow_mut()) {
-        dev.record_cleanup(pass.destroy().err());
-    }
     for (_, state) in std::mem::take(&mut *dev.t.depth_states.borrow_mut()) {
         dev.record_cleanup(state.destroy().err());
     }

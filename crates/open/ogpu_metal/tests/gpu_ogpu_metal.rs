@@ -1598,6 +1598,7 @@ fn gpu_rebegin_commands() {
 fn gpu_warm_owned_submit_held_resources_alloc_free() {
     assert!(mem_sys::COUNTING, "needs counting allocator");
     let device = open();
+    let baseline = impl_::live_handles();
     let queue = be::create_queue(&device).unwrap_or_else(|e| die(e));
     let texture = be::create_texture(
         &device,
@@ -1632,6 +1633,7 @@ fn gpu_warm_owned_submit_held_resources_alloc_free() {
     drop(commands);
     be::destroy_texture(&texture).unwrap_or_else(|e| die(e));
     be::destroy_queue(&queue).unwrap_or_else(|e| die(e));
+    assert_eq!(impl_::live_handles(), baseline, "destroyed queue retained Metal handles on the live device");
     finish(device);
     assert_eq!(allocations, 0, "warm owned submit with held resources allocated {allocations}");
 }

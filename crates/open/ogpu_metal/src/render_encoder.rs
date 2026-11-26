@@ -5,6 +5,7 @@ use crate::{
     command_control::{CommandContext, OpenEncoder},
     device::{fail},
     pipeline::Native,
+    queue::Queue,
 };
 use crate::native::{
     pipeline::{RenderResource, RenderStage, ResourceUsage, Scissor},
@@ -104,6 +105,7 @@ fn declare(context: &CommandContext, encoder: &RenderEncoder, resources: &[Rc<dy
 /// One render pass: the context it records into and the native encoder and pass descriptor.
 struct Render {
     context: Rc<CommandContext>,
+    queue: Queue,
     encoder: Option<RenderEncoder>,
     pass: Option<RenderPassDescriptor>,
     width_px: u32,
@@ -131,7 +133,7 @@ fn take_declared() -> Vec<i64> {
     v
 }
 
-pub fn create(context: &Rc<CommandContext>, target: &DriverRenderTarget) -> Result<Box<dyn DriverRenderEncoder>, Error> {
+pub fn create(context: &Rc<CommandContext>, queue: &Queue, target: &DriverRenderTarget) -> Result<Box<dyn DriverRenderEncoder>, Error> {
     let color = &target.target_colors[0];
     let color_texture = context.find_texture(&*color.color)?;
     let resolve = match &color.color_resolve {
@@ -146,10 +148,7 @@ pub fn create(context: &Rc<CommandContext>, target: &DriverRenderTarget) -> Resu
     for texture in resolve.iter().chain(depth.iter()) {
         context.keep_texture(texture)?;
     }
-    let pass = {
-        let mut spare = context.tables.pass_spare.borrow_mut();
-        RenderPassDescriptor::obtain(context.device.metal(), color_texture.metal().admitted_descriptor(), &mut spare)?
-    };
+    let pass = queue.render_pass(color_texture.metal().admitted_descriptor())?;
     let fail_pass = |e: native::Error| {
         let _ = pass.destroy();
         e
@@ -159,22 +158,19 @@ pub fn create(context: &Rc<CommandContext>, target: &DriverRenderTarget) -> Resu
         pass.set_resolve_texture(Some(resolve.metal())).map_err(&fail_pass)?;
     }
     pass.set_actions(target.actions()).map_err(&fail_pass)?;
-    let encoder = {
-        let mut spare = context.tables.encoder_spare.borrow_mut();
-        RenderEncoder::obtain(&context.cb(), &pass, &mut spare).map_err(&fail_pass)?
-    };
+    let encoder = queue.render_encoder(&context.cb(), &pass).map_err(&fail_pass)?;
     *context.open_encoder.borrow_mut() = Some(OpenEncoder::Render(encoder.clone(), pass.clone()));
     // Residency tokens: reuse a small buffer; declare only pushes on cold passes.
-    Ok(Box::new(Render { context: context.clone(), encoder: Some(encoder), pass: Some(pass), width_px: target.target_width as u32, height_px: target.target_height as u32, scale: 1.0, declared: std::cell::RefCell::new(take_declared()), reusable:false }))
+    Ok(Box::new(Render { context: context.clone(), queue: queue.clone(), encoder: Some(encoder), pass: Some(pass), width_px: target.target_width as u32, height_px: target.target_height as u32, scale: 1.0, declared: std::cell::RefCell::new(take_declared()), reusable:false }))
 }
 
-pub fn adopt(context: &Rc<CommandContext>, native: ogpu_core::backend::NativePass) -> Result<Box<dyn DriverRenderEncoder>, Error> {
+pub fn adopt(context: &Rc<CommandContext>, queue: &Queue, native: ogpu_core::backend::NativePass) -> Result<Box<dyn DriverRenderEncoder>, Error> {
     if native.mtl_render_encoder.is_null() {
         return Err(fail(context.operation, ErrorKind::InvalidArgument, "native render encoder is null"));
     }
     let encoder = RenderEncoder::adopt_raw(&context.cb(), native.mtl_render_encoder)?;
     *context.open_encoder.borrow_mut() = Some(OpenEncoder::AdoptedRender(encoder.clone()));
-    Ok(Box::new(Render { context: context.clone(), encoder: Some(encoder), pass: None, width_px: native.width_px, height_px: native.height_px, scale: native.scale, declared: std::cell::RefCell::new(take_declared()), reusable:false }))
+    Ok(Box::new(Render { context: context.clone(), queue: queue.clone(), encoder: Some(encoder), pass: None, width_px: native.width_px, height_px: native.height_px, scale: native.scale, declared: std::cell::RefCell::new(take_declared()), reusable:false }))
 }
 
 impl DriverRenderEncoder for Render {
@@ -345,12 +341,7 @@ impl Drop for Render {
                 }
             }
         }
-        if let Some(pass) = self.pass.take() {
-            pass.recycle(&mut self.context.tables.pass_spare.borrow_mut());
-        }
-        if let Some(enc) = self.encoder.take() {
-            enc.recycle(&mut self.context.tables.encoder_spare.borrow_mut());
-        }
+        self.queue.recycle_render(self.pass.take(), self.encoder.take());
         let mut declared = std::mem::take(self.declared.get_mut());
         declared.clear();
         if declared.capacity() > 0 {

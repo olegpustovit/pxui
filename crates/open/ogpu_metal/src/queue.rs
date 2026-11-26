@@ -33,6 +33,9 @@ struct QueueInner {
     free_commands: RefCell<Vec<native::CommandBuffer>>,
     /// Empty retained shells recycled across submits (avoids `Vec::with_capacity` every frame).
     free_retained: RefCell<Vec<Vec<Retained>>>,
+    /// Ended owned passes are reused by this queue until it closes.
+    free_passes: RefCell<Vec<native::RenderPassDescriptor>>,
+    free_encoders: RefCell<Vec<native::RenderEncoder>>,
     /// Durations of completed epochs the core has not yet asked for.
     durations: RefCell<Vec<(i64, f64)>>,
     dead: Cell<bool>,
@@ -56,6 +59,8 @@ pub fn create(device: &Device) -> Result<Queue, Error> {
         pending: RefCell::new(Vec::with_capacity(4)),
         free_commands: RefCell::new(Vec::with_capacity(4)),
         free_retained: RefCell::new(Vec::with_capacity(4)),
+        free_passes: RefCell::new(Vec::with_capacity(4)),
+        free_encoders: RefCell::new(Vec::with_capacity(4)),
         durations: RefCell::new(Vec::new()),
         dead: Cell::new(false),
     })))
@@ -71,6 +76,8 @@ pub(crate) fn adopt_raw(device: &Device, pointer: *mut std::ffi::c_void) -> Resu
         pending: RefCell::new(Vec::with_capacity(4)),
         free_commands: RefCell::new(Vec::with_capacity(4)),
         free_retained: RefCell::new(Vec::with_capacity(4)),
+        free_passes: RefCell::new(Vec::with_capacity(4)),
+        free_encoders: RefCell::new(Vec::with_capacity(4)),
         durations: RefCell::new(Vec::new()),
         dead: Cell::new(false),
     })))
@@ -93,6 +100,26 @@ impl Queue {
             }
         }
         native::CommandBuffer::create(&value.metal)
+    }
+
+    pub(crate) fn render_pass(&self, extent: &ogpu_core::validation::AdmittedTexture) -> Result<native::RenderPassDescriptor, Error> {
+        native::RenderPassDescriptor::obtain(self.0.device.metal(), extent, &mut self.0.free_passes.borrow_mut())
+    }
+
+    pub(crate) fn render_encoder(&self, command: &native::CommandBuffer, pass: &native::RenderPassDescriptor) -> Result<native::RenderEncoder, Error> {
+        native::RenderEncoder::obtain(command, pass, &mut self.0.free_encoders.borrow_mut())
+    }
+
+    pub(crate) fn recycle_render(&self, pass: Option<native::RenderPassDescriptor>, encoder: Option<native::RenderEncoder>) {
+        if self.0.dead.get() {
+            return;
+        }
+        if let Some(pass) = pass {
+            pass.recycle(&mut self.0.free_passes.borrow_mut());
+        }
+        if let Some(encoder) = encoder {
+            encoder.recycle(&mut self.0.free_encoders.borrow_mut());
+        }
     }
 
     /// The GPU seconds of a completed epoch, handed over once.
@@ -196,6 +223,8 @@ impl Queue {
             }
             value.metal.destroy()?;
             value.dead.set(true);
+            value.free_encoders.borrow_mut().clear();
+            value.free_passes.borrow_mut().clear();
             value.device.detach_resource();
             Ok(())
         }
