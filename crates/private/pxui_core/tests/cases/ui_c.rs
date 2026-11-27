@@ -572,6 +572,36 @@ fn text_area_typing_hover_allocations() {
     assert_eq!(inside, outside, "hovering the edited row allocated");
 }
 
+fn text_area_insert_damages_only_the_changed_row() {
+    let mut ui = new_ui(Some(13));
+    let frame = frame_at(vec![], 1.0, 0.0, vec![]);
+    let step = |ui: &mut Ui, text: &str| {
+        host_frame(ui, &frame, &mut |ui| {
+            ui.text_area_submit(Node::DEFAULT.w_px(300.).h_px(96.), &Default::default(), "area", text);
+            ui.view("kept", 1, Size::Px(20.), Size::Px(20.), &mut |ui| {
+                ui.node("anchor".into(), Node::DEFAULT.w_px(20.).h_px(20.).look(Look::NONE.fill(Rgba::rgb(20, 30, 40))));
+            });
+        });
+    };
+    let glyphs = |ui: &Ui| ui.output().draw[0].instances.iter()
+        .filter(|i| i.kind == pxui_core::draw::kind::MASK).map(|i| i.rect).collect::<Vec<_>>();
+    step(&mut ui, "ABCD\nE\nF");
+    ui.drawn(0);
+    step(&mut ui, "ABCD\nE\nF");
+    let before = glyphs(&ui);
+    ui.drawn(0);
+    step(&mut ui, "ABXCD\nE\nF");
+    let after = glyphs(&ui);
+    // After the gutter, A and B stay fixed. Cover C and D at both positions and the inserted X.
+    let mut expected = pxui_types::damage::DamageList::default();
+    for &[l, t, r, b] in before[3..5].iter().chain(&after[3..6]) {
+        let rect = Rect::new(l, t, r - l, b - t);
+        assert!(ui.output().damage.covers(rect), "missed glyph {rect:?}");
+        expected.add(rect, Rect::new(0., 0., 300., 96.));
+    }
+    assert_eq!(ui.output().damage.bounds(), expected.bounds());
+}
+
 fn text_area_replays_unchanged_rows() {
     let mut ui = new_ui(Some(13));
     ui.text_mut().set_glyph_cache(false);
@@ -1154,6 +1184,7 @@ pub const CASES: &[(&str, fn())] = &[
     ("reopening_an_empty_edit_clears_the_previous_selection", reopening_an_empty_edit_clears_the_previous_selection),
     ("text_area_row_carets", text_area_row_carets),
     ("text_area_typing_hover_allocations", text_area_typing_hover_allocations),
+    ("text_area_insert_damages_only_the_changed_row", text_area_insert_damages_only_the_changed_row),
     ("text_area_replays_unchanged_rows", text_area_replays_unchanged_rows),
     ("window_pxui_text_area", window_pxui_text_area),
     ("window_pxui_text_area_windows", window_pxui_text_area_windows),

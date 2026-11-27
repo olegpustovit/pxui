@@ -6805,7 +6805,7 @@ impl Paint {
             self.text.replay_marks(&saved.shelves);
             return;
         }
-        // ponytail: bound retained glyph storage for unwrapped lines. Long rows still paint directly.
+        // ponytail: retain 128 rows and 1 KiB per run. Use viewport bounds if tall panes or long lines dominate typing profiles.
         if text.len() > 1024 {
             self.text_mono_runs(at, char_w, text, ink, colors);
             return;
@@ -10251,7 +10251,14 @@ impl Ui {
         d.dirty.retain_mut(|r| { r.1 = r.1.min(len); r.0 < r.1 });
     }
 
-    fn damage_paint_gap(&mut self, old: &[Instance], new: &[Instance]) {
+    fn damage_paint_gap(&mut self, mut old: &[Instance], mut new: &[Instance]) {
+        // A shifted storage index leaves identical trailing instances at the same screen position.
+        while let (Some((a, before)), Some((b, after))) = (old.split_last(), new.split_last()) {
+            if a == b { old = before; new = after; }
+            else if *a == EMPTY { old = before; }
+            else if *b == EMPTY { new = after; }
+            else { break; }
+        }
         let mut old = old.iter().filter(|&&item| item != EMPTY);
         let mut new = new.iter().filter(|&&item| item != EMPTY);
         loop {
