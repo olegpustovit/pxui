@@ -39,6 +39,7 @@ pub use crate::geom::Edges;
 use std::any::Any;
 use pxui_text::{Metrics, Style, Text, TextSpan};
 use std::collections::HashMap;
+use std::ops::Range;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use pxui_types::ffi::PxuiFrameReasons;
@@ -1027,12 +1028,41 @@ pub struct Layer {
     pub bounds: Vec<[f32; 4]>,
     pub runs: Vec<CullRun>,
     pieces: Vec<Piece>,
+    mono: Vec<MonoSpan>,
+    slack: Vec<Range<usize>>,
     live: bool,
 }
 
 impl Layer {
     fn new(key: i64, id: u32) -> Layer {
-        Layer { key, id, role: LayerRole::Base, anchor: Rect::default(), instances: Vec::with_capacity(256), breaks: Vec::new(), images: Vec::new(), dirty: Vec::new(), bounds: Vec::new(), runs: Vec::new(), pieces: Vec::new(), live: false }
+        Layer { key, id, role: LayerRole::Base, anchor: Rect::default(), instances: Vec::with_capacity(256), breaks: Vec::new(), images: Vec::new(), dirty: Vec::new(), bounds: Vec::new(), runs: Vec::new(), pieces: Vec::new(), mono: Vec::new(), slack: Vec::new(), live: false }
+    }
+}
+
+/// A specific generation of a retained mono run at its layer storage position.
+#[derive(Clone, Copy)]
+struct MonoSpan { start: usize, end: usize, generation: u64 }
+
+impl Layer {
+    fn paint_gap(&self, mut range: Range<usize>) -> (Range<usize>, &[MonoSpan]) {
+        // Placement fills these holes with EMPTY. They can occupy most of a small edit's gap.
+        if let Some(hole) = self.slack.get(self.slack.partition_point(|h| h.end <= range.start))
+            && hole.start <= range.start { range.start = hole.end.min(range.end); }
+        if let Some(hole) = self.slack[..self.slack.partition_point(|h| h.start < range.end)].last()
+            && hole.end >= range.end { range.end = hole.start.max(range.start); }
+        let spans = &self.mono[self.mono.partition_point(|r| r.start < range.start)..];
+        let end = spans.partition_point(|r| r.end <= range.end);
+        (range, &spans[..end])
+    }
+
+    fn place_mono(&mut self) {
+        let mut pieces = self.pieces.iter().filter(|p| p.view == NO_VIEW).peekable();
+        for span in &mut self.mono {
+            while pieces.peek().is_some_and(|p| p.b as usize <= span.start) { pieces.next(); }
+            let piece = pieces.peek().expect("mono run belongs to a fresh piece");
+            span.end = span.end - piece.a as usize + piece.at as usize;
+            span.start = span.start - piece.a as usize + piece.at as usize;
+        }
     }
 }
 
@@ -2003,6 +2033,7 @@ impl Ui {
                 dirty = true;
             }
             if dirty {
+                layer.mono.clear();
                 add_range(&mut layer.dirty, view.run.0, view.run.1);
                 changed = true;
             }
@@ -6278,6 +6309,7 @@ fn scroll_travel(overscroll: f64, height: f64) -> f64 {
 /// A row at one position in a text area. Instances are captured before the enclosing view's transform.
 #[derive(Default)]
 pub(crate) struct MonoRun {
+    generation: u64,
     key: Option<((f32, f32), f32, Rect, u16, i64, i64, Rgba)>,
     evictions: u64,
     fonts: Option<std::sync::Arc<()>>,
@@ -6421,6 +6453,8 @@ impl Paint {
         let layer = &mut self.layers[self.layer];
         (layer.key, layer.role, layer.anchor) = (key, role, anchor);
         layer.instances.clear();
+        layer.mono.clear();
+        layer.slack.clear();
         layer.breaks.clear();
         layer.images.clear();
         layer.pieces.clear();
@@ -6801,7 +6835,11 @@ impl Paint {
             if let Some(i) = saved.atlas_break && layer.breaks.last().is_some_and(|b| b.image != crate::draw::ATLAS) {
                 layer.breaks.push(Break { at_instance: (layer.instances.len() + i) as u32, image: crate::draw::ATLAS });
             }
+            let start = layer.instances.len();
             layer.instances.extend_from_slice(&saved.instances);
+            if !self.capture_palette && !saved.instances.is_empty() {
+                layer.mono.push(MonoSpan { start, end: layer.instances.len(), generation: saved.generation });
+            }
             self.text.replay_marks(&saved.shelves);
             return;
         }
@@ -6818,6 +6856,14 @@ impl Paint {
         saved.shelves = self.text.marks();
         self.text.add_marks(&outer);
         saved.key = (self.text.misses() == misses && self.text.evictions() == evictions).then_some(key);
+        if saved.key.is_some() {
+            thread_local! { static NEXT: std::cell::Cell<u64> = const { std::cell::Cell::new(0) }; }
+            saved.generation = NEXT.with(|n| { let next = n.get().checked_add(1).unwrap(); n.set(next); next });
+            let layer = &mut self.layers[self.layer];
+            if !self.capture_palette && start < layer.instances.len() {
+                layer.mono.push(MonoSpan { start, end: layer.instances.len(), generation: saved.generation });
+            }
+        }
         saved.evictions = evictions;
         saved.fonts = Some(self.text.font_generation().clone());
         saved.text.clear();
@@ -7575,6 +7621,8 @@ impl Ui {
             || !paint.layers[0].breaks.is_empty()
             || self.draw[layer].breaks.iter().any(|b| start <= b.at_instance as usize && (b.at_instance as usize) < end);
         let mut target = std::mem::take(&mut self.draw[layer]);
+        target.mono.clear();
+        target.slack.clear();
         let room = self.slots[slot].room as usize;
         let (old_len, old_end) = (target.instances.len(), end + room);
         let mut old_breaks = std::mem::take(&mut self.temp_breaks);
@@ -9904,6 +9952,8 @@ impl Ui {
                     let d = &mut self.draw[j];
                     d.instances = old;
                     d.instances.clear();
+                    d.mono.clear();
+                    d.slack.clear();
                     d.bounds.clear();
                     d.runs.clear();
                     d.key = key;
@@ -9932,6 +9982,8 @@ impl Ui {
             }
             self.draw[j].instances = old;
             self.draw[j].instances.clear();
+            self.draw[j].mono.clear();
+            self.draw[j].slack.clear();
             self.draw[j].bounds.clear();
             self.draw[j].runs.clear();
             self.draw[j].key = i64::MIN;
@@ -9997,6 +10049,8 @@ impl Ui {
                 self.cull_runs = runs;
             }
             changed |= self.rebuild_breaks(s, &mut d);
+            d.slack.clear();
+            std::mem::swap(&mut d.mono, &mut s.mono);
             self.draw[at] = d;
             return changed;
         }
@@ -10047,12 +10101,13 @@ impl Ui {
                 for p in s.pieces.iter().filter(|p| p.view != NO_VIEW) {
                     let (a, b) = self.views[p.view as usize].run;
                     if a != b {
-                        self.damage_paint_gap(&d.instances[old_at..a as usize], &s.instances[fresh_at..p.a as usize]);
+                        self.damage_paint_gap(&d.instances, d.paint_gap(old_at..a as usize), &s.instances, s.paint_gap(fresh_at..p.a as usize));
                         (old_at, fresh_at) = (b as usize, p.a as usize);
                     }
                 }
-                self.damage_paint_gap(&d.instances[old_at..], &s.instances[fresh_at..]);
+                self.damage_paint_gap(&d.instances, d.paint_gap(old_at..d.instances.len()), &s.instances, s.paint_gap(fresh_at..s.instances.len()));
             }
+            s.place_mono();
             w = 0;
             for p in &s.pieces {
                 let at = p.at;
@@ -10064,6 +10119,7 @@ impl Ui {
                         d.bounds.reserve(d.instances.capacity().saturating_sub(d.bounds.len()));
                         d.bounds.resize(end, EMPTY_BOUNDS);
                     }
+                    if w < at && !s.mono.is_empty() { s.slack.push(w as usize..at as usize); }
                     changed |= self.clear_piece_gap(&mut d, w, at, track_gaps);
                     if self.full_damage {
                         let fresh = &s.instances[p.a as usize..p.b as usize];
@@ -10095,6 +10151,7 @@ impl Ui {
                 } else {
                     let (a, b) = self.views[p.view as usize].run;
                     if a != b {
+                        if w < a && !s.mono.is_empty() { s.slack.push(w as usize..a as usize); }
                         changed |= self.clear_piece_gap(&mut d, w, a, track_gaps);
                         w = b;
                     }
@@ -10130,6 +10187,8 @@ impl Ui {
         if changed { self.finish_cull_runs(&mut d, runs); }
         else { self.cull_runs = runs; }
         changed |= self.rebuild_breaks(s, &mut d);
+        std::mem::swap(&mut d.slack, &mut s.slack);
+        std::mem::swap(&mut d.mono, &mut s.mono);
         self.draw[at] = d;
         changed
     }
@@ -10187,7 +10246,9 @@ impl Ui {
                 continue;
             }
             // Another fresh batch fits here; total extra padding is at most the scratch instance count.
-            out.resize(out.len() + SLACK.max((b - a) as usize / 8) + fresh, EMPTY);
+            let padding = out.len()..out.len() + SLACK.max((b - a) as usize / 8) + fresh;
+            out.resize(padding.end, EMPTY);
+            if !s.mono.is_empty() { s.slack.push(padding); }
             bounds.resize(out.len(), EMPTY_BOUNDS);
             fresh = 0;
             let to = out.len() as u32;
@@ -10197,6 +10258,7 @@ impl Ui {
             self.moves.push((a, b, to));
         }
         // Fresh pieces and copied runs must be appended in their final paint order.
+        s.place_mono();
         std::mem::swap(&mut d.instances, &mut out);
         std::mem::swap(&mut d.bounds, &mut bounds);
         let mut kept = self.moves.iter();
@@ -10225,10 +10287,10 @@ impl Ui {
                 for i in 0..self.moves.len() {
                     let (a, b, to) = self.moves[i];
                     let (a, b, to) = (a as usize, b as usize, to as usize);
-                    self.damage_paint_gap(&out[old_at..a], &d.instances[new_at..to]);
+                    self.damage_paint_gap(&out, d.paint_gap(old_at..a), &d.instances, s.paint_gap(new_at..to));
                     (old_at, new_at) = (b, to + b - a);
                 }
-                self.damage_paint_gap(&out[old_at..], &d.instances[new_at..]);
+                self.damage_paint_gap(&out, d.paint_gap(old_at..out.len()), &d.instances, s.paint_gap(new_at..d.instances.len()));
             }
             let mut dirty_start = None;
             for i in 0..d.instances.len().max(old_len) {
@@ -10251,20 +10313,41 @@ impl Ui {
         d.dirty.retain_mut(|r| { r.1 = r.1.min(len); r.0 < r.1 });
     }
 
-    fn damage_paint_gap(&mut self, mut old: &[Instance], mut new: &[Instance]) {
-        // A shifted storage index leaves identical trailing instances at the same screen position.
-        while let (Some((a, before)), Some((b, after))) = (old.split_last(), new.split_last()) {
-            if a == b { old = before; new = after; }
-            else if *a == EMPTY { old = before; }
-            else if *b == EMPTY { new = after; }
+    fn damage_paint_gap(&mut self, old: &[Instance], (mut a, mut old_runs): (Range<usize>, &[MonoSpan]),
+                        new: &[Instance], (mut b, mut new_runs): (Range<usize>, &[MonoSpan])) {
+        // Skip only at aligned cursors. Two insertions can change which instances
+        // the comparison pairs up between them.
+        while !a.is_empty() && !b.is_empty() {
+            while old_runs.last().is_some_and(|r| r.end > a.end) { old_runs = &old_runs[..old_runs.len() - 1]; }
+            while new_runs.last().is_some_and(|r| r.end > b.end) { new_runs = &new_runs[..new_runs.len() - 1]; }
+            if let (Some(x), Some(y)) = (old_runs.last(), new_runs.last()) {
+                if x.end == a.end && y.end == b.end && x.generation == y.generation {
+                    a.end = x.start; b.end = y.start;
+                    continue;
+                }
+            }
+            let (x, y) = (&old[a.end - 1], &new[b.end - 1]);
+            if x == y { a.end -= 1; b.end -= 1; }
+            else if *x == EMPTY { a.end -= 1; }
+            else if *y == EMPTY { b.end -= 1; }
             else { break; }
         }
-        let mut old = old.iter().filter(|&&item| item != EMPTY);
-        let mut new = new.iter().filter(|&&item| item != EMPTY);
-        loop {
-            let (before, after) = (old.next(), new.next());
-            if before.is_none() && after.is_none() { break; }
-            if before != after { self.damage_paint_change(before, after); }
+        while !a.is_empty() || !b.is_empty() {
+            while old_runs.first().is_some_and(|r| r.start < a.start) { old_runs = &old_runs[1..]; }
+            while new_runs.first().is_some_and(|r| r.start < b.start) { new_runs = &new_runs[1..]; }
+            if let (Some(x), Some(y)) = (old_runs.first(), new_runs.first()) {
+                if x.start == a.start && y.start == b.start && x.end <= a.end && y.end <= b.end && x.generation == y.generation {
+                    a.start = x.end; b.start = y.end;
+                    continue;
+                }
+            }
+            let x = (!a.is_empty()).then(|| &old[a.start]);
+            let y = (!b.is_empty()).then(|| &new[b.start]);
+            if x == Some(&EMPTY) { a.start += 1; continue; }
+            if y == Some(&EMPTY) { b.start += 1; continue; }
+            if x != y { self.damage_paint_change(x, y); }
+            a.start += usize::from(x.is_some());
+            b.start += usize::from(y.is_some());
         }
     }
 
