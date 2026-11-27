@@ -563,6 +563,10 @@ impl<'a> TextArea<'a> {
 /// What a language colours: sorted, non-overlapping byte spans and their colour; the rest is the foreground.
 /// Fills `out` with colour spans (cleared by the callee). Warm calls reuse `out`'s capacity.
 pub type ColorizeFn<'a> = dyn Fn(&str, &mut Vec<(usize, usize, Rgba)>) + 'a;
+/// Writes sorted absolute spans intersecting the requested half-open byte range.
+pub type ColorizeRangeFn<'a> = dyn Fn(&str, std::ops::Range<usize>, &mut Vec<(usize, usize, Rgba)>) + 'a;
+/// Writes pairs with either endpoint in the requested half-open byte range, in normal match order.
+pub type BracketsRangeFn<'a> = dyn Fn(&str, std::ops::Range<usize>, &mut Vec<(usize, usize)>) + 'a;
 /// What a language matches: the bracket pairs as (open, close) byte positions; the pair at the caret is lit.
 pub type BracketsFn<'a> = dyn Fn(&str) -> Vec<(usize, usize)> + 'a;
 /// What a language indents: `indent(text, caret)` returns the indentation Enter puts after the line break at `caret`.
@@ -583,6 +587,8 @@ pub type RewriteFn<'a> = dyn Fn(&str, usize) -> (Option<String>, usize) + 'a;
 /// What a code editor knows about its text, as call-scoped borrowed closures (see `AreaCallbacks`). A host supplies one; the text area itself is language-free. Every hook answers nothing by default.
 #[derive(Clone, Copy)]
 pub struct Language<'a> {
+    pub(crate) colorize_range: Option<&'a ColorizeRangeFn<'a>>,
+    pub(crate) brackets_range: Option<&'a BracketsRangeFn<'a>>,
     pub(crate) colorize: &'a ColorizeFn<'a>,
     pub(crate) brackets: &'a BracketsFn<'a>,
     pub(crate) indent: &'a IndentFn<'a>,
@@ -597,7 +603,23 @@ pub struct Language<'a> {
 
 impl<'a> Language<'a> {
     /// A language that colours, matches, indents, suggests and describes nothing.
-    pub const DEFAULT: Language<'a> = Language { colorize: &|_, out| { out.clear(); }, brackets: &|_| Vec::new(), indent: &|_, _| String::new(), pairs: &[], complete: &|_, _| Vec::new(), describe: &|_, _, _| None, number_at: &|_, _| None, context_at: &|_, _| CodeContext::Code, comment: "", rewrite: None };
+    pub const DEFAULT: Language<'a> = Language { colorize_range: None, brackets_range: None, colorize: &|_, out| { out.clear(); }, brackets: &|_| Vec::new(), indent: &|_, _| String::new(), pairs: &[], complete: &|_, _| Vec::new(), describe: &|_, _, _| None, number_at: &|_, _| None, context_at: &|_, _| CodeContext::Code, comment: "", rewrite: None };
+    /// Supplies colours for the rows requested by the text area. Takes precedence over `colorize`.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let _ = pxui::Language::DEFAULT.colorize_range(&|_, _, out| out.clear());
+    /// ```
+    pub const fn colorize_range(mut self, f: &'a ColorizeRangeFn<'a>) -> Self { self.colorize_range = Some(f); self }
+    /// Supplies pairs with an endpoint in the requested range. Navigation can request the entire text.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let _ = pxui::Language::DEFAULT.brackets_range(&|_, _, out| out.clear());
+    /// ```
+    pub const fn brackets_range(mut self, f: &'a BracketsRangeFn<'a>) -> Self { self.brackets_range = Some(f); self }
     /// Sets what the language colours.
     /// Allocates: never.
     /// Panics: never.

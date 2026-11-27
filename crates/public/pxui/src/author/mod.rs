@@ -19,7 +19,7 @@ mod toggle;
 mod test_kit;
 mod view;
 pub use button::Button;
-pub use field_types::{AreaCallbacks, AreaNote, BracketsFn, CompleteFn, ColorizeFn, ContextAtFn, DescribeFn, IndentFn, Language, LineField, LineFieldResponse, NumberAtFn, Picker, Reveal, RewriteFn, ScrubFn, Scrubber, SearchField, SearchFieldResponse, SlideFn, Splice, TextArea, TextAreaResponse, TextField, TextFieldResponse, ValidFn, ValueCallbacks, ValueField, ValueFieldResponse};
+pub use field_types::{AreaCallbacks, AreaNote, BracketsFn, BracketsRangeFn, ColorizeRangeFn, CompleteFn, ColorizeFn, ContextAtFn, DescribeFn, IndentFn, Language, LineField, LineFieldResponse, NumberAtFn, Picker, Reveal, RewriteFn, ScrubFn, Scrubber, SearchField, SearchFieldResponse, SlideFn, Splice, TextArea, TextAreaResponse, TextField, TextFieldResponse, ValidFn, ValueCallbacks, ValueField, ValueFieldResponse};
 pub use icon_button::{Icon, IconButton};
 pub use layout::Key;
 pub use press::{Pressable, Response};

@@ -738,6 +738,10 @@ impl PxuiTextAreaDesc {
     pub const KNOWN: u32 = 31;
 }
 
+/// Optional language callback returning the absolute colour spans intersecting [start, end).
+pub type AreaColorRange = Option<extern "C" fn(*mut core::ffi::c_void, Str, i64, i64, *mut Slice<PxuiColorSpan>)>;
+/// Optional language callback returning pairs with an endpoint in [start, end).
+pub type AreaBracketsRange = Option<extern "C" fn(*mut core::ffi::c_void, Str, i64, i64, *mut Slice<PxuiRange>)>;
 /// Editor callback receiving the user pointer and a changed byte range.
 pub type AreaNotify = Option<extern "C" fn(*mut core::ffi::c_void, i64, i64)>;
 /// The app's closures of a text area (`TextAreaOpts::on_*` and `Language`), called only during the widget's call with

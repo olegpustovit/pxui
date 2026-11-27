@@ -278,10 +278,10 @@ fn toggle_comment(prefix: &str, block: &str) -> String {
 }
 
 /// the innermost bracket pair that holds `[a, b)` and is larger than it, as (open, past the close)
-fn enclosing_pair(pairs: &[(usize, usize)], a: usize, b: usize) -> Option<(usize, usize)> {
+fn enclosing_pair(pairs: &[(i64, i64)], a: usize, b: usize) -> Option<(usize, usize)> {
     let mut best: Option<(usize, usize)> = None;
     for (o, c) in pairs {
-        let (o, c) = (*o, *c);
+        let (o, c) = (clamp_pos(*o), clamp_pos(*c));
         if o <= a && b <= c + 1 && (o, c + 1) != (a, b) {
             match best {
                 Some((bo, bc)) if bc - bo <= c + 1 - o => {}
@@ -293,12 +293,13 @@ fn enclosing_pair(pairs: &[(usize, usize)], a: usize, b: usize) -> Option<(usize
 }
 
 /// the caret across the bracket beside it, else out to the opener of the pair around it
-fn bracket_jump(pairs: &[(usize, usize)], caret: usize) -> Option<usize> {
+fn bracket_jump(pairs: &[(i64, i64)], caret: usize) -> Option<usize> {
     for (o, c) in pairs {
-        if *o == caret {
+        let (o, c) = (clamp_pos(*o), clamp_pos(*c));
+        if o == caret {
             return Some(c + 1);
         } else if c + 1 == caret {
-            return Some(*o);
+            return Some(o);
         }
     }
     enclosing_pair(pairs, caret, caret).map(|(o, _)| o)
@@ -1010,6 +1011,7 @@ type PaintedRows = Rc<std::cell::RefCell<Vec<[MonoRun; 2]>>>;
 /// the last text rows. Bounded: `AREA_CACHE` areas, the oldest slot replaced.
 pub(crate) struct AreaCacheEntry {
     painted: PaintedRows,
+    pairs: Vec<(i64, i64)>,
     key: i64,
     messages: Rc<Vec<AreaMessage>>,
     chips: Rc<Vec<(i64, i64, Rgba)>>,
@@ -1033,7 +1035,7 @@ impl Ui {
         let at = match self.area_cache.iter().position(|e| e.key == key) {
             Some(at) => at,
             None => {
-                let fresh = AreaCacheEntry { painted: Rc::default(), key, messages: Rc::default(), chips: Rc::default(), spans: Rc::default(), errors: Rc::default(), rows: None, notes: Rc::default() };
+                let fresh = AreaCacheEntry { painted: Rc::default(), pairs: Vec::new(), key, messages: Rc::default(), chips: Rc::default(), spans: Rc::default(), errors: Rc::default(), rows: None, notes: Rc::default() };
                 if self.area_cache.len() < AREA_CACHE { self.area_cache.push(fresh); self.area_cache.len() - 1 } else { let at = key.unsigned_abs() as usize % AREA_CACHE; self.area_cache[at] = fresh; at }
             }
         };
@@ -1284,14 +1286,18 @@ impl Ui {
 
     /// A language's colours for a text, kept like its rows: one list a pane on screen. A theme is
     /// part of the colours. Least recently used first out past `set_text_panes`.
-    pub fn text_colors(&mut self, language: &Language, text: &str) -> Rc<Vec<(i64, i64, Rgba)>> {
+    pub fn text_colors(&mut self, language: &Language, text: &Rc<str>, range: std::ops::Range<usize>) -> Rc<Vec<(i64, i64, Rgba)>> {
         let theme = self.tokens();
-        if let Some(k) = self.text_colors_seen.iter().position(|(seen, known, _)| *seen == theme && known == text) {
+        let range = language.colorize_range.as_ref().map(|_| range);
+        if let Some(k) = self.text_colors_seen.iter().position(|(seen, known, r, _)| *seen == theme && *r == range && (Rc::ptr_eq(known, text) || known == text)) {
             self.text_colors_seen[..=k].rotate_right(1);
-            return self.text_colors_seen[0].2.clone();
+            return self.text_colors_seen[0].3.clone();
         }
-        let colors = Rc::new((language.colorize)(text));
-        self.text_colors_seen.insert(0, (theme, text.to_owned(), colors.clone()));
+        let colors = Rc::new(match (&language.colorize_range, &range) {
+            (Some(f), Some(r)) => f(text, r.clone()),
+            _ => (language.colorize)(text),
+        });
+        self.text_colors_seen.insert(0, (theme, text.clone(), range, colors.clone()));
         self.text_colors_seen.truncate(self.text_panes);
         colors
     }
@@ -2107,13 +2113,20 @@ fn text_area_submit_body(this: &mut Ui, place: Node, o: &TextAreaOpts, label: &s
     let composition = this.composition().to_owned();
     // the language's colours and the bracket pair at the caret, once per frame
     let colors: Option<Rc<Vec<(i64, i64, Rgba)>>> = match &language {
-        Some(l) => Some(this.text_colors(l, &final_text)),
+        Some(l) => {
+            let height = match place.h { Size::Px(h) => h, _ => this.view_size().1.max(bh) };
+            let first = row_at_slot(&notes, count, ((offset - pad) / row).floor() as i64);
+            let last = row_at_slot(&notes, count, ((offset + height) / row).floor() as i64);
+            Some(this.text_colors(l, &final_text, rows[first].0..rows[last].1))
+        }
         None => None,
     };
     let matched: Option<(usize, usize)> = match &language {
         Some(l) if focused => {
             let c = edit.caret as i64;
-            (l.brackets)(&final_text).into_iter().find(|(o, k)| *o == c - 1 || *k == c - 1 || *o == c || *k == c).map(|(a, b)| (clamp_pos(a), clamp_pos(b)))
+            let pairs = &mut this.area_entry(area_key).pairs;
+            l.pairs_in(&final_text, edit.caret.saturating_sub(1)..(edit.caret + 1).min(final_text.len()), pairs);
+            pairs.iter().copied().find(|(o, k)| *o == c - 1 || *k == c - 1 || *o == c || *k == c).map(|(a, b)| (clamp_pos(a), clamp_pos(b)))
         }
         _ => None,
     };
@@ -2442,8 +2455,9 @@ fn handle_keys_body(this: &mut Ui, body: &UiBox, cfg: Wrap, page: i64, language:
             Event::KeyPressed(Key::ArrowUp) if command && modifiers.contains(&Key::Alt) => {
                 let (a, b) = text_selection(edit);
                 if let Some(l) = language {
-                    let pairs: Vec<(usize, usize)> = (l.brackets)(&edit.text).iter().map(|(o, c)| (clamp_pos(*o), clamp_pos(*c))).collect();
-                    if let Some((o, c)) = enclosing_pair(&pairs, a, b) {
+                    let pairs = &mut this.area_entry(body.box_key).pairs;
+                    l.pairs_in(&edit.text, 0..edit.text.len(), pairs);
+                    if let Some((o, c)) = enclosing_pair(pairs, a, b) {
                         edit.anchor = o;
                         edit.caret = c;
                     }
@@ -2451,8 +2465,9 @@ fn handle_keys_body(this: &mut Ui, body: &UiBox, cfg: Wrap, page: i64, language:
             }
             Event::KeyPressed(Key::KeyChar('\\')) if command && shift && language.is_some() => {
                 let l = language.as_ref().unwrap();
-                let pairs: Vec<(usize, usize)> = (l.brackets)(&edit.text).iter().map(|(o, c)| (clamp_pos(*o), clamp_pos(*c))).collect();
-                if let Some(at) = bracket_jump(&pairs, edit.caret) {
+                let pairs = &mut this.area_entry(body.box_key).pairs;
+                l.pairs_in(&edit.text, 0..edit.text.len(), pairs);
+                if let Some(at) = bracket_jump(pairs, edit.caret) {
                     edit.caret = at;
                     edit.anchor = at;
                 }

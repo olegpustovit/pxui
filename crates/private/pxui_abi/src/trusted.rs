@@ -286,7 +286,7 @@ fn bad_label(label: &str) -> bool { label.len() > MAX_LABEL_BYTES || crate::stat
 #[allow(clippy::too_many_arguments)]
 #[inline]
 pub unsafe fn text_area(ui: *mut PxuiUi, label: &str, value: &str, node: &Node,
-    options: Option<(&pxui_types::ffi::PxuiTextAreaDesc, &pxui_types::ffi::PxuiAreaCallbacks)>,
+    options: Option<(&pxui_types::ffi::PxuiTextAreaDesc, &pxui_types::ffi::PxuiAreaCallbacks, (pxui_types::ffi::AreaColorRange, pxui_types::ffi::AreaBracketsRange))>,
     name: &str, changed: &mut Option<Str>, submitted: &mut bool, out: &mut PxuiResponse,
 ) -> i32 {
     enter!(ui);
@@ -295,13 +295,13 @@ pub unsafe fn text_area(ui: *mut PxuiUi, label: &str, value: &str, node: &Node,
         return unsafe { fail(ui, "invalid text area arguments") };
     }
     let (text, done) = match options {
-        Some((d, cbs)) => {
+        Some((d, cbs, ranges)) => {
             if d.flags & !pxui_types::ffi::PxuiTextAreaDesc::KNOWN != 0 {
                 return unsafe { fail(ui, "invalid text area arguments") };
             }
             let shared = unsafe { (*ui).shared() };
             let (opts, ad) = (&mut shared.area, shared.area_ad.get_or_insert_with(crate::text_inputs::area_adapters));
-            if unsafe { crate::text_inputs::area_opts(d, Some(cbs), opts, ad) }.is_none() {
+            if unsafe { crate::text_inputs::area_opts(d, Some(cbs), ranges, opts, ad) }.is_none() {
                 return unsafe { fail(ui, "invalid text area options") };
             }
             let result = unsafe { engine(ui) }.text_area_submit(*node, opts, label, value);

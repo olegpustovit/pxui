@@ -107,7 +107,7 @@ arg!(sized: pxui_types::ffi::PxuiInputSnapshot, PxuiTextFieldDesc, pxui_types::f
     PxuiSectionListDesc, PxuiListResult, PxuiSelectionListDesc, PxuiTableHeadDesc, PxuiHeadResult, PxuiTableDesc, PxuiTableResult);
 arg!(plain: pxui_types::ffi::PxuiDamageList, *const pxui_types::ffi::PxuiPromoted, u16, *mut PxuiRenderer, u8, u32, u64, i64, usize, f32, c_void, Str, geom::Rgba, geom::Rect, geom::Point, *const u32, *mut PxuiPreparedText, A11yTree, PxuiFrameReasons, Strided<A11yAction>);
 arg!(null: PxuiRenderer, PxuiPaint, PxuiPreparedText, PxuiA11y, PxuiTextWorker);
-arg!(none: UiBuild, PxuiGridBuild, PxuiButtonBuild, PxuiBodyFn, crate::paint::PaintBuild, crate::paint::PaintRelease, crate::paint::SpanBuild,
+arg!(none: AreaColorRange, AreaBracketsRange, UiBuild, PxuiGridBuild, PxuiButtonBuild, PxuiBodyFn, crate::paint::PaintBuild, crate::paint::PaintRelease, crate::paint::SpanBuild,
     crate::overlays::PickerRows, crate::overlays::PickerMark, crate::overlays::PickerOff, crate::overlays::PickerImage, crate::text_inputs::TextValid, crate::text_inputs::SlideText,
     crate::text_inputs::ScrubText, pxui_types::ffi::PxuiRowKey, PxuiListCell, PxuiTableCellBuild);
 arg!(bytes: geom::Rgba, geom::Rect, PxuiSlot);
@@ -270,7 +270,7 @@ fuzz!(
     pxui_ui_segmented/5, pxui_ui_set_a11y/2, pxui_ui_set_at/4, pxui_ui_set_dir/2,
     pxui_ui_set_font_points/2, pxui_ui_set_node_fields/3, pxui_ui_set_node_layout/3, pxui_ui_set_role/4, pxui_ui_set_scroll_offset/3,
     pxui_ui_set_state/3, pxui_ui_set_text_state/4, pxui_ui_set_text_worker/2, pxui_ui_signal/3, pxui_ui_state/4, pxui_ui_style/4, pxui_ui_swipe_actions/3, pxui_ui_system_appearance/2,
-    pxui_ui_text/6, pxui_ui_text_area/9, pxui_ui_text_field/5, pxui_ui_text_input_focused/1,
+    pxui_ui_text/6, pxui_ui_text_area/9, pxui_ui_text_area_ranges/11, pxui_ui_text_field/5, pxui_ui_text_input_focused/1,
     pxui_ui_text_input_options/2, pxui_ui_text_state/4, pxui_ui_text_undo_bytes/1, pxui_ui_theme/1, pxui_ui_themed/4, pxui_ui_tip/3, pxui_ui_to_front/3, pxui_ui_toggle_plain/5, pxui_ui_toggle/3, pxui_ui_transfer_carry/3, pxui_ui_tree/3, pxui_ui_unfocus/1,
     pxui_ui_use_theme/2, pxui_ui_verify_views/2, pxui_ui_verifying/1, pxui_ui_view_backdrop_blur/3,
     pxui_ui_view_backdrop_saturation/3, pxui_ui_view_clip/3, pxui_ui_view_offset/4, pxui_ui_view_opacity/3, pxui_ui_view_scale/3,
@@ -486,6 +486,7 @@ static LEGACY_KEYED: &[(&str, LegacyCall)] = &[
         ("pxui_ui_search_field", |ui, l| unsafe { pxui_ui_search_field(ui, l, Str::default(), Str::default(), Str::default(), Str::default(), 2, 0, &mut 0, &mut Str::default(), &mut response()) }),
         ("pxui_ui_line_field", |ui, l| unsafe { pxui_ui_line_field(ui, 0.0, 0.0, 10.0, 10.0, 0, Str::default(), l, Str::default(), Str::default(), &mut Str::default(), &mut 0, &mut response()) }),
         ("pxui_ui_text_area", |ui, l| { let d = PxuiTextAreaDesc { label: l, size: core::mem::size_of::<PxuiTextAreaDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_text_area(ui, &d, &Node::DEFAULT, core::ptr::null(), Str::default(), &mut Str::default(), &mut 0, &mut 0, &mut response()) } }),
+        ("pxui_ui_text_area_ranges", |ui, l| { let d = PxuiTextAreaDesc { label: l, size: core::mem::size_of::<PxuiTextAreaDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_text_area_ranges(ui, &d, &Node::DEFAULT, core::ptr::null(), None, None, Str::default(), &mut Str::default(), &mut 0, &mut 0, &mut response()) } }),
         ("pxui_ui_value_field", |ui, l| { let d = PxuiValueFieldDesc { label: l, width: 10.0, height: 10.0, size: core::mem::size_of::<PxuiValueFieldDesc>() as u32, ..unsafe { core::mem::zeroed() } }; unsafe { pxui_ui_value_field(ui, &d, None, None, None, core::ptr::null_mut(), Str::default(), &mut Str::default(), &mut 0, &mut 0, &mut response()) } }),
         ("pxui_ui_context_menu", |ui, l| unsafe { pxui_ui_context_menu(ui, 0.0, 0.0, l, pxui_types::ffi::Strided::default(), 0, 0.0, core::ptr::null(), &mut 0, &mut 0) }),
 ];

@@ -51,7 +51,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built: the version the app was built against, PXUI_ABI_BUILT (major << 16 | minor); pxui_ui_create refuses 0, another major and a newer minor (PXUI_ERR_VERSION). */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((2u << 16) | 14u)
+#define PXUI_ABI_BUILT ((2u << 16) | 15u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 /* size-prefixed (16 bytes); pxui_ui_text_input_options needs the caller's size to cover it. */
@@ -909,6 +909,11 @@ int32_t pxui_ui_patch_field(PxuiUi *ui, const PxuiBox *field, const PxuiValueFie
 /* the value field and the text area, named `name`, report into `response` (see pxui_ui_text_field). */
 int32_t pxui_ui_value_field(PxuiUi *ui, const PxuiValueFieldDesc *desc, PxuiTextValid valid, PxuiSlideText slide, PxuiScrubText scrub, void *user, PxuiStr name, PxuiStr *out_text, uint8_t *out_changed, uint8_t *out_editing, PxuiResponse *response);
 int32_t pxui_ui_text_area(PxuiUi *ui, const PxuiTextAreaDesc *desc, const PxuiNode *node, const PxuiAreaCallbacks *cbs, PxuiStr name, PxuiStr *out_text, uint8_t *out_changed, uint8_t *out_submitted, PxuiResponse *response);
+/* ABI 2.15: optional range callbacks use absolute byte offsets, a half-open request,
+   and the same output lifetime and order as the original colour and bracket callbacks. */
+typedef void (*PxuiAreaColorRange)(void *, PxuiStr, int64_t, int64_t, PxuiColorSpanSpan *);
+typedef void (*PxuiAreaBracketsRange)(void *, PxuiStr, int64_t, int64_t, PxuiRangeSpan *);
+int32_t pxui_ui_text_area_ranges(PxuiUi *ui, const PxuiTextAreaDesc *desc, const PxuiNode *node, const PxuiAreaCallbacks *cbs, PxuiAreaColorRange colors, PxuiAreaBracketsRange brackets, PxuiStr name, PxuiStr *out_text, uint8_t *out_changed, uint8_t *out_submitted, PxuiResponse *response);
 int32_t pxui_ui_load_text_edit(PxuiUi *ui, int64_t key, PxuiStr text, PxuiStr *out_text, uint64_t *caret, uint64_t *anchor);
 /* pxui_ui_remember into the history of the field keyed `key` (a box key); the active editor never changes. */
 int32_t pxui_ui_remember(PxuiUi *ui, int64_t key, PxuiStr text, uint64_t caret, uint64_t anchor, uint8_t typing);

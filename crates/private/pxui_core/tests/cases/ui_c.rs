@@ -9,6 +9,7 @@ use std::rc::Rc;
 
 fn plain_language() -> Language {
     Language {
+        colorize_range: None, brackets_range: None,
         colorize: Rc::new(|_| Vec::new()),
         brackets: Rc::new(|_| Vec::new()),
         indent: Rc::new(|text, caret| if text[..caret as usize].contains('(') { "  ".to_owned() } else { String::new() }),

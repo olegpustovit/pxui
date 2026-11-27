@@ -95,6 +95,7 @@ fn scale_3(scale: f64) {
     let coloured = Rc::new(Cell::new(0));
     let counter = coloured.clone();
     let counting = Language {
+        colorize_range: None, brackets_range: None,
         colorize: Rc::new(move |_| {
             counter.set(counter.get() + 1);
             Vec::new()
@@ -110,8 +111,8 @@ fn scale_3(scale: f64) {
         rewrite: None,
     };
     for _ in 0..3 {
-        ui.text_colors(&counting, "(first)");
-        ui.text_colors(&counting, "(second)");
+        ui.text_colors(&counting, &Rc::from("(first)"), 0..7);
+        ui.text_colors(&counting, &Rc::from("(second)"), 0..8);
     }
     if coloured.get() != 2 {
         fail(&lab("a text a pane shows again was coloured again"));

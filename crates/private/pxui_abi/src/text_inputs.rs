@@ -1,7 +1,7 @@
 use crate::state::{MAX_TOTAL_TEXT_BYTES, PxuiUi, boxed, checked, checked_text, fail, finite, get};
 use crate::{PXUI_ERR_ARGUMENT, PxuiBox, Str};
 use core::{cell::Cell, ffi::c_void};
-use pxui_types::ffi::{PxuiAreaCallbacks, PxuiResponse, PxuiDescription, PxuiMaybeRange, PxuiRewrite, PxuiTextAreaDesc, PxuiValueFieldDesc, Slice};
+use pxui_types::ffi::{AreaColorRange, AreaBracketsRange, PxuiAreaCallbacks, PxuiResponse, PxuiDescription, PxuiMaybeRange, PxuiRewrite, PxuiTextAreaDesc, PxuiValueFieldDesc, Slice};
 use std::rc::Rc;
 use pxui_types::Node;
 use pxui_core::ui::Drop;
@@ -17,7 +17,7 @@ unsafe fn span_of<'a, T>(values: pxui_types::ffi::Slice<T>, max: usize) -> Optio
 
 /// The `TextAreaOpts` a text area descriptor and its callbacks describe, or None when a span or text is invalid. The closures
 /// hold `user` and run only during the widget's call.
-pub(crate) unsafe fn area_opts(d: &PxuiTextAreaDesc, cb: Option<&PxuiAreaCallbacks>, o: &mut TextAreaOpts, ad: &mut AreaAdapters) -> Option<()> {
+pub(crate) unsafe fn area_opts(d: &PxuiTextAreaDesc, cb: Option<&PxuiAreaCallbacks>, ranges: (AreaColorRange, AreaBracketsRange), o: &mut TextAreaOpts, ad: &mut AreaAdapters) -> Option<()> {
     const MAX: usize = 1 << 16;
     let has = |flag: u32| d.flags & flag != 0;
     // byte offsets and lines are never negative
@@ -54,6 +54,7 @@ pub(crate) unsafe fn area_opts(d: &PxuiTextAreaDesc, cb: Option<&PxuiAreaCallbac
     let Some(cb) = cb else { return if has(PxuiTextAreaDesc::HAS_LANGUAGE) { None } else { Some(()) } };
     // the adapters are made once (`AreaAdapters`) and rebound to this call's functions: nothing is allocated per call
     ad.ctx.cb.set(*cb);
+    ad.ctx.ranges.set(ranges);
     if cb.on_context.is_some() { o.on_context = Some(Rc::clone(&ad.on_context)); }
     if cb.on_scrub.is_some() { o.on_scrub = Some(Rc::clone(&ad.on_scrub)); }
     if cb.on_scrub_edit.is_some() { o.on_scrub_edit = Some(Rc::clone(&ad.on_scrub_edit)); }
@@ -63,12 +64,14 @@ pub(crate) unsafe fn area_opts(d: &PxuiTextAreaDesc, cb: Option<&PxuiAreaCallbac
     if cb.on_select.is_some() { o.on_select = Some(Rc::clone(&ad.on_select)); }
     if cb.on_drop.is_some() { o.on_drop = Some(Rc::clone(&ad.on_drop)); }
     if has(PxuiTextAreaDesc::HAS_LANGUAGE) {
-        if cb.colorize.is_none() || cb.brackets.is_none() || cb.indent.is_none() || cb.complete.is_none() || cb.describe.is_none() || cb.number_at.is_none() || cb.context_at.is_none() { return None; }
+        if (cb.colorize.is_none() && ranges.0.is_none()) || (cb.brackets.is_none() && ranges.1.is_none()) || cb.indent.is_none() || cb.complete.is_none() || cb.describe.is_none() || cb.number_at.is_none() || cb.context_at.is_none() { return None; }
         let comment = unsafe { checked(d.comment) }?;
         let pairs = unsafe { span_of(d.pairs, 64) }?;
         if pairs.len() % 2 != 0 || !pairs.iter().all(|c| char::from_u32(*c).is_some()) { return None; }
         if has(PxuiTextAreaDesc::HAS_REWRITE) && cb.rewrite.is_none() { return None; }
         let mut lang = ad.language.take()?;
+        lang.colorize_range = ranges.0.map(|_| ad.colorize_range.clone());
+        lang.brackets_range = ranges.1.map(|_| ad.brackets_range.clone());
         lang.pairs.clear();
         lang.pairs.extend(pairs.chunks_exact(2).filter_map(|p| Some((char::from_u32(p[0])?, char::from_u32(p[1])?))));
         lang.comment.clear(); lang.comment.push_str(comment);
@@ -79,12 +82,14 @@ pub(crate) unsafe fn area_opts(d: &PxuiTextAreaDesc, cb: Option<&PxuiAreaCallbac
 }
 
 /// What the callbacks of a text area read: the functions of the call in progress, set at its start (they run only during it).
-pub(crate) struct AreaCtx { cb: Cell<PxuiAreaCallbacks> }
+pub(crate) struct AreaCtx { cb: Cell<PxuiAreaCallbacks>, ranges: Cell<(AreaColorRange, AreaBracketsRange)> }
 
 /// The text area's adapters to the caller's C functions, made once per `Ui` and rebound each call through `AreaCtx`: a warm call allocates
 /// none. The `Language` lives here between calls (its lists refilled in place), and the options hold it only during one.
 pub(crate) struct AreaAdapters {
     ctx: Rc<AreaCtx>,
+    colorize_range: Rc<dyn Fn(&str, std::ops::Range<usize>) -> Vec<(i64, i64, pxui_types::geom::Rgba)>>,
+    brackets_range: Rc<dyn Fn(&str, std::ops::Range<usize>, &mut Vec<(i64, i64)>)>,
     on_context: Rc<dyn Fn((f32, f32))>,
     on_scrub: Rc<dyn Fn(ScrubPhase)>,
     on_scrub_edit: Rc<dyn Fn((i64, i64), &str)>,
@@ -100,10 +105,11 @@ pub(crate) struct AreaAdapters {
 fn str_of(t: &str) -> Str { Str { ptr: t.as_ptr(), len: t.len() } }
 
 pub(crate) fn area_adapters() -> AreaAdapters {
-    let ctx = Rc::new(AreaCtx { cb: Cell::new(PxuiAreaCallbacks { size: core::mem::size_of::<PxuiAreaCallbacks>() as u32, reserved: 0, user: core::ptr::null_mut(), on_context: None, on_scrub: None, on_scrub_edit: None, on_click: None, on_caret: None, on_caret_move: None, on_select: None, on_drop: None, colorize: None, brackets: None, indent: None, complete: None, describe: None, number_at: None, context_at: None, rewrite: None }) });
+    let ctx = Rc::new(AreaCtx { ranges: Cell::new((None, None)), cb: Cell::new(PxuiAreaCallbacks { size: core::mem::size_of::<PxuiAreaCallbacks>() as u32, reserved: 0, user: core::ptr::null_mut(), on_context: None, on_scrub: None, on_scrub_edit: None, on_click: None, on_caret: None, on_caret_move: None, on_select: None, on_drop: None, colorize: None, brackets: None, indent: None, complete: None, describe: None, number_at: None, context_at: None, rewrite: None }) });
     let c = |ctx: &Rc<AreaCtx>| Rc::clone(ctx);
     let (x1, x2, x3, x4, x5, x6, x7, x8, x9) = (c(&ctx), c(&ctx), c(&ctx), c(&ctx), c(&ctx), c(&ctx), c(&ctx), c(&ctx), c(&ctx));
     let language = Language {
+        colorize_range: None, brackets_range: None,
         colorize: { let ctx = c(&ctx); Rc::new(move |t: &str| { let cb = ctx.cb.get(); let Some(f) = cb.colorize else { return Vec::new() }; let mut out = Slice::default(); f(cb.user, str_of(t), &mut out); unsafe { span_of(out, 1 << 20) }.map_or_else(Vec::new, |v| v.iter().map(|c| (c.start, c.end, c.color)).collect()) }) },
         brackets: { let ctx = c(&ctx); Rc::new(move |t: &str| { let cb = ctx.cb.get(); let Some(f) = cb.brackets else { return Vec::new() }; let mut out = Slice::default(); f(cb.user, str_of(t), &mut out); unsafe { span_of(out, 1 << 20) }.map_or_else(Vec::new, |v| v.iter().map(|r| (r.start, r.end)).collect()) }) },
         indent: { let ctx = c(&ctx); Rc::new(move |t: &str, caret| { let cb = ctx.cb.get(); let Some(f) = cb.indent else { return String::new() }; let mut out = Str::default(); f(cb.user, str_of(t), caret, &mut out); unsafe { checked_text(out) }.unwrap_or("").to_owned() }) },
@@ -128,6 +134,18 @@ pub(crate) fn area_adapters() -> AreaAdapters {
         rewrite: None,
     };
     AreaAdapters {
+        colorize_range: { let ctx = c(&ctx); Rc::new(move |text, range| {
+            let mut out = Slice::default();
+            let Some(f) = ctx.ranges.get().0 else { return Vec::new() };
+            f(ctx.cb.get().user, str_of(text), range.start as i64, range.end as i64, &mut out);
+            unsafe { span_of(out, 1 << 20) }.unwrap_or_default().iter().map(|c| (c.start, c.end, c.color)).collect()
+        }) },
+        brackets_range: { let ctx = c(&ctx); Rc::new(move |text, range, pairs| {
+            let mut out = Slice::default();
+            let Some(f) = ctx.ranges.get().1 else { return };
+            f(ctx.cb.get().user, str_of(text), range.start as i64, range.end as i64, &mut out);
+            pairs.extend(unsafe { span_of(out, 1 << 20) }.unwrap_or_default().iter().map(|r| (r.start, r.end)));
+        }) },
         on_context: Rc::new(move |(x, y)| { let cb = x1.cb.get(); if let Some(f) = cb.on_context { f(cb.user, x, y) } }),
         on_scrub: Rc::new(move |phase| { let cb = x2.cb.get(); if let Some(f) = cb.on_scrub { f(cb.user, (phase == ScrubPhase::Done) as u32) } }),
         on_scrub_edit: Rc::new(move |(a, b), t: &str| { let cb = x3.cb.get(); if let Some(f) = cb.on_scrub_edit { f(cb.user, a, b, str_of(t)) } }),
@@ -161,6 +179,20 @@ export!(build pub unsafe fn pxui_ui_text_area(
     ui: *mut PxuiUi, desc: *const PxuiTextAreaDesc, node: *const Node, cbs: *const PxuiAreaCallbacks, name: Str,
     out_text: *mut Str, out_changed: *mut u8, out_submitted: *mut u8, response: *mut PxuiResponse,
 ) -> i32 {
+    unsafe { text_area(ui, desc, node, cbs, None, None, name, out_text, out_changed, out_submitted, response) }
+});
+
+export!(build pub unsafe fn pxui_ui_text_area_ranges(
+    ui: *mut PxuiUi, desc: *const PxuiTextAreaDesc, node: *const Node, cbs: *const PxuiAreaCallbacks, colors: AreaColorRange, brackets: AreaBracketsRange, name: Str,
+    out_text: *mut Str, out_changed: *mut u8, out_submitted: *mut u8, response: *mut PxuiResponse,
+) -> i32 {
+    unsafe { text_area(ui, desc, node, cbs, colors, brackets, name, out_text, out_changed, out_submitted, response) }
+});
+
+unsafe fn text_area(
+    ui: *mut PxuiUi, desc: *const PxuiTextAreaDesc, node: *const Node, cbs: *const PxuiAreaCallbacks, colors: AreaColorRange, brackets: AreaBracketsRange, name: Str,
+    out_text: *mut Str, out_changed: *mut u8, out_submitted: *mut u8, response: *mut PxuiResponse,
+) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     let Some(response) = sized_mut!(response) else { return unsafe { fail(ui, "null or short text area response") } };
     let Some(name) = (unsafe { checked(name) }) else { return unsafe { fail(ui, "invalid text area strings") }; };
@@ -181,7 +213,7 @@ export!(build pub unsafe fn pxui_ui_text_area(
     };
     let shared = state.shared();
     let (opts, ad) = (&mut shared.area, shared.area_ad.get_or_insert_with(area_adapters));
-    if unsafe { area_opts(&d, cbs.as_ref(), opts, ad) }.is_none() { return unsafe { fail(ui, "invalid text area options") }; }
+    if unsafe { area_opts(&d, cbs.as_ref(), (colors, brackets), opts, ad) }.is_none() { return unsafe { fail(ui, "invalid text area options") }; }
     let (text, submitted) = unsafe { (&mut *state.engine).text_area_submit(*node, opts, label, value) };
     // the language goes back to its adapters for the next call
     if let Some(lang) = opts.language.take() { ad.language = Some(lang); }
@@ -191,7 +223,7 @@ export!(build pub unsafe fn pxui_ui_text_area(
     let rc = unsafe { crate::trusted::input_response(ui, Some(name), response) };
     if rc == 0 { unsafe { (*out_text, *out_changed, *out_submitted) = (text, changed as u8, submitted as u8); } }
     rc
-});
+}
 
 /// Text a callback wrote, copied into the engine's `String` (refused, and the call fails, when it is not UTF-8 or too long).
 fn produced(invalid: &Cell<bool>, out: Str) -> String {

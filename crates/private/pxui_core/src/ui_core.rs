@@ -1383,7 +1383,7 @@ pub struct Ui {
     pub charged: Bytes,
     pub(crate) text_rows_seen: Vec<(Option<usize>, Rc<str>, Rc<Vec<(usize, usize, usize)>>)>,
     pub(crate) text_panes: usize,
-    pub(crate) text_colors_seen: Vec<(Tokens, String, Rc<Vec<(i64, i64, Rgba)>>)>,
+    pub(crate) text_colors_seen: Vec<(Tokens, Rc<str>, Option<std::ops::Range<usize>>, Rc<Vec<(i64, i64, Rgba)>>)>,
     pub(crate) edit_redo: std::collections::VecDeque<crate::ui_text::EditDelta>,
     pub(crate) edit_group: Option<(crate::ui_text::EditRun, usize, f64)>,
     pub(crate) edit_serial: u64,

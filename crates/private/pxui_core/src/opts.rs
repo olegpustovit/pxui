@@ -98,6 +98,8 @@ pub struct ValueFieldOpts {
 /// itself is language-free. Byte positions are byte offsets into the text.
 #[derive(Clone)]
 pub struct Language {
+    pub colorize_range: Option<Rc<dyn Fn(&str, std::ops::Range<usize>) -> Vec<(i64, i64, Rgba)>>>,
+    pub brackets_range: Option<Rc<dyn Fn(&str, std::ops::Range<usize>, &mut Vec<(i64, i64)>)>>,
     /// sorted, non-overlapping byte spans and their colour; the rest is the foreground
     pub colorize: Rc<dyn Fn(&str) -> Vec<(i64, i64, Rgba)>>,
     /// the matched bracket pairs as (open, close) byte positions: the pair at the caret is lit
@@ -120,6 +122,14 @@ pub struct Language {
     /// `rewrite text caret`, run after every frame that edited the text: `None` when unchanged
     /// (no allocation), else the kept text and where `caret` lands in it
     pub rewrite: Option<Rc<dyn Fn(&str, i64) -> (Option<String>, i64)>>,
+}
+
+impl Language {
+    pub(crate) fn pairs_in(&self, text: &str, range: std::ops::Range<usize>, out: &mut Vec<(i64,i64)>) {
+        out.clear();
+        if let Some(f) = &self.brackets_range { f(text, range, out); }
+        else { *out = (self.brackets)(text); }
+    }
 }
 
 /// Options of `text_area_submit` (see there).

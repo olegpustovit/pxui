@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 14
+minor 15
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_remove_surface int32_t pxui_a11y_remove_surface ( PxuiA11y * a11y , uint64_t surface ) ;
@@ -203,6 +203,7 @@ function pxui_ui_table_head int32_t pxui_ui_table_head ( PxuiUi * ui , const Pxu
 function pxui_ui_tabs int32_t pxui_ui_tabs ( PxuiUi * ui , const PxuiKeyedDesc * keyed , PxuiPickItemSpan items , uint8_t has_selected , size_t selected , uint8_t focus_on_click , PxuiResponse * out , PxuiSegmentedResult * result ) ;
 function pxui_ui_text int32_t pxui_ui_text ( PxuiUi * ui , const PxuiBox * box , PxuiStr value , const PxuiLabelStyle * style , const PxuiTextSpans * spans , uint8_t line_box ) ;
 function pxui_ui_text_area int32_t pxui_ui_text_area ( PxuiUi * ui , const PxuiTextAreaDesc * desc , const PxuiNode * node , const PxuiAreaCallbacks * cbs , PxuiStr name , PxuiStr * out_text , uint8_t * out_changed , uint8_t * out_submitted , PxuiResponse * response ) ;
+function pxui_ui_text_area_ranges int32_t pxui_ui_text_area_ranges ( PxuiUi * ui , const PxuiTextAreaDesc * desc , const PxuiNode * node , const PxuiAreaCallbacks * cbs , PxuiAreaColorRange colors , PxuiAreaBracketsRange brackets , PxuiStr name , PxuiStr * out_text , uint8_t * out_changed , uint8_t * out_submitted , PxuiResponse * response ) ;
 function pxui_ui_text_field int32_t pxui_ui_text_field ( PxuiUi * ui , const PxuiTextFieldDesc * desc , PxuiStr * changed , uint8_t * out_changed , PxuiResponse * response ) ;
 function pxui_ui_text_input_focused uint8_t pxui_ui_text_input_focused ( PxuiUi * ui ) ;
 function pxui_ui_text_input_options int32_t pxui_ui_text_input_options ( PxuiUi * ui , PxuiTextInputOptions * out ) ;

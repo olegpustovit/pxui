@@ -5,7 +5,7 @@ use crate::Handle;
 use crate::composite::{defer_callback_panic, deferred};
 use crate::{as_str, as_text, check, lent_str, lent_string, live, AreaCallbacks, Key, LineField, LineFieldResponse, Response, TextArea, TextAreaResponse, TextField, TextFieldResponse, Ui, ValueCallbacks, ValueField, ValueFieldResponse};
 use core::ffi::c_void;
-use pxui_types::{geom::Rect, ffi::{AreaNotify, PxuiAreaCallbacks, PxuiResponse, PxuiColorSpan, PxuiCompletion, PxuiDescription, PxuiMaybeRange, PxuiNote, PxuiRange, PxuiRewrite, PxuiSplice, PxuiTextAreaDesc, PxuiTextFieldDesc, PxuiValueFieldDesc, Slice}, ui::{CodeContext, LineStep, TextEdit}, PxuiBox, Str};
+use pxui_types::{geom::Rect, ffi::{AreaColorRange, AreaBracketsRange, AreaNotify, PxuiAreaCallbacks, PxuiResponse, PxuiColorSpan, PxuiCompletion, PxuiDescription, PxuiMaybeRange, PxuiNote, PxuiRange, PxuiRewrite, PxuiSplice, PxuiTextAreaDesc, PxuiTextFieldDesc, PxuiValueFieldDesc, Slice}, ui::{CodeContext, LineStep, TextEdit}, PxuiBox, Str};
 
 pub use pxui_types::ui::ScrubPhase;
 
@@ -14,6 +14,7 @@ pub const AREA_DATA: usize = 64;
 
 library!(lib {
     fn pxui_ui_text_area(ui: *mut PxuiUi, desc: *const PxuiTextAreaDesc, node: *const pxui_types::Node, cbs: *const PxuiAreaCallbacks, name: Str, out_text: *mut Str, out_changed: *mut u8, out_submitted: *mut u8, response: *mut PxuiResponse) -> i32;
+    fn pxui_ui_text_area_ranges(ui: *mut PxuiUi, desc: *const PxuiTextAreaDesc, node: *const pxui_types::Node, cbs: *const PxuiAreaCallbacks, colors: AreaColorRange, brackets: AreaBracketsRange, name: Str, out_text: *mut Str, out_changed: *mut u8, out_submitted: *mut u8, response: *mut PxuiResponse) -> i32;
     fn pxui_ui_value_field(ui: *mut PxuiUi, desc: *const PxuiValueFieldDesc, valid: Option<extern "C" fn(*mut c_void, Str) -> u8>, slide: Option<extern "C" fn(*mut c_void, f32, *mut Str)>, scrub: Option<extern "C" fn(*mut c_void, Str, f32, u8, *mut Str)>, user: *mut c_void, name: Str, out_text: *mut Str, out_changed: *mut u8, out_editing: *mut u8, response: *mut PxuiResponse) -> i32;
     fn pxui_ui_patch_field(ui: *mut PxuiUi, box_: *const PxuiBox, desc: *const PxuiValueFieldDesc, text: Str, out: *mut u8) -> i32;
     fn pxui_ui_line_field(ui: *mut PxuiUi, x: f32, y: f32, w: f32, h: f32, grab: u8, placeholder: Str, label: Str, value: Str, name: Str, text: *mut Str, step: *mut u32, response: *mut PxuiResponse) -> i32;
@@ -128,6 +129,9 @@ extern "C" fn on_drop(user: *mut c_void, at: i64, dropped: u8, kind: Str, value:
     }
 }
 extern "C" fn colorize(user: *mut c_void, value: Str, out: *mut Slice<PxuiColorSpan>) {
+    colorize_range(user, value, 0, value.len as i64, out);
+}
+extern "C" fn colorize_range(user: *mut c_void, value: Str, start: i64, end: i64, out: *mut Slice<PxuiColorSpan>) {
     let a = area(user);
     if a.cb.language.is_none() { return; }
     let value = utf8(value);
@@ -138,7 +142,7 @@ extern "C" fn colorize(user: *mut c_void, value: Str, out: *mut Slice<PxuiColorS
     spans.clear();
     guarded(&mut || {
         if let Some(l) = &a.cb.language {
-            (l.colorize)(value, &mut spans);
+            if let Some(f) = l.colorize_range { f(value, offset(start)..offset(end), &mut spans); } else { (l.colorize)(value, &mut spans); }
         }
     });
     a.colors.clear();
@@ -147,13 +151,22 @@ extern "C" fn colorize(user: *mut c_void, value: Str, out: *mut Slice<PxuiColorS
     unsafe { *out = Slice { ptr: a.colors.as_ptr(), len: a.colors.len() }; }
 }
 extern "C" fn brackets(user: *mut c_void, value: Str, out: *mut Slice<PxuiRange>) {
+    brackets_range(user, value, 0, value.len as i64, out);
+}
+extern "C" fn brackets_range(user: *mut c_void, value: Str, start: i64, end: i64, out: *mut Slice<PxuiRange>) {
     let a = area(user);
     let Some(l) = &a.cb.language else { return };
     let value = utf8(value);
-    let mut pairs = Vec::new();
-    guarded(&mut || pairs = (l.brackets)(value));
+    thread_local!(static PAIRS: std::cell::RefCell<Vec<(usize, usize)>> = const { std::cell::RefCell::new(Vec::new()) });
+    let mut pairs = PAIRS.with(|buf| std::mem::take(&mut *buf.borrow_mut()));
+    pairs.clear();
+    guarded(&mut || match l.brackets_range {
+        Some(f) => f(value, offset(start)..offset(end), &mut pairs),
+        None => pairs = (l.brackets)(value),
+    });
     a.ranges.clear();
-    a.ranges.extend(pairs.into_iter().map(|(start, end)| PxuiRange { start: engine(start), end: engine(end) }));
+    a.ranges.extend(pairs.iter().map(|&(start, end)| PxuiRange { start: engine(start), end: engine(end) }));
+    PAIRS.with(|buf| *buf.borrow_mut() = pairs);
     unsafe { *out = Slice { ptr: a.ranges.as_ptr(), len: a.ranges.len() }; }
 }
 extern "C" fn indent(user: *mut c_void, value: Str, caret: i64, out: *mut Str) {
@@ -314,6 +327,10 @@ impl Ui {
         });
         let mut ctx = Area { cb, colors, ranges, completions, completion_texts, produced, description: None };
 
+        let ranges: (AreaColorRange, AreaBracketsRange) = (
+            lang.and_then(|l| l.colorize_range).map(|_| colorize_range as _),
+            lang.and_then(|l| l.brackets_range).map(|_| brackets_range as _),
+        );
         let cbs = PxuiAreaCallbacks {
             size: core::mem::size_of::<PxuiAreaCallbacks>() as u32, reserved: 0, user: &mut ctx as *mut Area as *mut c_void,
             on_context: cb.on_context.is_some().then_some(on_context as extern "C" fn(*mut c_void, f32, f32)),
@@ -335,11 +352,15 @@ impl Ui {
         };
         // linked statically, the library's trusted entry takes the descriptor as Rust values
         #[cfg(feature = "static")]
-        let response = self.text_area_static(label, value, &node, o.name, Some((&desc, &cbs)));
+        let response = self.text_area_static(label, value, &node, o.name, Some((&desc, &cbs, ranges)));
         #[cfg(not(feature = "static"))]
         let response = {
             let (mut out, mut changed, mut submitted, mut response) = (Str::default(), 0, 0, PxuiResponse::EMPTY);
-            check(self, unsafe { lib::pxui_ui_text_area(self.0.as_ptr(), &desc, &node, &cbs, as_str(o.name), &mut out, &mut changed, &mut submitted, &mut response) });
+            check(self, unsafe { if ranges.0.is_none() && ranges.1.is_none() {
+                lib::pxui_ui_text_area(self.0.as_ptr(), &desc, &node, &cbs, as_str(o.name), &mut out, &mut changed, &mut submitted, &mut response)
+            } else {
+                lib::pxui_ui_text_area_ranges(self.0.as_ptr(), &desc, &node, &cbs, ranges.0, ranges.1, as_str(o.name), &mut out, &mut changed, &mut submitted, &mut response)
+            } });
             TextAreaResponse { response: input_response(&response, changed != 0), changed: (changed != 0).then(|| lent_str(out)), submitted: submitted != 0 }
         };
         AREA_BUF.with(|b| {
@@ -356,7 +377,7 @@ impl Ui {
     #[cfg(feature = "static")]
     #[track_caller]
     fn text_area_static(&mut self, label: &str, value: &str, node: &pxui_types::Node, name: &str,
-        opts: Option<(&PxuiTextAreaDesc, &PxuiAreaCallbacks)>,
+        opts: Option<(&PxuiTextAreaDesc, &PxuiAreaCallbacks, (AreaColorRange, AreaBracketsRange))>,
     ) -> TextAreaResponse<'_> {
         let (mut changed, mut submitted, mut response) = (None, false, PxuiResponse::EMPTY);
         check(self, unsafe { pxui_abi_link::trusted::text_area(self.0.as_ptr(), label, value, node, opts, name, &mut changed, &mut submitted, &mut response) });
@@ -458,6 +479,35 @@ mod tests {
         assert_ne!(handles[0].box_key, handles[1].box_key, "one name under two keys is two fields");
         let names: Vec<&str> = ui.a11y_nodes().iter().filter(|n| n.is_role(Role::TextField)).map(|n| ui.a11y_name_of(n)).collect();
         assert_eq!(names, ["Find songs", "Find songs", ""]);
+    }
+
+    #[test]
+    fn range_and_legacy_languages_paint_identical_rows_and_caret_pair() {
+        let text = "(word)\n".repeat(40);
+        let draw = |ranged| {
+            let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+            let ink = crate::Rgba::rgb(160, 40, 70);
+            let colors = |_: &str, out: &mut Vec<_>| out.extend((0..40).map(|i| (7*i, 7*i+6, ink)));
+            let pairs = |_: &str| (0..40).map(|i| (7*i, 7*i+5)).collect();
+            let colors_subset = |_: &str, r: std::ops::Range<usize>, out: &mut Vec<_>| {
+                assert!(r.end-r.start < text.len());
+                out.extend((0..40).filter(|i| 7*i < r.end && 7*i+6 > r.start).map(|i| (7*i, 7*i+6, ink)));
+            };
+            let pairs_subset = |_: &str, r: std::ops::Range<usize>, out: &mut Vec<_>| {
+                assert!(r.len() <= 2);
+                out.extend((0..40).map(|i| (7*i, 7*i+5)).filter(|(a,b)| r.contains(a) || r.contains(b)))
+            };
+            let mut lang = crate::Language::DEFAULT.colorize(&colors).brackets(&pairs);
+            if ranged { lang = lang.colorize_range(&colors_subset).brackets_range(&pairs_subset); }
+            for t in 0..3 {
+                ui.frame(&crate::FrameIn::new(180., 140.).time(t as f64), &mut |ui| {
+                    ui.text_area("area", &text, crate::Node::DEFAULT.w_px(160.).h_px(64.),
+                        &TextArea::DEFAULT.select(140, 140), &AreaCallbacks::DEFAULT.language(lang));
+                }).unwrap();
+            }
+            ui.layers().next().unwrap().instances.to_vec()
+        };
+        assert_eq!(draw(true), draw(false));
     }
 
     /// The five field calls report a `Response` whose `changed` agrees with `changed.is_some()`, name their row only when the style does, and refuse
