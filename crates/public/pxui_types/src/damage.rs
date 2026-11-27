@@ -106,6 +106,7 @@ impl DamageList {
         let mut i = 0;
         while i < self.len as usize {
             let old = self.rects[i];
+            if !touches(old, rect) { i += 1; continue; }
             if contains(old, rect) {
                 return;
             }
@@ -113,36 +114,32 @@ impl DamageList {
                 self.remove(i);
                 continue;
             }
-            if touches(old, rect) {
-                let (extra, joined) = merge_cost(old, rect);
-                if extra <= (area(joined) - extra) * 0.25 {
-                    self.remove(i);
-                    rect = joined;
-                    i = 0;
-                    continue;
-                }
+            let (extra, joined) = merge_cost(old, rect);
+            if extra <= (area(joined) - extra) * 0.25 {
+                self.remove(i);
+                rect = joined;
+                i = 0;
+                continue;
             }
             i += 1;
         }
 
         if self.len as usize == CAPACITY {
-            let mut best = (f32::INFINITY, 0, CAPACITY, rect);
-            for (i, &a) in self.rects().iter().enumerate() {
-                for (j, b) in self
-                    .rects()
-                    .iter()
-                    .copied()
-                    .chain(std::iter::once(rect))
-                    .enumerate()
-                    .skip(i + 1)
-                {
-                    let (extra, joined) = merge_cost(a, b);
-                    if extra < best.0 {
-                        best = (extra, i, j, joined);
-                    }
+            let candidates: [Rect; CAPACITY + 1] = std::array::from_fn(|i| self.rects.get(i).copied().unwrap_or(rect));
+            let edges = candidates.map(|r| (r.x, r.y, r.x + r.w, r.y + r.h, area(r)));
+            let mut best = (f32::INFINITY, 0, CAPACITY);
+            for (i, &(ax, ay, ar, ab, area_a)) in edges[..CAPACITY].iter().enumerate() {
+                for (j, &(bx, by, br, bb, area_b)) in edges.iter().enumerate().skip(i + 1) {
+                    let joined = (ar.max(br) - ax.min(bx)) * (ab.max(bb) - ay.min(by));
+                    let sum = area_a + area_b;
+                    if joined - sum >= best.0 { continue; }
+                    let overlap = (ar.min(br) - ax.max(bx)).max(0.) * (ab.min(bb) - ay.max(by)).max(0.);
+                    let extra = joined - (sum - overlap);
+                    if extra < best.0 { best = (extra, i, j); }
                 }
             }
-            let (_, i, j, joined) = best;
+            let (cost, i, j) = best;
+            let joined = if cost < f32::INFINITY { union(candidates[i], candidates[j]) } else { rect };
             if j < CAPACITY {
                 self.remove(j);
             }
@@ -203,6 +200,93 @@ mod tests {
     use super::*;
 
     const VIEWPORT: Rect = Rect::new(0.0, 0.0, 200.0, 100.0);
+
+    impl DamageList {
+        fn insert_reference(&mut self, mut rect: Rect) {
+            let mut i = 0;
+            while i < self.len as usize {
+                let old = self.rects[i];
+                if contains(old, rect) {
+                    return;
+                }
+                if contains(rect, old) {
+                    self.remove(i);
+                    continue;
+                }
+                if touches(old, rect) {
+                    let (extra, joined) = merge_cost(old, rect);
+                    if extra <= (area(joined) - extra) * 0.25 {
+                        self.remove(i);
+                        rect = joined;
+                        i = 0;
+                        continue;
+                    }
+                }
+                i += 1;
+            }
+
+            if self.len as usize == CAPACITY {
+                let mut best = (f32::INFINITY, 0, CAPACITY, rect);
+                for (i, &a) in self.rects().iter().enumerate() {
+                    for (j, b) in self
+                        .rects()
+                        .iter()
+                        .copied()
+                        .chain(std::iter::once(rect))
+                        .enumerate()
+                        .skip(i + 1)
+                    {
+                        let (extra, joined) = merge_cost(a, b);
+                        if extra < best.0 {
+                            best = (extra, i, j, joined);
+                        }
+                    }
+                }
+                let (_, i, j, joined) = best;
+                if j < CAPACITY {
+                    self.remove(j);
+                }
+                self.remove(i);
+                self.insert_reference(joined);
+                if j == CAPACITY {
+                    return;
+                }
+                // Merging two existing rectangles freed a slot for the incoming one.
+                self.insert_reference(rect);
+                return;
+            }
+
+            self.rects[self.len as usize] = rect;
+            self.len += 1;
+        }
+
+    }
+
+    #[test]
+    fn insertion_preserves_exact_rectangle_order_while_scrolling_and_overflowing() {
+        let mut actual = DamageList::default();
+        let mut reference = actual;
+        let mut insert = |r| {
+            actual.insert(r);
+            reference.insert_reference(r);
+            assert_eq!(actual, reference);
+        };
+        for row in 0..36 {
+            for col in 0..64 {
+                let x = 8.5 * col as f32;
+                let y = 17.0 * row as f32 + (col % 3) as f32;
+                for dx in [0., -8.5] {
+                    insert(Rect::new(x + dx, y, 6.5, 9.0 + (col % 4) as f32));
+                }
+            }
+        }
+        let mut seed = 7u32;
+        for _ in 0..4096 {
+            seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+            insert(Rect::new((seed & 255) as f32 * 7.3, (seed >> 24) as f32 * 3.7,
+                ((seed >> 8) % 97 + 1) as f32, ((seed >> 16) % 59 + 1) as f32));
+        }
+    }
 
     #[test]
     fn damage_list_contains_merges_and_escalates() {
