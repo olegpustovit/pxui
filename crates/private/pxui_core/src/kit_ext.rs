@@ -604,6 +604,15 @@ fn inspector_header_body(this: &mut Ui, key: &str, kind: Option<&str>, badge: Op
                 title,
             );
             let t = t.map(str::to_owned);
+            let field = this.input_box().expect("title field");
+            this.set_role(&field, Role::TextField, st::EDITABLE);
+            this.a11y_name(&field, "Name");
+            let edit = this.take_text_state(&field);
+            let shown = edit.as_deref().or(t.as_deref()).unwrap_or(title);
+            let chars = |at| shown[..shown.floor_char_boundary(at)].chars().count() as u32;
+            let selection = edit.as_ref().map_or((0, 0), |_| (chars(this.edit_anchor), chars(this.edit_caret)));
+            this.a11y_value(&field, shown, selection);
+            this.set_text_state(&field, edit);
             this.leave(saved);
             t
         }
@@ -990,6 +999,7 @@ impl Ui {
         self.set_look(&b, look, state);
         let key_only = compact && !hint.is_empty();
         let pad = if dim || key_only { 4.0 } else { 6.0 };
+        self.set_role(&b, Role::Button, if on { st::CHECKED } else { 0 });
         self.a11y_name(&b, label);
         self.node_mut(&b).inset = Edges { l: 1.0 + pad, ..Edges::default() };
         self.text(&b, if key_only { hint } else { label });
