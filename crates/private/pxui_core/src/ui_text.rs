@@ -1777,7 +1777,7 @@ fn text_area_submit_body(this: &mut Ui, place: Node, o: &TextAreaOpts, label: &s
     let focused = this.focused(&body);
     let gutter = gutter_of(char_w, logical_count(&rows));
     let Rect { x: bx, y: by, w: bw, h: bh } = this.rect(&body);
-    let horizontal0 = this.state(&body, 0) as f32;
+    let horizontal0 = f32::from_bits(this.state(&body, 0) as u32);
     let scroll_pos = this.scroll_position(&body);
     // the byte at a point; `strict` answers only over the row's glyphs
     let point_in = |ui: &mut Ui, strict: bool, text: &str, rows: &Rows, (px, py): (f32, f32)| -> Option<usize> {
@@ -2096,7 +2096,7 @@ fn text_area_submit_body(this: &mut Ui, place: Node, o: &TextAreaOpts, label: &s
             horizontal = x - visible;
         }
     }
-    this.set_state(&body, horizontal as i64);
+    this.set_state(&body, i64::from(horizontal.to_bits()));
     if vertical != this.scroll_offset(&body) {
         this.set_scroll_offset(&body, vertical);
     }

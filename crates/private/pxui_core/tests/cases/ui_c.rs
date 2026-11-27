@@ -572,6 +572,28 @@ fn text_area_typing_hover_allocations() {
     assert_eq!(inside, outside, "hovering the edited row allocated");
 }
 
+fn text_area_keeps_fractional_horizontal_scroll() {
+    let mut ui = new_ui(Some(13));
+    ui.text_mut().set_glyph_cache(false);
+    let text = "a long horizontal line that runs past the edge";
+    let step = |ui: &mut Ui, events| {
+        let mut frame = frame_at(vec![], 1.0, 0.0, events);
+        frame.input.pointer = (64., 12.);
+        host_frame(ui, &frame, &mut |ui| {
+            ui.text_area_submit(Node::DEFAULT.w_px(100.).h_px(48.), &Default::default(), "area", text);
+        });
+    };
+    step(&mut ui, vec![]);
+    let initial = ui.output().draw[0].instances.clone();
+    step(&mut ui, vec![Event::Scrolled((0.123, 0.))]);
+    let scrolled = ui.output().draw[0].instances.clone();
+    assert_ne!(initial, scrolled);
+    let before = ui.text_mut().glyph_walks();
+    step(&mut ui, vec![]);
+    assert_eq!(ui.text_mut().glyph_walks(), before, "the settled row moved again");
+    assert_eq!(ui.output().draw[0].instances, scrolled);
+}
+
 fn text_area_insert_damages_only_the_changed_row() {
     let mut ui = new_ui(Some(13));
     let frame = frame_at(vec![], 1.0, 0.0, vec![]);
@@ -1184,6 +1206,7 @@ pub const CASES: &[(&str, fn())] = &[
     ("reopening_an_empty_edit_clears_the_previous_selection", reopening_an_empty_edit_clears_the_previous_selection),
     ("text_area_row_carets", text_area_row_carets),
     ("text_area_typing_hover_allocations", text_area_typing_hover_allocations),
+    ("text_area_keeps_fractional_horizontal_scroll", text_area_keeps_fractional_horizontal_scroll),
     ("text_area_insert_damages_only_the_changed_row", text_area_insert_damages_only_the_changed_row),
     ("text_area_replays_unchanged_rows", text_area_replays_unchanged_rows),
     ("window_pxui_text_area", window_pxui_text_area),
