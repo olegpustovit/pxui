@@ -6275,6 +6275,19 @@ fn scroll_travel(overscroll: f64, height: f64) -> f64 {
 // ----------------------------------------------------------- painting
 
 
+/// A row at one position in a text area. Instances are captured before the enclosing view's transform.
+#[derive(Default)]
+pub(crate) struct MonoRun {
+    key: Option<((f32, f32), f32, Rect, u16, i64, i64, Rgba)>,
+    evictions: u64,
+    fonts: Option<std::sync::Arc<()>>,
+    text: String,
+    colors: Vec<(usize, usize, Rgba)>,
+    instances: Vec<Instance>,
+    atlas_break: Option<usize>,
+    shelves: pxui_text::Shelves,
+}
+
 /// The painter's handle for one frame. It owns the layers being filled, the glyph atlas and the
 /// layout arrays painters read while painting; `Ui::frame` hands them back afterwards.
 pub struct Paint {
@@ -6776,6 +6789,44 @@ impl Paint {
     pub fn text_spans(&mut self,at:(f32,f32),style:&Style,width:f32,color:Option<Rgba>,text:&str,spans:&[TextSpan])->Option<Metrics> {
         let (key,metrics)=lay_out_spans(&mut self.text,style,width,text,spans)?;
         Some(self.text_laid(at,metrics.baseline,style,color,key,metrics,1.0,!spans.is_empty()))
+    }
+
+    pub(crate) fn retained_mono_run(&mut self, saved: &mut MonoRun, at: (f32, f32), char_w: f32, text: &str, ink: Rgba, colors: &[(usize, usize, Rgba)]) {
+        let key = (at, char_w, self.clip_rect, self.view, self.font_size, self.density, ink);
+        let evictions = self.text.evictions();
+        if saved.key == Some(key) && saved.evictions == evictions && saved.text == text && saved.colors == colors
+            && saved.fonts.as_ref().is_some_and(|f| std::sync::Arc::ptr_eq(f, self.text.font_generation()))
+        {
+            let layer = &mut self.layers[self.layer];
+            if let Some(i) = saved.atlas_break && layer.breaks.last().is_some_and(|b| b.image != crate::draw::ATLAS) {
+                layer.breaks.push(Break { at_instance: (layer.instances.len() + i) as u32, image: crate::draw::ATLAS });
+            }
+            layer.instances.extend_from_slice(&saved.instances);
+            self.text.replay_marks(&saved.shelves);
+            return;
+        }
+        // ponytail: bound retained glyph storage for unwrapped lines. Long rows still paint directly.
+        if text.len() > 1024 {
+            self.text_mono_runs(at, char_w, text, ink, colors);
+            return;
+        }
+        let start = self.layers[self.layer].instances.len();
+        let outer = self.text.marks();
+        let misses = self.text.misses();
+        self.text.set_marks([0; 8]);
+        self.text_mono_runs(at, char_w, text, ink, colors);
+        saved.shelves = self.text.marks();
+        self.text.add_marks(&outer);
+        saved.key = (self.text.misses() == misses && self.text.evictions() == evictions).then_some(key);
+        saved.evictions = evictions;
+        saved.fonts = Some(self.text.font_generation().clone());
+        saved.text.clear();
+        saved.text.push_str(text);
+        saved.colors.clear();
+        saved.colors.extend_from_slice(colors);
+        saved.instances.clear();
+        saved.instances.extend_from_slice(&self.layers[self.layer].instances[start..]);
+        saved.atlas_break = saved.instances.iter().position(|i| i.kind == crate::draw::kind::IMAGE);
     }
 
     /// Kit monospace: one cached layout per codepoint (key bit 62). A warm text-area line paints with

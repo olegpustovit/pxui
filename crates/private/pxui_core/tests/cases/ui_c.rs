@@ -572,6 +572,25 @@ fn text_area_typing_hover_allocations() {
     assert_eq!(inside, outside, "hovering the edited row allocated");
 }
 
+fn text_area_replays_unchanged_rows() {
+    let mut ui = new_ui(Some(13));
+    ui.text_mut().set_glyph_cache(false);
+    let frame = frame_at(vec![], 1.0, 0.0, vec![]);
+    let step = |ui: &mut Ui, text: &str| {
+        let before = ui.text_mut().glyph_walks();
+        host_frame(ui, &frame, &mut |ui| {
+            ui.text_area_submit(Node::DEFAULT.w_px(300.).h_px(96.), &Default::default(), "area", text);
+        });
+        ui.text_mut().glyph_walks() - before
+    };
+    let original = "first\nsecond\nthird";
+    assert!(step(&mut ui, original) > 3);
+    let emitted = ui.output().draw[0].instances.clone();
+    assert_eq!(step(&mut ui, original), 0);
+    assert_eq!(ui.output().draw[0].instances, emitted);
+    assert_eq!(step(&mut ui, "first\nsixth\nthird"), 5);
+}
+
 pub fn window_pxui_text_area() {
     let mut rig = text_area_start(Platform::Apple);
     text_area_1(&mut rig);
@@ -1135,6 +1154,7 @@ pub const CASES: &[(&str, fn())] = &[
     ("reopening_an_empty_edit_clears_the_previous_selection", reopening_an_empty_edit_clears_the_previous_selection),
     ("text_area_row_carets", text_area_row_carets),
     ("text_area_typing_hover_allocations", text_area_typing_hover_allocations),
+    ("text_area_replays_unchanged_rows", text_area_replays_unchanged_rows),
     ("window_pxui_text_area", window_pxui_text_area),
     ("window_pxui_text_area_windows", window_pxui_text_area_windows),
     ("window_pxui_modal_1", window_pxui_modal_1),

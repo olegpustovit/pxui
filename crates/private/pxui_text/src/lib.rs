@@ -1648,6 +1648,21 @@ impl Text {
         }
     }
 
+    /// Protect atlas texels replayed into this frame without walking their glyph layouts.
+    pub fn replay_marks(&mut self, shelves: &Shelves) {
+        self.add_marks(shelves);
+        for (page, atlas) in self.g.atlases.iter_mut().enumerate() {
+            for (i, shelf) in atlas.shelves.iter_mut().enumerate() {
+                let bit = (i * 4 + page) % 512;
+                if shelves[bit / 64] & (1 << (bit % 64)) != 0 {
+                    shelf.used = self.g.frame;
+                }
+            }
+        }
+    }
+
+    pub fn font_generation(&self) -> &Arc<()> { &self.font_generation }
+
     /// The shelves output shown without being emitted again samples (kept views): the atlas does not
     /// rewrite them (it retires one instead when nothing else has room). Empty by default: every
     /// frame emits all it shows.

@@ -1004,9 +1004,12 @@ type Rows = Rc<Vec<(usize, usize, usize)>>;
 type Notes = Vec<(usize, Option<(i64, i64)>, String)>;
 type AreaMessage = (i64, Option<(i64, i64)>, String);
 
+type PaintedRows = Rc<std::cell::RefCell<Vec<[MonoRun; 2]>>>;
+
 /// What one text area keeps between frames so a warm frame with the same data copies nothing: the data as shared lists, and the note rows for
 /// the last text rows. Bounded: `AREA_CACHE` areas, the oldest slot replaced.
 pub(crate) struct AreaCacheEntry {
+    painted: PaintedRows,
     key: i64,
     messages: Rc<Vec<AreaMessage>>,
     chips: Rc<Vec<(i64, i64, Rgba)>>,
@@ -1030,7 +1033,7 @@ impl Ui {
         let at = match self.area_cache.iter().position(|e| e.key == key) {
             Some(at) => at,
             None => {
-                let fresh = AreaCacheEntry { key, messages: Rc::default(), chips: Rc::default(), spans: Rc::default(), errors: Rc::default(), rows: None, notes: Rc::default() };
+                let fresh = AreaCacheEntry { painted: Rc::default(), key, messages: Rc::default(), chips: Rc::default(), spans: Rc::default(), errors: Rc::default(), rows: None, notes: Rc::default() };
                 if self.area_cache.len() < AREA_CACHE { self.area_cache.push(fresh); self.area_cache.len() - 1 } else { let at = key.unsigned_abs() as usize % AREA_CACHE; self.area_cache[at] = fresh; at }
             }
         };
@@ -1419,6 +1422,7 @@ impl Ui {
 }
 
 struct AreaPaint {
+    painted: PaintedRows,
     colors: Option<Rc<Vec<(i64, i64, Rgba)>>>,
     composition: String,
     messages: Rc<Vec<AreaMessage>>,
@@ -1499,8 +1503,18 @@ impl AreaPaint {
         // the colours are sorted and the rows come in order: one walk of them, whatever the rows
         let mut colors_ahead = 0usize;
         let colors: &[(i64, i64, Rgba)] = self.colors.as_deref().map_or(&[], |colors| colors.as_slice());
+        let mut saved = self.painted.borrow_mut();
+        let visible = (last + 1 - first).clamp(0, 128) as usize;
+        if saved.len() < visible { saved.resize_with(visible, Default::default); }
         let mut line = first;
         while line <= last {
+            let mut draw_run = |paint: &mut Paint, part: usize, at, char_w, text: &str, ink, runs: &[_]| {
+                if let Some(row) = saved.get_mut((line - first) as usize) {
+                    paint.retained_mono_run(&mut row[part], at, char_w, text, ink, runs);
+                } else {
+                    paint.text_mono_runs(at, char_w, text, ink, runs);
+                }
+            };
             let lu = line as usize;
             let y = by - offset + pad + slot_of(&self.notes, lu) as f32 * row;
             let text_y = y + 0.max((paint.font_size + (paint.font_size + 1) / 2 - paint.font_size) / 2) as f32;
@@ -1532,7 +1546,7 @@ impl AreaPaint {
                 };
                 let saved_size = paint.font_size;
                 paint.font_size = small;
-                paint.text_mono_runs((number_x, text_y + 1.0), digit_w, number, ink, &[]);
+                draw_run(paint, 0, (number_x, text_y + 1.0), digit_w, number, ink, &[]);
                 paint.font_size = saved_size;
             }
             clip(paint, bx + gutter, bw - gutter);
@@ -1604,7 +1618,7 @@ impl AreaPaint {
                 paint.text_mono_runs((caret_x + cw, text_y), char_w, &line_str[before.len()..], theme.foreground, &[]);
             } else if colors.is_empty() {
                 // Kit face is monospace: cached per-codepoint glyphs (no cosmic reshape per key).
-                paint.text_mono_runs((text_x, text_y), char_w, line_str, theme.foreground, &[]);
+                draw_run(paint, 1, (text_x, text_y), char_w, line_str, theme.foreground, &[]);
             } else {
                 while colors_ahead < colors.len() && (colors[colors_ahead].1 as usize) <= ls {
                     colors_ahead += 1;
@@ -1624,7 +1638,7 @@ impl AreaPaint {
                         }
                         k += 1;
                     }
-                    paint.text_mono_runs((text_x, text_y), char_w, line_str, theme.foreground, &runs);
+                    draw_run(paint, 1, (text_x, text_y), char_w, line_str, theme.foreground, &runs);
                 });
             }
             line += 1;
@@ -2184,6 +2198,7 @@ fn text_area_submit_body(this: &mut Ui, place: Node, o: &TextAreaOpts, label: &s
     // the text area's painting: gutter, selection, runs, diagnostics, caret
     let data = this.area_data(area_key, o);
     let painted = AreaPaint {
+        painted: this.area_entry(area_key).painted.clone(),
         colors,
         composition,
         messages: data.messages,
