@@ -1772,11 +1772,22 @@ fn text_area_submit_body(this: &mut Ui, place: Node, o: &TextAreaOpts, label: &s
         let line = row_at_slot(&notes, count, ((py - by + scroll_pos - pad) / row).floor() as i64);
         let x = px - bx - gutter + horizontal0;
         let line_text = row_text(text, rows, line);
-        if strict && (x < 0.0 || x > ui.text_width(None, line_text) || py < by || py > by + bh) {
-            None
+        if strict && (x < 0.0 || py < by || py > by + bh) { return None; }
+        let width = char_w * line_text.len() as f32;
+        // With the bundled face each printable ASCII byte occupies one painted cell,
+        // including contextual operator glyphs. Keep half-cell boundaries exact in f32.
+        let (width, caret) = if ui.text_mut().kit_ascii_cells() && char_w > 0.0 && width < (1 << 22) as f32
+            && line_text.bytes().all(|b| (b' '..=b'~').contains(&b)) {
+            let cell = ((x / char_w) as usize).min(line_text.len());
+            let right_half = x >= cell as f32 * char_w + char_w * 0.5;
+            (width, (cell + usize::from(right_half)).min(line_text.len()))
         } else {
-            Some(start_of(rows, line) + ui.text_caret_at(None, line_text, 0.0f32.max(x)))
-        }
+            let style = kit_style(ui.font_px(), 0.0);
+            let t = ui.text_mut();
+            let (key, metrics) = lay_out(t, &style, 0.0, line_text);
+            (metrics.w, t.hit(key, x.max(0.0), metrics.h / 2.0).min(line_text.len()))
+        };
+        if strict && x > width { None } else { Some(start_of(rows, line) + caret) }
     };
     // a number is dragged by its underline: the lowest 9 points of its row, so a drag that
     // selects text from a number does not rewrite it

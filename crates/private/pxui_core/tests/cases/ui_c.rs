@@ -502,6 +502,76 @@ pub fn text_area_5(rig: &mut Rig) {
     }
 }
 
+fn text_area_row_carets() {
+    let row = "if (x != 42) -> ffi  ";
+    for (face, text) in [
+        (pxui_text::PRAGMASEVKA, row),
+        (pxui_text::PRAGMASEVKA, "W界e\u{301} אב\tMi"),
+        (&include_bytes!("../../../../../assets/fonts/Inter-Regular.ttf")[..], "Wi fi AV  "),
+    ] {
+        let mut ui = Ui::create(Platform::Apple, Some(13.0), pxui_text::Text::new(&[face]));
+        let style = kit_style(13, 0.0);
+        let key = pxui_text::content_key(&style, 0.0, text, &[]);
+        let metrics = ui.text_mut().layout(key, text, &style, 0.0);
+        let hit = Rc::new(Cell::new(None));
+        let mut language = plain_language();
+        let observed = hit.clone();
+        language.describe = Rc::new(move |_, byte, _| { observed.set(Some(byte)); None });
+        let opts = TextAreaOpts { language: Some(language), ..Default::default() };
+        let mut frame = frame_at(vec![], 1.0, 0.0, vec![]);
+        for quarter in -1..=(metrics.w * 4.0).ceil() as i32 + 1 {
+            let x = quarter as f32 * 0.25;
+            let expected = (0.0..=metrics.w).contains(&x)
+                .then(|| ui.text_mut().hit(key, x, metrics.h / 2.0) as i64);
+            frame.input.pointer = (36.0 + f64::from(x), 10.0);
+            frame.input.events.clear();
+            frame.input.events.push(Event::PointerMoved(frame.input.pointer));
+            hit.set(None);
+            host_frame(&mut ui, &frame, &mut |ui| {
+                ui.text_area_submit(Node::DEFAULT.at(0.0, 0.0).w_px(300.0).h_px(96.0), &opts, "area", text);
+            });
+            assert_eq!(hit.get(), expected, "row {text:?} at {x} (width {})", metrics.w);
+        }
+    }
+}
+
+fn text_area_typing_hover_allocations() {
+    let measure = |hover| {
+        let mut ui = Ui::create(Platform::Apple, Some(13.0), pxui_text::Text::new(&[pxui_text::PRAGMASEVKA]));
+        let mut text = String::from("(+ value 12)");
+        let described = Rc::new(Cell::new(false));
+        let observed = described.clone();
+        let mut language = plain_language();
+        language.describe = Rc::new(move |_, _, _| { observed.set(true); None });
+        let mut opts = TextAreaOpts { language: Some(language), select: Some((3, 3)), ..Default::default() };
+        let mut frame = frame_at(vec![], 1.0, 0.0, vec![]);
+        frame.input.pointer = if hover { (60.0, 10.0) } else { (310.0, 110.0) };
+        let mut count = 0;
+        for tick in 0..24 {
+            if tick == 1 {
+                opts.select = None;
+                frame.input.events.push(Event::PointerMoved(frame.input.pointer));
+                frame.input.events.push(Event::TextInput("x".into()));
+            }
+            described.set(false);
+            let before = mem_sys::local_alloc_count();
+            host_frame(&mut ui, &frame, &mut |ui| {
+                let (new, _) = ui.text_area_submit(Node::DEFAULT.at(0.0, 0.0).w_px(300.0).h_px(96.0), &opts, "area", &text);
+                if let Some(new) = new { text.clear(); text.push_str(new); }
+            });
+            if tick >= 12 {
+                count += mem_sys::local_alloc_count() - before;
+                assert_eq!(described.get(), hover);
+            }
+        }
+        assert_eq!(text.len(), "(+ value 12)".len() + 23);
+        count
+    };
+    let outside = measure(false);
+    let inside = measure(true);
+    assert_eq!(inside, outside, "hovering the edited row allocated");
+}
+
 pub fn window_pxui_text_area() {
     let mut rig = text_area_start(Platform::Apple);
     text_area_1(&mut rig);
@@ -1063,6 +1133,8 @@ pub const CASES: &[(&str, fn())] = &[
     ("text_edit_external_change_keeps_selection_and_history", text_edit_external_change_keeps_selection_and_history),
     ("text_edit_typing_runs_break_on_pause_and_navigation", text_edit_typing_runs_break_on_pause_and_navigation),
     ("reopening_an_empty_edit_clears_the_previous_selection", reopening_an_empty_edit_clears_the_previous_selection),
+    ("text_area_row_carets", text_area_row_carets),
+    ("text_area_typing_hover_allocations", text_area_typing_hover_allocations),
     ("window_pxui_text_area", window_pxui_text_area),
     ("window_pxui_text_area_windows", window_pxui_text_area_windows),
     ("window_pxui_modal_1", window_pxui_modal_1),

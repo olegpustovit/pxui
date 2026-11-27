@@ -845,6 +845,7 @@ pub struct Text {
     g: Glyphs,
     system:Option<Box<system::SystemFonts>>,
     names: Vec<String>,
+    kit_ascii_cells: bool,
     /// bytes of the fonts `add_font` accepted, against `MAX_FONT_TOTAL_BYTES`
     font_bytes: usize,
     /// estimated bytes of the retained layouts (`layout_cost` of each text), against `LAYOUT_BYTES`
@@ -922,6 +923,7 @@ impl Text {
                 pinned: [0; 8],
             },
             names: Vec::new(),
+            kit_ascii_cells: false,
             font_bytes: 0,
             layout_bytes: 0,
             system:None,
@@ -990,12 +992,20 @@ impl Text {
             return None;
         };
         let name = ids.first().and_then(|id| self.g.fs.db().face(*id)).and_then(|f| f.families.first()).map(|f| f.0.clone()).unwrap_or_default();
+        if self.names.is_empty() {
+            self.kit_ascii_cells = bytes == PRAGMASEVKA;
+        } else if self.names[0] == name && bytes != PRAGMASEVKA {
+            self.kit_ascii_cells = false;
+        }
         self.names.push(name);
         self.font_metrics.push(metrics);
         self.font_bytes += bytes.len();
         self.font_generation=Arc::new(());
         Some(self.names.len() - 1)
     }
+
+    /// Whether the kit face has Pragmasevka's exact half-em advances and caret stops for printable ASCII.
+    pub fn kit_ascii_cells(&self) -> bool { self.kit_ascii_cells }
 
     /// How many fonts `add_font` has accepted.
     pub fn font_count(&self) -> usize { self.names.len() }
