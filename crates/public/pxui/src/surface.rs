@@ -1412,19 +1412,21 @@ fn inspector_header_lends_the_title_without_allocating_on_warm_frames() {
 #[test]
 fn inspector_header_lends_an_accepted_rename() {
     use crate::{Event, KeyCode, Str, testing};
-    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
-    let valid: std::rc::Rc<dyn Fn(&str) -> bool> = std::rc::Rc::new(|title| title == "Renamed");
-    let changed = std::cell::Cell::new(false);
-    let mut build = |ui: &mut Ui| {
-        let head = crate::ext::inspector_header(ui, "rename", None, None, None, Some(valid.clone()), &[], None, false, "Title", "");
-        changed.set(changed.get() || head.renamed == "Renamed");
-    };
-    testing::frame(&mut ui, &[], &mut build);
-    testing::click(&mut ui, 20.0, 20.0, &mut build);
-    let input = { let mut record = Event::default(); record.kind = Event::TEXT_INPUT; record.text = Str::from("Renamed"); record };
-    testing::frame(&mut ui, &[input], &mut build);
-    testing::key(&mut ui, KeyCode::Enter, &mut build);
-    assert!(changed.get(), "the borrowed response contains the committed title");
+    for clicks in [1, 2] {
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+        let valid: std::rc::Rc<dyn Fn(&str) -> bool> = std::rc::Rc::new(|title| title == "Renamed");
+        let changed = std::cell::Cell::new(false);
+        let mut build = |ui: &mut Ui| {
+            let head = crate::ext::inspector_header(ui, "rename", None, None, None, Some(valid.clone()), &[], None, false, "Title", "");
+            changed.set(changed.get() || head.renamed == "Renamed");
+        };
+        testing::frame(&mut ui, &[], &mut build);
+        for _ in 0..clicks { testing::click(&mut ui, 20.0, 20.0, &mut build); }
+        let input = { let mut record = Event::default(); record.kind = Event::TEXT_INPUT; record.text = Str::from("Renamed"); record };
+        testing::frame(&mut ui, &[input], &mut build);
+        testing::key(&mut ui, KeyCode::Enter, &mut build);
+        assert!(changed.get(), "the borrowed response contains the committed title");
+    }
 }
 
 #[test]

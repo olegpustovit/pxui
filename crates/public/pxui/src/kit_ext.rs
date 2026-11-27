@@ -423,7 +423,7 @@ pub fn inspector_bar(ui: &mut Ui, hints: &[(&str, &str)], count: i64) {
 pub fn inspector_body(ui: &mut Ui, mut f: &mut dyn FnMut(&mut Ui)) {
     check(ui, unsafe { lib::pxui_ui_inspector_body(ui.0.as_ptr(), Some(call), &mut f as *mut _ as *mut c_void) })
 }
-/// Builds the inspector header and reports its title and any button press.
+/// Builds a single 32-point inspector header row and reports its title and any button press.
 ///
 /// The title is borrowed from `ui`. Copy it if it must outlive the next mutable UI call.
 /// Allocates: if retained storage must grow or a rename is being edited. An unchanged warm header does not allocate.

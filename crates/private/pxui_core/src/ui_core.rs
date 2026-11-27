@@ -1540,7 +1540,6 @@ pub struct Ui {
     tooltip_lines: Vec<core::ops::Range<usize>>,
     pub(crate) tooltip_wait_key: String,
     pub(crate) tooltip_description: String,
-    pub(crate) inspector_chip: String,
     trace_frame_reasons: AtomicBool,
     frame_reasons: PxuiFrameReasons,
     /// last, and `repr(C)` to keep it so: the 57 KB theme inline anywhere earlier puts every hot field past one aarch64
@@ -1837,7 +1836,6 @@ impl Ui {
             tooltip_lines: Vec::new(),
             tooltip_wait_key: String::new(),
             tooltip_description: String::new(),
-            inspector_chip: String::new(),
         }
     }
 

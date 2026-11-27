@@ -138,6 +138,14 @@ fn gpu_parity_overlays() {
     parity("overlays", "kit_overlays_2x.png", 300, overlays);
 }
 
+fn gpu_parity_inspector_header() {
+    parity("inspector header", "kit_inspector_header_2x.png", 32, |ui| {
+        let actions = [HeadAction { caption: "View".into(), keycap: "V".into(), active: true, usable: true }];
+        ui.inspector_header("head", Some("sop/box"), None, None, None, &actions, Some("Reset"), true,
+            "Box", "8 pts · 6 prims");
+    });
+}
+
 fn gpu_parity_table() {
     parity("table", "kit_table_2x.png", 300, table);
 }
@@ -523,6 +531,7 @@ pub const CASES: &[(&str, fn())] = &[
     ("glyph_lists_match_walks", glyph_lists_match_walks),
     ("gpu_parity_draw_calls", gpu_parity_draw_calls),
     ("gpu_parity_overlays", gpu_parity_overlays),
+    ("gpu_parity_inspector_header", gpu_parity_inspector_header),
     ("gpu_parity_table", gpu_parity_table),
     ("gpu_parity_panel", gpu_parity_panel),
     ("gpu_parity_dusk", gpu_parity_dusk),

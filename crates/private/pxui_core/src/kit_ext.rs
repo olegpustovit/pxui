@@ -10,7 +10,6 @@ use crate::ui_kit::*;
 use crate::ui_text::*;
 use crate::bodies::{body_of, in_body, in_item, in_place, InspectorRowConfig, SectionConfig, PickerRowConfig, LineFieldConfig, PickerFieldConfig, ValueFieldConfig};
 use crate::a11y::state as st;
-use crate::theme;
 use input::{Event, Key, MouseButton};
 use crate::geom::Rgba;
 use std::rc::Rc;
@@ -561,34 +560,26 @@ pub(crate) fn default_value_field(this: &mut Ui, c: &ValueFieldConfig, o: &Value
 }
 
 fn inspector_header_body(this: &mut Ui, key: &str, kind: Option<&str>, badge: Option<&str>, index: Option<&str>, rename: Option<Rc<dyn Fn(&str) -> bool>>, actions: &[HeadAction], reset: Option<&str>, reset_enabled: bool, title: &str, detail: &str) -> (Option<String>, Option<i64>, bool) {
-    let win = this.kit_window_flag();
     let font_size = this.font_px();
-    // a window's head (windows.html): the 20-point title and one detail line, 8 above, no
-    // chips, buttons or hairline
-    let display_size = font_size * (if win { theme::TITLE_SIZE } else { theme::DISPLAY_SIZE }) / theme::FONT_SIZE;
     let small = 8.max(font_size - 2);
-    let line = this.row_px() as f32;
-    let title_h = if win { this.row_px() as f32 } else { (display_size + 8) as f32 };
-    let width = this.inspector_width();
-    let chips = !win && (kind.is_some() || badge.is_some() || index.is_some());
-    let actions = if win { &[] } else { actions };
-    let reset = if win { None } else { reset };
-    let buttons = !actions.is_empty() || reset.is_some();
-    let text_x = if win { 12.0 } else { 8.0 };
-    let y_title = if win { 8.0 } else if chips { 12.0 + line + 4.0 } else { 12.0 };
-    let y_detail = y_title + title_h + if win { 0.0 } else { 4.0 };
-    let y_buttons = y_detail + line + 8.0;
-    let height = if win {
-        y_detail + line
-    } else {
-        (if buttons { y_buttons + 20.0 } else { y_detail + line }) + 8.0 + 1.0
+    let header = this.box_(key, BoxOpts::default().flags(Flags::CLIP).w(Size::Grow).h(Size::Px(32.0)));
+    let width = this.width_of(&header);
+    let action_width = |ui: &mut Ui, a: &HeadAction, compact: bool| {
+        if compact && !a.keycap.is_empty() { return 10.0 + ui.text_width(None, &a.keycap); }
+        14.0 + ui.text_width(None, &a.caption)
+            + if a.keycap.is_empty() { 0.0 } else { 6.0 + ui.text_width(Some(small), &a.keycap) }
     };
-    let header = this.box_(key, BoxOpts::default().flags(Flags::CLIP).w(Size::Grow).h(Size::Px(height)));
-    let renaming = rename.is_some();
+    let reset_space = reset.map_or(0.0, |label| 14.0 + this.text_width(None, label));
+    let mut room = |compact| width - 4.0 - reset_space - actions.iter().map(|a| action_width(this, a, compact) + 4.0).sum::<f32>();
+    let full = room(false);
+    let compact = full < 48.0;
+    let action_x = if compact { room(true) } else { full };
+    let text_x = 18.0;
+    let title_w = (this.text_width(Some(font_size), title) + 4.0).max(20.0).min((action_x - text_x - 4.0).max(0.0));
     let renamed = match &rename {
-        Some(valid) => {
+        Some(valid) if title_w > 0.0 => {
             let saved = this.enter(&header);
-            let o = ValueFieldOpts { size: Some(display_size), left: true, bare: true, tracking: Some(-0.01 * display_size as f32), ..ValueFieldOpts::default() };
+            let o = ValueFieldOpts { size: Some(font_size), left: true, bare: true, ..ValueFieldOpts::default() };
             let name_key = key.as_bytes();
             let mut bytes = [0; 256 + 5];
             let overflow;
@@ -602,9 +593,9 @@ fn inspector_header_body(this: &mut Ui, key: &str, kind: Option<&str>, badge: Op
                 &overflow
             };
             let (t, _) = this.value_field(
-                (text_x - 2.0, if win { y_title - 1.0 } else { y_title - 2.0 }),
-                width - 2.0 * (text_x - 2.0),
-                title_h,
+                (text_x - 2.0, 6.0),
+                title_w,
+                20.0,
                 &o,
                 &**valid,
                 None,
@@ -616,81 +607,43 @@ fn inspector_header_body(this: &mut Ui, key: &str, kind: Option<&str>, badge: Op
             this.leave(saved);
             t
         }
-        None => None,
+        _ => None,
     };
-    // the buttons: a box each, in a row from 8 with 4 between; `reset` is bare at the right
-    let mut pressed: Option<i64> = None;
-    let mut place = 8.0;
+    let mut pressed = None;
+    let mut place = action_x;
     for (i, a) in actions.iter().enumerate() {
-        let w = 14.0 + mono_width(0.0, font_size, &a.caption) + if a.keycap.is_empty() { 0.0 } else { 6.0 + mono_width(0.0, small, &a.keycap) };
-        this.head_button(&header, key, i as i64, &a.caption, &a.keycap, a.active, false, a.usable, place, w, 6.0, y_buttons, &mut pressed);
+        let w = action_width(this, a, compact);
+        this.head_button(&header, key, i as i64, &a.caption, &a.keycap, a.active, false, a.usable, place, w, compact, &mut pressed);
         place += w + 4.0;
     }
-    let mut reset_pressed = false;
     if let Some(label) = reset {
-        let w = 10.0 + mono_width(0.0, font_size, label);
-        let before = pressed;
-        this.head_button(&header, key, -1, label, "", false, true, reset_enabled, width - 8.0 - w, w, 4.0, y_buttons, &mut pressed);
-        if pressed != before {
-            pressed = before;
-            reset_pressed = true;
-        }
+        this.head_button(&header, key, -1, label, "", false, true, reset_enabled, place, reset_space - 4.0, false, &mut pressed);
     }
+    let reset_pressed = pressed == Some(-1);
+    let pressed = pressed.filter(|i| *i >= 0);
     let t = this.theme();
-    let (rule, label_look, badge_look, index_look, title_look, hint) = (t.header.idle, t.label.idle, t.badge.idle, t.index.idle, t.title.idle, t.hint.idle);
-    if !win {
-        this.set_look(&header, rule, State::default());
-    }
+    let kind_look = t.key.idle;
+    let (rule, title_look, hint, badge_look, index_look) = (t.header.idle, t.title.idle, t.hint.idle, t.badge.idle, t.index.idle);
+    this.set_look(&header, rule, State::default());
     let saved = this.enter(&header);
     let k = |n: i64| int_key(header.box_key, 100 + n);
-    if chips {
-        let at = 12.0 + text_top_for(font_size, Some(small), 0.0, line);
-        let mut cx = 8.0;
-        // the kind gives way when the index and badge need the room
-        let w = width;
-        let per = small as f32 / 2.0 + 0.08 * small as f32;
-        let taken = index.map(|t| mono_width(0.0, small, t) + 6.0).unwrap_or(0.0) + badge.map(|t| mono_width(0.08 * small as f32, small, t) + 6.0).unwrap_or(0.0);
-        if let Some(text) = kind {
-            let room = ((w - 16.0 - taken) / per) as i64;
-            let mut chip = std::mem::take(&mut this.inspector_chip);
-            let text = if text.len() as i64 <= room {
-                text
-            } else if room <= 1 {
-                ""
-            } else {
-                chip.clear();
-                chip.push_str(&text[..text.floor_char_boundary((room - 1) as usize)]);
-                chip.push('.');
-                &chip
-            };
-            let tw = this.cap_width(text);
-            this.text_part(k(0), (cx, at), tw, label_look, text);
-            // the glyphs run a little wider than the design's metrics: never closer than 6
-            cx += mono_width(0.08 * small as f32, small, text).max(tw) + 6.0;
-            this.inspector_chip = chip;
+    this.placed(k(5), (6.0, 13.0), Size::Px(6.0), 6.0, Look { fill: title_look.text, ..Look::NONE }, Edges::ZERO, "");
+    let mut x = text_x;
+    for (id, text, look, size) in [
+        (3, Some(title), title_look, font_size), (0, kind, kind_look, small), (4, Some(detail), hint, small),
+        (1, badge, badge_look, small), (2, index, index_look, small),
+    ] {
+        let Some(text) = text.filter(|s| !s.is_empty()) else { continue; };
+        let room = action_x - x - 4.0;
+        if room <= 0.0 { break; }
+        let w = if id == 3 { title_w } else { (this.text_width(Some(size), text) + 1.0).min(room) };
+        if id != 3 || rename.is_none() {
+            let look = Look { font: Font { size, ..look.font }, ..look };
+            let part = this.node_keyed(k(id), Node { flags: Flags::FIT_TEXT, w: Size::Px(w), h: Size::Px(32.0), at: Some((x, 0.0)).into(), look, ..Node::DEFAULT });
+            this.text(&part, text);
         }
-        if let Some(text) = badge {
-            let tw = this.cap_width(text);
-            this.text_part(k(1), (cx, at), tw, badge_look, text);
-        }
-        // the sheet's 0.04em tracking follows every letter, the last too, so it ends 8 from the edge
-        if let Some(text) = index {
-            let tracking = 0.04 * small as f32;
-            let count = text.bytes().filter(|b| b & 0xc0 != 0x80).count();
-            let tw = this.text_width(Some(small), text);
-            this.end_row(&header, 0.0);
-            this.flow_part(k(2), tw, small as f32, Edges { t: at, r: 8.0 + tracking * count as f32, ..Edges::ZERO }, index_look, text);
-        }
+        x += w + 4.0;
     }
-    if !renaming {
-        let dy = if win { text_top_for(font_size, Some(display_size), 0.0, title_h) } else { 2.0 };
-        let look = Look { font: Font { size: display_size, ..title_look.font }, ..title_look };
-        let n = this.node_keyed(k(3), Node { flags: Flags::FIT_TEXT, h: Size::Px(display_size as f32), at: Some((0.0, y_title + dy)).into(), look, inset: Edges { l: text_x, r: text_x, ..Edges::default() }, ..Node::DEFAULT });
-        this.text(&n, title);
-    }
-    let ty = text_top_for(font_size, None, 0.0, line);
-    let n = this.node_keyed(k(4), Node { flags: Flags::FIT_TEXT, h: Size::Px(font_size as f32), at: Some((0.0, y_detail + ty)).into(), look: hint, inset: Edges { l: text_x, r: text_x, ..Edges::default() }, ..Node::DEFAULT });
-    this.text(&n, detail);
     this.leave(saved);
     (renamed, pressed, reset_pressed)
 }
@@ -984,11 +937,8 @@ impl Ui {
         ok && self.patch_text(&value, text)
     }
 
-    /// The head block of a panel, from the kit's inspector sheet: 12 above, a chips row (the kind
-    /// in ink-2, a badge in the accent, an index at the right in ink-3), the name at the display
-    /// size (edited in place when `rename` says which names are valid), one detail line in ink-2, a
-    /// row of text buttons with their keys and a trailing `reset` button, 8 below and a line-2
-    /// hairline.
+    /// A 32-point inspector row with an optionally editable title and trailing actions. Detail and kind
+    /// give up width before the title. Buttons with keycaps can use the key alone in a narrow panel.
     #[allow(clippy::too_many_arguments)]
     pub fn inspector_header(
         &mut self,
@@ -1019,14 +969,13 @@ impl Ui {
         enabled: bool,
         x: f32,
         w: f32,
-        pad: f32,
-        y_buttons: f32,
+        compact: bool,
         pressed: &mut Option<i64>,
     ) {
         let saved = self.enter(header);
         let b = self.box_fmt(
             format_args!("{key}-button-{index}"),
-            BoxOpts::default().flags(if enabled { Flags::CLICKABLE | Flags::TAB_STOP } else { Flags::NONE }).at((x, y_buttons)).w(Size::Px(w)).h(Size::Px(self.control_h())),
+            BoxOpts::default().flags(if enabled { Flags::CLICKABLE | Flags::TAB_STOP } else { Flags::NONE }).at((x, (32.0 - self.control_h()) / 2.0)).w(Size::Px(w)).h(Size::Px(self.control_h())),
         );
         let signal = self.signal_owned(&b);
         if enabled && signal.clicked {
@@ -1039,12 +988,15 @@ impl Ui {
         // a button that cannot be pressed keeps the fill it is on with
         let look = if !enabled && on { Look { text: states.disabled.text, ..states.checked } } else { *states.pick(state) };
         self.set_look(&b, look, state);
+        let key_only = compact && !hint.is_empty();
+        let pad = if dim || key_only { 4.0 } else { 6.0 };
+        self.a11y_name(&b, label);
         self.node_mut(&b).inset = Edges { l: 1.0 + pad, ..Edges::default() };
-        self.text(&b, label);
-        if !hint.is_empty() {
+        self.text(&b, if key_only { hint } else { label });
+        if !key_only && !hint.is_empty() {
             let inner = self.enter(&b);
             let font_size = self.font_px();
-            let at = 1.0 + pad + mono_width(0.0, font_size, label) + 6.0;
+            let at = 1.0 + pad + self.text_width(None, label) + 6.0;
             let hw = self.text_width(Some(crate::ui_core::font_px(&key_look.font, font_size)), hint);
             let n = self.node_keyed(int_key(b.box_key, 0), Node { w: Size::Px(hw.max(1.0)), h: Size::Px(self.control_h()), at: Some((at, 0.0)).into(), look: key_look, ..Node::DEFAULT });
             self.text(&n, hint);
